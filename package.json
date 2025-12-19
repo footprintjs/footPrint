@@ -1,0 +1,105 @@
+{
+  "name": "@amzn/tree-of-functions",
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "repository": "ssh://git.amazon.com/pkg/TreeOfFunctions",
+  "homepage": "https://code.amazon.com/packages/TreeOfFunctions",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest --coverage",
+    "test:watch": "jest --passWithNoTests --watchAll --coverage=false",
+    "release": "concurrently \"npm run format\" \"npm run lint\" \"npm run test\" \"npm run build\"",
+    "release:lite": "npm run build",
+    "lint": "eslint '{src,test}/**/*.ts' --ext .ts",
+    "lint:fix": "eslint '{src,test}/**/*.ts' --ext .ts --fix",
+    "format:fix": "prettier --config .prettierrc.js --write '{src,test}/**/*.ts'",
+    "format": "prettier --config .prettierrc.js --list-different '{src,test}/**/*.ts'"
+  },
+  "jest": {
+    "testMatch": [
+      "**/**.test.ts"
+    ],
+    "transform": {
+      "^.+\\.(ts|tsx)$": [
+        "ts-jest",
+        {
+          "isolatedModules": true,
+          "diagnostics": {
+            "warnOnly": true
+          }
+        }
+      ]
+    },
+    "transformIgnorePatterns": [
+      "[/\\\\]node_modules[/\\\\].+\\.(js|jsx|ts|tsx|json)$",
+      "package.json"
+    ],
+    "coverageReporters": [
+      "cobertura",
+      "text",
+      "text-summary"
+    ],
+    "coverageDirectory": "<rootDir>/build/brazil-unit-tests/",
+    "coverageThreshold": {
+      "global": {
+        "statements": 80,
+        "branches": 77,
+        "functions": 61,
+        "lines": 80
+      }
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "!dist/test",
+    "!dist/types/test"
+  ],
+  "npm-pretty-much": {
+    "appName": "@amzn/tree-of-functions",
+    "publishLibCommonJs": true,
+    "runRelease": "always",
+    "runTest": "never"
+  },
+  "main": "dist/src/index.js",
+  "types": "dist/types/src/index.d.ts",
+  "dependencies": {
+    "lodash.clonedeep": "^4.5.0",
+    "lodash.get": "^4.4.2",
+    "lodash.has": "^4.5.2",
+    "lodash.isempty": "^4.4.0",
+    "lodash.mergewith": "^4.6.2",
+    "lodash.set": "^4.3.2",
+    "zod": "^4.0.16"
+  },
+  "devDependencies": {
+    "@amzn/brazil": "^2.0.6",
+    "@types/jest": "^29.5.2",
+    "@types/lodash.clonedeep": "^4.5.9",
+    "@types/lodash.get": "^4.4.9",
+    "@types/lodash.has": "^4.5.9",
+    "@types/lodash.isempty": "^4.4.9",
+    "@types/lodash.mergewith": "^4.6.9",
+    "@types/lodash.set": "^4.3.9",
+    "@typescript-eslint/eslint-plugin": "^5.61.0",
+    "@typescript-eslint/parser": "^5.61.0",
+    "concurrently": "^8.0.1",
+    "eslint": "^8.44.0",
+    "eslint-config-prettier": "^6.15.0",
+    "eslint-config-standard": "^17.0.0",
+    "eslint-import-resolver-typescript": "^3.5.2",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "eslint-plugin-promise": "^6.1.1",
+    "eslint-plugin-simple-import-sort": "^8.0.0",
+    "fast-check": "^4.4.0",
+    "jest": "^29.5.0",
+    "prettier": "^2.8.1",
+    "ts-jest": "^29.1.0",
+    "typescript": "~5.1.3"
+  }
+}
