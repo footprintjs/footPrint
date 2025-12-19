@@ -1,0 +1,157 @@
+/**
+ * FlowChartExecutor — Public API for executing a compiled FlowChart.
+ *
+ * Wraps FlowchartTraverser. Pairs with FlowChartBuilder:
+ *   const chart = flowChart('entry', entryFn).addFunction('process', processFn).build();
+ *   const executor = new FlowChartExecutor(chart, scopeFactory);
+ *   const result = await executor.run();
+ */
+
+import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser';
+import { ExecutionRuntime } from './ExecutionRuntime';
+import {
+  defaultLogger,
+  type FlowChart,
+  type StageNode,
+  type StreamHandlers,
+  type TraversalResult,
+  type SubflowResult,
+  type ExtractorError,
+  type SerializedPipelineStructure,
+  type ScopeFactory,
+  type RunOptions,
+} from '../engine/types';
+import type { ScopeProtectionMode } from '../scope/protection/types';
+
+export class FlowChartExecutor<TOut = any, TScope = any> {
+  private traverser: FlowchartTraverser<TOut, TScope>;
+  private narrativeEnabled = false;
+
+  private readonly flowChartArgs: {
+    flowChart: FlowChart<TOut, TScope>;
+    scopeFactory: ScopeFactory<TScope>;
+    defaultValuesForContext?: unknown;
+    initialContext?: unknown;
+    readOnlyContext?: unknown;
+    throttlingErrorChecker?: (error: unknown) => boolean;
+    streamHandlers?: StreamHandlers;
+    scopeProtectionMode?: ScopeProtectionMode;
+    enrichSnapshots?: boolean;
+  };
+
+  constructor(
+    flowChart: FlowChart<TOut, TScope>,
+    scopeFactory: ScopeFactory<TScope>,
+    defaultValuesForContext?: unknown,
+    initialContext?: unknown,
+    readOnlyContext?: unknown,
+    throttlingErrorChecker?: (error: unknown) => boolean,
+    streamHandlers?: StreamHandlers,
+    scopeProtectionMode?: ScopeProtectionMode,
+    enrichSnapshots?: boolean,
+  ) {
+    this.flowChartArgs = {
+      flowChart, scopeFactory, defaultValuesForContext, initialContext,
+      readOnlyContext, throttlingErrorChecker, streamHandlers,
+      scopeProtectionMode, enrichSnapshots,
+    };
+    this.traverser = this.createTraverser();
+  }
+
+  private createTraverser(signal?: AbortSignal): FlowchartTraverser<TOut, TScope> {
+    const args = this.flowChartArgs;
+    const fc = args.flowChart;
+    const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
+
+    const runtime = new ExecutionRuntime(
+      fc.root.name, args.defaultValuesForContext, args.initialContext,
+    );
+
+    return new FlowchartTraverser<TOut, TScope>({
+      root: fc.root,
+      stageMap: fc.stageMap,
+      scopeFactory: args.scopeFactory,
+      executionRuntime: runtime,
+      readOnlyContext: args.readOnlyContext,
+      throttlingErrorChecker: args.throttlingErrorChecker,
+      streamHandlers: args.streamHandlers,
+      extractor: fc.extractor,
+      scopeProtectionMode: args.scopeProtectionMode,
+      subflows: fc.subflows,
+      enrichSnapshots: args.enrichSnapshots ?? fc.enrichSnapshots,
+      narrativeEnabled: narrativeFlag,
+      buildTimeStructure: fc.buildTimeStructure,
+      logger: fc.logger ?? defaultLogger,
+      signal,
+    });
+  }
+
+  enableNarrative(): void {
+    this.narrativeEnabled = true;
+  }
+
+  getNarrative(): string[] {
+    return this.traverser.getNarrative();
+  }
+
+  async run(options?: RunOptions): Promise<TraversalResult> {
+    let signal = options?.signal;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    // Create an internal AbortController for timeoutMs
+    if (options?.timeoutMs && !signal) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => controller.abort(new Error(`Execution timed out after ${options.timeoutMs}ms`)), options.timeoutMs);
+    }
+
+    this.traverser = this.createTraverser(signal);
+    try {
+      return await this.traverser.execute();
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+  }
+
+  // ─── Introspection ───
+
+  getSnapshot() {
+    return this.traverser.getSnapshot();
+  }
+
+  getRuntime() {
+    return this.traverser.getRuntime();
+  }
+
+  setRootObject(path: string[], key: string, value: unknown): void {
+    this.traverser.setRootObject(path, key, value);
+  }
+
+  getBranchIds() {
+    return this.traverser.getBranchIds();
+  }
+
+  getRuntimeRoot(): StageNode {
+    return this.traverser.getRuntimeRoot();
+  }
+
+  getRuntimeStructure(): SerializedPipelineStructure | undefined {
+    return this.traverser.getRuntimeStructure();
+  }
+
+  getSubflowResults(): Map<string, SubflowResult> {
+    return this.traverser.getSubflowResults();
+  }
+
+  getExtractedResults<TResult = unknown>(): Map<string, TResult> {
+    return this.traverser.getExtractedResults<TResult>();
+  }
+
+  getEnrichedResults<TResult = unknown>(): Map<string, TResult> {
+    return this.traverser.getExtractedResults<TResult>();
+  }
+
+  getExtractorErrors(): ExtractorError[] {
+    return this.traverser.getExtractorErrors();
+  }
+}
