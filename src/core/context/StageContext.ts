@@ -16,17 +16,17 @@ import { GlobalContext } from './GlobalContext';
 import { treeConsole } from './scopeLog';
 
 export type StageType = {
-  id: string,
-  name?: string,
-  isDecider?: boolean,
-  isFork?: boolean,
-  logs: Record<string, unknown>,
-  errors: Record<string, unknown>,
-  metrics: Record<string, unknown>,
-  evals: Record<string, unknown>,
-  next?: StageType
-  children?: StageType[]
-}
+  id: string;
+  name?: string;
+  isDecider?: boolean;
+  isFork?: boolean;
+  logs: Record<string, unknown>;
+  errors: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  evals: Record<string, unknown>;
+  next?: StageType;
+  children?: StageType[];
+};
 
 export class StageContext {
   /* ------------------------------------------------------------------------

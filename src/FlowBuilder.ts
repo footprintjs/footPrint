@@ -1,9 +1,16 @@
-import { logger } from './core/logger';
-
 import { StageContext } from './core/context/StageContext';
-import {PipelineStageFunction, TreePipeline, StageNode, TreeOfFunctionsResponse, StreamHandlers, StreamTokenHandler, StreamLifecycleHandler} from './core/pipeline';
+import { ContextTreeType } from './core/context/TreePipelineContext';
 import { ScopeFactory } from './core/context/types';
-import {ContextTreeType} from "./core/context/TreePipelineContext";
+import { logger } from './core/logger';
+import {
+  PipelineStageFunction,
+  StageNode,
+  StreamHandlers,
+  StreamLifecycleHandler,
+  StreamTokenHandler,
+  TreeOfFunctionsResponse,
+  TreePipeline,
+} from './core/pipeline';
 
 type ScopeConstructor<TScope> = new (context: StageContext, stageName: string, readOnlyContext?: unknown) => TScope;
 
@@ -52,19 +59,15 @@ export class FlowBuilder<TOut, TScope> {
   /**
    * Adds a streaming function to the pipeline.
    * Creates a stage node with `isStreaming: true` and the specified streamId.
-   * 
+   *
    * @param name - The name of the stage
    * @param streamId - Optional unique identifier for the stream. Defaults to the stage name if not provided.
    * @param fn - Optional stage function. If not provided, must be registered in stageHandlerMap.
    * @returns this for fluent chaining
-   * 
+   *
    * _Requirements: 1.1, 1.2_
    */
-  addStreamingFunction(
-    name: string,
-    streamId?: string,
-    fn?: PipelineStageFunction<TOut, TScope>
-  ): this {
+  addStreamingFunction(name: string, streamId?: string, fn?: PipelineStageFunction<TOut, TScope>): this {
     // Create a streaming stage node
     const streamingNode: StageNode<TOut, TScope> = {
       name,
@@ -91,10 +94,10 @@ export class FlowBuilder<TOut, TScope> {
   /**
    * Registers a handler for stream token events.
    * Called when a streaming stage emits a token.
-   * 
+   *
    * @param handler - Callback function receiving (streamId, token)
    * @returns this for fluent chaining
-   * 
+   *
    * _Requirements: 1.3_
    */
   onStream(handler: StreamTokenHandler): this {
@@ -105,10 +108,10 @@ export class FlowBuilder<TOut, TScope> {
   /**
    * Registers a handler for stream start events.
    * Called when a streaming stage begins execution.
-   * 
+   *
    * @param handler - Callback function receiving (streamId)
    * @returns this for fluent chaining
-   * 
+   *
    * _Requirements: 6.1_
    */
   onStreamStart(handler: StreamLifecycleHandler): this {
@@ -119,10 +122,10 @@ export class FlowBuilder<TOut, TScope> {
   /**
    * Registers a handler for stream end events.
    * Called when a streaming stage completes, with accumulated text.
-   * 
+   *
    * @param handler - Callback function receiving (streamId, fullText)
    * @returns this for fluent chaining
-   * 
+   *
    * _Requirements: 6.2_
    */
   onStreamEnd(handler: StreamLifecycleHandler): this {
@@ -161,7 +164,7 @@ export class FlowBuilder<TOut, TScope> {
       this._scopeFactory,
       this.defaultValuesForContext,
       this._initialContext,
-      this._readOnlyContext,
+      this._readOnlyContext ?? this._initialContext, // Use initialContext as readOnlyContext if not explicitly set
       this._throttlingErrorChecker,
       this._streamHandlers,
     );

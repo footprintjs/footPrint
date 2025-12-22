@@ -1,16 +1,12 @@
-import { z } from "zod";
-import type {
-    StageContextLike,
-    ScopeFactory,
-    StrictMode,
-} from "../../core/types";
+import { z } from 'zod';
 
-import { createScopeProxyFromZod } from "./scopeFactory";
-import { attachBaseStateCompat } from "../../core/baseStateCompatible";
+import { attachBaseStateCompat } from '../../core/baseStateCompatible';
+import type { ScopeFactory, StageContextLike, StrictMode } from '../../core/types';
+import { createScopeProxyFromZod } from './scopeFactory';
 
 export type DefineScopeOptions = {
-    /** Zod validation mode for writes; default "warn" */
-    strict?: StrictMode; // "off" | "warn" | "deny"
+  /** Zod validation mode for writes; default "warn" */
+  strict?: StrictMode; // "off" | "warn" | "deny"
 };
 
 /**
@@ -20,14 +16,14 @@ export type DefineScopeOptions = {
  * - Honors strictness for validation on writes
  */
 export function defineScopeFromZod<S extends z.ZodObject<any>>(
-    schema: S,
-    opts?: DefineScopeOptions
+  schema: S,
+  opts?: DefineScopeOptions,
 ): ScopeFactory<any> {
-    const strict = opts?.strict ?? "warn";
-    return (ctx: StageContextLike, stageName: string, readOnly?: unknown) => {
-        // 1) build the schema-driven proxy
-        const proxy = createScopeProxyFromZod(ctx, schema, strict, readOnly);
-        // 2) attach BaseState-compatible methods directly on the proxy
-        return attachBaseStateCompat(proxy, ctx, stageName, readOnly);
-    };
+  const strict = opts?.strict ?? 'warn';
+  return (ctx: StageContextLike, stageName: string, readOnly?: unknown) => {
+    // 1) build the schema-driven proxy
+    const proxy = createScopeProxyFromZod(ctx, schema, strict, readOnly);
+    // 2) attach BaseState-compatible methods directly on the proxy
+    return attachBaseStateCompat(proxy, ctx, stageName, readOnly);
+  };
 }

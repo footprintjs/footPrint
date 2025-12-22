@@ -1,6 +1,18 @@
+# Dependencies
 /node_modules
+
+# Build outputs
 /build
 /dist
 /coverage
+
+# IDE
+.idea/
 *.iml
+.vscode/
+
+# OS
 .DS_Store
+
+# Kiro
+.kiro/

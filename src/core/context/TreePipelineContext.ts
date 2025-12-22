@@ -1,12 +1,12 @@
-import {CommitBundle, MemoryHistory} from '../stateManagement/MemoryHistory';
+import { CommitBundle, MemoryHistory } from '../stateManagement/MemoryHistory';
 import { GlobalContext } from './GlobalContext';
-import {StageContext, StageType} from './StageContext';
+import { StageContext, StageType } from './StageContext';
 
 export type ContextTreeType = {
-  globalContext: Record<string, unknown>,
-  stageContexts: StageType,
-  history: CommitBundle[],
-}
+  globalContext: Record<string, unknown>;
+  stageContexts: StageType;
+  history: CommitBundle[];
+};
 
 export class TreePipelineContext {
   public globalContext: GlobalContext;

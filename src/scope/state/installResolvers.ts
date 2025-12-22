@@ -3,9 +3,9 @@ import { ZodScopeResolver } from './zod';
 
 let installed = false;
 export function installDefaultResolvers() {
-    if (installed) return;
-    registerScopeResolver(ZodScopeResolver);
-    installed = true;
+  if (installed) return;
+  registerScopeResolver(ZodScopeResolver);
+  installed = true;
 }
 
 installDefaultResolvers();

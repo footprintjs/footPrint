@@ -1,5 +1,4 @@
-import {logger} from '../logger';
-
+import { logger } from '../logger';
 import { StageContext } from './StageContext';
 
 const consoleLog = (

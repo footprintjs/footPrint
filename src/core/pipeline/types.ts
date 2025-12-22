@@ -57,7 +57,7 @@ export interface StreamHandlers {
 export type PipelineStageFunction<TOut, TScope> = (
   scope: TScope,
   breakPipeline: () => void,
-  streamCallback?: StreamCallback
+  streamCallback?: StreamCallback,
 ) => Promise<TOut> | TOut;
 
 export type NodeResultType = {
