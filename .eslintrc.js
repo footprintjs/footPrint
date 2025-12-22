@@ -24,6 +24,15 @@ module.exports = {
       node: true,
     },
   },
+  overrides: [
+    {
+      files: ['test/**/*.ts', '**/*.test.ts'],
+      rules: {
+        '@typescript-eslint/no-empty-function': 'off',
+        '@typescript-eslint/no-explicit-any': 'off',
+      },
+    },
+  ],
   rules: {
     'prettier/prettier': 'error',
     'import/first': 'off',
