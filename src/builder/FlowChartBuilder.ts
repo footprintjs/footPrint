@@ -29,11 +29,38 @@
 
 import type { Selector, StageNode } from '../core/pipeline/Pipeline';
 import { Pipeline } from '../core/pipeline/Pipeline';
-import type { PipelineStageFunction } from '../core/pipeline/types';
+import type { PipelineStageFunction, StreamHandlers, StreamTokenHandler, StreamLifecycleHandler } from '../core/pipeline/types';
 import type { ScopeFactory } from '../scope/core/types';
+
+// Re-export stream types for consumers
+export type { StreamHandlers, StreamTokenHandler, StreamLifecycleHandler };
 
 // Re-export Selector type for consumers
 export type { Selector };
+
+/**
+ * **Pure JSON** Flow Chart spec for FE → BE transport (no functions/closures).
+ * This mirrors the shape of your StageNode without `fn` / `nextNodeDecider`.
+ * (You may add extra metadata flags as you like.)
+ */
+export interface FlowChartSpec {
+  name: string;
+  id?: string;
+  children?: FlowChartSpec[];
+  next?: FlowChartSpec;
+  /** Whether this node has a decider (transport hint; not required for execution) */
+  hasDecider?: boolean;
+  /** Whether this node has a selector (transport hint; not required for execution) */
+  hasSelector?: boolean;
+  /** Optional list of branch ids (transport hint; useful for BE validation/UX) */
+  branchIds?: string[];
+  /** Loop target stage ID for looping back */
+  loopTarget?: string;
+  /** Whether this is a streaming stage */
+  isStreaming?: boolean;
+  /** Stream identifier for streaming stages */
+  streamId?: string;
+}
 
 /* ============================================================================
  * Types exposed for consumers (FE + BE)
@@ -91,24 +118,6 @@ export type ExecOptions = {
   throttlingErrorChecker?: (e: unknown) => boolean;
 };
 
-/**
- * **Pure JSON** Flow Chart spec for FE → BE transport (no functions/closures).
- * This mirrors the shape of your StageNode without `fn` / `nextNodeDecider`.
- * (You may add extra metadata flags as you like.)
- */
-export interface FlowChartSpec {
-  name: string;
-  id?: string;
-  children?: FlowChartSpec[];
-  next?: FlowChartSpec;
-  /** Whether this node has a decider (transport hint; not required for execution) */
-  hasDecider?: boolean;
-  /** Whether this node has a selector (transport hint; not required for execution) */
-  hasSelector?: boolean;
-  /** Optional list of branch ids (transport hint; useful for BE validation/UX) */
-  branchIds?: string[];
-}
-
 /* ============================================================================
  * Internal machinery
  * ========================================================================== */
@@ -127,6 +136,9 @@ class _N<TOut, TScope> {
   children: _N<TOut, TScope>[] = [];
   next?: _N<TOut, TScope>;
   parent?: _N<TOut, TScope>;
+  loopTarget?: string;
+  isStreaming?: boolean;
+  streamId?: string;
 }
 
 /* ============================================================================
@@ -365,6 +377,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _cursor?: _N<TOut, TScope>;
   private _stageMap = new Map<string, PipelineStageFunction<TOut, TScope>>();
 
+  /**
+   * Stream handlers for streaming stages.
+   * Contains callbacks for token emission and lifecycle events (start/end).
+   */
+  private _streamHandlers: StreamHandlers = {};
+
   /* ─────────────────────────── Authoring API ─────────────────────────── */
 
   /** Define the root function of the flow. */
@@ -490,6 +508,99 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  /**
+   * Set a loop target for the current node.
+   * After this node completes (including any children), execution will loop back
+   * to the stage with the specified ID.
+   *
+   * This enables patterns like LLM tool loops:
+   *   builder
+   *     .start('prepareHistory', fn, 'prepareHistory')
+   *     .addFunction('askLLM', askLLMFn)
+   *     .addFunction('toolBranch', toolBranchFn, 'toolBranch')
+   *     .loopTo('prepareHistory')  // After toolBranch, loop back
+   *     .addFunction('prepareResponse', prepareResponseFn);
+   *
+   * For runtime continuation (no start() required):
+   * Auto-creates a virtual cursor if none exists, enabling dynamic stages to use
+   * the same API for defining loop targets without calling start() first.
+   *
+   * @param stageId - The ID of the stage to loop back to (must exist in the tree)
+   */
+  loopTo(stageId: string): this {
+    // Auto-create virtual cursor for runtime continuation (no start() required)
+    const cur = this._getOrCreateCursor();
+    if (cur.loopTarget) fail(`loopTo already defined at '${cur.name}'`);
+    if (cur.next) fail(`cannot set loopTo when next is already defined at '${cur.name}'`);
+    cur.loopTarget = stageId;
+    return this;
+  }
+
+  /* ─────────────────────────── Streaming API ─────────────────────────── */
+
+  /**
+   * Adds a streaming function to the flow.
+   * Creates a stage node with `isStreaming: true` and the specified streamId.
+   *
+   * @param name - The name of the stage
+   * @param streamId - Optional unique identifier for the stream. Defaults to the stage name if not provided.
+   * @param fn - Optional stage function. If not provided, must be registered in stageMap.
+   * @param id - Optional node id for the stage
+   * @returns this for fluent chaining
+   */
+  addStreamingFunction(name: string, streamId?: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string): this {
+    const cur = this._needCursor();
+    const n = new _N<TOut, TScope>();
+    n.name = name;
+    n.isStreaming = true;
+    n.streamId = streamId ?? name; // Default streamId to stage name if not provided
+    if (id) n.id = id;
+    n.parent = cur.parent ?? undefined;
+    if (fn) {
+      n.fn = fn;
+      this._addToMap(n.name, fn);
+    }
+    cur.next = n;
+    this._cursor = n;
+    return this;
+  }
+
+  /**
+   * Registers a handler for stream token events.
+   * Called when a streaming stage emits a token.
+   *
+   * @param handler - Callback function receiving (streamId, token)
+   * @returns this for fluent chaining
+   */
+  onStream(handler: StreamTokenHandler): this {
+    this._streamHandlers.onToken = handler;
+    return this;
+  }
+
+  /**
+   * Registers a handler for stream start events.
+   * Called when a streaming stage begins execution.
+   *
+   * @param handler - Callback function receiving (streamId)
+   * @returns this for fluent chaining
+   */
+  onStreamStart(handler: StreamLifecycleHandler): this {
+    this._streamHandlers.onStart = handler;
+    return this;
+  }
+
+  /**
+   * Registers a handler for stream end events.
+   * Called when a streaming stage completes, with accumulated text.
+   *
+   * @param handler - Callback function receiving (streamId, fullText)
+   * @returns this for fluent chaining
+   */
+  onStreamEnd(handler: StreamLifecycleHandler): this {
+    this._streamHandlers.onEnd = handler;
+    return this;
+  }
+
   /** Move back to the parent node. */
   end(): this {
     const cur = this._needCursor();
@@ -519,6 +630,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const toStageNode = (n: _N<TOut, TScope>): StageNode<TOut, TScope> => {
       const out: StageNode<TOut, TScope> = { name: n.name, id: n.id, fn: n.fn as any };
+      
+      // Add streaming properties
+      if (n.isStreaming) out.isStreaming = true;
+      if (n.streamId) out.streamId = n.streamId;
+      
       if (n.children.length > 0) {
         out.children = n.children.map(toStageNode);
         if (n.decider) out.nextNodeDecider = n.decider as any;
@@ -528,7 +644,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       } else if (n.selector) {
         fail(`node '${n.name}' is a selector but has no children`);
       }
-      if (n.next) out.next = toStageNode(n.next);
+      
+      // Handle loopTarget - create a reference node with just id/name
+      if (n.loopTarget) {
+        out.next = { name: n.loopTarget, id: n.loopTarget };
+      } else if (n.next) {
+        out.next = toStageNode(n.next);
+      }
       return out;
     };
 
@@ -546,6 +668,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       const spec: FlowChartSpec = { name: n.name };
 
       if (n.id) spec.id = n.id;
+      
+      // Add streaming properties
+      if (n.isStreaming) spec.isStreaming = true;
+      if (n.streamId) spec.streamId = n.streamId;
 
       if (n.children.length) {
         spec.children = n.children.map(inflate);
@@ -569,8 +695,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         }
       }
 
-      // Include `next` only when a next node exists
-      if (n.next) {
+      // Handle loopTarget - include as metadata for serialization
+      if (n.loopTarget) {
+        spec.loopTarget = n.loopTarget;
+        // Also create a reference next node for consistency
+        spec.next = { name: n.loopTarget, id: n.loopTarget };
+      } else if (n.next) {
         spec.next = inflate(n.next);
       }
 
@@ -594,6 +724,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       opts?.initial,
       opts?.readOnly,
       opts?.throttlingErrorChecker,
+      this._streamHandlers,
     );
     return await p.execute();
   }
@@ -628,6 +759,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   private _needCursor() {
     return this._cursor ?? fail('cursor undefined; call start() first');
+  }
+
+  /**
+   * Get existing cursor or create a virtual one for runtime continuation.
+   * This enables methods like addListOfFunction() and loopTo() to work
+   * without requiring start() to be called first.
+   */
+  private _getOrCreateCursor(): _N<TOut, TScope> {
+    if (!this._cursor) {
+      const n = new _N<TOut, TScope>();
+      n.name = '__continuation__';
+      this._cursor = n;
+    }
+    return this._cursor;
   }
 
   /** Spawn a builder view pinned to a specific node (shares root & stageMap). */
@@ -673,6 +818,85 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         this._stageMap.set(k, v);
       }
     }
+  }
+
+  /* ─────────────────────────── Runtime Continuation API ───────────────────────── */
+
+  /**
+   * Compile the current state to a StageNode for runtime continuation.
+   * Unlike `build()`, this:
+   * - Does NOT require start() to be called first
+   * - Works with existing methods (addListOfFunction, loopTo, etc.) for runtime use
+   * - Returns `undefined` if no continuations are defined
+   * - Is used by dynamic stages to return their continuation
+   *
+   * Example usage in a dynamic stage:
+   * ```typescript
+   * async function toolBranchStage(scope, breakPipeline, streamCb, builder) {
+   *   const toolCalls = scope.getValue([], 'toolCalls');
+   *   if (!toolCalls?.length) return { toolCalls: [] }; // Plain object → normal flow
+   *
+   *   // Use existing API - no start() needed for runtime continuation
+   *   builder
+   *     .addListOfFunction(toolCalls.map(tc => ({ id: tc.id, name: tc.name, fn: tc.fn })))
+   *     .loopTo('prepareHistory');
+   *
+   *   return builder.compile(); // Returns StageNode → Pipeline executes it
+   * }
+   * ```
+   */
+  compile(): StageNode<TOut, TScope> | undefined {
+    const cur = this._cursor;
+    if (!cur) return undefined;
+
+    // Check if there are any continuations defined
+    const hasChildren = cur.children.length > 0;
+    const hasNext = cur.next !== undefined;
+    const hasLoopTarget = cur.loopTarget !== undefined;
+
+    if (!hasChildren && !hasNext && !hasLoopTarget) {
+      return undefined;
+    }
+
+    // Build a StageNode from the current cursor's continuations
+    const out: StageNode<TOut, TScope> = { name: cur.name || '__continuation__' };
+
+    if (hasChildren) {
+      out.children = cur.children.map((c) => this._nodeToStageNode(c));
+      if (cur.decider) out.nextNodeDecider = cur.decider as any;
+      if (cur.selector) out.nextNodeSelector = cur.selector as any;
+    }
+
+    if (hasLoopTarget) {
+      out.next = { name: cur.loopTarget!, id: cur.loopTarget };
+    } else if (hasNext) {
+      out.next = this._nodeToStageNode(cur.next!);
+    }
+
+    return out;
+  }
+
+  /** Convert internal node to StageNode (helper for compile) */
+  private _nodeToStageNode(n: _N<TOut, TScope>): StageNode<TOut, TScope> {
+    const out: StageNode<TOut, TScope> = { name: n.name, id: n.id, fn: n.fn as any };
+    
+    // Add streaming properties
+    if (n.isStreaming) out.isStreaming = true;
+    if (n.streamId) out.streamId = n.streamId;
+    
+    if (n.children.length > 0) {
+      out.children = n.children.map((c) => this._nodeToStageNode(c));
+      if (n.decider) out.nextNodeDecider = n.decider as any;
+      if (n.selector) out.nextNodeSelector = n.selector as any;
+    }
+
+    if (n.loopTarget) {
+      out.next = { name: n.loopTarget, id: n.loopTarget };
+    } else if (n.next) {
+      out.next = this._nodeToStageNode(n.next);
+    }
+
+    return out;
   }
 }
 
