@@ -27,10 +27,13 @@
  *   • StageMap name collisions when mounting subtrees → throw
  */
 
-import type { StageNode } from '../core/pipeline/TreePipeline';
+import type { Selector, StageNode } from '../core/pipeline/TreePipeline';
 import { TreePipeline } from '../core/pipeline/TreePipeline';
 import type { PipelineStageFunction } from '../core/pipeline/types';
 import type { ScopeFactory } from '../scope/core/types';
+
+// Re-export Selector type for consumers
+export type { Selector };
 
 /* ============================================================================
  * Types exposed for consumers (FE + BE)
@@ -100,6 +103,8 @@ export interface FlowChartSpec {
   next?: FlowChartSpec;
   /** Whether this node has a decider (transport hint; not required for execution) */
   hasDecider?: boolean;
+  /** Whether this node has a selector (transport hint; not required for execution) */
+  hasSelector?: boolean;
   /** Optional list of branch ids (transport hint; useful for BE validation/UX) */
   branchIds?: string[];
 }
@@ -118,6 +123,7 @@ class _N<TOut, TScope> {
   id?: string;
   fn?: PipelineStageFunction<TOut, TScope>;
   decider?: (out?: TOut) => string | Promise<string>;
+  selector?: Selector;
   children: _N<TOut, TScope>[] = [];
   next?: _N<TOut, TScope>;
   parent?: _N<TOut, TScope>;
@@ -245,6 +251,112 @@ export class DeciderList<TOut = any, TScope = any> {
 }
 
 /* ============================================================================
+ * Selector list (returned by addSelector)
+ * ========================================================================== */
+
+/**
+ * A fluent helper returned by `addSelector` to add branches cleanly,
+ * then `.end()` to return to the parent chain.
+ *
+ * Unlike DeciderList (single-choice), SelectorList supports multi-choice
+ * branching where the selector can return one or more child IDs.
+ */
+export class SelectorList<TOut = any, TScope = any> {
+  private readonly b: FlowChartBuilder<TOut, TScope>;
+  private readonly cur: _N<TOut, TScope>;
+  private readonly originalSelector: Selector;
+  private readonly branchIds = new Set<string>();
+
+  constructor(
+    builder: FlowChartBuilder<TOut, TScope>,
+    node: _N<TOut, TScope>,
+    selector: Selector,
+  ) {
+    this.b = builder;
+    this.cur = node;
+    this.originalSelector = selector;
+  }
+
+  /**
+   * Add a branch that **starts with a function** (optionally with a subtree).
+   * @param id     Child id (required; must be unique under this selector).
+   * @param name   Stage name (stageMap key if `fn` omitted).
+   * @param fn     Optional embedded stage function for the branch root.
+   * @param build  Optional subtree under this branch.
+   */
+  addFunctionBranch(
+    id: string,
+    name: string,
+    fn?: PipelineStageFunction<TOut, TScope>,
+    build?: (b: FlowChartBuilder<TOut, TScope>) => void,
+  ): SelectorList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.cur.name}'`);
+    this.branchIds.add(id);
+
+    const n = new _N<TOut, TScope>();
+    n.id = id;
+    n.name = name ?? id;
+    if (fn) {
+      n.fn = fn;
+      this.b._addToMap(n.name, fn);
+    }
+    n.parent = this.cur;
+    this.cur.children.push(n);
+
+    if (build) build(this.b._spawnAt(n));
+    return this;
+  }
+
+  /**
+   * Mount an already-built subtree as a branch.
+   * Useful for composing large trees from smaller ones owned by other teams.
+   */
+  addSubtreeBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): SelectorList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.cur.name}'`);
+    this.branchIds.add(id);
+    const n = this.b._inflate(subflow.root);
+    n.id = id;
+    if (mountName) n.name = mountName;
+    n.parent = this.cur;
+    this.cur.children.push(n);
+    this.b._mergeStageMap(subflow.stageMap);
+    return this;
+  }
+
+  /**
+   * Add multiple branches in one call (good for dynamic lists).
+   */
+  addBranchList(
+    branches: Array<{
+      id: string;
+      name: string;
+      fn?: PipelineStageFunction<TOut, TScope>;
+      build?: (b: FlowChartBuilder<TOut, TScope>) => void;
+    }>,
+  ): SelectorList<TOut, TScope> {
+    for (const { id, name, fn, build } of branches) {
+      this.addFunctionBranch(id, name, fn, build);
+    }
+    return this;
+  }
+
+  /**
+   * Finalize the selector:
+   *  • Validate at least one branch exists
+   *  • Assign the selector function to the node
+   *  • Return to the parent builder chain
+   */
+  end(): FlowChartBuilder<TOut, TScope> {
+    if (this.cur.children.length === 0) fail(`selector at '${this.cur.name}' requires at least one branch`);
+
+    // Store the selector directly (no wrapping needed unlike decider)
+    this.cur.selector = this.originalSelector;
+
+    return this.b;
+  }
+}
+
+/* ============================================================================
  * FlowChartBuilder (main)
  * ========================================================================== */
 
@@ -316,7 +428,22 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addDecider(decider: (out?: TOut) => string | Promise<string>): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
     if (cur.decider) fail(`decider already defined at '${cur.name}'`);
+    if (cur.selector) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
     return new DeciderList<TOut, TScope>(this, cur, decider);
+  }
+
+  /**
+   * Add a selector at the current node. Returns a SelectorList to populate
+   * with branches, then call `.end()` to return to the parent chain.
+   *
+   * Unlike decider (single-choice), selector supports multi-choice branching
+   * where the selector function can return one or more child IDs for parallel execution.
+   */
+  addSelector(selector: Selector): SelectorList<TOut, TScope> {
+    const cur = this._needCursor();
+    if (cur.selector) fail(`selector already defined at '${cur.name}'`);
+    if (cur.decider) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
+    return new SelectorList<TOut, TScope>(this, cur, selector);
   }
 
   /**
@@ -395,8 +522,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       if (n.children.length > 0) {
         out.children = n.children.map(toStageNode);
         if (n.decider) out.nextNodeDecider = n.decider as any;
+        if (n.selector) out.nextNodeSelector = n.selector as any;
       } else if (n.decider) {
         fail(`node '${n.name}' is a decider but has no children`);
+      } else if (n.selector) {
+        fail(`node '${n.name}' is a selector but has no children`);
       }
       if (n.next) out.next = toStageNode(n.next);
       return out;
@@ -423,6 +553,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         // Only annotate decider metadata when there IS a decider on this node
         if (n.decider) {
           spec.hasDecider = true;
+          // branch ids are precisely the child ids
+          spec.branchIds = n.children
+            .map((c) => c.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        }
+
+        // Only annotate selector metadata when there IS a selector on this node
+        if (n.selector) {
+          spec.hasSelector = true;
           // branch ids are precisely the child ids
           spec.branchIds = n.children
             .map((c) => c.id)
@@ -518,6 +657,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (sn.children?.length) {
       n.children = sn.children.map((c) => this._inflate(c));
       if (sn.nextNodeDecider) n.decider = sn.nextNodeDecider as any;
+      if (sn.nextNodeSelector) n.selector = sn.nextNodeSelector as any;
     }
     if (sn.next) n.next = this._inflate(sn.next);
     return n;

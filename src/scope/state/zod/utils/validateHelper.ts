@@ -109,7 +109,7 @@ export function parseWithThis(schema: ZodTypeAny, value: unknown): unknown {
   let wrapper = WRAPPER_CACHE.get(schema);
   if (!wrapper) {
     wrapper = (z.any() as any).pipe(schema as any);
-    WRAPPER_CACHE.set(schema, wrapper);
+    WRAPPER_CACHE.set(schema, wrapper!);
   }
   const res = (wrapper as any).safeParse(value);
   if (res && res.success) return res.data;

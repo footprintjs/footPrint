@@ -8,6 +8,34 @@
 - Three-level memory scope: **Global → Path → Node**
 - Patch-based state updates (snapshot + patch + safe merge)
 - Hooks for connected logs, traces, and time-travel debugging
+
+---
+
+## ⚠️ CRITICAL: Scope Communication Between Stages
+
+> **Each stage receives its own scope instance. Direct property assignment does NOT persist across stages.**
+
+```typescript
+// ❌ WRONG - Data is LOST after stage completes
+scope.myData = { result: 'hello' };
+
+// ✅ CORRECT - Data persists via GlobalContext
+scope.setObject([], 'myData', { result: 'hello' });  // Write
+const data = scope.getValue([], 'myData');           // Read
+```
+
+**You MUST use these methods for cross-stage data:**
+
+| Method | Purpose |
+|--------|---------|
+| `scope.setObject(path, key, value)` | Write data (overwrites) |
+| `scope.updateObject(path, key, value)` | Write data (deep merge) |
+| `scope.getValue(path, key)` | Read data |
+
+Direct property assignment (`scope.foo = bar`) is only for stage-local convenience data.
+
+📖 **Full documentation:** [docs/SCOPE_COMMUNICATION.md](./docs/SCOPE_COMMUNICATION.md)
+
 ---
 
 ## When should I use ToF?

@@ -51,6 +51,7 @@ import { ContextTreeType, TreePipelineContext } from '../context/TreePipelineCon
 import { ScopeFactory } from '../context/types';
 import { logger } from '../logger';
 import {
+  DynamicChildrenResult,
   NodeResultType,
   PipelineStageFunction,
   StreamCallback,
@@ -59,6 +60,25 @@ import {
 } from './types';
 
 export type Decider = (nodeArgs: any) => string | Promise<string>;
+
+/**
+ * Selector
+ * ------------------------------------------------------------------
+ * A function that picks ONE OR MORE children from a children array to execute.
+ * Unlike Decider (which picks exactly one), Selector can return:
+ * - A single string ID (behaves like Decider)
+ * - An array of string IDs (selected children execute in parallel)
+ * - An empty array (skip all children, continue to next if present)
+ *
+ * This enables selective parallel branching where only a subset of
+ * children are executed based on runtime conditions.
+ *
+ * @param nodeArgs - The stage output or input passed to the selector
+ * @returns Single ID, array of IDs, or Promise resolving to either
+ *
+ * _Requirements: 8.1, 8.2_
+ */
+export type Selector = (nodeArgs: any) => string | string[] | Promise<string | string[]>;
 
 export type StageNode<TOut = any, TScope = any> = {
   /** Human-readable stage name; also used as the stageMap key */
@@ -71,6 +91,14 @@ export type StageNode<TOut = any, TScope = any> = {
   children?: StageNode<TOut, TScope>[];
   /** Decider (mutually exclusive with `next`); must select a child `id` */
   nextNodeDecider?: Decider;
+  /**
+   * Selector for multi-choice branching.
+   * Unlike Decider (picks ONE), Selector can pick MULTIPLE children to execute in parallel.
+   * Mutually exclusive with `nextNodeDecider`.
+   *
+   * _Requirements: 8.1_
+   */
+  nextNodeSelector?: Selector;
   /** Optional embedded function for this node; otherwise resolved from stageMap by `name` */
   fn?: PipelineStageFunction<TOut, TScope>;
   /**
@@ -83,7 +111,57 @@ export type StageNode<TOut = any, TScope = any> = {
    * Defaults to the stage name if not provided when using addStreamingFunction.
    */
   streamId?: string;
+  /**
+   * When true, the handler may return a DynamicChildrenResult with
+   * dynamicChildren that will be executed after the stage completes.
+   * This enables patterns like parallel tool execution where the number
+   * and type of children are determined at runtime.
+   */
+  isDynamic?: boolean;
 };
+
+/**
+ * isStageNodeReturn
+ * ------------------------------------------------------------------
+ * Detects if a stage output is a StageNode for dynamic continuation.
+ * Uses duck-typing: must have 'name' (string) AND at least one continuation property.
+ *
+ * This enables stage functions to return a StageNode directly instead of
+ * using the DynamicChildrenResult wrapper pattern.
+ *
+ * Note: This function safely handles proxy objects (like Zod scopes) that may
+ * throw when accessing unknown properties.
+ *
+ * @param output - The stage function's return value
+ * @returns true if the output is a StageNode for dynamic continuation
+ *
+ * _Requirements: 1.1, 1.2, 1.3_
+ */
+export function isStageNodeReturn(output: unknown): output is StageNode {
+  // Must be a non-null object
+  if (!output || typeof output !== 'object') return false;
+
+  // Use try-catch to safely handle proxy objects that throw on property access
+  try {
+    const obj = output as Record<string, unknown>;
+
+    // Must have 'name' property as a string
+    if (typeof obj.name !== 'string') return false;
+
+    // Must have at least one continuation property
+    // Note: children must be a non-empty array to count as continuation
+    const hasContinuation =
+      (Array.isArray(obj.children) && obj.children.length > 0) ||
+      obj.next !== undefined ||
+      typeof obj.nextNodeDecider === 'function' ||
+      typeof obj.nextNodeSelector === 'function';
+
+    return hasContinuation;
+  } catch {
+    // If property access throws (e.g., Zod scope proxy), it's not a StageNode
+    return false;
+  }
+}
 
 export class TreePipeline<TOut, TScope> {
   private stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
@@ -101,6 +179,13 @@ export class TreePipeline<TOut, TScope> {
    * Contains callbacks for token emission and lifecycle events (start/end).
    */
   private readonly streamHandlers?: StreamHandlers;
+
+  /**
+   * Iteration counter for loop support.
+   * Tracks how many times each node ID has been visited (for context path generation).
+   * Key: node.id, Value: iteration count (0 = first visit)
+   */
+  private iterationCounters: Map<string, number> = new Map();
 
   constructor(
     root: StageNode,
@@ -214,8 +299,9 @@ export class TreePipeline<TOut, TScope> {
     }
 
     // ───────────────────────── 3) Non-decider: STAGE FIRST ─────────────────────────
-    // unified order: stage (optional) → commit → (break?) → children (optional) → next (optional)
+    // unified order: stage (optional) → commit → (break?) → children (optional) → dynamicNext (optional) → next (optional)
     let stageOutput: TOut | undefined;
+    let dynamicResult: DynamicChildrenResult<TOut, TScope> | undefined;
 
     if (stageFunc) {
       try {
@@ -232,32 +318,189 @@ export class TreePipeline<TOut, TScope> {
         logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput; // leaf/early stop returns the stage's output
       }
+
+      // ───────────────────────── Handle dynamic stages ─────────────────────────
+      // Check if the handler's return object indicates dynamic behavior.
+      // Two patterns are supported:
+      // 1. NEW: StageNode return - stage returns a StageNode directly for dynamic continuation
+      // 2. LEGACY: DynamicChildrenResult with isDynamic: true
+      if (stageOutput && typeof stageOutput === 'object') {
+        // NEW PATTERN: Check for StageNode return first (preferred)
+        // This allows stage functions to return a StageNode directly without wrapper
+        if (isStageNodeReturn(stageOutput)) {
+          const dynamicNode = stageOutput as StageNode;
+          context.addDebugInfo('isDynamic', true);
+          context.addDebugInfo('dynamicPattern', 'StageNodeReturn');
+
+          // Handle dynamic children (fork pattern)
+          if (dynamicNode.children && dynamicNode.children.length > 0) {
+            node.children = dynamicNode.children;
+            context.addDebugInfo('dynamicChildCount', dynamicNode.children.length);
+            context.addDebugInfo('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
+
+            // Handle dynamic selector (multi-choice branching)
+            if (typeof dynamicNode.nextNodeSelector === 'function') {
+              node.nextNodeSelector = dynamicNode.nextNodeSelector;
+              context.addDebugInfo('hasSelector', true);
+            }
+            // Handle dynamic decider (single-choice branching)
+            else if (typeof dynamicNode.nextNodeDecider === 'function') {
+              node.nextNodeDecider = dynamicNode.nextNodeDecider;
+              context.addDebugInfo('hasDecider', true);
+            }
+          }
+
+          // Handle dynamic next (linear continuation)
+          if (dynamicNode.next) {
+            // Convert to dynamicResult format for existing dynamicNext handling
+            dynamicResult = {
+              isDynamic: true,
+              dynamicNext: dynamicNode.next,
+            };
+            context.addDebugInfo('hasDynamicNext', true);
+          }
+
+          // Clear stageOutput since the StageNode is the continuation, not the output
+          stageOutput = undefined;
+        }
+        // LEGACY PATTERN: DynamicChildrenResult with isDynamic: true
+        // Wrapped in try-catch to handle proxy objects that throw on property access
+        // NOTE: This pattern is deprecated in favor of returning StageNode directly
+        else {
+          try {
+            const potentialDynamicResult = stageOutput as DynamicChildrenResult<TOut, TScope>;
+            
+            // Only treat as dynamic if the return object explicitly has isDynamic: true
+            if (potentialDynamicResult.isDynamic === true) {
+              // Log deprecation warning (once per pipeline execution would be ideal, but simple warning for now)
+              logger.info(`[DEPRECATED] Stage '${node.name}' uses DynamicChildrenResult pattern. Consider returning StageNode directly.`);
+              
+              dynamicResult = potentialDynamicResult;
+              context.addDebugInfo('dynamicPattern', 'LegacyDynamicChildrenResult');
+              
+              if (dynamicResult.dynamicChildren) {
+                // Normalize to array
+                const children = Array.isArray(dynamicResult.dynamicChildren)
+                  ? dynamicResult.dynamicChildren
+                  : [dynamicResult.dynamicChildren];
+                
+                // Assign to node for execution
+                node.children = children;
+                
+                // Extract actual output from the result
+                stageOutput = dynamicResult.output as TOut;
+                
+                // Add debug info for visualization
+                context.addDebugInfo('isDynamic', true);
+                context.addDebugInfo('dynamicChildCount', children.length);
+                context.addDebugInfo('dynamicChildIds', children.map(c => c.id || c.name));
+              } else if (dynamicResult.dynamicNext) {
+                // No children but has dynamicNext - extract output
+                stageOutput = dynamicResult.output as TOut;
+                context.addDebugInfo('isDynamic', true);
+                context.addDebugInfo('hasDynamicNext', true);
+              }
+            }
+          } catch {
+            // If property access throws (e.g., Zod scope proxy), it's not a DynamicChildrenResult
+            // Continue with normal execution
+          }
+        }
+      }
     }
 
     // ───────────────────────── 4) Children (if any) ─────────────────────────
-    if (hasChildren) {
+    // Re-evaluate hasChildren after stage execution, as the stage may have
+    // dynamically populated node.children (e.g., toolBranch injects tool nodes)
+    const hasChildrenAfterStage = Boolean(node.children?.length);
+    
+    if (hasChildrenAfterStage) {
       // Breadcrumbs
       context.addDebugInfo('totalChildren', node.children?.length);
       context.addDebugInfo('orderOfExecution', 'ChildrenAfterStage');
 
-      const nodeChildrenResults = await this.executeNodeChildren(node, context, undefined, branchPath);
+      let nodeChildrenResults: Record<string, NodeResultType>;
 
-      // Fork-only: return bundle object
-      if (!hasNext) {
+      // Check for selector (multi-choice) - can pick multiple children
+      if (node.nextNodeSelector) {
+        nodeChildrenResults = await this.executeSelectedChildren(
+          node.nextNodeSelector,
+          node.children!,
+          stageOutput,
+          context,
+          branchPath as string,
+        );
+      }
+      // Check for decider (single-choice) - picks exactly one child
+      else if (node.nextNodeDecider) {
+        // Decider was dynamically injected, execute it
+        const chosen = await this.getNextNode(
+          node.nextNodeDecider,
+          node.children!,
+          stageOutput,
+          context,
+        );
+        const nextStageContext = context.createNextContext(branchPath as string, chosen.name);
+        return await this.executeNode(chosen, nextStageContext, breakFlag, branchPath);
+      }
+      // Default: execute all children in parallel (fork pattern)
+      else {
+        nodeChildrenResults = await this.executeNodeChildren(node, context, undefined, branchPath);
+      }
+
+      // Fork-only (no next, no dynamicNext): return bundle object
+      if (!hasNext && !dynamicResult?.dynamicNext) {
         return nodeChildrenResults;
       }
-      // Fork + next: continue below
+      // Fork + next or dynamicNext: continue below
     }
 
-    // ───────────────────────── 5) Linear `next` (if provided) ─────────────────────────
+    // ───────────────────────── 5) Dynamic Next (loop support) ─────────────────────────
+    // If dynamicResult has dynamicNext, loop back to that node instead of static next
+    if (dynamicResult?.dynamicNext) {
+      const nextNodeId = typeof dynamicResult.dynamicNext === 'string'
+        ? dynamicResult.dynamicNext
+        : dynamicResult.dynamicNext.id;
+
+      if (!nextNodeId) {
+        const errorMessage = 'dynamicNext node must have an id';
+        logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+        throw new Error(errorMessage);
+      }
+
+      // Find the target node in the tree
+      const targetNode = typeof dynamicResult.dynamicNext === 'string'
+        ? this.findNodeById(nextNodeId)
+        : dynamicResult.dynamicNext;
+
+      if (!targetNode) {
+        const errorMessage = `dynamicNext target node not found: ${nextNodeId}`;
+        logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+        throw new Error(errorMessage);
+      }
+
+      // Get iteration count and generate iterated stage name
+      const iteration = this.getAndIncrementIteration(nextNodeId);
+      const iteratedStageName = this.getIteratedStageName(targetNode.name, iteration);
+
+      // Add debug info for loop tracking
+      context.addDebugInfo('dynamicNextTarget', nextNodeId);
+      context.addDebugInfo('dynamicNextIteration', iteration);
+
+      // Create context with iterated name for unique context tree entry
+      const nextStageContext = context.createNextContext(branchPath as string, iteratedStageName);
+      return await this.executeNode(targetNode, nextStageContext, breakFlag, branchPath);
+    }
+
+    // ───────────────────────── 6) Linear `next` (if provided) ─────────────────────────
     if (hasNext) {
       const nextNode = node.next!;
       const nextStageContext = context.createNextContext(branchPath as string, nextNode.name);
       return await this.executeNode(nextNode, nextStageContext, breakFlag, branchPath);
     }
 
-    // ───────────────────────── 6) Leaf ─────────────────────────
-    // No children & no next → return this node's stage output (may be undefined)
+    // ───────────────────────── 7) Leaf ─────────────────────────
+    // No children & no next & no dynamicNext → return this node's stage output (may be undefined)
     return stageOutput;
   }
 
@@ -373,6 +616,72 @@ export class TreePipeline<TOut, TScope> {
   }
 
   /**
+   * Execute selected children based on selector result.
+   * Selector can return: single ID, array of IDs, or empty array.
+   *
+   * Unlike executeNodeChildren (which executes ALL children), this method:
+   * 1. Invokes the selector to determine which children to execute
+   * 2. Validates all returned IDs exist in the children array
+   * 3. Executes only the selected children in parallel
+   * 4. Records selection info in context debug info
+   *
+   * @param selector - Function that returns selected child ID(s)
+   * @param children - Array of child nodes to select from
+   * @param input - Input to pass to the selector function
+   * @param context - Current stage context
+   * @param branchPath - Pipeline branch path for logging
+   * @returns Object mapping child IDs to their results
+   *
+   * _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+   */
+  private async executeSelectedChildren(
+    selector: Selector,
+    children: StageNode[],
+    input: any,
+    context: StageContext,
+    branchPath: string,
+  ): Promise<Record<string, NodeResultType>> {
+    // Invoke selector
+    const selectorResult = await selector(input);
+
+    // Normalize to array
+    const selectedIds = Array.isArray(selectorResult) ? selectorResult : [selectorResult];
+
+    // Record selection in debug info
+    context.addDebugInfo('selectedChildIds', selectedIds);
+    context.addDebugInfo('selectorPattern', 'multi-choice');
+
+    // Empty selection - skip children execution
+    if (selectedIds.length === 0) {
+      context.addDebugInfo('skippedAllChildren', true);
+      return {};
+    }
+
+    // Filter to selected children
+    const selectedChildren = children.filter((c) => selectedIds.includes(c.id!));
+
+    // Validate all IDs found
+    if (selectedChildren.length !== selectedIds.length) {
+      const childIds = children.map((c) => c.id);
+      const missing = selectedIds.filter((id) => !childIds.includes(id));
+      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
+      logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
+      context.addErrorInfo('selectorError', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    // Record skipped children for visualization
+    const skippedIds = children.filter((c) => !selectedIds.includes(c.id!)).map((c) => c.id);
+    if (skippedIds.length > 0) {
+      context.addDebugInfo('skippedChildIds', skippedIds);
+    }
+
+    // Execute selected children in parallel using existing logic
+    const tempNode: StageNode = { name: 'selector-temp', children: selectedChildren };
+    return await this.executeNodeChildren(tempNode, context, undefined, branchPath);
+  }
+
+  /**
    * Evaluate decider and pick the next child by id; throws if not found.
    */
   private async getNextNode(
@@ -393,6 +702,53 @@ export class TreePipeline<TOut, TScope> {
       throw Error(errorMessage);
     }
     return nextNode;
+  }
+
+  // ───────────────────────── Node lookup helpers ─────────────────────────
+
+  /**
+   * Find a node by its ID in the tree (recursive search).
+   * Used by dynamicNext to loop back to existing nodes.
+   */
+  private findNodeById(nodeId: string, startNode: StageNode = this.root): StageNode | undefined {
+    // Check current node
+    if (startNode.id === nodeId) {
+      return startNode;
+    }
+
+    // Check children
+    if (startNode.children) {
+      for (const child of startNode.children) {
+        const found = this.findNodeById(nodeId, child);
+        if (found) return found;
+      }
+    }
+
+    // Check next
+    if (startNode.next) {
+      const found = this.findNodeById(nodeId, startNode.next);
+      if (found) return found;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Get the next iteration number for a node and increment the counter.
+   * Returns 0 for first visit, 1 for second, etc.
+   */
+  private getAndIncrementIteration(nodeId: string): number {
+    const current = this.iterationCounters.get(nodeId) ?? 0;
+    this.iterationCounters.set(nodeId, current + 1);
+    return current;
+  }
+
+  /**
+   * Generate an iterated stage name for context tree.
+   * First visit: "askLLM", second: "askLLM.1", third: "askLLM.2"
+   */
+  private getIteratedStageName(baseName: string, iteration: number): string {
+    return iteration === 0 ? baseName : `${baseName}.${iteration}`;
   }
 
   // ───────────────────────── Introspection helpers ─────────────────────────

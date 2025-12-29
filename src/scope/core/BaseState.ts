@@ -55,6 +55,14 @@ export class BaseState {
     return this._stageContext.updateObject(path, key, value);
   }
 
+  setGlobal(key: string, value: unknown) {
+    return (this._stageContext as any).setGlobal?.(key, value);
+  }
+
+  getGlobal(key: string) {
+    return (this._stageContext as any).getGlobal?.(key);
+  }
+
   setObjectInRoot(key: string, value: unknown) {
     return (this._stageContext as any).setRoot?.(key, value);
   }

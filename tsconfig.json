@@ -19,11 +19,11 @@
     "inlineSources": true,
     "experimentalDecorators": true,
     "esModuleInterop": true,
-    "typeRoots": ["./node_modules/@types"],
+    "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@types"]
   },
-  "exclude": ["build","node_modules", "dist"],
+  "exclude": ["build", "node_modules", "dist", "test"],
   "include": [
-    "src/**/*.ts",
-    "test"
+    "src/**/*.ts"
   ]
 }
