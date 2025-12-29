@@ -51,7 +51,6 @@ import { ContextTreeType, TreePipelineContext } from '../context/TreePipelineCon
 import { ScopeFactory } from '../context/types';
 import { logger } from '../logger';
 import {
-  DynamicChildrenResult,
   NodeResultType,
   PipelineStageFunction,
   StreamCallback,
@@ -85,6 +84,8 @@ export type StageNode<TOut = any, TScope = any> = {
   name: string;
   /** Optional stable id (required by decider/fork aggregation) */
   id?: string;
+  /** Human-readable display name for UI visualization (e.g., "User Prompt" instead of "useQuestion") */
+  displayName?: string;
   /** Linear continuation */
   next?: StageNode<TOut, TScope>;
   /** Parallel children (fork) */
@@ -111,14 +112,11 @@ export type StageNode<TOut = any, TScope = any> = {
    * Defaults to the stage name if not provided when using addStreamingFunction.
    */
   streamId?: string;
-  /**
-   * When true, the handler may return a DynamicChildrenResult with
-   * dynamicChildren that will be executed after the stage completes.
-   * This enables patterns like parallel tool execution where the number
-   * and type of children are determined at runtime.
-   */
-  isDynamic?: boolean;
 };
+
+// Note: Dynamic behavior is detected via isStageNodeReturn() duck-typing on stage output.
+// No isDynamic flag needed on node definition - stages that return StageNode are automatically
+// treated as dynamic continuations.
 
 /**
  * isStageNodeReturn
@@ -126,8 +124,8 @@ export type StageNode<TOut = any, TScope = any> = {
  * Detects if a stage output is a StageNode for dynamic continuation.
  * Uses duck-typing: must have 'name' (string) AND at least one continuation property.
  *
- * This enables stage functions to return a StageNode directly instead of
- * using the DynamicChildrenResult wrapper pattern.
+ * This enables stage functions to return a StageNode directly for dynamic
+ * pipeline continuation (parallel children, loops, etc.).
  *
  * Note: This function safely handles proxy objects (like Zod scopes) that may
  * throw when accessing unknown properties.
@@ -237,6 +235,7 @@ export class Pipeline<TOut, TScope> {
     const isDeciderNode = Boolean(node.nextNodeDecider);
     const hasChildren = Boolean(node.children?.length);
     const hasNext = Boolean(node.next);
+    // Note: Dynamic behavior is detected via isStageNodeReturn() on stage output, not via node flags
 
     // ───────────────────────── 1) Validation ─────────────────────────
     // A node must provide at least one of: stage, children, or decider.
@@ -301,7 +300,7 @@ export class Pipeline<TOut, TScope> {
     // ───────────────────────── 3) Non-decider: STAGE FIRST ─────────────────────────
     // unified order: stage (optional) → commit → (break?) → children (optional) → dynamicNext (optional) → next (optional)
     let stageOutput: TOut | undefined;
-    let dynamicResult: DynamicChildrenResult<TOut, TScope> | undefined;
+    let dynamicNext: StageNode | undefined;
 
     if (stageFunc) {
       try {
@@ -320,92 +319,41 @@ export class Pipeline<TOut, TScope> {
       }
 
       // ───────────────────────── Handle dynamic stages ─────────────────────────
-      // Check if the handler's return object indicates dynamic behavior.
-      // Two patterns are supported:
-      // 1. NEW: StageNode return - stage returns a StageNode directly for dynamic continuation
-      // 2. LEGACY: DynamicChildrenResult with isDynamic: true
-      if (stageOutput && typeof stageOutput === 'object') {
-        // NEW PATTERN: Check for StageNode return first (preferred)
-        // This allows stage functions to return a StageNode directly without wrapper
-        if (isStageNodeReturn(stageOutput)) {
-          const dynamicNode = stageOutput as StageNode;
-          context.addDebugInfo('isDynamic', true);
-          context.addDebugInfo('dynamicPattern', 'StageNodeReturn');
+      // Check if the handler's return object is a StageNode for dynamic continuation.
+      // Detection uses duck-typing via isStageNodeReturn().
+      if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
+        const dynamicNode = stageOutput as StageNode;
+        context.addDebugInfo('isDynamic', true);
+        context.addDebugInfo('dynamicPattern', 'StageNodeReturn');
 
-          // Handle dynamic children (fork pattern)
-          if (dynamicNode.children && dynamicNode.children.length > 0) {
-            node.children = dynamicNode.children;
-            context.addDebugInfo('dynamicChildCount', dynamicNode.children.length);
-            context.addDebugInfo('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
+        // Handle dynamic children (fork pattern)
+        if (dynamicNode.children && dynamicNode.children.length > 0) {
+          node.children = dynamicNode.children;
+          context.addDebugInfo('dynamicChildCount', dynamicNode.children.length);
+          context.addDebugInfo('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
 
-            // Handle dynamic selector (multi-choice branching)
-            if (typeof dynamicNode.nextNodeSelector === 'function') {
-              node.nextNodeSelector = dynamicNode.nextNodeSelector;
-              context.addDebugInfo('hasSelector', true);
-            }
-            // Handle dynamic decider (single-choice branching)
-            else if (typeof dynamicNode.nextNodeDecider === 'function') {
-              node.nextNodeDecider = dynamicNode.nextNodeDecider;
-              context.addDebugInfo('hasDecider', true);
-            }
+          // Handle dynamic selector (multi-choice branching)
+          if (typeof dynamicNode.nextNodeSelector === 'function') {
+            node.nextNodeSelector = dynamicNode.nextNodeSelector;
+            context.addDebugInfo('hasSelector', true);
           }
-
-          // Handle dynamic next (linear continuation)
-          if (dynamicNode.next) {
-            // Convert to dynamicResult format for existing dynamicNext handling
-            dynamicResult = {
-              isDynamic: true,
-              dynamicNext: dynamicNode.next,
-            };
-            context.addDebugInfo('hasDynamicNext', true);
-          }
-
-          // Clear stageOutput since the StageNode is the continuation, not the output
-          stageOutput = undefined;
-        }
-        // LEGACY PATTERN: DynamicChildrenResult with isDynamic: true
-        // Wrapped in try-catch to handle proxy objects that throw on property access
-        // NOTE: This pattern is deprecated in favor of returning StageNode directly
-        else {
-          try {
-            const potentialDynamicResult = stageOutput as DynamicChildrenResult<TOut, TScope>;
-            
-            // Only treat as dynamic if the return object explicitly has isDynamic: true
-            if (potentialDynamicResult.isDynamic === true) {
-              // Log deprecation warning (once per pipeline execution would be ideal, but simple warning for now)
-              logger.info(`[DEPRECATED] Stage '${node.name}' uses DynamicChildrenResult pattern. Consider returning StageNode directly.`);
-              
-              dynamicResult = potentialDynamicResult;
-              context.addDebugInfo('dynamicPattern', 'LegacyDynamicChildrenResult');
-              
-              if (dynamicResult.dynamicChildren) {
-                // Normalize to array
-                const children = Array.isArray(dynamicResult.dynamicChildren)
-                  ? dynamicResult.dynamicChildren
-                  : [dynamicResult.dynamicChildren];
-                
-                // Assign to node for execution
-                node.children = children;
-                
-                // Extract actual output from the result
-                stageOutput = dynamicResult.output as TOut;
-                
-                // Add debug info for visualization
-                context.addDebugInfo('isDynamic', true);
-                context.addDebugInfo('dynamicChildCount', children.length);
-                context.addDebugInfo('dynamicChildIds', children.map(c => c.id || c.name));
-              } else if (dynamicResult.dynamicNext) {
-                // No children but has dynamicNext - extract output
-                stageOutput = dynamicResult.output as TOut;
-                context.addDebugInfo('isDynamic', true);
-                context.addDebugInfo('hasDynamicNext', true);
-              }
-            }
-          } catch {
-            // If property access throws (e.g., Zod scope proxy), it's not a DynamicChildrenResult
-            // Continue with normal execution
+          // Handle dynamic decider (single-choice branching)
+          else if (typeof dynamicNode.nextNodeDecider === 'function') {
+            node.nextNodeDecider = dynamicNode.nextNodeDecider;
+            context.addDebugInfo('hasDecider', true);
           }
         }
+
+        // Handle dynamic next (linear continuation)
+        if (dynamicNode.next) {
+          dynamicNext = dynamicNode.next;
+          // Attach to node for serialization visibility (getRuntimeRoot)
+          node.next = dynamicNode.next;
+          context.addDebugInfo('hasDynamicNext', true);
+        }
+
+        // Clear stageOutput since the StageNode is the continuation, not the output
+        stageOutput = undefined;
       }
     }
 
@@ -449,45 +397,63 @@ export class Pipeline<TOut, TScope> {
       }
 
       // Fork-only (no next, no dynamicNext): return bundle object
-      if (!hasNext && !dynamicResult?.dynamicNext) {
+      if (!hasNext && !dynamicNext) {
         return nodeChildrenResults;
       }
       // Fork + next or dynamicNext: continue below
     }
 
     // ───────────────────────── 5) Dynamic Next (loop support) ─────────────────────────
-    // If dynamicResult has dynamicNext, loop back to that node instead of static next
-    if (dynamicResult?.dynamicNext) {
-      const nextNodeId = typeof dynamicResult.dynamicNext === 'string'
-        ? dynamicResult.dynamicNext
-        : dynamicResult.dynamicNext.id;
-
+    // If dynamicNext is set, handle it based on whether it's a reference or full node
+    if (dynamicNext) {
+      
+      // If dynamicNext is a string, it's a reference to an existing node by ID
+      if (typeof dynamicNext === 'string') {
+        const targetNode = this.findNodeById(dynamicNext);
+        if (!targetNode) {
+          const errorMessage = `dynamicNext target node not found: ${dynamicNext}`;
+          logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+          throw new Error(errorMessage);
+        }
+        
+        const iteration = this.getAndIncrementIteration(dynamicNext);
+        const iteratedStageName = this.getIteratedStageName(targetNode.name, iteration);
+        context.addDebugInfo('dynamicNextTarget', dynamicNext);
+        context.addDebugInfo('dynamicNextIteration', iteration);
+        
+        const nextStageContext = context.createNextContext(branchPath as string, iteratedStageName);
+        return await this.executeNode(targetNode, nextStageContext, breakFlag, branchPath);
+      }
+      
+      // If dynamicNext is a StageNode with fn, execute it directly (truly dynamic)
+      if (dynamicNext.fn) {
+        context.addDebugInfo('dynamicNextDirect', true);
+        context.addDebugInfo('dynamicNextName', dynamicNext.name);
+        
+        const nextStageContext = context.createNextContext(branchPath as string, dynamicNext.name);
+        return await this.executeNode(dynamicNext, nextStageContext, breakFlag, branchPath);
+      }
+      
+      // If dynamicNext is a StageNode without fn, it's a reference - look up by ID
+      const nextNodeId = dynamicNext.id;
       if (!nextNodeId) {
-        const errorMessage = 'dynamicNext node must have an id';
+        const errorMessage = 'dynamicNext node must have an id when used as reference';
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
         throw new Error(errorMessage);
       }
 
-      // Find the target node in the tree
-      const targetNode = typeof dynamicResult.dynamicNext === 'string'
-        ? this.findNodeById(nextNodeId)
-        : dynamicResult.dynamicNext;
-
+      const targetNode = this.findNodeById(nextNodeId);
       if (!targetNode) {
         const errorMessage = `dynamicNext target node not found: ${nextNodeId}`;
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
         throw new Error(errorMessage);
       }
 
-      // Get iteration count and generate iterated stage name
       const iteration = this.getAndIncrementIteration(nextNodeId);
       const iteratedStageName = this.getIteratedStageName(targetNode.name, iteration);
-
-      // Add debug info for loop tracking
       context.addDebugInfo('dynamicNextTarget', nextNodeId);
       context.addDebugInfo('dynamicNextIteration', iteration);
 
-      // Create context with iterated name for unique context tree entry
       const nextStageContext = context.createNextContext(branchPath as string, iteratedStageName);
       return await this.executeNode(targetNode, nextStageContext, breakFlag, branchPath);
     }
@@ -514,6 +480,9 @@ export class Pipeline<TOut, TScope> {
    *  - Calls onStart lifecycle hook before execution
    *  - Accumulates tokens during streaming
    *  - Calls onEnd lifecycle hook after execution with accumulated text
+   *
+   * Note: Dynamic behavior is detected via isStageNodeReturn() on the stage output,
+   * not via node flags. Any stage can return a StageNode for dynamic continuation.
    */
   private async executeStage(
     node: StageNode,
@@ -771,5 +740,18 @@ export class Pipeline<TOut, TScope> {
   /** Returns pipeline ids inherited under this root (for debugging fan-out). */
   getInheritedPipelines() {
     return this.treePipelineContext.getPipelines();
+  }
+
+  /**
+   * Returns the current pipeline root node (including runtime modifications).
+   * 
+   * This is useful for serializing the pipeline structure after execution,
+   * which includes any dynamic children or loop targets added at runtime
+   * by stages that return StageNode.
+   * 
+   * @returns The root StageNode with runtime modifications
+   */
+  getRuntimeRoot(): StageNode {
+    return this.root;
   }
 }

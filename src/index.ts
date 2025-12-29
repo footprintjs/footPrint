@@ -15,5 +15,4 @@ export {
   Selector as FlowChartSelector
 } from './builder/FlowChartBuilder';
 export { StageContext } from './core/context/StageContext';
-export { DynamicChildrenResult } from './core/pipeline/types';
 export { Pipeline, Selector, Decider, StageNode, isStageNodeReturn } from './core/pipeline/Pipeline';

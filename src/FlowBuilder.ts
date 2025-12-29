@@ -14,10 +14,35 @@ import {
 
 type ScopeConstructor<TScope> = new (context: StageContext, stageName: string, readOnlyContext?: unknown) => TScope;
 
+/**
+ * Serialized pipeline node for frontend visualization.
+ * This is a JSON-serializable representation of the StageNode tree.
+ */
+export interface SerializedPipelineNode {
+  id: string;
+  name: string;
+  /** Human-readable display name for UI (e.g., "User Prompt" instead of "useQuestion") */
+  displayName?: string;
+  type: 'stage' | 'decider' | 'fork' | 'streaming';
+  next?: SerializedPipelineNode;
+  children?: SerializedPipelineNode[];
+  isStreaming?: boolean;
+  streamId?: string;
+  isDynamic?: boolean;
+  /** Target node ID for loop-back edges */
+  loopTarget?: string;
+  /** True if this is a reference node (prevents infinite recursion) */
+  isLoopReference?: boolean;
+}
+
 export type AppResponse = {
   response: TreeOfFunctionsResponse;
   treeContext: ContextTreeType;
   isError?: boolean;
+  /** The runtime pipeline root (includes dynamic children and loop targets added at runtime) */
+  runtimeRoot?: StageNode;
+  /** Serialized pipeline structure for frontend visualization */
+  pipelineStructure?: SerializedPipelineNode;
 };
 
 // Todo:
@@ -33,6 +58,7 @@ export class FlowBuilder<TOut, TScope> {
   private _scopeFactory?: ScopeFactory<TScope>;
   private _stageHandlerMap?: Map<string, PipelineStageFunction<TOut, TScope>>;
   private _workFlow?: StageNode;
+  private _originalWorkflow?: StageNode; // Store original for serialization
   private _initialContext?: Partial<TScope>;
 
   /**
@@ -140,6 +166,12 @@ export class FlowBuilder<TOut, TScope> {
     initialContext?: Partial<TScope>,
   ) {
     this._workFlow = workFlow;
+    // Deep clone the original workflow for serialization (before runtime modifications)
+    this._originalWorkflow = JSON.parse(JSON.stringify(workFlow, (key, value) => {
+      // Skip function properties during clone
+      if (typeof value === 'function') return undefined;
+      return value;
+    }));
     this._stageHandlerMap = stageHandlerMap;
     this._scopeFactory = (context: StageContext, stageName: string, readOnlyContext?: unknown) => {
       return new ScopeClass(context, stageName, readOnlyContext);
@@ -190,10 +222,125 @@ async function executeApp<TOut, TScope>(
     }
   }
   const treeContext = pipeline.getContextTree();
-  const pipelines = pipeline.getInheritedPipelines();
+  const runtimeRoot = pipeline.getRuntimeRoot();
+  
+  // Serialize the runtime pipeline structure for frontend visualization
+  // Dynamic nodes (like toolBranch with runtime children) are marked with isDynamic=true
+  // so FE can get their children from treeContext instead (avoiding duplicates)
+  const pipelineStructure = serializePipelineStructure(runtimeRoot);
+  
   return {
     response,
     treeContext,
     isError,
+    runtimeRoot,
+    pipelineStructure,
   };
+}
+
+/**
+ * Checks if a node is a reference (used for loop-back) rather than a real node.
+ * A reference node has id/name but no fn and no children/next of its own.
+ */
+function isReferenceNode(node: StageNode): boolean {
+  return (
+    !node.fn &&
+    !node.children?.length &&
+    !node.next &&
+    !node.nextNodeDecider &&
+    !node.nextNodeSelector
+  );
+}
+
+/**
+ * Serializes a StageNode tree to a JSON-serializable format for frontend visualization.
+ * This provides the source of truth for the pipeline structure including runtime modifications.
+ * 
+ * @param node - The root StageNode to serialize
+ * @param visited - Set of visited node IDs to prevent circular references
+ * @returns SerializedPipelineNode representing the pipeline structure
+ */
+export function serializePipelineStructure(
+  node: StageNode,
+  visited: Set<string> = new Set()
+): SerializedPipelineNode {
+  const nodeId = node.id || node.name;
+  
+  // Prevent infinite loops from circular references (loops)
+  if (visited.has(nodeId)) {
+    return {
+      id: `${nodeId}_ref`,
+      name: node.name,
+      type: 'stage',
+      isLoopReference: true,
+    };
+  }
+  visited.add(nodeId);
+  
+  // Check if this node has dynamically-added children (e.g., toolBranch)
+  // Dynamic nodes are those that return StageNode with children at runtime
+  // We detect this by checking if children exist but the node has no static nextNodeDecider/nextNodeSelector
+  const hasDynamicChildren = Boolean(
+    node.children?.length && 
+    !node.nextNodeDecider && 
+    !node.nextNodeSelector
+  );
+  
+  // Determine node type
+  let type: SerializedPipelineNode['type'] = 'stage';
+  if (node.nextNodeDecider || node.nextNodeSelector) {
+    type = 'decider';
+  } else if (node.children && node.children.length > 0 && !hasDynamicChildren) {
+    // Only mark as fork if children are static (not dynamic tools)
+    type = 'fork';
+  } else if (node.isStreaming) {
+    type = 'streaming';
+  }
+  
+  const serialized: SerializedPipelineNode = {
+    id: nodeId,
+    name: node.name,
+    type,
+  };
+  
+  // Add display name if provided
+  if (node.displayName) {
+    serialized.displayName = node.displayName;
+  }
+  
+  // Mark dynamic nodes - FE will get their children from runtime context instead
+  if (hasDynamicChildren) {
+    serialized.isDynamic = true;
+  }
+  
+  // Add streaming properties
+  if (node.isStreaming) {
+    serialized.isStreaming = true;
+    if (node.streamId) {
+      serialized.streamId = node.streamId;
+    }
+  }
+  
+  // Serialize next node (linear continuation)
+  if (node.next) {
+    const nextId = node.next.id || node.next.name;
+    
+    // Check if next is a reference node (loop-back) or already visited
+    if (visited.has(nextId) || isReferenceNode(node.next)) {
+      // This is a loop-back reference
+      serialized.loopTarget = nextId;
+    } else {
+      serialized.next = serializePipelineStructure(node.next, visited);
+    }
+  }
+  
+  // Serialize children (parallel branches or decider options)
+  // Skip children for dynamic nodes - FE gets those from runtime context
+  if (node.children && node.children.length > 0 && !hasDynamicChildren) {
+    serialized.children = node.children.map((child) => 
+      serializePipelineStructure(child, new Set(visited))
+    );
+  }
+  
+  return serialized;
 }

@@ -130,6 +130,7 @@ const fail = (msg: string): never => {
 class _N<TOut, TScope> {
   name!: string;
   id?: string;
+  displayName?: string;
   fn?: PipelineStageFunction<TOut, TScope>;
   decider?: (out?: TOut) => string | Promise<string>;
   selector?: Selector;
@@ -172,12 +173,14 @@ export class DeciderList<TOut = any, TScope = any> {
    * @param name   Stage name (stageMap key if `fn` omitted).
    * @param fn     Optional embedded stage function for the branch root.
    * @param build  Optional subtree under this branch.
+   * @param displayName Optional human-readable display name for UI.
    */
   addFunctionBranch(
     id: string,
     name: string,
     fn?: PipelineStageFunction<TOut, TScope>,
     build?: (b: FlowChartBuilder<TOut, TScope>) => void,
+    displayName?: string,
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.cur.name}'`);
     this.branchIds.add(id);
@@ -185,6 +188,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const n = new _N<TOut, TScope>();
     n.id = id;
     n.name = name ?? id;
+    if (displayName) n.displayName = displayName;
     if (fn) {
       n.fn = fn;
       this.b._addToMap(n.name, fn);
@@ -386,11 +390,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /* ─────────────────────────── Authoring API ─────────────────────────── */
 
   /** Define the root function of the flow. */
-  start(functionName: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string): this {
+  start(functionName: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string, displayName?: string): this {
     if (this._root) fail('root already defined; create a new builder');
     const n = new _N<TOut, TScope>();
     n.name = functionName;
     if (id) n.id = id;
+    if (displayName) n.displayName = displayName;
     if (fn) {
       n.fn = fn;
       this._addToMap(n.name, fn);
@@ -401,11 +406,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /** Append a linear “next” function and move to it. */
-  addFunction(functionName: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string): this {
+  addFunction(functionName: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string, displayName?: string): this {
     const cur = this._needCursor();
     const n = new _N<TOut, TScope>();
     n.name = functionName;
     if (id) n.id = id;
+    if (displayName) n.displayName = displayName;
     n.parent = cur.parent ?? undefined;
     if (fn) {
       n.fn = fn;
@@ -546,15 +552,17 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * @param streamId - Optional unique identifier for the stream. Defaults to the stage name if not provided.
    * @param fn - Optional stage function. If not provided, must be registered in stageMap.
    * @param id - Optional node id for the stage
+   * @param displayName - Optional human-readable display name for UI
    * @returns this for fluent chaining
    */
-  addStreamingFunction(name: string, streamId?: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string): this {
+  addStreamingFunction(name: string, streamId?: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string, displayName?: string): this {
     const cur = this._needCursor();
     const n = new _N<TOut, TScope>();
     n.name = name;
     n.isStreaming = true;
     n.streamId = streamId ?? name; // Default streamId to stage name if not provided
     if (id) n.id = id;
+    if (displayName) n.displayName = displayName;
     n.parent = cur.parent ?? undefined;
     if (fn) {
       n.fn = fn;
@@ -630,6 +638,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const toStageNode = (n: _N<TOut, TScope>): StageNode<TOut, TScope> => {
       const out: StageNode<TOut, TScope> = { name: n.name, id: n.id, fn: n.fn as any };
+      
+      // Add display name
+      if (n.displayName) out.displayName = n.displayName;
       
       // Add streaming properties
       if (n.isStreaming) out.isStreaming = true;
