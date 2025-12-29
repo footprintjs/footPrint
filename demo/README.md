@@ -1,4 +1,4 @@
-# FlowChartBuilder Demos
+# FootPrint Demos
 
 This folder contains progressive demos showcasing the power of FlowChartBuilder - from simple linear flows to complex composed applications.
 
@@ -41,9 +41,9 @@ The final demo (5-composed) demonstrates the killer feature: **entire applicatio
 ## Running the Demos
 
 ```bash
-# From TreeOfFunctionsLib root
+# From footprint root
 
-# Run individual demo (uses tsconfig-paths to resolve @amzn/tree-of-functions)
+# Run individual demo (uses tsconfig-paths to resolve footprint)
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-llm-tool-loop/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-parallel/index.ts

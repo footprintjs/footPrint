@@ -51,7 +51,7 @@ export interface StreamHandlers {
  * TScope – the *scope* object passed to the stage
  *
  * The optional third parameter `streamCallback` is automatically injected
- * by TreePipeline for stages marked as streaming. Existing stages with
+ * by Pipeline for stages marked as streaming. Existing stages with
  * the 2-parameter signature `(scope, breakFn)` remain fully compatible.
  */
 export type PipelineStageFunction<TOut, TScope> = (
@@ -105,14 +105,14 @@ export type TreeOfFunctionsResponse = PipelineResponses | string | Error;
 export type DynamicChildrenResult<TOut = any, TScope = any> = {
   /** 
    * When true, indicates this result contains dynamic children or dynamicNext.
-   * TreePipeline checks this flag to determine if the return object should be
+   * Pipeline checks this flag to determine if the return object should be
    * treated as a dynamic result vs a regular stage output.
    */
   isDynamic?: boolean;
   /** The stage's normal output value */
   output?: TOut;
   /** Dynamic children to execute after this stage */
-  dynamicChildren?: import('./TreePipeline').StageNode<TOut, TScope> | import('./TreePipeline').StageNode<TOut, TScope>[];
+  dynamicChildren?: import('./Pipeline').StageNode<TOut, TScope> | import('./Pipeline').StageNode<TOut, TScope>[];
   /** Dynamic next node - enables loops by pointing to existing node ID or providing a node */
-  dynamicNext?: string | import('./TreePipeline').StageNode<TOut, TScope>;
+  dynamicNext?: string | import('./Pipeline').StageNode<TOut, TScope>;
 };

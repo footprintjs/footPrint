@@ -5,7 +5,7 @@ import {
   FlowChartBuilder,
   specToStageNode,
 } from '../../src/builder/FlowChartBuilder';
-import type { StageNode } from '../../src/core/pipeline/TreePipeline';
+import type { StageNode } from '../../src/core/pipeline/Pipeline';
 
 /* ----------------------------------------------------------------------------
  * Helpers: prune functions/deciders for JSON compare + name collector
@@ -29,15 +29,15 @@ function names(node?: StageNode<any, any>, acc: string[] = []): string[] {
 }
 
 /* ----------------------------------------------------------------------------
- * Mock TreePipeline to test execute() sugar without running the engine
+ * Mock Pipeline to test execute() sugar without running the engine
  * -------------------------------------------------------------------------- */
 
 const TPctor = jest.fn();
 const TPexec = jest.fn(async () => 'EXEC_RESULT');
 
-jest.mock('../../src/core/pipeline/TreePipeline', () => {
+jest.mock('../../src/core/pipeline/Pipeline', () => {
   return {
-    TreePipeline: class {
+    Pipeline: class {
       constructor(...args: any[]) {
         TPctor(...args);
       }
@@ -329,16 +329,16 @@ describe('FlowChartBuilder — toMermaid() contains nodes', () => {
 });
 
 /* ----------------------------------------------------------------------------
- * execute() sugar (TreePipeline mocked)
+ * execute() sugar (Pipeline mocked)
  * -------------------------------------------------------------------------- */
 
-describe('FlowChartBuilder — execute() sugar builds & calls TreePipeline', () => {
+describe('FlowChartBuilder — execute() sugar builds & calls Pipeline', () => {
   beforeEach(() => {
     TPctor.mockClear();
     TPexec.mockClear();
   });
 
-  test('execute passes {root, stageMap} and options to TreePipeline ctor', async () => {
+  test('execute passes {root, stageMap} and options to Pipeline ctor', async () => {
     const fb = new FlowChartBuilder().start('prep').addFunction('tail');
 
     // fake scopeFactory to satisfy types & constructor

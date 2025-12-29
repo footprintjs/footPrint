@@ -9,7 +9,7 @@ import {
   StreamLifecycleHandler,
   StreamTokenHandler,
   TreeOfFunctionsResponse,
-  TreePipeline,
+  Pipeline,
 } from './core/pipeline';
 
 type ScopeConstructor<TScope> = new (context: StageContext, stageName: string, readOnlyContext?: unknown) => TScope;
@@ -27,7 +27,7 @@ export type AppResponse = {
 // 4. Execute
 // 5. addLogger (to inject loggig system)
 export class FlowBuilder<TOut, TScope> {
-  private _treePipeline?: TreePipeline<TOut, TScope>;
+  private _pipeline?: Pipeline<TOut, TScope>;
   private _readOnlyContext?: Partial<TScope>;
   private _throttlingErrorChecker?: (error: unknown) => boolean;
   private _scopeFactory?: ScopeFactory<TScope>;
@@ -158,7 +158,7 @@ export class FlowBuilder<TOut, TScope> {
     if (!this._workFlow) {
       throw new Error('Conversation Flow Error: addPipeline must be called with Workflow before execute');
     }
-    this._treePipeline = new TreePipeline<TOut, TScope>(
+    this._pipeline = new Pipeline<TOut, TScope>(
       this._workFlow,
       this._stageHandlerMap,
       this._scopeFactory,
@@ -168,12 +168,12 @@ export class FlowBuilder<TOut, TScope> {
       this._throttlingErrorChecker,
       this._streamHandlers,
     );
-    return await executeApp(this._treePipeline, this._throttlingErrorChecker);
+    return await executeApp(this._pipeline, this._throttlingErrorChecker);
   }
 }
 
 async function executeApp<TOut, TScope>(
-  pipeline: TreePipeline<TOut, TScope>,
+  pipeline: Pipeline<TOut, TScope>,
   isThrottlingError?: (error: unknown) => boolean,
 ): Promise<AppResponse> {
   let response;

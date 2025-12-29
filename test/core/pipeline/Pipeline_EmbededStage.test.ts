@@ -1,14 +1,14 @@
 import { BaseState } from '../../../src';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';
-import { PipelineStageFunction, StageNode, TreePipeline } from '../../../src/core/pipeline';
+import { PipelineStageFunction, StageNode, Pipeline } from '../../../src/core/pipeline';
 
 class PipelineScope extends BaseState {}
 
 const scopeFactory: ScopeFactory<PipelineScope> = (ctx: StageContext, stage: string) =>
   new PipelineScope(ctx as any, stage);
 
-describe('TreePipeline – Embedded Stage Functions', () => {
+describe('Pipeline – Embedded Stage Functions', () => {
   it('executes a linear pipeline with embedded fn', async () => {
     const calls: string[] = [];
 
@@ -27,7 +27,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
       },
     };
 
-    const p = new TreePipeline(root, new Map(), scopeFactory);
+    const p = new Pipeline(root, new Map(), scopeFactory);
     await p.execute();
 
     expect(calls).toEqual(['A', 'B']);
@@ -53,7 +53,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
         }),
       },
     };
-    const p = new TreePipeline(root, new Map(), scopeFactory);
+    const p = new Pipeline(root, new Map(), scopeFactory);
     await p.execute();
     expect(calls).toEqual(['A']);
   });
@@ -66,7 +66,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
         { id: 'y', name: 'Y', fn: jest.fn(() => 20) },
       ],
     };
-    const p = new TreePipeline(root, new Map(), scopeFactory);
+    const p = new Pipeline(root, new Map(), scopeFactory);
     const out = await p.execute();
     // fan-in shape: { x:{result,isError}, y:{result,isError} }
     // @ts-ignore
@@ -85,7 +85,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
       ],
       nextNodeDecider: (stageOutput) => stageOutput as string, // must return child *id*
     };
-    const p = new TreePipeline(root, new Map(), scopeFactory);
+    const p = new Pipeline(root, new Map(), scopeFactory);
     const out = await p.execute();
     expect(out).toBe('R');
     expect((root.children![0].fn as jest.Mock).mock.calls.length).toBe(0); // LEFT not executed
@@ -103,7 +103,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
       fn: jest.fn(() => 'ok'),
       next: { name: 'B' }, // resolved via map
     };
-    const p = new TreePipeline(root, map, scopeFactory);
+    const p = new Pipeline(root, map, scopeFactory);
     const out = await p.execute();
     expect(out).toBe(42);
     expect((root.fn as jest.Mock).mock.calls.length).toBe(1);
@@ -112,7 +112,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
 
   it('throws when node has neither fn nor map entry nor children/decider', async () => {
     const bad: StageNode<any, PipelineScope> = { name: 'EMPTY' };
-    const p = new TreePipeline(bad, new Map(), scopeFactory);
+    const p = new Pipeline(bad, new Map(), scopeFactory);
     await expect(p.execute()).rejects.toThrow(
       /must define: embedded fn OR a stageMap entry OR have children\/decider/i,
     );
@@ -155,7 +155,7 @@ describe('TreePipeline – Embedded Stage Functions', () => {
       },
     };
 
-    const p = new TreePipeline(root, new Map(), scopeFactory);
+    const p = new Pipeline(root, new Map(), scopeFactory);
     await p.execute();
 
     // parent must be first

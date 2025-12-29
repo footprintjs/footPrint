@@ -1,9 +1,22 @@
 {
-  "name": "@amzn/tree-of-functions",
+  "name": "footprint",
   "version": "0.1.0",
-  "license": "UNLICENSED",
-  "repository": "ssh://git.amazon.com/pkg/TreeOfFunctions",
-  "homepage": "https://code.amazon.com/packages/TreeOfFunctions",
+  "description": "FootPrint - Connected execution logging model that transforms application execution into structured, causal, replayable context for AI reasoning",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanjay1909/footPrint.git"
+  },
+  "homepage": "https://github.com/sanjay1909/footPrint",
+  "keywords": [
+    "footprint",
+    "pipeline",
+    "workflow",
+    "execution-context",
+    "ai-compatible",
+    "connected-logs",
+    "observability"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -44,7 +57,7 @@
       "text",
       "text-summary"
     ],
-    "coverageDirectory": "<rootDir>/build/brazil-unit-tests/",
+    "coverageDirectory": "<rootDir>/build/coverage/",
     "coverageThreshold": {
       "global": {
         "statements": 80,
@@ -59,12 +72,6 @@
     "!dist/test",
     "!dist/types/test"
   ],
-  "npm-pretty-much": {
-    "appName": "@amzn/tree-of-functions",
-    "publishLibCommonJs": true,
-    "runRelease": "always",
-    "runTest": "never"
-  },
   "main": "dist/index.js",
   "types": "dist/types/index.d.ts",
   "dependencies": {
@@ -77,7 +84,6 @@
     "zod": "^4.0.16"
   },
   "devDependencies": {
-    "@amzn/brazil": "^2.0.6",
     "@types/jest": "^29.5.2",
     "@types/lodash.clonedeep": "^4.5.9",
     "@types/lodash.get": "^4.4.9",

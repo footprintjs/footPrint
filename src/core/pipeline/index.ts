@@ -1,2 +1,2 @@
-export * from './TreePipeline';
+export * from './Pipeline';
 export * from './types';

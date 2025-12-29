@@ -7,7 +7,7 @@ import * as fc from 'fast-check';
 
 import { StageContext } from '../../../src/core/context/StageContext';
 import type { PipelineStageFunction, StageNode } from '../../../src/core/pipeline';
-import { TreePipeline } from '../../../src/core/pipeline';
+import { Pipeline } from '../../../src/core/pipeline';
 import { FlowBuilder } from '../../../src/FlowBuilder';
 import { BaseState } from '../../../src/scope/core/BaseState';
 
@@ -167,7 +167,7 @@ describe('Streaming Support Property Tests', () => {
 
           const root: StageNode = { name: stageName };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           // Should execute without throwing
           const result = await pipeline.execute();
@@ -192,7 +192,7 @@ describe('Streaming Support Property Tests', () => {
 
           const root: StageNode = { name: stageName };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           const result = await pipeline.execute();
           return result === returnValue;
@@ -215,7 +215,7 @@ describe('Streaming Support Property Tests', () => {
 
           const root: StageNode = { name: stageName };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           const result = await pipeline.execute();
           return result === returnValue;
@@ -259,7 +259,7 @@ describe('Streaming Support Property Tests', () => {
               },
             };
 
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             // Should execute without throwing
             const result = await pipeline.execute();
@@ -289,7 +289,7 @@ describe('Streaming Support Property Tests', () => {
             streamId: 'test-stream',
           };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           const result = await pipeline.execute();
           return result === returnValue;
@@ -302,7 +302,7 @@ describe('Streaming Support Property Tests', () => {
   /**
    * **Feature: streaming-support, Property 2: Callback injection for streaming stages**
    *
-   * *For any* stage marked with `isStreaming: true`, when TreePipeline executes that stage,
+   * *For any* stage marked with `isStreaming: true`, when Pipeline executes that stage,
    * the stage function SHALL receive a defined function as its third parameter.
    *
    * **Validates: Requirements 2.1**
@@ -348,7 +348,7 @@ describe('Streaming Support Property Tests', () => {
             streamId: effectiveStreamId,
           };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -386,7 +386,7 @@ describe('Streaming Support Property Tests', () => {
               streamId: 'test-stream',
             };
 
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             // Should execute without throwing
             await pipeline.execute();
@@ -425,7 +425,7 @@ describe('Streaming Support Property Tests', () => {
               streamId,
             };
 
-            const pipeline = new TreePipeline(
+            const pipeline = new Pipeline(
               root,
               stageMap,
               scopeFactory,
@@ -458,7 +458,7 @@ describe('Streaming Support Property Tests', () => {
   /**
    * **Feature: streaming-support, Property 3: No callback for non-streaming stages**
    *
-   * *For any* stage without `isStreaming: true`, when TreePipeline executes that stage,
+   * *For any* stage without `isStreaming: true`, when Pipeline executes that stage,
    * the stage function SHALL receive undefined as its third parameter.
    *
    * **Validates: Requirements 2.2, 5.2**
@@ -498,7 +498,7 @@ describe('Streaming Support Property Tests', () => {
             // isStreaming is not set (undefined)
           };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -529,7 +529,7 @@ describe('Streaming Support Property Tests', () => {
             isStreaming: false,
           };
 
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -562,7 +562,7 @@ describe('Streaming Support Property Tests', () => {
           };
 
           // Pipeline with stream handlers registered
-          const pipeline = new TreePipeline(
+          const pipeline = new Pipeline(
             root,
             stageMap,
             scopeFactory,
@@ -625,7 +625,7 @@ describe('Streaming Support Property Tests', () => {
               },
             };
 
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             await pipeline.execute();
 

@@ -9,7 +9,7 @@
     "noEmit": true,
     "baseUrl": "..",
     "paths": {
-      "@amzn/tree-of-functions": ["src/index.ts"]
+      "footprint": ["src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],

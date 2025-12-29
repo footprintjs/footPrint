@@ -7,7 +7,7 @@
 
 import * as fc from 'fast-check';
 
-import { isStageNodeReturn, StageNode } from '../../../src/core/pipeline/TreePipeline';
+import { isStageNodeReturn, StageNode } from '../../../src/core/pipeline/Pipeline';
 
 /**
  * **Feature: dynamic-stagenode-return, Property 1: StageNode Detection Correctness**
@@ -304,8 +304,8 @@ describe('Dynamic StageNode Execution Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  // Import TreePipeline for execution tests
-  const { TreePipeline } = require('../../../src/core/pipeline/TreePipeline');
+  // Import Pipeline for execution tests
+  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
   const { StageNode, PipelineStageFunction } = require('../../../src/core/pipeline/types');
 
   // Arbitrary for valid stage names
@@ -344,7 +344,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
             stageMap.set(rootName, rootStage);
 
             const root = { name: rootName };
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             const result = await pipeline.execute();
 
@@ -392,7 +392,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           const result = await pipeline.execute();
 
@@ -445,7 +445,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
             stageMap.set(rootName, rootStage);
 
             const root = { name: rootName };
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             await pipeline.execute();
 
@@ -502,7 +502,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
             stageMap.set(rootName, rootStage);
 
             const root = { name: rootName };
-            const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+            const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
             await pipeline.execute();
 
@@ -540,7 +540,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -577,7 +577,7 @@ describe('Commit Ordering Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  const { TreePipeline } = require('../../../src/core/pipeline/TreePipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
 
   const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
 
@@ -620,7 +620,7 @@ describe('Commit Ordering Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -641,7 +641,7 @@ describe('Commit Ordering Property Tests', () => {
  * **Feature: dynamic-stagenode-return, Property 11: Backward Compatibility**
  *
  * *For any* stage function returning the legacy `DynamicChildrenResult` pattern
- * with `isDynamic: true`, the TreePipeline SHALL execute it correctly.
+ * with `isDynamic: true`, the Pipeline SHALL execute it correctly.
  *
  * **Validates: Requirements 6.1**
  */
@@ -660,7 +660,7 @@ describe('Backward Compatibility Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  const { TreePipeline } = require('../../../src/core/pipeline/TreePipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
 
   const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
 
@@ -698,7 +698,7 @@ describe('Backward Compatibility Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           const result = await pipeline.execute();
 
@@ -741,7 +741,7 @@ describe('Backward Compatibility Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 
@@ -777,7 +777,7 @@ describe('Context Tree Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  const { TreePipeline } = require('../../../src/core/pipeline/TreePipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
 
   const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
 
@@ -798,7 +798,7 @@ describe('Context Tree Property Tests', () => {
           stageMap.set(rootName, rootStage);
 
           const root = { name: rootName };
-          const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+          const pipeline = new Pipeline(root, stageMap, scopeFactory);
 
           await pipeline.execute();
 

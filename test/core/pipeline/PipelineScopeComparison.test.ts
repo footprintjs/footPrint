@@ -1,5 +1,5 @@
 /**
- * Parametric TreePipeline test: run once with legacy BaseState class,
+ * Parametric Pipeline test: run once with legacy BaseState class,
  * and once with a branded Zod schema (consumer-style).
  *
  * Option A (resolver path): mirror how consumers pass a branded schema.
@@ -17,7 +17,7 @@ import { BaseState } from '../../../src';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';
 import type { PipelineStageFunction } from '../../../src/core/pipeline';
-import { StageNode, TreePipeline } from '../../../src/core/pipeline';
+import { StageNode, Pipeline } from '../../../src/core/pipeline';
 import { toScopeFactory } from '../../../src/scope/core/resolve';
 // Resolver helper to turn a branded Zod schema into a ScopeFactory
 import { defineScopeSchema } from '../../../src/scope/state/zod';
@@ -106,7 +106,7 @@ const AppScopeSchema = defineScopeSchema({
     .default({}),
 });
 
-// Build scope factories for each variant (TreePipeline expects a ScopeFactory)
+// Build scope factories for each variant (Pipeline expects a ScopeFactory)
 const legacyFactory: ScopeFactory<BaseState> = (ctx: StageContext, stage: string, ro?: unknown) =>
   new PipelineScope(ctx as any, stage, ro);
 
@@ -120,10 +120,10 @@ const variants: Array<{ label: 'legacy' | 'zod'; scopeFactory: ScopeFactory<any>
 ];
 
 // NOTE: with object tables you can use the "$label" placeholder to render row names
-describe.each(variants)('TreePipeline – $label scope', ({ scopeFactory }) => {
+describe.each(variants)('Pipeline – $label scope', ({ scopeFactory }) => {
   let stageMap: Map<string, PipelineStageFunction<any, any>>;
-  let pipeline: TreePipeline<any, any>;
-  let pipelineNextAndChildren: TreePipeline<any, any>;
+  let pipeline: Pipeline<any, any>;
+  let pipelineNextAndChildren: Pipeline<any, any>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -135,8 +135,8 @@ describe.each(variants)('TreePipeline – $label scope', ({ scopeFactory }) => {
       jest.fn(() => ({ useAlternativeNode: false })),
     );
 
-    pipeline = new TreePipeline<any, any>(pipelineStructure, stageMap, scopeFactory, {});
-    pipelineNextAndChildren = new TreePipeline<any, any>(childrenAndNextPipeline, stageMap, scopeFactory, {});
+    pipeline = new Pipeline<any, any>(pipelineStructure, stageMap, scopeFactory, {});
+    pipelineNextAndChildren = new Pipeline<any, any>(childrenAndNextPipeline, stageMap, scopeFactory, {});
   });
 
   it('executes the pipeline with the initial input', async () => {
@@ -184,7 +184,7 @@ describe.each(variants)('TreePipeline – $label scope', ({ scopeFactory }) => {
 });
 
 // Scope-agnostic throttling checker (single run; legacy scope is fine)
-describe('TreePipeline – throttlingErrorChecker', () => {
+describe('Pipeline – throttlingErrorChecker', () => {
   let updateObjectSpy: jest.SpyInstance;
   let stageMap: Map<string, PipelineStageFunction<any, any>>;
 
@@ -209,7 +209,7 @@ describe('TreePipeline – throttlingErrorChecker', () => {
     };
     const legacyFactory: ScopeFactory<BaseState> = (ctx, stage, ro?: unknown) =>
       new PipelineScope(ctx as any, stage, ro);
-    return new TreePipeline<any, BaseState>(root, stageMap, legacyFactory, {}, undefined, undefined, checker);
+    return new Pipeline<any, BaseState>(root, stageMap, legacyFactory, {}, undefined, undefined, checker);
   }
 
   it('flags a child context when checker returns true', async () => {

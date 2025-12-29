@@ -1,7 +1,7 @@
 /**
- * tests/TreePipeline.unifiedOrder.spec.ts
+ * tests/Pipeline.unifiedOrder.spec.ts
  *
- * Full unit tests for the unified TreePipeline traversal:
+ * Full unit tests for the unified Pipeline traversal:
  *   - Linear, Fork-only, Fork+Next, Decider
  *   - ORDER (dedicated describe)
  *   - Break semantics (parent stage break skips children & next)
@@ -10,7 +10,7 @@
  *   - Debug breadcrumbs (orderOfExecution, totalChildren)
  *   - Introspection helpers (getContextTree, setRootObject, getInheritedPipelines)
  *
- * The test uses a minimal FakeStageContext + mocked TreePipelineContext so we can
+ * The test uses a minimal FakeStageContext + mocked PipelineContext so we can
  * observe commits and child context creation without touching real persistence.
  */
 
@@ -24,7 +24,7 @@ type Node = StageNode<TOut, TScope>;
 
 /* ===================== Imports under test ===================== */
 
-import { TreePipeline } from '../../../src/core/pipeline';
+import { Pipeline } from '../../../src/core/pipeline';
 import type { ScopeFactory } from '../../../src/scope/core/types';
 
 /* ===================== Globals used by mocks ===================== */
@@ -89,7 +89,7 @@ class FakeStageContext {
   }
 
   setRoot(_k: string, _v: unknown) {
-    /* recorded in mocked TreePipelineContext */
+    /* recorded in mocked PipelineContext */
   }
 
   createDeciderContext(_path: string, _role: string) {
@@ -189,7 +189,7 @@ describe('ORDER — unified traversal (stage → children → next; decider = st
       ],
       next: { name: 'NEXT', fn: fns.NEXT },
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     await p.execute();
     expect(order).toEqual(['parent', 'childA', 'childB', 'next']);
   });
@@ -218,7 +218,7 @@ describe('ORDER — unified traversal (stage → children → next; decider = st
         { id: 'b', name: 'B', fn: fns.B },
       ],
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     const out = (await p.execute()) as any;
     expect(order).toEqual(['parent', 'childA', 'childB']);
     expect(out.a).toEqual({ result: 'A', isError: false });
@@ -252,7 +252,7 @@ describe('ORDER — unified traversal (stage → children → next; decider = st
       ],
       nextNodeDecider: (out: any) => out.pick,
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     const out = await p.execute();
     expect(order).toEqual(['parent', 'B']);
     expect(out).toBe('b');
@@ -270,7 +270,7 @@ describe('Linear & break semantics', () => {
     const fns = { INIT: jest.fn(), NEXT: jest.fn(() => 'done') };
     const stageMap = makeMap(fns);
     const root: Node = { name: 'INIT', fn: fns.INIT, next: { name: 'NEXT', fn: fns.NEXT } };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     const out = await p.execute();
     expect(fns.INIT).toHaveBeenCalledTimes(1);
     expect(fns.NEXT).toHaveBeenCalledTimes(1);
@@ -292,7 +292,7 @@ describe('Linear & break semantics', () => {
       children: [{ id: 'a', name: 'A', fn: fns.A }],
       next: { name: 'NEXT', fn: fns.NEXT },
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     await p.execute();
     expect(fns.A).not.toHaveBeenCalled();
     expect(fns.NEXT).not.toHaveBeenCalled();
@@ -307,7 +307,7 @@ describe('Validation & error paths', () => {
   test('Empty node throws (no fn, no children, no decider, no next)', async () => {
     const stageMap = new Map<string, PSF>();
     const bad: Node = { name: 'BAD' as any };
-    const p = new TreePipeline(bad, stageMap, scopeFactory);
+    const p = new Pipeline(bad, stageMap, scopeFactory);
     await expect(p.execute()).rejects.toThrow(/must define/i);
   });
 
@@ -315,7 +315,7 @@ describe('Validation & error paths', () => {
     const fns = { D: jest.fn(() => ({})) };
     const stageMap = makeMap(fns);
     const bad: Node = { name: 'D', fn: fns.D, nextNodeDecider: () => 'x' };
-    const p = new TreePipeline(bad, stageMap, scopeFactory);
+    const p = new Pipeline(bad, stageMap, scopeFactory);
     await expect(p.execute()).rejects.toThrow(/Decider node needs to have children/i);
   });
 
@@ -328,7 +328,7 @@ describe('Validation & error paths', () => {
       children: [{ id: 'ok', name: 'OK', fn: jest.fn() as unknown as PSF }],
       nextNodeDecider: (out: any) => out.id,
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory);
+    const p = new Pipeline(root, stageMap, scopeFactory);
     await expect(p.execute()).rejects.toThrow(/Next Stage not found/i);
   });
 
@@ -341,7 +341,7 @@ describe('Validation & error paths', () => {
     };
     const stageMap = makeMap(fns);
     const root: Node = { name: 'BAD', fn: fns.BAD };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     await expect(p.execute()).rejects.toThrow('boom');
     // Spot check commitPatch was invoked
     const ctx = (p as any).treePipelineContext.rootStageContext as FakeStageContext;
@@ -371,7 +371,7 @@ describe('Fork-only aggregation & throttling', () => {
     };
     const throttlingChecker = (e: unknown) => (e as Error).message === 'RATE_LIMIT';
 
-    const p = new TreePipeline(root, stageMap, scopeFactory, {}, undefined, undefined, throttlingChecker);
+    const p = new Pipeline(root, stageMap, scopeFactory, {}, undefined, undefined, throttlingChecker);
     const out = (await p.execute()) as any;
 
     expect(out.ok).toEqual({ result: 'OK', isError: false });
@@ -400,7 +400,7 @@ describe('Debug breadcrumbs & helpers', () => {
       children: [{ id: 'a', name: 'A', fn: fns.A }],
       next: { name: 'N', fn: fns.N },
     };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
     await p.execute();
 
     const ctx = (p as any).treePipelineContext.rootStageContext as FakeStageContext;
@@ -414,7 +414,7 @@ describe('Debug breadcrumbs & helpers', () => {
   test('getContextTree / setRootObject / getInheritedPipelines', async () => {
     const stageMap = new Map<string, PSF>();
     const root: Node = { name: 'X' as any };
-    const p = new TreePipeline(root, stageMap, scopeFactory, {});
+    const p = new Pipeline(root, stageMap, scopeFactory, {});
 
     // getContextTree
     const tree = p.getContextTree();

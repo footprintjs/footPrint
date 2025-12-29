@@ -1,7 +1,7 @@
 /**
- * TreePipeline.ts
+ * Pipeline.ts
  *
- * Engine for Tree-of-Functions traversal with a **programmer-friendly order**:
+ * Engine for FootPrint traversal with a **programmer-friendly order**:
  *
  *   // prep        →     parallel gather     →     aggregate/continue
  *   const pre = await prep();
@@ -163,7 +163,7 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
   }
 }
 
-export class TreePipeline<TOut, TScope> {
+export class Pipeline<TOut, TScope> {
   private stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
   private root: StageNode;
   private treePipelineContext: TreePipelineContext;

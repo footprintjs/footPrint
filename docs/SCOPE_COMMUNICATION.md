@@ -102,7 +102,7 @@ async function aggregateStage(scope: MyScope) {
 
 ## Commit Lifecycle
 
-TreePipeline automatically calls `commitPatch()` after each stage completes:
+Pipeline automatically calls `commitPatch()` after each stage completes:
 
 1. Stage handler runs
 2. All `setObject()`/`updateObject()` calls are batched in `PatchedMemoryContext`
@@ -212,7 +212,7 @@ async function aggregateTools(scope: AgentScope) {
 
 ## Debugging Tips
 
-1. **Check commitPatch was called**: TreePipeline logs patch commits. Look for `writeTrace` in debug output.
+1. **Check commitPatch was called**: Pipeline logs patch commits. Look for `writeTrace` in debug output.
 
 2. **Verify path namespacing**: Values are stored under `pipelines/<pipelineId>/<path>/<key>`. Use `getValue` with correct path.
 

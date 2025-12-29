@@ -4,7 +4,7 @@
  * Shows dynamic multi-choice branching with addSelector().
  */
 
-import { FlowChartBuilder, BaseState } from '@amzn/tree-of-functions';
+import { FlowChartBuilder, BaseState } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {

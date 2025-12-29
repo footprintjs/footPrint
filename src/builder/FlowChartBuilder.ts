@@ -1,8 +1,8 @@
 /**
  * FlowChartBuilder.ts
  *
- * A developer-friendly **Tree-of-Functions** builder to produce flow charts
- * your runtime engine (TreePipeline) can execute.
+ * A developer-friendly **FootPrint** builder to produce flow charts
+ * your runtime engine (Pipeline) can execute.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * WHAT THIS IS FOR
@@ -13,9 +13,9 @@
  *
  *   • BE / run-time:
  *       - Receive either `{root, stageMap}` (from build()) or a pure spec (`toSpec()`)
- *       - Convert spec via `specToStageNode(spec)` and run with `TreePipeline`
+ *       - Convert spec via `specToStageNode(spec)` and run with `Pipeline`
  *
- * ENGINE ALIGNMENT (unified order in your TreePipeline):
+ * ENGINE ALIGNMENT (unified order in your Pipeline):
  *   • Linear:      stage → next
  *   • Fork-only:   (stage?) → children (parallel) → return bundle
  *   • Fork+next:   stage → children (parallel) → next
@@ -27,8 +27,8 @@
  *   • StageMap name collisions when mounting subtrees → throw
  */
 
-import type { Selector, StageNode } from '../core/pipeline/TreePipeline';
-import { TreePipeline } from '../core/pipeline/TreePipeline';
+import type { Selector, StageNode } from '../core/pipeline/Pipeline';
+import { Pipeline } from '../core/pipeline/Pipeline';
 import type { PipelineStageFunction } from '../core/pipeline/types';
 import type { ScopeFactory } from '../scope/core/types';
 
@@ -586,7 +586,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   async execute(scopeFactory: ScopeFactory<TScope>, opts?: ExecOptions): Promise<any> {
     const { root, stageMap } = this.build();
-    const p = new TreePipeline<TOut, TScope>(
+    const p = new Pipeline<TOut, TScope>(
       root,
       stageMap,
       scopeFactory,

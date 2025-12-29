@@ -5,7 +5,7 @@
  * This is the killer feature - apps become building blocks!
  */
 
-import { FlowChartBuilder, BaseState, TreePipeline, BuiltFlow } from '@amzn/tree-of-functions';
+import { FlowChartBuilder, BaseState, Pipeline, BuiltFlow } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
@@ -159,8 +159,8 @@ async function main() {
 
   const start = Date.now();
 
-  // Execute using TreePipeline directly
-  const pipeline = new TreePipeline(root, stageMap, scopeFactory);
+  // Execute using Pipeline directly
+  const pipeline = new Pipeline(root, stageMap, scopeFactory);
   const result = await pipeline.execute();
 
   const elapsed = Date.now() - start;

@@ -4,7 +4,7 @@
  * Shows the simplest FlowChartBuilder usage - a linear chain of functions.
  */
 
-import { FlowChartBuilder, BaseState } from '@amzn/tree-of-functions';
+import { FlowChartBuilder, BaseState } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {

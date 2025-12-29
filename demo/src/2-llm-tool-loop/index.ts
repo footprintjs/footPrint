@@ -4,7 +4,7 @@
  * Shows conditional branching with addDecider() - the classic LLM agent loop.
  */
 
-import { FlowChartBuilder, BaseState } from '@amzn/tree-of-functions';
+import { FlowChartBuilder, BaseState } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
