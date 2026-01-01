@@ -23,6 +23,7 @@
   "scripts": {
     "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
     "build": "tsc",
+    "prepare": "npm run build",
     "watch": "tsc -w",
     "test": "jest --coverage",
     "test:watch": "jest --passWithNoTests --watchAll --coverage=false",
