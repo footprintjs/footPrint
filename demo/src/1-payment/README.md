@@ -1,30 +1,71 @@
-# Demo 1: Payment Flow (Linear Pattern)
+# Demo 1: Payment Flow
 
-The simplest FlowChartBuilder pattern - a linear chain of functions.
+**Pattern:** Linear  
+**Complexity:** ⭐  
+**Time:** 5 minutes
 
-## Pattern: `start()` → `addFunction()` → `addFunction()` → ...
+## What You'll Learn
+
+- Basic `FlowChartBuilder` usage
+- Chaining stages with `start()` and `addFunction()`
+- Scope communication with `setObject()` and `getValue()`
+
+## The Flow
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ ValidateCart │ -> │ ProcessPay   │ -> │ UpdateInv    │ -> │ SendReceipt  │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+┌──────────────┐     ┌────────────────┐     ┌─────────────────┐     ┌─────────────┐
+│ ValidateCart │────▶│ ProcessPayment │────▶│ UpdateInventory │────▶│ SendReceipt │
+└──────────────┘     └────────────────┘     └─────────────────┘     └─────────────┘
 ```
 
 ## Key Concepts
 
-1. **`start(name, fn)`** - Define the root node
-2. **`addFunction(name, fn)`** - Chain the next step
-3. **`build()`** - Compile to executable tree
-4. **`execute(scopeFactory)`** - Run the pipeline
+### 1. Building a Linear Flow
 
-## When to Use
+```typescript
+new FlowChartBuilder()
+  .start('ValidateCart', validateFn)      // Entry point
+  .addFunction('ProcessPayment', payFn)   // Chain next
+  .addFunction('UpdateInventory', invFn)  // Chain next
+  .addFunction('SendReceipt', receiptFn); // Chain next
+```
 
-- Sequential workflows where each step depends on the previous
-- Simple request/response pipelines
-- ETL processes with ordered stages
+### 2. Passing Data Between Stages
 
-## Run
+```typescript
+// Stage 1: Write data
+const validateCart = async (scope: BaseState) => {
+  scope.setObject(['pipeline'], 'cartTotal', 79.98);
+  return { valid: true };
+};
+
+// Stage 2: Read data
+const processPayment = async (scope: BaseState) => {
+  const total = scope.getValue(['pipeline'], 'cartTotal');
+  return { success: true, amount: total };
+};
+```
+
+## Run It
 
 ```bash
-npx ts-node demo/src/1-payment/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
 ```
+
+## Expected Output
+
+```
+=== Payment Demo (Linear Pattern) ===
+
+  [1] Validating cart...
+  [2] Processing payment...
+  [3] Updating inventory...
+  [4] Sending receipt...
+
+✓ Payment flow complete!
+  Final result: { "sent": true, "txId": "TX-...", "total": 79.98 }
+```
+
+## Next Steps
+
+→ [Demo 2: LLM Tool Loop](../2-llm-tool-loop/) - Learn conditional branching

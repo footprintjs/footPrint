@@ -24,7 +24,7 @@
  * VALIDATIONS:
  *   • Duplicate child ids under a parent → throw
  *   • Decider must have at least one branch → throw
- *   • StageMap name collisions when mounting subtrees → throw
+ *   • StageMap name collisions when mounting flowcharts → throw
  */
 
 import type { Selector, StageNode } from '../core/pipeline/Pipeline';
@@ -81,7 +81,7 @@ export type StageFn = PipelineStageFunction<any, any>;
 /**
  * Spec for a parallel child entry in `addListOfFunction`.
  * Provides an id, a stage name, an optional embedded function,
- * and an optional subtree (via `build` closure).
+ * and an optional flowchart (via `build` closure).
  */
 export type ParallelSpec<TOut = any, TScope = any> = {
   /** Required: child id (used by deciders and bundle keys). Must be unique under the parent. */
@@ -92,12 +92,12 @@ export type ParallelSpec<TOut = any, TScope = any> = {
   displayName?: string;
   /** Optional embedded stage function. */
   fn?: PipelineStageFunction<TOut, TScope>;
-  /** Optional subtree under this child. Runs recursively (linear/fork/decider). */
+  /** Optional flowchart under this child. Runs recursively (linear/fork/decider). */
   build?: (b: FlowChartBuilder<TOut, TScope>) => void;
 };
 
 /**
- * A branch body for deciders (function + optional subtree, or a pure subtree).
+ * A branch body for deciders (function + optional flowchart, or a pure flowchart).
  */
 export type BranchBody<TOut = any, TScope = any> =
   | { name?: string; fn?: PipelineStageFunction<TOut, TScope>; build?: (b: FlowChartBuilder<TOut, TScope>) => void }
@@ -176,11 +176,11 @@ export class DeciderList<TOut = any, TScope = any> {
   }
 
   /**
-   * Add a branch that **starts with a function** (optionally with a subtree).
+   * Add a branch that **starts with a function** (optionally with a flowchart).
    * @param id     Child id (required; must be unique under this decider).
    * @param name   Stage name (stageMap key if `fn` omitted).
    * @param fn     Optional embedded stage function for the branch root.
-   * @param build  Optional subtree under this branch.
+   * @param build  Optional flowchart under this branch.
    * @param displayName Optional human-readable display name for UI.
    */
   addFunctionBranch(
@@ -209,10 +209,10 @@ export class DeciderList<TOut = any, TScope = any> {
   }
 
   /**
-   * Mount an already-built subtree as a branch.
-   * Useful for composing large trees from smaller ones owned by other teams.
+   * Mount an already-built flowchart as a branch.
+   * Useful for composing large graphs from smaller ones owned by other teams.
    */
-  addSubtreeBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): DeciderList<TOut, TScope> {
+  addSubFlowChartBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.cur.name}'`);
     this.branchIds.add(id);
     const n = this.b._inflate(subflow.root);
@@ -302,11 +302,11 @@ export class SelectorList<TOut = any, TScope = any> {
   }
 
   /**
-   * Add a branch that **starts with a function** (optionally with a subtree).
+   * Add a branch that **starts with a function** (optionally with a flowchart).
    * @param id     Child id (required; must be unique under this selector).
    * @param name   Stage name (stageMap key if `fn` omitted).
    * @param fn     Optional embedded stage function for the branch root.
-   * @param build  Optional subtree under this branch.
+   * @param build  Optional flowchart under this branch.
    */
   addFunctionBranch(
     id: string,
@@ -332,10 +332,10 @@ export class SelectorList<TOut = any, TScope = any> {
   }
 
   /**
-   * Mount an already-built subtree as a branch.
-   * Useful for composing large trees from smaller ones owned by other teams.
+   * Mount an already-built flowchart as a branch.
+   * Useful for composing large graphs from smaller ones owned by other teams.
    */
-  addSubtreeBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): SelectorList<TOut, TScope> {
+  addSubFlowChartBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): SelectorList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.cur.name}'`);
     this.branchIds.add(id);
     const n = this.b._inflate(subflow.root);
@@ -432,7 +432,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Add parallel children (fork). Cursor remains at the parent.
-   * If a child has a `build` callback, it defines a full subtree under that child.
+   * If a child has a `build` callback, it defines a full flowchart under that child.
    * 
    * For runtime continuation (no start() required):
    * Auto-creates a virtual cursor if none exists, enabling dynamic stages to use
@@ -484,8 +484,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Add a **child** by mounting a prebuilt subtree under the current node (fork).
-   * This is the non-decider analog to `addSubtreeBranch` and is intended for
+   * Add a **child** by mounting a prebuilt flowchart under the current node (fork).
+   * This is the non-decider analog to `addSubFlowChartBranch` and is intended for
    * stitching multiple chatbot subflows (e.g., FAQ, Smalltalk, RAG) as parallel children.
    *
    * Example:
@@ -494,20 +494,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    *
    *   new FlowChartBuilder()
    *     .start('entry')
-   *     .addSubtreeChild('faq', faq, 'FAQ')  // child id 'faq' hosts the FAQ subtree
-   *     .addSubtreeChild('rag', rag, 'RAG')  // child id 'rag' hosts the RAG subtree
+   *     .addSubFlowChart('faq', faq, 'FAQ')  // child id 'faq' hosts the FAQ flowchart
+   *     .addSubFlowChart('rag', rag, 'RAG')  // child id 'rag' hosts the RAG flowchart
    *     .addFunction('aggregate')
    *
    * @param id        child id (required; unique under current parent)
    * @param subflow   prebuilt flow (from .build())
    * @param mountName optional override for the child’s stage name at the mount point
    */
-  addSubtreeChild(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): this {
+  addSubFlowChart(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): this {
     const cur = this._needCursor();
     if (cur.children.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
-    // Inflate the subtree and mount it as a child
+    // Inflate the flowchart and mount it as a child
     const n = this._inflate(subflow.root);
     n.id = id;
     if (mountName) n.name = mountName;
@@ -848,7 +848,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     for (const [k, v] of other) {
       if (this._stageMap.has(k)) {
         const existing = this._stageMap.get(k);
-        if (existing !== v) fail(`stageMap collision while mounting subtree at '${k}'`);
+        if (existing !== v) fail(`stageMap collision while mounting flowchart at '${k}'`);
       } else {
         this._stageMap.set(k, v);
       }

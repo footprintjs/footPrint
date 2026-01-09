@@ -1,10 +1,10 @@
-# Scope Communication in TreeOfFunctions
+# Scope Communication in FootPrint
 
 > **CRITICAL**: This document describes how to properly share data between stages. Incorrect usage will result in data loss.
 
 ## The Problem
 
-Each stage in TreeOfFunctions receives its own `scope` instance. **Direct property assignment on scope does NOT propagate to subsequent stages.**
+Each stage in FootPrint receives its own `scope` instance. **Direct property assignment on scope does NOT propagate to subsequent stages.**
 
 ```typescript
 // ❌ WRONG - This data will be LOST
@@ -134,7 +134,7 @@ Pipeline automatically calls `commitPatch()` after each stage completes:
 When extending `BaseState` for your scope class, these methods are automatically available:
 
 ```typescript
-import { BaseState, StageContext } from '@amzn/tree-of-functions';
+import { BaseState, StageContext } from 'footprint';
 
 class MyScope extends BaseState {
   // Instance properties for type safety (NOT for cross-stage communication)

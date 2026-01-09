@@ -1,70 +1,186 @@
-# Demo 5: Composed Application (The Power Move)
+# Demo 5: Composed Application
 
-Mount entire applications as subtrees with `addSubtreeChild()`.
+**Pattern:** Composition  
+**Complexity:** ⭐⭐⭐⭐  
+**Time:** 20 minutes
 
-## The Big Idea
+## What You'll Learn
 
-**Every demo you've seen (1-4) is a complete application. Now watch them become nodes in a larger workflow.**
+- Mounting entire applications as subtrees with `addSubFlowChart()`
+- Building mega-apps from smaller, tested components
+- The "apps as building blocks" mental model
+
+## The Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         MEGA ORCHESTRATOR APP                                │
-│                                                                              │
-│  ┌─────────────────┐                                                        │
-│  │   Orchestrator  │  ← Entry point                                         │
-│  └────────┬────────┘                                                        │
-│           │                                                                  │
-│     ┌─────┴─────┬─────────────┬─────────────┐                               │
-│     ▼           ▼             ▼             ▼                               │
-│ ┌───────┐  ┌─────────┐  ┌──────────┐  ┌──────────┐                         │
-│ │Payment│  │LLM Loop │  │ Parallel │  │ Selector │  ← Each is a FULL APP!  │
-│ │  App  │  │   App   │  │   App    │  │   App    │                         │
-│ └───┬───┘  └────┬────┘  └────┬─────┘  └────┬─────┘                         │
-│     │           │            │             │                                │
-│     └─────┬─────┴────────────┴─────────────┘                               │
-│           ▼                                                                  │
-│  ┌─────────────────┐                                                        │
-│  │    Aggregate    │  ← Receives results from ALL apps                      │
-│  └─────────────────┘                                                        │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    COMPOSED APP                              │
+│  ┌─────────────┐                                            │
+│  │ Orchestrator│                                            │
+│  └──────┬──────┘                                            │
+│         │                                                    │
+│    ┌────┴────┬────────┬────────┐                            │
+│    ▼         ▼        ▼        ▼                            │
+│ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐                        │
+│ │Payment│ │ LLM  │ │Parallel│ │Selector│  ← Each is a      │
+│ │ App  │ │ App  │ │  App  │ │  App  │    complete app!    │
+│ └──────┘ └──────┘ └──────┘ └──────┘                        │
+│    │         │        │        │                            │
+│    └────┬────┴────────┴────────┘                            │
+│         ▼                                                    │
+│  ┌─────────────┐                                            │
+│  │  Aggregate  │                                            │
+│  └─────────────┘                                            │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-## Why This Matters
-
-1. **Team Autonomy** - Each team owns their app (Payment, LLM, etc.)
-2. **Composability** - Apps are building blocks, not monoliths
-3. **Testability** - Test each app independently, then test composition
-4. **Scalability** - Add new apps without touching existing ones
 
 ## Key Concepts
 
-1. **`buildPaymentFlow()`** - Returns `{ root, stageMap }` (a BuiltFlow)
-2. **`addSubtreeChild(id, builtFlow)`** - Mount as parallel child
-3. **StageMap merging** - All functions from all apps are combined
-4. **Result bundling** - Aggregate receives `{ payment: ..., llm: ..., ... }`
+### 1. Apps as Building Blocks
 
-## The Code Pattern
+Each sub-app is a complete, testable workflow:
 
 ```typescript
-// Build individual apps
-const paymentApp = buildPaymentFlow();
-const llmApp = buildLLMToolLoop();
-const parallelApp = buildParallelFlow();
-const selectorApp = buildSelectorFlow();
+function buildPaymentApp(): BuiltFlow {
+  return new FlowChartBuilder()
+    .start('ValidateCart', validateFn)
+    .addFunction('ProcessPayment', paymentFn)
+    .build();
+}
 
-// Compose into mega-app
+function buildLLMApp(): BuiltFlow {
+  return new FlowChartBuilder()
+    .start('CallLLM', llmFn)
+    .addFunction('FormatResponse', formatFn)
+    .build();
+}
+```
+
+### 2. Composing with addSubFlowChart()
+
+Mount pre-built apps as children in a larger workflow:
+
+```typescript
+const paymentApp = buildPaymentApp();
+const llmApp = buildLLMApp();
+
 new FlowChartBuilder()
-  .start('Orchestrator', orchestrate)
-  .addSubtreeChild('payment', paymentApp)
-  .addSubtreeChild('llm', llmApp)
-  .addSubtreeChild('parallel', parallelApp)
-  .addSubtreeChild('selector', selectorApp)
-  .addFunction('Aggregate', aggregate)
+  .start('Orchestrator', orchestrateFn)
+  .addSubFlowChart('payment', paymentApp, 'PaymentApp')
+  .addSubFlowChart('llm', llmApp, 'LLMApp')
+  .addFunction('Aggregate', aggregateFn)
   .build();
 ```
 
-## Run
+### 3. StageMap Merging
+
+All functions from all apps are merged into a single stageMap:
+
+```typescript
+const { root, stageMap } = buildMegaApp();
+
+// stageMap contains functions from ALL apps:
+// - Orchestrator
+// - ValidateCart, ProcessPayment (from PaymentApp)
+// - CallLLM, FormatResponse (from LLMApp)
+// - Aggregate
+```
+
+### 4. Independent Development
+
+Each app can be:
+- Developed independently
+- Unit tested in isolation
+- Deployed as a standalone service
+- Composed into larger systems
+
+## Run It
 
 ```bash
-npx ts-node demo/src/5-composed/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-composed/index.ts
 ```
+
+## Expected Output
+
+```
+============================================================
+  COMPOSED APPLICATION DEMO (The Power Move)
+============================================================
+
+  4 complete applications running as nodes in 1 mega-app!
+
+  StageMap contains 12 functions from all apps:
+    - Orchestrator
+    - ValidateCart
+    - ProcessPayment
+    - CallLLM
+    - FormatResponse
+    - ParallelEntry
+    - FetchA
+    - FetchB
+    - AnalyzeSelector
+    - SendEmailSelector
+    - SendPushSelector
+    - Aggregate
+
+------------------------------------------------------------
+  EXECUTION
+------------------------------------------------------------
+
+  [Orchestrator] Starting mega workflow...
+  [Orchestrator] Launching 4 sub-applications in parallel!
+
+    [Payment] Validating cart...
+    [Payment] Processing payment...
+    [LLM] Calling LLM...
+    [LLM] Formatting response...
+    [Parallel] Fetching A...
+    [Parallel] Fetching B...
+    [Selector] Analyzing...
+    [Selector] Sending email...
+    [Selector] Sending push...
+
+  [Aggregate] Collecting results from all apps...
+
+------------------------------------------------------------
+  RESULTS
+------------------------------------------------------------
+
+  Execution time: 45ms
+  Final result: {
+    "completed": true,
+    "appsExecuted": ["payment", "llm", "parallel", "selector"]
+  }
+
+============================================================
+  ✓ MEGA APP COMPLETE!
+============================================================
+
+  Key insight: Each "app" (Payment, LLM, Parallel, Selector)
+  is a complete workflow that can be developed, tested, and
+  deployed independently - then composed into larger systems.
+```
+
+## Real-World Use Cases
+
+- **Microservice Orchestration**: Compose service calls into workflows
+- **Multi-Tenant Systems**: Different apps for different customer tiers
+- **Feature Modules**: Plug-and-play feature modules
+- **Testing**: Mock entire sub-apps for integration testing
+
+## The Power Move
+
+This is FootPrint's killer feature:
+
+1. **Build small, focused apps** - Each does one thing well
+2. **Test them independently** - Unit tests, integration tests
+3. **Compose into larger systems** - Apps become nodes
+4. **Scale complexity** - Mega-apps from simple building blocks
+
+```
+Small App → Tested App → Composed App → Mega App
+```
+
+## Back to Start
+
+← [Demo 1: Payment](../1-payment/) - Review the basics

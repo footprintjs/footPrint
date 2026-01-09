@@ -77,7 +77,7 @@ builder
     .end();
 ```
 
-### `addSubtreeChild(id, subflow, mountName?)`
+### `addSubFlowChart(id, subflow, mountName?)`
 
 Mount a prebuilt subtree as a child.
 
@@ -89,7 +89,7 @@ const subflow = new FlowChartBuilder()
 
 builder
   .start('Main', mainFn)
-  .addSubtreeChild('sub', subflow, 'MountedSub');
+  .addSubFlowChart('sub', subflow, 'MountedSub');
 ```
 
 ## Navigation Methods
@@ -156,7 +156,7 @@ Returned by `addDecider()`:
 | Method | Description |
 |--------|-------------|
 | `addFunctionBranch(id, name, fn?, build?)` | Add a branch with function |
-| `addSubtreeBranch(id, subflow, mountName?)` | Add a branch with subtree |
+| `addSubFlowChartBranch(id, subflow, mountName?)` | Add a branch with subtree |
 | `addBranchList(branches)` | Add multiple branches |
 | `setDefault(id)` | Set fallback branch |
 | `end()` | Return to parent builder |
@@ -168,7 +168,7 @@ Returned by `addSelector()`:
 | Method | Description |
 |--------|-------------|
 | `addFunctionBranch(id, name, fn?, build?)` | Add a branch with function |
-| `addSubtreeBranch(id, subflow, mountName?)` | Add a branch with subtree |
+| `addSubFlowChartBranch(id, subflow, mountName?)` | Add a branch with subtree |
 | `addBranchList(branches)` | Add multiple branches |
 | `end()` | Return to parent builder |
 

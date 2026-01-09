@@ -128,10 +128,10 @@ function buildMegaApp(): BuiltFlow {
   // THE POWER MOVE: Compose all apps as subtrees!
   return new FlowChartBuilder()
     .start('Orchestrator', orchestrate)
-    .addSubtreeChild('payment', paymentApp, 'PaymentApp')
-    .addSubtreeChild('llm', llmApp, 'LLMApp')
-    .addSubtreeChild('parallel', parallelApp, 'ParallelApp')
-    .addSubtreeChild('selector', selectorApp, 'SelectorApp')
+    .addSubFlowChart('payment', paymentApp, 'PaymentApp')
+    .addSubFlowChart('llm', llmApp, 'LLMApp')
+    .addSubFlowChart('parallel', parallelApp, 'ParallelApp')
+    .addSubFlowChart('selector', selectorApp, 'SelectorApp')
     .addFunction('Aggregate', aggregate)
     .build();
 }

@@ -109,7 +109,7 @@ describe('FlowChartBuilder Selector Property Tests', () => {
   /**
    * **Feature: flowchart-selector-support, Property 2: SelectorList Branch Addition**
    *
-   * *For any* SelectorList, calling `addFunctionBranch()`, `addSubtreeBranch()`,
+   * *For any* SelectorList, calling `addFunctionBranch()`, `addSubFlowChartBranch()`,
    * or `addBranchList()` SHALL add branches and return the same SelectorList for chaining.
    *
    * **Validates: Requirements 2.1, 2.2, 2.3**
@@ -343,13 +343,13 @@ describe('FlowChartBuilder Selector Property Tests', () => {
   /**
    * **Feature: flowchart-selector-support, Property 5: Inflate Preserves Selector**
    *
-   * *For any* built flow with a selector, inflating it via `addSubtreeBranch`
+   * *For any* built flow with a selector, inflating it via `addSubFlowChartBranch`
    * SHALL preserve the selector function on the internal node.
    *
    * **Validates: Requirements 5.1, 5.2**
    */
   describe('Property 5: Inflate Preserves Selector', () => {
-    it('should preserve selector when mounting subtree via addSubtreeBranch', () => {
+    it('should preserve selector when mounting subtree via addSubFlowChartBranch', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           // Build a subtree with a selector
@@ -365,7 +365,7 @@ describe('FlowChartBuilder Selector Property Tests', () => {
           const parent = new FlowChartBuilder()
             .start(rootName)
             .addDecider(() => 'sub')
-            .addSubtreeBranch('sub', subtree, 'Subtree')
+            .addSubFlowChartBranch('sub', subtree, 'Subtree')
             .end();
 
           const { root } = parent.build();
@@ -383,7 +383,7 @@ describe('FlowChartBuilder Selector Property Tests', () => {
       );
     });
 
-    it('should preserve selector when mounting subtree via addSubtreeChild', () => {
+    it('should preserve selector when mounting subtree via addSubFlowChart', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           // Build a subtree with a selector
@@ -398,7 +398,7 @@ describe('FlowChartBuilder Selector Property Tests', () => {
           // Mount it as a child in a parent tree
           const parent = new FlowChartBuilder()
             .start(rootName)
-            .addSubtreeChild('sub', subtree, 'Subtree')
+            .addSubFlowChart('sub', subtree, 'Subtree')
             .addFunction('aggregate');
 
           const { root } = parent.build();

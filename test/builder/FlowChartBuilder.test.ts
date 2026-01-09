@@ -137,7 +137,7 @@ describe('FlowChartBuilder — build shapes', () => {
     await expect(dec({})).resolves.toBe('left');
   });
 
-  test('composition (decider branches): addSubtreeBranch mounts subflows', () => {
+  test('composition (decider branches): addSubFlowChartBranch mounts subflows', () => {
     const smalltalk = new FlowChartBuilder().start('Smalltalk_Start').addFunction('Smalltalk_Answer').build();
 
     const rag = new FlowChartBuilder().start('RAG_Start').addFunction('RAG_Answer').build();
@@ -145,8 +145,8 @@ describe('FlowChartBuilder — build shapes', () => {
     const chatbot = new FlowChartBuilder()
       .start('Entry')
       .addDecider(() => 'qa')
-      .addSubtreeBranch('smalltalk', smalltalk, 'Smalltalk')
-      .addSubtreeBranch('qa', rag, 'QA')
+      .addSubFlowChartBranch('smalltalk', smalltalk, 'Smalltalk')
+      .addSubFlowChartBranch('qa', rag, 'QA')
       .end()
       .addFunction('Tail');
 
@@ -164,14 +164,14 @@ describe('FlowChartBuilder — build shapes', () => {
     });
   });
 
-  test('composition (fork children): addSubtreeChild mounts subflows as parallel children', () => {
+  test('composition (fork children): addSubFlowChart mounts subflows as parallel children', () => {
     const faq = new FlowChartBuilder().start('FAQ_Start').addFunction('FAQ_Answer').build();
     const help = new FlowChartBuilder().start('Help_Start').addFunction('Help_Answer').build();
 
     const main = new FlowChartBuilder()
       .start('Prep')
-      .addSubtreeChild('faq', faq, 'FAQ')
-      .addSubtreeChild('help', help, 'Help')
+      .addSubFlowChart('faq', faq, 'FAQ')
+      .addSubFlowChart('help', help, 'Help')
       .addFunction('Aggregate')
       .addFunction('Tail');
 
@@ -215,7 +215,7 @@ describe('FlowChartBuilder — validations & errors', () => {
     const subB = new FlowChartBuilder().start('shared', (() => 'other') as any).build();
     const main = new FlowChartBuilder().start('root');
 
-    expect(() => main.addSubtreeChild('a', subA, 'A').addSubtreeChild('b', subB, 'B')).toThrow(/stageMap collision/i);
+    expect(() => main.addSubFlowChart('a', subA, 'A').addSubFlowChart('b', subB, 'B')).toThrow(/stageMap collision/i);
   });
 
   test('stageMap collision within single builder when embedding fn with same name throws', () => {
