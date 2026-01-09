@@ -10,11 +10,11 @@ const makeCtx = () => {
       record('getValue', [path, key]);
       return 42;
     }),
-    setObject: jest.fn().mockImplementation((path: string[], key: string, value: unknown, shouldRedact?: boolean) => {
-      record('setObject', [path, key, value, shouldRedact]);
+    setObject: jest.fn().mockImplementation((path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) => {
+      record('setObject', [path, key, value, shouldRedact, description]);
     }),
-    updateObject: jest.fn().mockImplementation((path: string[], key: string, value: unknown) => {
-      record('updateObject', [path, key, value]);
+    updateObject: jest.fn().mockImplementation((path: string[], key: string, value: unknown, description?: string) => {
+      record('updateObject', [path, key, value, description]);
     }),
     getFromGlobalContext: jest.fn().mockImplementation((key: string) => {
       record('getFromGlobalContext', [key]);
@@ -42,13 +42,13 @@ describe('BaseState', () => {
 
     // setObject (with shouldRedact)
     state.setObject(['x'], 'y', 9, true);
-    expect(ctx.setObject).toHaveBeenCalledWith(['x'], 'y', 9, true);
-    expect(calls.setObject).toEqual([['x'], 'y', 9, true]);
+    expect(ctx.setObject).toHaveBeenCalledWith(['x'], 'y', 9, true, undefined);
+    expect(calls.setObject).toEqual([['x'], 'y', 9, true, undefined]);
 
     // updateObject
     state.updateObject(['m'], 'n', { p: 1 });
-    expect(ctx.updateObject).toHaveBeenCalledWith(['m'], 'n', { p: 1 });
-    expect(calls.updateObject).toEqual([['m'], 'n', { p: 1 }]);
+    expect(ctx.updateObject).toHaveBeenCalledWith(['m'], 'n', { p: 1 }, undefined);
+    expect(calls.updateObject).toEqual([['m'], 'n', { p: 1 }, undefined]);
 
     // setObjectInRoot
     state.setObjectInRoot('rootKey', 'rootVal');

@@ -46,6 +46,8 @@ export type { Selector };
 export interface FlowChartSpec {
   name: string;
   id?: string;
+  /** Human-readable display name for UI */
+  displayName?: string;
   children?: FlowChartSpec[];
   next?: FlowChartSpec;
   /** Whether this node has a decider (transport hint; not required for execution) */
@@ -60,6 +62,10 @@ export interface FlowChartSpec {
   isStreaming?: boolean;
   /** Stream identifier for streaming stages */
   streamId?: string;
+  /** Whether this node is a child of a parallel fork */
+  isParallelChild?: boolean;
+  /** ID of the parent fork node (for parallel children) */
+  parallelGroupId?: string;
 }
 
 /* ============================================================================
@@ -82,6 +88,8 @@ export type ParallelSpec<TOut = any, TScope = any> = {
   id: string;
   /** Stage name (stageMap key if `fn` omitted). */
   name: string;
+  /** Optional human-readable display name for UI. */
+  displayName?: string;
   /** Optional embedded stage function. */
   fn?: PipelineStageFunction<TOut, TScope>;
   /** Optional subtree under this child. Runs recursively (linear/fork/decider). */
@@ -425,15 +433,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /**
    * Add parallel children (fork). Cursor remains at the parent.
    * If a child has a `build` callback, it defines a full subtree under that child.
+   * 
+   * For runtime continuation (no start() required):
+   * Auto-creates a virtual cursor if none exists, enabling dynamic stages to use
+   * the same API for defining fork children without calling start() first.
    */
   addListOfFunction(children: ParallelSpec<TOut, TScope>[]): this {
-    const cur = this._needCursor();
-    for (const { id, name, fn, build } of children) {
+    const cur = this._getOrCreateCursor();
+    for (const { id, name, displayName, fn, build } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
       if (cur.children.some((c) => c.id === id)) fail(`duplicate child id '${id}' under '${cur.name}'`);
       const n = new _N<TOut, TScope>();
       n.id = id;
       n.name = name ?? id;
+      if (displayName) n.displayName = displayName;
       if (fn) {
         n.fn = fn;
         this._addToMap(n.name, fn);
@@ -675,17 +688,28 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   toSpec(): FlowChartSpec {
     const root = this._root ?? fail('empty tree; call start() first');
 
-    const inflate = (n: _N<TOut, TScope>): FlowChartSpec => {
+    const inflate = (n: _N<TOut, TScope>, parentForkId?: string): FlowChartSpec => {
       const spec: FlowChartSpec = { name: n.name };
 
       if (n.id) spec.id = n.id;
+      if (n.displayName) spec.displayName = n.displayName;
       
       // Add streaming properties
       if (n.isStreaming) spec.isStreaming = true;
       if (n.streamId) spec.streamId = n.streamId;
+      
+      // Add parallel child metadata
+      if (parentForkId) {
+        spec.isParallelChild = true;
+        spec.parallelGroupId = parentForkId;
+      }
 
       if (n.children.length) {
-        spec.children = n.children.map(inflate);
+        // Determine if this is a fork (parallel children without decider/selector)
+        const isFork = !n.decider && !n.selector;
+        const forkId = isFork ? (n.id ?? n.name) : undefined;
+        
+        spec.children = n.children.map(c => inflate(c, forkId));
 
         // Only annotate decider metadata when there IS a decider on this node
         if (n.decider) {
@@ -712,7 +736,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         // Also create a reference next node for consistency
         spec.next = { name: n.loopTarget, id: n.loopTarget };
       } else if (n.next) {
-        spec.next = inflate(n.next);
+        spec.next = inflate(n.next); // next nodes are not parallel children
       }
 
       return spec;

@@ -33,6 +33,10 @@ export interface SerializedPipelineNode {
   loopTarget?: string;
   /** True if this is a reference node (prevents infinite recursion) */
   isLoopReference?: boolean;
+  /** True if this node is a child of a parallel fork */
+  isParallelChild?: boolean;
+  /** ID of the parent fork node (for parallel children) */
+  parallelGroupId?: string;
 }
 
 export type AppResponse = {
@@ -258,11 +262,13 @@ function isReferenceNode(node: StageNode): boolean {
  * 
  * @param node - The root StageNode to serialize
  * @param visited - Set of visited node IDs to prevent circular references
+ * @param parentForkId - ID of the parent fork node (for parallel children)
  * @returns SerializedPipelineNode representing the pipeline structure
  */
 export function serializePipelineStructure(
   node: StageNode,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
+  parentForkId?: string
 ): SerializedPipelineNode {
   const nodeId = node.id || node.name;
   
@@ -280,10 +286,13 @@ export function serializePipelineStructure(
   // Check if this node has dynamically-added children (e.g., toolBranch)
   // Dynamic nodes are those that return StageNode with children at runtime
   // We detect this by checking if children exist but the node has no static nextNodeDecider/nextNodeSelector
+  // AND the node has a stage function (fn) that could have added children dynamically
+  // Static fork children (from addListOfFunction) don't have fn on the parent node
   const hasDynamicChildren = Boolean(
     node.children?.length && 
     !node.nextNodeDecider && 
-    !node.nextNodeSelector
+    !node.nextNodeSelector &&
+    node.fn // Only consider dynamic if the node has a function that could add children
   );
   
   // Determine node type
@@ -308,6 +317,12 @@ export function serializePipelineStructure(
     serialized.displayName = node.displayName;
   }
   
+  // Add parallel child metadata if this node is a child of a fork
+  if (parentForkId) {
+    serialized.isParallelChild = true;
+    serialized.parallelGroupId = parentForkId;
+  }
+  
   // Mark dynamic nodes - FE will get their children from runtime context instead
   if (hasDynamicChildren) {
     serialized.isDynamic = true;
@@ -330,6 +345,7 @@ export function serializePipelineStructure(
       // This is a loop-back reference
       serialized.loopTarget = nextId;
     } else {
+      // next nodes are not parallel children, so don't pass parentForkId
       serialized.next = serializePipelineStructure(node.next, visited);
     }
   }
@@ -337,8 +353,12 @@ export function serializePipelineStructure(
   // Serialize children (parallel branches or decider options)
   // Skip children for dynamic nodes - FE gets those from runtime context
   if (node.children && node.children.length > 0 && !hasDynamicChildren) {
+    // Determine if this is a fork (parallel children without decider/selector)
+    const isFork = !node.nextNodeDecider && !node.nextNodeSelector;
+    const forkId = isFork ? nodeId : undefined;
+    
     serialized.children = node.children.map((child) => 
-      serializePipelineStructure(child, new Set(visited))
+      serializePipelineStructure(child, new Set(visited), forkId)
     );
   }
   

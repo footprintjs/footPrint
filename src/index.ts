@@ -16,3 +16,9 @@ export {
 } from './builder/FlowChartBuilder';
 export { StageContext } from './core/context/StageContext';
 export { Pipeline, Selector, Decider, StageNode, isStageNodeReturn } from './core/pipeline/Pipeline';
+export { 
+  StageContextLike, 
+  ScopeFactory, 
+  ScopeProvider, 
+  ProviderResolver 
+} from './scope/core/types';

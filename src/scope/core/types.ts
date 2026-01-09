@@ -2,8 +2,8 @@
 export interface StageContextLike {
   // reads / writes
   getValue(path: string[], key?: string): unknown;
-  setObject(path: string[], key: string, value: unknown): void; // copy-on-write into stage-local patch
-  updateObject(path: string[], key: string, value: unknown): void; // merge into stage-local patch
+  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
+  updateObject(path: string[], key: string, value: unknown, description?: string): void;
 
   // optional diagnostics
   addDebugInfo?(key: string, val: unknown): void;
@@ -12,6 +12,7 @@ export interface StageContextLike {
   // optional helpers used by BaseState / compat
   getFromGlobalContext?(key: string): unknown;
   setRoot?(key: string, value: unknown): void;
+  setGlobal?(key: string, value: unknown, description?: string): void;
 
   // optional metadata (read-only)
   pipelineId?: string;

@@ -46,17 +46,16 @@ export class BaseState {
     return this._stageContext.getValue(path, key);
   }
 
-  setObject(path: string[], key: string, value: unknown, shouldRedact = false) {
-    // your StageContext supports shouldRedact; keep the param to preserve behavior
-    return (this._stageContext as any).setObject(path, key, value, shouldRedact);
+  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+    return (this._stageContext as any).setObject(path, key, value, shouldRedact, description);
   }
 
-  updateObject(path: string[], key: string, value: unknown) {
-    return this._stageContext.updateObject(path, key, value);
+  updateObject(path: string[], key: string, value: unknown, description?: string) {
+    return this._stageContext.updateObject(path, key, value, description);
   }
 
-  setGlobal(key: string, value: unknown) {
-    return (this._stageContext as any).setGlobal?.(key, value);
+  setGlobal(key: string, value: unknown, description?: string) {
+    return (this._stageContext as any).setGlobal?.(key, value, description);
   }
 
   getGlobal(key: string) {

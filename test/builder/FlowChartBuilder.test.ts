@@ -219,11 +219,15 @@ describe('FlowChartBuilder — validations & errors', () => {
   });
 
   test('stageMap collision within single builder when embedding fn with same name throws', () => {
-    const fb = new FlowChartBuilder()
-      .start('clash', (() => 'one') as any)
-      // attempt to add a child with same stage name but different fn:
-      .addListOfFunction([{ id: 'c', name: 'clash', fn: (() => 'two') as any }]);
-    // The collision is actually detected at the time of adding; so wrap in new builder:
+    // Test that adding a child with the same stage name but different fn throws
+    expect(() => {
+      new FlowChartBuilder()
+        .start('clash', (() => 'one') as any)
+        // attempt to add a child with same stage name but different fn:
+        .addListOfFunction([{ id: 'c', name: 'clash', fn: (() => 'two') as any }]);
+    }).toThrow(/stageMap collision/i);
+    
+    // Also test the direct _addToMap collision:
     const fb2 = new FlowChartBuilder().start('root', (() => {}) as any);
     fb2._addToMap('dup', (() => 'a') as any); // set first
     expect(() => fb2._addToMap('dup', (() => 'b') as any)).toThrow(/stageMap collision/i);
@@ -269,12 +273,15 @@ describe('FlowChartBuilder — toSpec() & specToStageNode()', () => {
 
     const spec = fb.toSpec();
     // basic JSON sanity (no functions)
+    // Note: isParallelChild and parallelGroupId are added for fork children
     expect(spec).toEqual({
       name: 'init',
       children: [
         {
           id: 'conversation',
           name: 'retriever',
+          isParallelChild: true,
+          parallelGroupId: 'init',
           hasDecider: true,
           branchIds: ['intent', 'alt'],
           children: [
@@ -282,7 +289,7 @@ describe('FlowChartBuilder — toSpec() & specToStageNode()', () => {
             { id: 'alt', name: 'askLlm' },
           ],
         },
-        { id: 'kb', name: 'buildPrompt', next: { name: 'askLlm' } },
+        { id: 'kb', name: 'buildPrompt', isParallelChild: true, parallelGroupId: 'init', next: { name: 'askLlm' } },
       ],
     });
 

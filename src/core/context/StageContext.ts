@@ -236,24 +236,36 @@ export class StageContext {
   }
 
   /** Shorthand for deep‑merge in the current pipeline namespace */
-  updateObject(path: string[], key: string, value: unknown) {
+  updateObject(path: string[], key: string, value: unknown, description?: string) {
     this.merge(path, key, value);
     treeConsole.log(this, this.stageName, path, key, value);
+    // Log description as debug message for connected descriptive logs
+    if (description) {
+      this.debug.addDebugInfo('message', description);
+    }
   }
 
   updateGlobalContext(key: string, value: unknown) {
     this.getMemoryContext().set([key], value);
   }
 
-  setGlobal(key: string, value: unknown) {
+  setGlobal(key: string, value: unknown, description?: string) {
     this.getMemoryContext().set([key], value);
     treeConsole.log(this, this.stageName, [], key, value, true);
+    // Log description as debug message for connected descriptive logs
+    if (description) {
+      this.debug.addDebugInfo('message', description);
+    }
   }
 
-  setObject(path: string[], key: string, value: unknown, shouldRedact = false) {
-    this.patch(path, key, value, shouldRedact);
+  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+    this.patch(path, key, value, shouldRedact ?? false);
     const logValue = shouldRedact ? 'REDACTED' : value;
     treeConsole.log(this, this.stageName, path, key, logValue, true);
+    // Log description as debug message for connected descriptive logs
+    if (description) {
+      this.debug.addDebugInfo('message', description);
+    }
   }
 
   /* ==========================================================================
