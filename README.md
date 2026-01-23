@@ -13,11 +13,17 @@ FootPrint is a tiny, production-minded runtime for building **flowchart-like pip
 becomes:
 
 ```typescript
-new FlowChartBuilder()
-  .start('Validate', validateFn)
+import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
+
+// Build your flowchart
+const chart = flowChart('Validate', validateFn)
   .addFunction('Process', processFn)
   .addFunction('Notify', notifyFn)
-  .execute(scopeFactory);
+  .build();
+
+// Execute it
+const executor = new FlowChartExecutor(chart, scopeFactory);
+const result = await executor.run();
 ```
 
 ---
@@ -84,7 +90,8 @@ The runtime handles execution order, state management, and observability.
 | **Three-Level Scope** | Global → Path → Node memory isolation |
 | **Patch-Based State** | Atomic commits, safe merges, no race conditions |
 | **First-Class Observability** | Connected logs, traces, time-travel debugging |
-| **Composable Apps** | Mount entire applications as nodes in larger workflows |
+| **Composable Subflows** | Mount entire flowcharts as nodes in larger workflows |
+| **Streaming Support** | Built-in streaming stages for LLM token emission |
 
 ---
 
@@ -96,17 +103,39 @@ npm install footprint
 
 ---
 
+## Architecture Overview
+
+FootPrint separates **building** from **executing**:
+
+```
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│   FlowChartBuilder  │─────▶│      FlowChart      │─────▶│  FlowChartExecutor  │
+│   (Build-time DSL)  │      │   (Compiled Tree)   │      │   (Runtime Engine)  │
+└─────────────────────┘      └─────────────────────┘      └─────────────────────┘
+        │                            │                            │
+        │ flowChart()                │ .build()                   │ .run()
+        │ .addFunction()             │                            │ .getContextTree()
+        │ .addDecider()              │                            │ .getExtractedResults()
+        │ .addSubFlowChart()         │                            │
+        └────────────────────────────┴────────────────────────────┘
+```
+
+- **FlowChartBuilder**: Fluent DSL for defining your flowchart structure
+- **FlowChart**: Compiled tree with stage functions and metadata
+- **FlowChartExecutor**: Runtime engine that executes the compiled flowchart
+
+---
+
 ## Quick Start
 
 ```typescript
-import { FlowChartBuilder, BaseState } from 'footprint';
+import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
 
 // Scope factory creates state containers for each stage
 const scopeFactory = (ctx: any, stageName: string) => new BaseState(ctx, stageName);
 
-// Build your flowchart
-const builder = new FlowChartBuilder()
-  .start('ValidateCart', async (scope) => {
+// Build your flowchart using the factory function
+const chart = flowChart('ValidateCart', async (scope) => {
     scope.setObject(['pipeline'], 'cartTotal', 79.98);
     return { valid: true };
   })
@@ -116,10 +145,26 @@ const builder = new FlowChartBuilder()
   })
   .addFunction('SendReceipt', async () => {
     return { sent: true };
-  });
+  })
+  .build();
 
-// Execute
-const result = await builder.execute(scopeFactory);
+// Execute with FlowChartExecutor
+const executor = new FlowChartExecutor(chart, scopeFactory);
+const result = await executor.run();
+
+// Access execution data
+const contextTree = executor.getContextTree();
+```
+
+### Alternative: One-liner execution
+
+For simple cases, use the convenience `execute()` method:
+
+```typescript
+const result = await flowChart('ValidateCart', validateFn)
+  .addFunction('ProcessPayment', processFn)
+  .addFunction('SendReceipt', receiptFn)
+  .execute(scopeFactory);
 ```
 
 ---
@@ -128,9 +173,11 @@ const result = await builder.execute(scopeFactory);
 
 ### Core Concepts (30 minutes)
 
-1. **FlowChartBuilder** - Fluent API for building pipelines
-2. **Stages** - Functions that receive scope and return output
-3. **Scope** - State container with `setObject()`, `getValue()`, `updateObject()`
+1. **flowChart()** - Factory function to start building (recommended)
+2. **FlowChartBuilder** - Fluent API for building pipelines
+3. **FlowChartExecutor** - Runtime engine for execution
+4. **Stages** - Functions that receive scope and return output
+5. **Scope** - State container with `setObject()`, `getValue()`, `updateObject()`
 
 ### Patterns (1 hour)
 
@@ -140,13 +187,16 @@ const result = await builder.execute(scopeFactory);
 | Fork | `addListOfFunction()` | Parallel execution |
 | Decider | `addDecider()` | Single-choice routing |
 | Selector | `addSelector()` | Multi-choice parallel |
+| Subflow | `addSubFlowChart()` | Compose flowcharts |
+| Streaming | `addStreamingFunction()` | LLM token streaming |
 
 ### Advanced (2 hours)
 
-- Composing apps with `addSubFlowChart()`
+- Composing apps with `addSubFlowChart()` and `addSubFlowChartNext()`
+- Traversal extractors with `addTraversalExtractor()`
 - Custom scope classes extending `BaseState`
 - Zod validation for typed scope
-- Time-travel debugging
+- Time-travel debugging with `getContextTree()`
 
 ---
 
@@ -173,6 +223,143 @@ const data = scope.getValue([], 'myData');
 
 ---
 
+## API Reference
+
+### flowChart() - Factory Function (Recommended)
+
+```typescript
+import { flowChart } from 'footprint';
+
+const chart = flowChart('entry', entryFn)
+  .addFunction('process', processFn)
+  .build();
+```
+
+### FlowChartBuilder - Class API
+
+```typescript
+import { FlowChartBuilder } from 'footprint';
+
+const builder = new FlowChartBuilder()
+  .start('entry', entryFn)
+  .addFunction('process', processFn);
+
+const chart = builder.build();
+```
+
+### FlowChartExecutor - Runtime Engine
+
+```typescript
+import { FlowChartExecutor } from 'footprint';
+
+const executor = new FlowChartExecutor(
+  chart,           // FlowChart from .build()
+  scopeFactory,    // Creates scope instances
+  defaults,        // Optional: default context values
+  initial,         // Optional: initial context values
+  readOnly,        // Optional: read-only context values
+);
+
+// Execute
+const result = await executor.run();
+
+// Introspection
+const contextTree = executor.getContextTree();
+const extractedData = executor.getExtractedResults();
+const subflowResults = executor.getSubflowResults();
+```
+
+### Key Builder Methods
+
+| Method | Description |
+|--------|-------------|
+| `start(name, fn?)` | Define root stage |
+| `addFunction(name, fn?)` | Add linear next stage |
+| `addListOfFunction(specs)` | Add parallel children (fork) |
+| `addDecider(fn)` | Add single-choice branching |
+| `addSelector(fn)` | Add multi-choice branching |
+| `addSubFlowChart(id, flow)` | Mount subflow as child |
+| `addSubFlowChartNext(id, flow)` | Mount subflow as next |
+| `addStreamingFunction(name, streamId?, fn?)` | Add streaming stage |
+| `addTraversalExtractor(fn)` | Register data extractor |
+| `loopTo(stageId)` | Loop back to earlier stage |
+| `build()` | Compile to FlowChart |
+| `execute(scopeFactory)` | Build + run (convenience) |
+| `toSpec()` | Export pure JSON (no functions) |
+
+---
+
+## Subflow Composition
+
+Mount entire flowcharts as nodes in larger workflows:
+
+```typescript
+// Build reusable subflows
+const faqFlow = flowChart('FAQ_Entry', faqEntryFn)
+  .addFunction('FAQ_Answer', faqAnswerFn)
+  .build();
+
+const ragFlow = flowChart('RAG_Entry', ragEntryFn)
+  .addFunction('RAG_Retrieve', ragRetrieveFn)
+  .addFunction('RAG_Answer', ragAnswerFn)
+  .build();
+
+// Compose into main flow
+const mainChart = flowChart('Router', routerFn)
+  .addSubFlowChart('faq', faqFlow, 'FAQ Handler')
+  .addSubFlowChart('rag', ragFlow, 'RAG Handler')
+  .addFunction('Aggregate', aggregateFn)
+  .build();
+```
+
+---
+
+## Streaming Support
+
+Built-in support for LLM token streaming:
+
+```typescript
+const chart = flowChart('PreparePrompt', prepareFn)
+  .addStreamingFunction('AskLLM', 'llm-stream', askLLMFn)
+  .onStream((streamId, token) => {
+    process.stdout.write(token);
+  })
+  .onStreamEnd((streamId, fullText) => {
+    console.log('\nComplete:', fullText);
+  })
+  .addFunction('ProcessResponse', processFn)
+  .build();
+```
+
+---
+
+## Traversal Extractors
+
+Extract data from each stage for frontend consumption:
+
+```typescript
+const chart = flowChart('entry', entryFn)
+  .addFunction('askLLM', askLLMFn)
+  .addTraversalExtractor((snapshot) => {
+    const { node, context } = snapshot;
+    const scope = context.getScope();
+    return {
+      stageName: node.name,
+      llmResponse: scope?.llmResponse,
+      toolCalls: context.getDebugInfo()?.toolCalls,
+    };
+  })
+  .build();
+
+const executor = new FlowChartExecutor(chart, scopeFactory);
+await executor.run();
+
+// Get extracted data
+const extracted = executor.getExtractedResults();
+```
+
+---
+
 ## Scope Types
 
 FootPrint supports two approaches to typed scope:
@@ -183,7 +370,6 @@ Extend `BaseState` with typed properties:
 
 ```typescript
 class MyScope extends BaseState {
-  // Type-safe accessors
   get cartTotal(): number {
     return this.getValue(['pipeline'], 'cartTotal') ?? 0;
   }
@@ -260,15 +446,18 @@ New to FootPrint? Build foundational understanding first:
 | [Getting Started](./docs/guides/GETTING_STARTED.md) | Installation and first pipeline |
 | [Core Concepts](./docs/guides/CORE_CONCEPTS.md) | Architecture and memory model |
 | [Patterns](./docs/guides/PATTERNS.md) | Fork, Decider, Selector patterns |
-| [FlowChartBuilder API](./docs/guides/FLOWCHART_BUILDER.md) | Complete API reference |
+| [Dynamic Children](./docs/guides/DYNAMIC_CHILDREN.md) | Runtime node generation |
 | [Scope Communication](./docs/guides/SCOPE_COMMUNICATION.md) | Cross-stage data sharing |
 
 ### Technical Internals
 
 | Document | Description |
 |----------|-------------|
-| [Control-Flow Model](./docs/internals/CONTROL_FLOW_MODEL.md) | Execution semantics and algorithms |
-| [Execution Artifact](./docs/internals/EXECUTION_ARTIFACT.md) | Durable execution model |
+| [Terminology](./docs/TERMINOLOGY.md) | Comprehensive glossary |
+| [Subgraph Architecture](./docs/SUBGRAPH_ARCHITECTURE.md) | Subflow design patterns |
+| [Traversal Extractor](./docs/TRAVERSAL_EXTRACTOR.md) | Data extraction algorithms |
+| [Scope Isolation Design](./docs/internals/SCOPE_ISOLATION_DESIGN.md) | Scope protection internals |
+| [Control-Flow Model](./docs/internals/CONTROL_FLOW_MODEL.md) | Execution semantics |
 
 ---
 
