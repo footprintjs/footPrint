@@ -54,6 +54,7 @@ Practical guides for building applications with FootPrint.
 | [Getting Started](./guides/GETTING_STARTED.md) | Installation and first pipeline | 10 min |
 | [Core Concepts](./guides/CORE_CONCEPTS.md) | Architecture and memory model | 20 min |
 | [Patterns](./guides/PATTERNS.md) | Fork, Decider, Selector patterns | 30 min |
+| [Dynamic Children](./guides/DYNAMIC_CHILDREN.md) | Runtime-created children | 15 min |
 | [FlowChartBuilder API](./guides/FLOWCHART_BUILDER.md) | Complete API reference | Reference |
 | [Scope Communication](./guides/SCOPE_COMMUNICATION.md) | Cross-stage data sharing | 15 min |
 

@@ -1,4 +1,4 @@
-import { DELIM, MemoryPatch } from '../../../src/core/stateManagement/PatchedMemoryContext';
+import { DELIM, MemoryPatch } from '../../../src/core/stateManagement/WriteBuffer';
 import { getNestedValue, redactPatch, updateNestedValue, updateValue } from '../../../src/core/stateManagement/utils';
 
 describe('updateValue', () => {

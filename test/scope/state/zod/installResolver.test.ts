@@ -3,36 +3,43 @@ jest.mock('../../../../src/scope/core/resolve', () => ({
   registerScopeResolver: jest.fn(),
 }));
 
-import { registerScopeResolver } from '../../../../src/scope/core/resolve';
-import * as mod from '../../../../src/scope/state/installResolvers';
-
 describe('zod/installResolvers', () => {
-  function getInstaller(): (...args: any[]) => void {
-    // tolerate any export name you chose
-    const cand =
-      (mod as any).installResolvers ||
-      (mod as any).installDefaultResolvers ||
-      (mod as any).installZodResolver ||
-      (mod as any).default;
-    if (typeof cand !== 'function') {
-      throw new Error('No installer function exported from installResolvers.ts');
-    }
-    return cand as any;
-  }
-
   beforeEach(() => {
+    jest.resetModules();
+    // Re-require the mock to get fresh mock state
+    const { registerScopeResolver } = require('../../../../src/scope/core/resolve');
     (registerScopeResolver as jest.Mock).mockClear();
   });
 
+  function getInstallerAndMock(): { install: (...args: any[]) => void; mockFn: jest.Mock } {
+    // Re-import after resetModules to get fresh module state
+    const { registerScopeResolver } = require('../../../../src/scope/core/resolve');
+    const mod = require('../../../../src/scope/state/installResolvers');
+    const cand =
+      mod.installResolvers ||
+      mod.installDefaultResolvers ||
+      mod.installZodResolver ||
+      mod.default;
+    if (typeof cand !== 'function') {
+      throw new Error('No installer function exported from installResolvers.ts');
+    }
+    return { install: cand as any, mockFn: registerScopeResolver as jest.Mock };
+  }
+
   it('registers the Zod resolver exactly once (idempotent)', () => {
-    const install = getInstaller();
+    // First import triggers auto-registration
+    const { install, mockFn } = getInstallerAndMock();
+    
+    // The module auto-calls installDefaultResolvers() on import
+    // So it should already be registered once
+    expect(mockFn).toHaveBeenCalledTimes(1);
 
+    // Calling again should not register again (idempotent)
     install();
-    install(); // call twice on purpose
+    install();
+    expect(mockFn).toHaveBeenCalledTimes(1);
 
-    expect(registerScopeResolver).toHaveBeenCalledTimes(1);
-
-    const arg = (registerScopeResolver as jest.Mock).mock.calls[0]?.[0];
+    const arg = mockFn.mock.calls[0]?.[0];
     expect(arg).toBeTruthy();
     expect(typeof arg?.name).toBe('string');
     expect(typeof arg?.canHandle).toBe('function');
@@ -40,7 +47,7 @@ describe('zod/installResolvers', () => {
   });
 
   it('exposes a callable installer function', () => {
-    const install = getInstaller();
+    const { install } = getInstallerAndMock();
     expect(typeof install).toBe('function');
   });
 });

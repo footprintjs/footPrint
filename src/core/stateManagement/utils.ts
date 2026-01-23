@@ -3,7 +3,7 @@ import _get from 'lodash.get';
 import _has from 'lodash.has';
 import _set from 'lodash.set';
 
-import { DELIM, MemoryPatch } from './PatchedMemoryContext';
+import { DELIM, MemoryPatch } from './WriteBuffer';
 
 type NestedObject = { [key: string]: any };
 export function setNestedValue<T>(

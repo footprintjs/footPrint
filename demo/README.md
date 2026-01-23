@@ -1,16 +1,110 @@
 # FootPrint Demos
 
-This folder contains progressive demos showcasing the power of FlowChartBuilder - from simple linear flows to complex composed applications.
+Progressive examples showcasing FlowChartBuilder - from simple linear flows to complex composed applications.
 
-## Demo Overview
+## Learning Path
 
-| Demo | Pattern | Complexity | Key Concept |
-|------|---------|------------|-------------|
-| 1-payment | Linear | ⭐ | Basic chaining with `start()` → `addFunction()` |
-| 2-llm-tool-loop | Decider | ⭐⭐ | Conditional branching with `addDecider()` |
-| 3-parallel | Fork | ⭐⭐ | Parallel execution with `addListOfFunction()` |
-| 4-selector | Selector | ⭐⭐⭐ | Multi-choice parallel with `addSelector()` |
-| 5-composed | Composition | ⭐⭐⭐⭐ | Mount entire apps as subtrees |
+Follow these demos in order to master FootPrint:
+
+| # | Demo | Pattern | Complexity | Time | Key Concept |
+|---|------|---------|------------|------|-------------|
+| 1 | [Payment](./src/1-payment/) | Linear | ⭐ | 5 min | Basic chaining with `start()` → `addFunction()` |
+| 2 | [LLM Tool Loop](./src/2-llm-tool-loop/) | Decider | ⭐⭐ | 10 min | Conditional branching with `addDecider()` |
+| 3 | [Parallel](./src/3-parallel/) | Fork | ⭐⭐ | 10 min | Parallel execution with `addListOfFunction()` |
+| 4 | [Selector](./src/4-selector/) | Selector | ⭐⭐⭐ | 15 min | Multi-choice parallel with `addSelector()` |
+| 5 | [Composed](./src/5-composed/) | Composition | ⭐⭐⭐⭐ | 20 min | Mount entire apps as subtrees |
+
+**Total learning time: ~1 hour**
+
+---
+
+## Quick Start
+
+```bash
+# From footprint root directory
+
+# Run any demo
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-llm-tool-loop/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-parallel/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/4-selector/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-composed/index.ts
+```
+
+---
+
+## Pattern Overview
+
+### 1. Linear (Demo 1)
+
+Sequential execution: `A → B → C`
+
+```typescript
+new FlowChartBuilder()
+  .start('A', aFn)
+  .addFunction('B', bFn)
+  .addFunction('C', cFn);
+```
+
+### 2. Decider (Demo 2)
+
+Single-choice branching: `A → ? → (B1 OR B2)`
+
+```typescript
+new FlowChartBuilder()
+  .start('A', aFn)
+  .addDecider((output) => output.route)
+    .addFunctionBranch('b1', 'B1', b1Fn)
+    .addFunctionBranch('b2', 'B2', b2Fn)
+    .end();
+```
+
+### 3. Fork (Demo 3)
+
+Parallel execution: `A → [B1, B2, B3] → C`
+
+```typescript
+new FlowChartBuilder()
+  .start('A', aFn)
+  .addListOfFunction([
+    { id: 'b1', name: 'B1', fn: b1Fn },
+    { id: 'b2', name: 'B2', fn: b2Fn },
+    { id: 'b3', name: 'B3', fn: b3Fn },
+  ])
+  .addFunction('C', cFn);
+```
+
+### 4. Selector (Demo 4)
+
+Multi-choice parallel: `A → ? → [selected subset] → C`
+
+```typescript
+new FlowChartBuilder()
+  .start('A', aFn)
+  .addSelector((output) => output.selectedIds)
+    .addFunctionBranch('b1', 'B1', b1Fn)
+    .addFunctionBranch('b2', 'B2', b2Fn)
+    .addFunctionBranch('b3', 'B3', b3Fn)
+    .end()
+  .addFunction('C', cFn);
+```
+
+### 5. Composition (Demo 5)
+
+Apps as building blocks:
+
+```typescript
+const subApp = new FlowChartBuilder()
+  .start('SubEntry', subFn)
+  .build();
+
+new FlowChartBuilder()
+  .start('Main', mainFn)
+  .addSubFlowChart('sub', subApp, 'SubApp')
+  .addFunction('Aggregate', aggregateFn);
+```
+
+---
 
 ## The Power of Composition
 
@@ -38,23 +132,22 @@ The final demo (5-composed) demonstrates the killer feature: **entire applicatio
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Running the Demos
+---
 
-```bash
-# From footprint root
+## Demo Structure
 
-# Run individual demo (uses tsconfig-paths to resolve footprint)
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-llm-tool-loop/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-parallel/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/4-selector/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-composed/index.ts
+Each demo folder contains:
+
+```
+demo/src/{n}-{name}/
+├── index.ts    # Runnable demo code
+└── README.md   # Explanation and key concepts
 ```
 
-## Learning Path
+---
 
-1. **Start with Payment Demo** - Understand basic linear flow
-2. **Move to LLM Tool Loop** - Learn conditional branching
-3. **Explore Parallel Demo** - See fork/join patterns
-4. **Try Selector Demo** - Multi-choice parallel execution
-5. **Study Composed Demo** - See how apps become building blocks
+## Related Documentation
+
+- [Getting Started](../docs/guides/GETTING_STARTED.md) - Installation and basics
+- [Patterns](../docs/guides/PATTERNS.md) - Detailed pattern documentation
+- [FlowChartBuilder API](../docs/guides/FLOWCHART_BUILDER.md) - Complete API reference

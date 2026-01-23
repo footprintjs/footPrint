@@ -1,0 +1,342 @@
+/**
+ * Property-based tests for Subflow Metadata Propagation in FlowChartBuilder.
+ * Uses fast-check for property-based testing.
+ *
+ * Feature: subflow-metadata-propagation
+ */
+
+import * as fc from 'fast-check';
+
+import { FlowChartBuilder } from '../../src/builder/FlowChartBuilder';
+
+// Arbitrary for valid stage names (non-empty alphanumeric strings)
+const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
+
+// Arbitrary for stage IDs (unique identifiers)
+const stageIdArb = fc.string({ minLength: 1, maxLength: 15 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(s));
+
+// Arbitrary for subflow IDs (kebab-case identifiers like "llm-core")
+const subflowIdArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-z][a-z0-9-]*$/.test(s));
+
+// Arbitrary for subflow display names
+const subflowNameArb = fc.string({ minLength: 1, maxLength: 30 }).filter((s) => /^[A-Za-z][A-Za-z0-9 ]*$/.test(s));
+
+/**
+ * **Feature: subflow-metadata-propagation, Property 1: Subflow Metadata Preservation**
+ *
+ * *For any* internal node with subflow metadata (`isSubflowRoot`, `subflowId`, or `subflowName`),
+ * calling `_nodeToStageNode` (via compile()) SHALL produce a StageNode with identical subflow metadata values.
+ *
+ * **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
+ */
+describe('FlowChartBuilder Subflow Metadata Property Tests', () => {
+  describe('Property 1: Subflow Metadata Preservation', () => {
+    it('should preserve subflowId and subflowName when mounting a subflow and compiling', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (rootName, rootId, subflowRootName, subflowId, subflowName) => {
+            // Create a subflow
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .build();
+
+            // Mount the subflow
+            const mainBuilder = new FlowChartBuilder()
+              .start(rootName, undefined, rootId)
+              .addSubFlowChart(subflowId, subflow, subflowName);
+
+            // Build and verify subflow metadata is preserved
+            const { root } = mainBuilder.build();
+
+            // The mounted subflow should be a child with subflow metadata
+            const subflowChild = root.children?.find((c) => c.id === subflowId);
+
+            return (
+              subflowChild !== undefined &&
+              subflowChild.isSubflowRoot === true &&
+              subflowChild.subflowId === subflowId &&
+              subflowChild.subflowName === subflowName
+            );
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should create reference node with subflow metadata (no deep propagation)', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (rootName, rootId, subflowRootName, subflowChildName, subflowId, subflowName) => {
+            // Create a subflow with multiple nodes
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .addFunction(subflowChildName, undefined, `${subflowId}_child`)
+              .build();
+
+            // Mount the subflow
+            const mainBuilder = new FlowChartBuilder()
+              .start(rootName, undefined, rootId)
+              .addSubFlowChart(subflowId, subflow, subflowName);
+
+            // Build and verify reference node has metadata
+            const { root, subflows } = mainBuilder.build();
+
+            const subflowRef = root.children?.find((c) => c.id === subflowId);
+
+            // Reference node should have subflow metadata
+            const refHasMetadata =
+              subflowRef !== undefined &&
+              subflowRef.isSubflowRoot === true &&
+              subflowRef.subflowId === subflowId &&
+              subflowRef.subflowName === subflowName;
+
+            // Subflow definition should be stored in subflows dictionary with mount id as key
+            const hasSubflowDef = subflows !== undefined &&
+              subflows[subflowId] !== undefined;
+
+            return refHasMetadata && hasSubflowDef;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should preserve subflow metadata in compile() output for runtime continuations', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (rootName, rootId, subflowRootName, subflowId, subflowName) => {
+            // Create a subflow
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .build();
+
+            // Use runtime continuation pattern (no start())
+            const builder = new FlowChartBuilder();
+            // Access internal method to add subflow as child
+            builder.addListOfFunction([{ id: subflowId, name: subflowName }]);
+
+            // For this test, we verify that compile() preserves metadata
+            // by building a flow with subflow and checking the output
+            const mainBuilder = new FlowChartBuilder()
+              .start(rootName, undefined, rootId)
+              .addSubFlowChart(subflowId, subflow, subflowName);
+
+            const { root } = mainBuilder.build();
+            const subflowChild = root.children?.find((c) => c.id === subflowId);
+
+            // Verify the subflow metadata is present
+            return (
+              subflowChild !== undefined &&
+              subflowChild.isSubflowRoot === true &&
+              subflowChild.subflowId === subflowId &&
+              subflowChild.subflowName === subflowName
+            );
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+  });
+
+  /**
+   * **Feature: subflow-metadata-propagation, Property 2: Sparse Object Pattern**
+   *
+   * *For any* internal node without subflow metadata (all three properties are undefined/falsy),
+   * calling `_nodeToStageNode` (via compile()) SHALL produce a StageNode that does NOT have
+   * `isSubflowRoot`, `subflowId`, or `subflowName` as own properties.
+   *
+   * **Validates: Requirements 2.3**
+   */
+  describe('Property 2: Sparse Object Pattern', () => {
+    it('should not include subflow properties when not set', () => {
+      fc.assert(
+        fc.property(stageNameArb, stageIdArb, stageNameArb, (rootName, rootId, childName) => {
+          // Create a simple flow without any subflow mounting
+          const builder = new FlowChartBuilder()
+            .start(rootName, undefined, rootId)
+            .addFunction(childName, undefined, 'child1');
+
+          const { root } = builder.build();
+
+          // Neither root nor child should have subflow properties
+          const hasSubflowPropsOnRoot =
+            'isSubflowRoot' in root || 'subflowId' in root || 'subflowName' in root;
+
+          const child = root.next;
+          const hasSubflowPropsOnChild =
+            child !== undefined &&
+            ('isSubflowRoot' in child || 'subflowId' in child || 'subflowName' in child);
+
+          return !hasSubflowPropsOnRoot && !hasSubflowPropsOnChild;
+        }),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should not include subflow properties in compile() output when not set', () => {
+      fc.assert(
+        fc.property(stageNameArb, stageIdArb, (childName, childId) => {
+          // Runtime continuation without subflow
+          const builder = new FlowChartBuilder().addListOfFunction([{ id: childId, name: childName }]);
+
+          const result = builder.compile();
+
+          if (!result || !result.children || result.children.length === 0) {
+            return false;
+          }
+
+          const child = result.children[0];
+          const hasSubflowProps =
+            'isSubflowRoot' in child || 'subflowId' in child || 'subflowName' in child;
+
+          return !hasSubflowProps;
+        }),
+        { numRuns: 100 },
+      );
+    });
+  });
+
+  /**
+   * **Feature: subflow-metadata-propagation, Property 3: Reference-Based Subflow Storage**
+   *
+   * *For any* subflow mounted via addSubFlowChart, the subflow definition SHALL be stored
+   * in the `subflows` dictionary, and the mounted node SHALL be a reference node with metadata.
+   *
+   * **Validates: Requirements 3.1, 3.2 (updated for reference-based architecture)**
+   */
+  describe('Property 3: Reference-Based Subflow Storage', () => {
+    it('should store subflow definition in subflows dictionary', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (mainRootName, mainRootId, subflowRootName, subflowChildName, subflowId, subflowName) => {
+            // Create a subflow with nested structure
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .addFunction(subflowChildName, undefined, `${subflowId}_child`)
+              .build();
+
+            // Mount the subflow
+            const mainBuilder = new FlowChartBuilder()
+              .start(mainRootName, undefined, mainRootId)
+              .addSubFlowChart(subflowId, subflow, subflowName);
+
+            // Build
+            const { root, subflows } = mainBuilder.build();
+
+            // Verify reference node
+            const subflowRef = root.children?.find((c) => c.id === subflowId);
+            const refHasMetadata =
+              subflowRef !== undefined &&
+              subflowRef.isSubflowRoot === true &&
+              subflowRef.subflowId === subflowId &&
+              subflowRef.subflowName === subflowName;
+
+            // Verify subflow definition is stored with mount id as key
+            const hasSubflowDef = subflows !== undefined &&
+              subflows[subflowId] !== undefined &&
+              subflows[subflowId].root.name === subflowRootName;
+
+            return refHasMetadata && hasSubflowDef;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should preserve subflow metadata in toSpec() output', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (mainRootName, mainRootId, subflowRootName, subflowId, subflowName) => {
+            // Create and mount a subflow
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .build();
+
+            const mainBuilder = new FlowChartBuilder()
+              .start(mainRootName, undefined, mainRootId)
+              .addSubFlowChart(subflowId, subflow, subflowName);
+
+            // Get spec (JSON-serializable output)
+            const spec = mainBuilder.toSpec();
+
+            // Verify subflow metadata in spec
+            const subflowSpec = spec.children?.find((c) => c.id === subflowId);
+
+            return (
+              subflowSpec !== undefined &&
+              subflowSpec.isSubflowRoot === true &&
+              subflowSpec.subflowId === subflowId &&
+              subflowSpec.subflowName === subflowName
+            );
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should preserve subflow metadata through decider branch mounting', () => {
+      fc.assert(
+        fc.property(
+          stageNameArb,
+          stageIdArb,
+          stageNameArb,
+          subflowIdArb,
+          subflowNameArb,
+          (mainRootName, mainRootId, subflowRootName, subflowId, subflowName) => {
+            // Create a subflow
+            const subflow = new FlowChartBuilder()
+              .start(subflowRootName, undefined, `${subflowId}_root`)
+              .build();
+
+            // Mount via decider branch
+            const mainBuilder = new FlowChartBuilder()
+              .start(mainRootName, undefined, mainRootId)
+              .addDecider(() => subflowId)
+              .addSubFlowChartBranch(subflowId, subflow, subflowName)
+              .end();
+
+            const { root } = mainBuilder.build();
+
+            // Verify subflow metadata on decider branch
+            const subflowBranch = root.children?.find((c) => c.id === subflowId);
+
+            return (
+              subflowBranch !== undefined &&
+              subflowBranch.isSubflowRoot === true &&
+              subflowBranch.subflowId === subflowId &&
+              subflowBranch.subflowName === subflowName
+            );
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+  });
+});

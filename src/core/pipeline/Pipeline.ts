@@ -47,16 +47,23 @@
  */
 
 import { StageContext } from '../context/StageContext';
-import { ContextTreeType, TreePipelineContext } from '../context/TreePipelineContext';
+import { RuntimeSnapshot, PipelineRuntime, ContextTreeType } from '../context/PipelineRuntime';
 import { ScopeFactory } from '../context/types';
 import { logger } from '../logger';
 import {
   NodeResultType,
   PipelineStageFunction,
+  SerializedPipelineNode,
   StreamCallback,
   StreamHandlers,
+  SubflowResult,
   TreeOfFunctionsResponse,
+  TraversalExtractor,
+  ExtractorError,
+  StageSnapshot,
 } from './types';
+import { createProtectedScope } from '../../scope/protection/createProtectedScope';
+import { ScopeProtectionMode } from '../../scope/protection/types';
 
 export type Decider = (nodeArgs: any) => string | Promise<string>;
 
@@ -112,6 +119,25 @@ export type StageNode<TOut = any, TScope = any> = {
    * Defaults to the stage name if not provided when using addStreamingFunction.
    */
   streamId?: string;
+  /** True if this is the root node of a mounted subflow */
+  isSubflowRoot?: boolean;
+  /** Mount id of the subflow (e.g., "llm-core") */
+  subflowId?: string;
+  /** Display name of the subflow (e.g., "LLM Core") */
+  subflowName?: string;
+  /**
+   * Reference to a subflow definition in the `subflows` dictionary.
+   * When present, this node is a lightweight reference that should be resolved
+   * by looking up `subflows[$ref]` to get the actual subflow structure.
+   * 
+   * Used by reference-based subflow architecture to avoid deep-copying.
+   */
+  $ref?: string;
+  /**
+   * Unique identifier for this mount instance.
+   * Distinguishes multiple mounts of the same subflow definition.
+   */
+  mountId?: string;
 };
 
 // Note: Dynamic behavior is detected via isStageNodeReturn() duck-typing on stage output.
@@ -164,7 +190,7 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
 export class Pipeline<TOut, TScope> {
   private stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
   private root: StageNode;
-  private treePipelineContext: TreePipelineContext;
+  private pipelineRuntime: PipelineRuntime;
 
   /** Normalized scope factory injected by the caller (class | factory | plugin → factory) */
   private readonly ScopeFactory: ScopeFactory<TScope>;
@@ -185,6 +211,49 @@ export class Pipeline<TOut, TScope> {
    */
   private iterationCounters: Map<string, number> = new Map();
 
+  /**
+   * Collected subflow execution results during pipeline run.
+   * Keyed by subflowId for lookup during API response construction.
+   *
+   * _Requirements: 4.1, 4.2_
+   */
+  private subflowResults: Map<string, SubflowResult> = new Map();
+
+  /**
+   * Optional traversal extractor function.
+   * Called after each stage completes to extract data.
+   */
+  private readonly extractor?: TraversalExtractor;
+
+  /**
+   * Collected extracted results during pipeline run.
+   * Keyed by stage path (e.g., "root.child.grandchild").
+   */
+  private extractedResults: Map<string, unknown> = new Map();
+
+  /**
+   * Errors encountered during extraction.
+   * Logged but don't stop pipeline execution.
+   */
+  private extractorErrors: ExtractorError[] = [];
+
+  /**
+   * Protection mode for scope access.
+   * When 'error' (default), throws on direct property assignment.
+   * When 'warn', logs warning but allows assignment.
+   * When 'off', no protection is applied.
+   *
+   * _Requirements: 5.1, 5.2, 5.3_
+   */
+  private readonly scopeProtectionMode: ScopeProtectionMode;
+
+  /**
+   * Memoized subflow definitions.
+   * Key is the subflow's root name, value contains the subflow root node.
+   * Used to resolve reference nodes (nodes with `isSubflowRoot` but no `fn`).
+   */
+  private readonly subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
+
   constructor(
     root: StageNode,
     stageMap: Map<string, PipelineStageFunction<TOut, TScope>>,
@@ -194,19 +263,25 @@ export class Pipeline<TOut, TScope> {
     readOnlyContext?: unknown,
     throttlingErrorChecker?: (error: unknown) => boolean,
     streamHandlers?: StreamHandlers,
+    extractor?: TraversalExtractor,
+    scopeProtectionMode?: ScopeProtectionMode,
+    subflows?: Record<string, { root: StageNode<TOut, TScope> }>,
   ) {
     this.root = root;
     this.stageMap = stageMap;
     this.readOnlyContext = readOnlyContext;
-    this.treePipelineContext = new TreePipelineContext(this.root.name, defaultValuesForContext, initialContext);
+    this.pipelineRuntime = new PipelineRuntime(this.root.name, defaultValuesForContext, initialContext);
     this.throttlingErrorChecker = throttlingErrorChecker;
     this.ScopeFactory = scopeFactory;
     this.streamHandlers = streamHandlers;
+    this.extractor = extractor;
+    this.scopeProtectionMode = scopeProtectionMode ?? 'error';
+    this.subflows = subflows;
   }
 
   /** Execute the pipeline from the root node. */
   async execute(): Promise<TreeOfFunctionsResponse> {
-    const context = this.treePipelineContext.rootStageContext;
+    const context = this.pipelineRuntime.rootStageContext;
     return await this.executeNode(this.root, context, { shouldBreak: false }, '');
   }
 
@@ -230,6 +305,38 @@ export class Pipeline<TOut, TScope> {
     breakFlag: { shouldBreak: boolean },
     branchPath?: string,
   ): Promise<any> {
+    // ───────────────────────── 0) Subflow Detection ─────────────────────────
+    // If this node is a subflow root, execute it with an isolated nested context
+    if (node.isSubflowRoot && node.subflowId) {
+      // Resolve reference node if needed
+      // Reference nodes have isSubflowRoot but no fn/children - they point to subflows dictionary
+      const resolvedNode = this.resolveSubflowReference(node);
+      
+      const subflowOutput = await this.executeSubflow(resolvedNode, context, breakFlag, branchPath);
+      
+      // After subflow completes, continue with node.next in the PARENT context (if present)
+      // 
+      // IMPORTANT: We need to determine if `next` is a continuation after the subflow
+      // or if it was already executed as part of the subflow's internal structure.
+      //
+      // Heuristic:
+      // - If the subflow has `children` (fork pattern), `next` is the continuation
+      // - If the subflow has no `children` (linear pattern), `next` was already executed internally
+      //
+      // For reference-based subflows (resolvedNode !== node), the original reference node's
+      // `next` is always the continuation (the subflow's internal structure is in the definition).
+      const isReferenceBasedSubflow = resolvedNode !== node;
+      const hasChildren = Boolean(node.children && node.children.length > 0);
+      const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
+      
+      if (node.next && shouldExecuteContinuation) {
+        const nextStageContext = context.createNextContext(branchPath as string, node.next.name);
+        return await this.executeNode(node.next, nextStageContext, breakFlag, branchPath);
+      }
+      
+      return subflowOutput;
+    }
+
     const stageFunc = this.getStageFn(node);
     const hasStageFunction = Boolean(stageFunc);
     const isDeciderNode = Boolean(node.nextNodeDecider);
@@ -268,11 +375,13 @@ export class Pipeline<TOut, TScope> {
           stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
         } catch (error: any) {
           context.commitPatch(); // commit partial patch for forensic data
+          this.callExtractor(node, context, this.getStagePath(node, branchPath));
           logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
           context.addErrorInfo('stageExecutionError', error.toString());
           throw error;
         }
         context.commitPatch();
+        this.callExtractor(node, context, this.getStagePath(node, branchPath));
 
         if (breakFlag.shouldBreak) {
           logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
@@ -291,6 +400,20 @@ export class Pipeline<TOut, TScope> {
         stageOutput,
         context,
       );
+      
+      // Log flow control decision for decider branch
+      // _Requirements: flow-control-narrative REQ-3, REQ-4 (Task 3)
+      // Narrative style: "decided based on [data] and chose [path]"
+      const rationale = context.getValue([], 'deciderRationale') as string | undefined;
+      const chosenName = chosen.displayName || chosen.name;
+      const branchDescription = rationale 
+        ? `Decided based on: ${rationale}. Chose ${chosenName} path.`
+        : `Evaluated conditions and chose ${chosenName} path.`;
+      context.addFlowDebugMessage('branch', branchDescription, {
+        targetStage: chosen.name,
+        rationale,
+      });
+      
       deciderStageContext.commitPatch();
 
       const nextStageContext = context.createNextContext(branchPath as string, chosen.name);
@@ -307,11 +430,13 @@ export class Pipeline<TOut, TScope> {
         stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
       } catch (error: any) {
         context.commitPatch(); // apply patch on error as before
+        this.callExtractor(node, context, this.getStagePath(node, branchPath));
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addErrorInfo('stageExecutionError', error.toString());
         throw error;
       }
       context.commitPatch();
+      this.callExtractor(node, context, this.getStagePath(node, branchPath));
 
       if (breakFlag.shouldBreak) {
         logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
@@ -393,6 +518,15 @@ export class Pipeline<TOut, TScope> {
       }
       // Default: execute all children in parallel (fork pattern)
       else {
+        // Log flow control decision for fork children
+        // _Requirements: flow-control-narrative REQ-3 (Task 4)
+        const childCount = node.children?.length ?? 0;
+        const childNames = node.children?.map(c => c.displayName || c.name).join(', ');
+        context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
+          count: childCount,
+          targetStage: node.children?.map(c => c.name),
+        });
+        
         nodeChildrenResults = await this.executeNodeChildren(node, context, undefined, branchPath);
       }
 
@@ -421,6 +555,14 @@ export class Pipeline<TOut, TScope> {
         context.addDebugInfo('dynamicNextTarget', dynamicNext);
         context.addDebugInfo('dynamicNextIteration', iteration);
         
+        // Log flow control decision for loop
+        // _Requirements: flow-control-narrative REQ-3 (Task 7)
+        context.addFlowDebugMessage('loop', 
+          `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`, {
+          targetStage: targetNode.name,
+          iteration: iteration + 1,
+        });
+        
         const nextStageContext = context.createNextContext(branchPath as string, iteratedStageName);
         return await this.executeNode(targetNode, nextStageContext, breakFlag, branchPath);
       }
@@ -429,6 +571,12 @@ export class Pipeline<TOut, TScope> {
       if (dynamicNext.fn) {
         context.addDebugInfo('dynamicNextDirect', true);
         context.addDebugInfo('dynamicNextName', dynamicNext.name);
+        
+        // Log flow control decision for dynamic next
+        // _Requirements: flow-control-narrative REQ-3 (Task 7)
+        context.addFlowDebugMessage('next', `Moving to ${dynamicNext.displayName || dynamicNext.name} stage (dynamic)`, {
+          targetStage: dynamicNext.name,
+        });
         
         const nextStageContext = context.createNextContext(branchPath as string, dynamicNext.name);
         return await this.executeNode(dynamicNext, nextStageContext, breakFlag, branchPath);
@@ -454,6 +602,14 @@ export class Pipeline<TOut, TScope> {
       context.addDebugInfo('dynamicNextTarget', nextNodeId);
       context.addDebugInfo('dynamicNextIteration', iteration);
 
+      // Log flow control decision for loop
+      // _Requirements: flow-control-narrative REQ-3 (Task 7)
+      context.addFlowDebugMessage('loop', 
+        `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`, {
+        targetStage: targetNode.name,
+        iteration: iteration + 1,
+      });
+
       const nextStageContext = context.createNextContext(branchPath as string, iteratedStageName);
       return await this.executeNode(targetNode, nextStageContext, breakFlag, branchPath);
     }
@@ -461,6 +617,13 @@ export class Pipeline<TOut, TScope> {
     // ───────────────────────── 6) Linear `next` (if provided) ─────────────────────────
     if (hasNext) {
       const nextNode = node.next!;
+      
+      // Log flow control decision for linear next
+      // _Requirements: flow-control-narrative REQ-3 (Task 2)
+      context.addFlowDebugMessage('next', `Moving to ${nextNode.displayName || nextNode.name} stage`, {
+        targetStage: nextNode.name,
+      });
+      
       const nextStageContext = context.createNextContext(branchPath as string, nextNode.name);
       return await this.executeNode(nextNode, nextStageContext, breakFlag, branchPath);
     }
@@ -468,6 +631,353 @@ export class Pipeline<TOut, TScope> {
     // ───────────────────────── 7) Leaf ─────────────────────────
     // No children & no next & no dynamicNext → return this node's stage output (may be undefined)
     return stageOutput;
+  }
+
+  /**
+   * Execute a subflow with its own isolated PipelineRuntime.
+   *
+   * This method:
+   * 1. Creates a fresh PipelineRuntime for the subflow
+   * 2. Executes the subflow's internal structure (root fn + children) using the nested context
+   * 3. Stores the subflow's execution data in the parent stage's debugInfo
+   * 4. Adds the result to the SubflowResultsMap for API response
+   * 5. Returns control to parent, which continues with node.next if present
+   *
+   * IMPORTANT: The subflow's `next` chain is NOT executed inside the subflow.
+   * After executeSubflow returns, the parent's executeNode continues with node.next.
+   * This ensures stages after a subflow execute in the parent's context.
+   *
+   * @param node - The subflow root node (has isSubflowRoot: true)
+   * @param parentContext - The parent pipeline's StageContext
+   * @param breakFlag - Break flag from parent (subflow break doesn't propagate up)
+   * @param branchPath - Parent's branch path for logging
+   * @returns The subflow's final output
+   *
+   * _Requirements: 1.1, 1.2, 1.3, 2.1, 3.1, 3.2, 3.4, 4.2_
+   */
+  private async executeSubflow(
+    node: StageNode,
+    parentContext: StageContext,
+    breakFlag: { shouldBreak: boolean },
+    branchPath?: string,
+  ): Promise<any> {
+    const subflowId = node.subflowId!;
+    const subflowName = node.subflowName ?? node.name;
+
+    // Log flow control decision for subflow entry
+    // _Requirements: flow-control-narrative REQ-3 (Task 6)
+    parentContext.addFlowDebugMessage('subflow', `Entering ${subflowName} subflow`, {
+      targetStage: subflowId,
+    });
+
+    // Mark parent stage as subflow container
+    parentContext.addDebugInfo('isSubflowContainer', true);
+    parentContext.addDebugInfo('subflowId', subflowId);
+    parentContext.addDebugInfo('subflowName', subflowName);
+
+    // Create isolated context for subflow
+    // Each subflow gets its own PipelineRuntime with its own GlobalStore,
+    // so all stages within the subflow share the same state at the root level.
+    // We do NOT set pipelineId here - the subflow's isolation comes from having
+    // its own GlobalStore, not from namespacing within a shared store.
+    const nestedContext = new PipelineRuntime(node.name);
+    const nestedRootContext = nestedContext.rootStageContext;
+
+    // Create isolated break flag (subflow break doesn't propagate to parent)
+    const subflowBreakFlag = { shouldBreak: false };
+
+    let subflowOutput: any;
+    let subflowError: Error | undefined;
+
+    // Create a copy of the node for subflow execution
+    // Clear isSubflowRoot to prevent infinite recursion in executeSubflowInternal
+    // 
+    // IMPORTANT: We need to determine if `next` is part of the subflow's internal structure
+    // or a continuation after the subflow.
+    //
+    // For reference-based subflows (resolved from subflows dictionary):
+    // - The resolved node's `next` is the subflow's internal chain (from the definition)
+    // - The original reference node's `next` (if any) is the continuation
+    // - Since we receive the resolved node here, its `next` is internal
+    //
+    // For inline subflows (node has fn/children directly):
+    // - If the subflow has `children` (fork pattern), `next` is typically the continuation
+    // - If the subflow has no `children` (linear pattern), `next` is the internal chain
+    //
+    // We use a heuristic: if the node has `children`, strip `next` (it's continuation).
+    // Otherwise, keep `next` (it's internal chain).
+    const hasChildren = Boolean(node.children && node.children.length > 0);
+    
+    const subflowNode: StageNode = {
+      ...node,
+      isSubflowRoot: false, // Clear to prevent re-detection as subflow
+      // For subflows with children (fork pattern), strip `next` - it's the continuation
+      // For subflows without children (linear pattern), keep `next` - it's internal chain
+      next: hasChildren ? undefined : node.next,
+    };
+
+    try {
+      // Execute subflow using nested context
+      // Executes the subflow's internal structure (root fn + children + next chain)
+      subflowOutput = await this.executeSubflowInternal(
+        subflowNode,
+        nestedRootContext,
+        subflowBreakFlag,
+        subflowId,
+      );
+    } catch (error: any) {
+      subflowError = error;
+      parentContext.addErrorInfo('subflowError', error.toString());
+      logger.error(`Error in subflow (${subflowId}):`, { error });
+    }
+
+    // Serialize subflow's execution data
+    const subflowTreeContext = nestedContext.getContextTree();
+    const subflowPipelineStructure = this.serializeSubflowStructure(node);
+
+    // Create SubflowResult
+    const subflowResult: SubflowResult = {
+      subflowId,
+      subflowName,
+      treeContext: {
+        globalContext: subflowTreeContext.globalContext,
+        stageContexts: subflowTreeContext.stageContexts as unknown as Record<string, unknown>,
+        history: subflowTreeContext.history,
+      },
+      pipelineStructure: subflowPipelineStructure,
+      parentStageId: parentContext.getStageId(),
+    };
+
+    // Store in parent stage's debugInfo for drill-down
+    parentContext.addDebugInfo('subflowResult', subflowResult);
+    parentContext.addDebugInfo('hasSubflowData', true);
+
+    // Add to collection for API response
+    this.subflowResults.set(subflowId, subflowResult);
+
+    // Log flow control decision for subflow exit
+    // _Requirements: flow-control-narrative REQ-3 (Task 6)
+    parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
+      targetStage: subflowId,
+    });
+
+    // Commit parent context patch
+    parentContext.commitPatch();
+
+    // Re-throw if subflow errored
+    if (subflowError) {
+      throw subflowError;
+    }
+
+    // NOTE: The parent's continuation is handled by executeNode after this returns.
+    // For reference-based subflows, the original reference node's `next` is used.
+    // For old-style subflows, the node passed here already has `next` stripped by the caller.
+    return subflowOutput;
+  }
+
+  /**
+   * Execute the internal structure of a subflow using its isolated context.
+   * This handles the actual stage execution within the subflow's context.
+   *
+   * Note: Nested subflows (nodes with isSubflowRoot) are detected and executed
+   * via executeSubflow, which adds them to the parent Pipeline's subflowResults map.
+   *
+   * @param node - The subflow root node
+   * @param context - The subflow's root StageContext
+   * @param breakFlag - Subflow's isolated break flag
+   * @param branchPath - Subflow's branch path for logging
+   * @returns The subflow's final output
+   *
+   * _Requirements: 1.4, 2.2, 2.3_
+   */
+  private async executeSubflowInternal(
+    node: StageNode,
+    context: StageContext,
+    breakFlag: { shouldBreak: boolean },
+    branchPath: string,
+  ): Promise<any> {
+    // Detect nested subflows and delegate to executeSubflow
+    // This ensures nested subflows get their own isolated context AND
+    // are added to the parent Pipeline's subflowResults map
+    if (node.isSubflowRoot && node.subflowId) {
+      // Resolve reference node if needed (nested subflows may also be references)
+      const resolvedNode = this.resolveSubflowReference(node);
+      return await this.executeSubflow(resolvedNode, context, breakFlag, branchPath);
+    }
+
+    // Get the stage function for the subflow root (if any)
+    const stageFunc = this.getStageFn(node);
+    const hasStageFunction = Boolean(stageFunc);
+    const hasChildren = Boolean(node.children?.length);
+    const hasNext = Boolean(node.next);
+    const isDeciderNode = Boolean(node.nextNodeDecider);
+
+    const breakFn = () => (breakFlag.shouldBreak = true);
+
+    // Execute the subflow root's stage function if present
+    let stageOutput: TOut | undefined;
+    if (stageFunc) {
+      try {
+        stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
+      } catch (error: any) {
+        context.commitPatch();
+        this.callExtractor(node, context, this.getStagePath(node, branchPath));
+        context.addErrorInfo('stageExecutionError', error.toString());
+        throw error;
+      }
+      context.commitPatch();
+      this.callExtractor(node, context, this.getStagePath(node, branchPath));
+
+      if (breakFlag.shouldBreak) {
+        return stageOutput;
+      }
+    }
+
+    // Handle children (fork pattern)
+    if (hasChildren) {
+      if (isDeciderNode) {
+        // Decider picks one child
+        const chosen = await this.getNextNode(
+          node.nextNodeDecider!,
+          node.children!,
+          stageOutput,
+          context,
+        );
+        // Use empty string for pipelineId to keep writes at root level of subflow's GlobalStore
+        const nextStageContext = context.createNextContext('', chosen.name);
+        const deciderResult = await this.executeSubflowInternal(chosen, nextStageContext, breakFlag, branchPath);
+        // After decider branch completes, continue with node.next if present
+        // This allows stages to be added after a subflow that ends with a decider
+        if (!hasNext) return deciderResult;
+        // Fall through to handle linear next below
+      } else if (node.nextNodeSelector) {
+        // Selector picks multiple children
+        const nodeChildrenResults = await this.executeSelectedChildrenInternal(
+          node.nextNodeSelector,
+          node.children!,
+          stageOutput,
+          context,
+          branchPath,
+          breakFlag,
+        );
+        if (!hasNext) return nodeChildrenResults;
+      } else {
+        // Execute all children in parallel (using internal version for subflow context)
+        const nodeChildrenResults = await this.executeNodeChildrenInternal(
+          node,
+          context,
+          branchPath,
+          breakFlag,
+        );
+        if (!hasNext) return nodeChildrenResults;
+      }
+    }
+
+    // Handle linear next
+    if (hasNext) {
+      const nextNode = node.next!;
+      // Use empty string for pipelineId to keep writes at root level of subflow's GlobalStore
+      const nextStageContext = context.createNextContext('', nextNode.name);
+      return await this.executeSubflowInternal(nextNode, nextStageContext, breakFlag, branchPath);
+    }
+
+    return stageOutput;
+  }
+
+  /**
+   * Execute children within a subflow's context.
+   * Similar to executeNodeChildren but uses executeSubflowInternal for recursion,
+   * ensuring nested subflows are properly detected.
+   */
+  private async executeNodeChildrenInternal(
+    node: StageNode,
+    context: StageContext,
+    branchPath: string,
+    breakFlag: { shouldBreak: boolean },
+  ): Promise<Record<string, NodeResultType>> {
+    const childPromises: Promise<NodeResultType>[] = (node.children ?? []).map((child: StageNode) => {
+      // Use empty string for pipelineId to keep writes at root level of subflow's GlobalStore
+      // branchPath is still passed to executeSubflowInternal for logging purposes
+      const childContext = context.createChildContext('', child.id as string, child.name);
+      const childBreakFlag = { shouldBreak: false };
+
+      return this.executeSubflowInternal(child, childContext, childBreakFlag, branchPath)
+        .then((result) => {
+          childContext.commitPatch();
+          return { id: child.id!, result, isError: false };
+        })
+        .catch((error) => {
+          childContext.commitPatch();
+          logger.info(`TREE PIPELINE: executeNodeChildrenInternal - Error for id: ${child?.id}`, { error });
+          return { id: child.id!, result: error, isError: true };
+        });
+    });
+
+    const settled = await Promise.allSettled(childPromises);
+
+    const childrenResults: Record<string, NodeResultType> = {};
+    settled.forEach((s) => {
+      if (s.status === 'fulfilled') {
+        const { id, result, isError } = s.value;
+        childrenResults[id] = { id, result, isError };
+      } else {
+        logger.error(`Execution failed: ${s.reason}`);
+      }
+    });
+
+    return childrenResults;
+  }
+
+  /**
+   * Execute selected children within a subflow's context.
+   * Similar to executeSelectedChildren but uses executeSubflowInternal for recursion.
+   */
+  private async executeSelectedChildrenInternal(
+    selector: Selector,
+    children: StageNode[],
+    input: any,
+    context: StageContext,
+    branchPath: string,
+    breakFlag: { shouldBreak: boolean },
+  ): Promise<Record<string, NodeResultType>> {
+    // Invoke selector
+    const selectorResult = await selector(input);
+
+    // Normalize to array
+    const selectedIds = Array.isArray(selectorResult) ? selectorResult : [selectorResult];
+
+    // Record selection in debug info
+    context.addDebugInfo('selectedChildIds', selectedIds);
+    context.addDebugInfo('selectorPattern', 'multi-choice');
+
+    // Empty selection - skip children execution
+    if (selectedIds.length === 0) {
+      context.addDebugInfo('skippedAllChildren', true);
+      return {};
+    }
+
+    // Filter to selected children
+    const selectedChildren = children.filter((c) => selectedIds.includes(c.id!));
+
+    // Validate all IDs found
+    if (selectedChildren.length !== selectedIds.length) {
+      const childIds = children.map((c) => c.id);
+      const missing = selectedIds.filter((id) => !childIds.includes(id));
+      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
+      logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
+      context.addErrorInfo('selectorError', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    // Record skipped children for visualization
+    const skippedIds = children.filter((c) => !selectedIds.includes(c.id!)).map((c) => c.id);
+    if (skippedIds.length > 0) {
+      context.addDebugInfo('skippedChildIds', skippedIds);
+    }
+
+    // Execute selected children using internal version
+    const tempNode: StageNode = { name: 'selector-temp', children: selectedChildren };
+    return await this.executeNodeChildrenInternal(tempNode, context, branchPath, breakFlag);
   }
 
   /**
@@ -490,7 +1000,13 @@ export class Pipeline<TOut, TScope> {
     context: StageContext,
     breakFn: () => void,
   ) {
-    const scope = this.ScopeFactory(context, node.name, this.readOnlyContext);
+    const rawScope = this.ScopeFactory(context, node.name, this.readOnlyContext);
+    
+    // Wrap scope with protection to intercept direct property assignments
+    const scope = createProtectedScope(rawScope as object, {
+      mode: this.scopeProtectionMode,
+      stageName: node.name,
+    }) as TScope;
 
     // Determine if this is a streaming stage and create the appropriate callback
     let streamCallback: StreamCallback | undefined;
@@ -645,6 +1161,15 @@ export class Pipeline<TOut, TScope> {
       context.addDebugInfo('skippedChildIds', skippedIds);
     }
 
+    // Log flow control decision for selector multi-choice
+    // _Requirements: flow-control-narrative REQ-3 (Task 5)
+    const selectedNames = selectedChildren.map(c => c.displayName || c.name).join(', ');
+    context.addFlowDebugMessage('selected', 
+      `Running ${selectedNames} (${selectedChildren.length} of ${children.length} matched)`, {
+      count: selectedChildren.length,
+      targetStage: selectedChildren.map(c => c.name),
+    });
+
     // Execute selected children in parallel using existing logic
     const tempNode: StageNode = { name: 'selector-temp', children: selectedChildren };
     return await this.executeNodeChildren(tempNode, context, undefined, branchPath);
@@ -703,6 +1228,72 @@ export class Pipeline<TOut, TScope> {
   }
 
   /**
+   * Resolve a subflow reference node to its actual subflow structure.
+   * 
+   * Reference nodes are lightweight placeholders created by the builder:
+   * - They have `isSubflowRoot: true` and `subflowId`
+   * - But they have NO `fn`, NO `children`, NO internal `next`
+   * - The actual subflow structure is in `this.subflows[subflowKey]`
+   * 
+   * This method looks up the subflow definition and creates a merged node
+   * that combines the reference metadata with the actual subflow structure.
+   * 
+   * @param node - The reference node to resolve
+   * @returns A node with the subflow's actual structure, preserving reference metadata
+   */
+  private resolveSubflowReference(node: StageNode): StageNode {
+    // If node already has fn or children, it's not a reference - return as-is
+    if (node.fn || (node.children && node.children.length > 0)) {
+      return node;
+    }
+    
+    // Check if we have subflows dictionary
+    if (!this.subflows) {
+      // No subflows dictionary - node might be using old deep-copy approach
+      return node;
+    }
+    
+    // Try to find subflow definition using multiple keys in order of preference:
+    // 1. subflowId (the mount id, used by FlowChartBuilder)
+    // 2. subflowName (for backward compatibility)
+    // 3. name (fallback)
+    const keysToTry = [node.subflowId, node.subflowName, node.name].filter(Boolean) as string[];
+    let subflowDef: { root: StageNode } | undefined;
+    let usedKey: string | undefined;
+    
+    for (const key of keysToTry) {
+      if (this.subflows[key]) {
+        subflowDef = this.subflows[key];
+        usedKey = key;
+        break;
+      }
+    }
+    
+    if (!subflowDef) {
+      // Subflow not found in dictionary - might be using old approach
+      logger.info(`Subflow not found in subflows dictionary for node '${node.name}' (tried keys: ${keysToTry.join(', ')})`);
+      return node;
+    }
+    
+    // Create a merged node that combines reference metadata with actual structure
+    // IMPORTANT: We preserve the reference node's metadata (subflowId, subflowName, etc.)
+    // but use the subflow definition's structure (fn, children, internal next)
+    const resolvedNode: StageNode = {
+      ...subflowDef.root,
+      // Preserve reference metadata
+      isSubflowRoot: node.isSubflowRoot,
+      subflowId: node.subflowId,
+      subflowName: node.subflowName,
+      // Use reference node's display name if provided
+      displayName: node.displayName || subflowDef.root.displayName,
+      // Use reference node's id (mountId) for uniqueness
+      id: node.id || subflowDef.root.id,
+    };
+    
+    return resolvedNode;
+  }
+
+  /**
    * Get the next iteration number for a node and increment the counter.
    * Returns 0 for first visit, 1 for second, etc.
    */
@@ -710,6 +1301,63 @@ export class Pipeline<TOut, TScope> {
     const current = this.iterationCounters.get(nodeId) ?? 0;
     this.iterationCounters.set(nodeId, current + 1);
     return current;
+  }
+
+  // ───────────────────────── Subflow serialization helpers ─────────────────────────
+
+  /**
+   * Serialize a subflow's StageNode tree for frontend consumption.
+   * Converts the internal StageNode structure to SerializedPipelineNode format.
+   *
+   * _Requirements: 5.2, 5.3_
+   */
+  private serializeSubflowStructure(subflowRoot: StageNode): SerializedPipelineNode {
+    return this.nodeToSerializedNode(subflowRoot);
+  }
+
+  /**
+   * Recursively convert a StageNode to SerializedPipelineNode.
+   * Includes subflow metadata for frontend drill-down navigation.
+   */
+  private nodeToSerializedNode(node: StageNode): SerializedPipelineNode {
+    // Determine node type for frontend rendering
+    let type: SerializedPipelineNode['type'] = 'stage';
+    if (node.nextNodeDecider || node.nextNodeSelector) {
+      type = 'decider';
+    } else if (node.children && node.children.length > 0) {
+      type = 'fork';
+    } else if (node.isStreaming) {
+      type = 'streaming';
+    }
+
+    const serialized: SerializedPipelineNode = {
+      name: node.name,
+      type,
+    };
+
+    // Add optional properties only if present
+    if (node.id) serialized.id = node.id;
+    if (node.displayName) serialized.displayName = node.displayName;
+    if (node.isStreaming) serialized.isStreaming = true;
+    if (node.nextNodeDecider) serialized.hasDecider = true;
+    if (node.nextNodeSelector) serialized.hasSelector = true;
+
+    // Add subflow metadata for frontend drill-down navigation
+    if (node.isSubflowRoot) serialized.isSubflowRoot = true;
+    if (node.subflowId) serialized.subflowId = node.subflowId;
+    if (node.subflowName) serialized.subflowName = node.subflowName;
+
+    // Recursively serialize children
+    if (node.children && node.children.length > 0) {
+      serialized.children = node.children.map((c) => this.nodeToSerializedNode(c));
+    }
+
+    // Recursively serialize next
+    if (node.next) {
+      serialized.next = this.nodeToSerializedNode(node.next);
+    }
+
+    return serialized;
   }
 
   /**
@@ -720,26 +1368,73 @@ export class Pipeline<TOut, TScope> {
     return iteration === 0 ? baseName : `${baseName}.${iteration}`;
   }
 
+  // ───────────────────────── Extractor helpers ─────────────────────────
+
+  /**
+   * Call the extractor for a stage and store the result.
+   * Handles errors gracefully - logs and continues execution.
+   * 
+   * @param node - The stage node
+   * @param context - The stage context (after commitPatch)
+   * @param stagePath - The full path to this stage (e.g., "root.child")
+   */
+  private callExtractor(
+    node: StageNode,
+    context: StageContext,
+    stagePath: string,
+  ): void {
+    if (!this.extractor) return;
+    
+    try {
+      const snapshot: StageSnapshot = { node, context };
+      const result = this.extractor(snapshot);
+      
+      // Only store if extractor returned a value
+      if (result !== undefined && result !== null) {
+        this.extractedResults.set(stagePath, result);
+      }
+    } catch (error: any) {
+      // Log error but don't stop execution
+      logger.error(`Extractor error at stage '${stagePath}':`, { error });
+      this.extractorErrors.push({
+        stagePath,
+        message: error?.message ?? String(error),
+        error,
+      });
+    }
+  }
+
+  /**
+   * Generate the stage path for extractor results.
+   * Uses node.id if available, otherwise node.name.
+   * Combines with branchPath for nested stages.
+   */
+  private getStagePath(node: StageNode, branchPath?: string): string {
+    const nodeId = node.id ?? node.name;
+    if (!branchPath) return nodeId;
+    return `${branchPath}.${nodeId}`;
+  }
+
   // ───────────────────────── Introspection helpers ─────────────────────────
 
   /** Returns the full context tree (global + stage contexts) for observability panels. */
   getContextTree(): ContextTreeType {
-    return this.treePipelineContext.getContextTree();
+    return this.pipelineRuntime.getContextTree();
   }
 
-  /** Returns the TreePipelineContext (root holder of StageContexts). */
-  getContext(): TreePipelineContext {
-    return this.treePipelineContext;
+  /** Returns the PipelineRuntime (root holder of StageContexts). */
+  getContext(): PipelineRuntime {
+    return this.pipelineRuntime;
   }
 
   /** Sets a root object value into the global context (utility). */
   setRootObject(path: string[], key: string, value: unknown) {
-    this.treePipelineContext.setRootObject(path, key, value);
+    this.pipelineRuntime.setRootObject(path, key, value);
   }
 
   /** Returns pipeline ids inherited under this root (for debugging fan-out). */
   getInheritedPipelines() {
-    return this.treePipelineContext.getPipelines();
+    return this.pipelineRuntime.getPipelines();
   }
 
   /**
@@ -753,5 +1448,31 @@ export class Pipeline<TOut, TScope> {
    */
   getRuntimeRoot(): StageNode {
     return this.root;
+  }
+
+  /**
+   * Returns the collected SubflowResultsMap after pipeline execution.
+   * Used by the service layer to include subflow data in API responses.
+   *
+   * _Requirements: 4.3_
+   */
+  getSubflowResults(): Map<string, SubflowResult> {
+    return this.subflowResults;
+  }
+
+  /**
+   * Returns the collected extracted results after pipeline execution.
+   * Map keys are stage paths (e.g., "root.child.grandchild").
+   */
+  getExtractedResults<TResult = unknown>(): Map<string, TResult> {
+    return this.extractedResults as Map<string, TResult>;
+  }
+
+  /**
+   * Returns any errors that occurred during extraction.
+   * Useful for debugging extractor issues.
+   */
+  getExtractorErrors(): ExtractorError[] {
+    return this.extractorErrors;
   }
 }

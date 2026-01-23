@@ -28,9 +28,10 @@
  */
 
 import type { Selector, StageNode } from '../core/pipeline/Pipeline';
-import { Pipeline } from '../core/pipeline/Pipeline';
-import type { PipelineStageFunction, StreamHandlers, StreamTokenHandler, StreamLifecycleHandler } from '../core/pipeline/types';
+import { FlowChartExecutor } from '../core/pipeline/FlowChartExecutor';
+import type { PipelineStageFunction, StreamHandlers, StreamTokenHandler, StreamLifecycleHandler, TraversalExtractor } from '../core/pipeline/types';
 import type { ScopeFactory } from '../scope/core/types';
+import type { ScopeProtectionMode } from '../scope/protection/types';
 
 // Re-export stream types for consumers
 export type { StreamHandlers, StreamTokenHandler, StreamLifecycleHandler };
@@ -66,6 +67,12 @@ export interface FlowChartSpec {
   isParallelChild?: boolean;
   /** ID of the parent fork node (for parallel children) */
   parallelGroupId?: string;
+  /** True if this is the root node of a mounted subflow */
+  isSubflowRoot?: boolean;
+  /** Mount id of the subflow (e.g., "llm-core") */
+  subflowId?: string;
+  /** Display name of the subflow (e.g., "LLM Core") */
+  subflowName?: string;
 }
 
 /* ============================================================================
@@ -109,12 +116,45 @@ export type BranchBody<TOut = any, TScope = any> =
 export type BranchSpec<TOut = any, TScope = any> = Record<string, BranchBody<TOut, TScope>>;
 
 /**
- * A compiled subflow you can mount under a branch (composition).
+ * A reference node that points to a subflow definition.
+ * Used instead of deep-copying the entire subflow tree.
+ * 
+ * When serialized to JSON, SubflowRef nodes use `$ref` syntax:
+ * ```json
+ * { "$ref": "llm-core", "mountId": "llm-1", "displayName": "LLM Core" }
+ * ```
  */
-export type BuiltFlow<TOut = any, TScope = any> = {
+export interface SubflowRef {
+  /** Key pointing to the subflow definition in the `subflows` dictionary */
+  $ref: string;
+  /** Unique identifier for this mount instance */
+  mountId: string;
+  /** Human-readable display name for UI */
+  displayName?: string;
+}
+
+/**
+ * Compiled flowchart ready for execution.
+ * Output of FlowChartBuilder.build().
+ * 
+ * Can be passed to FlowChartExecutor for execution, or mounted
+ * as a subflow under another flowchart via addSubFlowChart methods.
+ */
+export type FlowChart<TOut = any, TScope = any> = {
+  /** Root node of the flowchart tree */
   root: StageNode<TOut, TScope>;
+  /** Map of stage names to their functions */
   stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
+  /** Optional traversal extractor for data extraction */
+  extractor?: TraversalExtractor;
+  /** Memoized subflow definitions (key → subflow root). Sent once, referenced multiple times. */
+  subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
 };
+
+/**
+ * @deprecated Use FlowChart instead. This alias exists for backward compatibility.
+ */
+export type BuiltFlow<TOut = any, TScope = any> = FlowChart<TOut, TScope>;
 
 /**
  * Options for the `execute` sugar (build + run).
@@ -124,6 +164,8 @@ export type ExecOptions = {
   initial?: unknown;
   readOnly?: unknown;
   throttlingErrorChecker?: (e: unknown) => boolean;
+  /** Scope protection mode - defaults to 'error' in library, but can be set to 'off' for backward compatibility */
+  scopeProtectionMode?: ScopeProtectionMode;
 };
 
 /* ============================================================================
@@ -148,6 +190,12 @@ class _N<TOut, TScope> {
   loopTarget?: string;
   isStreaming?: boolean;
   streamId?: string;
+  /** True if this is the root node of a mounted subflow */
+  isSubflowRoot?: boolean;
+  /** Mount id of the subflow (e.g., "llm-core") */
+  subflowId?: string;
+  /** Display name of the subflow (e.g., "LLM Core") */
+  subflowName?: string;
 }
 
 /* ============================================================================
@@ -210,17 +258,42 @@ export class DeciderList<TOut = any, TScope = any> {
 
   /**
    * Mount an already-built flowchart as a branch.
+   * Creates a reference node pointing to the memoized subflow definition.
    * Useful for composing large graphs from smaller ones owned by other teams.
    */
-  addSubFlowChartBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): DeciderList<TOut, TScope> {
+  addSubFlowChartBranch(id: string, subflow: FlowChart<TOut, TScope>, mountName?: string): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.cur.name}'`);
     this.branchIds.add(id);
-    const n = this.b._inflate(subflow.root);
+    
+    const displayName = mountName || id;
+    
+    // Register subflow definition using the mount id as key
+    // This ensures resolveSubflowReference can find it using node.subflowId
+    if (!this.b._subflowDefs.has(id)) {
+      this.b._subflowDefs.set(id, { root: subflow.root });
+    }
+    
+    // Create reference node (no deep copy!)
+    const n = new _N<TOut, TScope>();
+    n.name = displayName;
     n.id = id;
-    if (mountName) n.name = mountName;
+    n.isSubflowRoot = true;
+    n.subflowId = id;
+    n.subflowName = displayName;
     n.parent = this.cur;
+    
     this.cur.children.push(n);
     this.b._mergeStageMap(subflow.stageMap);
+    
+    // Merge nested subflows
+    if (subflow.subflows) {
+      for (const [key, def] of Object.entries(subflow.subflows)) {
+        if (!this.b._subflowDefs.has(key)) {
+          this.b._subflowDefs.set(key, def);
+        }
+      }
+    }
+    
     return this;
   }
 
@@ -333,17 +406,42 @@ export class SelectorList<TOut = any, TScope = any> {
 
   /**
    * Mount an already-built flowchart as a branch.
+   * Creates a reference node pointing to the memoized subflow definition.
    * Useful for composing large graphs from smaller ones owned by other teams.
    */
-  addSubFlowChartBranch(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): SelectorList<TOut, TScope> {
+  addSubFlowChartBranch(id: string, subflow: FlowChart<TOut, TScope>, mountName?: string): SelectorList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.cur.name}'`);
     this.branchIds.add(id);
-    const n = this.b._inflate(subflow.root);
+    
+    const displayName = mountName || id;
+    
+    // Register subflow definition using the mount id as key
+    // This ensures resolveSubflowReference can find it using node.subflowId
+    if (!this.b._subflowDefs.has(id)) {
+      this.b._subflowDefs.set(id, { root: subflow.root });
+    }
+    
+    // Create reference node (no deep copy!)
+    const n = new _N<TOut, TScope>();
+    n.name = displayName;
     n.id = id;
-    if (mountName) n.name = mountName;
+    n.isSubflowRoot = true;
+    n.subflowId = id;
+    n.subflowName = displayName;
     n.parent = this.cur;
+    
     this.cur.children.push(n);
     this.b._mergeStageMap(subflow.stageMap);
+    
+    // Merge nested subflows
+    if (subflow.subflows) {
+      for (const [key, def] of Object.entries(subflow.subflows)) {
+        if (!this.b._subflowDefs.has(key)) {
+          this.b._subflowDefs.set(key, def);
+        }
+      }
+    }
+    
     return this;
   }
 
@@ -390,10 +488,25 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _stageMap = new Map<string, PipelineStageFunction<TOut, TScope>>();
 
   /**
+   * Memoized subflow definitions.
+   * Key is the subflow's root name, value is the subflow definition.
+   * Used to avoid deep-copying subflows - instead we create reference nodes.
+   * 
+   * @internal Exposed for DeciderList and SelectorList access within this file.
+   */
+  _subflowDefs = new Map<string, { root: StageNode<TOut, TScope> }>();
+
+  /**
    * Stream handlers for streaming stages.
    * Contains callbacks for token emission and lifecycle events (start/end).
    */
   private _streamHandlers: StreamHandlers = {};
+
+  /**
+   * Optional traversal extractor function.
+   * Called after each stage completes to extract data for frontend consumption.
+   */
+  private _extractor?: TraversalExtractor;
 
   /* ─────────────────────────── Authoring API ─────────────────────────── */
 
@@ -502,20 +615,127 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * @param subflow   prebuilt flow (from .build())
    * @param mountName optional override for the child’s stage name at the mount point
    */
-  addSubFlowChart(id: string, subflow: BuiltFlow<TOut, TScope>, mountName?: string): this {
+  addSubFlowChart(id: string, subflow: FlowChart<TOut, TScope>, mountName?: string): this {
     const cur = this._needCursor();
     if (cur.children.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
-    // Inflate the flowchart and mount it as a child
-    const n = this._inflate(subflow.root);
+    
+    const displayName = mountName || id;
+    
+    // Register subflow definition using the mount id as key
+    // This ensures resolveSubflowReference can find it using node.subflowId
+    if (!this._subflowDefs.has(id)) {
+      this._subflowDefs.set(id, { root: subflow.root });
+    }
+    
+    // Create reference node (no deep copy!)
+    const n = new _N<TOut, TScope>();
+    n.name = displayName;
     n.id = id;
-    if (mountName) n.name = mountName;
+    n.isSubflowRoot = true;
+    n.subflowId = id;
+    n.subflowName = displayName;
     n.parent = cur;
+    
     cur.children.push(n);
+    
     // Merge stage maps (detect collisions)
     this._mergeStageMap(subflow.stageMap);
+    
+    // Merge nested subflows from the mounted flowchart
+    if (subflow.subflows) {
+      for (const [key, def] of Object.entries(subflow.subflows)) {
+        if (!this._subflowDefs.has(key)) {
+          this._subflowDefs.set(key, def);
+        }
+      }
+    }
+    
     return this;
+  }
+
+  /**
+   * Add a prebuilt flowchart as the **next** node (linear continuation).
+   * Unlike `addSubFlowChart` (which adds as a child/fork), this method:
+   * - Sets the subflow as `cur.next` (linear continuation)
+   * - Allows subsequent `addFunction` calls to continue after the subflow
+   *
+   * Creates a reference node pointing to the memoized subflow definition.
+   * The subflow is stored once in `_subflowDefs` and referenced via the root name.
+   *
+   * Use this inside `build` callbacks of `addFunctionBranch` when you want
+   * the subflow to execute in sequence, not as a parallel fork.
+   *
+   * Example:
+   *   builder
+   *     .addDecider(decider)
+   *       .addFunctionBranch('resolved', 'contextAggregator', fn, (b) => {
+   *         // Subflow executes AFTER contextAggregator, then prepareResponse after subflow
+   *         b.addSubFlowChartNext('llm-core', llmCoreFlow, 'LLM Core')
+   *           .addFunction('prepareResponse', prepareResponseFn);
+   *       })
+   *     .end();
+   *
+   * @param id        subflow id (required; used for subflowId metadata)
+   * @param subflow   prebuilt flow (from .build())
+   * @param mountName optional override for the subflow's root stage name
+   */
+  addSubFlowChartNext(id: string, subflow: FlowChart<TOut, TScope>, mountName?: string): this {
+    const cur = this._needCursor();
+    if (cur.next) {
+      fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
+    }
+    
+    const displayName = mountName || id;
+    
+    // Register subflow definition using the mount id as key
+    // This ensures resolveSubflowReference can find it using node.subflowId
+    if (!this._subflowDefs.has(id)) {
+      this._subflowDefs.set(id, { root: subflow.root });
+    }
+    
+    // Create reference node (no deep copy!)
+    const n = new _N<TOut, TScope>();
+    n.name = displayName;
+    n.id = id;
+    n.isSubflowRoot = true;
+    n.subflowId = id;
+    n.subflowName = displayName;
+    n.parent = cur.parent ?? undefined;
+    
+    // Set as next (linear continuation)
+    cur.next = n;
+    
+    // Move cursor to the subflow reference node so subsequent addFunction calls
+    // chain from the subflow, not from the original node
+    this._cursor = n;
+    
+    // Merge stage maps (detect collisions)
+    this._mergeStageMap(subflow.stageMap);
+    
+    // Merge nested subflows from the mounted flowchart
+    if (subflow.subflows) {
+      for (const [key, def] of Object.entries(subflow.subflows)) {
+        if (!this._subflowDefs.has(key)) {
+          this._subflowDefs.set(key, def);
+        }
+      }
+    }
+    
+    return this;
+  }
+
+  /**
+   * Find the last node in a chain (follows `next` pointers to the end).
+   * Used by `addSubFlowChartNext` to move cursor to end of subflow.
+   */
+  private _findLastNode(n: _N<TOut, TScope>): _N<TOut, TScope> {
+    let current = n;
+    while (current.next) {
+      current = current.next;
+    }
+    return current;
   }
 
   /** Explicitly move into a specific child by id (closures are preferred). */
@@ -622,6 +842,52 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  /* ─────────────────────────── Traversal Extractor API ─────────────────────────── */
+
+  /**
+   * Register a traversal extractor function.
+   * The extractor is called after each stage completes (after commitPatch).
+   * 
+   * The extractor receives a StageSnapshot containing:
+   * - node: The StageNode being executed (name, id, displayName, etc.)
+   * - context: The StageContext (provides getScope, getDebugInfo, getErrorInfo)
+   * 
+   * The extractor should return whatever data the application needs.
+   * Return undefined/null to skip adding an entry for this stage.
+   * 
+   * Only one extractor per flow is supported. Calling this multiple times
+   * replaces the previous extractor (last one wins).
+   * 
+   * @param extractor - Function to extract data from each stage
+   * @returns this for fluent chaining
+   * 
+   * @example
+   * ```typescript
+   * builder
+   *   .start('entry', entryFn)
+   *   .addFunction('askLLM', askLLMFn)
+   *   .addTraversalExtractor((snapshot) => {
+   *     const { node, context } = snapshot;
+   *     const scope = context.getScope();
+   *     const debugInfo = context.getDebugInfo();
+   *     
+   *     // Extract domain-specific data
+   *     return {
+   *       stageName: node.name,
+   *       llmResponse: scope?.llmResponse,
+   *       toolCalls: debugInfo?.toolCalls,
+   *     };
+   *   })
+   *   .build();
+   * ```
+   */
+  addTraversalExtractor<TResult = unknown>(
+    extractor: TraversalExtractor<TResult>
+  ): this {
+    this._extractor = extractor;
+    return this;
+  }
+
   /** Move back to the parent node. */
   end(): this {
     const cur = this._needCursor();
@@ -643,10 +909,17 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * Compile to engine input:
    *   • `root`  — StageNode tree (with embedded `fn`/decider closures kept)
    *   • `stageMap` — Map of stage names → embedded functions (for engine lookup by name)
+   *   • `extractor` — Optional traversal extractor function
+   *   • `subflows` — Memoized subflow definitions (key → subflow root)
    *
    * NOTE: This is not pure JSON (contains functions). Use `toSpec()` for transport.
    */
-  build(): { root: StageNode<TOut, TScope>; stageMap: Map<string, PipelineStageFunction<TOut, TScope>> } {
+  build(): { 
+    root: StageNode<TOut, TScope>; 
+    stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
+    extractor?: TraversalExtractor;
+    subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
+  } {
     const root = this._root ?? fail('empty tree; call start() first');
 
     const toStageNode = (n: _N<TOut, TScope>): StageNode<TOut, TScope> => {
@@ -658,6 +931,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // Add streaming properties
       if (n.isStreaming) out.isStreaming = true;
       if (n.streamId) out.streamId = n.streamId;
+      
+      // Add subflow metadata
+      if (n.isSubflowRoot) out.isSubflowRoot = true;
+      if (n.subflowId) out.subflowId = n.subflowId;
+      if (n.subflowName) out.subflowName = n.subflowName;
       
       if (n.children.length > 0) {
         out.children = n.children.map(toStageNode);
@@ -678,7 +956,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       return out;
     };
 
-    return { root: toStageNode(root), stageMap: this._stageMap };
+    // Convert subflow defs map to plain object
+    const subflows: Record<string, { root: StageNode<TOut, TScope> }> = {};
+    for (const [key, def] of this._subflowDefs) {
+      subflows[key] = def;
+    }
+
+    return { 
+      root: toStageNode(root), 
+      stageMap: this._stageMap,
+      extractor: this._extractor,
+      // Only include subflows if there are any
+      ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
+    };
   }
 
   /**
@@ -697,6 +987,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // Add streaming properties
       if (n.isStreaming) spec.isStreaming = true;
       if (n.streamId) spec.streamId = n.streamId;
+      
+      // Add subflow metadata
+      if (n.isSubflowRoot) spec.isSubflowRoot = true;
+      if (n.subflowId) spec.subflowId = n.subflowId;
+      if (n.subflowName) spec.subflowName = n.subflowName;
       
       // Add parallel child metadata
       if (parentForkId) {
@@ -748,20 +1043,22 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /**
    * Convenience: build & execute with a given ScopeFactory.
    * (You can ignore this on FE if you only need pure JSON via `toSpec()`.)
+   * 
+   * Uses FlowChartExecutor internally for execution.
    */
   async execute(scopeFactory: ScopeFactory<TScope>, opts?: ExecOptions): Promise<any> {
-    const { root, stageMap } = this.build();
-    const p = new Pipeline<TOut, TScope>(
-      root,
-      stageMap,
+    const flowChart = this.build();
+    const executor = new FlowChartExecutor<TOut, TScope>(
+      flowChart,
       scopeFactory,
       opts?.defaults,
       opts?.initial,
       opts?.readOnly,
       opts?.throttlingErrorChecker,
       this._streamHandlers,
+      opts?.scopeProtectionMode,
     );
-    return await p.execute();
+    return await executor.run();
   }
 
   /**
@@ -828,21 +1125,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageMap.set(name, fn);
   }
 
-  /** Inflate a StageNode (from a built flow) back to our internal node type. */
-  _inflate(sn: StageNode<TOut, TScope>): _N<TOut, TScope> {
-    const n = new _N<TOut, TScope>();
-    n.name = sn.name;
-    n.id = sn.id;
-    n.fn = sn.fn as any;
-    if (sn.children?.length) {
-      n.children = sn.children.map((c) => this._inflate(c));
-      if (sn.nextNodeDecider) n.decider = sn.nextNodeDecider as any;
-      if (sn.nextNodeSelector) n.selector = sn.nextNodeSelector as any;
-    }
-    if (sn.next) n.next = this._inflate(sn.next);
-    return n;
-  }
-
   /** Merge another flow’s stageMap; throw on name collisions. */
   _mergeStageMap(other: Map<string, PipelineStageFunction<TOut, TScope>>) {
     for (const [k, v] of other) {
@@ -853,6 +1135,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         this._stageMap.set(k, v);
       }
     }
+  }
+
+  /**
+   * Generate a fallback key for a subflow based on its root node.
+   * 
+   * NOTE: This is primarily used for backward compatibility. The preferred
+   * approach is to use the mount `id` parameter directly as the key when
+   * storing subflows, which ensures consistency with resolveSubflowReference.
+   * 
+   * @deprecated Prefer using the mount id directly as the key
+   */
+  _getSubflowKey(subflow: FlowChart<TOut, TScope>): string {
+    // Prefer subflowId (set during mounting) for consistency with lookup
+    return subflow.root.subflowId || subflow.root.name;
   }
 
   /* ─────────────────────────── Runtime Continuation API ───────────────────────── */
@@ -919,6 +1215,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (n.isStreaming) out.isStreaming = true;
     if (n.streamId) out.streamId = n.streamId;
     
+    // Add subflow metadata
+    if (n.isSubflowRoot) out.isSubflowRoot = true;
+    if (n.subflowId) out.subflowId = n.subflowId;
+    if (n.subflowName) out.subflowName = n.subflowName;
+    
     if (n.children.length > 0) {
       out.children = n.children.map((c) => this._nodeToStageNode(c));
       if (n.decider) out.nextNodeDecider = n.decider as any;
@@ -933,6 +1234,55 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     return out;
   }
+}
+
+/* ============================================================================
+ * Factory Function - D3-style flowchart creation
+ * ========================================================================== */
+
+/**
+ * D3-style factory function for creating flowcharts.
+ * Combines FlowChartBuilder instantiation with start() for cleaner chaining.
+ * 
+ * This is the recommended way to create flowcharts - it provides a more
+ * ergonomic API without requiring the `new` keyword.
+ * 
+ * @param name - The name of the root stage (stageMap key if fn omitted)
+ * @param fn - Optional embedded stage function for the root
+ * @param id - Optional stable id for the root node
+ * @param displayName - Optional human-readable display name for UI
+ * @returns A FlowChartBuilder instance with root already set
+ * 
+ * @example
+ * // Simple flowchart
+ * const chart = flowChart('entry', entryFn)
+ *   .addFunction('process', processFn)
+ *   .addFunction('output', outputFn)
+ *   .build();
+ * 
+ * @example
+ * // With decider branching
+ * const chart = flowChart('entry', entryFn)
+ *   .addDecider((out) => out.type)
+ *     .addFunctionBranch('typeA', 'handleA', handleAFn)
+ *     .addFunctionBranch('typeB', 'handleB', handleBFn)
+ *     .end()
+ *   .build();
+ * 
+ * @example
+ * // Equivalent to:
+ * const chart = new FlowChartBuilder()
+ *   .start('entry', entryFn)
+ *   .addFunction('process', processFn)
+ *   .build();
+ */
+export function flowChart<TOut = any, TScope = any>(
+  name: string,
+  fn?: PipelineStageFunction<TOut, TScope>,
+  id?: string,
+  displayName?: string,
+): FlowChartBuilder<TOut, TScope> {
+  return new FlowChartBuilder<TOut, TScope>().start(name, fn, id, displayName);
 }
 
 /* ============================================================================

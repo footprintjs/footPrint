@@ -84,6 +84,10 @@ class FakeStageContext {
     this.calls.push({ op: 'addErrorInfo', args: [k, v] });
   }
 
+  addFlowDebugMessage(type: string, description: string, options?: Record<string, unknown>) {
+    this.calls.push({ op: 'addFlowDebugMessage', args: [type, description, options] });
+  }
+
   getFromGlobalContext(_k: string) {
     return undefined;
   }
@@ -117,10 +121,10 @@ jest.mock('../../../src/core/logger', () => ({
   logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
 }));
 
-// Mock TreePipelineContext to hand out FakeStageContext
-jest.mock('../../../src/core/context/TreePipelineContext', () => {
+// Mock PipelineRuntime to hand out FakeStageContext
+jest.mock('../../../src/core/context/PipelineRuntime', () => {
   return {
-    TreePipelineContext: class {
+    PipelineRuntime: class {
       public rootStageContext: any;
       public setRootObjectCalls: any[] = [];
       constructor(rootName: string) {
@@ -344,7 +348,7 @@ describe('Validation & error paths', () => {
     const p = new Pipeline(root, stageMap, scopeFactory, {});
     await expect(p.execute()).rejects.toThrow('boom');
     // Spot check commitPatch was invoked
-    const ctx = (p as any).treePipelineContext.rootStageContext as FakeStageContext;
+    const ctx = (p as any).pipelineRuntime.rootStageContext as FakeStageContext;
     expect(ctx.calls.some((c) => c.op === 'commitPatch')).toBe(true);
   });
 });
@@ -403,7 +407,7 @@ describe('Debug breadcrumbs & helpers', () => {
     const p = new Pipeline(root, stageMap, scopeFactory, {});
     await p.execute();
 
-    const ctx = (p as any).treePipelineContext.rootStageContext as FakeStageContext;
+    const ctx = (p as any).pipelineRuntime.rootStageContext as FakeStageContext;
     const orders = ctx.calls.filter((c) => c.op === 'addDebugInfo' && c.args[0] === 'orderOfExecution');
     const totals = ctx.calls.filter((c) => c.op === 'addDebugInfo' && c.args[0] === 'totalChildren');
 
@@ -422,7 +426,7 @@ describe('Debug breadcrumbs & helpers', () => {
 
     // setRootObject
     p.setRootObject(['a'], 'b', 42);
-    const tpc = (p as any).treePipelineContext;
+    const tpc = (p as any).pipelineRuntime;
     expect((tpc.setRootObjectCalls?.length ?? 0) >= 0).toBe(true);
 
     // getInheritedPipelines

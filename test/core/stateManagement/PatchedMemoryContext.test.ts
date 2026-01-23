@@ -1,8 +1,8 @@
-import { applySmartMerge, DELIM, PatchedMemoryContext } from '../../../src/core/stateManagement/PatchedMemoryContext';
+import { applySmartMerge, DELIM, WriteBuffer } from '../../../src/core/stateManagement/WriteBuffer';
 import { setNestedValue, updateNestedValue } from '../../../src/core/stateManagement/utils';
 
 /** Turn a commit() payload back into a full JSON tree */
-function materialise(base: any, commitRes: ReturnType<PatchedMemoryContext['commit']>) {
+function materialise(base: any, commitRes: ReturnType<WriteBuffer['commit']>) {
   const { overwrite, updates, trace } = commitRes;
   return applySmartMerge(base, updates, overwrite, trace);
 }
@@ -10,7 +10,7 @@ function materialise(base: any, commitRes: ReturnType<PatchedMemoryContext['comm
 /* -------------------------------------------------------------------------- *
  * 1.  Edge‑value tests
  * -------------------------------------------------------------------------- */
-describe('PatchedMemoryContext – handling null, undefined, NaN, and empty strings', () => {
+describe('WriteBuffer – handling null, undefined, NaN, and empty strings', () => {
   const base = {
     primitive: 'value',
     object: { a: 1, b: 2 },
@@ -19,21 +19,21 @@ describe('PatchedMemoryContext – handling null, undefined, NaN, and empty stri
 
   describe('setObject with edge values', () => {
     it('should overwrite with null', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.set(['primitive'], null);
       const result = materialise(base, mem.commit());
       expect(result.primitive).toBeNull();
     });
 
     it('should overwrite with empty string', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.set(['primitive'], '');
       const result = materialise(base, mem.commit());
       expect(result.primitive).toBe('');
     });
 
     it('should overwrite with NaN', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.set(['primitive'], NaN);
       const result = materialise(base, mem.commit());
       expect(Number.isNaN(result.primitive)).toBe(true);
@@ -42,21 +42,21 @@ describe('PatchedMemoryContext – handling null, undefined, NaN, and empty stri
 
   describe('merge() with edge values', () => {
     it('should set field to null', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.merge(['object'], { a: null });
       const result = materialise(base, mem.commit());
       expect(result.object).toEqual({ a: null, b: 2 });
     });
 
     it('should set field to empty string', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.merge(['object'], { a: '' });
       const result = materialise(base, mem.commit());
       expect(result.object).toEqual({ a: '', b: 2 });
     });
 
     it('should set field to NaN', () => {
-      const mem = new PatchedMemoryContext(base);
+      const mem = new WriteBuffer(base);
       mem.merge(['object'], { a: NaN });
       const result = materialise(base, mem.commit());
       expect(Number.isNaN(result.object.a)).toBe(true);
@@ -99,7 +99,7 @@ describe('Backward compatibility – old vs new memory model', () => {
    *     scope.updateObject(patchPath, key, value)  ➜ StageContext.merge(...)
    *     └── StageContext.withNamespace(...)        ➜ ['pipelines', id, ...patchPath, key]
    *         (adds the pipeline prefix *and* pushes `key` onto the path array)
-   *     └── PatchedMemoryContext.merge(fullLeafPath, value)
+   *     └── WriteBuffer.merge(fullLeafPath, value)
    *
    * The memory layer therefore sees the *leaf* path (where the value lives) and
    * a plain value, NOT an object wrapper like { [key]: value }.
@@ -108,7 +108,7 @@ describe('Backward compatibility – old vs new memory model', () => {
    * same leaf path here before calling merge()/set().
    * ------------------------------------------------------------------------ */
   function applyNewMutation(obj: any, patchPath: string[], key: string, value: any) {
-    const mem = new PatchedMemoryContext(obj);
+    const mem = new WriteBuffer(obj);
     const fullPath = ['pipelines', pipelineId, ...patchPath, key];
     mem.merge(fullPath, value);
     return materialise(obj, mem.commit());
@@ -118,7 +118,7 @@ describe('Backward compatibility – old vs new memory model', () => {
    * Helper –>setNewMutation   (identical reasoning for hard overwrites)
    * ------------------------------------------------------------------------ */
   function setNewMutation(obj: any, patchPath: string[], key: string, value: any) {
-    const mem = new PatchedMemoryContext(obj);
+    const mem = new WriteBuffer(obj);
     const fullPath = ['pipelines', pipelineId, ...patchPath, key];
     mem.set(fullPath, value);
     return materialise(obj, mem.commit());
@@ -190,13 +190,13 @@ describe('Backward compatibility – old vs new memory model', () => {
   });
 });
 
-describe('PatchedMemoryContext – additional edge‑cases', () => {
+describe('WriteBuffer – additional edge‑cases', () => {
   const base = { cfg: { tags: ['a'], num: 1 } };
 
   /* ---------------------------------------------------------------------- */
   describe('last‑writer‑wins semantics', () => {
     it('merge then set → set wins', () => {
-      const ctx = new PatchedMemoryContext(base);
+      const ctx = new WriteBuffer(base);
       ctx.merge(['cfg', 'num'], 2);
       ctx.set(['cfg', 'num'], 3);
 
@@ -205,7 +205,7 @@ describe('PatchedMemoryContext – additional edge‑cases', () => {
     });
 
     it('set then merge → merge wins', () => {
-      const ctx = new PatchedMemoryContext(base);
+      const ctx = new WriteBuffer(base);
       ctx.set(['cfg', 'num'], 3);
       ctx.merge(['cfg', 'num'], 4);
 
@@ -217,7 +217,7 @@ describe('PatchedMemoryContext – additional edge‑cases', () => {
   /* ---------------------------------------------------------------------- */
   describe('array union deduplication', () => {
     it('merge appends new items only once', () => {
-      const ctx = new PatchedMemoryContext(base);
+      const ctx = new WriteBuffer(base);
       ctx.merge(['cfg', 'tags'], ['a', 'b']); // 'a' already exists, 'b' is new
 
       const final = materialise(base, ctx.commit());
@@ -228,7 +228,7 @@ describe('PatchedMemoryContext – additional edge‑cases', () => {
   /* ---------------------------------------------------------------------- */
   describe('touched‑path tracking', () => {
     it('records exactly the paths modified', () => {
-      const ctx = new PatchedMemoryContext(base);
+      const ctx = new WriteBuffer(base);
 
       ctx.set(['cfg', 'num'], 9);
       ctx.merge(['cfg', 'tags'], ['b']);
@@ -243,7 +243,7 @@ describe('PatchedMemoryContext – additional edge‑cases', () => {
   /* ---------------------------------------------------------------------- */
   describe('commit resets stage state', () => {
     it('new write after commit starts fresh patch bucket', () => {
-      const ctx = new PatchedMemoryContext(base);
+      const ctx = new WriteBuffer(base);
 
       ctx.set(['cfg', 'num'], 99);
       ctx.commit(); // first flush
@@ -257,30 +257,30 @@ describe('PatchedMemoryContext – additional edge‑cases', () => {
   });
 });
 
-describe('PatchedMemoryContext redaction flags', () => {
+describe('WriteBuffer redaction flags', () => {
   const base = { chat: { dummy: 1 } };
   const flatPath = `chat${DELIM}secret`; // norm(['chat','secret'])
   const nested = ['chat', 'secret'] as const;
   it('records path when set(..., shouldRedact=true)', () => {
-    const mem = new PatchedMemoryContext(base);
+    const mem = new WriteBuffer(base);
     mem.set([...nested], 'TOP-SECRET', true);
     const { redactedPaths } = mem.commit();
     expect(redactedPaths).toEqual(new Set([flatPath]));
   });
   it('records path when merge(..., shouldRedact=true)', () => {
-    const mem = new PatchedMemoryContext(base);
+    const mem = new WriteBuffer(base);
     mem.merge(['chat', 'profile'], { ssn: '123' }, true);
     const { redactedPaths } = mem.commit();
     expect(redactedPaths).toEqual(new Set([`chat${DELIM}profile`]));
   });
   it('does NOT record path when shouldRedact is false / omitted', () => {
-    const mem = new PatchedMemoryContext(base);
+    const mem = new WriteBuffer(base);
     mem.set([...nested], '123', /* shouldRedact = */ false);
     const { redactedPaths } = mem.commit();
     expect(redactedPaths.size).toBe(0);
   });
   it('clears redactedPaths after commit()', () => {
-    const mem = new PatchedMemoryContext(base);
+    const mem = new WriteBuffer(base);
     mem.set([...nested], 'FIRST', true);
     mem.commit(); // first commit
     // second round: no ops; commit should return empty set

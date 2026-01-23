@@ -1,19 +1,19 @@
-import { DebugContext } from '../../../src/core/context/DebugContext';
+import { StageMetadata } from '../../../src/core/context/StageMetadata';
 
-describe('DebugContext', () => {
-  let debugContext: DebugContext;
+describe('StageMetadata', () => {
+  let stageMetadata: StageMetadata;
 
   beforeEach(() => {
-    debugContext = new DebugContext();
+    stageMetadata = new StageMetadata();
   });
 
-  test('should add debug info', () => {
-    debugContext.addDebugInfo('testKey', 'testValue');
-    expect(debugContext.logContext.testKey).toBe('testValue');
+  test('should add log entry', () => {
+    stageMetadata.addLog('testKey', 'testValue');
+    expect(stageMetadata.logContext.testKey).toBe('testValue');
   });
 
-  test('should add error info', () => {
-    debugContext.addErrorInfo('testKey', 'testValue');
-    expect(debugContext.errorContext.testKey).toBe('testValue');
+  test('should add error entry', () => {
+    stageMetadata.addError('testKey', 'testValue');
+    expect(stageMetadata.errorContext.testKey).toBe('testValue');
   });
 });

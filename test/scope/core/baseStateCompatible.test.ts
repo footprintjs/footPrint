@@ -51,10 +51,10 @@ describe('baseStateCompatible', () => {
     expect(ctx.getValue).toHaveBeenCalledWith(['a'], 'b');
 
     scope.setObject(['x'], 'y', 3, true);
-    expect(ctx.setObject).toHaveBeenCalledWith(['x'], 'y', 3, true);
+    expect(ctx.setObject).toHaveBeenCalledWith(['x'], 'y', 3, true, undefined);
 
     scope.updateObject(['m'], 'n', { p: 1 });
-    expect(ctx.updateObject).toHaveBeenCalledWith(['m'], 'n', { p: 1 });
+    expect(ctx.updateObject).toHaveBeenCalledWith(['m'], 'n', { p: 1 }, undefined);
 
     scope.setObjectInRoot('rootKey', 'rootVal');
     expect(ctx.setRoot).toHaveBeenCalledWith('rootKey', 'rootVal');

@@ -1,5 +1,5 @@
 /**********************************************************************
- MemoryHistory – unit test coverage
+ ExecutionHistory – unit test coverage
  -------------------------------------------------------------------
  • Ensures materialise() reproduces the exact state after N stages
  • Confirms list()
@@ -7,8 +7,8 @@
  *********************************************************************/
 import _cloneDeep from 'lodash.clonedeep';
 
-import { CommitBundle, MemoryHistory, TraceItem } from '../../../src/core/stateManagement/MemoryHistory';
-import { applySmartMerge, MemoryPatch } from '../../../src/core/stateManagement/PatchedMemoryContext';
+import { CommitBundle, ExecutionHistory, TraceItem } from '../../../src/core/stateManagement/ExecutionHistory';
+import { applySmartMerge, MemoryPatch } from '../../../src/core/stateManagement/WriteBuffer';
 /* ------------------------------------------------------------------ *
 Helpers
 ------------------------------------------------------------------ */
@@ -38,9 +38,9 @@ const b1Trace: TraceItem[] = [{ path: `cfg${DELIM}num`, verb: 'set' }];
 const snap0 = applySmartMerge(_cloneDeep(base), b0Updates, b0Overwrite, b0Trace);
 const snap1 = applySmartMerge(snap0, b1Updates, b1Overwrite, b1Trace);
 
-describe('MemoryHistory', () => {
+describe('ExecutionHistory', () => {
   it('materialise(n) reproduces exact state after n commits', () => {
-    const hist = new MemoryHistory(base);
+    const hist = new ExecutionHistory(base);
     hist.record(makeBundle('Stage‑0', b0Trace, b0Overwrite, b0Updates));
     expect(hist.materialise()).toEqual(snap0); // latest (idx 0)
     expect(hist.materialise(1)).toEqual(snap0); // explicit idx
@@ -49,7 +49,7 @@ describe('MemoryHistory', () => {
     expect(hist.materialise(2)).toEqual(snap1); // explicit idx 2
   });
   it('list() returns  timeline', () => {
-    const hist = new MemoryHistory(base);
+    const hist = new ExecutionHistory(base);
     hist.record(makeBundle('Stage‑0', b0Trace, b0Overwrite, b0Updates));
     hist.record(makeBundle('Stage‑1', b1Trace, b1Overwrite, b1Updates));
     const timeline = hist.list();
@@ -64,7 +64,7 @@ describe('MemoryHistory', () => {
     });
   });
   it('clear() wipes history for a fresh run', () => {
-    const hist = new MemoryHistory(base);
+    const hist = new ExecutionHistory(base);
     hist.record(makeBundle('Stage‑0', b0Trace, b0Overwrite, b0Updates));
     expect(hist.list().length).toBe(1);
     hist.clear();

@@ -1,6 +1,14 @@
 # Execution Patterns
 
-FootPrint supports four main execution patterns.
+FootPrint supports four main static execution patterns, plus a dynamic pattern for runtime-determined children.
+
+| Pattern | Children | Determined At |
+|---------|----------|---------------|
+| [Linear](#1-linear-pattern) | 0 | Build time |
+| [Fork](#2-fork-pattern-parallel) | All | Build time |
+| [Decider](#3-decider-pattern-single-choice) | 1 | Build time |
+| [Selector](#4-selector-pattern-multi-choice) | 0-N | Build time |
+| [Dynamic](./DYNAMIC_CHILDREN.md) | 0-N | Runtime |
 
 ## 1. Linear Pattern
 
@@ -144,3 +152,37 @@ const builder = new FlowChartBuilder()
     .addFunctionBranch('path_b', 'PathB', pathBFn)
     .end();
 ```
+
+
+## 5. Dynamic Pattern (Runtime Children)
+
+Create children at runtime by returning a `StageNode` from your handler:
+
+```typescript
+async function toolBranchHandler(scope: Scope) {
+  const toolCalls = scope.getValue([], 'toolCalls');
+  
+  // Return StageNode with dynamic children
+  return {
+    name: 'dynamicTools',
+    children: toolCalls.map(call => ({
+      id: `tool_${call.id}`,
+      name: call.name,
+      fn: async () => executeTool(call),
+    })),
+  };
+}
+```
+
+```
+┌───────────────┐
+│  toolBranch   │
+└───────┬───────┘
+        │ (returns StageNode)
+        ▼
+┌───┬───┬───┬───┐
+│ ? │ ? │ ? │...│  (created at runtime)
+└───┴───┴───┴───┘
+```
+
+📖 **[Full Dynamic Children Guide](./DYNAMIC_CHILDREN.md)** - Complete documentation with examples

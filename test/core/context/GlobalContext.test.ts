@@ -1,32 +1,32 @@
-import { GlobalContext } from '../../../src/core/context/GlobalContext';
+import { GlobalStore } from '../../../src/core/context/GlobalStore';
 
-describe('GlobalContext', () => {
-  let globalContext: GlobalContext;
+describe('GlobalStore', () => {
+  let globalStore: GlobalStore;
 
   beforeEach(() => {
-    globalContext = new GlobalContext();
+    globalStore = new GlobalStore();
   });
 
   test('should update global context', () => {
-    globalContext.updateValue('', [], 'key', 'value');
-    const context = globalContext.getValue('', [], 'key');
+    globalStore.updateValue('', [], 'key', 'value');
+    const context = globalStore.getValue('', [], 'key');
     expect(context).toBe('value');
   });
 
   test('should update pipeline in global context', () => {
-    globalContext.updateValue('id1', [], 'key', 'value');
-    const context = globalContext.getValue('id1', [], 'key');
+    globalStore.updateValue('id1', [], 'key', 'value');
+    const context = globalStore.getValue('id1', [], 'key');
     expect(context).toBe('value');
   });
 
   test('should update nested object in global context', () => {
-    globalContext.updateValue('id1', ['a', 'b'], 'key', 'value');
-    const context = globalContext.getValue('id1', ['a', 'b'], 'key');
+    globalStore.updateValue('id1', ['a', 'b'], 'key', 'value');
+    const context = globalStore.getValue('id1', ['a', 'b'], 'key');
     expect(context).toBe('value');
   });
 
   test('should return JSON representation', () => {
-    const json = globalContext.getJson();
+    const json = globalStore.getState();
     expect(json).toEqual({});
   });
 });

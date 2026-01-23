@@ -15,6 +15,9 @@ function prune(node: StageNode<any, any> | undefined): any {
   if (!node) return undefined;
   const out: any = { name: node.name };
   if (node.id) out.id = node.id;
+  if (node.isSubflowRoot) out.isSubflowRoot = node.isSubflowRoot;
+  if (node.subflowId) out.subflowId = node.subflowId;
+  if (node.subflowName) out.subflowName = node.subflowName;
   if (node.children?.length) out.children = node.children.map(prune);
   if (node.next) out.next = prune(node.next);
   return out;
@@ -137,7 +140,7 @@ describe('FlowChartBuilder — build shapes', () => {
     await expect(dec({})).resolves.toBe('left');
   });
 
-  test('composition (decider branches): addSubFlowChartBranch mounts subflows', () => {
+  test('composition (decider branches): addSubFlowChartBranch mounts subflows as references', () => {
     const smalltalk = new FlowChartBuilder().start('Smalltalk_Start').addFunction('Smalltalk_Answer').build();
 
     const rag = new FlowChartBuilder().start('RAG_Start').addFunction('RAG_Answer').build();
@@ -150,21 +153,33 @@ describe('FlowChartBuilder — build shapes', () => {
       .end()
       .addFunction('Tail');
 
-    const { root } = chatbot.build();
+    const { root, subflows } = chatbot.build();
+    
+    // Reference nodes should be in the tree
     expect(names(root)).toEqual(
-      expect.arrayContaining(['Entry', 'Smalltalk', 'Smalltalk_Answer', 'QA', 'RAG_Answer', 'Tail']),
+      expect.arrayContaining(['Entry', 'Smalltalk', 'QA', 'Tail']),
     );
+    
+    // Reference nodes should have subflow metadata
     expect(prune(root)).toEqual({
       name: 'Entry',
       children: [
-        { id: 'smalltalk', name: 'Smalltalk', next: { name: 'Smalltalk_Answer' } },
-        { id: 'qa', name: 'QA', next: { name: 'RAG_Answer' } },
+        { id: 'smalltalk', name: 'Smalltalk', isSubflowRoot: true, subflowId: 'smalltalk', subflowName: 'Smalltalk' },
+        { id: 'qa', name: 'QA', isSubflowRoot: true, subflowId: 'qa', subflowName: 'QA' },
       ],
       next: { name: 'Tail' },
     });
+    
+    // Subflow definitions should be in the subflows dictionary
+    expect(subflows).toBeDefined();
+    // Subflows are now stored with the mount id as the key (not the root name)
+    expect(subflows!['smalltalk']).toBeDefined();
+    expect(subflows!['qa']).toBeDefined();
+    expect(subflows!['smalltalk'].root.name).toBe('Smalltalk_Start');
+    expect(subflows!['qa'].root.name).toBe('RAG_Start');
   });
 
-  test('composition (fork children): addSubFlowChart mounts subflows as parallel children', () => {
+  test('composition (fork children): addSubFlowChart mounts subflows as references', () => {
     const faq = new FlowChartBuilder().start('FAQ_Start').addFunction('FAQ_Answer').build();
     const help = new FlowChartBuilder().start('Help_Start').addFunction('Help_Answer').build();
 
@@ -175,18 +190,30 @@ describe('FlowChartBuilder — build shapes', () => {
       .addFunction('Aggregate')
       .addFunction('Tail');
 
-    const { root } = main.build();
+    const { root, subflows } = main.build();
+    
+    // Reference nodes should be in the tree
     expect(names(root)).toEqual(
-      expect.arrayContaining(['Prep', 'FAQ', 'FAQ_Answer', 'Help', 'Help_Answer', 'Aggregate', 'Tail']),
+      expect.arrayContaining(['Prep', 'FAQ', 'Help', 'Aggregate', 'Tail']),
     );
+    
+    // Reference nodes should have subflow metadata
     expect(prune(root)).toEqual({
       name: 'Prep',
       children: [
-        { id: 'faq', name: 'FAQ', next: { name: 'FAQ_Answer' } },
-        { id: 'help', name: 'Help', next: { name: 'Help_Answer' } },
+        { id: 'faq', name: 'FAQ', isSubflowRoot: true, subflowId: 'faq', subflowName: 'FAQ' },
+        { id: 'help', name: 'Help', isSubflowRoot: true, subflowId: 'help', subflowName: 'Help' },
       ],
       next: { name: 'Aggregate', next: { name: 'Tail' } },
     });
+    
+    // Subflow definitions should be in the subflows dictionary
+    expect(subflows).toBeDefined();
+    // Subflows are now stored with the mount id as the key (not the root name)
+    expect(subflows!['faq']).toBeDefined();
+    expect(subflows!['help']).toBeDefined();
+    expect(subflows!['faq'].root.name).toBe('FAQ_Start');
+    expect(subflows!['help'].root.name).toBe('Help_Start');
   });
 });
 

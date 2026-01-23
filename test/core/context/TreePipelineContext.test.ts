@@ -1,28 +1,28 @@
-import { GlobalContext } from '../../../src/core/context/GlobalContext';
+import { GlobalStore } from '../../../src/core/context/GlobalStore';
 import { StageContext } from '../../../src/core/context/StageContext';
-import { TreePipelineContext } from '../../../src/core/context/TreePipelineContext';
+import { PipelineRuntime } from '../../../src/core/context/PipelineRuntime';
 
-describe('TreePipelineContext', () => {
-  let treePipelineContext: TreePipelineContext;
+describe('PipelineRuntime', () => {
+  let pipelineRuntime: PipelineRuntime;
 
   beforeEach(() => {
-    treePipelineContext = new TreePipelineContext('rootName', {
+    pipelineRuntime = new PipelineRuntime('rootName', {
       showDisclaimer: true,
     });
   });
 
   test('should initialize with a root StageContext', () => {
-    expect(treePipelineContext.rootStageContext).toBeInstanceOf(StageContext);
-    expect(treePipelineContext.rootStageContext.stageName).toBe('rootName');
+    expect(pipelineRuntime.rootStageContext).toBeInstanceOf(StageContext);
+    expect(pipelineRuntime.rootStageContext.stageName).toBe('rootName');
   });
 
-  test('should initialize with a GlobalContext', () => {
-    expect(treePipelineContext.globalContext).toBeInstanceOf(GlobalContext);
+  test('should initialize with a GlobalStore', () => {
+    expect(pipelineRuntime.globalStore).toBeInstanceOf(GlobalStore);
   });
 
-  test('should return context tree', () => {
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree).toEqual({
+  test('should return runtime snapshot', () => {
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot).toEqual({
       globalContext: {
         showDisclaimer: true,
       },
@@ -40,28 +40,28 @@ describe('TreePipelineContext', () => {
     });
   });
 
-  test('should reflect updates in global context', () => {
-    treePipelineContext.globalContext.updateValue('', [], 'testKey', 'testValue');
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.globalContext).toEqual({ showDisclaimer: true, testKey: 'testValue' });
+  test('should reflect updates in global store', () => {
+    pipelineRuntime.globalStore.updateValue('', [], 'testKey', 'testValue');
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.globalContext).toEqual({ showDisclaimer: true, testKey: 'testValue' });
   });
 
-  test('should add debug info in root stage context', () => {
-    treePipelineContext.rootStageContext.addDebugInfo('debugKey', 'debugValue');
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.stageContexts.logs).toEqual({ debugKey: 'debugValue' });
+  test('should add log in root stage context', () => {
+    pipelineRuntime.rootStageContext.addLog('debugKey', 'debugValue');
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.stageContexts.logs).toEqual({ debugKey: 'debugValue' });
   });
 
-  test('should add error info in root stage context', () => {
-    treePipelineContext.rootStageContext.addErrorInfo('errorKey', 'errorValue');
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.stageContexts.errors).toEqual({ errorKey: 'errorValue' });
+  test('should add error in root stage context', () => {
+    pipelineRuntime.rootStageContext.addError('errorKey', 'errorValue');
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.stageContexts.errors).toEqual({ errorKey: 'errorValue' });
   });
 
   test('should add child contexts correctly', () => {
-    const childContext = treePipelineContext.rootStageContext.createChildContext('childPath', 'childId', 'childName');
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.stageContexts.children?.[0]).toEqual({
+    const childContext = pipelineRuntime.rootStageContext.createChild('childPath', 'childId', 'childName');
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.stageContexts.children?.[0]).toEqual({
       id: 'childPath',
       name: 'childName',
       isFork: false,
@@ -74,9 +74,9 @@ describe('TreePipelineContext', () => {
   });
 
   test('should add next contexts correctly', () => {
-    const nextContext = treePipelineContext.rootStageContext.createNextContext('nextPath', 'nextName');
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.stageContexts.next).toEqual({
+    const nextContext = pipelineRuntime.rootStageContext.createNext('nextPath', 'nextName');
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.stageContexts.next).toEqual({
       id: 'nextPath',
       name: 'nextName',
       isFork: false,
@@ -89,9 +89,9 @@ describe('TreePipelineContext', () => {
   });
 
   test('should mark if node is a decider', () => {
-    const nextContext = treePipelineContext.rootStageContext.createNextContext('nextPath', 'nextName', true);
-    const contextTree = treePipelineContext.getContextTree();
-    expect(contextTree.stageContexts.next).toEqual({
+    const nextContext = pipelineRuntime.rootStageContext.createNext('nextPath', 'nextName', true);
+    const snapshot = pipelineRuntime.getSnapshot();
+    expect(snapshot.stageContexts.next).toEqual({
       id: 'nextPath',
       name: 'nextName',
       isFork: false,

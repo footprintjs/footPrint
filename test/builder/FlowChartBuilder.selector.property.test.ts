@@ -341,15 +341,16 @@ describe('FlowChartBuilder Selector Property Tests', () => {
   });
 
   /**
-   * **Feature: flowchart-selector-support, Property 5: Inflate Preserves Selector**
+   * **Feature: flowchart-selector-support, Property 5: Reference-Based Subflow Mounting**
    *
-   * *For any* built flow with a selector, inflating it via `addSubFlowChartBranch`
-   * SHALL preserve the selector function on the internal node.
+   * *For any* built flow with a selector, mounting it via `addSubFlowChartBranch`
+   * SHALL create a reference node and store the subflow definition in `subflows`.
+   * The selector is preserved in the subflow definition, not on the reference node.
    *
-   * **Validates: Requirements 5.1, 5.2**
+   * **Validates: Requirements 5.1, 5.2 (updated for reference-based architecture)**
    */
-  describe('Property 5: Inflate Preserves Selector', () => {
-    it('should preserve selector when mounting subtree via addSubFlowChartBranch', () => {
+  describe('Property 5: Reference-Based Subflow Mounting', () => {
+    it('should create reference node and store subflow definition via addSubFlowChartBranch', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           // Build a subtree with a selector
@@ -368,22 +369,30 @@ describe('FlowChartBuilder Selector Property Tests', () => {
             .addSubFlowChartBranch('sub', subtree, 'Subtree')
             .end();
 
-          const { root } = parent.build();
+          const { root, subflows } = parent.build();
 
-          // Find the mounted subtree
-          const mountedSubtree = root.children?.find((c) => c.id === 'sub');
+          // Find the mounted subtree reference node
+          const mountedRef = root.children?.find((c) => c.id === 'sub');
 
-          return (
-            mountedSubtree !== undefined &&
-            typeof mountedSubtree.nextNodeSelector === 'function' &&
-            mountedSubtree.nextNodeSelector === selectorFn
-          );
+          // Reference node should be a subflow root with metadata
+          const isRefNode = mountedRef !== undefined &&
+            mountedRef.isSubflowRoot === true &&
+            mountedRef.subflowId === 'sub' &&
+            mountedRef.subflowName === 'Subtree';
+
+          // Subflow definition should be stored in subflows dictionary with mount id as key
+          const hasSubflowDef = subflows !== undefined &&
+            subflows['sub'] !== undefined &&
+            typeof subflows['sub'].root.nextNodeSelector === 'function' &&
+            subflows['sub'].root.nextNodeSelector === selectorFn;
+
+          return isRefNode && hasSubflowDef;
         }),
         { numRuns: 100 },
       );
     });
 
-    it('should preserve selector when mounting subtree via addSubFlowChart', () => {
+    it('should create reference node and store subflow definition via addSubFlowChart', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           // Build a subtree with a selector
@@ -401,16 +410,24 @@ describe('FlowChartBuilder Selector Property Tests', () => {
             .addSubFlowChart('sub', subtree, 'Subtree')
             .addFunction('aggregate');
 
-          const { root } = parent.build();
+          const { root, subflows } = parent.build();
 
-          // Find the mounted subtree
-          const mountedSubtree = root.children?.find((c) => c.id === 'sub');
+          // Find the mounted subtree reference node
+          const mountedRef = root.children?.find((c) => c.id === 'sub');
 
-          return (
-            mountedSubtree !== undefined &&
-            typeof mountedSubtree.nextNodeSelector === 'function' &&
-            mountedSubtree.nextNodeSelector === selectorFn
-          );
+          // Reference node should be a subflow root with metadata
+          const isRefNode = mountedRef !== undefined &&
+            mountedRef.isSubflowRoot === true &&
+            mountedRef.subflowId === 'sub' &&
+            mountedRef.subflowName === 'Subtree';
+
+          // Subflow definition should be stored in subflows dictionary with mount id as key
+          const hasSubflowDef = subflows !== undefined &&
+            subflows['sub'] !== undefined &&
+            typeof subflows['sub'].root.nextNodeSelector === 'function' &&
+            subflows['sub'].root.nextNodeSelector === selectorFn;
+
+          return isRefNode && hasSubflowDef;
         }),
         { numRuns: 100 },
       );

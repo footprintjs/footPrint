@@ -6,9 +6,10 @@
 import * as fc from 'fast-check';
 
 import { StageContext } from '../../../src/core/context/StageContext';
+import { ScopeFactory, StageContextLike } from '../../../src/scope/core/types';
 import type { PipelineStageFunction, StageNode } from '../../../src/core/pipeline';
 import { Pipeline } from '../../../src/core/pipeline';
-import { FlowBuilder } from '../../../src/FlowBuilder';
+import { FlowChartBuilder, FlowChartExecutor } from '../../../src';
 import { BaseState } from '../../../src/scope/core/BaseState';
 
 /**
@@ -646,9 +647,9 @@ describe('Streaming Support Property Tests', () => {
    *
    * **Validates: Requirements 2.3, 3.1**
    */
-  describe('Property 4: Token delivery with correct streamId (FlowBuilder API)', () => {
-    // Simple scope class for testing
-    class TestScope extends BaseState {}
+  describe('Property 4: Token delivery with correct streamId (FlowChartBuilder API)', () => {
+    // Simple scope factory for testing - just return the context
+    const testScopeFactory: ScopeFactory<StageContextLike> = (context: StageContextLike) => context;
 
     // Arbitrary for valid stage names (alphanumeric starting with letter)
     const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
@@ -660,37 +661,27 @@ describe('Streaming Support Property Tests', () => {
     const tokenArb = fc.string({ minLength: 1, maxLength: 50 });
     const tokensArb = fc.array(tokenArb, { minLength: 1, maxLength: 10 });
 
-    it('should deliver all tokens with correct streamId via FlowBuilder.onStream', async () => {
+    it('should deliver all tokens with correct streamId via FlowChartBuilder.onStream', async () => {
       await fc.assert(
         fc.asyncProperty(stageNameArb, streamIdArb, tokensArb, async (stageName, streamId, tokens) => {
           const receivedTokens: Array<{ streamId: string; token: string }> = [];
 
           // Stage function that emits tokens
-          const streamingStage: PipelineStageFunction<any, TestScope> = (scope, breakFn, streamCallback) => {
+          const streamingStage: PipelineStageFunction<any, StageContextLike> = (scope, breakFn, streamCallback) => {
             for (const token of tokens) {
               streamCallback?.(token);
             }
             return 'done';
           };
 
-          const stageMap = new Map<string, PipelineStageFunction<any, TestScope>>();
-          stageMap.set(stageName, streamingStage);
-
-          // Create workflow with streaming stage
-          const workflow: StageNode = {
-            name: stageName,
-            isStreaming: true,
-            streamId,
-          };
-
-          // Use FlowBuilder with onStream handler
-          const builder = new FlowBuilder<any, TestScope>()
+          // Use FlowChartBuilder with addStreamingFunction and execute() which passes stream handlers
+          await new FlowChartBuilder<any, StageContextLike>()
+            .start('entry', () => 'entry-done')
+            .addStreamingFunction(stageName, streamId, streamingStage)
             .onStream((sid, token) => {
               receivedTokens.push({ streamId: sid, token });
             })
-            .addPipeline(workflow, stageMap, TestScope);
-
-          await builder.execute();
+            .execute(testScopeFactory);
 
           // Verify all tokens received with correct streamId
           const allTokensReceived = receivedTokens.length === tokens.length;
@@ -709,30 +700,21 @@ describe('Streaming Support Property Tests', () => {
           const receivedTokens: Array<{ streamId: string; token: string }> = [];
 
           // Stage function that emits tokens
-          const streamingStage: PipelineStageFunction<any, TestScope> = (scope, breakFn, streamCallback) => {
+          const streamingStage: PipelineStageFunction<any, StageContextLike> = (scope, breakFn, streamCallback) => {
             for (const token of tokens) {
               streamCallback?.(token);
             }
             return 'done';
           };
 
-          const stageMap = new Map<string, PipelineStageFunction<any, TestScope>>();
-          stageMap.set(stageName, streamingStage);
-
-          // Create workflow with streaming stage but NO explicit streamId
-          const workflow: StageNode = {
-            name: stageName,
-            isStreaming: true,
-            streamId: stageName, // Default to stage name
-          };
-
-          const builder = new FlowBuilder<any, TestScope>()
+          // Use FlowChartBuilder with addStreamingFunction (defaults streamId to stage name)
+          await new FlowChartBuilder<any, StageContextLike>()
+            .start('entry', () => 'entry-done')
+            .addStreamingFunction(stageName, stageName, streamingStage)
             .onStream((sid, token) => {
               receivedTokens.push({ streamId: sid, token });
             })
-            .addPipeline(workflow, stageMap, TestScope);
-
-          await builder.execute();
+            .execute(testScopeFactory);
 
           // All tokens should have streamId equal to stage name
           const allStreamIdsMatchStageName = receivedTokens.every((r) => r.streamId === stageName);
@@ -760,7 +742,7 @@ describe('Streaming Support Property Tests', () => {
             const receivedTokens: Array<{ streamId: string; token: string }> = [];
 
             // First streaming stage
-            const streamingStage1: PipelineStageFunction<any, TestScope> = (scope, breakFn, streamCallback) => {
+            const streamingStage1: PipelineStageFunction<any, StageContextLike> = (scope, breakFn, streamCallback) => {
               for (const token of tokens1) {
                 streamCallback?.(token);
               }
@@ -768,36 +750,22 @@ describe('Streaming Support Property Tests', () => {
             };
 
             // Second streaming stage
-            const streamingStage2: PipelineStageFunction<any, TestScope> = (scope, breakFn, streamCallback) => {
+            const streamingStage2: PipelineStageFunction<any, StageContextLike> = (scope, breakFn, streamCallback) => {
               for (const token of tokens2) {
                 streamCallback?.(token);
               }
               return 'stage2-done';
             };
 
-            const stageMap = new Map<string, PipelineStageFunction<any, TestScope>>();
-            stageMap.set(stage1Name, streamingStage1);
-            stageMap.set(uniqueStage2Name, streamingStage2);
-
-            // Create workflow with two streaming stages in sequence
-            const workflow: StageNode = {
-              name: stage1Name,
-              isStreaming: true,
-              streamId: streamId1,
-              next: {
-                name: uniqueStage2Name,
-                isStreaming: true,
-                streamId: uniqueStreamId2,
-              },
-            };
-
-            const builder = new FlowBuilder<any, TestScope>()
+            // Use FlowChartBuilder with two streaming stages using execute() to pass stream handlers
+            await new FlowChartBuilder<any, StageContextLike>()
+              .start('entry', () => 'entry-done')
+              .addStreamingFunction(stage1Name, streamId1, streamingStage1)
+              .addStreamingFunction(uniqueStage2Name, uniqueStreamId2, streamingStage2)
               .onStream((sid, token) => {
                 receivedTokens.push({ streamId: sid, token });
               })
-              .addPipeline(workflow, stageMap, TestScope);
-
-            await builder.execute();
+              .execute(testScopeFactory);
 
             // Verify tokens from stage 1
             const stage1Tokens = receivedTokens.filter((r) => r.streamId === streamId1);
@@ -826,29 +794,21 @@ describe('Streaming Support Property Tests', () => {
             const tokens = tokenNumbers.map((n) => `token-${n}`);
             const receivedTokens: string[] = [];
 
-            const streamingStage: PipelineStageFunction<any, TestScope> = (scope, breakFn, streamCallback) => {
+            const streamingStage: PipelineStageFunction<any, StageContextLike> = (scope, breakFn, streamCallback) => {
               for (const token of tokens) {
                 streamCallback?.(token);
               }
               return 'done';
             };
 
-            const stageMap = new Map<string, PipelineStageFunction<any, TestScope>>();
-            stageMap.set(stageName, streamingStage);
-
-            const workflow: StageNode = {
-              name: stageName,
-              isStreaming: true,
-              streamId,
-            };
-
-            const builder = new FlowBuilder<any, TestScope>()
+            // Use FlowChartBuilder with streaming function and execute() to pass stream handlers
+            await new FlowChartBuilder<any, StageContextLike>()
+              .start('entry', () => 'entry-done')
+              .addStreamingFunction(stageName, streamId, streamingStage)
               .onStream((sid, token) => {
                 receivedTokens.push(token);
               })
-              .addPipeline(workflow, stageMap, TestScope);
-
-            await builder.execute();
+              .execute(testScopeFactory);
 
             // Tokens should be received in the same order they were emitted
             const orderPreserved =

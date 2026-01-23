@@ -1,23 +1,33 @@
 /**
  * -----------------------------------------------------------------------------
- *  PatchedMemoryContext
+ *  WriteBuffer
  * -----------------------------------------------------------------------------
+ *  A transactional write buffer that collects mutations during stage execution.
+ *  
+ *  Think of it like a database transaction buffer or a compiler's intermediate
+ *  representation (IR) - changes are staged here before being committed to the
+ *  global store. This enables:
+ *    - Atomic commits (all-or-nothing semantics)
+ *    - Read-after-write consistency within a stage
+ *    - Time-travel debugging via operation traces
+ *
  *  ▸ Collects *two* kinds of patches during a stage execution:
- *      1. overwritePatch – values written through setObject()/set()
- *      2. updatePatch    – values written through merge()/updateObject()
- *  ▸ Additionally records – in constant‑time – the canonical "path strings"
- *    touched by each API so downstream callers know *exactly* which branches
- *    of the tree changed.  Those strings are stored in Set<string> so multiple
- *    writes to the same path are deduplicated automatically.
- *  ▸ commit() now returns an object containing BOTH patches and BOTH path lists
- *    for maximum visibility as well as future time‑travel support.
+ *      1. overwritePatch – values written through set() (hard overwrite)
+ *      2. updatePatch    – values written through merge() (deep union merge)
+ *
+ *  ▸ Records the canonical "path strings" touched by each API so downstream
+ *    callers know *exactly* which branches of the tree changed. Paths are
+ *    stored in Set<string> for automatic deduplication.
+ *
+ *  ▸ commit() returns an object containing BOTH patches and BOTH path lists
+ *    for maximum visibility and time-travel support.
  *
  *  Path→string normalisation:
  *  --------------------------------
- *      [ 'pipelines',   flowId,  'config', 'tags' ]
+ *      [ 'pipelines', flowId, 'config', 'tags' ]
  *    → 'pipelines\u001F' + flowId + '\u001Fconfig\u001Ftags'
  *
- *  We use the ASCII Unit‑Separator (U+001F) as delimiter because it cannot
+ *  We use the ASCII Unit-Separator (U+001F) as delimiter because it cannot
  *  appear unescaped in a JS identifier and renders invisibly in logs.
  * -----------------------------------------------------------------------------
  */
@@ -32,10 +42,16 @@ export interface MemoryPatch {
 
 export const DELIM = '\u001F'; // delimiter for path serialisation
 
-/** helper –> turn an array path into a stable string key */
+/** Helper to turn an array path into a stable string key */
 const norm = (path: (string | number)[]): string => path.map(String).join(DELIM);
 
-export class PatchedMemoryContext {
+/**
+ * WriteBuffer - Transactional write buffer for stage mutations
+ * 
+ * Collects all writes during a stage's execution and provides atomic commit
+ * semantics. Similar to a database transaction or compiler IR buffer.
+ */
+export class WriteBuffer {
   private readonly baseSnapshot: any;
   private workingCopy: any;
 
@@ -43,8 +59,8 @@ export class PatchedMemoryContext {
   private overwritePatch: MemoryPatch = {};
   private updatePatch: MemoryPatch = {};
 
-  // ----------------------------------- touched‑path sets
-  /** chronological write log  — used to replay in the same order */
+  // ----------------------------------- operation trace
+  /** Chronological write log - used to replay operations in the same order */
   private opTrace: { path: string; verb: 'set' | 'merge' }[] = [];
 
   private redactedPaths = new Set<string>();
@@ -56,8 +72,8 @@ export class PatchedMemoryContext {
 
   /* ----- setters ----------------------------------------------------------- */
   /**
-   * set() – hard overwrite (shallow‑merge for object vs object kept by caller).
-   * Records the canonical path in overwritePaths so commit() can replay it.
+   * set() - Hard overwrite at the specified path.
+   * Records the canonical path in the operation trace for commit replay.
    */
   set(path: (string | number)[], value: any, shouldRedact = false): void {
     _set(this.workingCopy, path, value);
@@ -69,7 +85,8 @@ export class PatchedMemoryContext {
   }
 
   /**
-   * merge() – deep union merge.  Path recorded in updatePaths.
+   * merge() - Deep union merge at the specified path.
+   * Path recorded in the operation trace for commit replay.
    */
   merge(path: (string | number)[], value: any, shouldRedact = false): void {
     const existing = _get(this.workingCopy, path) ?? {};
@@ -88,6 +105,12 @@ export class PatchedMemoryContext {
   }
 
   /* --------- commit() ------------------------------------------------------ */
+  /**
+   * commit() - Flush all staged mutations and return the commit bundle.
+   * 
+   * Returns the patches and operation trace needed to apply changes to the
+   * global store. Resets internal state for the next stage.
+   */
   commit(): {
     overwrite: MemoryPatch;
     updates: MemoryPatch;
@@ -101,7 +124,7 @@ export class PatchedMemoryContext {
       trace: [...this.opTrace],
     };
 
-    // reset for next stage
+    // Reset for next stage
     this.overwritePatch = {};
     this.updatePatch = {};
     this.opTrace.length = 0;
@@ -113,10 +136,10 @@ export class PatchedMemoryContext {
 }
 
 /* --------------------------------------------------------------------------
- * deepSmartMerge – union‑merge helper used by merge().
- * Arrays   → union without duplicates (encounter order preserved)
- * Objects  → recurse
- * Primitives / explicit undefined  → source wins
+ * deepSmartMerge - Union-merge helper used by merge().
+ * Arrays    → union without duplicates (encounter order preserved)
+ * Objects   → recurse
+ * Primitives / explicit undefined → source wins
  * -------------------------------------------------------------------------- */
 function deepSmartMerge(dst: any, src: any): any {
   if (src === null || typeof src !== 'object') return src;
@@ -140,11 +163,13 @@ function deepSmartMerge(dst: any, src: any): any {
 }
 
 /* =====================================================================================
- *  applySmartMerge – final patch application utility
+ *  applySmartMerge - Final patch application utility
  * =====================================================================================
- *  UPDATE phase   – union‑merge via deepSmartMerge
- *  OVERWRITE phase – iterate owPaths and _set() final values; this guarantees
- *                    "last writer wins" and preserves explicit undefined.
+ *  Applies a commit bundle to a base state by replaying operations in order:
+ *    - UPDATE phase: union-merge via deepSmartMerge
+ *    - OVERWRITE phase: iterate paths and _set() final values
+ *  
+ *  This guarantees "last writer wins" semantics and preserves explicit undefined.
  * ------------------------------------------------------------------------------------- */
 export function applySmartMerge(
   base: any,
@@ -167,3 +192,6 @@ export function applySmartMerge(
   }
   return out;
 }
+
+// Legacy alias for backward compatibility during migration
+export { WriteBuffer as PatchedMemoryContext };
