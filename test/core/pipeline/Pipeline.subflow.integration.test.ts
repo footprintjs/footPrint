@@ -7,7 +7,7 @@
  * _Requirements: All (end-to-end validation)_
  */
 
-import { Pipeline, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { Pipeline, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';
 import { SubflowResult } from '../../../src/core/pipeline/types';
@@ -121,12 +121,12 @@ describe('Pipeline Subflow Integration Tests', () => {
       expect(subflowResults.size).toBe(1);
       expect(subflowResults.has('llm-core')).toBe(true);
 
-      // Verify subflow result structure
+      // Verify subflow result structure (execution data only, no pipelineStructure)
       const llmCoreResult = subflowResults.get('llm-core')!;
       expect(llmCoreResult.subflowId).toBe('llm-core');
       expect(llmCoreResult.subflowName).toBe('LLM Core');
-      expect(llmCoreResult.pipelineStructure.name).toBe('llm-core');
-      expect(llmCoreResult.pipelineStructure.children).toHaveLength(3);
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
+      // The subflow node in the main pipeline already has the full structure
 
       // Verify subflow context isolation
       const subflowContext = llmCoreResult.treeContext;
@@ -191,21 +191,10 @@ describe('Pipeline Subflow Integration Tests', () => {
       const subflowResults = pipeline.getSubflowResults();
       const llmCoreResult = subflowResults.get('llm-core')!;
 
-      // Frontend needs: pipelineStructure for flowchart rendering
-      const structure = llmCoreResult.pipelineStructure;
-      expect(structure.name).toBe('llm-core');
-      expect(structure.displayName).toBe('LLM Core Processing');
-      // Type field is required for frontend rendering
-      expect(structure.type).toBe('fork'); // Has children, so it's a fork
-      // Children are used for subflow internal structure
-      expect(structure.children).toHaveLength(2);
-      expect(structure.children![0].name).toBe('buildPrompt');
-      expect(structure.children![0].displayName).toBe('Build Prompt');
-      expect(structure.children![0].type).toBe('stage'); // Regular stage
-      expect(structure.children![1].name).toBe('askLLM');
-      expect(structure.children![1].isStreaming).toBe(true);
-      expect(structure.children![1].type).toBe('streaming'); // Streaming stage type
-
+      // NOTE: pipelineStructure removed from SubflowResult
+      // Frontend gets structure from the main pipeline's serialized structure
+      // The subflow node in the main pipeline already has the full structure
+      
       // Frontend needs: treeContext for stage data display
       const treeContext = llmCoreResult.treeContext;
       expect(treeContext.stageContexts).toBeDefined();
@@ -467,10 +456,11 @@ describe('Pipeline Subflow Integration Tests', () => {
       const subflowResults = pipeline.getSubflowResults();
       expect(subflowResults.has('decider-subflow')).toBe(true);
 
-      // Verify structure includes decider info
+      // Verify subflow result has execution data (no pipelineStructure)
       const result = subflowResults.get('decider-subflow')!;
-      expect(result.pipelineStructure.hasDecider).toBe(true);
-      expect(result.pipelineStructure.children).toHaveLength(2);
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
+      expect(result.treeContext).toBeDefined();
+      expect(result.subflowId).toBe('decider-subflow');
     });
   });
 
@@ -546,7 +536,7 @@ describe('Pipeline Subflow Integration Tests', () => {
       const result = subflowResults.get('error-subflow')!;
       expect(result.subflowId).toBe('error-subflow');
       expect(result.treeContext).toBeDefined();
-      expect(result.pipelineStructure).toBeDefined();
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
 
       // Partial data should be in the context (from root fn)
       const globalContext = result.treeContext.globalContext as Record<string, unknown>;
@@ -605,25 +595,18 @@ describe('Pipeline Subflow Integration Tests', () => {
       const subflowResults = pipeline.getSubflowResults();
       const result = subflowResults.get('api-subflow')!;
 
-      // Verify structure matches SubflowCallInfo expectations
-      // (from 📦 AWSHodgkinFrontendAssets/src/types/chat.ts)
+      // Verify structure matches SubflowResult expectations
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
       
       // Required fields
       expect(typeof result.subflowId).toBe('string');
       expect(typeof result.subflowName).toBe('string');
       expect(typeof result.parentStageId).toBe('string');
       
-      // pipelineStructure for flowchart rendering
-      expect(result.pipelineStructure).toMatchObject({
-        name: 'apiSubflow',
-        displayName: 'API Processing Subflow',
-        children: expect.arrayContaining([
-          expect.objectContaining({ name: 'validate', displayName: 'Validate Request' }),
-          expect.objectContaining({ name: 'execute', displayName: 'Execute Request', isStreaming: true }),
-        ]),
-      });
+      // NOTE: pipelineStructure removed - frontend gets structure from main pipeline's serialized structure
+      // The subflow node in the main pipeline already has the full structure
 
-      // treeContext for stage data
+      // treeContext for stage data (execution data)
       expect(result.treeContext).toMatchObject({
         globalContext: expect.any(Object),
         stageContexts: expect.any(Object),

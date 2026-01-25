@@ -1,0 +1,800 @@
+/**
+ * GraphTraverser.ts
+ *
+ * Engine for FootPrint traversal with a **programmer-friendly order**:
+ *
+ *   // prep        →     parallel gather     →     aggregate/continue
+ *   const pre = await prep();
+ *   const [x, y] = await Promise.all([fx(pre), fy(pre)]);
+ *   return await next(x, y);
+ *
+ * Concretely, for each node shape we execute:
+ *
+ * 1) Linear node (no children; may have `next`)
+ *    • Run **this node's stage** (if any) → commit → (break?) → **next**
+ *
+ * 2) Fork-only (has `children`, **no** `next`, not a decider)
+ *    • Run **stage** (if any) → commit
+ *    • Run **ALL children in parallel** (each child commits after it settles)
+ *    • **RETURN** children bundle: `{ [childId]: { result, isError } }`
+ *
+ * 3) Fork + next (has `children` and `next`, not a decider)
+ *    • Run **stage** (if any) → commit
+ *    • Run **ALL children in parallel** (commit on settle)
+ *    • **Continue** to `next` (downstream stages read children's committed writes)
+ *
+ * 4) Decider (has `children` and `nextNodeDecider`)
+ *    • Run **stage** (if any) → commit
+ *    • **Decider** picks EXACTLY ONE child `id`
+ *    • **Continue** into that chosen child (only that branch runs)
+ *
+ * Break semantics:
+ *    If a stage calls `breakFn()`, we commit and **STOP** at this node:
+ *      – for fork-only: children do **not** run; nothing continues
+ *      – for fork + next: children and next do **not** run
+ *      – for linear: next does **not** run
+ *      – for decider: we do **not** evaluate the decider; no child runs
+ *
+ * Patch/visibility model:
+ *   – A stage writes into a local patch; we always `commitPatch()` after it returns or throws
+ *   – Children always `commitPatch()` after they settle; throttled children can flag
+ *     `monitor.isThrottled = true` via `throttlingErrorChecker`
+ *
+ * Sync + Async stages:
+ *   – We keep the original engine's behavior: **only** `await` real Promises
+ *     (using `output instanceof Promise`), otherwise return the value directly.
+ *     This avoids "thenable assimilation" side-effects/probes on arbitrary objects.
+ */
+
+import { StageContext } from '../context/StageContext';
+import { PipelineRuntime, ContextTreeType } from '../context/PipelineRuntime';
+import { ScopeFactory } from '../context/types';
+import { logger } from '../logger';
+import {
+  NodeResultType,
+  PipelineStageFunction,
+  StreamHandlers,
+  SubflowResult,
+  TreeOfFunctionsResponse,
+  TraversalExtractor,
+  ExtractorError,
+  StageSnapshot,
+  PipelineContext,
+} from './types';
+import { ScopeProtectionMode } from '../../scope/protection/types';
+import { NodeResolver } from './NodeResolver';
+import { ChildrenExecutor } from './ChildrenExecutor';
+import { SubflowExecutor } from './SubflowExecutor';
+import { StageRunner } from './StageRunner';
+import { LoopHandler } from './LoopHandler';
+import { DeciderHandler } from './DeciderHandler';
+
+export type Decider = (nodeArgs: any) => string | Promise<string>;
+
+/**
+ * Selector
+ * ------------------------------------------------------------------
+ * A function that picks ONE OR MORE children from a children array to execute.
+ * Unlike Decider (which picks exactly one), Selector can return:
+ * - A single string ID (behaves like Decider)
+ * - An array of string IDs (selected children execute in parallel)
+ * - An empty array (skip all children, continue to next if present)
+ *
+ * This enables selective parallel branching where only a subset of
+ * children are executed based on runtime conditions.
+ *
+ * @param nodeArgs - The stage output or input passed to the selector
+ * @returns Single ID, array of IDs, or Promise resolving to either
+ *
+ * _Requirements: 8.1, 8.2_
+ */
+export type Selector = (nodeArgs: any) => string | string[] | Promise<string | string[]>;
+
+export type StageNode<TOut = any, TScope = any> = {
+  /** Human-readable stage name; also used as the stageMap key */
+  name: string;
+  /** Optional stable id (required by decider/fork aggregation) */
+  id?: string;
+  /** Human-readable display name for UI visualization (e.g., "User Prompt" instead of "useQuestion") */
+  displayName?: string;
+  /** Linear continuation */
+  next?: StageNode<TOut, TScope>;
+  /** Parallel children (fork) */
+  children?: StageNode<TOut, TScope>[];
+  /** Decider (mutually exclusive with `next`); must select a child `id` */
+  nextNodeDecider?: Decider;
+  /**
+   * Selector for multi-choice branching.
+   * Unlike Decider (picks ONE), Selector can pick MULTIPLE children to execute in parallel.
+   * Mutually exclusive with `nextNodeDecider`.
+   *
+   * _Requirements: 8.1_
+   */
+  nextNodeSelector?: Selector;
+  /** Optional embedded function for this node; otherwise resolved from stageMap by `name` */
+  fn?: PipelineStageFunction<TOut, TScope>;
+  /**
+   * Indicates this stage emits tokens incrementally via a stream callback.
+   * When true, TreePipeline will inject a streamCallback as the 3rd parameter to the stage function.
+   */
+  isStreaming?: boolean;
+  /**
+   * Unique identifier for the stream, used to route tokens to the correct handler.
+   * Defaults to the stage name if not provided when using addStreamingFunction.
+   */
+  streamId?: string;
+  /** True if this is the root node of a mounted subflow */
+  isSubflowRoot?: boolean;
+  /** Mount id of the subflow (e.g., "llm-core") */
+  subflowId?: string;
+  /** Display name of the subflow (e.g., "LLM Core") */
+  subflowName?: string;
+  /**
+   * Reference to a subflow definition in the `subflows` dictionary.
+   * When present, this node is a lightweight reference that should be resolved
+   * by looking up `subflows[$ref]` to get the actual subflow structure.
+   * 
+   * Used by reference-based subflow architecture to avoid deep-copying.
+   */
+  $ref?: string;
+  /**
+   * Unique identifier for this mount instance.
+   * Distinguishes multiple mounts of the same subflow definition.
+   */
+  mountId?: string;
+};
+
+// Note: Dynamic behavior is detected via isStageNodeReturn() duck-typing on stage output.
+// No isDynamic flag needed on node definition - stages that return StageNode are automatically
+// treated as dynamic continuations.
+
+/**
+ * isStageNodeReturn
+ * ------------------------------------------------------------------
+ * Detects if a stage output is a StageNode for dynamic continuation.
+ * Uses duck-typing: must have 'name' (string) AND at least one continuation property.
+ *
+ * This enables stage functions to return a StageNode directly for dynamic
+ * pipeline continuation (parallel children, loops, etc.).
+ *
+ * Note: This function safely handles proxy objects (like Zod scopes) that may
+ * throw when accessing unknown properties.
+ *
+ * @param output - The stage function's return value
+ * @returns true if the output is a StageNode for dynamic continuation
+ *
+ * _Requirements: 1.1, 1.2, 1.3_
+ */
+export function isStageNodeReturn(output: unknown): output is StageNode {
+  // Must be a non-null object
+  if (!output || typeof output !== 'object') return false;
+
+  // Use try-catch to safely handle proxy objects that throw on property access
+  try {
+    const obj = output as Record<string, unknown>;
+
+    // Must have 'name' property as a string
+    if (typeof obj.name !== 'string') return false;
+
+    // Must have at least one continuation property
+    // Note: children must be a non-empty array to count as continuation
+    const hasContinuation =
+      (Array.isArray(obj.children) && obj.children.length > 0) ||
+      obj.next !== undefined ||
+      typeof obj.nextNodeDecider === 'function' ||
+      typeof obj.nextNodeSelector === 'function';
+
+    return hasContinuation;
+  } catch {
+    // If property access throws (e.g., Zod scope proxy), it's not a StageNode
+    return false;
+  }
+}
+
+export class Pipeline<TOut, TScope> {
+  private stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
+  private root: StageNode;
+  private pipelineRuntime: PipelineRuntime;
+
+  /** Normalized scope factory injected by the caller (class | factory | plugin → factory) */
+  private readonly ScopeFactory: ScopeFactory<TScope>;
+
+  private readonly readOnlyContext?: unknown;
+  private readonly throttlingErrorChecker?: (error: unknown) => boolean;
+
+  /**
+   * Stream handlers for streaming stages.
+   * Contains callbacks for token emission and lifecycle events (start/end).
+   */
+  private readonly streamHandlers?: StreamHandlers;
+
+  /**
+   * Iteration counter for loop support.
+   * Tracks how many times each node ID has been visited (for context path generation).
+   * Key: node.id, Value: iteration count (0 = first visit)
+   */
+  private iterationCounters: Map<string, number> = new Map();
+
+  /**
+   * Collected subflow execution results during pipeline run.
+   * Keyed by subflowId for lookup during API response construction.
+   *
+   * _Requirements: 4.1, 4.2_
+   */
+  private subflowResults: Map<string, SubflowResult> = new Map();
+
+  /**
+   * Optional traversal extractor function.
+   * Called after each stage completes to extract data.
+   */
+  private readonly extractor?: TraversalExtractor;
+
+  /**
+   * Collected extracted results during pipeline run.
+   * Keyed by stage path (e.g., "root.child.grandchild").
+   */
+  private extractedResults: Map<string, unknown> = new Map();
+
+  /**
+   * Errors encountered during extraction.
+   * Logged but don't stop pipeline execution.
+   */
+  private extractorErrors: ExtractorError[] = [];
+
+  /**
+   * Step counter for execution order tracking.
+   * Incremented before each extractor call.
+   * 1-based: first stage gets stepNumber 1.
+   * 
+   * _Requirements: unified-extractor-architecture 3.1_
+   */
+  private stepCounter: number = 0;
+
+  /**
+   * Protection mode for scope access.
+   * When 'error' (default), throws on direct property assignment.
+   * When 'warn', logs warning but allows assignment.
+   * When 'off', no protection is applied.
+   *
+   * _Requirements: 5.1, 5.2, 5.3_
+   */
+  private readonly scopeProtectionMode: ScopeProtectionMode;
+
+  /**
+   * Memoized subflow definitions.
+   * Key is the subflow's root name, value contains the subflow root node.
+   * Used to resolve reference nodes (nodes with `isSubflowRoot` but no `fn`).
+   */
+  private readonly subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
+
+  /**
+   * NodeResolver module for node lookup and subflow reference resolution.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: 3.1, 3.2, 3.3_
+   */
+  private readonly nodeResolver: NodeResolver<TOut, TScope>;
+
+  /**
+   * ChildrenExecutor module for parallel children execution.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: 2.1, 2.2, 2.3_
+   */
+  private readonly childrenExecutor: ChildrenExecutor<TOut, TScope>;
+
+  /**
+   * SubflowExecutor module for subflow execution with isolated contexts.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+   */
+  private readonly subflowExecutor: SubflowExecutor<TOut, TScope>;
+
+  /**
+   * StageRunner module for executing individual stage functions.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: phase2-handlers 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+   */
+  private readonly stageRunner: StageRunner<TOut, TScope>;
+
+  /**
+   * LoopHandler module for dynamic next, iteration counting, and loop-back logic.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: phase2-handlers 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+   */
+  private readonly loopHandler: LoopHandler<TOut, TScope>;
+
+  /**
+   * DeciderHandler module for decider evaluation and branching.
+   * Extracted from Pipeline.ts for Single Responsibility Principle.
+   *
+   * _Requirements: phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
+   */
+  private readonly deciderHandler: DeciderHandler<TOut, TScope>;
+
+  constructor(
+    root: StageNode,
+    stageMap: Map<string, PipelineStageFunction<TOut, TScope>>,
+    scopeFactory: ScopeFactory<TScope>,
+    defaultValuesForContext?: unknown,
+    initialContext?: unknown,
+    readOnlyContext?: unknown,
+    throttlingErrorChecker?: (error: unknown) => boolean,
+    streamHandlers?: StreamHandlers,
+    extractor?: TraversalExtractor,
+    scopeProtectionMode?: ScopeProtectionMode,
+    subflows?: Record<string, { root: StageNode<TOut, TScope> }>,
+  ) {
+    this.root = root;
+    this.stageMap = stageMap;
+    this.readOnlyContext = readOnlyContext;
+    this.pipelineRuntime = new PipelineRuntime(this.root.name, defaultValuesForContext, initialContext);
+    this.throttlingErrorChecker = throttlingErrorChecker;
+    this.ScopeFactory = scopeFactory;
+    this.streamHandlers = streamHandlers;
+    this.extractor = extractor;
+    this.scopeProtectionMode = scopeProtectionMode ?? 'error';
+    this.subflows = subflows;
+
+    // Initialize NodeResolver with shared context
+    this.nodeResolver = new NodeResolver(this.createPipelineContext());
+
+    // Initialize ChildrenExecutor with shared context and executeNode callback
+    // Note: We bind executeNode to preserve 'this' context
+    this.childrenExecutor = new ChildrenExecutor(
+      this.createPipelineContext(),
+      this.executeNode.bind(this),
+    );
+
+    // Initialize SubflowExecutor with shared context and required callbacks
+    // Note: We bind methods to preserve 'this' context
+    this.subflowExecutor = new SubflowExecutor(
+      this.createPipelineContext(),
+      this.nodeResolver,
+      this.executeStage.bind(this),
+      this.callExtractor.bind(this),
+      this.getStageFn.bind(this),
+    );
+
+    // Initialize StageRunner with shared context
+    this.stageRunner = new StageRunner(this.createPipelineContext());
+
+    // Initialize LoopHandler with shared context and NodeResolver
+    this.loopHandler = new LoopHandler(this.createPipelineContext(), this.nodeResolver);
+
+    // Initialize DeciderHandler with shared context and NodeResolver
+    this.deciderHandler = new DeciderHandler(this.createPipelineContext(), this.nodeResolver);
+  }
+
+  /**
+   * Create a PipelineContext object for use by extracted modules.
+   * This provides all the shared state needed by NodeResolver, ChildrenExecutor, etc.
+   *
+   * @returns PipelineContext with all required fields
+   *
+   * _Requirements: 5.4_
+   */
+  private createPipelineContext(): PipelineContext<TOut, TScope> {
+    return {
+      stageMap: this.stageMap,
+      root: this.root,
+      pipelineRuntime: this.pipelineRuntime,
+      ScopeFactory: this.ScopeFactory,
+      subflows: this.subflows,
+      throttlingErrorChecker: this.throttlingErrorChecker,
+      streamHandlers: this.streamHandlers,
+      scopeProtectionMode: this.scopeProtectionMode,
+      readOnlyContext: this.readOnlyContext,
+      extractor: this.extractor,
+    };
+  }
+
+  /** Execute the pipeline from the root node. */
+  async execute(): Promise<TreeOfFunctionsResponse> {
+    const context = this.pipelineRuntime.rootStageContext;
+    return await this.executeNode(this.root, context, { shouldBreak: false }, '');
+  }
+
+  /** Resolve a stage function: prefer embedded `node.fn`, else look up by `node.name` in `stageMap`. */
+  private getStageFn(node: StageNode<TOut, TScope>): PipelineStageFunction<TOut, TScope> | undefined {
+    if (typeof node.fn === 'function') return node.fn as PipelineStageFunction<TOut, TScope>;
+    return this.stageMap.get(node.name);
+  }
+
+  /**
+   * Execute a single node with the unified order described in the file header.
+   *
+   * @param node         Current node to execute
+   * @param context      Current StageContext
+   * @param breakFlag    Break flag bubbled through recursion
+   * @param branchPath   Logical pipeline id/path (for logs); inherited by children
+   */
+  private async executeNode(
+    node: StageNode,
+    context: StageContext,
+    breakFlag: { shouldBreak: boolean },
+    branchPath?: string,
+  ): Promise<any> {
+    // ───────────────────────── 0) Subflow Detection ─────────────────────────
+    // If this node is a subflow root, execute it with an isolated nested context
+    if (node.isSubflowRoot && node.subflowId) {
+      // Resolve reference node if needed
+      // Reference nodes have isSubflowRoot but no fn/children - they point to subflows dictionary
+      const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
+      
+      const subflowOutput = await this.subflowExecutor.executeSubflow(
+        resolvedNode,
+        context,
+        breakFlag,
+        branchPath,
+        this.subflowResults,
+      );
+      
+      // After subflow completes, continue with node.next in the PARENT context (if present)
+      // 
+      // IMPORTANT: We need to determine if `next` is a continuation after the subflow
+      // or if it was already executed as part of the subflow's internal structure.
+      //
+      // Heuristic:
+      // - If the subflow has `children` (fork pattern), `next` is the continuation
+      // - If the subflow has no `children` (linear pattern), `next` was already executed internally
+      //
+      // For reference-based subflows (resolvedNode !== node), the original reference node's
+      // `next` is always the continuation (the subflow's internal structure is in the definition).
+      const isReferenceBasedSubflow = resolvedNode !== node;
+      const hasChildren = Boolean(node.children && node.children.length > 0);
+      const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
+      
+      if (node.next && shouldExecuteContinuation) {
+        const nextStageContext = context.createNextContext(branchPath as string, node.next.name);
+        return await this.executeNode(node.next, nextStageContext, breakFlag, branchPath);
+      }
+      
+      return subflowOutput;
+    }
+
+    const stageFunc = this.getStageFn(node);
+    const hasStageFunction = Boolean(stageFunc);
+    const isDeciderNode = Boolean(node.nextNodeDecider);
+    const hasChildren = Boolean(node.children?.length);
+    const hasNext = Boolean(node.next);
+    // Note: Dynamic behavior is detected via isStageNodeReturn() on stage output, not via node flags
+
+    // ───────────────────────── 1) Validation ─────────────────────────
+    // A node must provide at least one of: stage, children, or decider.
+    if (!hasStageFunction && !isDeciderNode && !hasChildren) {
+      const errorMessage = `Node '${node.name}' must define: embedded fn OR a stageMap entry OR have children/decider`;
+      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+    if (isDeciderNode && !hasChildren) {
+      const errorMessage = 'Decider node needs to have children to execute';
+      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+
+    // Mark role when there is no stage function (useful for debug panels)
+    if (!hasStageFunction) {
+      if (isDeciderNode) context.setAsDecider();
+      else if (hasChildren) context.setAsFork();
+    }
+
+    const breakFn = () => (breakFlag.shouldBreak = true);
+
+    // ───────────────────────── 2) Decider node ─────────────────────────
+    // decider order: stage (optional) → commit → decider → chosen child
+    // Delegate to DeciderHandler for decider evaluation and branching
+    // _Requirements: phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
+    if (isDeciderNode) {
+      return this.deciderHandler.handle(
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        branchPath,
+        this.executeStage.bind(this),
+        this.executeNode.bind(this),
+        this.callExtractor.bind(this),
+        this.getStagePath.bind(this),
+      );
+    }
+
+    // ───────────────────────── 3) Non-decider: STAGE FIRST ─────────────────────────
+    // unified order: stage (optional) → commit → (break?) → children (optional) → dynamicNext (optional) → next (optional)
+    let stageOutput: TOut | undefined;
+    let dynamicNext: StageNode | undefined;
+
+    if (stageFunc) {
+      try {
+        stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
+      } catch (error: any) {
+        context.commitPatch(); // apply patch on error as before
+        this.callExtractor(node, context, this.getStagePath(node, branchPath));
+        logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+        context.addErrorInfo('stageExecutionError', error.toString());
+        throw error;
+      }
+      context.commitPatch();
+      this.callExtractor(node, context, this.getStagePath(node, branchPath));
+
+      if (breakFlag.shouldBreak) {
+        logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+        return stageOutput; // leaf/early stop returns the stage's output
+      }
+
+      // ───────────────────────── Handle dynamic stages ─────────────────────────
+      // Check if the handler's return object is a StageNode for dynamic continuation.
+      // Detection uses duck-typing via isStageNodeReturn().
+      if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
+        const dynamicNode = stageOutput as StageNode;
+        context.addDebugInfo('isDynamic', true);
+        context.addDebugInfo('dynamicPattern', 'StageNodeReturn');
+
+        // Handle dynamic children (fork pattern)
+        if (dynamicNode.children && dynamicNode.children.length > 0) {
+          node.children = dynamicNode.children;
+          context.addDebugInfo('dynamicChildCount', dynamicNode.children.length);
+          context.addDebugInfo('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
+
+          // Handle dynamic selector (multi-choice branching)
+          if (typeof dynamicNode.nextNodeSelector === 'function') {
+            node.nextNodeSelector = dynamicNode.nextNodeSelector;
+            context.addDebugInfo('hasSelector', true);
+          }
+          // Handle dynamic decider (single-choice branching)
+          else if (typeof dynamicNode.nextNodeDecider === 'function') {
+            node.nextNodeDecider = dynamicNode.nextNodeDecider;
+            context.addDebugInfo('hasDecider', true);
+          }
+        }
+
+        // Handle dynamic next (linear continuation)
+        if (dynamicNode.next) {
+          dynamicNext = dynamicNode.next;
+          // Attach to node for serialization visibility (getRuntimeRoot)
+          node.next = dynamicNode.next;
+          context.addDebugInfo('hasDynamicNext', true);
+        }
+
+        // Clear stageOutput since the StageNode is the continuation, not the output
+        stageOutput = undefined;
+      }
+    }
+
+    // ───────────────────────── 4) Children (if any) ─────────────────────────
+    // Re-evaluate hasChildren after stage execution, as the stage may have
+    // dynamically populated node.children (e.g., toolBranch injects tool nodes)
+    const hasChildrenAfterStage = Boolean(node.children?.length);
+    
+    if (hasChildrenAfterStage) {
+      // Breadcrumbs
+      context.addDebugInfo('totalChildren', node.children?.length);
+      context.addDebugInfo('orderOfExecution', 'ChildrenAfterStage');
+
+      let nodeChildrenResults: Record<string, NodeResultType>;
+
+      // Check for selector (multi-choice) - can pick multiple children
+      if (node.nextNodeSelector) {
+        nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
+          node.nextNodeSelector,
+          node.children!,
+          stageOutput,
+          context,
+          branchPath as string,
+        );
+      }
+      // Check for decider (single-choice) - picks exactly one child
+      else if (node.nextNodeDecider) {
+        // Decider was dynamically injected, execute it
+        const chosen = await this.nodeResolver.getNextNode(
+          node.nextNodeDecider,
+          node.children!,
+          stageOutput,
+          context,
+        );
+        const nextStageContext = context.createNextContext(branchPath as string, chosen.name);
+        return await this.executeNode(chosen, nextStageContext, breakFlag, branchPath);
+      }
+      // Default: execute all children in parallel (fork pattern)
+      else {
+        // Log flow control decision for fork children
+        // _Requirements: flow-control-narrative REQ-3 (Task 4)
+        const childCount = node.children?.length ?? 0;
+        const childNames = node.children?.map(c => c.displayName || c.name).join(', ');
+        context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
+          count: childCount,
+          targetStage: node.children?.map(c => c.name),
+        });
+        
+        nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(node, context, undefined, branchPath);
+      }
+
+      // Fork-only (no next, no dynamicNext): return bundle object
+      if (!hasNext && !dynamicNext) {
+        return nodeChildrenResults;
+      }
+      // Fork + next or dynamicNext: continue below
+    }
+
+    // ───────────────────────── 5) Dynamic Next (loop support) ─────────────────────────
+    // If dynamicNext is set, delegate to LoopHandler for resolution and execution
+    // _Requirements: phase2-handlers 3.4, 3.5, 3.6, 3.7_
+    if (dynamicNext) {
+      return this.loopHandler.handle(
+        dynamicNext,
+        node,
+        context,
+        breakFlag,
+        branchPath,
+        this.executeNode.bind(this),
+      );
+    }
+
+    // ───────────────────────── 6) Linear `next` (if provided) ─────────────────────────
+    if (hasNext) {
+      const nextNode = node.next!;
+      
+      // Log flow control decision for linear next
+      // _Requirements: flow-control-narrative REQ-3 (Task 2)
+      context.addFlowDebugMessage('next', `Moving to ${nextNode.displayName || nextNode.name} stage`, {
+        targetStage: nextNode.name,
+      });
+      
+      const nextStageContext = context.createNextContext(branchPath as string, nextNode.name);
+      return await this.executeNode(nextNode, nextStageContext, breakFlag, branchPath);
+    }
+
+    // ───────────────────────── 7) Leaf ─────────────────────────
+    // No children & no next & no dynamicNext → return this node's stage output (may be undefined)
+    return stageOutput;
+  }
+
+  /**
+   * Execute a node's stage function with **sync+async safety**:
+   *  - If it's a real Promise, await it
+   *  - Otherwise return the value as-is (no thenable assimilation)
+   *
+   * For streaming stages (node.isStreaming === true):
+   *  - Creates a bound streamCallback that routes tokens to the registered handler
+   *  - Calls onStart lifecycle hook before execution
+   *  - Accumulates tokens during streaming
+   *  - Calls onEnd lifecycle hook after execution with accumulated text
+   *
+   * Note: Dynamic behavior is detected via isStageNodeReturn() on the stage output,
+   * not via node flags. Any stage can return a StageNode for dynamic continuation.
+   *
+   * Delegates to StageRunner module for actual execution.
+   * _Requirements: phase2-handlers 1.1, 1.2, 4.3, 4.4, 6.1_
+   */
+  private async executeStage(
+    node: StageNode,
+    stageFunc: PipelineStageFunction<TOut, TScope>,
+    context: StageContext,
+    breakFn: () => void,
+  ) {
+    return this.stageRunner.run(node, stageFunc, context, breakFn);
+  }
+
+  // ───────────────────────── Extractor helpers ─────────────────────────
+
+  /**
+   * Call the extractor for a stage and store the result.
+   * Handles errors gracefully - logs and continues execution.
+   * 
+   * Increments stepCounter before creating snapshot to provide
+   * 1-based step numbers for time traveler synchronization.
+   * 
+   * @param node - The stage node
+   * @param context - The stage context (after commitPatch)
+   * @param stagePath - The full path to this stage (e.g., "root.child")
+   * 
+   * _Requirements: unified-extractor-architecture 3.1, 3.2, 3.3, 3.4_
+   */
+  private callExtractor(
+    node: StageNode,
+    context: StageContext,
+    stagePath: string,
+  ): void {
+    if (!this.extractor) return;
+    
+    // Increment step counter before creating snapshot (1-based)
+    this.stepCounter++;
+    
+    try {
+      const snapshot: StageSnapshot = { 
+        node, 
+        context,
+        stepNumber: this.stepCounter,
+      };
+      const result = this.extractor(snapshot);
+      
+      // Only store if extractor returned a value
+      if (result !== undefined && result !== null) {
+        this.extractedResults.set(stagePath, result);
+      }
+    } catch (error: any) {
+      // Log error but don't stop execution
+      logger.error(`Extractor error at stage '${stagePath}':`, { error });
+      this.extractorErrors.push({
+        stagePath,
+        message: error?.message ?? String(error),
+        error,
+      });
+    }
+  }
+
+  /**
+   * Generate the stage path for extractor results.
+   * Uses node.id if available, otherwise node.name.
+   * Combines with branchPath for nested stages.
+   */
+  private getStagePath(node: StageNode, branchPath?: string): string {
+    const nodeId = node.id ?? node.name;
+    if (!branchPath) return nodeId;
+    return `${branchPath}.${nodeId}`;
+  }
+
+  // ───────────────────────── Introspection helpers ─────────────────────────
+
+  /** Returns the full context tree (global + stage contexts) for observability panels. */
+  getContextTree(): ContextTreeType {
+    return this.pipelineRuntime.getContextTree();
+  }
+
+  /** Returns the PipelineRuntime (root holder of StageContexts). */
+  getContext(): PipelineRuntime {
+    return this.pipelineRuntime;
+  }
+
+  /** Sets a root object value into the global context (utility). */
+  setRootObject(path: string[], key: string, value: unknown) {
+    this.pipelineRuntime.setRootObject(path, key, value);
+  }
+
+  /** Returns pipeline ids inherited under this root (for debugging fan-out). */
+  getInheritedPipelines() {
+    return this.pipelineRuntime.getPipelines();
+  }
+
+  /**
+   * Returns the current pipeline root node (including runtime modifications).
+   * 
+   * This is useful for serializing the pipeline structure after execution,
+   * which includes any dynamic children or loop targets added at runtime
+   * by stages that return StageNode.
+   * 
+   * @returns The root StageNode with runtime modifications
+   */
+  getRuntimeRoot(): StageNode {
+    return this.root;
+  }
+
+  /**
+   * Returns the collected SubflowResultsMap after pipeline execution.
+   * Used by the service layer to include subflow data in API responses.
+   *
+   * _Requirements: 4.3_
+   */
+  getSubflowResults(): Map<string, SubflowResult> {
+    return this.subflowResults;
+  }
+
+  /**
+   * Returns the collected extracted results after pipeline execution.
+   * Map keys are stage paths (e.g., "root.child.grandchild").
+   */
+  getExtractedResults<TResult = unknown>(): Map<string, TResult> {
+    return this.extractedResults as Map<string, TResult>;
+  }
+
+  /**
+   * Returns any errors that occurred during extraction.
+   * Useful for debugging extractor issues.
+   */
+  getExtractorErrors(): ExtractorError[] {
+    return this.extractorErrors;
+  }
+}

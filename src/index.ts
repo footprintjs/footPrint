@@ -38,6 +38,9 @@ export {
   specToStageNode,
   // Re-exported for consumers who need the Selector type
   Selector as FlowChartSelector,
+  // Build-time extractor types for customizing toSpec() output
+  BuildTimeNodeMetadata,
+  BuildTimeExtractor,
 } from './builder/FlowChartBuilder';
 
 // ============================================================================
@@ -99,11 +102,12 @@ export {
   Decider, 
   StageNode, 
   isStageNodeReturn,
-} from './core/pipeline/Pipeline';
+} from './core/pipeline/GraphTraverser';
 
 // Pipeline types for consumers
 export { 
   SubflowResult,
+  SerializedPipelineNode,
   StageSnapshot as PipelineStageSnapshot,
   TraversalExtractor,
   ExtractorError,

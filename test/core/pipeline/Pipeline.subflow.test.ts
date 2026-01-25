@@ -8,7 +8,7 @@
  * _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 6.1, 6.2_
  */
 
-import { Pipeline, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { Pipeline, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';
 
@@ -64,7 +64,7 @@ describe('Pipeline Subflow Execution', () => {
       const result = subflowResults.get('test-subflow')!;
       expect(result.subflowId).toBe('test-subflow');
       expect(result.subflowName).toBe('Test Subflow');
-      expect(result.pipelineStructure).toBeDefined();
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
       expect(result.treeContext).toBeDefined();
     });
 
@@ -282,11 +282,10 @@ describe('Pipeline Subflow Execution', () => {
       const subflowResults = pipeline.getSubflowResults();
       const result = subflowResults.get('complete-subflow')!;
 
-      // Verify all required fields
+      // Verify all required fields (pipelineStructure removed - structure comes from build-time)
       expect(result.subflowId).toBe('complete-subflow');
       expect(result.subflowName).toBe('Complete Subflow');
-      expect(result.pipelineStructure).toBeDefined();
-      expect(result.pipelineStructure.name).toBe('completeSubflow');
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
       expect(result.treeContext).toBeDefined();
       expect(result.treeContext.globalContext).toBeDefined();
       expect(result.treeContext.stageContexts).toBeDefined();
@@ -480,8 +479,7 @@ describe('Pipeline Subflow Execution', () => {
       const result = subflowResults.get('error-subflow')!;
       expect(result.subflowId).toBe('error-subflow');
       expect(result.treeContext).toBeDefined();
-      // Partial data should be present
-      expect(result.pipelineStructure).toBeDefined();
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
     });
   });
 
@@ -552,14 +550,13 @@ describe('Pipeline Subflow Execution', () => {
 
   describe('Subflow Structure Serialization', () => {
     /**
-     * Test: Subflow with next chain has complete pipelineStructure
-     * This tests the fix for the empty subflow visualization bug.
-     * The bug was that subflowNode was created with next: undefined,
-     * which stripped the subflow's internal structure during serialization.
+     * NOTE: pipelineStructure was removed from SubflowResult.
+     * Structure now comes from build-time `subflows` dictionary, not runtime serialization.
+     * These tests verify that subflow execution still works correctly without runtime serialization.
      * 
-     * _Requirements: 5.2, 5.3_
+     * _Requirements: 4.3, 4.4 (structure = build time, execution = runtime)_
      */
-    it('should serialize subflow with next chain completely', async () => {
+    it('should execute subflow with next chain correctly (structure from build time)', async () => {
       let executedStages: string[] = [];
 
       // Create a subflow with a next chain (like SmartContextFinder)
@@ -613,26 +610,23 @@ describe('Pipeline Subflow Execution', () => {
       expect(executedStages).toContain('internalStage1');
       expect(executedStages).toContain('internalStage2');
 
-      // Get subflow result and verify pipelineStructure is complete
+      // Verify subflow result has execution data (no pipelineStructure)
       const subflowResults = pipeline.getSubflowResults();
       expect(subflowResults.has('next-chain-subflow')).toBe(true);
 
       const result = subflowResults.get('next-chain-subflow')!;
-      const structure = result.pipelineStructure;
-
-      // Verify the structure includes the next chain
-      expect(structure.name).toBe('subflowRoot');
-      expect(structure.next).toBeDefined();
-      expect(structure.next!.name).toBe('internalStage1');
-      expect(structure.next!.next).toBeDefined();
-      expect(structure.next!.next!.name).toBe('internalStage2');
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
+      // Verify execution data is present
+      expect(result.treeContext).toBeDefined();
+      expect(result.subflowId).toBe('next-chain-subflow');
+      expect(result.subflowName).toBe('Next Chain Subflow');
     });
 
     /**
-     * Test: Subflow with mixed next and children has complete pipelineStructure
+     * Test: Subflow with mixed next and children executes correctly
      * This simulates the SmartContextFinder pattern: root → next → decider with children
      */
-    it('should serialize subflow with mixed next and children completely', async () => {
+    it('should execute subflow with mixed next and children correctly (structure from build time)', async () => {
       let executedStages: string[] = [];
 
       // Create a subflow with next chain leading to a decider with children
@@ -696,22 +690,16 @@ describe('Pipeline Subflow Execution', () => {
       expect(executedStages).toContain('keywordMatcher');
       expect(executedStages).toContain('matchedHandler');
 
-      // Get subflow result and verify pipelineStructure is complete
+      // Verify subflow result has execution data (no pipelineStructure)
       const subflowResults = pipeline.getSubflowResults();
       expect(subflowResults.has('mixed-subflow')).toBe(true);
 
       const result = subflowResults.get('mixed-subflow')!;
-      const structure = result.pipelineStructure;
-
-      // Verify the structure includes the complete tree
-      expect(structure.name).toBe('extractInput');
-      expect(structure.next).toBeDefined();
-      expect(structure.next!.name).toBe('keywordMatcher');
-      expect(structure.next!.hasDecider).toBe(true);
-      expect(structure.next!.children).toBeDefined();
-      expect(structure.next!.children!.length).toBe(2);
-      expect(structure.next!.children!.map(c => c.name)).toContain('matchedHandler');
-      expect(structure.next!.children!.map(c => c.name)).toContain('notMatchedHandler');
+      // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
+      // Verify execution data is present
+      expect(result.treeContext).toBeDefined();
+      expect(result.subflowId).toBe('mixed-subflow');
+      expect(result.subflowName).toBe('Mixed Subflow');
     });
   });
 });

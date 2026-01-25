@@ -231,8 +231,8 @@ describe('Dynamic Children — runtime fork pattern', () => {
     expect(order).toEqual(['parent', 'dyn1', 'dyn2']);
     expect(result).toHaveProperty('dyn1');
     expect(result).toHaveProperty('dyn2');
-    expect(result.dyn1).toEqual({ result: 'result1', isError: false });
-    expect(result.dyn2).toEqual({ result: 'result2', isError: false });
+    expect(result.dyn1).toEqual({ id: 'dyn1', result: 'result1', isError: false });
+    expect(result.dyn2).toEqual({ id: 'dyn2', result: 'result2', isError: false });
   });
 
   test('dynamic children with next continues to next after children', async () => {
@@ -469,7 +469,7 @@ describe('Dynamic Children — error handling', () => {
     const p = new Pipeline(root, stageMap, scopeFactory, {});
     const result = await p.execute();
 
-    expect(result.ok).toEqual({ result: 'success', isError: false });
+    expect(result.ok).toEqual({ id: 'ok', result: 'success', isError: false });
     expect(result.fail.isError).toBe(true);
     expect(result.fail.result).toBeInstanceOf(Error);
   });

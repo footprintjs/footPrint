@@ -5,7 +5,7 @@ import {
   FlowChartBuilder,
   specToStageNode,
 } from '../../src/builder/FlowChartBuilder';
-import type { StageNode } from '../../src/core/pipeline/Pipeline';
+import type { StageNode } from '../../src/core/pipeline/GraphTraverser';
 
 /* ----------------------------------------------------------------------------
  * Helpers: prune functions/deciders for JSON compare + name collector
@@ -38,7 +38,7 @@ function names(node?: StageNode<any, any>, acc: string[] = []): string[] {
 const TPctor = jest.fn();
 const TPexec = jest.fn(async () => 'EXEC_RESULT');
 
-jest.mock('../../src/core/pipeline/Pipeline', () => {
+jest.mock('../../src/core/pipeline/GraphTraverser', () => {
   return {
     Pipeline: class {
       constructor(...args: any[]) {

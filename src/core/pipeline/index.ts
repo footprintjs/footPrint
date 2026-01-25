@@ -1,2 +1,2 @@
-export * from './Pipeline';
+export * from './GraphTraverser';
 export * from './types';

@@ -7,7 +7,7 @@
  */
 
 import { FlowChartBuilder } from '../../../src/builder/FlowChartBuilder';
-import { Pipeline, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { Pipeline, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 import { TraversalExtractor, PipelineStageFunction } from '../../../src/core/pipeline/types';
 import { StageContext } from '../../../src/core/context/StageContext';
 import type { ScopeFactory } from '../../../src/scope/core/types';
@@ -507,6 +507,193 @@ describe('Pipeline Traversal Extractor', () => {
 
       const results = pipeline.getExtractedResults();
       expect(results.has('stageName')).toBe(true);
+    });
+  });
+
+  describe('Step Number Tracking', () => {
+    /**
+     * **Validates: Requirements 3.1, 3.2, 3.4, 4.2**
+     * Step numbers should be 1-based and monotonically increasing.
+     */
+    it('should provide 1-based step numbers starting at 1', async () => {
+      const stepNumbers: number[] = [];
+      const extractor: TraversalExtractor = (snapshot) => {
+        stepNumbers.push(snapshot.stepNumber);
+        return { step: snapshot.stepNumber };
+      };
+
+      const fns = {
+        stage1: jest.fn(() => 'result1'),
+        stage2: jest.fn(() => 'result2'),
+        stage3: jest.fn(() => 'result3'),
+      };
+
+      const root: Node = {
+        name: 'stage1',
+        fn: fns.stage1,
+        next: { 
+          name: 'stage2', 
+          fn: fns.stage2,
+          next: { name: 'stage3', fn: fns.stage3 },
+        },
+      };
+
+      const pipeline = new Pipeline(root, makeMap(fns), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      expect(stepNumbers).toEqual([1, 2, 3]);
+    });
+
+    it('should increment step numbers monotonically', async () => {
+      const stepNumbers: number[] = [];
+      const extractor: TraversalExtractor = (snapshot) => {
+        stepNumbers.push(snapshot.stepNumber);
+        return { step: snapshot.stepNumber };
+      };
+
+      const fns = {
+        entry: jest.fn(() => 'entry'),
+        process: jest.fn(() => 'process'),
+        finish: jest.fn(() => 'finish'),
+      };
+
+      const root: Node = {
+        name: 'entry',
+        fn: fns.entry,
+        next: { 
+          name: 'process', 
+          fn: fns.process,
+          next: { name: 'finish', fn: fns.finish },
+        },
+      };
+
+      const pipeline = new Pipeline(root, makeMap(fns), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      // Verify monotonic increase
+      for (let i = 1; i < stepNumbers.length; i++) {
+        expect(stepNumbers[i]).toBe(stepNumbers[i - 1] + 1);
+      }
+    });
+
+    it('should include stepNumber in StageSnapshot', async () => {
+      let capturedSnapshot: any;
+      const extractor: TraversalExtractor = (snapshot) => {
+        capturedSnapshot = snapshot;
+        return { captured: true };
+      };
+
+      const stageFn = jest.fn(() => 'done');
+      const root: Node = { name: 'testStage', fn: stageFn };
+
+      const pipeline = new Pipeline(root, makeMap({ testStage: stageFn }), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      expect(capturedSnapshot).toBeDefined();
+      expect(capturedSnapshot.stepNumber).toBe(1);
+      expect(typeof capturedSnapshot.stepNumber).toBe('number');
+    });
+
+    it('should track step numbers across decider branches', async () => {
+      const stepNumbers: { name: string; step: number }[] = [];
+      const extractor: TraversalExtractor = (snapshot) => {
+        stepNumbers.push({ name: snapshot.node.name, step: snapshot.stepNumber });
+        return { step: snapshot.stepNumber };
+      };
+
+      const fns = {
+        deciderStage: jest.fn(() => 'branchA'),
+        branchAStage: jest.fn(() => 'A'),
+        branchBStage: jest.fn(() => 'B'),
+      };
+
+      const root: Node = {
+        name: 'deciderStage',
+        fn: fns.deciderStage,
+        nextNodeDecider: (out) => out as string,
+        children: [
+          { id: 'branchA', name: 'branchAStage', fn: fns.branchAStage },
+          { id: 'branchB', name: 'branchBStage', fn: fns.branchBStage },
+        ],
+      };
+
+      const pipeline = new Pipeline(root, makeMap(fns), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      // deciderStage should be step 1, branchAStage should be step 2
+      expect(stepNumbers).toEqual([
+        { name: 'deciderStage', step: 1 },
+        { name: 'branchAStage', step: 2 },
+      ]);
+    });
+
+    it('should track step numbers for parallel children (fork)', async () => {
+      const stepNumbers: { name: string; step: number }[] = [];
+      const extractor: TraversalExtractor = (snapshot) => {
+        stepNumbers.push({ name: snapshot.node.name, step: snapshot.stepNumber });
+        return { step: snapshot.stepNumber };
+      };
+
+      const fns = {
+        forkStage: jest.fn(() => 'fork'),
+        child1Stage: jest.fn(() => 'c1'),
+        child2Stage: jest.fn(() => 'c2'),
+      };
+
+      const root: Node = {
+        name: 'forkStage',
+        fn: fns.forkStage,
+        children: [
+          { id: 'child1', name: 'child1Stage', fn: fns.child1Stage },
+          { id: 'child2', name: 'child2Stage', fn: fns.child2Stage },
+        ],
+      };
+
+      const pipeline = new Pipeline(root, makeMap(fns), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      // forkStage should be step 1
+      const forkStep = stepNumbers.find(s => s.name === 'forkStage');
+      expect(forkStep?.step).toBe(1);
+
+      // Children execute in parallel, so their step numbers may vary
+      // but they should all be > 1 and unique
+      const childSteps = stepNumbers.filter(s => s.name !== 'forkStage').map(s => s.step);
+      expect(childSteps.length).toBe(2);
+      childSteps.forEach(step => expect(step).toBeGreaterThan(1));
+    });
+
+    it('should continue step counting even when extractor throws', async () => {
+      const stepNumbers: number[] = [];
+      const extractor: TraversalExtractor = (snapshot) => {
+        stepNumbers.push(snapshot.stepNumber);
+        if (snapshot.node.name === 'stage2') {
+          throw new Error('Extractor error');
+        }
+        return { step: snapshot.stepNumber };
+      };
+
+      const fns = {
+        stage1: jest.fn(() => 'result1'),
+        stage2: jest.fn(() => 'result2'),
+        stage3: jest.fn(() => 'result3'),
+      };
+
+      const root: Node = {
+        name: 'stage1',
+        fn: fns.stage1,
+        next: { 
+          name: 'stage2', 
+          fn: fns.stage2,
+          next: { name: 'stage3', fn: fns.stage3 },
+        },
+      };
+
+      const pipeline = new Pipeline(root, makeMap(fns), scopeFactory, undefined, undefined, undefined, undefined, undefined, extractor);
+      await pipeline.execute();
+
+      // Step numbers should still be monotonic even with error
+      expect(stepNumbers).toEqual([1, 2, 3]);
     });
   });
 });

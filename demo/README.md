@@ -13,8 +13,10 @@ Follow these demos in order to master FootPrint:
 | 3 | [Parallel](./src/3-parallel/) | Fork | ⭐⭐ | 10 min | Parallel execution with `addListOfFunction()` |
 | 4 | [Selector](./src/4-selector/) | Selector | ⭐⭐⭐ | 15 min | Multi-choice parallel with `addSelector()` |
 | 5 | [Composed](./src/5-composed/) | Composition | ⭐⭐⭐⭐ | 20 min | Mount entire apps as subtrees |
+| 6 | [Subflow Extractor](./src/6-subflow-extractor/) | Extraction | ⭐⭐⭐ | 10 min | TraversalExtractor with subflows |
+| 7 | [Build vs Runtime](./src/7-build-vs-runtime/) | Extraction | ⭐⭐⭐ | 10 min | Build-time vs runtime extraction |
 
-**Total learning time: ~1 hour**
+**Total learning time: ~1.5 hours**
 
 ---
 
@@ -29,6 +31,8 @@ npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-llm-tool
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-parallel/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/4-selector/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-composed/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/6-subflow-extractor/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/7-build-vs-runtime/index.ts
 ```
 
 ---
@@ -102,6 +106,43 @@ new FlowChartBuilder()
   .start('Main', mainFn)
   .addSubFlowChart('sub', subApp, 'SubApp')
   .addFunction('Aggregate', aggregateFn);
+```
+
+### 6. Subflow Extractor (Demo 6)
+
+TraversalExtractor with subflows - stepNumber generation:
+
+```typescript
+const extractor: TraversalExtractor = (snapshot) => ({
+  stageName: snapshot.node.name,
+  stepNumber: snapshot.stepNumber, // 1-based execution order
+  isSubflow: Boolean(snapshot.node.isSubflowRoot),
+});
+
+new FlowChartBuilder()
+  .start('entry', entryFn)
+  .addSubFlowChart('llm-core', llmCore, 'LLM Core')
+  .addTraversalExtractor(extractor);
+```
+
+### 7. Build vs Runtime (Demo 7)
+
+Structure vs execution separation:
+
+```typescript
+// Build-time: Static structure for FE→BE transport
+const buildExtractor: BuildTimeExtractor = (metadata) => ({
+  id: metadata.id,
+  type: computeType(metadata),
+});
+const spec = builder.toSpec();
+
+// Runtime: Execution metadata with stepNumber
+const runtimeExtractor: TraversalExtractor = (snapshot) => ({
+  stepNumber: snapshot.stepNumber,
+  output: snapshot.context.getScope()?.output,
+});
+const results = pipeline.getExtractedResults();
 ```
 
 ---

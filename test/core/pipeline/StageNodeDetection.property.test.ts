@@ -7,7 +7,7 @@
 
 import * as fc from 'fast-check';
 
-import { isStageNodeReturn, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { isStageNodeReturn, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 
 /**
  * **Feature: dynamic-stagenode-return, Property 1: StageNode Detection Correctness**
@@ -305,7 +305,7 @@ describe('Dynamic StageNode Execution Property Tests', () => {
   };
 
   // Import Pipeline for execution tests
-  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/GraphTraverser');
   const { StageNode, PipelineStageFunction } = require('../../../src/core/pipeline/types');
 
   // Arbitrary for valid stage names
@@ -577,7 +577,7 @@ describe('Commit Ordering Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/GraphTraverser');
 
   const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
 
@@ -660,7 +660,7 @@ describe('Context Tree Property Tests', () => {
     return new TestScope(context, stageName, readOnlyContext);
   };
 
-  const { Pipeline } = require('../../../src/core/pipeline/Pipeline');
+  const { Pipeline } = require('../../../src/core/pipeline/GraphTraverser');
 
   const stageNameArb = fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z][a-zA-Z0-9]*$/.test(s));
 

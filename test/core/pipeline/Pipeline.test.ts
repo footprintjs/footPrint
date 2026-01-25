@@ -225,7 +225,7 @@ describe('ORDER — unified traversal (stage → children → next; decider = st
     const p = new Pipeline(root, stageMap, scopeFactory, {});
     const out = (await p.execute()) as any;
     expect(order).toEqual(['parent', 'childA', 'childB']);
-    expect(out.a).toEqual({ result: 'A', isError: false });
+    expect(out.a).toEqual({ id: 'a', result: 'A', isError: false });
     expect(out.b.isError).toBe(true);
     expect(out.b.result).toBeInstanceOf(Error);
   });
@@ -378,7 +378,7 @@ describe('Fork-only aggregation & throttling', () => {
     const p = new Pipeline(root, stageMap, scopeFactory, {}, undefined, undefined, throttlingChecker);
     const out = (await p.execute()) as any;
 
-    expect(out.ok).toEqual({ result: 'OK', isError: false });
+    expect(out.ok).toEqual({ id: 'ok', result: 'OK', isError: false });
     expect(out.th.isError).toBe(true);
 
     // The 'th' child context should have monitor.isThrottled set

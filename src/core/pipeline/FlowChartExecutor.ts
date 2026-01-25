@@ -16,7 +16,7 @@
  *   const result = await executor.run();
  */
 
-import { Pipeline, StageNode, Decider, Selector, isStageNodeReturn } from './Pipeline';
+import { Pipeline, StageNode, Decider, Selector, isStageNodeReturn } from './GraphTraverser';
 import type {
   PipelineStageFunction,
   StreamHandlers,

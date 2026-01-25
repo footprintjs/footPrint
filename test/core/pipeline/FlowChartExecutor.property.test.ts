@@ -9,7 +9,7 @@
 
 import * as fc from 'fast-check';
 import { FlowChartExecutor, FlowChart } from '../../../src/core/pipeline/FlowChartExecutor';
-import { Pipeline, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { Pipeline, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 import { FlowChartBuilder, flowChart } from '../../../src/builder/FlowChartBuilder';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';

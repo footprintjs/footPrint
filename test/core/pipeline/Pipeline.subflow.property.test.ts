@@ -8,7 +8,7 @@
  */
 
 import * as fc from 'fast-check';
-import { Pipeline, StageNode } from '../../../src/core/pipeline/Pipeline';
+import { Pipeline, StageNode } from '../../../src/core/pipeline/GraphTraverser';
 import { StageContext } from '../../../src/core/context/StageContext';
 import { ScopeFactory } from '../../../src/core/context/types';
 
@@ -114,9 +114,12 @@ describe('Pipeline Subflow Property-Based Tests', () => {
    * ------------------------------------------------------------------
    * For any completed subflow execution (success or error), the SubflowResult
    * SHALL contain all required fields: subflowId, subflowName, treeContext,
-   * pipelineStructure, parentStageId.
+   * parentStageId.
+   * 
+   * NOTE: pipelineStructure was removed - structure comes from build-time
+   * `subflows` dictionary, not runtime serialization.
    *
-   * _Validates: Requirements 3.1, 3.2, 3.3, 3.4_
+   * _Validates: Requirements 3.1, 3.2, 3.3, 3.4, 4.3, 4.4_
    */
   describe('Property 2: Subflow Result Completeness', () => {
     it('all SubflowResult fields are present for successful execution', async () => {
@@ -158,8 +161,7 @@ describe('Pipeline Subflow Property-Based Tests', () => {
             expect(result.treeContext.globalContext).toBeDefined();
             expect(result.treeContext.stageContexts).toBeDefined();
             expect(result.treeContext.history).toBeDefined();
-            expect(result.pipelineStructure).toBeDefined();
-            expect(result.pipelineStructure.name).toBe('subflowRoot');
+            // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
             expect(result.parentStageId).toBeDefined();
             expect(typeof result.parentStageId).toBe('string');
           },
@@ -206,7 +208,7 @@ describe('Pipeline Subflow Property-Based Tests', () => {
             expect(result.subflowId).toBe(subflowId);
             expect(result.subflowName).toBe('Error Subflow');
             expect(result.treeContext).toBeDefined();
-            expect(result.pipelineStructure).toBeDefined();
+            // NOTE: pipelineStructure removed - structure comes from build-time subflows dictionary
             expect(result.parentStageId).toBeDefined();
           },
         ),

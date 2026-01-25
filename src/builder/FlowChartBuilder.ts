@@ -27,7 +27,7 @@
  *   • StageMap name collisions when mounting flowcharts → throw
  */
 
-import type { Selector, StageNode } from '../core/pipeline/Pipeline';
+import type { Selector, StageNode } from '../core/pipeline/GraphTraverser';
 import { FlowChartExecutor } from '../core/pipeline/FlowChartExecutor';
 import type { PipelineStageFunction, StreamHandlers, StreamTokenHandler, StreamLifecycleHandler, TraversalExtractor } from '../core/pipeline/types';
 import type { ScopeFactory } from '../scope/core/types';
@@ -74,6 +74,71 @@ export interface FlowChartSpec {
   /** Display name of the subflow (e.g., "LLM Core") */
   subflowName?: string;
 }
+
+/**
+ * Metadata provided to the build-time extractor for each node.
+ * Contains all information needed to serialize a node in any format.
+ * 
+ * This interface mirrors FlowChartSpec but is explicitly designed as input
+ * to the extractor, allowing consumers to transform nodes into custom formats.
+ * 
+ * _Requirements: unified-extractor-architecture 1.5, 2.1-2.10_
+ */
+export interface BuildTimeNodeMetadata {
+  /** Stage name (stageMap key) */
+  name: string;
+  /** Optional stable ID */
+  id?: string;
+  /** Human-readable display name for UI */
+  displayName?: string;
+  /** Recursively extracted children (for fork/decider patterns) */
+  children?: BuildTimeNodeMetadata[];
+  /** Recursively extracted next node (for linear continuation) */
+  next?: BuildTimeNodeMetadata;
+  /** True if this node has a decider function */
+  hasDecider?: boolean;
+  /** True if this node has a selector function */
+  hasSelector?: boolean;
+  /** Branch IDs for decider/selector nodes */
+  branchIds?: string[];
+  /** Loop target stage ID */
+  loopTarget?: string;
+  /** True if this is a streaming stage */
+  isStreaming?: boolean;
+  /** Stream identifier */
+  streamId?: string;
+  /** True if this is a parallel child of a fork */
+  isParallelChild?: boolean;
+  /** Parent fork ID for parallel children */
+  parallelGroupId?: string;
+  /** True if this is a subflow root */
+  isSubflowRoot?: boolean;
+  /** Subflow mount ID */
+  subflowId?: string;
+  /** Subflow display name */
+  subflowName?: string;
+}
+
+/**
+ * Build-time extractor function type.
+ * Called for each node during toSpec() traversal.
+ * 
+ * The extractor receives metadata for a node and returns a transformed result.
+ * This allows consumers to:
+ * - Add computed properties (like `type: 'stage' | 'decider' | 'fork' | 'streaming'`)
+ * - Remove properties not needed by the consumer
+ * - Transform property names or structures
+ * - Add domain-specific metadata
+ * 
+ * @template TResult - The type of the extracted result
+ * @param metadata - Node metadata for the current node
+ * @returns The transformed node in the consumer's desired format
+ * 
+ * _Requirements: unified-extractor-architecture 1.1, 1.2, 1.3_
+ */
+export type BuildTimeExtractor<TResult = FlowChartSpec> = (
+  metadata: BuildTimeNodeMetadata
+) => TResult;
 
 /* ============================================================================
  * Types exposed for consumers (FE + BE)
@@ -508,6 +573,22 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   private _extractor?: TraversalExtractor;
 
+  /**
+   * Optional build-time extractor function.
+   * Called during toSpec() to transform the flowchart structure.
+   * 
+   * _Requirements: unified-extractor-architecture 1.1_
+   */
+  private _buildTimeExtractor?: BuildTimeExtractor<any>;
+
+  /**
+   * Errors encountered during build-time extraction.
+   * Logged but don't stop spec generation.
+   * 
+   * _Requirements: unified-extractor-architecture 8.1, 8.3_
+   */
+  private _buildTimeExtractorErrors: Array<{ message: string; error: unknown }> = [];
+
   /* ─────────────────────────── Authoring API ─────────────────────────── */
 
   /** Define the root function of the flow. */
@@ -888,6 +969,69 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  /* ─────────────────────────── Build-Time Extractor API ─────────────────────────── */
+
+  /**
+   * Register a build-time extractor function.
+   * The extractor is called for each node during toSpec() traversal.
+   * 
+   * The extractor receives BuildTimeNodeMetadata containing all node properties
+   * and returns a transformed result in the consumer's desired format.
+   * 
+   * This enables consumers to:
+   * - Add computed properties (like `type: 'stage' | 'decider' | 'fork' | 'streaming'`)
+   * - Remove properties not needed by the consumer
+   * - Transform property names or structures
+   * - Add domain-specific metadata
+   * 
+   * Only one build-time extractor per flow is supported. Calling this multiple times
+   * replaces the previous extractor (last one wins).
+   * 
+   * @param extractor - Function to transform node metadata
+   * @returns this for fluent chaining
+   * 
+   * @example
+   * ```typescript
+   * // Service layer extractor that adds 'type' field for UI
+   * builder
+   *   .start('entry', entryFn)
+   *   .addFunction('askLLM', askLLMFn)
+   *   .addBuildTimeExtractor((metadata) => {
+   *     // Compute node type from metadata
+   *     let type: 'stage' | 'decider' | 'fork' | 'streaming' = 'stage';
+   *     if (metadata.hasDecider || metadata.hasSelector) type = 'decider';
+   *     else if (metadata.children && metadata.children.length > 0) type = 'fork';
+   *     else if (metadata.isStreaming) type = 'streaming';
+   *     
+   *     return {
+   *       ...metadata,
+   *       type,
+   *     };
+   *   });
+   * 
+   * // toSpec() now returns the transformed format
+   * const spec = builder.toSpec();
+   * ```
+   * 
+   * _Requirements: unified-extractor-architecture 1.1_
+   */
+  addBuildTimeExtractor<TResult = FlowChartSpec>(
+    extractor: BuildTimeExtractor<TResult>
+  ): this {
+    this._buildTimeExtractor = extractor;
+    return this;
+  }
+
+  /**
+   * Returns any errors that occurred during build-time extraction.
+   * Useful for debugging extractor issues.
+   * 
+   * _Requirements: unified-extractor-architecture 8.3_
+   */
+  getBuildTimeExtractorErrors(): Array<{ message: string; error: unknown }> {
+    return this._buildTimeExtractorErrors;
+  }
+
   /** Move back to the parent node. */
   end(): this {
     const cur = this._needCursor();
@@ -974,8 +1118,42 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /**
    * Emit a **pure JSON** flow spec for FE → BE transport (no functions/closures).
    * We only include fields that are present (omit falsy/noise like hasDecider:false, next:undefined).
+   * 
+   * If a build-time extractor is registered via addBuildTimeExtractor(), the extractor
+   * is called for each node and the result is returned instead of the default FlowChartSpec.
+   * 
+   * @template TResult - The type of the result (defaults to FlowChartSpec)
+   * @returns The spec in the consumer's format (or default FlowChartSpec if no extractor)
+   * 
+   * _Requirements: unified-extractor-architecture 1.2, 1.3, 1.4_
    */
-  toSpec(): FlowChartSpec {
+  toSpec<TResult = FlowChartSpec>(): TResult {
+    const root = this._root ?? fail('empty tree; call start() first');
+
+    // If build-time extractor is registered, use it
+    if (this._buildTimeExtractor) {
+      try {
+        return this._toSpecWithExtractor<TResult>();
+      } catch (error: any) {
+        // Log error and fall back to default
+        console.error('[FlowChartBuilder] Build-time extractor error:', error);
+        this._buildTimeExtractorErrors.push({
+          message: error?.message ?? String(error),
+          error,
+        });
+        // Fall through to default behavior
+      }
+    }
+
+    // Default behavior: return FlowChartSpec
+    return this._toSpecDefault() as TResult;
+  }
+
+  /**
+   * Generate default FlowChartSpec without extractor transformation.
+   * @private
+   */
+  private _toSpecDefault(): FlowChartSpec {
     const root = this._root ?? fail('empty tree; call start() first');
 
     const inflate = (n: _N<TOut, TScope>, parentForkId?: string): FlowChartSpec => {
@@ -1038,6 +1216,144 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
 
     return inflate(root);
+  }
+
+  /**
+   * Generate spec using the registered build-time extractor.
+   * The extractor is called for each node with BuildTimeNodeMetadata.
+   * 
+   * @private
+   * @template TResult - The type of the extracted result
+   * @returns The transformed spec
+   * 
+   * _Requirements: unified-extractor-architecture 1.2, 1.3_
+   */
+  private _toSpecWithExtractor<TResult>(): TResult {
+    const root = this._root ?? fail('empty tree; call start() first');
+    const extractor = this._buildTimeExtractor!;
+
+    const extractNode = (n: _N<TOut, TScope>, parentForkId?: string): TResult => {
+      // Build metadata for this node
+      const metadata: BuildTimeNodeMetadata = { name: n.name };
+
+      if (n.id) metadata.id = n.id;
+      if (n.displayName) metadata.displayName = n.displayName;
+      
+      // Add streaming properties
+      if (n.isStreaming) metadata.isStreaming = true;
+      if (n.streamId) metadata.streamId = n.streamId;
+      
+      // Add subflow metadata
+      if (n.isSubflowRoot) metadata.isSubflowRoot = true;
+      if (n.subflowId) metadata.subflowId = n.subflowId;
+      if (n.subflowName) metadata.subflowName = n.subflowName;
+      
+      // Add parallel child metadata
+      if (parentForkId) {
+        metadata.isParallelChild = true;
+        metadata.parallelGroupId = parentForkId;
+      }
+
+      if (n.children.length) {
+        // Determine if this is a fork (parallel children without decider/selector)
+        const isFork = !n.decider && !n.selector;
+        const forkId = isFork ? (n.id ?? n.name) : undefined;
+        
+        // Recursively extract children
+        metadata.children = n.children.map(c => {
+          // For children, we need to return BuildTimeNodeMetadata, not TResult
+          // So we call a separate helper that returns metadata
+          return this._nodeToMetadata(c, forkId);
+        });
+
+        // Only annotate decider metadata when there IS a decider on this node
+        if (n.decider) {
+          metadata.hasDecider = true;
+          metadata.branchIds = n.children
+            .map((c) => c.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        }
+
+        // Only annotate selector metadata when there IS a selector on this node
+        if (n.selector) {
+          metadata.hasSelector = true;
+          metadata.branchIds = n.children
+            .map((c) => c.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        }
+      }
+
+      // Handle loopTarget
+      if (n.loopTarget) {
+        metadata.loopTarget = n.loopTarget;
+        metadata.next = { name: n.loopTarget, id: n.loopTarget };
+      } else if (n.next) {
+        metadata.next = this._nodeToMetadata(n.next);
+      }
+
+      // Call the extractor with the metadata
+      return extractor(metadata) as TResult;
+    };
+
+    return extractNode(root);
+  }
+
+  /**
+   * Convert a node to BuildTimeNodeMetadata (for recursive children/next).
+   * @private
+   */
+  private _nodeToMetadata(n: _N<TOut, TScope>, parentForkId?: string): BuildTimeNodeMetadata {
+    const metadata: BuildTimeNodeMetadata = { name: n.name };
+
+    if (n.id) metadata.id = n.id;
+    if (n.displayName) metadata.displayName = n.displayName;
+    
+    // Add streaming properties
+    if (n.isStreaming) metadata.isStreaming = true;
+    if (n.streamId) metadata.streamId = n.streamId;
+    
+    // Add subflow metadata
+    if (n.isSubflowRoot) metadata.isSubflowRoot = true;
+    if (n.subflowId) metadata.subflowId = n.subflowId;
+    if (n.subflowName) metadata.subflowName = n.subflowName;
+    
+    // Add parallel child metadata
+    if (parentForkId) {
+      metadata.isParallelChild = true;
+      metadata.parallelGroupId = parentForkId;
+    }
+
+    if (n.children.length) {
+      // Determine if this is a fork (parallel children without decider/selector)
+      const isFork = !n.decider && !n.selector;
+      const forkId = isFork ? (n.id ?? n.name) : undefined;
+      
+      metadata.children = n.children.map(c => this._nodeToMetadata(c, forkId));
+
+      if (n.decider) {
+        metadata.hasDecider = true;
+        metadata.branchIds = n.children
+          .map((c) => c.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      }
+
+      if (n.selector) {
+        metadata.hasSelector = true;
+        metadata.branchIds = n.children
+          .map((c) => c.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      }
+    }
+
+    // Handle loopTarget
+    if (n.loopTarget) {
+      metadata.loopTarget = n.loopTarget;
+      metadata.next = { name: n.loopTarget, id: n.loopTarget };
+    } else if (n.next) {
+      metadata.next = this._nodeToMetadata(n.next);
+    }
+
+    return metadata;
   }
 
   /**
