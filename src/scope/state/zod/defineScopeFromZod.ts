@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { attachBaseStateCompat } from '../../core/baseStateCompatible';
-import type { ScopeFactory, StageContextLike, StrictMode } from '../../core/types';
+import { attachBaseStateCompat } from '../../providers/baseStateCompatible';
+import type { ScopeFactory, StageContextLike, StrictMode } from '../../providers/types';
 import { createScopeProxyFromZod } from './scopeFactory';
 
 export type DefineScopeOptions = {

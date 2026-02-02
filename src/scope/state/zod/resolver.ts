@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { attachBaseStateCompat } from '../../core/baseStateCompatible';
-import { ProviderResolver, ScopeProvider, StageContextLike, StrictMode } from '../../core/types';
+import { attachBaseStateCompat } from '../../providers/baseStateCompatible';
+import { ProviderResolver, ScopeProvider, StageContextLike, StrictMode } from '../../providers/types';
 import { isScopeSchema } from './schema/builder';
 import { createScopeProxyFromZod } from './scopeFactory';
 

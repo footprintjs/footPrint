@@ -1,4 +1,4 @@
-import { registerScopeResolver } from '../core/resolve';
+import { registerScopeResolver } from '../providers/resolve';
 import { ZodScopeResolver } from './zod';
 
 let installed = false;

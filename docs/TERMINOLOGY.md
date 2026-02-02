@@ -50,7 +50,7 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### PipelineRuntime
 
-**File:** `src/core/context/PipelineRuntime.ts`
+**File:** `src/core/memory/PipelineRuntime.ts`
 
 **Purpose:** The top-level container that holds all execution state for a pipeline run. It orchestrates the GlobalStore, root StageContext, and ExecutionHistory.
 
@@ -68,7 +68,7 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### StageContext
 
-**File:** `src/core/context/StageContext.ts`
+**File:** `src/core/memory/StageContext.ts`
 
 **Purpose:** Holds ephemeral state for a single stage execution. Manages reads/writes through a WriteBuffer and creates child/next contexts for branching execution.
 
@@ -94,7 +94,7 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### GlobalStore
 
-**File:** `src/core/context/GlobalStore.ts`
+**File:** `src/core/memory/GlobalStore.ts`
 
 **Purpose:** Shared state across all stages. The single source of truth that WriteBuffer patches get committed to.
 
@@ -110,7 +110,7 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### WriteBuffer
 
-**File:** `src/core/stateManagement/WriteBuffer.ts`
+**File:** `src/internal/memory/WriteBuffer.ts`
 
 **Purpose:** Collects staged writes before atomic commit to GlobalStore. Implements copy-on-write semantics for isolation between stages.
 
@@ -126,7 +126,7 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### StageMetadata
 
-**File:** `src/core/context/StageMetadata.ts`
+**File:** `src/core/memory/StageMetadata.ts`
 
 **Purpose:** Per-stage observability data including logs, errors, metrics, and evals. Not part of execution state - purely for debugging and monitoring.
 

@@ -498,3 +498,34 @@ FootPrint gives you **explicit control flow** and **scoped state** without the o
 ## License
 
 MIT
+
+---
+
+## Project Structure (For Contributors)
+
+```
+src/
+├── core/                    # Public API layer
+│   ├── builder/            # FlowChartBuilder DSL
+│   ├── memory/             # StageContext, GlobalStore, PipelineRuntime
+│   ├── executor/           # FlowChartExecutor, Pipeline
+│   │   └── handlers/       # StageRunner, NodeResolver, handlers
+│   ├── context/            # (deprecated re-exports → core/memory/)
+│   └── pipeline/           # (deprecated re-exports → core/executor/)
+├── internal/               # Library internals (not for consumers)
+│   ├── memory/             # WriteBuffer, utils
+│   └── history/            # ExecutionHistory
+├── scope/                  # Consumer extensibility layer
+│   ├── providers/          # Registry, resolve, guards
+│   ├── recorders/          # DebugRecorder, MetricRecorder
+│   ├── protection/         # Scope protection utilities
+│   └── state/              # Zod integration
+└── utils/                  # Shared utilities (logger, scopeLog)
+
+test/
+├── unit/                   # Unit tests mirroring src/ structure
+├── properties/             # Property-based tests (fast-check)
+└── scenarios/              # Cross-module integration tests
+```
+
+See [docs/architecture/FOLDER_REORGANIZATION_DESIGN.md](./docs/architecture/FOLDER_REORGANIZATION_DESIGN.md) for detailed architecture documentation.

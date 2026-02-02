@@ -11,7 +11,6 @@ import {
   BaseState, 
   TraversalExtractor, 
   BuildTimeExtractor,
-  StageSnapshot,
   BuildTimeNodeMetadata,
 } from 'footprint';
 
@@ -64,18 +63,14 @@ interface RuntimeStageData {
   stageName: string;
   stepNumber: number;
   executedAt: number;
-  output?: unknown;
 }
 
-const runtimeExtractor: TraversalExtractor<RuntimeStageData> = (
-  snapshot: StageSnapshot
-): RuntimeStageData => {
-  const { node, context, stepNumber } = snapshot;
+const runtimeExtractor: TraversalExtractor<RuntimeStageData> = (snapshot) => {
+  const { node, stepNumber } = snapshot;
   return {
     stageName: node.name,
     stepNumber,
     executedAt: Date.now(),
-    output: context.getScope()?.output,
   };
 };
 
@@ -120,10 +115,10 @@ async function main() {
   const builder = new FlowChartBuilder()
     .start('entry', entry)
     .addFunction('process', process)
-    .addFork()
-      .addFunctionBranch('a', 'childA', childA)
-      .addFunctionBranch('b', 'childB', childB)
-      .end()
+    .addListOfFunction([
+      { id: 'a', name: 'childA', fn: childA },
+      { id: 'b', name: 'childB', fn: childB },
+    ])
     .addFunction('aggregate', aggregate)
     .addBuildTimeExtractor(buildTimeExtractor)
     .addTraversalExtractor(runtimeExtractor);

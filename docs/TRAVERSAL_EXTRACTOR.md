@@ -11,19 +11,25 @@ Both extractors enable applications to transform data into whatever format their
 
 ### Runtime Extractor (Traversal)
 
-When building pipelines with `FlowChartBuilder`, you can register a traversal extractor function that will be called after each stage completes. The extractor receives a `StageSnapshot` containing the node, execution context, and step number.
+When building pipelines with `FlowChartBuilder`, you can register a traversal extractor function that will be called after each stage completes. The extractor receives a `StageSnapshot` containing:
+- The node being executed
+- The execution context (with scope and debug info)
+- A step number for time traveler synchronization
+- Pre-computed structure metadata (type, subflowId, etc.)
 
 ```typescript
 import { FlowChartBuilder, TraversalExtractor, StageSnapshot } from 'tree-of-functions';
 
 const myExtractor: TraversalExtractor<MyData> = (snapshot: StageSnapshot) => {
-  const { node, context, stepNumber } = snapshot;
+  const { node, context, stepNumber, structureMetadata } = snapshot;
   const scope = context.getScope();
   const debugInfo = context.getDebugInfo();
   
   return {
     stageName: node.name,
     stepNumber, // 1-based execution order for time traveler sync
+    type: structureMetadata.type, // Pre-computed: 'stage' | 'decider' | 'fork' | 'streaming'
+    subflowId: structureMetadata.subflowId, // Correctly propagated within subflows
     llmResponse: scope?.llmResponse,
     toolCalls: debugInfo?.toolCalls,
   };
@@ -73,6 +79,44 @@ const spec = builder.toSpec<MyNodeFormat>();
 
 ### Runtime Extractor Types
 
+#### `RuntimeStructureMetadata`
+
+Pre-computed structure metadata provided to the traversal extractor. The library computes these values during traversal so consumers don't need to post-process `getRuntimeRoot()` with their own serialization logic.
+
+```typescript
+interface RuntimeStructureMetadata {
+  /** Computed node type based on node properties */
+  type: 'stage' | 'decider' | 'fork' | 'streaming';
+  
+  /** Subflow ID - propagated from subflow root to all children within the subflow */
+  subflowId?: string;
+  
+  /** True if this node is the root of a subflow */
+  isSubflowRoot?: boolean;
+  
+  /** Display name of the subflow (for subflow roots) */
+  subflowName?: string;
+  
+  /** True if this node is a parallel child of a fork */
+  isParallelChild?: boolean;
+  
+  /** Parent fork's ID (for parallel children) */
+  parallelGroupId?: string;
+  
+  /** Target stage ID if this node loops back to a previous stage */
+  loopTarget?: string;
+  
+  /** True if this node has dynamically-added children (e.g., toolBranch) */
+  isDynamic?: boolean;
+  
+  /** True if this is a loop-back reference node */
+  isLoopReference?: boolean;
+  
+  /** Streaming stage identifier */
+  streamId?: string;
+}
+```
+
 #### `StageSnapshot<TOut, TScope>`
 
 Data passed to the traversal extractor for each stage.
@@ -85,6 +129,8 @@ interface StageSnapshot<TOut = any, TScope = any> {
   context: StageContext;
   /** 1-based step number in execution order (for time traveler sync) */
   stepNumber: number;
+  /** Pre-computed structure metadata for this node */
+  structureMetadata: RuntimeStructureMetadata;
 }
 ```
 
@@ -481,6 +527,123 @@ const extractor: TraversalExtractor<StageMetadata> = (snapshot) => ({
 ```
 
 ## Build-Time Extractor Usage
+
+The build-time extractor transforms the flowchart structure during `toSpec()`. This is useful for:
+
+- **Adding computed properties**: Derive `type` from node properties
+- **Format transformation**: Convert to a different schema for your frontend
+- **Removing unused fields**: Strip properties your consumer doesn't need
+
+**Note**: Build-time extractors operate on the static flowchart definition. For runtime structure serialization (including dynamic children, loops, and subflows), use the Runtime Structure Metadata feature instead.
+
+## Runtime Structure Metadata (Recommended)
+
+The `structureMetadata` field in `StageSnapshot` provides pre-computed structure information for each node as it executes. This eliminates the need for service-layer post-processing of `getRuntimeRoot()`.
+
+### Why Use Runtime Structure Metadata?
+
+Previously, service layers had to:
+1. Get raw `StageNode` from `getRuntimeRoot()` after execution
+2. Write their own `serializePipelineStructure()` function to convert to their format
+3. Handle complex logic like `subflowId` propagation and node type computation
+
+With `structureMetadata`, the library handles all of this during traversal:
+- **Node type computation**: `type` is pre-computed as 'stage', 'decider', 'fork', or 'streaming'
+- **SubflowId propagation**: `subflowId` is correctly propagated to all children within a subflow
+- **Parallel child tracking**: `isParallelChild` and `parallelGroupId` are set for fork children
+- **Dynamic node detection**: `isDynamic` is set for nodes with dynamically-added children
+
+### Service Layer Migration Example
+
+Replace your `serializePipelineStructure()` function with a TraversalExtractor:
+
+```typescript
+import { TraversalExtractor, StageSnapshot, RuntimeStructureMetadata } from 'tree-of-functions';
+
+// Your service's desired output format
+interface PipelineNode {
+  id: string;
+  name: string;
+  type: 'stage' | 'decider' | 'fork' | 'streaming';
+  subflowId?: string;
+  isSubflowRoot?: boolean;
+  subflowName?: string;
+  isParallelChild?: boolean;
+  parallelGroupId?: string;
+  loopTarget?: string;
+  isDynamic?: boolean;
+  isStreaming?: boolean;
+  streamId?: string;
+}
+
+// Accumulated structure during pipeline execution
+const pipelineStructure: Map<string, PipelineNode> = new Map();
+const executionOrder: string[] = [];
+
+// The extractor transforms each node as it executes
+const structureExtractor: TraversalExtractor = (snapshot: StageSnapshot) => {
+  const { node, stepNumber, structureMetadata } = snapshot;
+  const nodeId = node.id || node.name;
+  
+  // Transform library's structureMetadata to service's PipelineNode format
+  // No more manual type computation or subflowId propagation!
+  const pipelineNode: PipelineNode = {
+    id: nodeId,
+    name: node.name,
+    type: structureMetadata.type,
+    subflowId: structureMetadata.subflowId,
+    isSubflowRoot: structureMetadata.isSubflowRoot,
+    subflowName: structureMetadata.subflowName,
+    isParallelChild: structureMetadata.isParallelChild,
+    parallelGroupId: structureMetadata.parallelGroupId,
+    loopTarget: structureMetadata.loopTarget,
+    isDynamic: structureMetadata.isDynamic,
+    isStreaming: structureMetadata.type === 'streaming',
+    streamId: structureMetadata.streamId,
+  };
+  
+  pipelineStructure.set(nodeId, pipelineNode);
+  executionOrder.push(nodeId);
+  
+  // Return step number for time traveler sync
+  return { stepNumber };
+};
+
+// Usage
+const chart = flowChart('start', startStage)
+  .addFunction('process', processStage)
+  .addTraversalExtractor(structureExtractor)
+  .build();
+
+// After execution, pipelineStructure contains the serialized structure
+// No need for serializePipelineStructure(getRuntimeRoot())!
+```
+
+### Key Benefits
+
+1. **Eliminates serializePipelineStructure()**: Structure is built incrementally during execution
+2. **Correct subflowId propagation**: Library tracks subflow context and propagates correctly
+3. **Single source of truth**: Node type computation happens in the library
+4. **Incremental structure building**: Structure is available as stages execute
+5. **Cleaner separation of concerns**: Library handles traversal; service handles format transformation
+
+### SubflowId Propagation
+
+The library correctly handles subflow boundaries:
+
+```typescript
+// When entering a subflow:
+// - subflow root: isSubflowRoot=true, subflowId='smart-context-finder'
+// - subflow children: subflowId='smart-context-finder' (propagated)
+
+// When exiting a subflow (continuation):
+// - continuation stages: subflowId=undefined (NOT propagated)
+
+// This fixes the bug where service-layer serialization incorrectly
+// propagated subflowId to continuation stages
+```
+
+### Build-Time Extractor Usage
 
 The build-time extractor transforms the flowchart structure during `toSpec()`. This is useful for:
 

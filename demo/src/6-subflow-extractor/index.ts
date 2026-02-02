@@ -7,7 +7,7 @@
  * - Structure comes from build time, execution from runtime
  */
 
-import { FlowChartBuilder, BaseState, TraversalExtractor, StageSnapshot } from 'footprint';
+import { FlowChartBuilder, BaseState, TraversalExtractor } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
@@ -19,17 +19,15 @@ interface StageMetadata {
   stageName: string;
   stepNumber: number;
   isSubflow: boolean;
-  output?: unknown;
 }
 
 // Extractor that captures execution metadata
-const metadataExtractor: TraversalExtractor<StageMetadata> = (snapshot: StageSnapshot) => {
-  const { node, context, stepNumber } = snapshot;
+const metadataExtractor: TraversalExtractor<StageMetadata> = (snapshot) => {
+  const { node, stepNumber, structureMetadata } = snapshot;
   return {
     stageName: node.name,
     stepNumber,
-    isSubflow: Boolean(node.isSubflowRoot),
-    output: context.getScope()?.output,
+    isSubflow: Boolean(structureMetadata.isSubflowRoot),
   };
 };
 
@@ -74,7 +72,7 @@ export function buildMainFlowWithSubflow() {
 
   return new FlowChartBuilder()
     .start('prepareRequest', prepareRequest)
-    .addSubFlowChart('llm-core', 'LLM Core', llmCore.root, llmCore.stageMap)
+    .addSubFlowChart('llm-core', llmCore, 'LLM Core')
     .addFunction('aggregateResults', aggregateResults)
     .addTraversalExtractor(metadataExtractor)
     .build();

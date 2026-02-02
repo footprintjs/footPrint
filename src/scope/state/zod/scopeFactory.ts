@@ -1,6 +1,6 @@
 import { type ZodTypeAny, z } from 'zod';
 
-import type { StageContextLike, StrictMode } from '../../core/types';
+import type { StageContextLike, StrictMode } from '../../providers/types';
 import { getRecordValueType, isZodNode, parseWithThis, unwrap } from './utils/validateHelper';
 
 function validateOnWrite(
@@ -16,7 +16,7 @@ function validateOnWrite(
     return true;
   } catch (err) {
     const msg = `[schema] invalid value in ${tag ?? 'set'}: ${(err as any)?.message ?? 'zod error'}`;
-    ctx?.addErrorInfo?.('schema', msg);
+    ctx?.addError?.('schema', msg);
     if (strict === 'warn') return false;
     throw err;
   }
