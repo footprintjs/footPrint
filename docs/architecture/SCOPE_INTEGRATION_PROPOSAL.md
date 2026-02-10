@@ -346,20 +346,73 @@ class ScopeAdapter {
 
 ---
 
-## Open Questions
+## Current State (Implemented)
 
-1. **Should recorders be per-pipeline or per-stage?**
-   - Current: Global recorders + stage-level recorders
-   - Alternative: Only global, stages filter by name
+The Scope class and Recorder system are now fully implemented and in use. This section captures the current state for reference.
 
-2. **How to handle ExecutionHistory?**
-   - Current: Separate from Scope snapshots
-   - Proposal: Scope snapshots replace ExecutionHistory
+### Scope Class — What's Built
 
-3. **What about WriteBuffer?**
-   - Current: StageContext uses WriteBuffer
-   - Scope: Uses local cache + staged writes
-   - Need to verify semantics match
+The `Scope` class (`src/scope/Scope.ts`) is the runtime memory container with:
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| `getValue` / `setValue` / `updateValue` | ✅ Implemented | Core read/write operations with namespace isolation |
+| `commit` | ✅ Implemented | Flushes staged writes to GlobalStore |
+| Read-after-write consistency | ✅ Implemented | Local cache ensures writes are immediately readable |
+| Time-travel (`getSnapshots`, `getStateAt`) | ✅ Implemented | Snapshots created on each commit |
+| Stage lifecycle (`startStage` / `endStage`) | ✅ Implemented | Triggers recorder hooks with duration tracking |
+| Recorder management | ✅ Implemented | `attachRecorder`, `attachStageRecorder`, `detachRecorder` |
+| Global + stage-level recorders | ✅ Implemented | Global recorders see all events; stage recorders are scoped |
+| Error isolation | ✅ Implemented | Recorder errors are caught and routed to `onError` hooks |
+
+### Recorder System — What's Built
+
+The Recorder interface (`src/scope/types.ts`) provides 6 optional hooks:
+
+```typescript
+interface Recorder {
+  readonly id: string;
+  onRead?(event: ReadEvent): void;      // After a value is read
+  onWrite?(event: WriteEvent): void;    // After a value is staged for write
+  onCommit?(event: CommitEvent): void;  // After staged writes are flushed
+  onError?(event: ErrorEvent): void;    // When any scope operation fails
+  onStageStart?(event: StageEvent): void; // When a stage begins
+  onStageEnd?(event: StageEvent): void;   // When a stage ends (includes duration)
+}
+```
+
+Built-in recorders:
+- **DebugRecorder** (`src/scope/recorders/DebugRecorder.ts`) — Captures errors, mutations, and reads with configurable verbosity (minimal/verbose). Supports filtering by stage name.
+- **MetricRecorder** (`src/scope/recorders/MetricRecorder.ts`) — Tracks operation counts and stage durations for performance monitoring.
+
+### Resolved Questions
+
+1. **Recorders: per-pipeline or per-stage?** → Both. Global recorders see all events. Stage-level recorders (`attachStageRecorder`) are scoped to a specific stage name.
+
+2. **ExecutionHistory?** → Scope has its own snapshot system via `getSnapshots()` / `getStateAt()`. ExecutionHistory remains for backward compatibility.
+
+3. **WriteBuffer?** → Scope uses its own local cache + staged writes array. Semantics match: writes are staged locally, `commit()` flushes to GlobalStore.
+
+### Real-World Consumer: AgentFootPrint
+
+The `AgentFootPrint` package demonstrates the scopeFactory pattern in production:
+
+**AgentScope** — A typed wrapper around StageContext that provides named getters/setters for all 12 agent scope paths. Wired via:
+
+```typescript
+// In AgentExecutor
+const scopeFactory = (core: StageContext) => new AgentScope(core);
+const executor = new FlowChartExecutor(chart, scopeFactory);
+```
+
+All 5 agent stages (promptAssembly, llmCall, responseParser, toolExecution, finalize) receive `AgentScope` instead of raw `StageContext`, eliminating raw path strings.
+
+**LLMRecorder** — A custom Recorder that captures LLM call metadata by observing `onWrite` events for the `lastResponse` path. Extracts model name, token counts, latency, and streaming flag. Provides `getEntries()` for per-call data and `getAggregateStats()` for summary metrics.
+
+This demonstrates the intended consumer workflow:
+1. Define a domain-specific scope class (AgentScope)
+2. Wire it via scopeFactory
+3. Optionally create domain-specific recorders (LLMRecorder) for observability
 
 ---
 

@@ -402,6 +402,109 @@ class ValidatedScope extends BaseState {
 
 ---
 
+## Scope & Recorder System
+
+FootPrint includes a composable observability layer built on two concepts: **Scope** (the runtime memory container) and **Recorders** (pluggable observers).
+
+### Scope
+
+The `Scope` class wraps GlobalStore with transactional writes, read-after-write consistency, and time-travel snapshots:
+
+```typescript
+import { Scope } from 'footprint';
+
+// Scope is created internally by the pipeline runtime.
+// Stages interact with it via getValue/setValue/commit:
+scope.setValue(['config'], 'timeout', 5000);
+const timeout = scope.getValue(['config'], 'timeout'); // 5000 (read-after-write)
+scope.commit(); // Persists to GlobalStore + creates a snapshot
+```
+
+### Recorders
+
+Recorders observe scope operations without modifying them. Implement any subset of 6 hooks:
+
+```typescript
+import { Recorder } from 'footprint';
+
+const myRecorder: Recorder = {
+  id: 'my-recorder',
+  onWrite(event) {
+    console.log(`${event.stageName} wrote ${event.key} at path ${event.path}`);
+  },
+  onStageEnd(event) {
+    console.log(`${event.stageName} took ${event.duration}ms`);
+  },
+};
+
+scope.attachRecorder(myRecorder);
+```
+
+Available hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
+
+### Recorder Composition
+
+Recorders compose freely — attach multiple recorders for different concerns:
+
+```typescript
+// Built-in recorders
+import { DebugRecorder, MetricRecorder } from 'footprint';
+
+const debug = new DebugRecorder({ verbosity: 'verbose' });
+const metrics = new MetricRecorder();
+
+scope.attachRecorder(debug);    // Captures errors, mutations, reads
+scope.attachRecorder(metrics);  // Tracks operation counts and durations
+```
+
+Recorders can be scoped to specific stages:
+
+```typescript
+// Only observe the 'processData' stage
+scope.attachStageRecorder('processData', new DebugRecorder({ verbosity: 'verbose' }));
+```
+
+### Building Custom Recorders
+
+Implement the `Recorder` interface with only the hooks you need:
+
+```typescript
+import { Recorder, WriteEvent, StageEvent } from 'footprint';
+
+class LLMRecorder implements Recorder {
+  readonly id = 'llm-recorder';
+  private stageStartTimes = new Map<string, number>();
+  private entries: Array<{ model?: string; latencyMs: number; tokens?: number }> = [];
+
+  onStageStart(event: StageEvent) {
+    this.stageStartTimes.set(event.stageName, event.timestamp);
+  }
+
+  onWrite(event: WriteEvent) {
+    // Only capture writes to a specific path
+    if (event.key !== 'lastResponse') return;
+
+    const startTime = this.stageStartTimes.get(event.stageName);
+    const latencyMs = startTime ? event.timestamp - startTime : 0;
+    const response = event.value as Record<string, unknown>;
+
+    this.entries.push({
+      model: response.model as string | undefined,
+      latencyMs,
+      tokens: (response.usage as any)?.totalTokens,
+    });
+  }
+
+  getEntries() { return [...this.entries]; }
+}
+```
+
+Error isolation is built in — if a recorder throws, the error is routed to `onError` hooks of other recorders, and the scope operation continues normally.
+
+📖 **Architecture details:** [docs/architecture/SCOPE_INTEGRATION_PROPOSAL.md](./docs/architecture/SCOPE_INTEGRATION_PROPOSAL.md) and [docs/architecture/MEMORY_MODEL.md](./docs/architecture/MEMORY_MODEL.md)
+
+---
+
 ## Examples
 
 The `demo/` folder contains progressive examples:

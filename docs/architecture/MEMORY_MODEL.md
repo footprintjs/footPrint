@@ -218,6 +218,81 @@ In the past, consumers could randomly set their structure in memory. With BaseSt
 
 See [SCOPE_INTEGRATION_PROPOSAL.md](./SCOPE_INTEGRATION_PROPOSAL.md) for the detailed integration plan.
 
+## Custom Scope Classes via ScopeFactory
+
+The ScopeFactory pattern lets consumers create **domain-specific scope classes** that wrap StageContext with typed methods. Instead of scattering raw path strings across stage code, you define a single class that owns all the paths and provides typed getters/setters.
+
+### The Pattern
+
+```typescript
+// 1. Define your domain scope class
+class AgentScope {
+  private readonly core: StageContext;
+
+  constructor(core: StageContext) {
+    this.core = core;
+  }
+
+  // Typed getter — no raw path strings in stage code
+  getMessages(): Message[] {
+    return (this.core.getValue(['agent'], 'messages') as Message[]) ?? [];
+  }
+
+  // Typed setter — compile-time safety, IDE autocomplete
+  setResult(result: string): void {
+    this.core.setObject(['agent'], 'result', result);
+  }
+
+  // Expose raw StageContext for advanced use cases
+  get core(): StageContext {
+    return this.core;
+  }
+}
+
+// 2. Wire it via scopeFactory
+const scopeFactory = (core: StageContext, stageName: string) => new AgentScope(core);
+
+// 3. All stages receive your typed scope
+const executor = new FlowChartExecutor(chart, scopeFactory);
+```
+
+### Why This Matters
+
+Without a custom scope, stages use raw path arrays:
+
+```typescript
+// ❌ Fragile — typos silently fail, no autocomplete
+const msgs = scope.getValue(['agent'], 'mesages'); // typo → undefined
+scope.setObject(['agent'], 'result', value);
+```
+
+With a custom scope:
+
+```typescript
+// ✅ Safe — compile-time errors, IDE autocomplete, single source of truth
+const msgs = scope.getMessages();
+scope.setResult(value);
+```
+
+### Reference Implementation: AgentScope (AgentFootPrint)
+
+The `AgentFootPrint` package provides a real-world example. Its `AgentScope` class wraps StageContext with typed methods for all 12 well-known agent paths (messages, provider, systemTemplate, promptContext, toolDescriptions, lastResponse, parsedResponse, loopCount, maxIterations, toolRegistry, result, toolResults).
+
+Key design choices in AgentScope:
+- **Default values**: Getters return type-appropriate defaults (empty array for collections, 0 for counters, '' for strings) to prevent null/undefined errors in stage code
+- **Path constants**: All paths are defined in a single `AGENT_PATHS` object, ensuring consistency
+- **Pure delegation**: Conversation operations (append, truncate, serialize) delegate to stateless helper functions rather than holding mutable state
+- **Escape hatch**: The `core` accessor exposes the raw StageContext for operations not covered by typed methods
+
+### Building Your Own
+
+To create a custom scope for your domain:
+
+1. Define a class that takes `StageContext` in its constructor
+2. Add typed getters/setters that delegate to `getValue`/`setObject`
+3. Centralize path constants in a separate file
+4. Pass `(core, stageName) => new YourScope(core)` as the scopeFactory
+
 ## Related Documentation
 
 - [Scope System README](../../src/scope/README.md) - How scope works

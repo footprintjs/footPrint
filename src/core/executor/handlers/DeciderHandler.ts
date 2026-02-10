@@ -196,7 +196,12 @@ export class DeciderHandler<TOut = any, TScope = any> {
     deciderStageContext.commit();
 
     // Continue execution with the chosen child
-    const nextStageContext = context.createNext(branchPath as string, chosen.name);
+    // WHY: We create the next context from deciderStageContext (not the original context)
+    // so the chosen child gets its own node in the context tree. Previously, calling
+    // context.createNext() would return the already-set decider context (since createNext
+    // returns existing this.next if set), causing the chosen child to share the decider's
+    // context node and be invisible in the execution order / treeContext serialization.
+    const nextStageContext = deciderStageContext.createNext(branchPath as string, chosen.name);
     return executeNode(chosen, nextStageContext, breakFlag, branchPath);
   }
 }
