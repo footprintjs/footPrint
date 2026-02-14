@@ -31,7 +31,7 @@
 
 import { StageContext } from '../../memory/StageContext';
 import { logger } from '../../../utils/logger';
-import type { Decider, StageNode } from '../Pipeline';
+import type { StageNode, Decider } from '../Pipeline';
 import type { NodeResolver } from './NodeResolver';
 import type { PipelineContext, PipelineStageFunction, StageSnapshot } from '../types';
 
@@ -66,11 +66,21 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
  *
  * WHY: Used by DeciderHandler to call the extractor after stage execution.
  * This avoids circular dependency with Pipeline.
+ *
+ * @param node - The stage node
+ * @param context - The stage context (after commit)
+ * @param stagePath - The full path to this stage
+ * @param stageOutput - The stage function's return value (undefined on error or no-function nodes)
+ *   _Requirements: single-pass-debug-structure 1.3_
+ * @param errorInfo - Error details when the stage threw during execution
+ *   _Requirements: single-pass-debug-structure 1.4_
  */
 export type CallExtractorFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   context: StageContext,
   stagePath: string,
+  stageOutput?: unknown,
+  errorInfo?: { type: string; message: string },
 ) => void;
 
 /**
@@ -78,10 +88,15 @@ export type CallExtractorFn<TOut = any, TScope = any> = (
  *
  * WHY: Used by DeciderHandler to generate the stage path for extractor.
  * This avoids circular dependency with Pipeline.
+ *
+ * @param node - The stage node
+ * @param branchPath - The branch path prefix
+ * @param contextStageName - Optional stage name from StageContext (includes iteration suffix)
  */
 export type GetStagePathFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   branchPath?: string,
+  contextStageName?: string,
 ) => string;
 
 /**
@@ -153,18 +168,38 @@ export class DeciderHandler<TOut = any, TScope = any> {
         stageOutput = await runStage(node, stageFunc, context, breakFn);
       } catch (error: any) {
         context.commit(); // commit partial patch for forensic data
-        callExtractor(node, context, getStagePath(node, branchPath));
+        // Pass undefined for stageOutput and error details for enrichment
+        // WHY: On error path, there's no successful output, but we capture
+        // the error info so enriched snapshots include what went wrong.
+        // _Requirements: single-pass-debug-structure 1.4_
+        callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
+          type: 'stageExecutionError',
+          message: error.toString(),
+        });
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
+        // Append narrative error sentence for the decider failure
+        // _Requirements: 10.2_
+        this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
         throw error;
       }
       context.commit();
-      callExtractor(node, context, getStagePath(node, branchPath));
+      // Pass stageOutput so enriched snapshots capture the stage's return value
+      // _Requirements: single-pass-debug-structure 1.3_
+      callExtractor(node, context, getStagePath(node, branchPath, context.stageName), stageOutput);
 
       if (breakFlag.shouldBreak) {
         logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput;
       }
+    }
+
+    // When there's no stage function, the decider node still needs a snapshot
+    // so it appears in the debug UI execution flow (e.g., step 5 "Decider").
+    // WHY: Without this, decider-only nodes are invisible in the Incremental_Debug_Map
+    // because callExtractor is only called inside the `if (stageFunc)` block above.
+    if (!stageFunc) {
+      callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined);
     }
 
     // Create/mark decider scope right before invoking the decider
@@ -182,16 +217,23 @@ export class DeciderHandler<TOut = any, TScope = any> {
     );
 
     // Log flow control decision for decider branch
-    // WHY: Narrative style helps with debugging ("decided based on [data] and chose [path]")
-    const rationale = context.getValue([], 'deciderRationale') as string | undefined;
+    // WHY: Narrative style helps with debugging — explain the condition, not just the choice
+    const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
     const chosenName = chosen.displayName || chosen.name;
     const branchDescription = rationale
-      ? `Decided based on: ${rationale}. Chose ${chosenName} path.`
-      : `Evaluated conditions and chose ${chosenName} path.`;
+      ? `Based on: ${rationale} → chose ${chosenName} path.`
+      : `Evaluated conditions → chose ${chosenName} path.`;
     context.addFlowDebugMessage('branch', branchDescription, {
       targetStage: chosen.name,
       rationale,
     });
+
+    // Append narrative sentence for the decision
+    // WHY: Decision points are the most valuable part of the narrative for LLM context
+    // engineering — knowing *why* a branch was taken lets even a cheaper model reason
+    // about the execution.
+    // _Requirements: 4.1, 4.3_
+    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale);
 
     deciderStageContext.commit();
 
@@ -202,6 +244,148 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // returns existing this.next if set), causing the chosen child to share the decider's
     // context node and be invisible in the execution order / treeContext serialization.
     const nextStageContext = deciderStageContext.createNext(branchPath as string, chosen.name);
+    return executeNode(chosen, nextStageContext, breakFlag, branchPath);
+  }
+
+  /**
+   * Handle a scope-based decider node (created via `addDeciderFunction`).
+   *
+   * WHY: Scope-based deciders are first-class stage functions — the decider IS the stage.
+   * Unlike legacy deciders where the stage and decider are separate invocations,
+   * here the stage function receives (scope, breakFn) and returns a branch ID string.
+   * This aligns with how LangGraph reads from state and Airflow reads from XCom.
+   *
+   * DESIGN: Execution order: runStage(fn) → commit → callExtractor → resolve child → log → executeNode(child)
+   *
+   * Key differences from `handle()`:
+   * 1. Stage function is required (it IS the decider)
+   * 2. Stage output (string) IS the branch ID — no separate decider invocation
+   * 3. Child resolution is direct ID matching against `node.children` with default fallback
+   * 4. No `NodeResolver.getNextNode()` call needed
+   * 5. No separate `createDecider()` context — the stage context IS the decider context
+   *
+   * @param node - The decider node (has `deciderFn = true`, `fn` defined, `children` defined)
+   * @param stageFunc - The stage function that returns a branch ID string (required)
+   * @param context - The stage context
+   * @param breakFlag - Break flag for propagation
+   * @param branchPath - Branch path for logging
+   * @param runStage - Callback to run the stage function
+   * @param executeNode - Callback to execute the chosen child
+   * @param callExtractor - Callback to call the extractor
+   * @param getStagePath - Callback to get the stage path
+   * @returns The result of executing the chosen child
+   *
+   * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.5_
+   */
+  async handleScopeBased(
+    node: StageNode<TOut, TScope>,
+    stageFunc: PipelineStageFunction<TOut, TScope>,
+    context: StageContext,
+    breakFlag: { shouldBreak: boolean },
+    branchPath: string | undefined,
+    runStage: RunStageFn<TOut, TScope>,
+    executeNode: ExecuteNodeFn<TOut, TScope>,
+    callExtractor: CallExtractorFn<TOut, TScope>,
+    getStagePath: GetStagePathFn<TOut, TScope>,
+  ): Promise<any> {
+    const breakFn = () => (breakFlag.shouldBreak = true);
+
+    // Execute the decider's stage function — its return value IS the branch ID
+    // WHY: The decider function reads from scope and returns a string branch ID,
+    // making it a proper stage with full scope access, step number, and debug visibility.
+    let branchId: string;
+    try {
+      const stageOutput = await runStage(node, stageFunc, context, breakFn);
+      branchId = String(stageOutput);
+    } catch (error: any) {
+      // Commit partial patch for forensic data
+      // WHY: Even on error, we persist any scope writes the decider made
+      // so debug tools can inspect what happened before the failure.
+      context.commit();
+      callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
+        type: 'stageExecutionError',
+        message: error.toString(),
+      });
+      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+      context.addError('stageExecutionError', error.toString());
+      // Append narrative error sentence for the scope-based decider failure
+      // _Requirements: 10.2_
+      this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
+      throw error;
+    }
+
+    // Commit the decider's scope writes before selecting the branch
+    // WHY: Ensures downstream stages see the decider's committed state,
+    // and the extractor captures the post-commit scope snapshot.
+    // _Requirements: 2.6_
+    context.commit();
+
+    // Call extractor with the branch ID as stageOutput so it appears in enriched snapshots
+    callExtractor(node, context, getStagePath(node, branchPath, context.stageName), branchId);
+
+    // If break was called during the decider, stop execution
+    if (breakFlag.shouldBreak) {
+      logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+      return branchId;
+    }
+
+    // Resolve child by matching branch ID against node.children
+    // WHY: Direct ID matching with default fallback — no NodeResolver needed
+    // because the decider function already returned the exact branch ID.
+    // _Requirements: 2.2, 2.4_
+    const children = node.children as StageNode<TOut, TScope>[];
+    let chosen = children.find((child) => child.id === branchId);
+
+    // Fall back to default branch if the returned ID doesn't match any child
+    // WHY: The default branch (set via `setDefault()`) acts as a catch-all
+    // for unexpected branch IDs, preventing runtime errors.
+    // _Requirements: 2.4_
+    if (!chosen) {
+      const defaultChild = children.find((child) => child.id === 'default');
+      if (defaultChild) {
+        chosen = defaultChild;
+      } else {
+        const errorMessage = `Scope-based decider '${node.name}' returned branch ID '${branchId}' which doesn't match any child and no default branch is set`;
+        context.addError('deciderError', errorMessage);
+        throw new Error(errorMessage);
+      }
+    }
+
+    // Log flow control decision for decider branch
+    // WHY: Narrative style helps with debugging — the message should explain
+    // WHICH condition led to this branch, not just say "chose X path".
+    // We read deciderRationale from StageMetadata (debug logs) instead of scope
+    // because the WriteBuffer has a stale-read bug: after commit() resets the
+    // buffer's workingCopy to baseSnapshot, getValue reads the stale baseSnapshot
+    // value from a previous iteration instead of falling through to GlobalStore.
+    // StageMetadata is per-context and doesn't have this issue.
+    // _Requirements: 3.5_
+    const chosenName = chosen.displayName || chosen.name;
+    const wasDefault = chosen.id !== branchId;
+    const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
+    let branchReason: string;
+    if (wasDefault) {
+      branchReason = `Returned '${branchId}' (no match), fell back to default → ${chosenName} path.`;
+    } else if (rationale) {
+      branchReason = `Based on: ${rationale} → chose ${chosenName} path.`;
+    } else {
+      branchReason = `Evaluated scope and returned '${branchId}' → chose ${chosenName} path.`;
+    }
+    context.addFlowDebugMessage('branch', branchReason, {
+      targetStage: chosen.name,
+      rationale: rationale || `returned branchId: ${branchId}`,
+    });
+
+    // Append narrative sentence for the scope-based decision
+    // WHY: Scope-based deciders are first-class decisions — the narrative should
+    // capture the branch chosen and rationale just like legacy deciders.
+    // _Requirements: 4.2, 4.3_
+    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale);
+
+    // Continue execution with the chosen child
+    // WHY: Create next context from the current context so the chosen child
+    // gets its own node in the context tree for proper debug visibility.
+    const nextStageContext = context.createNext(branchPath as string, chosen.name);
     return executeNode(chosen, nextStageContext, breakFlag, branchPath);
   }
 }

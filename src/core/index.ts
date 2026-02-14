@@ -81,6 +81,16 @@ export type {
   FlowMessage,
 } from './executor';
 
+// Narrative generation
+export {
+  NarrativeGenerator,
+  NullNarrativeGenerator,
+} from './executor';
+
+export type {
+  INarrativeGenerator,
+} from './executor';
+
 // Re-export handlers for advanced use cases
 export {
   StageRunner,

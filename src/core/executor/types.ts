@@ -28,6 +28,7 @@ import { PipelineRuntime } from '../memory/PipelineRuntime';
 import { ScopeFactory } from '../memory/types';
 import type { StageNode } from './Pipeline';
 import { ScopeProtectionMode } from '../../scope/protection/types';
+import type { INarrativeGenerator } from './narrative/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Subflow Input Mapping Types
@@ -127,6 +128,8 @@ export interface PipelineContext<TOut = any, TScope = any> {
   readOnlyContext?: unknown;
   /** Optional traversal extractor function */
   extractor?: TraversalExtractor;
+  /** Narrative generator for producing human-readable execution story */
+  narrativeGenerator: INarrativeGenerator;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,6 +421,8 @@ export interface RuntimeStructureMetadata {
  * _Requirements: unified-extractor-architecture 3.2, 4.1, 4.2, 5.3_
  */
 export interface StageSnapshot<TOut = any, TScope = any> {
+  // ── Existing fields (always present) ──
+
   /** The node being executed */
   node: StageNode<TOut, TScope>;
   /** The stage's execution context (provides scope, debugInfo, errorInfo) */
@@ -435,6 +440,88 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * _Requirements: unified-extractor-architecture 3.1, 5.3_
    */
   structureMetadata: RuntimeStructureMetadata;
+
+  // ── Enrichment fields (present when enrichSnapshots: true) ──
+
+  /**
+   * Snapshot of the committed scope state at this stage's execution point.
+   * This is a shallow clone of GlobalStore.getState() taken after commit().
+   *
+   * WHY: Eliminates the need for PipelineRuntime.getSnapshot() to walk
+   * the StageContext linked list to reconstruct scope at each stage.
+   * Consumers can build a complete debug structure during traversal
+   * without a redundant post-traversal pass.
+   *
+   * DESIGN: Shallow clone is sufficient because each stage's commit()
+   * produces a new top-level object via structural sharing. Deep values
+   * are immutable by convention (WriteBuffer enforces this).
+   *
+   * _Requirements: single-pass-debug-structure 1.1, 2.3_
+   */
+  scopeState?: Record<string, unknown>;
+
+  /**
+   * The stage's accumulated debug metadata (logs, errors, metrics, evals).
+   * Captured from StageMetadata at extraction time.
+   *
+   * WHY: Eliminates the need to walk StageContext.debug after traversal.
+   * All debug metadata is captured incrementally during execution,
+   * enabling single-pass debug structure construction.
+   *
+   * _Requirements: single-pass-debug-structure 1.2_
+   */
+  debugInfo?: {
+    logs: Record<string, unknown>;
+    errors: Record<string, unknown>;
+    metrics: Record<string, unknown>;
+    evals: Record<string, unknown>;
+    flowMessages?: FlowMessage[];
+  };
+
+  /**
+   * The stage function's return value.
+   * Captured before dynamic stage detection (isStageNodeReturn check).
+   * For stages that return a StageNode for dynamic continuation, this is undefined.
+   *
+   * WHY: Allows consumers to access the stage output during extraction
+   * without needing to walk the StageContext linked list post-traversal.
+   *
+   * _Requirements: single-pass-debug-structure 1.3_
+   */
+  stageOutput?: unknown;
+
+  /**
+   * Error details when the stage threw during execution.
+   * Only present when the stage encountered an error.
+   *
+   * WHY: Captures error information at the point of failure during traversal,
+   * so consumers can build error-aware debug structures without a separate
+   * error-collection pass.
+   *
+   * _Requirements: single-pass-debug-structure 1.4_
+   */
+  errorInfo?: {
+    type: string;
+    message: string;
+  };
+
+  /**
+   * Position in the ExecutionHistory at this stage's commit.
+   * Can be used to replay history up to this point via
+   * ExecutionHistory.materialise(historyIndex).
+   *
+   * WHY: Enables scope reconstruction at any execution point without
+   * a separate history replay pass. Consumers can use this index to
+   * materialise the scope state at any stage on demand.
+   *
+   * DESIGN: This is the count of commits in ExecutionHistory at extraction
+   * time — a monotonically increasing non-negative integer that correlates
+   * with stepNumber but may diverge (stepNumber counts extractor calls,
+   * historyIndex counts commits).
+   *
+   * _Requirements: single-pass-debug-structure 3.1, 3.2_
+   */
+  historyIndex?: number;
 }
 
 /**

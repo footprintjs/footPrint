@@ -14,6 +14,7 @@ import { PipelineContext } from '../../../../src/core/executor/types';
 import { StageNode, Decider } from '../../../../src/core/executor/Pipeline';
 import { PipelineRuntime } from '../../../../src/core/memory/PipelineRuntime';
 import { StageContext } from '../../../../src/core/memory/StageContext';
+import { NullNarrativeGenerator } from '../../../../src/core/executor/narrative/NullNarrativeGenerator';
 
 // Helper to create a minimal PipelineContext for testing
 function createTestContext<TOut = any, TScope = any>(): PipelineContext<TOut, TScope> {
@@ -24,6 +25,7 @@ function createTestContext<TOut = any, TScope = any>(): PipelineContext<TOut, TS
     pipelineRuntime,
     ScopeFactory: (_context, stageName) => ({ stageName } as unknown as TScope),
     scopeProtectionMode: 'off',
+    narrativeGenerator: new NullNarrativeGenerator(),
   };
 }
 
@@ -143,8 +145,9 @@ describe('DeciderHandler', () => {
         getStagePath,
       );
 
-      // Stage and extractor should not be called
-      expect(executionOrder).toEqual(['executeNode']);
+      // Extractor should be called for the no-fn decider (so it appears in debug UI),
+      // then executeNode for the chosen child
+      expect(executionOrder).toEqual(['extractor', 'executeNode']);
     });
 
     it('should stop execution when break flag is set', async () => {
@@ -374,10 +377,9 @@ describe('DeciderHandler', () => {
         children: [childNode],
       };
       const stageContext = ctx.pipelineRuntime.rootStageContext;
-      // Set decider rationale in context via the global store
-      // The getValue call in DeciderHandler uses path=[] and key='deciderRationale'
-      // which translates to globalStore.getValue(pipelineId, [], 'deciderRationale')
-      ctx.pipelineRuntime.globalStore.setValue(stageContext.pipelineId, [], 'deciderRationale', 'User selected option A');
+      // Set decider rationale in StageMetadata (debug logs) — this is where
+      // DeciderHandler now reads it from, avoiding the WriteBuffer stale-read bug
+      stageContext.debug.setLog('deciderRationale', 'User selected option A');
       const breakFlag = { shouldBreak: false };
 
       const runStage: RunStageFn = async () => 'stage-result';

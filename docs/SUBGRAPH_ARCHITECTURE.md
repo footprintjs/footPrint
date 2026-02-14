@@ -212,7 +212,8 @@ builder
 | Method | Description |
 |--------|-------------|
 | `getSubflowResults()` | Returns `Map<string, SubflowResult>` of all executed subflows |
-| `getContextTree()` | Returns parent's context tree (subflow data in `debugInfo`) |
+| `getContextTree()` | Legacy: walks StageContext linked list after execution. For new integrations, prefer `getEnrichedResults()` with `enrichSnapshots: true`. |
+| `getEnrichedResults()` | Returns enriched extractor results with scope state, debug info, stage output, and history index per stage (requires `enrichSnapshots: true`) |
 
 ### StageNode Properties
 

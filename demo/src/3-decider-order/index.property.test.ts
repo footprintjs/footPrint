@@ -1,16 +1,17 @@
 /**
  * Property-Based Tests for Demo 3: Decider (Order Processing Domain)
  *
- * PROPERTY: Decider Single Branch Selection
- * For any decider node with N branches and a decider function that returns
- * branch ID X, executing the pipeline SHALL result in exactly one branch
+ * PROPERTY: Decider Single Branch Selection (Scope-Based)
+ * For any scope-based decider node with N branches and a decider function that
+ * returns branch ID X, executing the pipeline SHALL result in exactly one branch
  * (the one with ID X) being executed, and all other N-1 branches SHALL NOT execute.
  *
- * **Validates: Requirements 3.2, 6.2**
+ * **Validates: Requirements 8.1, 8.2**
  *
- * WHY: This property ensures the fundamental contract of decider nodes:
- * exactly ONE branch executes based on the decider function's return value.
- * If this property fails, the single-choice branching model is broken.
+ * WHY: This property ensures the fundamental contract of scope-based decider nodes
+ * (addDeciderFunction): exactly ONE branch executes based on the decider function's
+ * return value read from scope. If this property fails, the single-choice branching
+ * model is broken.
  *
  * COUNTEREXAMPLE MEANING: If this test fails, it means either:
  * 1. Multiple branches executed when only one should have
@@ -70,24 +71,22 @@ const uniqueBranchIdsArb = fc
 // Property Tests
 // ============================================================================
 
-describe('Property 3: Decider Single Branch Selection', () => {
+describe('Property: Scope-Based Decider Single Branch Selection', () => {
   /**
-   * PROPERTY: Exactly one branch executes
+   * PROPERTY: Exactly one branch executes with addDeciderFunction
    *
-   * For any set of N branches and a decider that returns one of those branch IDs,
-   * exactly one branch should execute.
+   * For any set of N branches and a scope-based decider that returns one of
+   * those branch IDs, exactly one branch should execute.
    *
-   * **Validates: Requirements 3.2, 6.2**
+   * **Validates: Requirements 8.1, 8.2**
    */
-  it('should execute exactly one branch when decider returns valid ID', async () => {
+  it('should execute exactly one branch when scope-based decider returns valid ID', async () => {
     await fc.assert(
       fc.asyncProperty(uniqueBranchIdsArb, async (branchIds) => {
-        // For each branch ID, test that selecting it executes only that branch
         for (const selectedId of branchIds) {
           const tracker = createExecutionTracker();
           const executedBranches: string[] = [];
 
-          // Create branch functions that record their execution
           const branchFunctions = branchIds.map((id) => ({
             id,
             name: `Branch_${id}`,
@@ -97,32 +96,34 @@ describe('Property 3: Decider Single Branch Selection', () => {
             },
           }));
 
-          // Decider always returns the selected ID
-          const decider = () => selectedId;
+          // Entry stage writes the selected ID to scope
+          const entryStage = async (scope: BaseState) => {
+            scope.setObject(['pipeline'], 'selectedBranch', selectedId);
+            return { started: true };
+          };
 
-          // Build and execute pipeline
-          let builder = new FlowChartBuilder()
-            .start('Entry', async () => ({ started: true }))
-            .addDecider(decider);
+          // Scope-based decider reads from scope
+          const decider = (scope: BaseState) => {
+            return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? branchIds[0];
+          };
 
-          // Add all branches
+          // Build pipeline using addDeciderFunction
+          const builder = new FlowChartBuilder();
+          builder.start('Entry', entryStage);
+
+          let deciderList = builder.addDeciderFunction('TestDecider', decider as any, 'test-decider');
           for (const branch of branchFunctions) {
-            builder = builder.addFunctionBranch(branch.id, branch.name, branch.fn);
+            deciderList = deciderList.addFunctionBranch(branch.id, branch.name, branch.fn);
           }
-
-          builder = builder.setDefault(branchIds[0]).end();
+          deciderList.setDefault(branchIds[0]).end();
 
           await builder.execute(tracker.scopeFactory);
 
-          // Assert: exactly one branch executed
-          if (executedBranches.length !== 1) {
-            return false;
-          }
+          if (executedBranches.length !== 1) return false;
+          if (executedBranches[0] !== selectedId) return false;
 
-          // Assert: the correct branch executed
-          if (executedBranches[0] !== selectedId) {
-            return false;
-          }
+          executedBranches.length = 0;
+          tracker.reset();
         }
 
         return true;
@@ -132,24 +133,22 @@ describe('Property 3: Decider Single Branch Selection', () => {
   });
 
   /**
-   * PROPERTY: Non-selected branches do not execute
+   * PROPERTY: Non-selected branches do not execute with addDeciderFunction
    *
-   * For any decider that returns branch ID X, all branches with ID != X
-   * should NOT execute.
+   * For any scope-based decider that returns branch ID X, all branches with
+   * ID != X should NOT execute.
    *
-   * **Validates: Requirements 3.2, 6.2**
+   * **Validates: Requirements 8.1, 8.2**
    */
-  it('should not execute non-selected branches', async () => {
+  it('should not execute non-selected branches with scope-based decider', async () => {
     await fc.assert(
       fc.asyncProperty(uniqueBranchIdsArb, async (branchIds) => {
-        // Select the first branch
         const selectedId = branchIds[0];
         const nonSelectedIds = branchIds.slice(1);
 
         const tracker = createExecutionTracker();
         const executedBranches: string[] = [];
 
-        // Create branch functions that record their execution
         const branchFunctions = branchIds.map((id) => ({
           id,
           name: `Branch_${id}`,
@@ -159,27 +158,28 @@ describe('Property 3: Decider Single Branch Selection', () => {
           },
         }));
 
-        // Decider returns the selected ID
-        const decider = () => selectedId;
+        const entryStage = async (scope: BaseState) => {
+          scope.setObject(['pipeline'], 'selectedBranch', selectedId);
+          return { started: true };
+        };
 
-        // Build and execute pipeline
-        let builder = new FlowChartBuilder()
-          .start('Entry', async () => ({ started: true }))
-          .addDecider(decider);
+        const decider = (scope: BaseState) => {
+          return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? branchIds[0];
+        };
 
+        const builder = new FlowChartBuilder();
+        builder.start('Entry', entryStage);
+
+        let deciderList = builder.addDeciderFunction('TestDecider', decider as any, 'test-decider');
         for (const branch of branchFunctions) {
-          builder = builder.addFunctionBranch(branch.id, branch.name, branch.fn);
+          deciderList = deciderList.addFunctionBranch(branch.id, branch.name, branch.fn);
         }
-
-        builder = builder.setDefault(branchIds[0]).end();
+        deciderList.setDefault(branchIds[0]).end();
 
         await builder.execute(tracker.scopeFactory);
 
-        // Assert: no non-selected branches executed
         for (const nonSelectedId of nonSelectedIds) {
-          if (executedBranches.includes(nonSelectedId)) {
-            return false;
-          }
+          if (executedBranches.includes(nonSelectedId)) return false;
         }
 
         return true;
@@ -189,26 +189,27 @@ describe('Property 3: Decider Single Branch Selection', () => {
   });
 
   /**
-   * PROPERTY: Default branch executes for unknown IDs
+   * PROPERTY: Default branch executes for unknown IDs with addDeciderFunction
    *
-   * For any decider that returns an ID not in the branch list,
-   * the default branch should execute.
+   * For any scope-based decider that returns an ID not in the branch list,
+   * the default branch (id='default') should execute.
    *
-   * **Validates: Requirements 3.2, 6.2**
+   * NOTE: For scope-based deciders, the default fallback uses a branch with
+   * id='default', not setDefault(). This differs from legacy addDecider.
+   *
+   * **Validates: Requirements 8.1, 8.2**
    */
-  it('should execute default branch when decider returns unknown ID', async () => {
+  it('should execute default branch when scope-based decider returns unknown ID', async () => {
     await fc.assert(
       fc.asyncProperty(uniqueBranchIdsArb, branchIdArb, async (branchIds, unknownId) => {
-        // Skip if unknownId happens to be in branchIds
-        if (branchIds.includes(unknownId)) {
-          return true;
-        }
+        // Skip if unknownId matches any branch or 'default'
+        if (branchIds.includes(unknownId) || unknownId === 'default') return true;
+        // Skip if any branchId is 'default' (would conflict with our default branch)
+        if (branchIds.includes('default')) return true;
 
-        const defaultId = branchIds[0];
         const tracker = createExecutionTracker();
         const executedBranches: string[] = [];
 
-        // Create branch functions that record their execution
         const branchFunctions = branchIds.map((id) => ({
           id,
           name: `Branch_${id}`,
@@ -218,31 +219,34 @@ describe('Property 3: Decider Single Branch Selection', () => {
           },
         }));
 
-        // Decider returns an unknown ID
-        const decider = () => unknownId;
+        const entryStage = async (scope: BaseState) => {
+          scope.setObject(['pipeline'], 'selectedBranch', unknownId);
+          return { started: true };
+        };
 
-        // Build and execute pipeline
-        let builder = new FlowChartBuilder()
-          .start('Entry', async () => ({ started: true }))
-          .addDecider(decider);
+        const decider = (scope: BaseState) => {
+          return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? 'default';
+        };
 
+        const builder = new FlowChartBuilder();
+        builder.start('Entry', entryStage);
+
+        let deciderList = builder.addDeciderFunction('TestDecider', decider as any, 'test-decider');
         for (const branch of branchFunctions) {
-          builder = builder.addFunctionBranch(branch.id, branch.name, branch.fn);
+          deciderList = deciderList.addFunctionBranch(branch.id, branch.name, branch.fn);
         }
-
-        builder = builder.setDefault(defaultId).end();
+        // Add a default branch with id='default' for scope-based decider fallback
+        deciderList = deciderList.addFunctionBranch('default', 'DefaultBranch', async (scope: BaseState) => {
+          executedBranches.push('default');
+          return { branchId: 'default' };
+        });
+        deciderList.end();
 
         await builder.execute(tracker.scopeFactory);
 
-        // Assert: exactly one branch executed (the default)
-        if (executedBranches.length !== 1) {
-          return false;
-        }
-
-        // Assert: the default branch executed
-        if (executedBranches[0] !== defaultId) {
-          return false;
-        }
+        // The default branch should execute when no match found
+        if (executedBranches.length !== 1) return false;
+        if (executedBranches[0] !== 'default') return false;
 
         return true;
       }),
@@ -251,65 +255,63 @@ describe('Property 3: Decider Single Branch Selection', () => {
   });
 
   /**
-   * PROPERTY: Decider receives previous stage output
+   * PROPERTY: Scope-based decider reads from scope, not from stage output
    *
-   * For any value returned by the previous stage, the decider function
-   * should receive that value as input.
+   * For any value written to scope by the previous stage, the scope-based
+   * decider should be able to read it and use it for routing.
    *
-   * **Validates: Requirements 3.2, 6.2**
+   * **Validates: Requirements 8.1, 8.2**
    */
-  it('should pass previous stage output to decider function', async () => {
-    // Generate various output values
-    const outputValueArb = fc.oneof(
-      fc.record({ type: fc.constant('a'), value: fc.integer() }),
-      fc.record({ type: fc.constant('b'), value: fc.string() }),
-      fc.record({ type: fc.constant('c'), value: fc.boolean() }),
-    );
-
+  it('should route based on scope data written by previous stage', async () => {
     await fc.assert(
-      fc.asyncProperty(outputValueArb, async (outputValue) => {
-        const tracker = createExecutionTracker();
-        let receivedInput: unknown = null;
+      fc.asyncProperty(
+        fc.constantFrom('branch-a', 'branch-b'),
+        async (targetBranch) => {
+          const tracker = createExecutionTracker();
+          const executedBranches: string[] = [];
 
-        // Entry stage returns the output value
-        const entryStage = async (scope: BaseState) => {
-          return outputValue;
-        };
+          const entryStage = async (scope: BaseState) => {
+            scope.setObject(['pipeline'], 'routingTarget', targetBranch);
+            return { irrelevantOutput: 'this is ignored by the decider' };
+          };
 
-        // Decider captures its input
-        const decider = (input: unknown) => {
-          receivedInput = input;
-          return 'branch-a';
-        };
+          const decider = (scope: BaseState) => {
+            return (scope.getValue(['pipeline'], 'routingTarget') as string) ?? 'branch-a';
+          };
 
-        // Build and execute pipeline
-        const builder = new FlowChartBuilder()
-          .start('Entry', entryStage)
-          .addDecider(decider)
-            .addFunctionBranch('branch-a', 'BranchA', async () => ({ branch: 'a' }))
-            .addFunctionBranch('branch-b', 'BranchB', async () => ({ branch: 'b' }))
+          const builder = new FlowChartBuilder();
+          builder.start('Entry', entryStage);
+
+          builder.addDeciderFunction('ScopeDecider', decider as any, 'scope-decider')
+            .addFunctionBranch('branch-a', 'BranchA', async (scope: BaseState) => {
+              executedBranches.push('branch-a');
+              return { branch: 'a' };
+            })
+            .addFunctionBranch('branch-b', 'BranchB', async (scope: BaseState) => {
+              executedBranches.push('branch-b');
+              return { branch: 'b' };
+            })
             .setDefault('branch-a')
             .end();
 
-        await builder.execute(tracker.scopeFactory);
+          await builder.execute(tracker.scopeFactory);
 
-        // Assert: decider received the previous stage output
-        return JSON.stringify(receivedInput) === JSON.stringify(outputValue);
-      }),
+          return executedBranches.length === 1 && executedBranches[0] === targetBranch;
+        },
+      ),
       { numRuns: 100 },
     );
   });
 
   /**
-   * PROPERTY: Branch output becomes pipeline result
+   * PROPERTY: Branch output becomes pipeline result with addDeciderFunction
    *
    * For any branch that executes and returns a value, that value
    * should be the result of the decider block.
    *
-   * **Validates: Requirements 3.2, 6.2**
+   * **Validates: Requirements 8.1, 8.2**
    */
   it('should return selected branch output as decider result', async () => {
-    // Generate various branch output values
     const branchOutputArb = fc.record({
       branchId: branchIdArb,
       data: fc.oneof(fc.integer(), fc.string(), fc.boolean()),
@@ -319,26 +321,30 @@ describe('Property 3: Decider Single Branch Selection', () => {
       fc.asyncProperty(branchOutputArb, async (branchOutput) => {
         const tracker = createExecutionTracker();
 
-        // Branch returns the generated output
         const branchFn = async (scope: BaseState) => {
           return branchOutput;
         };
 
-        // Decider always selects 'selected'
-        const decider = () => 'selected';
+        const entryStage = async (scope: BaseState) => {
+          scope.setObject(['pipeline'], 'target', 'selected');
+          return { started: true };
+        };
 
-        // Build and execute pipeline
-        const builder = new FlowChartBuilder()
-          .start('Entry', async () => ({ started: true }))
-          .addDecider(decider)
-            .addFunctionBranch('selected', 'SelectedBranch', branchFn)
-            .addFunctionBranch('other', 'OtherBranch', async () => ({ other: true }))
-            .setDefault('selected')
-            .end();
+        const decider = (scope: BaseState) => {
+          return (scope.getValue(['pipeline'], 'target') as string) ?? 'selected';
+        };
+
+        const builder = new FlowChartBuilder();
+        builder.start('Entry', entryStage);
+
+        builder.addDeciderFunction('TestDecider', decider as any, 'test-decider')
+          .addFunctionBranch('selected', 'SelectedBranch', branchFn)
+          .addFunctionBranch('other', 'OtherBranch', async () => ({ other: true }))
+          .setDefault('selected')
+          .end();
 
         const result = await builder.execute(tracker.scopeFactory);
 
-        // Assert: result matches branch output
         return JSON.stringify(result) === JSON.stringify(branchOutput);
       }),
       { numRuns: 100 },

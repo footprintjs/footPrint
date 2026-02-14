@@ -98,7 +98,14 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     let breakCount = 0;
     const totalChildren = node.children?.length ?? 0;
 
-    const childPromises: Promise<NodeResultType>[] = (node.children ?? []).map((child: StageNode<TOut, TScope>) => {
+    // Append narrative sentence for the fork (all children in parallel)
+    // WHY: Captures the fan-out so the reader knows which paths ran concurrently.
+    // _Requirements: 5.1_
+    const allChildren = node.children ?? [];
+    const childDisplayNames = allChildren.map((c) => c.displayName || c.name);
+    this.ctx.narrativeGenerator.onFork(node.displayName || node.name, childDisplayNames);
+
+    const childPromises: Promise<NodeResultType>[] = allChildren.map((child: StageNode<TOut, TScope>) => {
       const pipelineIdForChild = pipelineId || child.id;
       const childContext = context.createChild(pipelineIdForChild as string, child.id as string, child.name);
       const childBreakFlag = { shouldBreak: false };
@@ -216,6 +223,17 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         count: selectedChildren.length,
         targetStage: selectedChildren.map((c) => c.name),
       },
+    );
+
+    // Append narrative sentence for the selector (subset of children)
+    // WHY: Captures which children were selected and how many were available,
+    // so the reader understands the selection decision.
+    // _Requirements: 5.2_
+    const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
+    this.ctx.narrativeGenerator.onSelected(
+      context.stageName || 'selector',
+      selectedDisplayNames,
+      children.length,
     );
 
     // Execute selected children in parallel using existing logic

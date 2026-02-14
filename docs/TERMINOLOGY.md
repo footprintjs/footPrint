@@ -167,7 +167,9 @@ This document explains the naming conventions and terminology used in TreeOfFunc
 
 ### RuntimeSnapshot
 
-**Purpose:** Complete snapshot of pipeline execution state for debugging and API responses.
+**Purpose:** Complete snapshot of pipeline execution state for debugging and API responses. Produced by `PipelineRuntime.getSnapshot()` which walks the StageContext linked list after execution.
+
+> **Note:** For new integrations, consider using enriched snapshots (`enrichSnapshots: true`) with `getEnrichedResults()` instead. This captures the same data incrementally during traversal, eliminating the redundant post-traversal walk. See [Enriched StageSnapshot](#enriched-stagesnapshot-single-pass-debug) below.
 
 ```typescript
 type RuntimeSnapshot = {
@@ -195,6 +197,26 @@ type StageSnapshot = {
   children?: StageSnapshot[];             // Branch children
 };
 ```
+
+### Enriched StageSnapshot (Single-Pass Debug)
+
+**Purpose:** When `enrichSnapshots: true` is enabled on FlowChartExecutor, the `StageSnapshot` passed to the TraversalExtractor includes additional fields captured during traversal. This eliminates the need for a separate `PipelineRuntime.getSnapshot()` walk.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `scopeState` | `Record<string, unknown>` | Shallow clone of committed GlobalStore state at this stage |
+| `debugInfo` | `{ logs, errors, metrics, evals, flowMessages? }` | Accumulated debug metadata from StageMetadata |
+| `stageOutput` | `unknown` | The stage function's return value |
+| `errorInfo` | `{ type, message }` | Error details if the stage threw |
+| `historyIndex` | `number` | Position in ExecutionHistory for replay via `materialise(historyIndex)` |
+
+**When to use which introspection method:**
+
+| Method | Description |
+|--------|-------------|
+| `getContextTree()` | Legacy — walks StageContext linked list after execution (redundant pass) |
+| `getExtractedResults()` | Custom extractor results without enrichment |
+| `getEnrichedResults()` | Full debug data captured during traversal (recommended with `enrichSnapshots: true`) |
 
 ---
 
@@ -337,14 +359,17 @@ const executor = new FlowChartExecutor(
   readOnly?,      // Optional read-only context values
   throttlingChecker?, // Optional throttling error detector
   streamHandlers?,    // Optional streaming handlers
+  scopeProtectionMode?, // Optional scope protection mode
+  enrichSnapshots?,     // Optional: enable single-pass debug enrichment
 );
 
 // Execute the flowchart
 const result = await executor.run();
 
 // Introspection methods
-executor.getContextTree();      // Full execution context
-executor.getExtractedResults(); // Extractor output
+executor.getContextTree();      // Legacy: walks StageContext linked list after execution
+executor.getExtractedResults(); // Custom extractor output
+executor.getEnrichedResults();  // Enriched extractor output (use with enrichSnapshots: true)
 executor.getSubflowResults();   // Subflow execution data
 ```
 
@@ -422,7 +447,7 @@ The following are internal implementation details and are not part of the public
 | `MemoryHistory` | `ExecutionHistory` |
 | `ContextTreeType` | `RuntimeSnapshot` |
 | `StageType` | `StageSnapshot` |
-| `getContextTree()` | `getSnapshot()` |
+| `getContextTree()` | `getSnapshot()` (legacy) or `getEnrichedResults()` (preferred with `enrichSnapshots: true`) |
 | `getMemoryContext()` | `getWriteBuffer()` |
 | `commitPatch()` | `commit()` |
 | `addDebugInfo()` | `addLog()` |

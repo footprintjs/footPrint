@@ -24,9 +24,14 @@ const error = (message?: any, ...optionalParams: any[]) => {
   console.error(message, ...optionalParams);
 };
 
+const warn = (message?: any, ...optionalParams: any[]) => {
+  console.warn(message, ...optionalParams);
+};
+
 export const logger = {
   info,
   log,
   debug,
   error,
+  warn,
 };

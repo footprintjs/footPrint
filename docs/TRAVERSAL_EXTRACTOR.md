@@ -472,14 +472,61 @@ const extractor: TraversalExtractor<MyExtractedData> = (snapshot) => ({
 });
 ```
 
+## Enriched Snapshots (Single-Pass Debug)
+
+When `enrichSnapshots` is enabled (via `FlowChartExecutor` constructor or `FlowChart.enrichSnapshots`), the `StageSnapshot` passed to the extractor includes additional fields captured during traversal:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `scopeState` | `Record<string, unknown>` | Shallow clone of committed GlobalStore state at this stage |
+| `debugInfo` | `{ logs, errors, metrics, evals, flowMessages? }` | Accumulated debug metadata from StageMetadata |
+| `stageOutput` | `unknown` | The stage function's return value (undefined for dynamic stages) |
+| `errorInfo` | `{ type, message }` | Error details if the stage threw |
+| `historyIndex` | `number` | Position in ExecutionHistory for replay via `materialise(historyIndex)` |
+
+### Why Enriched Snapshots?
+
+Previously, building a complete debug structure required two passes:
+
+1. **Pass 1** (traversal): `callExtractor()` captures `stepNumber` + `structureMetadata`
+2. **Pass 2** (post-traversal): `PipelineRuntime.getSnapshot()` walks the StageContext linked list to reconstruct scope/debug data
+
+With enriched snapshots, Pass 2 is eliminated — all data is captured incrementally during Pass 1. This is more efficient and avoids the redundant linked-list walk.
+
+### Usage
+
+```typescript
+const chart = flowChart('entry', entryFn)
+  .addFunction('process', processFn)
+  .addTraversalExtractor((snapshot) => {
+    const { node, stepNumber, scopeState, debugInfo, stageOutput, historyIndex } = snapshot;
+    return { stageName: node.name, stepNumber, scopeState, debugInfo, stageOutput, historyIndex };
+  })
+  .build();
+
+// Enable via constructor (overrides flowChart.enrichSnapshots)
+const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
+await executor.run();
+
+const enriched = executor.getEnrichedResults();
+```
+
+### Backward Compatibility
+
+- When `enrichSnapshots` is not set (default), the extra fields are absent — existing extractors work identically
+- `getContextTree()` continues to work regardless of enrichment setting
+- `getEnrichedResults()` is a convenience alias for `getExtractedResults()` with clearer intent
+
 ## Backward Compatibility
 
 The traversal extractor feature is fully opt-in:
 
 - Pipelines without an extractor behave identically to before
-- `getContextTree()` continues to work unchanged
+- `getContextTree()` continues to work unchanged (it walks the StageContext linked list after execution)
 - No changes to Pipeline constructor signature (extractor passed via build output)
 - No effect on pipeline execution timing or order
+
+For new integrations that need per-stage scope state and debug metadata, prefer enabling `enrichSnapshots: true` and using `getEnrichedResults()` — this captures all data during traversal, eliminating the redundant `getContextTree()` walk. See the [Enriched Snapshots](#enriched-snapshots-single-pass-debug) section above.
 
 ## Step Number Tracking
 

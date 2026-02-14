@@ -12,6 +12,7 @@ import { ChildrenExecutor, ExecuteNodeFn } from '../../../../src/core/executor/h
 import { PipelineContext } from '../../../../src/core/executor/types';
 import { StageNode } from '../../../../src/core/executor/Pipeline';
 import { PipelineRuntime } from '../../../../src/core/memory/PipelineRuntime';
+import { NullNarrativeGenerator } from '../../../../src/core/executor/narrative/NullNarrativeGenerator';
 
 // Helper to create a minimal PipelineContext for testing
 function createTestContext<TOut = any, TScope = any>(
@@ -27,6 +28,7 @@ function createTestContext<TOut = any, TScope = any>(
     ScopeFactory: () => ({} as TScope),
     scopeProtectionMode: 'off',
     throttlingErrorChecker: options.throttlingErrorChecker,
+    narrativeGenerator: new NullNarrativeGenerator(),
   };
 }
 

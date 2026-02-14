@@ -168,6 +168,9 @@ export function createSubflowPipelineContext<TOut = any, TScope = any>(
     // Override with subflow-specific values
     pipelineRuntime: subflowRuntime,
     readOnlyContext: mappedInput,  // KEY FIX: Use mapped input as readOnlyContext
+
+    // Propagate narrative generator from parent so subflow events are recorded
+    narrativeGenerator: parentCtx.narrativeGenerator,
   };
 }
 

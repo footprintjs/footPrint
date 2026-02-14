@@ -155,6 +155,19 @@ export type FlowChart<TOut = any, TScope = any> = {
   extractor?: TraversalExtractor;
   subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
   buildTimeStructure: SerializedPipelineStructure;
+  /**
+   * Whether narrative generation is enabled at build time.
+   *
+   * WHY: Allows consumers to enable narrative at build time via FlowChartBuilder,
+   * so the FlowChartExecutor can respect it as a default without requiring
+   * an explicit enableNarrative() call.
+   *
+   * DESIGN: FlowChartExecutor reads this as a default for narrativeEnabled.
+   * An explicit enableNarrative() call on the executor takes precedence.
+   *
+   * _Requirements: pipeline-narrative-generation 1.4_
+   */
+  enableNarrative?: boolean;
 };
 
 /**
@@ -166,6 +179,15 @@ export type ExecOptions = {
   readOnly?: unknown;
   throttlingErrorChecker?: (e: unknown) => boolean;
   scopeProtectionMode?: ScopeProtectionMode;
+  /**
+   * Enable narrative generation at build time.
+   *
+   * WHY: Allows consumers to opt into narrative via the builder's execute()
+   * convenience method, which sets the flag on the FlowChart object.
+   *
+   * _Requirements: pipeline-narrative-generation 1.4_
+   */
+  enableNarrative?: boolean;
 };
 
 /* ============================================================================
@@ -191,27 +213,52 @@ interface CursorState<TOut, TScope> {
  * ========================================================================== */
 
 /**
- * Fluent helper returned by addDecider to add branches.
+ * Fluent helper returned by addDecider / addDeciderFunction to add branches.
+ *
+ * WHY: Provides a fluent API for configuring decider branches regardless of
+ * whether the decider is legacy (output-based) or scope-based. The `isScopeBased`
+ * flag controls how `end()` wires the node — setting `nextNodeDecider` (legacy)
+ * vs `deciderFn` (new scope-based).
+ *
+ * DESIGN: Reuses the same class for both old and new decider types. Only the
+ * constructor parameters and `end()` behavior differ based on `isScopeBased`.
+ * All branch methods (addFunctionBranch, addSubFlowChartBranch, addBranchList,
+ * setDefault) remain identical for both modes.
+ *
  * _Requirements: flowchart-builder-simplification 2.1, 6.1, 6.3, 6.4_
+ * _Requirements: decider-first-class-stage 4.4, 5.1, 6.2_
  */
 export class DeciderList<TOut = any, TScope = any> {
   private readonly b: FlowChartBuilder<TOut, TScope>;
   private readonly curNode: StageNode<TOut, TScope>;
   private readonly curSpec: SerializedPipelineStructure;
-  private readonly originalDecider: (out?: TOut) => string | Promise<string>;
+  private readonly originalDecider: ((out?: TOut) => string | Promise<string>) | null;
   private readonly branchIds = new Set<string>();
   private defaultId?: string;
+
+  /**
+   * Whether this DeciderList is for a scope-based decider (addDeciderFunction)
+   * vs a legacy output-based decider (addDecider).
+   *
+   * WHY: Controls how `end()` wires the StageNode — scope-based sets `deciderFn = true`
+   * while legacy wraps the decider function and sets `nextNodeDecider`.
+   *
+   * _Requirements: decider-first-class-stage 4.4, 5.1_
+   */
+  private readonly isScopeBased: boolean;
 
   constructor(
     builder: FlowChartBuilder<TOut, TScope>,
     curNode: StageNode<TOut, TScope>,
     curSpec: SerializedPipelineStructure,
-    decider: (out?: TOut) => string | Promise<string>,
+    decider: ((out?: TOut) => string | Promise<string>) | null,
+    isScopeBased: boolean = false,
   ) {
     this.b = builder;
     this.curNode = curNode;
     this.curSpec = curSpec;
     this.originalDecider = decider;
+    this.isScopeBased = isScopeBased;
   }
 
   /**
@@ -367,7 +414,13 @@ export class DeciderList<TOut = any, TScope = any> {
 
   /**
    * Finalize the decider and return to main builder.
+   *
+   * WHY: Wires the StageNode differently based on whether this is a scope-based
+   * or legacy decider. Scope-based sets `deciderFn = true` (the fn IS the decider),
+   * while legacy wraps the decider function with default handling and sets `nextNodeDecider`.
+   *
    * _Requirements: flowchart-builder-simplification 6.4_
+   * _Requirements: decider-first-class-stage 4.4, 5.1, 6.2_
    */
   end(): FlowChartBuilder<TOut, TScope> {
     const children = this.curNode.children;
@@ -375,19 +428,28 @@ export class DeciderList<TOut = any, TScope = any> {
       throw new Error(`[FlowChartBuilder] decider at '${this.curNode.name}' requires at least one branch`);
     }
 
-    const validIds = new Set(children.map((c) => c.id));
-    const fallbackId = this.defaultId;
+    if (this.isScopeBased) {
+      // Scope-based: mark node's fn as the decider, don't set nextNodeDecider.
+      // The fn receives (scope, breakFn) and returns a branch ID string.
+      // Pipeline/DeciderHandler will use the deciderFn flag to route to the
+      // scope-based execution path.
+      // _Requirements: decider-first-class-stage 5.1_
+      this.curNode.deciderFn = true;
+    } else {
+      // Legacy: wrap decider with default handling, set nextNodeDecider
+      const validIds = new Set(children.map((c) => c.id));
+      const fallbackId = this.defaultId;
 
-    // Wrap decider with default handling
-    this.curNode.nextNodeDecider = async (out?: TOut) => {
-      const raw = this.originalDecider(out);
-      const id = raw instanceof Promise ? await raw : raw;
-      if (id && validIds.has(id)) return id;
-      if (fallbackId && validIds.has(fallbackId)) return fallbackId;
-      return id;
-    };
+      this.curNode.nextNodeDecider = async (out?: TOut) => {
+        const raw = this.originalDecider!(out);
+        const id = raw instanceof Promise ? await raw : raw;
+        if (id && validIds.has(id)) return id;
+        if (fallbackId && validIds.has(fallbackId)) return fallbackId;
+        return id;
+      };
+    }
 
-    // Update branch IDs in spec
+    // Common: set branchIds and type on spec
     this.curSpec.branchIds = children
       .map((c) => c.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
@@ -636,6 +698,44 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _buildTimeExtractorErrors: Array<{ message: string; error: unknown }> = [];
 
   /**
+   * Whether narrative generation is enabled at build time.
+   *
+   * WHY: Stored as a field so setEnableNarrative() or execute(opts) can set it
+   * before build() is called. build() includes it in the FlowChart object.
+   *
+   * _Requirements: pipeline-narrative-generation 1.4_
+   */
+  private _enableNarrative = false;
+
+  /**
+   * Enable narrative generation at build time.
+   *
+   * WHY: Allows consumers to opt into narrative via the builder API,
+   * so the resulting FlowChart carries the flag and FlowChartExecutor
+   * respects it as a default without requiring an explicit
+   * enableNarrative() call on the executor.
+   *
+   * DESIGN: Fluent API — returns `this` for chaining.
+   *
+   * @returns this builder for chaining
+   *
+   * @example
+   * ```typescript
+   * const chart = flowChart('entry', entryFn)
+   *   .addFunction('process', processFn)
+   *   .setEnableNarrative()
+   *   .build();
+   * // chart.enableNarrative === true
+   * ```
+   *
+   * _Requirements: pipeline-narrative-generation 1.4_
+   */
+  setEnableNarrative(): this {
+    this._enableNarrative = true;
+    return this;
+  }
+
+  /**
    * Create a new FlowChartBuilder.
    * @param buildTimeExtractor Optional extractor to apply to each node as it's created.
    *                           Pass this in the constructor to ensure it's applied to ALL nodes.
@@ -784,9 +884,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /* ─────────────────────────── Branching API ─────────────────────────── */
 
   /**
-   * Add a decider - returns DeciderList for adding branches.
+   * Add a legacy output-based decider — returns DeciderList for adding branches.
+   *
+   * WHY: This is the original decider API where the decider function receives
+   * the previous stage's output and returns a branch ID. Kept for backward
+   * compatibility with existing consumers.
+   *
+   * @deprecated Use {@link addDeciderFunction} instead. The new API makes the decider
+   * a first-class stage function that reads from scope, providing better decoupling,
+   * debug visibility, and alignment with modern state-based routing patterns.
+   *
    * _Requirements: flowchart-builder-simplification 6.1_
    * _Requirements: incremental-type-computation 1.4_
+   * _Requirements: decider-first-class-stage 4.1, 4.2_
    */
   addDecider(
     decider: (out?: TOut) => string | Promise<string>,
@@ -795,12 +905,96 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const curSpec = this._needCursorSpec();
 
     if (cur.nextNodeDecider) fail(`decider already defined at '${cur.name}'`);
+    if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
     if (cur.nextNodeSelector) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
 
     // Mark as decider in spec (type will be set to 'decider' in DeciderList.end())
     curSpec.hasDecider = true;
 
-    return new DeciderList<TOut, TScope>(this, cur, curSpec, decider);
+    return new DeciderList<TOut, TScope>(this, cur, curSpec, decider, false);
+  }
+
+  /**
+   * Add a scope-based decider function — returns DeciderList for adding branches.
+   *
+   * WHY: Makes the decider a first-class stage function that reads from scope
+   * (shared state) instead of the previous stage's output. This decouples the
+   * decider from the preceding stage's return type, provides debug visibility
+   * (step number, extractor call, snapshot), and aligns with how LangGraph
+   * reads from state and Airflow reads from XCom.
+   *
+   * DESIGN: The decider function IS the stage function — its return value (a string)
+   * is the branch ID. No separate decider invocation step. The function is registered
+   * in the stageMap like any other stage, and `deciderFn = true` on the StageNode
+   * tells Pipeline to interpret the return value as a branch ID.
+   *
+   * @param name - Stage name for the decider node
+   * @param fn - Stage function that receives (scope, breakFn) and returns a branch ID string
+   * @param id - Optional stable ID for the node (for debug UI, time-travel, etc.)
+   * @param displayName - Optional display name for UI visualization
+   * @returns DeciderList for fluent branch configuration
+   *
+   * @example
+   * ```typescript
+   * flowChart('entry', entryFn)
+   *   .addDeciderFunction('RouteDecider', async (scope) => {
+   *     const type = scope.get('type');
+   *     return type === 'express' ? 'express-branch' : 'standard-branch';
+   *   }, 'route-decider')
+   *     .addFunctionBranch('express-branch', 'Express', expressFn)
+   *     .addFunctionBranch('standard-branch', 'Standard', standardFn)
+   *   .end()
+   *   .build();
+   * ```
+   *
+   * _Requirements: decider-first-class-stage 1.1, 1.2, 1.3, 1.4, 1.5, 6.1_
+   */
+  addDeciderFunction(
+    name: string,
+    fn: PipelineStageFunction<TOut, TScope>,
+    id?: string,
+    displayName?: string,
+  ): DeciderList<TOut, TScope> {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    if (cur.nextNodeDecider) fail(`decider already defined at '${cur.name}'`);
+    if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
+    if (cur.nextNodeSelector) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
+
+    // Create StageNode with the decider function as the stage function
+    const node: StageNode<TOut, TScope> = { name };
+    if (id) node.id = id;
+    if (displayName) node.displayName = displayName;
+    node.fn = fn;
+
+    // Register fn in stageMap so Pipeline can resolve it during execution
+    // _Requirements: decider-first-class-stage 1.3_
+    this._addToMap(name, fn);
+
+    // Create SerializedPipelineStructure with hasDecider: true
+    // Type will be set to 'decider' in DeciderList.end()
+    // _Requirements: decider-first-class-stage 6.1_
+    let spec: SerializedPipelineStructure = { name, type: 'stage', hasDecider: true };
+    if (id) spec.id = id;
+    if (displayName) spec.displayName = displayName;
+
+    // Apply build-time extractor to the node
+    // _Requirements: decider-first-class-stage 6.3_
+    spec = this._applyExtractorToNode(spec);
+
+    // Link to current node as next
+    cur.next = node;
+    curSpec.next = spec;
+
+    // Move cursor to the new decider node
+    this._cursor = node;
+    this._cursorSpec = spec;
+
+    // Return DeciderList with isScopeBased = true and decider = null
+    // (no legacy decider function — the fn IS the decider)
+    // _Requirements: decider-first-class-stage 1.2_
+    return new DeciderList<TOut, TScope>(this, node, spec, null, true);
   }
 
   /**
@@ -1155,6 +1349,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       extractor: this._extractor,
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
+      ...(this._enableNarrative ? { enableNarrative: true } : {}),
     };
   }
 
@@ -1173,6 +1368,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * Convenience: build & execute.
    */
   async execute(scopeFactory: ScopeFactory<TScope>, opts?: ExecOptions): Promise<any> {
+    // Set narrative flag before build() so it's included in the FlowChart object.
+    // WHY: execute() is a convenience that combines build + run. When the consumer
+    // passes enableNarrative in opts, we need to set the builder field before
+    // build() serializes it into the FlowChart.
+    // _Requirements: pipeline-narrative-generation 1.4_
+    if (opts?.enableNarrative) {
+      this._enableNarrative = true;
+    }
     const flowChart = this.build();
     const executor = new FlowChartExecutor<TOut, TScope>(
       flowChart,

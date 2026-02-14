@@ -14,6 +14,7 @@ import { PipelineContext, SubflowResult, PipelineStageFunction } from '../../../
 import { StageNode } from '../../../../src/core/executor/Pipeline';
 import { PipelineRuntime } from '../../../../src/core/memory/PipelineRuntime';
 import { StageContext } from '../../../../src/core/memory/StageContext';
+import { NullNarrativeGenerator } from '../../../../src/core/executor/narrative/NullNarrativeGenerator';
 
 // Helper to create a minimal PipelineContext for testing
 function createTestContext<TOut = any, TScope = any>(
@@ -29,6 +30,7 @@ function createTestContext<TOut = any, TScope = any>(
     ScopeFactory: () => ({} as TScope),
     subflows,
     scopeProtectionMode: 'off',
+    narrativeGenerator: new NullNarrativeGenerator(),
   };
 }
 

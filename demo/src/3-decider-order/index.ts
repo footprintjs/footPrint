@@ -6,20 +6,26 @@
  * where all children execute, a decider routes to a single path.
  *
  * PATTERN: Single-Choice Branching - A → ? → (B1 OR B2 OR B3)
- * The decider function examines the previous stage's output and returns
+ * The decider function reads from scope (shared state) and returns
  * the ID of exactly one branch to execute.
  *
  * BUILDS ON: Demo 1 (Linear Flow), Demo 2 (Parallel Children)
  * - Uses same scope operations
- * - Introduces conditional routing with addDecider()
+ * - Introduces conditional routing with addDeciderFunction()
  *
  * KEY CONCEPTS:
- * - addDecider(fn): Defines a decision point
- * - Decider function receives previous stage output, returns branch ID
+ * - addDeciderFunction(name, fn, id?): Defines a scope-based decision point
+ * - Decider function receives scope, reads shared state, returns branch ID
  * - Exactly ONE branch executes (unlike selector which can pick multiple)
  * - .addFunctionBranch(id, name, fn): Defines a branch option
  * - .setDefault(id): Specifies fallback branch if decider returns unknown ID
  * - .end(): Closes the decider block
+ *
+ * NOTE: The legacy `addDecider(fn)` API is deprecated in favor of
+ * `addDeciderFunction(name, fn)`. The new API makes the decider a first-class
+ * stage function that reads from scope, providing better decoupling from the
+ * previous stage's output type, debug visibility, and alignment with modern
+ * state-based routing patterns (like LangGraph reading from state).
  *
  * DECIDER vs SELECTOR:
  * - Decider: Returns single string (branch ID) → ONE branch executes
@@ -27,8 +33,8 @@
  *
  * DOMAIN: Order Processing
  * Different order types require different fulfillment paths:
- * 1. AnalyzeOrder - Determine order type
- * 2. Decider → [StandardFulfillment | ExpressFulfillment | DigitalDelivery]
+ * 1. AnalyzeOrder - Determine order type, write fulfillmentType to scope
+ * 2. FulfillmentDecider (reads fulfillmentType from scope) → [StandardFulfillment | ExpressFulfillment | DigitalDelivery]
  * 3. ConfirmOrder - Finalize the order
  */
 
@@ -126,12 +132,12 @@ export function setCurrentOrder(order: OrderData) {
  * Stage 1: Analyze the order to determine fulfillment type.
  *
  * WHY: This stage examines the order and determines which fulfillment
- * path should be taken. The output includes the fulfillmentType which
- * the decider function will use to route execution.
+ * path should be taken. It writes the fulfillmentType to scope so that
+ * the scope-based decider (FulfillmentDecider) can read it to route execution.
  *
  * SCOPE OPERATIONS:
  * - setObject(['pipeline'], 'order', order): Stores order for later stages
- * - setObject(['pipeline'], 'fulfillmentType', type): Stores decision
+ * - setObject(['pipeline'], 'fulfillmentType', type): Stores decision for decider
  */
 const analyzeOrder = async (scope: BaseState) => {
   console.log('  [1] AnalyzeOrder: Analyzing order...');
@@ -275,21 +281,29 @@ const confirmOrder = async (scope: BaseState) => {
 };
 
 // ============================================================================
-// Decider Function
+// Decider Function (Scope-Based)
 // ============================================================================
 
 /**
- * Decider function that routes to the appropriate fulfillment branch.
+ * Scope-based decider function that routes to the appropriate fulfillment branch.
  *
- * WHY: This function receives the output of AnalyzeOrder and returns
- * the ID of the branch to execute. It must return exactly one of the
- * branch IDs defined in addFunctionBranch().
+ * WHY: This function reads fulfillmentType from scope (shared state) and returns
+ * the ID of the branch to execute. Unlike the deprecated `addDecider` pattern
+ * which receives the previous stage's output, this scope-based approach decouples
+ * the decider from the preceding stage's return type.
  *
- * @param output - The output from the previous stage (AnalyzeOrder)
+ * DESIGN: As a scope-based decider (via addDeciderFunction), this function:
+ * - Receives scope as its first argument (like any other stage function)
+ * - Reads decision data from scope (written by AnalyzeOrder)
+ * - Returns a branch ID string
+ * - Gets its own step number and debug snapshot
+ *
+ * @param scope - The scope instance providing access to shared state
  * @returns The branch ID to execute ('standard', 'express', or 'digital')
  */
-const fulfillmentDecider = (output: { fulfillmentType: FulfillmentType }): string => {
-  const type = output?.fulfillmentType ?? 'standard';
+const fulfillmentDecider = (scope: BaseState): string => {
+  // Read fulfillmentType from scope — written by AnalyzeOrder stage
+  const type = (scope.getValue(['pipeline'], 'fulfillmentType') as FulfillmentType) ?? 'standard';
   console.log(`  [Decider] Routing to: ${type}`);
   return type;
 };
@@ -299,13 +313,20 @@ const fulfillmentDecider = (output: { fulfillmentType: FulfillmentType }): strin
 // ============================================================================
 
 /**
- * Builds the order processing flow with decider.
+ * Builds the order processing flow with scope-based decider.
  *
- * WHY: Exported for testing. Demonstrates addDecider() pattern.
+ * WHY: Exported for testing. Demonstrates addDeciderFunction() pattern —
+ * the recommended approach for conditional branching. The decider reads
+ * fulfillmentType from scope instead of from the previous stage's output.
+ *
+ * NOTE: The legacy addDecider(fn) API is deprecated. Use addDeciderFunction()
+ * for new code — it provides better decoupling, debug visibility, and
+ * alignment with modern state-based routing patterns.
  *
  * PATTERN: Single-Choice Branching
- * - AnalyzeOrder determines fulfillment type
- * - Decider routes to exactly one branch
+ * - AnalyzeOrder determines fulfillment type and writes it to scope
+ * - FulfillmentDecider reads fulfillmentType from scope, returns branch ID
+ * - Exactly one branch executes
  * - ConfirmOrder runs after the selected branch completes
  *
  * @returns Built flowchart ready for execution
@@ -313,11 +334,15 @@ const fulfillmentDecider = (output: { fulfillmentType: FulfillmentType }): strin
 export function buildOrderProcessingFlow() {
   return new FlowChartBuilder()
     .start('AnalyzeOrder', analyzeOrder)
-    .addDecider(fulfillmentDecider)
+    // addDeciderFunction creates a first-class stage that reads from scope
+    // (addDecider is deprecated — it couples the decider to the previous stage's output)
+    // NOTE: For scope-based deciders, default fallback uses a branch with id='default'
+    // rather than setDefault() which only applies to legacy deciders.
+    .addDeciderFunction('FulfillmentDecider', fulfillmentDecider as any, 'fulfillment-decider')
       .addFunctionBranch('standard', 'StandardFulfillment', standardFulfillment)
       .addFunctionBranch('express', 'ExpressFulfillment', expressFulfillment)
       .addFunctionBranch('digital', 'DigitalDelivery', digitalDelivery)
-      .setDefault('standard') // Fallback if decider returns unknown ID
+      .addFunctionBranch('default', 'StandardFulfillment', standardFulfillment) // Fallback for unknown IDs
       .end()
     .addFunction('ConfirmOrder', confirmOrder)
     .build();
@@ -369,11 +394,13 @@ async function main() {
 
     const builder = new FlowChartBuilder()
       .start('AnalyzeOrder', analyzeOrder)
-      .addDecider(fulfillmentDecider)
+      // addDeciderFunction: scope-based decider (recommended)
+      // addDecider is deprecated — it couples the decider to the previous stage's output
+      .addDeciderFunction('FulfillmentDecider', fulfillmentDecider as any, 'fulfillment-decider')
         .addFunctionBranch('standard', 'StandardFulfillment', standardFulfillment)
         .addFunctionBranch('express', 'ExpressFulfillment', expressFulfillment)
         .addFunctionBranch('digital', 'DigitalDelivery', digitalDelivery)
-        .setDefault('standard')
+        .addFunctionBranch('default', 'StandardFulfillment', standardFulfillment)
         .end()
       .addFunction('ConfirmOrder', confirmOrder);
 
@@ -388,11 +415,12 @@ async function main() {
   console.log('════════════════════════════════════════════════════════════════');
 
   console.log('\n📚 Key Takeaways:');
-  console.log('   • addDecider(fn) creates a decision point');
-  console.log('   • Decider function returns a single branch ID');
+  console.log('   • addDeciderFunction(name, fn) creates a scope-based decision point');
+  console.log('   • Decider function reads from scope (shared state), returns a branch ID');
   console.log('   • Exactly ONE branch executes (not multiple like selector)');
   console.log('   • .setDefault(id) provides fallback for unknown IDs');
-  console.log('   • Execution continues after the selected branch completes\n');
+  console.log('   • Execution continues after the selected branch completes');
+  console.log('   • addDecider(fn) is deprecated — use addDeciderFunction instead\n');
 }
 
 // Run the demo

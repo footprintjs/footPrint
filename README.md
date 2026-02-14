@@ -267,6 +267,11 @@ const result = await executor.run();
 const contextTree = executor.getContextTree();
 const extractedData = executor.getExtractedResults();
 const subflowResults = executor.getSubflowResults();
+
+// Or, with enriched snapshots enabled:
+const enrichedExecutor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
+await enrichedExecutor.run();
+const enriched = enrichedExecutor.getEnrichedResults(); // single-pass debug data
 ```
 
 ### Key Builder Methods
@@ -286,6 +291,17 @@ const subflowResults = executor.getSubflowResults();
 | `build()` | Compile to FlowChart |
 | `execute(scopeFactory)` | Build + run (convenience) |
 | `toSpec()` | Export pure JSON (no functions) |
+
+### Key Executor Methods
+
+| Method | Description | When to Use |
+|--------|-------------|-------------|
+| `run()` | Execute the flowchart | Always — primary execution method |
+| `getContextTree()` | Full context tree (legacy 2-pass) | Backward-compatible introspection |
+| `getExtractedResults()` | Extractor results map | When using a traversal extractor |
+| `getEnrichedResults()` | Enriched extractor results (single-pass) | **Recommended** when `enrichSnapshots: true` |
+| `getSubflowResults()` | Subflow execution data | When composing subflows |
+| `getExtractorErrors()` | Errors from extractor | Debugging extractor issues |
 
 ---
 
@@ -357,6 +373,47 @@ await executor.run();
 // Get extracted data
 const extracted = executor.getExtractedResults();
 ```
+
+### Enriched Snapshots (Single-Pass Debug)
+
+For debug UIs and observability tools, enable `enrichSnapshots` to capture scope state, debug metadata, stage output, and history index during traversal — eliminating the need for a separate `getContextTree()` walk.
+
+```typescript
+const chart = flowChart('entry', entryFn)
+  .addFunction('process', processFn)
+  .addTraversalExtractor((snapshot) => {
+    // When enrichSnapshots is enabled, snapshot includes extra fields:
+    const { node, stepNumber, structureMetadata, scopeState, debugInfo, stageOutput, historyIndex } = snapshot;
+    return {
+      stageName: node.name,
+      stepNumber,
+      type: structureMetadata.type,
+      scopeState,      // committed scope at this point in execution
+      debugInfo,       // { logs, errors, metrics, evals, flowMessages }
+      stageOutput,     // the stage function's return value
+      historyIndex,    // position in ExecutionHistory for replay
+    };
+  })
+  .build();
+
+// Enable enrichment via constructor param
+const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
+await executor.run();
+
+// Use getEnrichedResults() — same data as getExtractedResults(), clearer intent
+const enriched = executor.getEnrichedResults();
+// Map { "entry" => { stageName, stepNumber, scopeState, ... }, "process" => { ... } }
+```
+
+When `enrichSnapshots` is disabled (the default), the extra fields are simply absent from the snapshot. Existing extractors work identically — zero cost when not opted in.
+
+**When to use which:**
+
+| Method | Use Case |
+|--------|----------|
+| `getContextTree()` | Legacy path, backward-compatible, walks StageContext linked list after execution |
+| `getExtractedResults()` | Custom extractor without enrichment |
+| `getEnrichedResults()` | Full debug data captured during traversal (recommended for debug UIs) |
 
 ---
 

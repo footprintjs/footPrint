@@ -89,6 +89,9 @@ import { SubflowExecutor } from './handlers/SubflowExecutor';
 import { StageRunner } from './handlers/StageRunner';
 import { LoopHandler } from './handlers/LoopHandler';
 import { DeciderHandler } from './handlers/DeciderHandler';
+import { NarrativeGenerator } from './narrative/NarrativeGenerator';
+import { NullNarrativeGenerator } from './narrative/NullNarrativeGenerator';
+import type { INarrativeGenerator } from './narrative/types';
 
 export type Decider = (nodeArgs: any) => string | Promise<string>;
 
@@ -124,6 +127,29 @@ export type StageNode<TOut = any, TScope = any> = {
   children?: StageNode<TOut, TScope>[];
   /** Decider (mutually exclusive with `next`); must select a child `id` */
   nextNodeDecider?: Decider;
+  /**
+   * When true, this node's `fn` is a scope-based decider function.
+   * The fn receives (scope, breakFn) and its string return value
+   * is used as the branch ID to select the child node to execute.
+   *
+   * WHY: Distinguishes scope-based deciders (new `addDeciderFunction` API)
+   * from legacy output-based deciders (`addDecider` API) so that Pipeline
+   * and DeciderHandler can route to the correct execution path.
+   *
+   * DESIGN: A boolean flag rather than storing the function separately
+   * because the function is already in `node.fn` and the stageMap.
+   * The flag tells Pipeline to interpret the return value as a branch ID.
+   *
+   * Mutually exclusive with `nextNodeDecider`:
+   * - `deciderFn = true` → scope-based decider (reads from scope, fn returns branch ID)
+   * - `nextNodeDecider` set → legacy output-based decider (reads from previous stage output)
+   *
+   * When set, `fn` MUST be defined (either embedded or in stageMap).
+   * When set, `children` MUST be defined with at least one branch.
+   *
+   * _Requirements: 5.1, 5.2_
+   */
+  deciderFn?: boolean;
   /**
    * Selector for multi-choice branching.
    * Unlike Decider (picks ONE), Selector can pick MULTIPLE children to execute in parallel.
@@ -214,6 +240,11 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
 
     // Must have at least one continuation property
     // Note: children must be a non-empty array to count as continuation
+    // Note: `deciderFn` is a boolean flag on StageNode, NOT a continuation property.
+    // It marks a node's fn as a scope-based decider but doesn't itself indicate
+    // dynamic continuation. We intentionally exclude it from this check to prevent
+    // false positives when duck-typing stage output objects.
+    // _Requirements: 5.1_
     const hasContinuation =
       (Array.isArray(obj.children) && obj.children.length > 0) ||
       obj.next !== undefined ||
@@ -348,6 +379,23 @@ export class Pipeline<TOut, TScope> {
   private readonly subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
 
   /**
+   * Whether to enrich StageSnapshots with scope state, debug metadata,
+   * stage output, and history index during traversal.
+   *
+   * WHY: When enabled, the extractor receives full stage data during traversal,
+   * eliminating the need for a redundant post-traversal walk via
+   * PipelineRuntime.getSnapshot(). Defaults to false for zero-overhead
+   * backward compatibility.
+   *
+   * DESIGN: Opt-in flag so existing consumers pay no additional cost.
+   * When true, callExtractor() captures additional data from StageContext
+   * and GlobalStore at commit time.
+   *
+   * _Requirements: single-pass-debug-structure 4.1, 4.3, 8.3_
+   */
+  private readonly enrichSnapshots: boolean;
+
+  /**
    * NodeResolver module for node lookup and subflow reference resolution.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
@@ -395,6 +443,18 @@ export class Pipeline<TOut, TScope> {
    */
   private readonly deciderHandler: DeciderHandler<TOut, TScope>;
 
+  /**
+   * Narrative generator for producing human-readable execution story.
+   *
+   * WHY: Holds either a NarrativeGenerator (when enabled) or a
+   * NullNarrativeGenerator (when disabled). The Null Object pattern
+   * lets handlers call narrative methods unconditionally — zero cost
+   * when narrative is not needed.
+   *
+   * _Requirements: 1.2, 1.3, 9.3_
+   */
+  private readonly narrativeGenerator: INarrativeGenerator;
+
   constructor(
     root: StageNode,
     stageMap: Map<string, PipelineStageFunction<TOut, TScope>>,
@@ -407,6 +467,8 @@ export class Pipeline<TOut, TScope> {
     extractor?: TraversalExtractor,
     scopeProtectionMode?: ScopeProtectionMode,
     subflows?: Record<string, { root: StageNode<TOut, TScope> }>,
+    enrichSnapshots?: boolean,
+    narrativeEnabled?: boolean,
   ) {
     this.root = root;
     this.stageMap = stageMap;
@@ -418,6 +480,16 @@ export class Pipeline<TOut, TScope> {
     this.extractor = extractor;
     this.scopeProtectionMode = scopeProtectionMode ?? 'error';
     this.subflows = subflows;
+    this.enrichSnapshots = enrichSnapshots ?? false;
+
+    // Create narrative generator based on opt-in flag.
+    // WHY: NullNarrativeGenerator is the default — zero allocation, zero string
+    // formatting. Only when the consumer explicitly enables narrative do we
+    // allocate the real NarrativeGenerator with its sentences array.
+    // _Requirements: 1.2, 1.3, 9.3_
+    this.narrativeGenerator = narrativeEnabled
+      ? new NarrativeGenerator()
+      : new NullNarrativeGenerator();
 
     // Initialize NodeResolver with shared context
     this.nodeResolver = new NodeResolver(this.createPipelineContext());
@@ -469,6 +541,7 @@ export class Pipeline<TOut, TScope> {
       scopeProtectionMode: this.scopeProtectionMode,
       readOnlyContext: this.readOnlyContext,
       extractor: this.extractor,
+      narrativeGenerator: this.narrativeGenerator,
     };
   }
 
@@ -551,9 +624,17 @@ export class Pipeline<TOut, TScope> {
 
     const stageFunc = this.getStageFn(node);
     const hasStageFunction = Boolean(stageFunc);
-    const isDeciderNode = Boolean(node.nextNodeDecider);
+    const isLegacyDecider = Boolean(node.nextNodeDecider);
+    const isScopeBasedDecider = Boolean(node.deciderFn);
+    const isDeciderNode = isLegacyDecider || isScopeBasedDecider;
     const hasChildren = Boolean(node.children?.length);
     const hasNext = Boolean(node.next);
+    // Save original next reference before stage execution.
+    // WHY: Dynamic stage handling (step 3) may mutate node.next for serialization
+    // visibility (getRuntimeRoot). We must use the ORIGINAL next for step 6 to
+    // avoid following a dynamicNext reference that was attached during a previous
+    // iteration's stage execution.
+    const originalNext = node.next;
     // Note: Dynamic behavior is detected via isStageNodeReturn() on stage output, not via node flags
 
     // ───────────────────────── 1) Validation ─────────────────────────
@@ -579,20 +660,40 @@ export class Pipeline<TOut, TScope> {
 
     // ───────────────────────── 2) Decider node ─────────────────────────
     // decider order: stage (optional) → commit → decider → chosen child
-    // Delegate to DeciderHandler for decider evaluation and branching
-    // _Requirements: phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
+    // Route to the correct DeciderHandler method based on decider type:
+    // - Scope-based (deciderFn): fn IS the decider, returns branch ID directly
+    // - Legacy (nextNodeDecider): separate decider function evaluates after optional stage
+    // _Requirements: 5.3, 5.4, phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
     if (isDeciderNode) {
-      return this.deciderHandler.handle(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        branchPath,
-        this.executeStage.bind(this),
-        this.executeNode.bind(this),
-        this.callExtractor.bind(this),
-        this.getStagePath.bind(this),
-      );
+      if (isScopeBasedDecider) {
+        // Scope-based decider: fn is required (it IS the decider)
+        // _Requirements: 5.3_
+        return this.deciderHandler.handleScopeBased(
+          node,
+          stageFunc!,
+          context,
+          breakFlag,
+          branchPath,
+          this.executeStage.bind(this),
+          this.executeNode.bind(this),
+          this.callExtractor.bind(this),
+          this.getStagePath.bind(this),
+        );
+      } else {
+        // Legacy output-based decider: stage is optional, decider is separate
+        // _Requirements: 5.4_
+        return this.deciderHandler.handle(
+          node,
+          stageFunc,
+          context,
+          breakFlag,
+          branchPath,
+          this.executeStage.bind(this),
+          this.executeNode.bind(this),
+          this.callExtractor.bind(this),
+          this.getStagePath.bind(this),
+        );
+      }
     }
 
     // ───────────────────────── 3) Non-decider: STAGE FIRST ─────────────────────────
@@ -605,15 +706,34 @@ export class Pipeline<TOut, TScope> {
         stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
       } catch (error: any) {
         context.commit(); // apply patch on error as before
-        this.callExtractor(node, context, this.getStagePath(node, branchPath));
+        // Pass undefined for stageOutput and error details for enrichment
+        // WHY: On error path, there's no successful output, but we capture
+        // the error info so enriched snapshots include what went wrong.
+        // _Requirements: single-pass-debug-structure 1.4_
+        this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), undefined, {
+          type: 'stageExecutionError',
+          message: error.toString(),
+        });
+        // Narrative: record the error so the story captures what went wrong
+        // _Requirements: 10.1_
+        this.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         throw error;
       }
       context.commit();
-      this.callExtractor(node, context, this.getStagePath(node, branchPath));
+      // Pass stageOutput so enriched snapshots capture the stage's return value
+      // _Requirements: single-pass-debug-structure 1.3_
+      this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
+
+      // Narrative: record that this stage executed successfully
+      // _Requirements: 3.1_
+      this.narrativeGenerator.onStageExecuted(node.name, node.displayName);
 
       if (breakFlag.shouldBreak) {
+        // Narrative: record that execution stopped here due to break
+        // _Requirements: 3.3_
+        this.narrativeGenerator.onBreak(node.name, node.displayName);
         logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput; // leaf/early stop returns the stage's output
       }
@@ -654,6 +774,16 @@ export class Pipeline<TOut, TScope> {
 
         // Clear stageOutput since the StageNode is the continuation, not the output
         stageOutput = undefined;
+      }
+
+      // Restore node.next to its original value after capturing dynamicNext.
+      // WHY: The mutation `node.next = dynamicNode.next` above is for serialization
+      // visibility (getRuntimeRoot), but it persists on the node object. If this node
+      // is visited again in a loop, the stale dynamicNext reference would cause step 6
+      // to follow it incorrectly. Restoring ensures loop-back visits see the original
+      // node structure.
+      if (dynamicNext) {
+        node.next = originalNext;
       }
     }
 
@@ -750,7 +880,13 @@ export class Pipeline<TOut, TScope> {
 
     // ───────────────────────── 6) Linear `next` (if provided) ─────────────────────────
     if (hasNext) {
-      const nextNode = node.next!;
+      // Use originalNext (captured before stage execution) to avoid following
+      // a dynamicNext reference that was attached to node.next during stage handling.
+      const nextNode = originalNext!;
+      
+      // Narrative: record the transition to the next stage
+      // _Requirements: 3.2_
+      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.displayName);
       
       // Log flow control decision for linear next
       // _Requirements: flow-control-narrative REQ-3 (Task 2)
@@ -807,7 +943,9 @@ export class Pipeline<TOut, TScope> {
    */
   private computeNodeType(node: StageNode): 'stage' | 'decider' | 'fork' | 'streaming' {
     // Decider takes precedence (has decision logic)
-    if (node.nextNodeDecider || node.nextNodeSelector) return 'decider';
+    // Check both legacy (nextNodeDecider) and scope-based (deciderFn) deciders
+    // _Requirements: 3.2, decider-first-class-stage 3.2_
+    if (node.nextNodeDecider || node.nextNodeSelector || node.deciderFn) return 'decider';
     
     // Streaming stages
     if (node.isStreaming) return 'streaming';
@@ -888,6 +1026,14 @@ export class Pipeline<TOut, TScope> {
    * @param node - The stage node
    * @param context - The stage context (after commitPatch)
    * @param stagePath - The full path to this stage (e.g., "root.child")
+   * @param stageOutput - The stage function's return value (undefined for stages
+   *   that return a StageNode for dynamic continuation or stages without functions).
+   *   Used by enrichment to populate StageSnapshot.stageOutput.
+   *   _Requirements: single-pass-debug-structure 1.3_
+   * @param errorInfo - Error details when the stage threw during execution.
+   *   Contains `type` (error classification) and `message` (error description).
+   *   Used by enrichment to populate StageSnapshot.errorInfo.
+   *   _Requirements: single-pass-debug-structure 1.4_
    * 
    * _Requirements: unified-extractor-architecture 3.1, 3.2, 3.3, 3.4, 5.3_
    */
@@ -895,6 +1041,8 @@ export class Pipeline<TOut, TScope> {
     node: StageNode,
     context: StageContext,
     stagePath: string,
+    stageOutput?: unknown,
+    errorInfo?: { type: string; message: string },
   ): void {
     if (!this.extractor) return;
     
@@ -908,6 +1056,50 @@ export class Pipeline<TOut, TScope> {
         stepNumber: this.stepCounter,
         structureMetadata: this.buildStructureMetadata(node),
       };
+
+      // ── Enrich snapshot when opt-in is enabled ──
+      // WHY: Captures full stage data during traversal, eliminating the need
+      // for a redundant post-traversal walk via PipelineRuntime.getSnapshot().
+      // Wrapped in its own try-catch so enrichment failures don't break the
+      // base snapshot — the extractor still receives node/context/stepNumber.
+      if (this.enrichSnapshots) {
+        try {
+          // Shallow clone of committed scope state
+          // WHY: Shallow clone is sufficient because each stage's commit()
+          // produces a new top-level object via structural sharing.
+          // Deep values are immutable by convention (WriteBuffer enforces this).
+          snapshot.scopeState = { ...this.pipelineRuntime.globalStore.getState() };
+
+          // Capture debug metadata from StageMetadata
+          // WHY: Eliminates the need to walk StageContext.debug after traversal.
+          snapshot.debugInfo = {
+            logs: { ...context.debug.logContext },
+            errors: { ...context.debug.errorContext },
+            metrics: { ...context.debug.metricContext },
+            evals: { ...context.debug.evalContext },
+          };
+          if (context.debug.flowMessages.length > 0) {
+            snapshot.debugInfo.flowMessages = [...context.debug.flowMessages];
+          }
+
+          // Capture stage output (undefined for dynamic stages that return StageNode)
+          snapshot.stageOutput = stageOutput;
+
+          // Capture error info if present (stage threw during execution)
+          if (errorInfo) {
+            snapshot.errorInfo = errorInfo;
+          }
+
+          // Capture history index (number of commits so far)
+          // WHY: Enables scope reconstruction via executionHistory.materialise(historyIndex)
+          // without a separate history replay pass.
+          snapshot.historyIndex = this.pipelineRuntime.executionHistory.list().length;
+        } catch (enrichError: any) {
+          // Log but don't fail — the base snapshot is still valid
+          logger.warn(`Enrichment error at stage '${stagePath}':`, { error: enrichError });
+        }
+      }
+
       const result = this.extractor(snapshot);
       
       // Only store if extractor returned a value
@@ -929,9 +1121,21 @@ export class Pipeline<TOut, TScope> {
    * Generate the stage path for extractor results.
    * Uses node.id if available, otherwise node.name.
    * Combines with branchPath for nested stages.
+   *
+   * @param node - The stage node
+   * @param branchPath - The branch path prefix (e.g., "root.child")
+   * @param contextStageName - Optional stage name from StageContext, which includes
+   *   iteration suffixes (e.g., "CallLLM.1") for loop iterations. When the context
+   *   name differs from the base node name (indicating an iteration), we use it
+   *   to ensure loop iterations produce unique keys in extractedResults.
    */
-  private getStagePath(node: StageNode, branchPath?: string): string {
-    const nodeId = node.id ?? node.name;
+  private getStagePath(node: StageNode, branchPath?: string, contextStageName?: string): string {
+    const baseName = node.id ?? node.name;
+    // Use contextStageName only when it indicates an iteration (differs from base node.name).
+    // WHY: During loop iterations, LoopHandler creates a StageContext with an iterated name
+    // (e.g., "CallLLM.1"), but the node object still has the base name ("CallLLM").
+    // For non-iterated stages, we prefer node.id (stable identifier) over node.name.
+    const nodeId = (contextStageName && contextStageName !== node.name) ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
   }
@@ -995,5 +1199,21 @@ export class Pipeline<TOut, TScope> {
    */
   getExtractorErrors(): ExtractorError[] {
     return this.extractorErrors;
+  }
+
+  /**
+   * Returns the narrative sentences from the current execution.
+   *
+   * WHY: Delegates to the narrative generator's getSentences() method.
+   * When narrative is disabled (NullNarrativeGenerator), returns an empty array.
+   * When enabled, returns the ordered array of human-readable sentences
+   * produced during traversal.
+   *
+   * @returns Ordered array of narrative sentences, or empty array if disabled
+   *
+   * _Requirements: 1.2, 1.3, 2.1_
+   */
+  getNarrative(): string[] {
+    return this.narrativeGenerator.getSentences();
   }
 }

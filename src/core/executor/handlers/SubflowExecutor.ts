@@ -64,11 +64,21 @@ export type ExecuteStageFn<TOut = any, TScope = any> = (
  *
  * WHY: Passed from Pipeline to avoid circular dependency. This allows
  * SubflowExecutor to call the extractor without importing Pipeline.
+ *
+ * @param node - The stage node
+ * @param context - The stage context (after commit)
+ * @param stagePath - The full path to this stage
+ * @param stageOutput - The stage function's return value (undefined on error or no-function nodes)
+ *   _Requirements: single-pass-debug-structure 1.3_
+ * @param errorInfo - Error details when the stage threw during execution
+ *   _Requirements: single-pass-debug-structure 1.4_
  */
 export type CallExtractorFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   context: StageContext,
   stagePath: string,
+  stageOutput?: unknown,
+  errorInfo?: { type: string; message: string },
 ) => void;
 
 /**
@@ -162,6 +172,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Entering ${subflowName} subflow`, {
       targetStage: subflowId,
     });
+
+    // Narrative: mark subflow entry for human-readable story
+    // WHY: Captures the nesting boundary so the reader can follow nested execution contexts
+    // _Requirements: 7.1_
+    this.ctx.narrativeGenerator.onSubflowEntry(subflowName);
 
     // Mark parent stage as subflow container
     parentContext.addLog('isSubflowContainer', true);
@@ -311,6 +326,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       targetStage: subflowId,
     });
 
+    // Narrative: mark subflow exit for human-readable story
+    // WHY: Marks the return from a nested context back to the parent flow
+    // _Requirements: 7.2_
+    this.ctx.narrativeGenerator.onSubflowExit(subflowName);
+
     // Commit parent context patch
     parentContext.commit();
 
@@ -386,12 +406,21 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       } catch (error: any) {
         context.commit();
-        this.callExtractor(node, context, this.getStagePath(node, branchPath));
+        // Pass undefined for stageOutput and error details for enrichment
+        // WHY: On error path, there's no successful output, but we capture
+        // the error info so enriched snapshots include what went wrong.
+        // _Requirements: single-pass-debug-structure 1.4_
+        this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), undefined, {
+          type: 'stageExecutionError',
+          message: error.toString(),
+        });
         context.addError('stageExecutionError', error.toString());
         throw error;
       }
       context.commit();
-      this.callExtractor(node, context, this.getStagePath(node, branchPath));
+      // Pass stageOutput so enriched snapshots capture the stage's return value
+      // _Requirements: single-pass-debug-structure 1.3_
+      this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
 
       if (breakFlag.shouldBreak) {
         return stageOutput;
@@ -521,9 +550,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
   /**
    * Generate the stage path for extractor results.
+   * Uses contextStageName (which includes iteration suffix) when it differs from base name.
    */
-  private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string): string {
-    const nodeId = node.id ?? node.name;
+  private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string, contextStageName?: string): string {
+    const baseName = node.id ?? node.name;
+    const nodeId = (contextStageName && contextStageName !== node.name) ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
   }

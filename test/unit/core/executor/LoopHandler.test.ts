@@ -14,6 +14,7 @@ import { PipelineContext } from '../../../../src/core/executor/types';
 import { StageNode } from '../../../../src/core/executor/Pipeline';
 import { PipelineRuntime } from '../../../../src/core/memory/PipelineRuntime';
 import { StageContext } from '../../../../src/core/memory/StageContext';
+import { NullNarrativeGenerator } from '../../../../src/core/executor/narrative/NullNarrativeGenerator';
 
 // Helper to create a minimal PipelineContext for testing
 function createTestContext<TOut = any, TScope = any>(): PipelineContext<TOut, TScope> {
@@ -24,6 +25,7 @@ function createTestContext<TOut = any, TScope = any>(): PipelineContext<TOut, TS
     pipelineRuntime,
     ScopeFactory: (_context, stageName) => ({ stageName } as unknown as TScope),
     scopeProtectionMode: 'off',
+    narrativeGenerator: new NullNarrativeGenerator(),
   };
 }
 

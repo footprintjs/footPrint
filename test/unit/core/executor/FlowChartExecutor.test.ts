@@ -474,6 +474,125 @@ describe('flowChart() Factory Function', () => {
   });
 });
 
+describe('Narrative API', () => {
+  /**
+   * BEHAVIOR: FlowChartExecutor exposes enableNarrative() and getNarrative()
+   * for opt-in narrative generation during pipeline execution.
+   *
+   * WHY: Consumers need a clean API to enable narrative generation and
+   * retrieve the human-readable execution story after run() completes.
+   *
+   * _Requirements: 1.1, 1.2, 2.1, 2.3_
+   */
+
+  describe('enableNarrative()', () => {
+    /**
+     * VERIFIES: enableNarrative() is a callable method on FlowChartExecutor
+     */
+    it('is a method on FlowChartExecutor', () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .build();
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      expect(typeof executor.enableNarrative).toBe('function');
+    });
+
+    /**
+     * VERIFIES: enableNarrative() enables narrative generation for subsequent run
+     * _Requirements: 1.1_
+     */
+    it('enables narrative generation so getNarrative() returns sentences after run', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .addFunction('process', () => 'processed')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      executor.enableNarrative();
+      await executor.run();
+
+      const narrative = executor.getNarrative();
+      expect(narrative.length).toBeGreaterThan(0);
+      // First sentence should mention the first stage
+      expect(narrative[0]).toContain('entry');
+    });
+  });
+
+  describe('getNarrative()', () => {
+    /**
+     * VERIFIES: getNarrative() returns empty array when narrative is disabled
+     * _Requirements: 1.2, 2.3_
+     */
+    it('returns empty array when enableNarrative() was not called', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .addFunction('process', () => 'processed')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      await executor.run();
+
+      const narrative = executor.getNarrative();
+      expect(narrative).toEqual([]);
+    });
+
+    /**
+     * VERIFIES: getNarrative() returns ordered sentences matching execution order
+     * _Requirements: 2.1_
+     */
+    it('returns sentences in execution order', async () => {
+      const chart = new FlowChartBuilder()
+        .start('validate', () => 'valid')
+        .addFunction('process', () => 'processed')
+        .addFunction('output', () => 'done')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      executor.enableNarrative();
+      await executor.run();
+
+      const narrative = executor.getNarrative();
+      expect(narrative.length).toBeGreaterThan(0);
+      // First sentence should reference the first stage
+      expect(narrative[0]).toContain('validate');
+    });
+
+    /**
+     * VERIFIES: getNarrative() returns empty array before run() is called
+     */
+    it('returns empty array before run() is called', () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      executor.enableNarrative();
+
+      // Before run(), narrative should be empty (pipeline hasn't executed yet)
+      const narrative = executor.getNarrative();
+      expect(narrative).toEqual([]);
+    });
+
+    /**
+     * VERIFIES: getNarrative() uses displayName when available
+     * _Requirements: 2.1_
+     */
+    it('uses displayName in narrative sentences when available', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output', undefined, 'Validate User Input')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      executor.enableNarrative();
+      await executor.run();
+
+      const narrative = executor.getNarrative();
+      expect(narrative.length).toBeGreaterThan(0);
+      expect(narrative[0]).toContain('Validate User Input');
+    });
+  });
+});
+
 describe('Public API Exports', () => {
   /**
    * Task 6.1: Verify exports

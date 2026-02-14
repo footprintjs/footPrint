@@ -33,11 +33,12 @@ The executor is the "runtime" counterpart to the builder module - while the buil
 
 ## Usage Example
 
+### Standard Execution
+
 ```typescript
 import { FlowChartExecutor } from './FlowChartExecutor';
 import { flowChart } from '../builder/FlowChartBuilder';
 
-// Build a flowchart
 const chart = flowChart('entry', async (scope) => {
   scope.message = 'Hello';
   return scope.message;
@@ -47,14 +48,44 @@ const chart = flowChart('entry', async (scope) => {
   })
   .build();
 
-// Create executor and run
 const executor = new FlowChartExecutor(chart, MyScopeFactory);
 const result = await executor.run();
 
-// Access execution data
+// Legacy introspection (walks StageContext linked list after execution)
 const contextTree = executor.getContextTree();
 const extractedData = executor.getExtractedResults();
 ```
+
+### Enriched Snapshots (Recommended for Debug UIs)
+
+When you need per-stage scope state, debug metadata, stage output, and history index, enable `enrichSnapshots` to capture everything during traversal — eliminating the redundant `getContextTree()` walk.
+
+```typescript
+const chart = flowChart('entry', entryFn)
+  .addFunction('process', processFn)
+  .addTraversalExtractor((snapshot) => {
+    // With enrichSnapshots enabled, snapshot includes extra fields:
+    const { node, stepNumber, structureMetadata, scopeState, debugInfo, stageOutput, historyIndex } = snapshot;
+    return { stageName: node.name, stepNumber, scopeState, debugInfo, stageOutput, historyIndex };
+  })
+  .build();
+
+const executor = new FlowChartExecutor(chart, MyScopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
+const result = await executor.run();
+
+// Single-pass debug data — no separate getContextTree() walk needed
+const enriched = executor.getEnrichedResults();
+```
+
+### When to Use Which Method
+
+| Method | Use Case |
+|--------|----------|
+| `getContextTree()` | Legacy path — walks StageContext linked list after execution. Still works, but performs a redundant pass. |
+| `getExtractedResults()` | Custom extractor results without enrichment |
+| `getEnrichedResults()` | Full debug data captured during traversal (recommended for debug UIs when `enrichSnapshots: true`) |
+
+See the [single-pass-debug-structure spec](../../.kiro/specs/single-pass-debug-structure/design.md) for the full design rationale.
 
 ## Related Modules
 

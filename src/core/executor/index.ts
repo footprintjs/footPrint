@@ -34,3 +34,6 @@ export * from './types';
 
 // Handlers (for advanced use cases and testing)
 export * from './handlers';
+
+// Narrative generation
+export { INarrativeGenerator, NarrativeGenerator, NullNarrativeGenerator } from './narrative';

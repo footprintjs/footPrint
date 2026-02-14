@@ -151,6 +151,9 @@ export class LoopHandler<TOut = any, TScope = any> {
         iteration: iteration + 1,
       });
 
+    // Narrative: record the loop-back with 1-based iteration number
+    this.ctx.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1);
+
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
   }
@@ -213,6 +216,9 @@ export class LoopHandler<TOut = any, TScope = any> {
         targetStage: targetNode.name,
         iteration: iteration + 1,
       });
+
+    // Narrative: record the loop-back with 1-based iteration number
+    this.ctx.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
