@@ -183,40 +183,46 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addLog('subflowId', subflowId);
     parentContext.addLog('subflowName', subflowName);
 
-    // Create isolated context for subflow
-    // WHY: Each subflow gets its own PipelineRuntime with its own GlobalStore,
-    // so all stages within the subflow share the same state at the root level.
-    const nestedContext = new PipelineRuntime(node.name);
-    const nestedRootContext = nestedContext.rootStageContext;
-
     // ─────────────────────────── Input Mapping ───────────────────────────
-    // Apply input mapping if subflowMountOptions are provided
+    // Compute mapped input BEFORE creating PipelineRuntime so it can be
+    // passed as initialContext. This ensures the data is in the GlobalStore
+    // from the start, avoiding WriteBuffer base-snapshot staleness issues.
     const mountOptions = node.subflowMountOptions;
     let mappedInput: Record<string, unknown> = {};
     
     if (mountOptions) {
       try {
-        // Get parent scope for input mapping
         const parentScope = parentContext.getScope();
-        
-        // Compute initial values (always isolated mode - inputMapper values only)
         mappedInput = getInitialScopeValues(parentScope, mountOptions);
         
-        // Log mapping info for debugging
         if (Object.keys(mappedInput).length > 0) {
           parentContext.addLog('mappedInput', mappedInput);
         }
-        
-        // Seed subflow's GlobalStore with initial values
-        if (Object.keys(mappedInput).length > 0) {
-          seedSubflowGlobalStore(nestedContext, mappedInput);
-        }
       } catch (error: any) {
-        // Log inputMapper error and re-throw
         parentContext.addError('inputMapperError', error.toString());
         logger.error(`Error in inputMapper for subflow (${subflowId}):`, { error });
         throw error;
       }
+    }
+
+    // Create isolated context for subflow
+    // WHY: Each subflow gets its own PipelineRuntime with its own GlobalStore.
+    const nestedContext = new PipelineRuntime(node.name);
+    let nestedRootContext = nestedContext.rootStageContext;
+
+    // Seed subflow's GlobalStore with inputMapper data
+    // WHY: The inputMapper transforms parent scope data into the subflow's
+    // initial state. We seed THEN refresh the rootStageContext so its
+    // WriteBuffer base snapshot includes the seeded data.
+    if (Object.keys(mappedInput).length > 0) {
+      seedSubflowGlobalStore(nestedContext, mappedInput);
+      // Refresh rootStageContext so its WriteBuffer sees the committed data
+      // WHY: seedSubflowGlobalStore commits to GlobalStore, but the original
+      // rootStageContext's WriteBuffer has a stale base snapshot from before
+      // seeding. Creating a fresh context from the updated GlobalStore ensures
+      // downstream stages (SeedScope, AssemblePrompt) can read the seeded values.
+      nestedRootContext = new StageContext('', nestedRootContext.stageName, nestedContext.globalStore, '', nestedContext.executionHistory);
+      nestedContext.rootStageContext = nestedRootContext;
     }
 
     // ─────────────────────── Create Subflow PipelineContext ───────────────────────
@@ -281,19 +287,40 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const subflowTreeContext = nestedContext.getSnapshot();
 
     // ─────────────────────────── Output Mapping ───────────────────────────
-    // Apply output mapping if subflow completed successfully and outputMapper is provided
+    // Apply output mapping if subflow completed successfully and outputMapper is provided.
+    //
+    // WHY: The subflow's output must be written to the CALLER's scope, not the
+    // child branch's scope. When a subflow runs inside a ChildrenExecutor child
+    // (e.g., tool-social-media-agent), parentContext has a tool-specific pipelineId
+    // like 'tool-social-media-agent'. Writing to that namespace puts data at
+    // ['pipelines', 'tool-social-media-agent', 'agent', 'messages'] — unreachable
+    // by the parent agent which reads from ['agent', 'messages'] (root namespace).
+    //
+    // FIX: Walk up the context tree to find the ancestor with the root pipelineId
+    // (empty string). This is the context that owns the parent agent's scope.
+    // The output mapping writes go there so the parent agent sees the sub-agent's
+    // result in its conversation history.
     if (!subflowError && mountOptions?.outputMapper) {
       try {
-        const parentScope = parentContext.getScope();
-        const mappedOutput = applyOutputMapping(subflowOutput, parentScope, parentContext, mountOptions);
+        // Find the correct context for output mapping writes.
+        // When parentContext is a child branch (non-empty pipelineId), walk up
+        // to the ancestor that owns the caller's scope (root pipelineId = '').
+        let outputContext = parentContext;
+        if (parentContext.pipelineId && parentContext.pipelineId !== '' && parentContext.parent) {
+          outputContext = parentContext.parent;
+        }
+
+        const parentScope = outputContext.getScope();
+        const mappedOutput = applyOutputMapping(subflowOutput, parentScope, outputContext, mountOptions);
         
-        // Log mapped output for debugging
+        // Log mapped output for debugging (on the original parentContext for visibility)
         if (mappedOutput && Object.keys(mappedOutput).length > 0) {
           parentContext.addLog('mappedOutput', mappedOutput);
+          parentContext.addLog('outputMappingTarget', outputContext.pipelineId || '(root)');
         }
         
-        // Commit the output mapping writes
-        parentContext.commit();
+        // Commit the output context's writes (may be different from parentContext)
+        outputContext.commit();
       } catch (error: any) {
         // Log outputMapper error but don't re-throw (non-fatal)
         parentContext.addError('outputMapperError', error.toString());
@@ -313,6 +340,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       },
       parentStageId: parentContext.getStageId(),
     };
+
+    // Attach the subflow's buildTimeStructure if available in the subflows dictionary.
+    // WHY: Enables the debug UI to render the subflow's flowchart as a nested
+    // visualization. The buildTimeStructure is stored alongside the root node
+    // when the subflow was registered (e.g., by AgentBuilder for sub-agent tools).
+    const subflowDef = this.ctx.subflows?.[subflowId];
+    if (subflowDef && (subflowDef as any).buildTimeStructure) {
+      subflowResult.pipelineStructure = (subflowDef as any).buildTimeStructure;
+    }
 
     // Store in parent stage's debugInfo for drill-down
     parentContext.addLog('subflowResult', subflowResult);

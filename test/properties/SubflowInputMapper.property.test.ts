@@ -264,7 +264,7 @@ describe('SubflowInputMapper — Property Tests', () => {
    * - Values SHALL be exactly equal to what was seeded
    */
   describe('Property: Seeding Preserves Values', () => {
-    it('seeded values are retrievable via getGlobal', () => {
+    it('seeded values are retrievable via scope accessors', () => {
       fc.assert(
         fc.property(
           scopeArbitrary.filter(s => Object.keys(s).length > 0),
@@ -275,7 +275,16 @@ describe('SubflowInputMapper — Property Tests', () => {
 
             const rootContext = runtime.rootStageContext;
             for (const [key, value] of Object.entries(initialValues)) {
-              expect(rootContext.getGlobal(key)).toEqual(value);
+              if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                // Nested objects are written via setObject (pipeline-namespaced)
+                // Read back each nested key via getValue
+                for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+                  expect(rootContext.getValue([key], nestedKey)).toEqual(nestedValue);
+                }
+              } else {
+                // Scalars are written via setGlobal (root-level)
+                expect(rootContext.getGlobal(key)).toEqual(value);
+              }
             }
           }
         ),

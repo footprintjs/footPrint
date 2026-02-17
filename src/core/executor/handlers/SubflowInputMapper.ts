@@ -197,8 +197,19 @@ export function seedSubflowGlobalStore(
   const rootContext = subflowRuntime.rootStageContext;
   
   for (const [key, value] of Object.entries(initialValues)) {
-    // Use setGlobal to write to the root level of GlobalStore
-    rootContext.setGlobal(key, value);
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      // For nested objects (e.g., { agent: { messages: [...] } }),
+      // write each nested key via setObject to use pipeline-namespaced paths.
+      // WHY: setGlobal writes to root GlobalStore, but stages read from
+      // pipeline-namespaced scope via setObject/getValue. Using setObject
+      // ensures the data lands in the correct namespace.
+      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        rootContext.setObject([key], nestedKey, nestedValue);
+      }
+    } else {
+      // Scalar values go to root level via setGlobal (backward compat)
+      rootContext.setGlobal(key, value);
+    }
   }
   
   // Commit the patch to make values visible immediately
@@ -241,9 +252,37 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
     return undefined;
   }
 
-  // Write mapped values to parent context using setGlobal
+  // Write mapped values to parent context using merge semantics.
+  // WHY: A subflow is a contributor — it adds data to the parent scope,
+  // not replaces it. Arrays are appended, objects are shallow-merged,
+  // scalars are replaced. This matches the "subflow as function return"
+  // mental model where the return value enriches the caller's state.
+  //
+  // Uses StageContext.appendToArray() and mergeObject() primitives
+  // so the write goes through the standard WriteBuffer → commit path.
   for (const [key, value] of Object.entries(mappedOutput)) {
-    parentContext.setGlobal(key, value);
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      // Nested object: merge each nested key with appropriate semantics
+      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (Array.isArray(nestedValue)) {
+          parentContext.appendToArray([key], nestedKey, nestedValue);
+        } else if (typeof nestedValue === 'object' && nestedValue !== null) {
+          parentContext.mergeObject([key], nestedKey, nestedValue as Record<string, unknown>);
+        } else {
+          parentContext.setObject([key], nestedKey, nestedValue);
+        }
+      }
+    } else if (Array.isArray(value)) {
+      // Top-level array: append to existing
+      const existing = parentContext.getGlobal(key);
+      if (Array.isArray(existing)) {
+        parentContext.setGlobal(key, [...existing, ...value]);
+      } else {
+        parentContext.setGlobal(key, value);
+      }
+    } else {
+      parentContext.setGlobal(key, value);
+    }
   }
 
   return mappedOutput;

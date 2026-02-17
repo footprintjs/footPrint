@@ -160,6 +160,10 @@ export class NodeResolver<TOut = any, TScope = any> {
       displayName: node.displayName || subflowDef.root.displayName,
       // Use reference node's id (mountId) for uniqueness
       id: node.id || subflowDef.root.id,
+      // Preserve subflowMountOptions from the reference node (inputMapper/outputMapper)
+      // WHY: The reference node carries the mount-time options (e.g., inputMapper
+      // that injects tool arguments). The subflow definition doesn't have these.
+      subflowMountOptions: node.subflowMountOptions || subflowDef.root.subflowMountOptions,
     };
 
     return resolvedNode;

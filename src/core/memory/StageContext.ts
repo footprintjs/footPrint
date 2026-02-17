@@ -244,6 +244,66 @@ export class StageContext {
   }
 
   /**
+   * Append items to an existing array at the given scope path.
+   *
+   * WHY: Stages and subflow output mappers frequently need to add items to
+   * collections (e.g., appending a message to conversation history). Without
+   * this primitive, consumers must do a manual read-append-write:
+   *   const arr = scope.getValue(path, key);
+   *   arr.push(newItem);
+   *   scope.setObject(path, key, arr);
+   *
+   * This method encapsulates that pattern as a first-class operation.
+   *
+   * DESIGN: Reads the existing value, appends new items, writes back the
+   * full merged array via setObject. If no existing array is found, the
+   * items become the new array. The full array is written to the WriteBuffer,
+   * so commit history captures the complete state (not just the delta).
+   *
+   * FUTURE: For granular "item was appended" tracking in the time traveler,
+   * this would need WriteBuffer-level CRDT support. See:
+   * docs/future/CRDT-array-operations.md
+   *
+   * @param path - Scope path (e.g., ['agent'])
+   * @param key - Key within the path (e.g., 'messages')
+   * @param items - Array of items to append
+   * @param description - Optional debug description
+   */
+  appendToArray(path: string[], key: string, items: unknown[], description?: string) {
+    const existing = this.getValue(path, key);
+    const merged = Array.isArray(existing) ? [...existing, ...items] : [...items];
+    this.setObject(path, key, merged, false, description);
+  }
+
+  /**
+   * Shallow merge an object into an existing object at the given scope path.
+   *
+   * WHY: Stages and subflow output mappers frequently need to add keys to
+   * existing objects without replacing the entire object. Without this
+   * primitive, consumers must do a manual read-merge-write.
+   *
+   * DESIGN: Reads the existing value, shallow merges new keys (new keys
+   * win on conflict), writes back via setObject. If no existing object
+   * is found, the new object becomes the value.
+   *
+   * FUTURE: For granular "key was merged" tracking in the time traveler,
+   * this would need WriteBuffer-level CRDT support. See:
+   * docs/future/CRDT-array-operations.md
+   *
+   * @param path - Scope path (e.g., ['agent'])
+   * @param key - Key within the path (e.g., 'config')
+   * @param obj - Object with keys to merge
+   * @param description - Optional debug description
+   */
+  mergeObject(path: string[], key: string, obj: Record<string, unknown>, description?: string) {
+    const existing = this.getValue(path, key);
+    const merged = (existing && typeof existing === 'object' && !Array.isArray(existing))
+      ? { ...(existing as Record<string, unknown>), ...obj }
+      : { ...obj };
+    this.setObject(path, key, merged, false, description);
+  }
+
+  /**
    * Reads a value with read-after-write semantics.
    * WHY: Staged writes should be visible before commit.
    */

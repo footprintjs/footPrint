@@ -201,6 +201,47 @@ export type StageNode<TOut = any, TScope = any> = {
    * _Requirements: subflow-input-mapping 1.5_
    */
   subflowMountOptions?: SubflowMountOptions;
+
+  /**
+   * Inline subflow definition for dynamic subflow attachment.
+   *
+   * WHY: Enables runtime subflow attachment without build-time registration.
+   * A stage function can construct or select a compiled FlowChart at runtime
+   * and return it inline on the StageNode. Pipeline auto-registers the
+   * definition in the subflows dictionary before routing to SubflowExecutor.
+   *
+   * DESIGN: When present alongside `isSubflowRoot: true` and `subflowId`,
+   * Pipeline registers `{ root, buildTimeStructure }` in the subflows
+   * dictionary using first-write-wins semantics, merges stageMap entries,
+   * and then proceeds with normal subflow resolution and execution.
+   *
+   * Use cases:
+   * - Agent tools that are compiled sub-agent FlowCharts
+   * - Microservice orchestration where service pipelines are compiled at startup
+   * - Plugin systems where plugins register FlowCharts dynamically
+   *
+   * @example
+   * ```typescript
+   * // A stage returns a dynamic subflow:
+   * return {
+   *   name: 'run-sub-agent',
+   *   isSubflowRoot: true,
+   *   subflowId: 'social-media-agent',
+   *   subflowDef: compiledAgentFlowChart,  // { root, stageMap, buildTimeStructure }
+   *   subflowMountOptions: {
+   *     inputMapper: (parentScope) => ({ agent: { messages: [...] } }),
+   *   },
+   * };
+   * ```
+   *
+   * _Requirements: dynamic-subflow-support 1.1, 1.2, 1.4_
+   */
+  subflowDef?: {
+    root: StageNode;
+    stageMap?: Map<string, PipelineStageFunction<TOut, TScope>>;
+    buildTimeStructure?: unknown;
+    subflows?: Record<string, { root: StageNode }>;
+  };
 };
 
 // Note: Dynamic behavior is detected via isStageNodeReturn() duck-typing on stage output.
@@ -746,6 +787,46 @@ export class Pipeline<TOut, TScope> {
         context.addLog('isDynamic', true);
         context.addLog('dynamicPattern', 'StageNodeReturn');
 
+        // ───────────────────── Dynamic Subflow Auto-Registration ─────────────────────
+        // WHY: When a stage returns a StageNode with isSubflowRoot + subflowDef,
+        // it's requesting dynamic subflow attachment. We auto-register the compiled
+        // FlowChart in the subflows dictionary so SubflowExecutor can resolve it.
+        // This enables runtime subflow attachment without build-time registration.
+        //
+        // DESIGN: First-write-wins — if a subflow with the same ID already exists
+        // in the dictionary, we preserve the existing definition. StageMap entries
+        // from the subflow are merged into the parent (parent entries preserved).
+        //
+        // After registration, we transfer subflow properties to the current node
+        // and recurse into executeNode so step 0 (subflow detection) picks it up.
+        //
+        // _Requirements: dynamic-subflow-support 2.1, 2.2, 2.3, 2.4, 2.5_
+        if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
+          context.addLog('dynamicPattern', 'dynamicSubflow');
+          context.addLog('dynamicSubflowId', dynamicNode.subflowId);
+
+          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef);
+
+          // Transfer subflow properties to current node for step 0 detection
+          node.isSubflowRoot = true;
+          node.subflowId = dynamicNode.subflowId;
+          node.subflowName = dynamicNode.subflowName;
+          node.subflowMountOptions = dynamicNode.subflowMountOptions;
+
+          // Recurse into executeNode — step 0 will detect isSubflowRoot
+          return await this.executeNode(node, context, breakFlag, branchPath);
+        }
+
+        // Also check children for subflowDef (e.g., tool dispatch returns
+        // parallel children where some are subflow references)
+        if (dynamicNode.children) {
+          for (const child of dynamicNode.children) {
+            if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
+              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef);
+            }
+          }
+        }
+
         // Handle dynamic children (fork pattern)
         if (dynamicNode.children && dynamicNode.children.length > 0) {
           node.children = dynamicNode.children;
@@ -1138,6 +1219,66 @@ export class Pipeline<TOut, TScope> {
     const nodeId = (contextStageName && contextStageName !== node.name) ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
+  }
+
+  /**
+   * Auto-register a dynamic subflow definition in the subflows dictionary.
+   *
+   * WHY: When a stage returns a dynamic StageNode with `subflowDef`, the
+   * compiled FlowChart needs to be registered so SubflowExecutor and
+   * NodeResolver can resolve it. This method handles the registration,
+   * stageMap merging, and handler context updates.
+   *
+   * DESIGN: First-write-wins — existing definitions are preserved.
+   * StageMap entries from the subflow are merged (parent entries preserved).
+   * Handler contexts are updated if the subflows dictionary was just created.
+   *
+   * @param subflowId - The subflow ID to register under
+   * @param subflowDef - The compiled FlowChart definition
+   *
+   * _Requirements: dynamic-subflow-support 2.1, 2.2, 2.3, 2.4, 2.5_
+   */
+  private autoRegisterSubflowDef(
+    subflowId: string,
+    subflowDef: NonNullable<StageNode['subflowDef']>,
+  ): void {
+    let subflowsDict = this.subflows as Record<string, { root: StageNode<TOut, TScope> }> | undefined;
+    if (!subflowsDict) {
+      subflowsDict = {};
+      (this as any).subflows = subflowsDict;
+      // Update all handler contexts to see the new dictionary
+      (this.nodeResolver as any).ctx.subflows = subflowsDict;
+      (this.subflowExecutor as any).ctx.subflows = subflowsDict;
+      (this.childrenExecutor as any).ctx.subflows = subflowsDict;
+    }
+
+    // First-write-wins
+    if (!subflowsDict[subflowId]) {
+      subflowsDict[subflowId] = {
+        root: subflowDef.root as StageNode<TOut, TScope>,
+        ...(subflowDef.buildTimeStructure
+          ? { buildTimeStructure: subflowDef.buildTimeStructure }
+          : {}),
+      } as any;
+    }
+
+    // Merge stageMap entries (parent entries preserved)
+    if (subflowDef.stageMap) {
+      for (const [key, fn] of subflowDef.stageMap.entries()) {
+        if (!this.stageMap.has(key)) {
+          this.stageMap.set(key, fn as PipelineStageFunction<TOut, TScope>);
+        }
+      }
+    }
+
+    // Merge nested subflows
+    if (subflowDef.subflows) {
+      for (const [key, def] of Object.entries(subflowDef.subflows)) {
+        if (!subflowsDict[key]) {
+          subflowsDict[key] = def as { root: StageNode<TOut, TScope> };
+        }
+      }
+    }
   }
 
   // ───────────────────────── Introspection helpers ─────────────────────────

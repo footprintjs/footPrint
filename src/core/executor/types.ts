@@ -364,6 +364,13 @@ export interface SubflowResult {
   };
   /** Parent stage ID that triggered this subflow */
   parentStageId: string;
+  /**
+   * Build-time pipeline structure for the subflow.
+   * WHY: Enables debug UI to render the subflow's flowchart as a nested
+   * visualization. Present when the subflow was registered with its
+   * buildTimeStructure (e.g., compiled agent FlowCharts).
+   */
+  pipelineStructure?: unknown;
 }
 
 /**
