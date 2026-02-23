@@ -55,6 +55,8 @@ export interface FlowChartSpec {
   name: string;
   id?: string;
   displayName?: string;
+  /** Human-readable description of what this stage does. */
+  description?: string;
   children?: FlowChartSpec[];
   next?: FlowChartSpec;
   hasDecider?: boolean;
@@ -77,6 +79,8 @@ export interface BuildTimeNodeMetadata {
   name: string;
   id?: string;
   displayName?: string;
+  /** Human-readable description of what this stage does. */
+  description?: string;
   children?: BuildTimeNodeMetadata[];
   next?: BuildTimeNodeMetadata;
   hasDecider?: boolean;
@@ -119,6 +123,8 @@ export interface SerializedPipelineStructure {
   id?: string;
   type: 'stage' | 'decider' | 'fork' | 'streaming';
   displayName?: string;
+  /** Human-readable description of what this stage does. */
+  description?: string;
   children?: SerializedPipelineStructure[];
   next?: SerializedPipelineStructure;
   hasDecider?: boolean;
@@ -168,6 +174,10 @@ export type FlowChart<TOut = any, TScope = any> = {
    * _Requirements: pipeline-narrative-generation 1.4_
    */
   enableNarrative?: boolean;
+  /** Pre-built execution context description string. Empty string when no descriptions provided. */
+  description: string;
+  /** Individual stage descriptions keyed by stage name. Empty map when no descriptions provided. */
+  stageDescriptions: Map<string, string>;
 };
 
 /**
@@ -247,18 +257,34 @@ export class DeciderList<TOut = any, TScope = any> {
    */
   private readonly isScopeBased: boolean;
 
+  /* ── Description accumulator references ── */
+  private readonly parentDescriptionParts: string[];
+  private readonly parentStageDescriptions: Map<string, string>;
+  private readonly reservedStepNumber: number;
+  private readonly deciderDescription?: string;
+  /** Collected branch info for description accumulation at end() */
+  private readonly branchDescInfo: Array<{ id: string; displayName?: string; description?: string }> = [];
+
   constructor(
     builder: FlowChartBuilder<TOut, TScope>,
     curNode: StageNode<TOut, TScope>,
     curSpec: SerializedPipelineStructure,
     decider: ((out?: TOut) => string | Promise<string>) | null,
     isScopeBased: boolean = false,
+    parentDescriptionParts: string[] = [],
+    parentStageDescriptions: Map<string, string> = new Map(),
+    reservedStepNumber: number = 0,
+    deciderDescription?: string,
   ) {
     this.b = builder;
     this.curNode = curNode;
     this.curSpec = curSpec;
     this.originalDecider = decider;
     this.isScopeBased = isScopeBased;
+    this.parentDescriptionParts = parentDescriptionParts;
+    this.parentStageDescriptions = parentStageDescriptions;
+    this.reservedStepNumber = reservedStepNumber;
+    this.deciderDescription = deciderDescription;
   }
 
   /**
@@ -271,6 +297,7 @@ export class DeciderList<TOut = any, TScope = any> {
     name: string,
     fn?: PipelineStageFunction<TOut, TScope>,
     displayName?: string,
+    description?: string,
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -279,6 +306,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = { name: name ?? id };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this.b._addToMap(name, fn);
@@ -288,6 +316,7 @@ export class DeciderList<TOut = any, TScope = any> {
     let spec: SerializedPipelineStructure = { name: name ?? id, type: 'stage' };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
     
     // Apply extractor immediately
     spec = this.b._applyExtractorToNode(spec);
@@ -297,6 +326,9 @@ export class DeciderList<TOut = any, TScope = any> {
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+
+    // Track branch info for description accumulation at end()
+    this.branchDescInfo.push({ id, displayName, description });
 
     return this;
   }
@@ -457,6 +489,32 @@ export class DeciderList<TOut = any, TScope = any> {
     // Set type to 'decider' now that we know it has branches
     this.curSpec.type = 'decider';
 
+    // Accumulate description lines for the decider and its branches
+    if (this.reservedStepNumber > 0) {
+      const deciderLabel = this.curNode.displayName || this.curNode.name;
+      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
+      const mainLine = this.deciderDescription
+        ? `${this.reservedStepNumber}. ${deciderLabel} — ${this.deciderDescription}`
+        : `${this.reservedStepNumber}. ${deciderLabel} — Decides between: ${branchIdList}`;
+      this.parentDescriptionParts.push(mainLine);
+
+      if (this.deciderDescription) {
+        this.parentStageDescriptions.set(this.curNode.name, this.deciderDescription);
+      }
+
+      // Append arrow lines for each branch
+      for (const branch of this.branchDescInfo) {
+        const branchText = branch.description || branch.displayName;
+        if (branchText) {
+          this.parentDescriptionParts.push(`   → ${branch.id}: ${branchText}`);
+        }
+        // Store individual branch descriptions
+        if (branch.description) {
+          this.parentStageDescriptions.set(branch.id, branch.description);
+        }
+      }
+    }
+
     return this.b;
   }
 }
@@ -477,16 +535,29 @@ export class SelectorList<TOut = any, TScope = any> {
   private readonly originalSelector: Selector;
   private readonly branchIds = new Set<string>();
 
+  /* ── Description accumulator references ── */
+  private readonly parentDescriptionParts: string[];
+  private readonly parentStageDescriptions: Map<string, string>;
+  private readonly reservedStepNumber: number;
+  /** Collected branch info for description accumulation at end() */
+  private readonly branchDescInfo: Array<{ id: string; displayName?: string; description?: string }> = [];
+
   constructor(
     builder: FlowChartBuilder<TOut, TScope>,
     curNode: StageNode<TOut, TScope>,
     curSpec: SerializedPipelineStructure,
     selector: Selector,
+    parentDescriptionParts: string[] = [],
+    parentStageDescriptions: Map<string, string> = new Map(),
+    reservedStepNumber: number = 0,
   ) {
     this.b = builder;
     this.curNode = curNode;
     this.curSpec = curSpec;
     this.originalSelector = selector;
+    this.parentDescriptionParts = parentDescriptionParts;
+    this.parentStageDescriptions = parentStageDescriptions;
+    this.reservedStepNumber = reservedStepNumber;
   }
 
   /**
@@ -497,6 +568,7 @@ export class SelectorList<TOut = any, TScope = any> {
     name: string,
     fn?: PipelineStageFunction<TOut, TScope>,
     displayName?: string,
+    description?: string,
   ): SelectorList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -505,6 +577,7 @@ export class SelectorList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = { name: name ?? id };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this.b._addToMap(name, fn);
@@ -514,6 +587,7 @@ export class SelectorList<TOut = any, TScope = any> {
     let spec: SerializedPipelineStructure = { name: name ?? id, type: 'stage' };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
     
     // Apply extractor immediately
     spec = this.b._applyExtractorToNode(spec);
@@ -523,6 +597,9 @@ export class SelectorList<TOut = any, TScope = any> {
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+
+    // Track branch info for description accumulation at end()
+    this.branchDescInfo.push({ id, displayName, description });
 
     return this;
   }
@@ -647,6 +724,26 @@ export class SelectorList<TOut = any, TScope = any> {
     // Set type to 'decider' now that we know it has branches
     this.curSpec.type = 'decider';
 
+    // Accumulate description lines for the selector and its branches
+    if (this.reservedStepNumber > 0) {
+      const selectorLabel = this.curNode.displayName || this.curNode.name;
+      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
+      const mainLine = `${this.reservedStepNumber}. ${selectorLabel} — Selects from: ${branchIdList}`;
+      this.parentDescriptionParts.push(mainLine);
+
+      // Append arrow lines for each branch
+      for (const branch of this.branchDescInfo) {
+        const branchText = branch.description || branch.displayName;
+        if (branchText) {
+          this.parentDescriptionParts.push(`   → ${branch.id}: ${branchText}`);
+        }
+        // Store individual branch descriptions
+        if (branch.description) {
+          this.parentStageDescriptions.set(branch.id, branch.description);
+        }
+      }
+    }
+
     return this.b;
   }
 }
@@ -707,6 +804,44 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   private _enableNarrative = false;
 
+  /* ── Description accumulator fields ── */
+
+  /** Accumulated description lines, built incrementally as stages are added. */
+  private _descriptionParts: string[] = [];
+
+  /** Current step number for description numbering. */
+  private _stepCounter = 0;
+
+  /** Map of stage name → individual description for UI tooltips. */
+  private _stageDescriptions = new Map<string, string>();
+
+  /** Map of stage name → step number for loopTo step-number lookup. */
+  private _stageStepMap = new Map<string, number>();
+
+  /**
+   * Increment step counter, format a description line, and push to _descriptionParts.
+   *
+   * WHY: Centralizes the incremental description accumulation logic so every
+   * builder method (start, addFunction, addStreamingFunction, etc.) uses the
+   * same formatting and bookkeeping.
+   *
+   * @param displayName - The display name (falls back to name)
+   * @param name - The stage name (used as key in maps)
+   * @param description - Optional human-readable description
+   */
+  private _appendDescriptionLine(displayName: string, name: string, description?: string): void {
+    this._stepCounter++;
+    this._stageStepMap.set(name, this._stepCounter);
+    const label = displayName || name;
+    const line = description
+      ? `${this._stepCounter}. ${label} — ${description}`
+      : `${this._stepCounter}. ${label}`;
+    this._descriptionParts.push(line);
+    if (description) {
+      this._stageDescriptions.set(name, description);
+    }
+  }
+
   /**
    * Enable narrative generation at build time.
    *
@@ -759,6 +894,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn?: PipelineStageFunction<TOut, TScope>,
     id?: string,
     displayName?: string,
+    description?: string,
   ): this {
     if (this._root) fail('root already defined; create a new builder');
 
@@ -766,6 +902,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = { name };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this._addToMap(name, fn);
@@ -775,6 +912,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     let spec: SerializedPipelineStructure = { name, type: 'stage' };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
     
     // Apply extractor immediately
     spec = this._applyExtractorToNode(spec);
@@ -783,6 +921,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._rootSpec = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+
+    // Accumulate description line
+    this._appendDescriptionLine(displayName || name, name, description);
 
     return this;
   }
@@ -797,6 +938,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn?: PipelineStageFunction<TOut, TScope>,
     id?: string,
     displayName?: string,
+    description?: string,
   ): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -805,6 +947,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = { name };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this._addToMap(name, fn);
@@ -814,6 +957,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     let spec: SerializedPipelineStructure = { name, type: 'stage' };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
     
     // Apply extractor immediately
     spec = this._applyExtractorToNode(spec);
@@ -825,6 +969,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // Move cursor
     this._cursor = node;
     this._cursorSpec = spec;
+
+    // Accumulate description line
+    this._appendDescriptionLine(displayName || name, name, description);
 
     return this;
   }
@@ -840,6 +987,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn?: PipelineStageFunction<TOut, TScope>,
     id?: string,
     displayName?: string,
+    description?: string,
   ): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -852,6 +1000,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this._addToMap(name, fn);
@@ -866,6 +1015,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
     
     // Apply extractor immediately
     spec = this._applyExtractorToNode(spec);
@@ -877,6 +1027,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // Move cursor
     this._cursor = node;
     this._cursorSpec = spec;
+
+    // Accumulate description line
+    this._appendDescriptionLine(displayName || name, name, description);
 
     return this;
   }
@@ -911,7 +1064,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // Mark as decider in spec (type will be set to 'decider' in DeciderList.end())
     curSpec.hasDecider = true;
 
-    return new DeciderList<TOut, TScope>(this, cur, curSpec, decider, false);
+    // Reserve a step number for the decider — the full description line
+    // (including branch names) is deferred to DeciderList.end()
+    this._stepCounter++;
+    this._stageStepMap.set(cur.name, this._stepCounter);
+
+    return new DeciderList<TOut, TScope>(
+      this, cur, curSpec, decider, false,
+      this._descriptionParts, this._stageDescriptions, this._stepCounter,
+    );
   }
 
   /**
@@ -954,6 +1115,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: PipelineStageFunction<TOut, TScope>,
     id?: string,
     displayName?: string,
+    description?: string,
   ): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -966,6 +1128,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = { name };
     if (id) node.id = id;
     if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
     node.fn = fn;
 
     // Register fn in stageMap so Pipeline can resolve it during execution
@@ -978,6 +1141,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     let spec: SerializedPipelineStructure = { name, type: 'stage', hasDecider: true };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
 
     // Apply build-time extractor to the node
     // _Requirements: decider-first-class-stage 6.3_
@@ -991,10 +1155,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._cursor = node;
     this._cursorSpec = spec;
 
+    // Reserve a step number for the decider — the full description line
+    // (including branch names) is deferred to DeciderList.end()
+    this._stepCounter++;
+    this._stageStepMap.set(name, this._stepCounter);
+
     // Return DeciderList with isScopeBased = true and decider = null
     // (no legacy decider function — the fn IS the decider)
+    // Pass reserved step number and description accumulator references
     // _Requirements: decider-first-class-stage 1.2_
-    return new DeciderList<TOut, TScope>(this, node, spec, null, true);
+    return new DeciderList<TOut, TScope>(
+      this, node, spec, null, true,
+      this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
+    );
   }
 
   /**
@@ -1012,7 +1185,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // Mark as selector in spec (type will be set to 'decider' in SelectorList.end())
     curSpec.hasSelector = true;
 
-    return new SelectorList<TOut, TScope>(this, cur, curSpec, selector);
+    // Reserve a step number for the selector — the full description line
+    // (including branch names) is deferred to SelectorList.end()
+    this._stepCounter++;
+    this._stageStepMap.set(cur.name, this._stepCounter);
+
+    return new SelectorList<TOut, TScope>(
+      this, cur, curSpec, selector,
+      this._descriptionParts, this._stageDescriptions, this._stepCounter,
+    );
   }
 
 
@@ -1113,6 +1294,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       }
     }
 
+    // Accumulate subflow description line
+    this._appendSubflowDescription(id, displayName, subflow);
+
     return this;
   }
 
@@ -1210,6 +1394,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       }
     }
 
+    // Accumulate subflow description line
+    this._appendSubflowDescription(id, displayName, subflow);
+
     return this;
   }
 
@@ -1261,6 +1448,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       curSpec.children.push(spec);
     }
 
+    // Accumulate parallel description line
+    const childNames = children.map((c) => c.displayName || c.name || c.id).join(', ');
+    this._stepCounter++;
+    this._descriptionParts.push(`${this._stepCounter}. Runs in parallel: ${childNames}`);
+
     return this;
   }
 
@@ -1282,6 +1474,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     cur.next = { name: stageId, id: stageId };
     curSpec.loopTarget = stageId;
     curSpec.next = { name: stageId, id: stageId, type: 'stage' };
+
+    // Accumulate loop-back description line
+    const targetStep = this._stageStepMap.get(stageId);
+    if (targetStep !== undefined) {
+      this._descriptionParts.push(`→ loops back to step ${targetStep}`);
+    } else {
+      this._descriptionParts.push(`→ loops back to ${stageId}`);
+    }
 
     return this;
   }
@@ -1341,6 +1541,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflows[key] = def;
     }
 
+    // Build the pre-built description string from accumulated parts
+    const rootName = this._root?.displayName ?? this._root?.name ?? 'Pipeline';
+    const description = this._descriptionParts.length > 0
+      ? `Pipeline: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}`
+      : '';
+
     // Return _rootSpec directly - O(1) instead of O(n)
     // Type computation and extractor application already done incrementally
     return {
@@ -1350,6 +1556,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
       ...(this._enableNarrative ? { enableNarrative: true } : {}),
+      description,
+      stageDescriptions: new Map(this._stageDescriptions),
     };
   }
 
@@ -1467,6 +1675,38 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       }
     }
   }
+
+  /**
+   * Append a subflow description line to _descriptionParts.
+   *
+   * WHY: Both addSubFlowChart and addSubFlowChartNext need the same
+   * description accumulation logic, so it's extracted here.
+   */
+  private _appendSubflowDescription(
+    id: string,
+    displayName: string,
+    subflow: FlowChart<TOut, TScope>,
+  ): void {
+    this._stepCounter++;
+    this._stageStepMap.set(id, this._stepCounter);
+    if (subflow.description) {
+      this._descriptionParts.push(
+        `${this._stepCounter}. [Sub-Execution: ${displayName}] — ${subflow.description}`,
+      );
+      // Indent sub-steps from the subflow's description if it has multi-line Steps:
+      const lines = subflow.description.split('\n');
+      const stepsIdx = lines.findIndex((l) => l.startsWith('Steps:'));
+      if (stepsIdx >= 0) {
+        for (let i = stepsIdx + 1; i < lines.length; i++) {
+          if (lines[i].trim()) {
+            this._descriptionParts.push(`   ${lines[i]}`);
+          }
+        }
+      }
+    } else {
+      this._descriptionParts.push(`${this._stepCounter}. [Sub-Execution: ${displayName}]`);
+    }
+  }
 }
 
 
@@ -1508,8 +1748,9 @@ export function flowChart<TOut = any, TScope = any>(
   id?: string,
   displayName?: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
+  description?: string,
 ): FlowChartBuilder<TOut, TScope> {
-  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn, id, displayName);
+  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn, id, displayName, description);
 }
 
 

@@ -121,6 +121,11 @@ export type StageNode<TOut = any, TScope = any> = {
   id?: string;
   /** Human-readable display name for UI visualization (e.g., "User Prompt" instead of "useQuestion") */
   displayName?: string;
+  /**
+   * Human-readable description of what this stage does.
+   * Used for execution context descriptions and auto-generated tool descriptions.
+   */
+  description?: string;
   /** Linear continuation */
   next?: StageNode<TOut, TScope>;
   /** Parallel children (fork) */

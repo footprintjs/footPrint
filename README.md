@@ -417,6 +417,46 @@ When `enrichSnapshots` is disabled (the default), the extra fields are simply ab
 
 ---
 
+## Stage Descriptions
+
+Attach a human-readable `description` to any stage via the last positional parameter on builder methods (`start`, `addFunction`, `addStreamingFunction`, `addDeciderFunction`, and branch methods). The builder incrementally composes a full execution context description as stages are added — no tree walking required at read time.
+
+```typescript
+const chart = flowChart('SeedScope', seedFn, 'seed-scope', undefined, 'Initialize conversation history')
+  .addFunction('AssemblePrompt', promptFn, 'assemble-prompt', undefined, 'Build LLM message array')
+  .addStreamingFunction('CallLLM', 'llm-stream', llmFn, 'call-llm', undefined, 'Send messages to LLM provider')
+  .addFunction('ParseResponse', parseFn, 'parse-response', undefined, 'Extract text or tool calls')
+  .addDeciderFunction('RouteDecider', deciderFn, 'route-decider', undefined, 'Route based on tool calls')
+    .addFunctionBranch('execute-tools', 'ExecuteTools', toolsFn, undefined, 'Run tools and loop back')
+    .addFunctionBranch('finalize', 'Finalize', finalizeFn, undefined, 'Extract final response')
+  .end()
+  .build();
+
+console.log(chart.description);
+// Pipeline: SeedScope
+// Steps:
+// 1. SeedScope — Initialize conversation history
+// 2. AssemblePrompt — Build LLM message array
+// 3. CallLLM — Send messages to LLM provider
+// 4. ParseResponse — Extract text or tool calls
+// 5. RouteDecider — Route based on tool calls
+//    → execute-tools: Run tools and loop back
+//    → finalize: Extract final response
+```
+
+The built `FlowChart` exposes two fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `flowChart.description` | `string` | Full numbered execution context description |
+| `flowChart.stageDescriptions` | `Map<string, string>` | Individual stage descriptions keyed by stage name |
+
+The description also covers parallel stages (`"Runs in parallel: A, B, C"`), subflows (`"[Sub-Execution: Name] — ..."`), and loop-backs (`"→ loops back to step M"`).
+
+When a `FlowChart` is registered as a tool handler in `ToolRegistry`, the registry auto-extracts `flowChart.description` as the tool description — no manual duplication needed. An explicit description on the tool definition always takes precedence.
+
+---
+
 ## Scope Types
 
 FootPrint supports two approaches to typed scope:
