@@ -30,6 +30,8 @@ const result = await executor.run();
 
 ## Why FootPrint?
 
+> 📖 **[Read the full story](./docs/STORY.md)** — Why FootPrint exists, who it's for, and the vision behind it.
+
 ### The Problem
 
 Traditional code obscures control flow. Callbacks, promises, and async/await scatter your logic across files. When something breaks, you're left tracing through stack traces and console logs.
