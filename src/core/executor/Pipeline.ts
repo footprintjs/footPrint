@@ -947,6 +947,51 @@ export class Pipeline<TOut, TScope> {
       if (!hasNext && !dynamicNext) {
         return nodeChildrenResults;
       }
+
+      // ── Capture dynamic children as subflow result for debug visualization ──
+      // WHY: When a stage dynamically creates children (e.g., tool execution),
+      // the UI needs subflowResults data to render them as a drillable subflow.
+      // ChildrenExecutor doesn't produce subflowResults — only SubflowExecutor does.
+      // So we create a synthetic entry here from the children's execution data.
+      //
+      // DESIGN: Only for dynamic children (isDynamic flag in context). Static
+      // children (build-time fork) don't need this — they're in the pipelineStructure.
+      const isDynamic = context.debug?.logContext?.isDynamic;
+      if (isDynamic && node.children && node.children.length > 0) {
+        const parentStageId = context.getStageId();
+
+        // Mark this node as a subflow root in context so the UI renders it
+        // with drill-down capability
+        context.addLog('isSubflowContainer', true);
+        context.addLog('subflowId', node.id || node.name);
+        context.addLog('subflowName', node.displayName || node.name);
+        context.addLog('hasSubflowData', true);
+
+        const childStructure: any = {
+          id: `${node.id || node.name}-children`,
+          name: 'Dynamic Children',
+          type: 'fork',
+          children: node.children.map(c => ({
+            id: c.id || c.name,
+            name: c.name,
+            displayName: c.displayName || c.name,
+            type: 'stage',
+          })),
+        };
+
+        this.subflowResults.set(node.id || node.name, {
+          subflowId: node.id || node.name,
+          subflowName: node.displayName || node.name,
+          treeContext: {
+            globalContext: {},
+            stageContexts: {} as unknown as Record<string, unknown>,
+            history: [],
+          },
+          parentStageId,
+          pipelineStructure: childStructure,
+        });
+      }
+
       // Fork + next or dynamicNext: continue below
     }
 
