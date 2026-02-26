@@ -31,24 +31,27 @@
  * sentences to the narrative. Decouples sentence generation from execution
  * logic so the narrative module can be maintained and tested independently.
  *
- * DESIGN: Methods accept raw stage/branch names plus optional displayNames.
- * The implementation decides formatting — callers never construct sentences.
+ * DESIGN: Methods accept raw stage/branch names plus optional displayNames
+ * and descriptions. The description field (set at build time on each stage)
+ * is used to produce natural narrative sentences. When no description is
+ * available, falls back to displayName then stageName.
+ *
  * When narrative is disabled, the NullNarrativeGenerator satisfies this
  * interface with empty method bodies (zero allocation, zero string work).
  *
  * @example
  * ```typescript
  * // During handler execution:
- * narrativeGenerator.onStageExecuted('validateInput', 'validate user input');
- * narrativeGenerator.onNext('validateInput', 'checkPerms', 'check permissions');
- * narrativeGenerator.onDecision('roleCheck', 'admin', 'grant full access', 'user role equals admin');
+ * narrativeGenerator.onStageExecuted('validateInput', 'Validate Input', 'Validate the user input');
+ * narrativeGenerator.onNext('validateInput', 'checkPerms', 'Check Permissions', 'Check user permissions');
+ * narrativeGenerator.onDecision('roleCheck', 'admin', 'Grant Access', 'user role equals admin', 'Decide access level');
  *
  * // After execution:
  * const story = narrativeGenerator.getSentences();
  * // → [
- * //   "The process began with validate user input.",
- * //   "Next, it moved on to check permissions.",
- * //   "A decision was made: user role equals admin, so the path taken was grant full access."
+ * //   "The process began: Validate the user input.",
+ * //   "Next step: Check user permissions.",
+ * //   "It decided access level: user role equals admin, so it chose Grant Access."
  * // ]
  * ```
  *
@@ -63,10 +66,11 @@ export interface INarrativeGenerator {
    *
    * @param stageName - Internal stage identifier (fallback when no displayName)
    * @param displayName - Human-readable name preferred for narrative output
+   * @param description - Stage description for natural narrative output
    *
    * _Requirements: 3.1, 8.2_
    */
-  onStageExecuted(stageName: string, displayName?: string): void;
+  onStageExecuted(stageName: string, displayName?: string, description?: string): void;
 
   /**
    * Called when the pipeline transitions from one stage to the next.
@@ -77,10 +81,11 @@ export interface INarrativeGenerator {
    * @param fromStage - The stage being left
    * @param toStage - The stage being entered (fallback when no displayName)
    * @param toDisplayName - Human-readable name of the target stage
+   * @param description - Stage description for natural narrative output
    *
    * _Requirements: 3.2, 8.2_
    */
-  onNext(fromStage: string, toStage: string, toDisplayName?: string): void;
+  onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void;
 
   /**
    * Called when a decider selects a branch.
@@ -93,10 +98,11 @@ export interface INarrativeGenerator {
    * @param chosenBranch - Internal name of the selected branch
    * @param chosenDisplayName - Human-readable name of the selected branch
    * @param rationale - Why this branch was chosen (natural-language clause)
+   * @param deciderDescription - Description of what the decider evaluates
    *
    * _Requirements: 4.1, 4.2, 4.3, 8.3_
    */
-  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string): void;
+  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string, deciderDescription?: string): void;
 
   /**
    * Called when a fork executes all children in parallel.
@@ -157,10 +163,11 @@ export interface INarrativeGenerator {
    * @param targetStage - The stage being looped back to
    * @param targetDisplayName - Human-readable name of the target stage
    * @param iteration - 1-based iteration number
+   * @param description - Stage description for what happens in this loop pass
    *
    * _Requirements: 6.1, 6.2, 8.4_
    */
-  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number): void;
+  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number, description?: string): void;
 
   /**
    * Called when a stage calls the break function to stop execution.

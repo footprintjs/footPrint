@@ -370,9 +370,12 @@ export class DeciderList<TOut = any, TScope = any> {
 
     const displayName = mountName || id;
 
-    // Register subflow definition
+    // Namespace the subflow's stage names with mount id to prevent collisions
+    const prefixedRoot = (this.b as any)._prefixNodeTree(subflow.root, id);
+
+    // Register subflow definition with prefixed root
     if (!this.b._subflowDefs.has(id)) {
-      this.b._subflowDefs.set(id, { root: subflow.root });
+      this.b._subflowDefs.set(id, { root: prefixedRoot });
     }
 
     // Create reference StageNode
@@ -411,14 +414,20 @@ export class DeciderList<TOut = any, TScope = any> {
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
 
-    // Merge stage maps
-    this.b._mergeStageMap(subflow.stageMap);
+    // Merge stage maps with namespace prefix
+    this.b._mergeStageMap(subflow.stageMap, id);
 
-    // Merge nested subflows
+    // Merge nested subflows with namespace prefix
     if (subflow.subflows) {
       for (const [key, def] of Object.entries(subflow.subflows)) {
-        if (!this.b._subflowDefs.has(key)) {
-          this.b._subflowDefs.set(key, def);
+        const prefixedKey = `${id}/${key}`;
+        if (!this.b._subflowDefs.has(prefixedKey)) {
+          this.b._subflowDefs.set(prefixedKey, {
+            root: (this.b as any)._prefixNodeTree(
+              def.root as StageNode<TOut, TScope>,
+              id,
+            ),
+          });
         }
       }
     }
@@ -640,9 +649,12 @@ export class SelectorList<TOut = any, TScope = any> {
 
     const displayName = mountName || id;
 
-    // Register subflow definition
+    // Namespace the subflow's stage names with mount id to prevent collisions
+    const prefixedRoot = (this.b as any)._prefixNodeTree(subflow.root, id);
+
+    // Register subflow definition with prefixed root
     if (!this.b._subflowDefs.has(id)) {
-      this.b._subflowDefs.set(id, { root: subflow.root });
+      this.b._subflowDefs.set(id, { root: prefixedRoot });
     }
 
     // Create reference StageNode
@@ -681,14 +693,20 @@ export class SelectorList<TOut = any, TScope = any> {
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
 
-    // Merge stage maps
-    this.b._mergeStageMap(subflow.stageMap);
+    // Merge stage maps with namespace prefix
+    this.b._mergeStageMap(subflow.stageMap, id);
 
-    // Merge nested subflows
+    // Merge nested subflows with namespace prefix
     if (subflow.subflows) {
       for (const [key, def] of Object.entries(subflow.subflows)) {
-        if (!this.b._subflowDefs.has(key)) {
-          this.b._subflowDefs.set(key, def);
+        const prefixedKey = `${id}/${key}`;
+        if (!this.b._subflowDefs.has(prefixedKey)) {
+          this.b._subflowDefs.set(prefixedKey, {
+            root: (this.b as any)._prefixNodeTree(
+              def.root as StageNode<TOut, TScope>,
+              id,
+            ),
+          });
         }
       }
     }
@@ -1242,9 +1260,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const displayName = mountName || id;
     const forkId = cur.id ?? cur.name;
 
-    // Register subflow definition
+    // Namespace the subflow's stage names with mount id to prevent
+    // collisions when multiple subflows share the same stage names
+    // (e.g., two SimpleAgents both having "SeedScope").
+    const prefixedRoot = this._prefixNodeTree(subflow.root, id);
+
+    // Register subflow definition with prefixed root
     if (!this._subflowDefs.has(id)) {
-      this._subflowDefs.set(id, { root: subflow.root });
+      this._subflowDefs.set(id, { root: prefixedRoot });
     }
 
     // Create reference StageNode
@@ -1278,7 +1301,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // Store the COMPLETE subflow structure for drill-down visualization
       subflowStructure: subflow.buildTimeStructure,
     };
-    
+
     // Apply extractor to the reference spec
     spec = this._applyExtractorToNode(spec);
 
@@ -1291,14 +1314,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
 
-    // Merge stage maps
-    this._mergeStageMap(subflow.stageMap);
+    // Merge stage maps with namespace prefix
+    this._mergeStageMap(subflow.stageMap, id);
 
-    // Merge nested subflows
+    // Merge nested subflows with namespace prefix
     if (subflow.subflows) {
       for (const [key, def] of Object.entries(subflow.subflows)) {
-        if (!this._subflowDefs.has(key)) {
-          this._subflowDefs.set(key, def);
+        const prefixedKey = `${id}/${key}`;
+        if (!this._subflowDefs.has(prefixedKey)) {
+          this._subflowDefs.set(prefixedKey, {
+            root: this._prefixNodeTree(
+              def.root as StageNode<TOut, TScope>,
+              id,
+            ),
+          });
         }
       }
     }
@@ -1342,9 +1371,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const displayName = mountName || id;
 
-    // Register subflow definition
+    // Namespace the subflow's stage names with mount id to prevent
+    // collisions when multiple subflows share the same stage names.
+    const prefixedRoot = this._prefixNodeTree(subflow.root, id);
+
+    // Register subflow definition with prefixed root
     if (!this._subflowDefs.has(id)) {
-      this._subflowDefs.set(id, { root: subflow.root });
+      this._subflowDefs.set(id, { root: prefixedRoot });
     }
 
     // Create reference StageNode
@@ -1376,7 +1409,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // Store the COMPLETE subflow structure for drill-down visualization
       subflowStructure: subflow.buildTimeStructure,
     };
-    
+
     // Apply extractor to the attached spec
     attachedSpec = this._applyExtractorToNode(attachedSpec);
 
@@ -1391,14 +1424,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._cursor = node;
     this._cursorSpec = attachedSpec;
 
-    // Merge stage maps
-    this._mergeStageMap(subflow.stageMap);
+    // Merge stage maps with namespace prefix
+    this._mergeStageMap(subflow.stageMap, id);
 
-    // Merge nested subflows
+    // Merge nested subflows with namespace prefix
     if (subflow.subflows) {
       for (const [key, def] of Object.entries(subflow.subflows)) {
-        if (!this._subflowDefs.has(key)) {
-          this._subflowDefs.set(key, def);
+        const prefixedKey = `${id}/${key}`;
+        if (!this._subflowDefs.has(prefixedKey)) {
+          this._subflowDefs.set(prefixedKey, {
+            root: this._prefixNodeTree(
+              def.root as StageNode<TOut, TScope>,
+              id,
+            ),
+          });
         }
       }
     }
@@ -1673,16 +1712,59 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageMap.set(name, fn);
   }
 
-  /** Merge another flow's stageMap; throw on name collisions. */
-  _mergeStageMap(other: Map<string, PipelineStageFunction<TOut, TScope>>) {
+  /**
+   * Merge another flow's stageMap; throw on name collisions.
+   *
+   * WHY: When mounting subflows, their stage functions need to be accessible
+   * from the parent's shared stageMap. An optional `prefix` parameter
+   * namespaces all keys (e.g., "classify/SeedScope") to prevent collisions
+   * when multiple subflows share the same stage names.
+   *
+   * @param other - The stageMap to merge in
+   * @param prefix - Optional namespace prefix for all keys (e.g., mount id)
+   */
+  _mergeStageMap(
+    other: Map<string, PipelineStageFunction<TOut, TScope>>,
+    prefix?: string,
+  ) {
     for (const [k, v] of other) {
-      if (this._stageMap.has(k)) {
-        const existing = this._stageMap.get(k);
-        if (existing !== v) fail(`stageMap collision while mounting flowchart at '${k}'`);
+      const key = prefix ? `${prefix}/${k}` : k;
+      if (this._stageMap.has(key)) {
+        const existing = this._stageMap.get(key);
+        if (existing !== v) fail(`stageMap collision while mounting flowchart at '${key}'`);
       } else {
-        this._stageMap.set(k, v);
+        this._stageMap.set(key, v);
       }
     }
+  }
+
+  /**
+   * Deep-clone a StageNode tree, prefixing all `name` (stageMap key) and
+   * `subflowId` properties so the tree references the namespaced stageMap.
+   *
+   * WHY: When two subflows have identically-named stages (e.g., both have
+   * "SeedScope"), prefixing avoids stageMap collisions. The cloned tree
+   * is stored in _subflowDefs so runtime execution uses the prefixed names.
+   *
+   * @param node - Root of the tree to clone
+   * @param prefix - Namespace prefix (e.g., the mount id "classify")
+   * @returns A new tree with all names prefixed
+   */
+  private _prefixNodeTree(
+    node: StageNode<TOut, TScope>,
+    prefix: string,
+  ): StageNode<TOut, TScope> {
+    if (!node) return node;
+    const clone: StageNode<TOut, TScope> = { ...node };
+    clone.name = `${prefix}/${node.name}`;
+    if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
+    if (clone.next) clone.next = this._prefixNodeTree(clone.next, prefix);
+    if (clone.children) {
+      clone.children = clone.children.map((c) =>
+        this._prefixNodeTree(c, prefix),
+      );
+    }
+    return clone;
   }
 
   /**

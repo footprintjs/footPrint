@@ -252,7 +252,7 @@ describe('FlowChartBuilder Subflow Metadata Property Tests', () => {
             // Verify subflow definition is stored with mount id as key
             const hasSubflowDef = subflows !== undefined &&
               subflows[subflowId] !== undefined &&
-              subflows[subflowId].root.name === subflowRootName;
+              subflows[subflowId].root.name === `${subflowId}/${subflowRootName}`;
 
             return refHasMetadata && hasSubflowDef;
           },

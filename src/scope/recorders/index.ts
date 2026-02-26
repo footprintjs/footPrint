@@ -66,3 +66,17 @@ export type { StageMetrics, AggregatedMetrics } from './MetricRecorder';
  */
 export { DebugRecorder } from './DebugRecorder';
 export type { DebugVerbosity, DebugEntry, DebugRecorderOptions } from './DebugRecorder';
+
+/**
+ * NarrativeRecorder - Captures per-stage scope reads/writes for narrative enrichment.
+ * Bridges the gap between flow-level narrative (NarrativeGenerator) and data-level detail.
+ * Produces structured per-stage data and text sentences that can be merged with
+ * NarrativeGenerator output for the full picture: what happened AND what was produced.
+ */
+export { NarrativeRecorder } from './NarrativeRecorder';
+export type {
+  NarrativeDetail,
+  NarrativeOperation,
+  StageNarrativeData,
+  NarrativeRecorderOptions,
+} from './NarrativeRecorder';

@@ -1155,7 +1155,7 @@ export class Pipeline<TOut, TScope> {
 
       // Narrative: record that this stage executed successfully
       // _Requirements: 3.1_
-      this.narrativeGenerator.onStageExecuted(node.name, node.displayName);
+      this.narrativeGenerator.onStageExecuted(node.name, node.displayName, node.description);
 
       if (breakFlag.shouldBreak) {
         // Narrative: record that execution stopped here due to break
@@ -1448,7 +1448,7 @@ export class Pipeline<TOut, TScope> {
       
       // Narrative: record the transition to the next stage
       // _Requirements: 3.2_
-      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.displayName);
+      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.displayName, nextNode.description);
       
       // Log flow control decision for linear next
       // _Requirements: flow-control-narrative REQ-3 (Task 2)

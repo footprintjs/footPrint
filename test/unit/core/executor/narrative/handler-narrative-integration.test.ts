@@ -138,6 +138,7 @@ describe('DeciderHandler narrative integration', () => {
         'grantAccess',      // chosenBranch (name)
         'Grant Full Access', // chosenDisplayName
         undefined,           // rationale (none set)
+        undefined,           // deciderDescription (none set)
       );
     });
 
@@ -174,6 +175,7 @@ describe('DeciderHandler narrative integration', () => {
         'adminPath',
         'Admin Path',
         'user role equals admin',
+        undefined,           // deciderDescription (none set)
       );
     });
 
@@ -258,6 +260,7 @@ describe('DeciderHandler narrative integration', () => {
         'branchA',
         'Branch A',
         undefined, // no rationale set
+        undefined, // no deciderDescription set
       );
     });
 
@@ -503,6 +506,7 @@ describe('LoopHandler narrative integration', () => {
         'askLLM',     // targetStage name
         'Ask LLM',    // targetDisplayName
         1,            // iteration (1-based, first loop-back)
+        undefined,    // description (none set)
       );
     });
 
@@ -532,8 +536,8 @@ describe('LoopHandler narrative integration', () => {
         { shouldBreak: false }, 'main', executeNode);
 
       expect(mockNarrative.onLoop).toHaveBeenCalledTimes(2);
-      expect(mockNarrative.onLoop).toHaveBeenNthCalledWith(1, 'retry', 'Retry Step', 1);
-      expect(mockNarrative.onLoop).toHaveBeenNthCalledWith(2, 'retry', 'Retry Step', 2);
+      expect(mockNarrative.onLoop).toHaveBeenNthCalledWith(1, 'retry', 'Retry Step', 1, undefined);
+      expect(mockNarrative.onLoop).toHaveBeenNthCalledWith(2, 'retry', 'Retry Step', 2, undefined);
     });
   });
 
@@ -569,6 +573,7 @@ describe('LoopHandler narrative integration', () => {
         'processItem',
         'Process Item',
         1,
+        undefined,    // description (none set)
       );
     });
   });

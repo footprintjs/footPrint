@@ -233,7 +233,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // engineering — knowing *why* a branch was taken lets even a cheaper model reason
     // about the execution.
     // _Requirements: 4.1, 4.3_
-    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale);
+    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale, node.description);
 
     deciderStageContext.commit();
 
@@ -380,7 +380,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // WHY: Scope-based deciders are first-class decisions — the narrative should
     // capture the branch chosen and rationale just like legacy deciders.
     // _Requirements: 4.2, 4.3_
-    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale);
+    this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale, node.description);
 
     // Continue execution with the chosen child
     // WHY: Create next context from the current context so the chosen child

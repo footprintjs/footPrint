@@ -44,6 +44,9 @@ FootPrint makes control flow **explicit and inspectable**:
 - **Execution as Artifact**: Every step is recorded, replayable, debuggable
 - **Scoped State**: No more global state bugs or race conditions
 - **Time-Travel Debugging**: Step backward and forward through execution
+- **Self-Documenting Tools**: Stage descriptions cascade into tool definitions. LLMs see the full inner workflow. No manual description writing needed.
+- **Built-in Observability**: Recorders capture per-stage data. DebugRecorder, MetricRecorder, and NarrativeRecorder ship out of the box. Debug without re-running.
+- **Narrative Generation**: Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
 
 ---
 
@@ -650,6 +653,17 @@ New to FootPrint? Build foundational understanding first:
 | [Patterns](./docs/guides/PATTERNS.md) | Fork, Decider, Selector patterns |
 | [Dynamic Children](./docs/guides/DYNAMIC_CHILDREN.md) | Runtime node generation |
 | [Scope Communication](./docs/guides/SCOPE_COMMUNICATION.md) | Cross-stage data sharing |
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| [The Cascade](./docs/features/README.md) | How descriptions, observability, and narrative work together |
+| [Stage Descriptions](./docs/features/stage-descriptions.md) | Self-documenting FlowCharts for LLM tool understanding |
+| [Recorders](./docs/features/recorders.md) | Composable observers: DebugRecorder, MetricRecorder, NarrativeRecorder (+ LLMRecorder, CostRecorder in AgentFootPrints) |
+| [Traversal Extractor](./docs/features/traversal-extractor.md) | Per-stage data capture during pipeline execution |
+| [Observability](./docs/features/observability-enriched-snapshots.md) | The 3-layer observability model and enriched snapshots |
+| [Narrative Generation](./docs/features/narrative-generation.md) | Plain-English execution stories for LLM context engineering |
 
 ### Technical Internals
 

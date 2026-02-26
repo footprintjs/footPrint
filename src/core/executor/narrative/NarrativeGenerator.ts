@@ -9,7 +9,8 @@
  * RESPONSIBILITIES:
  * - Accumulate narrative sentences in execution order
  * - Apply consistent sentence patterns for each event type
- * - Prefer displayName over internal stage name for readability
+ * - Use stage description (build-time) for natural narrative output
+ * - Fall back to displayName then stageName for stage identification
  * - Format decider rationale as natural-language clauses
  * - Format loop iterations as ordinal references
  * - Return a defensive copy of sentences to prevent external mutation
@@ -19,8 +20,11 @@
  *   not reconstructed after the fact. This guarantees execution-order fidelity
  *   and avoids a post-processing walk.
  * - isFirstStage flag: The opening sentence uses a distinct pattern
- *   ("The process began with…") to give the narrative a natural start.
+ *   ("The process began…") to give the narrative a natural start.
  *   Subsequent stages are covered by transition events (onNext, onDecision, etc.).
+ * - Description priority: When a stage provides a description string, the
+ *   narrative uses it for context-rich output. Without it, falls back to
+ *   "moved on to {name}" pattern.
  * - Defensive copy on getSentences(): Callers cannot mutate the internal array,
  *   preserving the generator's integrity across multiple reads.
  *
@@ -33,15 +37,17 @@
  * ```typescript
  * const narrator = new NarrativeGenerator();
  *
- * narrator.onStageExecuted('validateInput', 'validate user input');
- * narrator.onNext('validateInput', 'checkPerms', 'check permissions');
- * narrator.onDecision('roleCheck', 'admin', 'grant full access', 'the user role equals admin');
+ * narrator.onStageExecuted('Initialize', undefined, 'Set up the agent with LLM and tools');
+ * narrator.onNext('Initialize', 'Assemble Prompt', undefined, 'Build the prompt from system instructions');
+ * narrator.onNext('Assemble Prompt', 'Call LLM', undefined, 'Send messages to the LLM provider');
+ * narrator.onDecision('Route Decider', 'finalize', 'Finalize', 'the LLM provided a final answer', 'Decide whether to use tools or respond');
  *
  * narrator.getSentences();
  * // → [
- * //   "The process began with validate user input.",
- * //   "Next, it moved on to check permissions.",
- * //   "A decision was made: the user role equals admin, so the path taken was grant full access."
+ * //   "The process began: Set up the agent with LLM and tools.",
+ * //   "Next step: Build the prompt from system instructions.",
+ * //   "Next step: Send messages to the LLM provider.",
+ * //   "It decided whether to use tools or respond: the LLM provided a final answer, so it chose Finalize."
  * // ]
  * ```
  *
@@ -57,14 +63,17 @@ export class NarrativeGenerator implements INarrativeGenerator {
 
   /**
    * WHY: The first stage uses a distinct opening pattern to give the
-   * narrative a natural beginning. Subsequent stages are narrated via
-   * transition events (onNext, onDecision, etc.), so only the opener
-   * is recorded here to avoid duplicate mentions.
+   * narrative a natural beginning. When description is available,
+   * uses it for a more descriptive opener.
    */
-  onStageExecuted(stageName: string, displayName?: string): void {
-    const name = displayName || stageName;
+  onStageExecuted(stageName: string, displayName?: string, description?: string): void {
     if (this.isFirstStage) {
-      this.sentences.push(`The process began with ${name}.`);
+      if (description) {
+        this.sentences.push(`The process began: ${description}.`);
+      } else {
+        const name = displayName || stageName;
+        this.sentences.push(`The process began with ${name}.`);
+      }
       this.isFirstStage = false;
     }
   }
@@ -72,20 +81,30 @@ export class NarrativeGenerator implements INarrativeGenerator {
   /**
    * WHY: Linear continuations are the backbone of the narrative — they
    * let the reader follow the execution path step by step.
+   * When description is available, uses it for context-rich output.
    */
-  onNext(fromStage: string, toStage: string, toDisplayName?: string): void {
-    const name = toDisplayName || toStage;
-    this.sentences.push(`Next, it moved on to ${name}.`);
+  onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void {
+    if (description) {
+      this.sentences.push(`Next step: ${description}.`);
+    } else {
+      const name = toDisplayName || toStage;
+      this.sentences.push(`Next, it moved on to ${name}.`);
+    }
   }
 
   /**
    * WHY: Decision points are the most valuable part of the narrative for
    * LLM context engineering. Including the rationale lets even a cheaper
    * model reason about why a branch was taken.
+   * When deciderDescription is available, uses it for natural phrasing.
    */
-  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string): void {
+  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string, deciderDescription?: string): void {
     const branchName = chosenDisplayName || chosenBranch;
-    if (rationale) {
+    if (deciderDescription && rationale) {
+      this.sentences.push(`It ${deciderDescription}: ${rationale}, so it chose ${branchName}.`);
+    } else if (deciderDescription) {
+      this.sentences.push(`It ${deciderDescription} and chose ${branchName}.`);
+    } else if (rationale) {
       this.sentences.push(`A decision was made: ${rationale}, so the path taken was ${branchName}.`);
     } else {
       this.sentences.push(`A decision was made, and the path taken was ${branchName}.`);
@@ -128,10 +147,15 @@ export class NarrativeGenerator implements INarrativeGenerator {
   /**
    * WHY: Captures repeated execution so the reader can track iteration
    * counts and understand retry/loop behavior.
+   * When description is available, produces "On pass N: {description} again."
    */
-  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number): void {
-    const name = targetDisplayName || targetStage;
-    this.sentences.push(`On pass ${iteration} through ${name}.`);
+  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number, description?: string): void {
+    if (description) {
+      this.sentences.push(`On pass ${iteration}: ${description} again.`);
+    } else {
+      const name = targetDisplayName || targetStage;
+      this.sentences.push(`On pass ${iteration} through ${name}.`);
+    }
   }
 
   /**

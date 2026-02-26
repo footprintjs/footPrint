@@ -175,8 +175,8 @@ describe('FlowChartBuilder — build shapes', () => {
     // Subflows are now stored with the mount id as the key (not the root name)
     expect(subflows!['smalltalk']).toBeDefined();
     expect(subflows!['qa']).toBeDefined();
-    expect(subflows!['smalltalk'].root.name).toBe('Smalltalk_Start');
-    expect(subflows!['qa'].root.name).toBe('RAG_Start');
+    expect(subflows!['smalltalk'].root.name).toBe('smalltalk/Smalltalk_Start');
+    expect(subflows!['qa'].root.name).toBe('qa/RAG_Start');
   });
 
   test('composition (fork children): addSubFlowChart mounts subflows as references', () => {
@@ -212,8 +212,8 @@ describe('FlowChartBuilder — build shapes', () => {
     // Subflows are now stored with the mount id as the key (not the root name)
     expect(subflows!['faq']).toBeDefined();
     expect(subflows!['help']).toBeDefined();
-    expect(subflows!['faq'].root.name).toBe('FAQ_Start');
-    expect(subflows!['help'].root.name).toBe('Help_Start');
+    expect(subflows!['faq'].root.name).toBe('faq/FAQ_Start');
+    expect(subflows!['help'].root.name).toBe('help/Help_Start');
   });
 });
 
@@ -238,11 +238,19 @@ describe('FlowChartBuilder — validations & errors', () => {
   });
 
   test('stageMap collision when mounting subtree throws', () => {
+    // With internal namespacing, different mount ids ('a', 'b') namespace their
+    // stages ('a/shared', 'b/shared') so they no longer collide.
+    // A collision now only occurs when the same mount id is reused (duplicate child).
     const subA = new FlowChartBuilder().start('shared', (() => {}) as any).build();
     const subB = new FlowChartBuilder().start('shared', (() => 'other') as any).build();
     const main = new FlowChartBuilder().start('root');
 
-    expect(() => main.addSubFlowChart('a', subA, 'A').addSubFlowChart('b', subB, 'B')).toThrow(/stageMap collision/i);
+    // Different mount ids → namespaced stages → no collision
+    expect(() => main.addSubFlowChart('a', subA, 'A').addSubFlowChart('b', subB, 'B')).not.toThrow();
+
+    // Same mount id → duplicate child id → throws
+    const main2 = new FlowChartBuilder().start('root');
+    expect(() => main2.addSubFlowChart('a', subA, 'A').addSubFlowChart('a', subB, 'A2')).toThrow(/duplicate child id/i);
   });
 
   test('stageMap collision within single builder when embedding fn with same name throws', () => {
