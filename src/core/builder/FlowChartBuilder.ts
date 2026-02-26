@@ -150,6 +150,15 @@ export interface SerializedPipelineStructure {
    * When removing, update FE useTreeLayout.ts to handle the lookup properly.
    */
   subflowStructure?: SerializedPipelineStructure;
+  /**
+   * Number of times this node was executed in a loop.
+   * Only present when the node was visited more than once.
+   *
+   * WHY: Enables the runtime pipeline structure to track loop iterations
+   * so consumers can visualize how many times a looping node was executed
+   * without needing external reconstruction from runtime data.
+   */
+  iterationCount?: number;
 }
 
 /**

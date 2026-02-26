@@ -28,6 +28,7 @@ import type {
 import type { ScopeFactory } from '../memory/types';
 import type { PipelineRuntime, RuntimeSnapshot } from '../memory/PipelineRuntime';
 import type { ScopeProtectionMode } from '../../scope/protection/types';
+import type { SerializedPipelineStructure } from '../builder/FlowChartBuilder';
 
 /**
  * Compiled flowchart ready for execution.
@@ -69,6 +70,15 @@ export type FlowChart<TOut = any, TScope = any> = {
    * _Requirements: pipeline-narrative-generation 1.4_
    */
   enableNarrative?: boolean;
+  /**
+   * Static build-time pipeline structure from FlowChartBuilder.
+   *
+   * WHY: Passed through to Pipeline so it can deep-clone into
+   * runtimePipelineStructure for runtime structure tracking.
+   *
+   * _Requirements: runtime-pipeline-structure 1.1_
+   */
+  buildTimeStructure?: SerializedPipelineStructure;
 };
 
 
@@ -214,6 +224,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       args.flowChart.subflows,
       args.enrichSnapshots ?? args.flowChart.enrichSnapshots,
       narrativeFlag,
+      args.flowChart.buildTimeStructure,
     );
   }
 
@@ -335,6 +346,19 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   getRuntimeRoot(): StageNode {
     return this.pipeline.getRuntimeRoot();
   }
+
+  /**
+   * Returns the complete runtime pipeline structure including dynamic updates.
+   *
+   * WHY: This is the authoritative structure for visualization — no external
+   * reconstruction needed. Delegates to Pipeline.getRuntimePipelineStructure().
+   *
+   * _Requirements: runtime-pipeline-structure 6.1_
+   */
+  getRuntimePipelineStructure(): SerializedPipelineStructure | undefined {
+    return this.pipeline.getRuntimePipelineStructure();
+  }
+
 
   /**
    * Returns the collected SubflowResultsMap after execution.

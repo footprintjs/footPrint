@@ -76,10 +76,27 @@ export class LoopHandler<TOut = any, TScope = any> {
    */
   private iterationCounters: Map<string, number> = new Map();
 
+  /**
+   * Optional callback invoked when a node's iteration count changes.
+   *
+   * WHY: Pipeline needs to update the runtime pipeline structure with iteration
+   * counts, but LoopHandler owns the counters. This callback bridges the two
+   * without creating a circular dependency.
+   *
+   * @param nodeId - The node ID whose iteration count changed
+   * @param count - The new total iteration count (number of times visited)
+   *
+   * _Requirements: runtime-pipeline-structure 5.1_
+   */
+  private readonly onIterationUpdate?: (nodeId: string, count: number) => void;
+
   constructor(
     private readonly ctx: PipelineContext<TOut, TScope>,
     private readonly nodeResolver: NodeResolver<TOut, TScope>,
-  ) {}
+    onIterationUpdate?: (nodeId: string, count: number) => void,
+  ) {
+    this.onIterationUpdate = onIterationUpdate;
+  }
 
   /**
    * Handle dynamic next (loop-back or dynamic continuation).
@@ -235,6 +252,14 @@ export class LoopHandler<TOut = any, TScope = any> {
   getAndIncrementIteration(nodeId: string): number {
     const current = this.iterationCounters.get(nodeId) ?? 0;
     this.iterationCounters.set(nodeId, current + 1);
+
+    // Notify Pipeline to update runtime pipeline structure with iteration count
+    // current + 1 is the total number of visits (1-based)
+    // _Requirements: runtime-pipeline-structure 5.1_
+    if (this.onIterationUpdate) {
+      this.onIterationUpdate(nodeId, current + 1);
+    }
+
     return current;
   }
 
