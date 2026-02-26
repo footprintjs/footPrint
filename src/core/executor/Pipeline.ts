@@ -92,6 +92,7 @@ import { DeciderHandler } from './handlers/DeciderHandler';
 import { NarrativeGenerator } from './narrative/NarrativeGenerator';
 import { NullNarrativeGenerator } from './narrative/NullNarrativeGenerator';
 import type { INarrativeGenerator } from './narrative/types';
+import type { SerializedPipelineStructure } from '../builder/FlowChartBuilder';
 
 export type Decider = (nodeArgs: any) => string | Promise<string>;
 
@@ -501,6 +502,40 @@ export class Pipeline<TOut, TScope> {
    */
   private readonly narrativeGenerator: INarrativeGenerator;
 
+  /**
+   * Static build-time pipeline structure snapshot from FlowChartBuilder.
+   *
+   * WHY: Stored so that Pipeline can deep-clone it into `runtimePipelineStructure`
+   * during initialization (task 2.1). Kept as an immutable reference — never
+   * mutated during execution — so consumers can still access the original
+   * static structure for diffing or caching.
+   *
+   * _Requirements: runtime-pipeline-structure 1.1, 1.2_
+   */
+  private readonly buildTimeStructure?: SerializedPipelineStructure;
+
+  /**
+   * Mutable runtime pipeline structure that starts as a deep clone of buildTimeStructure
+   * and gets updated as dynamic stages are discovered during execution.
+   *
+   * WHY: Makes the library the single source of truth for the complete execution structure,
+   * eliminating the need for UI-side reconstruction (runtimeMerger).
+   *
+   * _Requirements: runtime-pipeline-structure 1.1, 1.4_
+   */
+  private runtimePipelineStructure?: SerializedPipelineStructure;
+
+  /**
+   * Lookup map from node ID/name to its SerializedPipelineStructure node
+   * in the runtimePipelineStructure tree. Enables O(1) updates.
+   *
+   * WHY: When a dynamic event occurs, we need to find the corresponding
+   * structure node quickly. Walking the tree each time would be O(n).
+   *
+   * _Requirements: runtime-pipeline-structure 1.3_
+   */
+  private structureNodeMap: Map<string, SerializedPipelineStructure> = new Map();
+
   constructor(
     root: StageNode,
     stageMap: Map<string, PipelineStageFunction<TOut, TScope>>,
@@ -515,6 +550,7 @@ export class Pipeline<TOut, TScope> {
     subflows?: Record<string, { root: StageNode<TOut, TScope> }>,
     enrichSnapshots?: boolean,
     narrativeEnabled?: boolean,
+    buildTimeStructure?: SerializedPipelineStructure,
   ) {
     this.root = root;
     this.stageMap = stageMap;
@@ -527,6 +563,12 @@ export class Pipeline<TOut, TScope> {
     this.scopeProtectionMode = scopeProtectionMode ?? 'error';
     this.subflows = subflows;
     this.enrichSnapshots = enrichSnapshots ?? false;
+    this.buildTimeStructure = buildTimeStructure;
+
+    // Deep-clone buildTimeStructure into runtimePipelineStructure and build
+    // the O(1) lookup map. No-op when buildTimeStructure is not provided.
+    // _Requirements: runtime-pipeline-structure 1.1, 1.3, 1.4_
+    this.initRuntimeStructure(buildTimeStructure);
 
     // Create narrative generator based on opt-in flag.
     // WHY: NullNarrativeGenerator is the default — zero allocation, zero string
@@ -561,7 +603,13 @@ export class Pipeline<TOut, TScope> {
     this.stageRunner = new StageRunner(this.createPipelineContext());
 
     // Initialize LoopHandler with shared context and NodeResolver
-    this.loopHandler = new LoopHandler(this.createPipelineContext(), this.nodeResolver);
+    this.loopHandler = new LoopHandler(
+      this.createPipelineContext(),
+      this.nodeResolver,
+      // Callback to update runtime pipeline structure with iteration count
+      // _Requirements: runtime-pipeline-structure 5.1_
+      (nodeId: string, count: number) => this.updateStructureIterationCount(nodeId, count),
+    );
 
     // Initialize DeciderHandler with shared context and NodeResolver
     this.deciderHandler = new DeciderHandler(this.createPipelineContext(), this.nodeResolver);
@@ -596,6 +644,339 @@ export class Pipeline<TOut, TScope> {
     const context = this.pipelineRuntime.rootStageContext;
     return await this.executeNode(this.root, context, { shouldBreak: false }, '');
   }
+
+  /**
+   * Returns the runtime pipeline structure with all dynamic updates applied.
+   *
+   * WHY: Provides the complete, authoritative pipeline structure including
+   * dynamically added children, subflows, next nodes, and loop iteration counts.
+   * Consumers can use this for visualization without needing to reconstruct
+   * the structure from separate data sources.
+   *
+   * Before execution: returns the initial deep clone of buildTimeStructure.
+   * After execution: returns the fully enriched structure.
+   * When buildTimeStructure was not provided: returns undefined.
+   *
+   * _Requirements: runtime-pipeline-structure 6.2, 6.3, 6.4_
+   */
+  getRuntimePipelineStructure(): SerializedPipelineStructure | undefined {
+    return this.runtimePipelineStructure;
+  }
+
+
+  /**
+   * Initialize the runtime pipeline structure from the build-time structure.
+   *
+   * WHY: Creates a mutable deep clone so that dynamic changes during execution
+   * (children, subflows, next nodes, loop iterations) can be reflected in a
+   * single authoritative structure without mutating the original buildTimeStructure.
+   *
+   * DESIGN: Uses JSON.parse(JSON.stringify(...)) for deep cloning — simple and
+   * sufficient since SerializedPipelineStructure contains only JSON-safe values.
+   *
+   * @param buildTimeStructure - The static structure from FlowChartBuilder, or undefined
+   *
+   * _Requirements: runtime-pipeline-structure 1.1, 1.3, 1.4_
+   */
+  private initRuntimeStructure(buildTimeStructure?: SerializedPipelineStructure): void {
+    if (!buildTimeStructure) return;
+
+    this.runtimePipelineStructure = JSON.parse(JSON.stringify(buildTimeStructure));
+    this.buildStructureNodeMap(this.runtimePipelineStructure!);
+  }
+
+  /**
+   * Build the StructureNodeMap by recursively walking the structure tree.
+   * Keys are node IDs (preferred) or names (fallback).
+   *
+   * WHY: Enables O(1) lookups when dynamic events occur during execution,
+   * avoiding an O(n) tree walk for each update.
+   *
+   * @param node - The current structure node to register and recurse into
+   *
+   * _Requirements: runtime-pipeline-structure 1.3_
+   */
+  private buildStructureNodeMap(node: SerializedPipelineStructure): void {
+    const key = node.id ?? node.name;
+    this.structureNodeMap.set(key, node);
+
+    if (node.children) {
+      for (const child of node.children) {
+        this.buildStructureNodeMap(child);
+      }
+    }
+    if (node.next) {
+      this.buildStructureNodeMap(node.next);
+    }
+    if (node.subflowStructure) {
+      this.buildStructureNodeMap(node.subflowStructure);
+    }
+  }
+
+  /**
+   * Convert a runtime StageNode into a SerializedPipelineStructure node.
+   *
+   * WHY: When dynamic stages are discovered during execution, we need to create
+   * corresponding structure nodes for the runtimePipelineStructure. This method
+   * provides a consistent conversion that reuses computeNodeType for the type field
+   * and recursively handles children/next chains.
+   *
+   * DESIGN: Copies only the serialization-relevant fields from StageNode.
+   * Metadata flags (isStreaming, isSubflowRoot, hasDecider, hasSelector) are set
+   * conditionally to keep the serialized output sparse. Subflow buildTimeStructure
+   * is attached as-is since it's already in serialized form.
+   *
+   * @param node - The runtime StageNode to convert
+   * @returns A SerializedPipelineStructure node representing the same stage
+   *
+   * _Requirements: runtime-pipeline-structure 7.1, 7.2, 7.3, 7.4_
+   */
+  private stageNodeToStructure(node: StageNode): SerializedPipelineStructure {
+    const structure: SerializedPipelineStructure = {
+      name: node.name,
+      id: node.id,
+      type: this.computeNodeType(node),
+      displayName: node.displayName,
+      description: node.description,
+    };
+
+    // Streaming metadata
+    if (node.isStreaming) {
+      structure.isStreaming = true;
+      structure.streamId = node.streamId;
+    }
+
+    // Subflow root metadata
+    if (node.isSubflowRoot) {
+      structure.isSubflowRoot = true;
+      structure.subflowId = node.subflowId;
+      structure.subflowName = node.subflowName;
+    }
+
+    // Decider metadata — legacy (nextNodeDecider) or scope-based (deciderFn)
+    if (node.nextNodeDecider || node.deciderFn) {
+      structure.hasDecider = true;
+      structure.branchIds = node.children?.map(c => c.id ?? c.name);
+    }
+
+    // Selector metadata
+    if (node.nextNodeSelector) {
+      structure.hasSelector = true;
+      structure.branchIds = node.children?.map(c => c.id ?? c.name);
+    }
+
+    // Recursively convert children
+    if (node.children?.length) {
+      structure.children = node.children.map(c => this.stageNodeToStructure(c));
+    }
+
+    // Recursively convert next chain
+    if (node.next) {
+      structure.next = this.stageNodeToStructure(node.next);
+    }
+
+    // Attach subflow's build-time structure if available
+    if (node.subflowDef?.buildTimeStructure) {
+      structure.subflowStructure = node.subflowDef.buildTimeStructure as SerializedPipelineStructure;
+    }
+
+    return structure;
+  }
+
+  /**
+   * Update the runtime structure when dynamic children are discovered.
+   *
+   * WHY: When a stage returns a StageNode with dynamic children via isStageNodeReturn(),
+   * the runtime StageNode tree is mutated but the serialized structure would be stale.
+   * This method keeps runtimePipelineStructure in sync by converting each dynamic child
+   * into a SerializedPipelineStructure node and inserting it under the parent.
+   *
+   * DESIGN: Uses structureNodeMap for O(1) parent lookup, then delegates to
+   * stageNodeToStructure for recursive conversion and buildStructureNodeMap for
+   * registration. Selector/decider flags are set on the parent so the UI can
+   * render branching controls correctly.
+   *
+   * @param parentNodeId - The ID (or name) of the parent node in the structure
+   * @param dynamicChildren - The runtime StageNode children to convert and insert
+   * @param hasSelector - Whether the dynamic node has a nextNodeSelector
+   * @param hasDecider - Whether the dynamic node has a nextNodeDecider
+   *
+   * _Requirements: runtime-pipeline-structure 2.1, 2.2, 2.3_
+   */
+  private updateStructureWithDynamicChildren(
+    parentNodeId: string,
+    dynamicChildren: StageNode[],
+    hasSelector?: boolean,
+    hasDecider?: boolean,
+  ): void {
+    // Guard: no-op when structure tracking is disabled
+    if (!this.runtimePipelineStructure) return;
+
+    // O(1) lookup for the parent node
+    const parentStructure = this.structureNodeMap.get(parentNodeId);
+    if (!parentStructure) {
+      // Defensive: shouldn't happen in practice but prevents crashes
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[Pipeline] updateStructureWithDynamicChildren: parent node "${parentNodeId}" not found in structureNodeMap`,
+      );
+      return;
+    }
+
+    // Convert each dynamic child StageNode into a SerializedPipelineStructure node
+    const childStructures = dynamicChildren.map(child => this.stageNodeToStructure(child));
+
+    // Set the converted children on the parent's children array
+    parentStructure.children = childStructures;
+
+    // Register each new child (and its descendants) in the structureNodeMap
+    for (const childStructure of childStructures) {
+      this.buildStructureNodeMap(childStructure);
+    }
+
+    // Set selector flag and compute branchIds when the dynamic node has a selector
+    if (hasSelector) {
+      parentStructure.hasSelector = true;
+      parentStructure.branchIds = childStructures.map(c => c.id ?? c.name);
+    }
+
+    // Set decider flag and compute branchIds when the dynamic node has a decider
+    if (hasDecider) {
+      parentStructure.hasDecider = true;
+      parentStructure.branchIds = childStructures.map(c => c.id ?? c.name);
+    }
+  }
+
+  /**
+   * Update the runtime structure when a dynamic subflow is registered.
+   *
+   * WHY: When a subflow is auto-registered at runtime (e.g., tool dispatch spawning
+   * a sub-agent), the serialized structure needs to reflect the subflow hierarchy so
+   * consumers get the complete picture without UI-side reconstruction.
+   *
+   * DESIGN: Marks the mount node as a subflow root and attaches the subflow's
+   * build-time structure for drill-down visualization. Registers subflow nodes
+   * in the structureNodeMap so subsequent dynamic updates within the subflow
+   * can find their targets via O(1) lookup.
+   *
+   * @param mountNodeId - ID of the node where the subflow is mounted
+   * @param subflowId - Unique identifier for the subflow
+   * @param subflowName - Optional display name for the subflow
+   * @param subflowBuildTimeStructure - Optional build-time structure of the subflow for drill-down
+   */
+  private updateStructureWithDynamicSubflow(
+    mountNodeId: string,
+    subflowId: string,
+    subflowName?: string,
+    subflowBuildTimeStructure?: unknown,
+  ): void {
+    // Guard: no-op when structure tracking is disabled
+    if (!this.runtimePipelineStructure) return;
+
+    // O(1) lookup for the mount node
+    const mountStructure = this.structureNodeMap.get(mountNodeId);
+    if (!mountStructure) {
+      // Defensive: shouldn't happen in practice but prevents crashes
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[Pipeline] updateStructureWithDynamicSubflow: mount node "${mountNodeId}" not found in structureNodeMap`,
+      );
+      return;
+    }
+
+    // Mark the mount node as a subflow root with its identity
+    mountStructure.isSubflowRoot = true;
+    mountStructure.subflowId = subflowId;
+
+    // Set display name only when provided to avoid overwriting existing values with undefined
+    if (subflowName !== undefined) {
+      mountStructure.subflowName = subflowName;
+    }
+
+    // Attach the subflow's build-time structure for drill-down visualization
+    if (subflowBuildTimeStructure) {
+      mountStructure.subflowStructure = subflowBuildTimeStructure as SerializedPipelineStructure;
+
+      // Register all subflow structure nodes for future O(1) lookups
+      this.buildStructureNodeMap(mountStructure.subflowStructure);
+    }
+  }
+
+
+  /**
+   * Update the runtime structure when a dynamic next is discovered.
+   *
+   * WHY: When a stage returns a StageNode with a `next` chain via `isStageNodeReturn()`,
+   * the runtime StageNode tree is mutated but the serialized structure is not. This method
+   * keeps `runtimePipelineStructure` in sync so consumers get the complete linear
+   * continuation without external reconstruction.
+   *
+   * DESIGN: Mirrors the pattern of `updateStructureWithDynamicChildren` and
+   * `updateStructureWithDynamicSubflow` — guard, lookup, convert, attach, register.
+   *
+   * @param currentNodeId - ID of the node whose stage returned the dynamic next
+   * @param dynamicNext   - The StageNode to attach as the next continuation
+   *
+   * _Requirements: runtime-pipeline-structure 4.1, 4.2_
+   */
+  private updateStructureWithDynamicNext(
+    currentNodeId: string,
+    dynamicNext: StageNode,
+  ): void {
+    // Guard: no-op when structure tracking is disabled
+    if (!this.runtimePipelineStructure) return;
+
+    // O(1) lookup for the current node
+    const currentStructure = this.structureNodeMap.get(currentNodeId);
+    if (!currentStructure) {
+      // Defensive: shouldn't happen in practice but prevents crashes
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[Pipeline] updateStructureWithDynamicNext: node "${currentNodeId}" not found in structureNodeMap`,
+      );
+      return;
+    }
+
+    // Convert the dynamic StageNode into a serialized structure node
+    const nextStructure = this.stageNodeToStructure(dynamicNext);
+
+    // Attach as the next continuation on the current structure node
+    currentStructure.next = nextStructure;
+
+    // Register the new node (and any descendants) for future O(1) lookups
+    this.buildStructureNodeMap(nextStructure);
+  }
+
+  /**
+   * Update the runtime structure with loop iteration count for a node.
+   *
+   * WHY: When a node is visited more than once due to a loop, the runtime
+   * structure should reflect the total number of executions so that
+   * consumers (e.g., debug UI) can display iteration counts without
+   * reconstructing them from runtime data.
+   *
+   * DESIGN: Called via an onIterationUpdate callback from LoopHandler,
+   * which owns the iteration counters. The count passed here is the
+   * total number of visits (1-based: first loop-back = 2).
+   *
+   * @param nodeId - The ID of the node being iterated
+   * @param count - The total iteration count (number of times visited)
+   *
+   * _Requirements: runtime-pipeline-structure 5.1_
+   */
+  private updateStructureIterationCount(nodeId: string, count: number): void {
+    // Guard: no-op when structure tracking is disabled
+    if (!this.runtimePipelineStructure) return;
+
+    // O(1) lookup for the target node
+    const nodeStructure = this.structureNodeMap.get(nodeId);
+    // Guard: expected for nodes without IDs — no warning needed
+    if (!nodeStructure) return;
+
+    // Set the iteration count on the structure node
+    nodeStructure.iterationCount = count;
+  }
+
 
   /** Resolve a stage function: prefer embedded `node.fn`, else look up by `node.name` in `stageMap`. */
   private getStageFn(node: StageNode<TOut, TScope>): PipelineStageFunction<TOut, TScope> | undefined {
@@ -810,13 +1191,22 @@ export class Pipeline<TOut, TScope> {
           context.addLog('dynamicPattern', 'dynamicSubflow');
           context.addLog('dynamicSubflowId', dynamicNode.subflowId);
 
-          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef);
+          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id ?? node.name);
 
           // Transfer subflow properties to current node for step 0 detection
           node.isSubflowRoot = true;
           node.subflowId = dynamicNode.subflowId;
           node.subflowName = dynamicNode.subflowName;
           node.subflowMountOptions = dynamicNode.subflowMountOptions;
+
+          // Update runtime pipeline structure with dynamic subflow
+          // _Requirements: runtime-pipeline-structure 3.1_
+          this.updateStructureWithDynamicSubflow(
+            node.id ?? node.name,
+            dynamicNode.subflowId!,
+            dynamicNode.subflowName,
+            dynamicNode.subflowDef?.buildTimeStructure,
+          );
 
           // Recurse into executeNode — step 0 will detect isSubflowRoot
           return await this.executeNode(node, context, breakFlag, branchPath);
@@ -827,7 +1217,15 @@ export class Pipeline<TOut, TScope> {
         if (dynamicNode.children) {
           for (const child of dynamicNode.children) {
             if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
-              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef);
+              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id ?? child.name);
+              // Update runtime pipeline structure with dynamic subflow for each child
+              // _Requirements: runtime-pipeline-structure 3.1, 3.3_
+              this.updateStructureWithDynamicSubflow(
+                child.id ?? child.name,
+                child.subflowId!,
+                child.subflowName,
+                child.subflowDef?.buildTimeStructure,
+              );
             }
           }
         }
@@ -837,6 +1235,15 @@ export class Pipeline<TOut, TScope> {
           node.children = dynamicNode.children;
           context.addLog('dynamicChildCount', dynamicNode.children.length);
           context.addLog('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
+
+          // Update runtime pipeline structure with dynamic children
+          // _Requirements: runtime-pipeline-structure 2.1_
+          this.updateStructureWithDynamicChildren(
+            node.id ?? node.name,
+            dynamicNode.children,
+            Boolean(dynamicNode.nextNodeSelector),
+            Boolean(dynamicNode.nextNodeDecider || dynamicNode.deciderFn),
+          );
 
           // Handle dynamic selector (multi-choice branching)
           if (typeof dynamicNode.nextNodeSelector === 'function') {
@@ -853,6 +1260,12 @@ export class Pipeline<TOut, TScope> {
         // Handle dynamic next (linear continuation)
         if (dynamicNode.next) {
           dynamicNext = dynamicNode.next;
+          // Update runtime pipeline structure with dynamic next
+          // _Requirements: runtime-pipeline-structure 4.1_
+          this.updateStructureWithDynamicNext(
+            node.id ?? node.name,
+            dynamicNode.next,
+          );
           // Attach to node for serialization visibility (getRuntimeRoot)
           node.next = dynamicNode.next;
           context.addLog('hasDynamicNext', true);
@@ -979,12 +1392,30 @@ export class Pipeline<TOut, TScope> {
           })),
         };
 
+        // Build treeContext from the children's actual execution data.
+        // WHY: The drill-down UI renders from the subflow's treeContext.
+        // We extract each child's snapshot (logs, errors, metrics) from
+        // the parent context's children array.
+        const childStages: Record<string, unknown> = {};
+        if (context.children) {
+          for (const childCtx of context.children) {
+            const snapshot = childCtx.getSnapshot();
+            childStages[snapshot.name || snapshot.id] = {
+              name: snapshot.name,
+              output: snapshot.logs,
+              errors: snapshot.errors,
+              metrics: snapshot.metrics,
+              status: snapshot.errors && Object.keys(snapshot.errors).length > 0 ? 'error' : 'success',
+            };
+          }
+        }
+
         this.subflowResults.set(node.id || node.name, {
           subflowId: node.id || node.name,
           subflowName: node.displayName || node.name,
           treeContext: {
             globalContext: {},
-            stageContexts: {} as unknown as Record<string, unknown>,
+            stageContexts: childStages as unknown as Record<string, unknown>,
             history: [],
           },
           parentStageId,
@@ -1291,6 +1722,7 @@ export class Pipeline<TOut, TScope> {
   private autoRegisterSubflowDef(
     subflowId: string,
     subflowDef: NonNullable<StageNode['subflowDef']>,
+    mountNodeId?: string,
   ): void {
     let subflowsDict = this.subflows as Record<string, { root: StageNode<TOut, TScope> }> | undefined;
     if (!subflowsDict) {
@@ -1328,6 +1760,17 @@ export class Pipeline<TOut, TScope> {
           subflowsDict[key] = def as { root: StageNode<TOut, TScope> };
         }
       }
+    }
+
+    // Update runtime pipeline structure with dynamic subflow
+    // _Requirements: runtime-pipeline-structure 3.1_
+    if (mountNodeId) {
+      this.updateStructureWithDynamicSubflow(
+        mountNodeId,
+        subflowId,
+        subflowDef.root?.subflowName || subflowDef.root?.displayName,
+        subflowDef.buildTimeStructure,
+      );
     }
   }
 
