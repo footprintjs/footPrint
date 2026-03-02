@@ -27,7 +27,6 @@ import type { FlowMessage } from '../executor/types';
  *   - evalContext: Quality evaluation data
  *   - flowMessages: Flow control narrative entries
  *
- * _Requirements: flow-control-narrative REQ-5_
  */
 export class StageMetadata {
   public logContext: { [key: string]: any } = {};
@@ -92,7 +91,6 @@ export class StageMetadata {
    * They form the "headings" in the narrative story, complementing the
    * stage-level "bullet points" in logContext.
    *
-   * _Requirements: flow-control-narrative REQ-5_
    */
   addFlowMessage(flowMessage: FlowMessage) {
     this.flowMessages.push(flowMessage);

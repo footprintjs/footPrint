@@ -20,7 +20,6 @@
  * - {@link LoopHandler} - Uses findNodeById for loop-back to existing nodes
  * - {@link DeciderHandler} - Uses getNextNode for decider evaluation
  *
- * _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -65,7 +64,6 @@ export class NodeResolver<TOut = any, TScope = any> {
    * @param startNode - The node to start searching from (defaults to root)
    * @returns The found node, or undefined if not found
    *
-   * _Requirements: 3.1, 3.4_
    */
   findNodeById(nodeId: string, startNode?: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
     const node = startNode ?? this.ctx.root;
@@ -110,7 +108,6 @@ export class NodeResolver<TOut = any, TScope = any> {
    * @param node - The reference node to resolve
    * @returns A node with the subflow's actual structure, preserving reference metadata
    *
-   * _Requirements: 3.2, 3.5_
    */
   resolveSubflowReference(node: StageNode<TOut, TScope>): StageNode<TOut, TScope> {
     // If node already has fn or children, it's not a reference - return as-is
@@ -185,7 +182,6 @@ export class NodeResolver<TOut = any, TScope = any> {
    * @returns The chosen child node
    * @throws Error if the decider returns an ID that doesn't match any child
    *
-   * _Requirements: 3.3_
    */
   async getNextNode(
     nextNodeDecider: Decider,

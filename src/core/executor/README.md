@@ -51,14 +51,12 @@ const chart = flowChart('entry', async (scope) => {
 const executor = new FlowChartExecutor(chart, MyScopeFactory);
 const result = await executor.run();
 
-// Legacy introspection (walks StageContext linked list after execution)
-const contextTree = executor.getContextTree();
 const extractedData = executor.getExtractedResults();
 ```
 
 ### Enriched Snapshots (Recommended for Debug UIs)
 
-When you need per-stage scope state, debug metadata, stage output, and history index, enable `enrichSnapshots` to capture everything during traversal — eliminating the redundant `getContextTree()` walk.
+When you need per-stage scope state, debug metadata, stage output, and history index, enable `enrichSnapshots` to capture everything during traversal.
 
 ```typescript
 const chart = flowChart('entry', entryFn)
@@ -73,7 +71,6 @@ const chart = flowChart('entry', entryFn)
 const executor = new FlowChartExecutor(chart, MyScopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
 const result = await executor.run();
 
-// Single-pass debug data — no separate getContextTree() walk needed
 const enriched = executor.getEnrichedResults();
 ```
 
@@ -81,11 +78,8 @@ const enriched = executor.getEnrichedResults();
 
 | Method | Use Case |
 |--------|----------|
-| `getContextTree()` | Legacy path — walks StageContext linked list after execution. Still works, but performs a redundant pass. |
 | `getExtractedResults()` | Custom extractor results without enrichment |
 | `getEnrichedResults()` | Full debug data captured during traversal (recommended for debug UIs when `enrichSnapshots: true`) |
-
-See the [single-pass-debug-structure spec](../../.kiro/specs/single-pass-debug-structure/design.md) for the full design rationale.
 
 ## Related Modules
 

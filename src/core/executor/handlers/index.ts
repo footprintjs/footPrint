@@ -43,3 +43,9 @@ export { LoopHandler } from './LoopHandler';
 
 // Decider evaluation and branching
 export { DeciderHandler } from './DeciderHandler';
+
+// Runtime structure management (dynamic pipeline structure tracking)
+export { RuntimeStructureManager, computeNodeType } from './RuntimeStructureManager';
+
+// Traversal extractor coordination
+export { ExtractorRunner } from './ExtractorRunner';

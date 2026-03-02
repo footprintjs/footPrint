@@ -12,7 +12,6 @@
  * - {@link GlobalStore} - Uses these for state access
  */
 
-import _cloneDeep from 'lodash.clonedeep';
 import _get from 'lodash.get';
 import _has from 'lodash.has';
 import _set from 'lodash.set';
@@ -160,7 +159,7 @@ export function getPipelineAndGlobalPaths(pipelineId?: string, path: (string | n
  * the patch structure for debugging while hiding sensitive values.
  */
 export const redactPatch = (patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch => {
-  const out = _cloneDeep(patch);
+  const out = structuredClone(patch);
   for (const flat of redactedSet) {
     const pathArr = flat.split(DELIM);
     // Redact only if the key actually exists in this patch bundle

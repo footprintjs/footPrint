@@ -21,7 +21,6 @@
  * - {@link StageContext} - Provides child context creation and patch management
  * - {@link NodeResolver} - Used for node lookup in selector scenarios
  *
- * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -87,7 +86,6 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
    * @param pipelineId - Pipeline ID for child context creation
    * @returns Object mapping child IDs to their results
    *
-   * _Requirements: 2.1, 2.3_
    */
   async executeNodeChildren(
     node: StageNode<TOut, TScope>,
@@ -100,7 +98,6 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
     // Append narrative sentence for the fork (all children in parallel)
     // WHY: Captures the fan-out so the reader knows which paths ran concurrently.
-    // _Requirements: 5.1_
     const allChildren = node.children ?? [];
     const childDisplayNames = allChildren.map((c) => c.displayName || c.name);
     this.ctx.narrativeGenerator.onFork(node.displayName || node.name, childDisplayNames);
@@ -170,7 +167,6 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
    * @param branchPath - Pipeline branch path for logging
    * @returns Object mapping child IDs to their results
    *
-   * _Requirements: 2.2_
    */
   async executeSelectedChildren(
     selector: Selector,
@@ -228,7 +224,6 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     // Append narrative sentence for the selector (subset of children)
     // WHY: Captures which children were selected and how many were available,
     // so the reader understands the selection decision.
-    // _Requirements: 5.2_
     const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
     this.ctx.narrativeGenerator.onSelected(
       context.stageName || 'selector',

@@ -22,7 +22,6 @@ import type { FlowMessage } from '../executor/types';
  * Combines stage messages (bullet points) with flow messages (headings)
  * to create a complete storytelling view of the execution.
  *
- * _Requirements: flow-control-narrative REQ-7, REQ-10_
  */
 export interface NarrativeEntry {
   /** Unique identifier for linking to flowchart */
@@ -112,7 +111,6 @@ export class PipelineRuntime {
    * - Sent to LLM as context history
    * - Exported for documentation/debugging
    *
-   * _Requirements: flow-control-narrative REQ-7_
    */
   getFullNarrative(): NarrativeEntry[] {
     const narrative: NarrativeEntry[] = [];

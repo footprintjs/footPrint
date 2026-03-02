@@ -61,8 +61,6 @@
  * - {@link PipelineRuntime} - Provides the GlobalStore that gets seeded
  * - {@link StageContext} - Used for writing output mapping values
  *
- * _Requirements: subflow-input-mapping 8.1, 8.2, 8.3, 8.4, 8.5_
- * _Requirements: subflow-scope-isolation 1.1, 1.2, 1.4, 5.1, 5.2, 5.3_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -81,7 +79,6 @@ import type { SubflowMountOptions, PipelineContext } from '../types';
  * @param options - Subflow mount options containing the inputMapper
  * @returns Object of key-value pairs to seed in subflow
  *
- * _Requirements: subflow-input-mapping 8.1_
  */
 export function extractParentScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
@@ -114,8 +111,6 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
  * @param options - Subflow mount options
  * @returns Object of initial values for subflow's readOnlyContext
  *
- * _Requirements: subflow-input-mapping 6.1, 8.2_
- * _Requirements: subflow-scope-isolation 7.2, 7.3_
  */
 export function getInitialScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
@@ -147,7 +142,6 @@ export function getInitialScopeValues<TParentScope, TSubflowInput>(
  * @param mappedInput - The values from inputMapper to use as readOnlyContext
  * @returns A new PipelineContext for the subflow
  *
- * _Requirements: subflow-scope-isolation 1.1, 1.2, 1.4, 5.1, 5.2, 5.3_
  */
 export function createSubflowPipelineContext<TOut = any, TScope = any>(
   parentCtx: PipelineContext<TOut, TScope>,
@@ -163,8 +157,6 @@ export function createSubflowPipelineContext<TOut = any, TScope = any>(
     throttlingErrorChecker: parentCtx.throttlingErrorChecker,
     streamHandlers: parentCtx.streamHandlers,
     scopeProtectionMode: parentCtx.scopeProtectionMode,
-    extractor: parentCtx.extractor,
-    
     // Override with subflow-specific values
     pipelineRuntime: subflowRuntime,
     readOnlyContext: mappedInput,  // KEY FIX: Use mapped input as readOnlyContext
@@ -188,7 +180,6 @@ export function createSubflowPipelineContext<TOut = any, TScope = any>(
  * @param subflowRuntime - The subflow's PipelineRuntime
  * @param initialValues - Object of key-value pairs to seed
  *
- * _Requirements: subflow-input-mapping 2.2, 8.2_
  */
 export function seedSubflowGlobalStore(
   subflowRuntime: PipelineRuntime,
@@ -233,7 +224,6 @@ export function seedSubflowGlobalStore(
  * @param options - Subflow mount options containing the outputMapper
  * @returns The mapped output values (for debugging), or undefined if no mapper
  *
- * _Requirements: subflow-input-mapping 3.4, 3.5, 8.3_
  */
 export function applyOutputMapping<TParentScope, TSubflowOutput>(
   subflowOutput: TSubflowOutput,

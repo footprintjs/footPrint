@@ -26,7 +26,6 @@
  * - {@link StageContext} - Provides stage-scoped state access
  * - {@link createProtectedScope} - Wraps scope to intercept direct assignments
  *
- * _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -74,7 +73,6 @@ export class StageRunner<TOut = any, TScope = any> {
    * @param breakFn - Function to call to trigger break (early termination)
    * @returns The stage output (may be undefined for void stages)
    *
-   * _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
    */
   async run(
     node: StageNode<TOut, TScope>,

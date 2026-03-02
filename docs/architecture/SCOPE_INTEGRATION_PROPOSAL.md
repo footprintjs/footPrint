@@ -422,4 +422,3 @@ This demonstrates the intended consumer workflow:
 - [Scope System README](../../src/scope/README.md) - Current scope architecture
 - [Core Memory README](../../src/core/memory/README.md) - StageContext, GlobalStore, PipelineRuntime
 - [Internal Memory README](../../src/internal/memory/README.md) - WriteBuffer internals
-- [scope-recorder-pattern spec](../../.kiro/specs/scope-recorder-pattern/) - Recorder implementation details

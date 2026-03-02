@@ -5,8 +5,6 @@
  • Confirms list()
  • Verifies clear() wipes history between runs (important for tests)
  *********************************************************************/
-import _cloneDeep from 'lodash.clonedeep';
-
 import { CommitBundle, ExecutionHistory, TraceItem } from '../../../../src/internal/history/ExecutionHistory';
 import { applySmartMerge, MemoryPatch } from '../../../../src/internal/memory/WriteBuffer';
 /* ------------------------------------------------------------------ *
@@ -35,7 +33,7 @@ const b1Updates = {};
 const b1Overwrite = { cfg: { num: 2 } };
 const b1Trace: TraceItem[] = [{ path: `cfg${DELIM}num`, verb: 'set' }];
 /* Expected materialised snapshots */
-const snap0 = applySmartMerge(_cloneDeep(base), b0Updates, b0Overwrite, b0Trace);
+const snap0 = applySmartMerge(structuredClone(base), b0Updates, b0Overwrite, b0Trace);
 const snap1 = applySmartMerge(snap0, b1Updates, b1Overwrite, b1Trace);
 
 describe('ExecutionHistory', () => {

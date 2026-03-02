@@ -54,7 +54,6 @@ export type FlowChart<TOut = any, TScope = any> = {
    * DESIGN: Opt-in at build time so FlowChartBuilder can set this flag.
    * FlowChartExecutor reads this value and passes it through to Pipeline.
    *
-   * _Requirements: single-pass-debug-structure 4.1, 4.4_
    */
   enrichSnapshots?: boolean;
   /**
@@ -67,7 +66,6 @@ export type FlowChart<TOut = any, TScope = any> = {
    * DESIGN: FlowChartExecutor reads this as a default for narrativeEnabled.
    * An explicit enableNarrative() call on the executor takes precedence.
    *
-   * _Requirements: pipeline-narrative-generation 1.4_
    */
   enableNarrative?: boolean;
   /**
@@ -76,7 +74,6 @@ export type FlowChart<TOut = any, TScope = any> = {
    * WHY: Passed through to Pipeline so it can deep-clone into
    * runtimePipelineStructure for runtime structure tracking.
    *
-   * _Requirements: runtime-pipeline-structure 1.1_
    */
   buildTimeStructure?: SerializedPipelineStructure;
 };
@@ -120,7 +117,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * construction but before run(). The flag is passed to the Pipeline
    * constructor when run() creates the execution engine.
    *
-   * _Requirements: 1.1, 1.2_
    */
   private narrativeEnabled = false;
 
@@ -160,7 +156,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *   post-traversal walk via PipelineRuntime.getSnapshot(). Overrides
    *   flowChart.enrichSnapshots if both are set.
    *
-   *   _Requirements: single-pass-debug-structure 4.4_
    */
   constructor(
     flowChart: FlowChart<TOut, TScope>,
@@ -208,7 +203,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // otherwise fall back to the build-time flag from FlowChart.
     // WHY: Consumers can enable narrative either at build time (via FlowChartBuilder)
     // or at runtime (via enableNarrative()). Runtime override wins.
-    // _Requirements: pipeline-narrative-generation 1.4_
     const narrativeFlag = this.narrativeEnabled || (args.flowChart.enableNarrative ?? false);
     return new Pipeline<TOut, TScope>(
       args.flowChart.root,
@@ -249,7 +243,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * // → ["The process began with validate input.", "Next, it moved on to process data.", ...]
    * ```
    *
-   * _Requirements: 1.1_
    */
   enableNarrative(): void {
     this.narrativeEnabled = true;
@@ -272,7 +265,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * // → ["The process began with validate input.", ...]
    * ```
    *
-   * _Requirements: 2.1, 2.3_
    */
   getNarrative(): string[] {
     return this.pipeline.getNarrative();
@@ -353,7 +345,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * WHY: This is the authoritative structure for visualization — no external
    * reconstruction needed. Delegates to Pipeline.getRuntimePipelineStructure().
    *
-   * _Requirements: runtime-pipeline-structure 6.1_
    */
   getRuntimePipelineStructure(): SerializedPipelineStructure | undefined {
     return this.pipeline.getRuntimePipelineStructure();
@@ -403,7 +394,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * const enriched = executor.getEnrichedResults<MyEnrichedType>();
    * ```
    *
-   * _Requirements: single-pass-debug-structure 5.1, 5.2_
    */
   getEnrichedResults<TResult = unknown>(): Map<string, TResult> {
     return this.pipeline.getExtractedResults<TResult>();
