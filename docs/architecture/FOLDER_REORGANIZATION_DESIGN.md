@@ -485,4 +485,3 @@ All old import paths continue to work via re-exports with `@deprecated` JSDoc co
 
 - [MEMORY_MODEL.md](./MEMORY_MODEL.md) - Why we use structured memory
 - [SCOPE_INTEGRATION_PROPOSAL.md](./SCOPE_INTEGRATION_PROPOSAL.md) - Scope + Recorders design
-- [scope-recorder-pattern spec](../../.kiro/specs/scope-recorder-pattern/) - Recorder implementation

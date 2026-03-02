@@ -17,7 +17,6 @@
  * - {@link NullNarrativeGenerator} - No-op implementation for zero-cost disabled path
  * - {@link PipelineContext} - Holds the generator instance passed to handlers
  *
- * _Requirements: 9.2, 9.4_
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +54,6 @@
  * // ]
  * ```
  *
- * _Requirements: 9.2, 9.4_
  */
 export interface INarrativeGenerator {
   /**
@@ -68,7 +66,6 @@ export interface INarrativeGenerator {
    * @param displayName - Human-readable name preferred for narrative output
    * @param description - Stage description for natural narrative output
    *
-   * _Requirements: 3.1, 8.2_
    */
   onStageExecuted(stageName: string, displayName?: string, description?: string): void;
 
@@ -83,7 +80,6 @@ export interface INarrativeGenerator {
    * @param toDisplayName - Human-readable name of the target stage
    * @param description - Stage description for natural narrative output
    *
-   * _Requirements: 3.2, 8.2_
    */
   onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void;
 
@@ -100,7 +96,6 @@ export interface INarrativeGenerator {
    * @param rationale - Why this branch was chosen (natural-language clause)
    * @param deciderDescription - Description of what the decider evaluates
    *
-   * _Requirements: 4.1, 4.2, 4.3, 8.3_
    */
   onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string, deciderDescription?: string): void;
 
@@ -113,7 +108,6 @@ export interface INarrativeGenerator {
    * @param parentStage - The fork stage that spawned the children
    * @param childNames - Names of all children being executed
    *
-   * _Requirements: 5.1_
    */
   onFork(parentStage: string, childNames: string[]): void;
 
@@ -127,7 +121,6 @@ export interface INarrativeGenerator {
    * @param selectedNames - Names of the selected children
    * @param totalCount - Total number of children available
    *
-   * _Requirements: 5.2_
    */
   onSelected(parentStage: string, selectedNames: string[], totalCount: number): void;
 
@@ -139,7 +132,6 @@ export interface INarrativeGenerator {
    *
    * @param subflowName - Display name of the subflow being entered
    *
-   * _Requirements: 7.1_
    */
   onSubflowEntry(subflowName: string): void;
 
@@ -150,7 +142,6 @@ export interface INarrativeGenerator {
    *
    * @param subflowName - Display name of the subflow being exited
    *
-   * _Requirements: 7.2_
    */
   onSubflowExit(subflowName: string): void;
 
@@ -165,7 +156,6 @@ export interface INarrativeGenerator {
    * @param iteration - 1-based iteration number
    * @param description - Stage description for what happens in this loop pass
    *
-   * _Requirements: 6.1, 6.2, 8.4_
    */
   onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number, description?: string): void;
 
@@ -178,7 +168,6 @@ export interface INarrativeGenerator {
    * @param stageName - The stage that triggered the break
    * @param displayName - Human-readable name of the stage
    *
-   * _Requirements: 3.3_
    */
   onBreak(stageName: string, displayName?: string): void;
 
@@ -192,7 +181,6 @@ export interface INarrativeGenerator {
    * @param errorMessage - Human-readable error description
    * @param displayName - Human-readable name of the stage
    *
-   * _Requirements: 10.1, 10.2_
    */
   onError(stageName: string, errorMessage: string, displayName?: string): void;
 
@@ -204,7 +192,6 @@ export interface INarrativeGenerator {
    *
    * @returns Ordered array of narrative sentences
    *
-   * _Requirements: 2.1, 2.2_
    */
   getSentences(): string[];
 }

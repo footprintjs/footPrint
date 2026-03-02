@@ -22,7 +22,6 @@
  * - {@link Pipeline} - Core execution engine
  * - {@link StageNode} - The node type built by this builder
  *
- * _Requirements: flowchart-builder-simplification 1.1, 1.4, 4.1_
  */
 
 // Import from executor module (canonical location)
@@ -105,7 +104,6 @@ export type BuildTimeExtractor<TResult = FlowChartSpec> = (
 
 /**
  * Simplified parallel spec without build callback.
- * _Requirements: flowchart-builder-simplification 2.2_
  */
 export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   id: string;
@@ -180,7 +178,6 @@ export type FlowChart<TOut = any, TScope = any> = {
    * DESIGN: FlowChartExecutor reads this as a default for narrativeEnabled.
    * An explicit enableNarrative() call on the executor takes precedence.
    *
-   * _Requirements: pipeline-narrative-generation 1.4_
    */
   enableNarrative?: boolean;
   /** Pre-built execution context description string. Empty string when no descriptions provided. */
@@ -204,7 +201,6 @@ export type ExecOptions = {
    * WHY: Allows consumers to opt into narrative via the builder's execute()
    * convenience method, which sets the flag on the FlowChart object.
    *
-   * _Requirements: pipeline-narrative-generation 1.4_
    */
   enableNarrative?: boolean;
 };
@@ -244,8 +240,6 @@ interface CursorState<TOut, TScope> {
  * All branch methods (addFunctionBranch, addSubFlowChartBranch, addBranchList,
  * setDefault) remain identical for both modes.
  *
- * _Requirements: flowchart-builder-simplification 2.1, 6.1, 6.3, 6.4_
- * _Requirements: decider-first-class-stage 4.4, 5.1, 6.2_
  */
 export class DeciderList<TOut = any, TScope = any> {
   private readonly b: FlowChartBuilder<TOut, TScope>;
@@ -262,7 +256,6 @@ export class DeciderList<TOut = any, TScope = any> {
    * WHY: Controls how `end()` wires the StageNode — scope-based sets `deciderFn = true`
    * while legacy wraps the decider function and sets `nextNodeDecider`.
    *
-   * _Requirements: decider-first-class-stage 4.4, 5.1_
    */
   private readonly isScopeBased: boolean;
 
@@ -299,7 +292,6 @@ export class DeciderList<TOut = any, TScope = any> {
   /**
    * Add a simple function branch (no nested flowchart).
    * REMOVED: build callback parameter
-   * _Requirements: flowchart-builder-simplification 2.1_
    */
   addFunctionBranch(
     id: string,
@@ -344,8 +336,6 @@ export class DeciderList<TOut = any, TScope = any> {
 
   /**
    * Mount a prebuilt flowchart as a branch.
-   * _Requirements: flowchart-builder-simplification 6.2_
-   * _Requirements: subflow-input-mapping 1.2, 1.5, 7.3_
    * 
    * IMPORTANT: This creates a WRAPPER node for the subflow mount point.
    * The subflow's internal structure is preserved in `subflowStructure` property,
@@ -438,7 +428,6 @@ export class DeciderList<TOut = any, TScope = any> {
   /**
    * Add multiple simple branches.
    * REMOVED: build callback in branch spec
-   * _Requirements: flowchart-builder-simplification 2.3_
    */
   addBranchList(
     branches: Array<{
@@ -469,8 +458,6 @@ export class DeciderList<TOut = any, TScope = any> {
    * or legacy decider. Scope-based sets `deciderFn = true` (the fn IS the decider),
    * while legacy wraps the decider function with default handling and sets `nextNodeDecider`.
    *
-   * _Requirements: flowchart-builder-simplification 6.4_
-   * _Requirements: decider-first-class-stage 4.4, 5.1, 6.2_
    */
   end(): FlowChartBuilder<TOut, TScope> {
     const children = this.curNode.children;
@@ -483,7 +470,6 @@ export class DeciderList<TOut = any, TScope = any> {
       // The fn receives (scope, breakFn) and returns a branch ID string.
       // Pipeline/DeciderHandler will use the deciderFn flag to route to the
       // scope-based execution path.
-      // _Requirements: decider-first-class-stage 5.1_
       this.curNode.deciderFn = true;
     } else {
       // Legacy: wrap decider with default handling, set nextNodeDecider
@@ -544,7 +530,6 @@ export class DeciderList<TOut = any, TScope = any> {
 
 /**
  * Fluent helper returned by addSelector to add branches.
- * _Requirements: flowchart-builder-simplification 6.5_
  */
 export class SelectorList<TOut = any, TScope = any> {
   private readonly b: FlowChartBuilder<TOut, TScope>;
@@ -624,7 +609,6 @@ export class SelectorList<TOut = any, TScope = any> {
 
   /**
    * Mount a prebuilt flowchart as a branch.
-   * _Requirements: subflow-input-mapping 1.2, 1.5, 7.3_
    * 
    * IMPORTANT: This creates a WRAPPER node for the subflow mount point.
    * The subflow's internal structure is preserved in `subflowStructure` property,
@@ -793,8 +777,6 @@ export class SelectorList<TOut = any, TScope = any> {
  * - Builds SerializedPipelineStructure directly with type field (incremental type computation)
  * - Applies buildTimeExtractor immediately when nodes are created (not at build time)
  * 
- * _Requirements: flowchart-builder-simplification 1.1, 3.1, 3.2, 3.3, 3.4_
- * _Requirements: incremental-type-computation 1.1, 2.1, 2.2, 3.1, 3.2_
  */
 export class FlowChartBuilder<TOut = any, TScope = any> {
   // Root node (StageNode) - built incrementally
@@ -827,7 +809,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * WHY: Stored as a field so setEnableNarrative() or execute(opts) can set it
    * before build() is called. build() includes it in the FlowChart object.
    *
-   * _Requirements: pipeline-narrative-generation 1.4_
    */
   private _enableNarrative = false;
 
@@ -890,7 +871,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * // chart.enableNarrative === true
    * ```
    *
-   * _Requirements: pipeline-narrative-generation 1.4_
    */
   setEnableNarrative(): this {
     this._enableNarrative = true;
@@ -901,7 +881,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * Create a new FlowChartBuilder.
    * @param buildTimeExtractor Optional extractor to apply to each node as it's created.
    *                           Pass this in the constructor to ensure it's applied to ALL nodes.
-   * _Requirements: incremental-type-computation 3.2_
    */
   constructor(buildTimeExtractor?: BuildTimeExtractor<any>) {
     if (buildTimeExtractor) {
@@ -913,8 +892,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Define the root function of the flow.
-   * _Requirements: flowchart-builder-simplification 4.1, 5.1_
-   * _Requirements: incremental-type-computation 1.1_
    */
   start(
     name: string,
@@ -957,8 +934,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Append a linear "next" function and move to it.
-   * _Requirements: flowchart-builder-simplification 4.2, 5.2_
-   * _Requirements: incremental-type-computation 1.2_
    */
   addFunction(
     name: string,
@@ -1005,8 +980,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Add a streaming function.
-   * _Requirements: flowchart-builder-simplification 5.3_
-   * _Requirements: incremental-type-computation 1.3_
    */
   addStreamingFunction(
     name: string,
@@ -1074,9 +1047,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * a first-class stage function that reads from scope, providing better decoupling,
    * debug visibility, and alignment with modern state-based routing patterns.
    *
-   * _Requirements: flowchart-builder-simplification 6.1_
-   * _Requirements: incremental-type-computation 1.4_
-   * _Requirements: decider-first-class-stage 4.1, 4.2_
    */
   addDecider(
     decider: (out?: TOut) => string | Promise<string>,
@@ -1135,7 +1105,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    *   .build();
    * ```
    *
-   * _Requirements: decider-first-class-stage 1.1, 1.2, 1.3, 1.4, 1.5, 6.1_
    */
   addDeciderFunction(
     name: string,
@@ -1159,19 +1128,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     node.fn = fn;
 
     // Register fn in stageMap so Pipeline can resolve it during execution
-    // _Requirements: decider-first-class-stage 1.3_
     this._addToMap(name, fn);
 
     // Create SerializedPipelineStructure with hasDecider: true
     // Type will be set to 'decider' in DeciderList.end()
-    // _Requirements: decider-first-class-stage 6.1_
     let spec: SerializedPipelineStructure = { name, type: 'stage', hasDecider: true };
     if (id) spec.id = id;
     if (displayName) spec.displayName = displayName;
     if (description) spec.description = description;
 
     // Apply build-time extractor to the node
-    // _Requirements: decider-first-class-stage 6.3_
     spec = this._applyExtractorToNode(spec);
 
     // Link to current node as next
@@ -1190,7 +1156,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // Return DeciderList with isScopeBased = true and decider = null
     // (no legacy decider function — the fn IS the decider)
     // Pass reserved step number and description accumulator references
-    // _Requirements: decider-first-class-stage 1.2_
     return new DeciderList<TOut, TScope>(
       this, node, spec, null, true,
       this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
@@ -1199,8 +1164,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Add a selector - returns SelectorList for adding branches.
-   * _Requirements: flowchart-builder-simplification 6.5_
-   * _Requirements: incremental-type-computation 1.5_
    */
   addSelector(selector: Selector): SelectorList<TOut, TScope> {
     const cur = this._needCursor();
@@ -1228,9 +1191,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Mount a prebuilt flowchart as a child (fork pattern).
-   * _Requirements: flowchart-builder-simplification 5.4_
-   * _Requirements: incremental-type-computation 1.7, 4.1_
-   * _Requirements: subflow-input-mapping 1.1, 1.5, 7.3_
    * 
    * IMPORTANT: This creates a WRAPPER node for the subflow mount point.
    * The subflow's internal structure is preserved in `subflowStructure` property,
@@ -1340,9 +1300,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Mount a prebuilt flowchart as next (linear continuation).
-   * _Requirements: flowchart-builder-simplification 5.5_
-   * _Requirements: incremental-type-computation 4.4_
-   * _Requirements: subflow-input-mapping 1.3, 1.5, 7.3_
    * 
    * IMPORTANT: This creates a WRAPPER node for the subflow mount point.
    * The subflow's internal structure is preserved in `subflowStructure` property,
@@ -1450,8 +1407,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Add parallel children (fork) - simplified, no build callbacks.
-   * _Requirements: flowchart-builder-simplification 2.2_
-   * _Requirements: incremental-type-computation 1.6_
    */
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[]): this {
     const cur = this._needCursor();
@@ -1508,8 +1463,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Set a loop target for the current node.
-   * _Requirements: flowchart-builder-simplification 5.6_
-   * _Requirements: incremental-type-computation 6.1_
    */
   loopTo(stageId: string): this {
     const cur = this._needCursor();
@@ -1576,8 +1529,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Compile to FlowChart (returns pre-built structures).
-   * _Requirements: flowchart-builder-simplification 4.4, 5.7_
-   * _Requirements: incremental-type-computation 3.1, 3.3, 3.4_
    */
   build(): FlowChart<TOut, TScope> {
     const root = this._root ?? fail('empty tree; call start() first');
@@ -1611,8 +1562,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /**
    * Emit pure JSON spec (returns pre-built structure).
-   * _Requirements: flowchart-builder-simplification 4.5_
-   * _Requirements: incremental-type-computation 3.1_
    */
   toSpec<TResult = SerializedPipelineStructure>(): TResult {
     const rootSpec = this._rootSpec ?? fail('empty tree; call start() first');
@@ -1628,7 +1577,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // WHY: execute() is a convenience that combines build + run. When the consumer
     // passes enableNarrative in opts, we need to set the builder field before
     // build() serializes it into the FlowChart.
-    // _Requirements: pipeline-narrative-generation 1.4_
     if (opts?.enableNarrative) {
       this._enableNarrative = true;
     }
@@ -1685,7 +1633,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /**
    * Apply build-time extractor to a single node immediately.
    * If no extractor registered, returns spec as-is.
-   * _Requirements: incremental-type-computation 3.2_
    */
   _applyExtractorToNode(spec: SerializedPipelineStructure): SerializedPipelineStructure {
     if (!this._buildTimeExtractor) {
@@ -1809,8 +1756,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * Convenience factory to create a FlowChartBuilder with start() already called.
  * Recommended way to create flows.
  * 
- * _Requirements: flowchart-builder-simplification 7.1_
- * _Requirements: incremental-type-computation 3.2_
  * 
  * @example
  * ```typescript

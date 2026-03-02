@@ -60,8 +60,6 @@ import type { INarrativeGenerator } from './narrative/types';
  * @template TSubflowInput - Type of the initial values for subflow scope
  * @template TSubflowOutput - Type of the subflow's final output
  *
- * _Requirements: subflow-input-mapping 4.1, 4.2, 4.4, 6.4_
- * _Requirements: subflow-scope-isolation 7.1_
  */
 export interface SubflowMountOptions<
   TParentScope = any,
@@ -75,7 +73,6 @@ export interface SubflowMountOptions<
    * @param parentScope - The parent flow's scope object
    * @returns Object of key-value pairs to seed in subflow's GlobalStore
    *
-   * _Requirements: subflow-input-mapping 1.4, 2.1_
    */
   inputMapper?: (parentScope: TParentScope) => TSubflowInput;
 
@@ -87,7 +84,6 @@ export interface SubflowMountOptions<
    * @param parentScope - The parent flow's scope object (for reading context)
    * @returns Object of key-value pairs to write to parent scope
    *
-   * _Requirements: subflow-input-mapping 3.4, 3.5_
    */
   outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
 }
@@ -105,7 +101,6 @@ export interface SubflowMountOptions<
  * without direct Pipeline coupling. Enables the modular architecture where
  * each module receives the context it needs.
  *
- * _Requirements: 5.3, 6.6_
  */
 export interface PipelineContext<TOut = any, TScope = any> {
   /** Stage function lookup map */
@@ -151,7 +146,6 @@ export interface PipelineContext<TOut = any, TScope = any> {
  * - subflow: Entering or exiting a subflow
  * - loop: Dynamic next looping back to a previous stage
  *
- * _Requirements: flow-control-narrative REQ-1, REQ-2_
  */
 export type FlowControlType = 'next' | 'branch' | 'children' | 'selected' | 'subflow' | 'loop';
 
@@ -171,7 +165,6 @@ export type FlowControlType = 'next' | 'branch' | 'children' | 'selected' | 'sub
  * @property iteration - Loop iteration number (for loops)
  * @property timestamp - When the decision was made
  *
- * _Requirements: flow-control-narrative REQ-1, REQ-2_
  */
 export interface FlowMessage {
   type: FlowControlType;
@@ -346,7 +339,6 @@ export interface SerializedPipelineNode {
  * - Execution data comes from the TraversalExtractor (generates stepNumber, etc.)
  * - No need to serialize structure at runtime - it's already known
  *
- * _Requirements: 3.1, 3.2, 4.3, 4.4_
  */
 export interface SubflowResult {
   /** Unique subflow ID (e.g., "llm-core", "smart-context-finder") */
@@ -382,7 +374,6 @@ export interface SubflowResult {
  * to post-process getRuntimeRoot() with their own serialization logic.
  * This eliminates the need for service-layer functions like serializePipelineStructure().
  * 
- * _Requirements: unified-extractor-architecture 3.1, 3.2_
  */
 export interface RuntimeStructureMetadata {
   /** Computed node type based on node properties */
@@ -425,7 +416,6 @@ export interface RuntimeStructureMetadata {
  * The structureMetadata allows consumers to transform the pipeline structure
  * to their desired format at runtime, eliminating post-processing of getRuntimeRoot().
  * 
- * _Requirements: unified-extractor-architecture 3.2, 4.1, 4.2, 5.3_
  */
 export interface StageSnapshot<TOut = any, TScope = any> {
   // ── Existing fields (always present) ──
@@ -437,14 +427,12 @@ export interface StageSnapshot<TOut = any, TScope = any> {
   /** 
    * 1-based step number in execution order (for time traveler sync).
    * Increments by 1 for each stage execution, including loop iterations.
-   * _Requirements: unified-extractor-architecture 3.1, 3.2, 3.4, 3.5_
    */
   stepNumber: number;
   /**
    * Pre-computed structure metadata for this node.
    * Enables consumers to build serialized structure at runtime without
    * post-processing getRuntimeRoot().
-   * _Requirements: unified-extractor-architecture 3.1, 5.3_
    */
   structureMetadata: RuntimeStructureMetadata;
 
@@ -463,7 +451,6 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * produces a new top-level object via structural sharing. Deep values
    * are immutable by convention (WriteBuffer enforces this).
    *
-   * _Requirements: single-pass-debug-structure 1.1, 2.3_
    */
   scopeState?: Record<string, unknown>;
 
@@ -475,7 +462,6 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * All debug metadata is captured incrementally during execution,
    * enabling single-pass debug structure construction.
    *
-   * _Requirements: single-pass-debug-structure 1.2_
    */
   debugInfo?: {
     logs: Record<string, unknown>;
@@ -493,7 +479,6 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * WHY: Allows consumers to access the stage output during extraction
    * without needing to walk the StageContext linked list post-traversal.
    *
-   * _Requirements: single-pass-debug-structure 1.3_
    */
   stageOutput?: unknown;
 
@@ -505,7 +490,6 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * so consumers can build error-aware debug structures without a separate
    * error-collection pass.
    *
-   * _Requirements: single-pass-debug-structure 1.4_
    */
   errorInfo?: {
     type: string;
@@ -526,7 +510,6 @@ export interface StageSnapshot<TOut = any, TScope = any> {
    * with stepNumber but may diverge (stepNumber counts extractor calls,
    * historyIndex counts commits).
    *
-   * _Requirements: single-pass-debug-structure 3.1, 3.2_
    */
   historyIndex?: number;
 }

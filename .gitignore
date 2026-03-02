@@ -6,6 +6,11 @@
 /dist
 /coverage
 
+# Logs
+*.log
+build.log
+npm-debug.log*
+
 # IDE
 .idea/
 *.iml
@@ -13,6 +18,11 @@
 
 # OS
 .DS_Store
+Thumbs.db
 
-# Kiro
-.kiro/
+# Environment
+.env
+.env.*
+
+# Package manager
+*.tgz

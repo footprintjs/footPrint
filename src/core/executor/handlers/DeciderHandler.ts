@@ -26,7 +26,6 @@
  * - {@link NodeResolver} - Used to pick the chosen child via getNextNode
  * - {@link StageContext} - Used for debug info and context creation
  *
- * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -71,9 +70,7 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
  * @param context - The stage context (after commit)
  * @param stagePath - The full path to this stage
  * @param stageOutput - The stage function's return value (undefined on error or no-function nodes)
- *   _Requirements: single-pass-debug-structure 1.3_
  * @param errorInfo - Error details when the stage threw during execution
- *   _Requirements: single-pass-debug-structure 1.4_
  */
 export type CallExtractorFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
@@ -146,7 +143,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
    * @param getStagePath - Callback to get the stage path
    * @returns The result of executing the chosen child
    *
-   * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
    */
   async handle(
     node: StageNode<TOut, TScope>,
@@ -171,7 +167,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
         // Pass undefined for stageOutput and error details for enrichment
         // WHY: On error path, there's no successful output, but we capture
         // the error info so enriched snapshots include what went wrong.
-        // _Requirements: single-pass-debug-structure 1.4_
         callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
           type: 'stageExecutionError',
           message: error.toString(),
@@ -179,13 +174,11 @@ export class DeciderHandler<TOut = any, TScope = any> {
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         // Append narrative error sentence for the decider failure
-        // _Requirements: 10.2_
         this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
         throw error;
       }
       context.commit();
       // Pass stageOutput so enriched snapshots capture the stage's return value
-      // _Requirements: single-pass-debug-structure 1.3_
       callExtractor(node, context, getStagePath(node, branchPath, context.stageName), stageOutput);
 
       if (breakFlag.shouldBreak) {
@@ -232,7 +225,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // WHY: Decision points are the most valuable part of the narrative for LLM context
     // engineering — knowing *why* a branch was taken lets even a cheaper model reason
     // about the execution.
-    // _Requirements: 4.1, 4.3_
     this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale, node.description);
 
     deciderStageContext.commit();
@@ -275,7 +267,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
    * @param getStagePath - Callback to get the stage path
    * @returns The result of executing the chosen child
    *
-   * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.5_
    */
   async handleScopeBased(
     node: StageNode<TOut, TScope>,
@@ -309,7 +300,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
       logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
       // Append narrative error sentence for the scope-based decider failure
-      // _Requirements: 10.2_
       this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
       throw error;
     }
@@ -317,7 +307,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // Commit the decider's scope writes before selecting the branch
     // WHY: Ensures downstream stages see the decider's committed state,
     // and the extractor captures the post-commit scope snapshot.
-    // _Requirements: 2.6_
     context.commit();
 
     // Call extractor with the branch ID as stageOutput so it appears in enriched snapshots
@@ -332,14 +321,12 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // Resolve child by matching branch ID against node.children
     // WHY: Direct ID matching with default fallback — no NodeResolver needed
     // because the decider function already returned the exact branch ID.
-    // _Requirements: 2.2, 2.4_
     const children = node.children as StageNode<TOut, TScope>[];
     let chosen = children.find((child) => child.id === branchId);
 
     // Fall back to default branch if the returned ID doesn't match any child
     // WHY: The default branch (set via `setDefault()`) acts as a catch-all
     // for unexpected branch IDs, preventing runtime errors.
-    // _Requirements: 2.4_
     if (!chosen) {
       const defaultChild = children.find((child) => child.id === 'default');
       if (defaultChild) {
@@ -359,7 +346,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // buffer's workingCopy to baseSnapshot, getValue reads the stale baseSnapshot
     // value from a previous iteration instead of falling through to GlobalStore.
     // StageMetadata is per-context and doesn't have this issue.
-    // _Requirements: 3.5_
     const chosenName = chosen.displayName || chosen.name;
     const wasDefault = chosen.id !== branchId;
     const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
@@ -379,7 +365,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // Append narrative sentence for the scope-based decision
     // WHY: Scope-based deciders are first-class decisions — the narrative should
     // capture the branch chosen and rationale just like legacy deciders.
-    // _Requirements: 4.2, 4.3_
     this.ctx.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale, node.description);
 
     // Continue execution with the chosen child

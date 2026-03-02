@@ -18,7 +18,6 @@
  * - {@link NarrativeGenerator} - The active implementation that accumulates sentences
  * - {@link Pipeline} - Chooses between this and NarrativeGenerator based on the enableNarrative flag
  *
- * _Requirements: 1.2, 9.3_
  */
 
 import { INarrativeGenerator } from './types';
@@ -48,7 +47,6 @@ import { INarrativeGenerator } from './types';
  * generator.getSentences(); // → []
  * ```
  *
- * _Requirements: 1.2, 9.3_
  */
 export class NullNarrativeGenerator implements INarrativeGenerator {
   onStageExecuted(): void {}

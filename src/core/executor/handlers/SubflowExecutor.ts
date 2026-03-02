@@ -23,8 +23,6 @@
  * - {@link SubflowInputMapper} - Handles input/output mapping between parent and subflow
  * - {@link NodeResolver} - Resolves subflow references and node lookups
  *
- * _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
- * _Requirements: subflow-input-mapping 8.5_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -69,9 +67,7 @@ export type ExecuteStageFn<TOut = any, TScope = any> = (
  * @param context - The stage context (after commit)
  * @param stagePath - The full path to this stage
  * @param stageOutput - The stage function's return value (undefined on error or no-function nodes)
- *   _Requirements: single-pass-debug-structure 1.3_
  * @param errorInfo - Error details when the stage threw during execution
- *   _Requirements: single-pass-debug-structure 1.4_
  */
 export type CallExtractorFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
@@ -119,7 +115,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    * The current subflow's PipelineContext.
    * Set during executeSubflow and used by executeSubflowInternal for stage execution.
    * This ensures stages within the subflow use the subflow's readOnlyContext.
-   * _Requirements: subflow-scope-isolation 1.3, 2.2_
    */
   private currentSubflowCtx?: PipelineContext<TOut, TScope>;
 
@@ -156,7 +151,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    * @param subflowResultsMap - Map to store subflow results (from parent Pipeline)
    * @returns The subflow's final output
    *
-   * _Requirements: 1.1, 1.5_
    */
   async executeSubflow(
     node: StageNode<TOut, TScope>,
@@ -175,7 +169,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     // Narrative: mark subflow entry for human-readable story
     // WHY: Captures the nesting boundary so the reader can follow nested execution contexts
-    // _Requirements: 7.1_
     this.ctx.narrativeGenerator.onSubflowEntry(subflowName);
 
     // Mark parent stage as subflow container
@@ -364,7 +357,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     // Narrative: mark subflow exit for human-readable story
     // WHY: Marks the return from a nested context back to the parent flow
-    // _Requirements: 7.2_
     this.ctx.narrativeGenerator.onSubflowExit(subflowName);
 
     // Commit parent context patch
@@ -403,7 +395,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    * @param branchPath - Branch path for logging
    * @returns Promise resolving to the stage output or children results
    *
-   * _Requirements: 1.2_
    */
   private async executeSubflowInternal(
     node: StageNode<TOut, TScope>,
@@ -445,7 +436,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // Pass undefined for stageOutput and error details for enrichment
         // WHY: On error path, there's no successful output, but we capture
         // the error info so enriched snapshots include what went wrong.
-        // _Requirements: single-pass-debug-structure 1.4_
         this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), undefined, {
           type: 'stageExecutionError',
           message: error.toString(),
@@ -455,7 +445,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
       context.commit();
       // Pass stageOutput so enriched snapshots capture the stage's return value
-      // _Requirements: single-pass-debug-structure 1.3_
       this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
 
       if (breakFlag.shouldBreak) {
@@ -612,7 +601,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    * @param breakFlag - Break flag for the subflow
    * @returns Object mapping child IDs to their results
    *
-   * _Requirements: 1.3_
    */
   private async executeNodeChildrenInternal(
     node: StageNode<TOut, TScope>,
@@ -665,7 +653,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    * @param breakFlag - Break flag for the subflow
    * @returns Object mapping child IDs to their results
    *
-   * _Requirements: 1.4_
    */
   private async executeSelectedChildrenInternal(
     selector: Selector,

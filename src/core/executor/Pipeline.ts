@@ -111,7 +111,6 @@ export type Decider = (nodeArgs: any) => string | Promise<string>;
  * @param nodeArgs - The stage output or input passed to the selector
  * @returns Single ID, array of IDs, or Promise resolving to either
  *
- * _Requirements: 8.1, 8.2_
  */
 export type Selector = (nodeArgs: any) => string | string[] | Promise<string | string[]>;
 
@@ -153,7 +152,6 @@ export type StageNode<TOut = any, TScope = any> = {
    * When set, `fn` MUST be defined (either embedded or in stageMap).
    * When set, `children` MUST be defined with at least one branch.
    *
-   * _Requirements: 5.1, 5.2_
    */
   deciderFn?: boolean;
   /**
@@ -161,7 +159,6 @@ export type StageNode<TOut = any, TScope = any> = {
    * Unlike Decider (picks ONE), Selector can pick MULTIPLE children to execute in parallel.
    * Mutually exclusive with `nextNodeDecider`.
    *
-   * _Requirements: 8.1_
    */
   nextNodeSelector?: Selector;
   /** Optional embedded function for this node; otherwise resolved from stageMap by `name` */
@@ -204,7 +201,6 @@ export type StageNode<TOut = any, TScope = any> = {
    * - outputMapper: Extract data from subflow output to write back to parent scope
    * - scopeMode: 'isolated' (default) or 'inherit' for scope inheritance behavior
    * 
-   * _Requirements: subflow-input-mapping 1.5_
    */
   subflowMountOptions?: SubflowMountOptions;
 
@@ -240,7 +236,6 @@ export type StageNode<TOut = any, TScope = any> = {
    * };
    * ```
    *
-   * _Requirements: dynamic-subflow-support 1.1, 1.2, 1.4_
    */
   subflowDef?: {
     root: StageNode;
@@ -272,7 +267,6 @@ export type StageNode<TOut = any, TScope = any> = {
  * @param output - The stage function's return value
  * @returns true if the output is a StageNode for dynamic continuation
  *
- * _Requirements: 1.1, 1.2, 1.3_
  */
 export function isStageNodeReturn(output: unknown): output is StageNode {
   // Must be a non-null object
@@ -291,7 +285,6 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
     // It marks a node's fn as a scope-based decider but doesn't itself indicate
     // dynamic continuation. We intentionally exclude it from this check to prevent
     // false positives when duck-typing stage output objects.
-    // _Requirements: 5.1_
     const hasContinuation =
       (Array.isArray(obj.children) && obj.children.length > 0) ||
       obj.next !== undefined ||
@@ -359,7 +352,6 @@ export class Pipeline<TOut, TScope> {
    * Collected subflow execution results during pipeline run.
    * Keyed by subflowId for lookup during API response construction.
    *
-   * _Requirements: 4.1, 4.2_
    */
   private subflowResults: Map<string, SubflowResult> = new Map();
 
@@ -386,7 +378,6 @@ export class Pipeline<TOut, TScope> {
    * Incremented before each extractor call.
    * 1-based: first stage gets stepNumber 1.
    * 
-   * _Requirements: unified-extractor-architecture 3.1_
    */
   private stepCounter: number = 0;
 
@@ -395,7 +386,6 @@ export class Pipeline<TOut, TScope> {
    * Set when entering a subflow, cleared when exiting.
    * Propagated to all children within the subflow via structureMetadata.
    * 
-   * _Requirements: unified-extractor-architecture 3.3, 3.4, 3.5_
    */
   private currentSubflowId?: string;
 
@@ -404,7 +394,6 @@ export class Pipeline<TOut, TScope> {
    * Set when executing fork children, cleared after children complete.
    * Propagated to parallel children via structureMetadata.
    * 
-   * _Requirements: unified-extractor-architecture 3.6, 3.7_
    */
   private currentForkId?: string;
 
@@ -414,7 +403,6 @@ export class Pipeline<TOut, TScope> {
    * When 'warn', logs warning but allows assignment.
    * When 'off', no protection is applied.
    *
-   * _Requirements: 5.1, 5.2, 5.3_
    */
   private readonly scopeProtectionMode: ScopeProtectionMode;
 
@@ -438,7 +426,6 @@ export class Pipeline<TOut, TScope> {
    * When true, callExtractor() captures additional data from StageContext
    * and GlobalStore at commit time.
    *
-   * _Requirements: single-pass-debug-structure 4.1, 4.3, 8.3_
    */
   private readonly enrichSnapshots: boolean;
 
@@ -446,7 +433,6 @@ export class Pipeline<TOut, TScope> {
    * NodeResolver module for node lookup and subflow reference resolution.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: 3.1, 3.2, 3.3_
    */
   private readonly nodeResolver: NodeResolver<TOut, TScope>;
 
@@ -454,7 +440,6 @@ export class Pipeline<TOut, TScope> {
    * ChildrenExecutor module for parallel children execution.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: 2.1, 2.2, 2.3_
    */
   private readonly childrenExecutor: ChildrenExecutor<TOut, TScope>;
 
@@ -462,7 +447,6 @@ export class Pipeline<TOut, TScope> {
    * SubflowExecutor module for subflow execution with isolated contexts.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
    */
   private readonly subflowExecutor: SubflowExecutor<TOut, TScope>;
 
@@ -470,7 +454,6 @@ export class Pipeline<TOut, TScope> {
    * StageRunner module for executing individual stage functions.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: phase2-handlers 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
    */
   private readonly stageRunner: StageRunner<TOut, TScope>;
 
@@ -478,7 +461,6 @@ export class Pipeline<TOut, TScope> {
    * LoopHandler module for dynamic next, iteration counting, and loop-back logic.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: phase2-handlers 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
    */
   private readonly loopHandler: LoopHandler<TOut, TScope>;
 
@@ -486,7 +468,6 @@ export class Pipeline<TOut, TScope> {
    * DeciderHandler module for decider evaluation and branching.
    * Extracted from Pipeline.ts for Single Responsibility Principle.
    *
-   * _Requirements: phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
    */
   private readonly deciderHandler: DeciderHandler<TOut, TScope>;
 
@@ -498,7 +479,6 @@ export class Pipeline<TOut, TScope> {
    * lets handlers call narrative methods unconditionally — zero cost
    * when narrative is not needed.
    *
-   * _Requirements: 1.2, 1.3, 9.3_
    */
   private readonly narrativeGenerator: INarrativeGenerator;
 
@@ -510,7 +490,6 @@ export class Pipeline<TOut, TScope> {
    * mutated during execution — so consumers can still access the original
    * static structure for diffing or caching.
    *
-   * _Requirements: runtime-pipeline-structure 1.1, 1.2_
    */
   private readonly buildTimeStructure?: SerializedPipelineStructure;
 
@@ -521,7 +500,6 @@ export class Pipeline<TOut, TScope> {
    * WHY: Makes the library the single source of truth for the complete execution structure,
    * eliminating the need for UI-side reconstruction (runtimeMerger).
    *
-   * _Requirements: runtime-pipeline-structure 1.1, 1.4_
    */
   private runtimePipelineStructure?: SerializedPipelineStructure;
 
@@ -532,7 +510,6 @@ export class Pipeline<TOut, TScope> {
    * WHY: When a dynamic event occurs, we need to find the corresponding
    * structure node quickly. Walking the tree each time would be O(n).
    *
-   * _Requirements: runtime-pipeline-structure 1.3_
    */
   private structureNodeMap: Map<string, SerializedPipelineStructure> = new Map();
 
@@ -567,14 +544,12 @@ export class Pipeline<TOut, TScope> {
 
     // Deep-clone buildTimeStructure into runtimePipelineStructure and build
     // the O(1) lookup map. No-op when buildTimeStructure is not provided.
-    // _Requirements: runtime-pipeline-structure 1.1, 1.3, 1.4_
     this.initRuntimeStructure(buildTimeStructure);
 
     // Create narrative generator based on opt-in flag.
     // WHY: NullNarrativeGenerator is the default — zero allocation, zero string
     // formatting. Only when the consumer explicitly enables narrative do we
     // allocate the real NarrativeGenerator with its sentences array.
-    // _Requirements: 1.2, 1.3, 9.3_
     this.narrativeGenerator = narrativeEnabled
       ? new NarrativeGenerator()
       : new NullNarrativeGenerator();
@@ -607,7 +582,6 @@ export class Pipeline<TOut, TScope> {
       this.createPipelineContext(),
       this.nodeResolver,
       // Callback to update runtime pipeline structure with iteration count
-      // _Requirements: runtime-pipeline-structure 5.1_
       (nodeId: string, count: number) => this.updateStructureIterationCount(nodeId, count),
     );
 
@@ -621,7 +595,6 @@ export class Pipeline<TOut, TScope> {
    *
    * @returns PipelineContext with all required fields
    *
-   * _Requirements: 5.4_
    */
   private createPipelineContext(): PipelineContext<TOut, TScope> {
     return {
@@ -657,7 +630,6 @@ export class Pipeline<TOut, TScope> {
    * After execution: returns the fully enriched structure.
    * When buildTimeStructure was not provided: returns undefined.
    *
-   * _Requirements: runtime-pipeline-structure 6.2, 6.3, 6.4_
    */
   getRuntimePipelineStructure(): SerializedPipelineStructure | undefined {
     return this.runtimePipelineStructure;
@@ -676,7 +648,6 @@ export class Pipeline<TOut, TScope> {
    *
    * @param buildTimeStructure - The static structure from FlowChartBuilder, or undefined
    *
-   * _Requirements: runtime-pipeline-structure 1.1, 1.3, 1.4_
    */
   private initRuntimeStructure(buildTimeStructure?: SerializedPipelineStructure): void {
     if (!buildTimeStructure) return;
@@ -694,7 +665,6 @@ export class Pipeline<TOut, TScope> {
    *
    * @param node - The current structure node to register and recurse into
    *
-   * _Requirements: runtime-pipeline-structure 1.3_
    */
   private buildStructureNodeMap(node: SerializedPipelineStructure): void {
     const key = node.id ?? node.name;
@@ -729,7 +699,6 @@ export class Pipeline<TOut, TScope> {
    * @param node - The runtime StageNode to convert
    * @returns A SerializedPipelineStructure node representing the same stage
    *
-   * _Requirements: runtime-pipeline-structure 7.1, 7.2, 7.3, 7.4_
    */
   private stageNodeToStructure(node: StageNode): SerializedPipelineStructure {
     const structure: SerializedPipelineStructure = {
@@ -801,7 +770,6 @@ export class Pipeline<TOut, TScope> {
    * @param hasSelector - Whether the dynamic node has a nextNodeSelector
    * @param hasDecider - Whether the dynamic node has a nextNodeDecider
    *
-   * _Requirements: runtime-pipeline-structure 2.1, 2.2, 2.3_
    */
   private updateStructureWithDynamicChildren(
     parentNodeId: string,
@@ -917,7 +885,6 @@ export class Pipeline<TOut, TScope> {
    * @param currentNodeId - ID of the node whose stage returned the dynamic next
    * @param dynamicNext   - The StageNode to attach as the next continuation
    *
-   * _Requirements: runtime-pipeline-structure 4.1, 4.2_
    */
   private updateStructureWithDynamicNext(
     currentNodeId: string,
@@ -962,7 +929,6 @@ export class Pipeline<TOut, TScope> {
    * @param nodeId - The ID of the node being iterated
    * @param count - The total iteration count (number of times visited)
    *
-   * _Requirements: runtime-pipeline-structure 5.1_
    */
   private updateStructureIterationCount(nodeId: string, count: number): void {
     // Guard: no-op when structure tracking is disabled
@@ -1008,7 +974,6 @@ export class Pipeline<TOut, TScope> {
       
       // Set subflow context for structureMetadata propagation
       // All nodes within this subflow will have subflowId in their structureMetadata
-      // _Requirements: unified-extractor-architecture 3.3, 3.4, 3.5_
       const previousSubflowId = this.currentSubflowId;
       this.currentSubflowId = node.subflowId;
       
@@ -1090,11 +1055,9 @@ export class Pipeline<TOut, TScope> {
     // Route to the correct DeciderHandler method based on decider type:
     // - Scope-based (deciderFn): fn IS the decider, returns branch ID directly
     // - Legacy (nextNodeDecider): separate decider function evaluates after optional stage
-    // _Requirements: 5.3, 5.4, phase2-handlers 2.1, 2.2, 2.3, 2.4, 2.5_
     if (isDeciderNode) {
       if (isScopeBasedDecider) {
         // Scope-based decider: fn is required (it IS the decider)
-        // _Requirements: 5.3_
         return this.deciderHandler.handleScopeBased(
           node,
           stageFunc!,
@@ -1108,7 +1071,6 @@ export class Pipeline<TOut, TScope> {
         );
       } else {
         // Legacy output-based decider: stage is optional, decider is separate
-        // _Requirements: 5.4_
         return this.deciderHandler.handle(
           node,
           stageFunc,
@@ -1136,13 +1098,11 @@ export class Pipeline<TOut, TScope> {
         // Pass undefined for stageOutput and error details for enrichment
         // WHY: On error path, there's no successful output, but we capture
         // the error info so enriched snapshots include what went wrong.
-        // _Requirements: single-pass-debug-structure 1.4_
         this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), undefined, {
           type: 'stageExecutionError',
           message: error.toString(),
         });
         // Narrative: record the error so the story captures what went wrong
-        // _Requirements: 10.1_
         this.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
         logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
@@ -1150,16 +1110,13 @@ export class Pipeline<TOut, TScope> {
       }
       context.commit();
       // Pass stageOutput so enriched snapshots capture the stage's return value
-      // _Requirements: single-pass-debug-structure 1.3_
       this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
 
       // Narrative: record that this stage executed successfully
-      // _Requirements: 3.1_
       this.narrativeGenerator.onStageExecuted(node.name, node.displayName, node.description);
 
       if (breakFlag.shouldBreak) {
         // Narrative: record that execution stopped here due to break
-        // _Requirements: 3.3_
         this.narrativeGenerator.onBreak(node.name, node.displayName);
         logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput; // leaf/early stop returns the stage's output
@@ -1186,7 +1143,6 @@ export class Pipeline<TOut, TScope> {
         // After registration, we transfer subflow properties to the current node
         // and recurse into executeNode so step 0 (subflow detection) picks it up.
         //
-        // _Requirements: dynamic-subflow-support 2.1, 2.2, 2.3, 2.4, 2.5_
         if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
           context.addLog('dynamicPattern', 'dynamicSubflow');
           context.addLog('dynamicSubflowId', dynamicNode.subflowId);
@@ -1200,7 +1156,6 @@ export class Pipeline<TOut, TScope> {
           node.subflowMountOptions = dynamicNode.subflowMountOptions;
 
           // Update runtime pipeline structure with dynamic subflow
-          // _Requirements: runtime-pipeline-structure 3.1_
           this.updateStructureWithDynamicSubflow(
             node.id ?? node.name,
             dynamicNode.subflowId!,
@@ -1219,7 +1174,6 @@ export class Pipeline<TOut, TScope> {
             if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
               this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id ?? child.name);
               // Update runtime pipeline structure with dynamic subflow for each child
-              // _Requirements: runtime-pipeline-structure 3.1, 3.3_
               this.updateStructureWithDynamicSubflow(
                 child.id ?? child.name,
                 child.subflowId!,
@@ -1237,7 +1191,6 @@ export class Pipeline<TOut, TScope> {
           context.addLog('dynamicChildIds', dynamicNode.children.map(c => c.id || c.name));
 
           // Update runtime pipeline structure with dynamic children
-          // _Requirements: runtime-pipeline-structure 2.1_
           this.updateStructureWithDynamicChildren(
             node.id ?? node.name,
             dynamicNode.children,
@@ -1261,7 +1214,6 @@ export class Pipeline<TOut, TScope> {
         if (dynamicNode.next) {
           dynamicNext = dynamicNode.next;
           // Update runtime pipeline structure with dynamic next
-          // _Requirements: runtime-pipeline-structure 4.1_
           this.updateStructureWithDynamicNext(
             node.id ?? node.name,
             dynamicNode.next,
@@ -1302,7 +1254,6 @@ export class Pipeline<TOut, TScope> {
       if (node.nextNodeSelector) {
         // Set fork context for structureMetadata propagation
         // All parallel children will have parallelGroupId in their structureMetadata
-        // _Requirements: unified-extractor-architecture 3.6, 3.7_
         const previousForkId = this.currentForkId;
         this.currentForkId = node.id ?? node.name;
         
@@ -1334,7 +1285,6 @@ export class Pipeline<TOut, TScope> {
       // Default: execute all children in parallel (fork pattern)
       else {
         // Log flow control decision for fork children
-        // _Requirements: flow-control-narrative REQ-3 (Task 4)
         const childCount = node.children?.length ?? 0;
         const childNames = node.children?.map(c => c.displayName || c.name).join(', ');
         context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
@@ -1344,7 +1294,6 @@ export class Pipeline<TOut, TScope> {
         
         // Set fork context for structureMetadata propagation
         // All parallel children will have parallelGroupId in their structureMetadata
-        // _Requirements: unified-extractor-architecture 3.6, 3.7_
         const previousForkId = this.currentForkId;
         this.currentForkId = node.id ?? node.name;
         
@@ -1428,7 +1377,6 @@ export class Pipeline<TOut, TScope> {
 
     // ───────────────────────── 5) Dynamic Next (loop support) ─────────────────────────
     // If dynamicNext is set, delegate to LoopHandler for resolution and execution
-    // _Requirements: phase2-handlers 3.4, 3.5, 3.6, 3.7_
     if (dynamicNext) {
       return this.loopHandler.handle(
         dynamicNext,
@@ -1447,11 +1395,9 @@ export class Pipeline<TOut, TScope> {
       const nextNode = originalNext!;
       
       // Narrative: record the transition to the next stage
-      // _Requirements: 3.2_
       this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.displayName, nextNode.description);
       
       // Log flow control decision for linear next
-      // _Requirements: flow-control-narrative REQ-3 (Task 2)
       context.addFlowDebugMessage('next', `Moving to ${nextNode.displayName || nextNode.name} stage`, {
         targetStage: nextNode.name,
       });
@@ -1481,7 +1427,6 @@ export class Pipeline<TOut, TScope> {
    * not via node flags. Any stage can return a StageNode for dynamic continuation.
    *
    * Delegates to StageRunner module for actual execution.
-   * _Requirements: phase2-handlers 1.1, 1.2, 4.3, 4.4, 6.1_
    */
   private async executeStage(
     node: StageNode,
@@ -1501,12 +1446,10 @@ export class Pipeline<TOut, TScope> {
    * @param node - The stage node to compute type for
    * @returns The computed node type
    * 
-   * _Requirements: unified-extractor-architecture 3.2_
    */
   private computeNodeType(node: StageNode): 'stage' | 'decider' | 'fork' | 'streaming' {
     // Decider takes precedence (has decision logic)
     // Check both legacy (nextNodeDecider) and scope-based (deciderFn) deciders
-    // _Requirements: 3.2, decider-first-class-stage 3.2_
     if (node.nextNodeDecider || node.nextNodeSelector || node.deciderFn) return 'decider';
     
     // Streaming stages
@@ -1533,7 +1476,6 @@ export class Pipeline<TOut, TScope> {
    * @param node - The stage node to build metadata for
    * @returns The computed RuntimeStructureMetadata
    * 
-   * _Requirements: unified-extractor-architecture 3.1-3.10_
    */
   private buildStructureMetadata(node: StageNode): RuntimeStructureMetadata {
     const metadata: RuntimeStructureMetadata = {
@@ -1591,13 +1533,10 @@ export class Pipeline<TOut, TScope> {
    * @param stageOutput - The stage function's return value (undefined for stages
    *   that return a StageNode for dynamic continuation or stages without functions).
    *   Used by enrichment to populate StageSnapshot.stageOutput.
-   *   _Requirements: single-pass-debug-structure 1.3_
    * @param errorInfo - Error details when the stage threw during execution.
    *   Contains `type` (error classification) and `message` (error description).
    *   Used by enrichment to populate StageSnapshot.errorInfo.
-   *   _Requirements: single-pass-debug-structure 1.4_
    * 
-   * _Requirements: unified-extractor-architecture 3.1, 3.2, 3.3, 3.4, 5.3_
    */
   private callExtractor(
     node: StageNode,
@@ -1717,7 +1656,6 @@ export class Pipeline<TOut, TScope> {
    * @param subflowId - The subflow ID to register under
    * @param subflowDef - The compiled FlowChart definition
    *
-   * _Requirements: dynamic-subflow-support 2.1, 2.2, 2.3, 2.4, 2.5_
    */
   private autoRegisterSubflowDef(
     subflowId: string,
@@ -1763,7 +1701,6 @@ export class Pipeline<TOut, TScope> {
     }
 
     // Update runtime pipeline structure with dynamic subflow
-    // _Requirements: runtime-pipeline-structure 3.1_
     if (mountNodeId) {
       this.updateStructureWithDynamicSubflow(
         mountNodeId,
@@ -1813,7 +1750,6 @@ export class Pipeline<TOut, TScope> {
    * Returns the collected SubflowResultsMap after pipeline execution.
    * Used by the service layer to include subflow data in API responses.
    *
-   * _Requirements: 4.3_
    */
   getSubflowResults(): Map<string, SubflowResult> {
     return this.subflowResults;
@@ -1845,7 +1781,6 @@ export class Pipeline<TOut, TScope> {
    *
    * @returns Ordered array of narrative sentences, or empty array if disabled
    *
-   * _Requirements: 1.2, 1.3, 2.1_
    */
   getNarrative(): string[] {
     return this.narrativeGenerator.getSentences();

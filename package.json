@@ -10,12 +10,17 @@
   "homepage": "https://github.com/sanjay1909/footPrint",
   "keywords": [
     "footprint",
+    "flowchart",
     "pipeline",
     "workflow",
+    "state-management",
+    "explainable",
+    "self-documenting",
     "execution-context",
+    "observability",
+    "time-travel-debugging",
     "ai-compatible",
-    "connected-logs",
-    "observability"
+    "typescript"
   ],
   "engines": {
     "node": ">=20"
@@ -79,7 +84,6 @@
     "lodash.clonedeep": "^4.5.0",
     "lodash.get": "^4.4.2",
     "lodash.has": "^4.5.2",
-    "lodash.isempty": "^4.4.0",
     "lodash.mergewith": "^4.6.2",
     "lodash.set": "^4.3.2",
     "zod": "^4.0.16"
@@ -89,7 +93,6 @@
     "@types/lodash.clonedeep": "^4.5.9",
     "@types/lodash.get": "^4.4.9",
     "@types/lodash.has": "^4.5.9",
-    "@types/lodash.isempty": "^4.4.9",
     "@types/lodash.mergewith": "^4.6.9",
     "@types/lodash.set": "^4.3.9",
     "@typescript-eslint/eslint-plugin": "^5.61.0",

@@ -26,7 +26,6 @@
  * - {@link NodeResolver} - Used to find target nodes by ID
  * - {@link StageContext} - Used for debug info and context creation
  *
- * _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8_
  */
 
 import { StageContext } from '../../memory/StageContext';
@@ -86,7 +85,6 @@ export class LoopHandler<TOut = any, TScope = any> {
    * @param nodeId - The node ID whose iteration count changed
    * @param count - The new total iteration count (number of times visited)
    *
-   * _Requirements: runtime-pipeline-structure 5.1_
    */
   private readonly onIterationUpdate?: (nodeId: string, count: number) => void;
 
@@ -114,7 +112,6 @@ export class LoopHandler<TOut = any, TScope = any> {
    * @param executeNode - Callback to execute the target node
    * @returns The result of executing the target node
    *
-   * _Requirements: 3.4, 3.5, 3.6, 3.7_
    */
   async handle(
     dynamicNext: string | StageNode<TOut, TScope>,
@@ -247,7 +244,6 @@ export class LoopHandler<TOut = any, TScope = any> {
    * WHY: Enables tracking multiple visits to the same node in the context tree.
    * Returns 0 for first visit, 1 for second, etc.
    *
-   * _Requirements: 3.2_
    */
   getAndIncrementIteration(nodeId: string): number {
     const current = this.iterationCounters.get(nodeId) ?? 0;
@@ -255,7 +251,6 @@ export class LoopHandler<TOut = any, TScope = any> {
 
     // Notify Pipeline to update runtime pipeline structure with iteration count
     // current + 1 is the total number of visits (1-based)
-    // _Requirements: runtime-pipeline-structure 5.1_
     if (this.onIterationUpdate) {
       this.onIterationUpdate(nodeId, current + 1);
     }
@@ -269,7 +264,6 @@ export class LoopHandler<TOut = any, TScope = any> {
    * WHY: Creates unique names for each visit to enable proper context tree structure.
    * First visit: "askLLM", second: "askLLM.1", third: "askLLM.2"
    *
-   * _Requirements: 3.3_
    */
   getIteratedStageName(baseName: string, iteration: number): string {
     return iteration === 0 ? baseName : `${baseName}.${iteration}`;
