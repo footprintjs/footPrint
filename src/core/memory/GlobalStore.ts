@@ -26,7 +26,6 @@
  * ```
  */
 
-import cloneDeep from 'lodash.clonedeep';
 import mergeWith from 'lodash.mergewith';
 
 import { applySmartMerge, MemoryPatch } from '../../internal/memory/WriteBuffer';
@@ -53,7 +52,7 @@ export class GlobalStore {
    * WHY: Consumers may need defaults for initialization or reset.
    */
   getDefaultValues() {
-    return this._defaultValues ? cloneDeep(this._defaultValues) : undefined;
+    return this._defaultValues ? structuredClone(this._defaultValues) : undefined;
   }
 
   /**

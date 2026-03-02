@@ -121,8 +121,6 @@ export interface PipelineContext<TOut = any, TScope = any> {
   scopeProtectionMode: ScopeProtectionMode;
   /** Read-only context passed to scope factory */
   readOnlyContext?: unknown;
-  /** Optional traversal extractor function */
-  extractor?: TraversalExtractor;
   /** Narrative generator for producing human-readable execution story */
   narrativeGenerator: INarrativeGenerator;
 }

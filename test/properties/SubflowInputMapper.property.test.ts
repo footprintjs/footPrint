@@ -361,9 +361,8 @@ describe('SubflowInputMapper — Property Tests', () => {
           (mappedInput) => {
             const parentRuntime = new PipelineRuntime('parent');
             const subflowRuntime = new PipelineRuntime('subflow');
-            const mockExtractor = () => ({});
             const mockThrottlingChecker = () => false;
-            
+
             const parentCtx: PipelineContext = {
               stageMap: new Map([['stage1', async () => 'result']]),
               root: { name: 'root', id: 'root-id' },
@@ -372,7 +371,6 @@ describe('SubflowInputMapper — Property Tests', () => {
               scopeProtectionMode: 'error',
               subflows: { 'sub1': { root: { name: 'sub1' } } },
               throttlingErrorChecker: mockThrottlingChecker,
-              extractor: mockExtractor,
             };
 
             const result = createSubflowPipelineContext(parentCtx, subflowRuntime, mappedInput);
@@ -384,7 +382,6 @@ describe('SubflowInputMapper — Property Tests', () => {
             expect(result.scopeProtectionMode).toBe(parentCtx.scopeProtectionMode);
             expect(result.subflows).toBe(parentCtx.subflows);
             expect(result.throttlingErrorChecker).toBe(parentCtx.throttlingErrorChecker);
-            expect(result.extractor).toBe(parentCtx.extractor);
           }
         ),
         { numRuns: 50 }

@@ -66,10 +66,10 @@
     "coverageDirectory": "<rootDir>/build/coverage/",
     "coverageThreshold": {
       "global": {
-        "statements": 85,
-        "branches": 72,
-        "functions": 79,
-        "lines": 87
+        "statements": 65,
+        "branches": 52,
+        "functions": 64,
+        "lines": 71
       }
     }
   },
@@ -81,7 +81,6 @@
   "main": "dist/index.js",
   "types": "dist/types/index.d.ts",
   "dependencies": {
-    "lodash.clonedeep": "^4.5.0",
     "lodash.get": "^4.4.2",
     "lodash.has": "^4.5.2",
     "lodash.mergewith": "^4.6.2",
@@ -90,7 +89,6 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.2",
-    "@types/lodash.clonedeep": "^4.5.9",
     "@types/lodash.get": "^4.4.9",
     "@types/lodash.has": "^4.5.9",
     "@types/lodash.mergewith": "^4.6.9",

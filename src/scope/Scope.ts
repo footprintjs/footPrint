@@ -18,7 +18,6 @@
  * @module scope/Scope
  */
 
-import _cloneDeep from 'lodash.clonedeep';
 import _get from 'lodash.get';
 import _set from 'lodash.set';
 
@@ -422,7 +421,7 @@ export class Scope {
     const pipelineState = pipelines?.[this.pipelineId] as Record<string, unknown> | undefined;
 
     // Create a deep copy of the state to ensure immutability
-    const stateCopy = pipelineState ? _cloneDeep(pipelineState) : {};
+    const stateCopy = pipelineState ? structuredClone(pipelineState) : {};
 
     const snapshot: ScopeSnapshot = {
       index: this.snapshots.length,
@@ -485,7 +484,7 @@ export class Scope {
     }
 
     // Return a deep copy to ensure immutability (time-travel is read-only)
-    return _cloneDeep(this.snapshots[index].state);
+    return structuredClone(this.snapshots[index].state);
   }
 
   /**

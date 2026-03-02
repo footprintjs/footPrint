@@ -28,7 +28,6 @@
  * ```
  */
 
-import _cloneDeep from 'lodash.clonedeep';
 import _get from 'lodash.get';
 import _set from 'lodash.set';
 
@@ -65,8 +64,8 @@ export class WriteBuffer {
 
   constructor(base: any) {
     // DESIGN: Deep clone to ensure isolation from external mutations
-    this.baseSnapshot = _cloneDeep(base);
-    this.workingCopy = _cloneDeep(base);
+    this.baseSnapshot = structuredClone(base);
+    this.workingCopy = structuredClone(base);
   }
 
   /**
@@ -79,7 +78,7 @@ export class WriteBuffer {
    */
   set(path: (string | number)[], value: any, shouldRedact = false): void {
     _set(this.workingCopy, path, value);
-    _set(this.overwritePatch, path, _cloneDeep(value));
+    _set(this.overwritePatch, path, structuredClone(value));
     if (shouldRedact) {
       this.redactedPaths.add(norm(path));
     }
@@ -127,8 +126,8 @@ export class WriteBuffer {
     trace: { path: string; verb: 'set' | 'merge' }[];
   } {
     const payload = {
-      overwrite: _cloneDeep(this.overwritePatch),
-      updates: _cloneDeep(this.updatePatch),
+      overwrite: structuredClone(this.overwritePatch),
+      updates: structuredClone(this.updatePatch),
       redactedPaths: new Set(this.redactedPaths),
       trace: [...this.opTrace],
     };
@@ -138,7 +137,7 @@ export class WriteBuffer {
     this.updatePatch = {};
     this.opTrace.length = 0;
     this.redactedPaths.clear();
-    this.workingCopy = _cloneDeep(this.baseSnapshot);
+    this.workingCopy = structuredClone(this.baseSnapshot);
 
     return payload;
   }
@@ -190,12 +189,12 @@ export function applySmartMerge(
   overwrite: MemoryPatch,
   trace: { path: string; verb: 'set' | 'merge' }[],
 ): any {
-  const out = _cloneDeep(base);
+  const out = structuredClone(base);
   for (const { path, verb } of trace) {
     const segs = path.split(DELIM);
     if (verb === 'set') {
       const val = _get(overwrite, segs);
-      _set(out, segs, _cloneDeep(val));
+      _set(out, segs, structuredClone(val));
     } else {
       // merge
       const current = _get(out, segs) ?? {};

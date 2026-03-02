@@ -157,8 +157,6 @@ export function createSubflowPipelineContext<TOut = any, TScope = any>(
     throttlingErrorChecker: parentCtx.throttlingErrorChecker,
     streamHandlers: parentCtx.streamHandlers,
     scopeProtectionMode: parentCtx.scopeProtectionMode,
-    extractor: parentCtx.extractor,
-    
     // Override with subflow-specific values
     pipelineRuntime: subflowRuntime,
     readOnlyContext: mappedInput,  // KEY FIX: Use mapped input as readOnlyContext

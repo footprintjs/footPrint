@@ -27,8 +27,6 @@
  * ```
  */
 
-import _cloneDeep from 'lodash.clonedeep';
-
 import { applySmartMerge, MemoryPatch } from '../memory/WriteBuffer';
 
 export interface TraceItem {
@@ -61,7 +59,7 @@ export class ExecutionHistory {
 
   constructor(initialMemory: any) {
     // DESIGN: Deep clone to ensure isolation from external mutations
-    this.base = _cloneDeep(initialMemory);
+    this.base = structuredClone(initialMemory);
   }
 
   /**
@@ -76,7 +74,7 @@ export class ExecutionHistory {
    * @returns The reconstructed state at the specified step
    */
   materialise(stepIdx = this.steps.length): any {
-    let out = _cloneDeep(this.base);
+    let out = structuredClone(this.base);
     for (let i = 0; i < stepIdx; i++) {
       const { overwrite, updates, trace } = this.steps[i];
       out = applySmartMerge(out, updates as MemoryPatch, overwrite as MemoryPatch, trace);

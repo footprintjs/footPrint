@@ -279,7 +279,6 @@ describe('SubflowInputMapper', () => {
         streamHandlers: { onToken: () => {} },
         scopeProtectionMode: 'warn',
         readOnlyContext: { parentValue: 'original' },
-        extractor: () => ({}),
       };
     });
 
@@ -364,15 +363,6 @@ describe('SubflowInputMapper', () => {
       const result = createSubflowPipelineContext(parentCtx, subflowRuntime, mappedInput);
 
       expect(result.scopeProtectionMode).toBe(parentCtx.scopeProtectionMode);
-    });
-
-    it('should copy extractor from parent context', () => {
-      const subflowRuntime = new PipelineRuntime('subflow');
-      const mappedInput = {};
-
-      const result = createSubflowPipelineContext(parentCtx, subflowRuntime, mappedInput);
-
-      expect(result.extractor).toBe(parentCtx.extractor);
     });
 
     it('should handle empty mappedInput', () => {
