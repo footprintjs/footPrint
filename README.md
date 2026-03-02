@@ -1,6 +1,8 @@
 <p align="center">
   <h1 align="center">FootPrint</h1>
-  <p align="center">A flowchart runtime for TypeScript. Draw it, then build it.</p>
+  <p align="center">
+    <strong>Turn your whiteboard flowchart into running code.</strong>
+  </p>
 </p>
 
 <p align="center">
@@ -12,11 +14,15 @@
 
 <br>
 
+FootPrint is a tiny, production-minded runtime for building **flowchart-like pipelines** where each node is just a function. It transforms how you think about application architecture: draw a flowchart, then build it.
+
 ```
    Validate ────> Process ────> Notify
 ```
 
 ```typescript
+import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
+
 const chart = flowChart('Validate', validateFn)
   .addFunction('Process', processFn)
   .addFunction('Notify', notifyFn)
@@ -25,16 +31,79 @@ const chart = flowChart('Validate', validateFn)
 await new FlowChartExecutor(chart, scopeFactory).run();
 ```
 
-FootPrint turns flowcharts into executable TypeScript pipelines with scoped state, parallel execution, and built-in observability. Every step is recorded, replayable, and debuggable.
+---
 
-## Features
+## Why FootPrint?
 
-- **Flowchart-first** &mdash; Define pipelines as nodes and edges. Linear, parallel, conditional, loops.
-- **Scoped state** &mdash; Three-level memory isolation (global, path, node). No shared mutable state.
-- **Composable** &mdash; Mount entire flowcharts as subflows. Build complex apps from simple parts.
-- **Observable** &mdash; Pluggable recorders capture per-stage data. Debug, metrics, and narrative out of the box.
-- **AI-native** &mdash; Stage descriptions auto-cascade into tool definitions. Narrative generation produces plain-English execution stories for LLM context.
-- **Streaming** &mdash; Built-in streaming stages for LLM token emission.
+> [Read the full story](./docs/STORY.md) &mdash; Why FootPrint exists, who it's for, and the vision behind it.
+
+### The Problem
+
+Traditional code obscures control flow. Callbacks, promises, and async/await scatter your logic across files. When something breaks, you're left tracing through stack traces and console logs.
+
+### The Solution
+
+FootPrint makes control flow **explicit and inspectable**:
+
+- **Visual to Code** &mdash; Your whiteboard flowchart becomes executable code
+- **Execution as Artifact** &mdash; Every step is recorded, replayable, debuggable
+- **Scoped State** &mdash; No more global state bugs or race conditions
+- **Time-Travel Debugging** &mdash; Step backward and forward through execution
+- **Self-Documenting Tools** &mdash; Stage descriptions cascade into tool definitions. LLMs see the full inner workflow. No manual description writing needed.
+- **Built-in Observability** &mdash; Recorders capture per-stage data. DebugRecorder, MetricRecorder, and NarrativeRecorder ship out of the box. Debug without re-running.
+- **Narrative Generation** &mdash; Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
+
+---
+
+## Mental Model
+
+Think of FootPrint as a **flowchart runtime**. You define:
+
+1. **Nodes** &mdash; Functions that do work
+2. **Edges** &mdash; How nodes connect (linear, parallel, conditional)
+3. **Scope** &mdash; Where data lives and flows
+
+The runtime handles execution order, state management, and observability.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     YOUR FLOWCHART                          │
+│                                                             │
+│   ┌─────┐     ┌─────┐     ┌─────┐                          │
+│   │  A  │────>│  B  │────>│  C  │   Linear                 │
+│   └─────┘     └─────┘     └─────┘                          │
+│                                                             │
+│   ┌─────┐     ┌─────┐                                      │
+│   │  A  │──┬─>│ B1  │──┐                                   │
+│   └─────┘  │  └─────┘  │  ┌─────┐                          │
+│            ├─>│ B2  │──┼─>│  C  │  Fork (Parallel)         │
+│            │  └─────┘  │  └─────┘                          │
+│            └─>│ B3  │──┘                                   │
+│               └─────┘                                      │
+│                                                             │
+│   ┌─────┐     ┌─────┐                                      │
+│   │  A  │──?─>│ B1  │                                      │
+│   └─────┘  │  └─────┘                                      │
+│            └─>│ B2  │      Decider (One of N)              │
+│               └─────┘                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Not a DAG** | Supports loops, re-entry, and partial/resumed execution |
+| **Parallel Fan-Out/In** | Fork pattern with automatic result aggregation |
+| **Three-Level Scope** | Global, path, and node memory isolation |
+| **Patch-Based State** | Atomic commits, safe merges, no race conditions |
+| **First-Class Observability** | Connected logs, traces, time-travel debugging |
+| **Composable Subflows** | Mount entire flowcharts as nodes in larger workflows |
+| **Streaming Support** | Built-in streaming stages for LLM token emission |
+
+---
 
 ## Installation
 
@@ -42,36 +111,47 @@ FootPrint turns flowcharts into executable TypeScript pipelines with scoped stat
 npm install footprint
 ```
 
+---
+
 ## Quick Start
 
 ```typescript
 import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
 
-const scopeFactory = (ctx, stageName) => new BaseState(ctx, stageName);
+// Scope factory creates state containers for each stage
+const scopeFactory = (ctx: any, stageName: string) => new BaseState(ctx, stageName);
 
+// Build your flowchart
 const chart = flowChart('ValidateCart', async (scope) => {
     scope.setValue(['pipeline'], 'cartTotal', 79.98);
     return { valid: true };
   })
   .addFunction('ProcessPayment', async (scope) => {
     const total = scope.getValue(['pipeline'], 'cartTotal');
-    return { charged: total };
+    return { success: true, amount: total };
   })
-  .addFunction('SendReceipt', async () => ({ sent: true }))
+  .addFunction('SendReceipt', async () => {
+    return { sent: true };
+  })
   .build();
 
+// Execute with FlowChartExecutor
 const executor = new FlowChartExecutor(chart, scopeFactory);
-await executor.run();
+const result = await executor.run();
 ```
+
+### One-liner execution
 
 For simple cases, skip the executor entirely:
 
 ```typescript
-await flowChart('Validate', validateFn)
-  .addFunction('Process', processFn)
-  .addFunction('Notify', notifyFn)
+const result = await flowChart('ValidateCart', validateFn)
+  .addFunction('ProcessPayment', processFn)
+  .addFunction('SendReceipt', receiptFn)
   .execute(scopeFactory);
 ```
+
+---
 
 ## Patterns
 
@@ -114,162 +194,365 @@ flowChart('Classify', classifyFn)
 ### Subflow Composition
 
 ```typescript
-const auth = flowChart('Verify', verifyFn)
-  .addFunction('Authorize', authorizeFn)
+// Build reusable subflows
+const faqFlow = flowChart('FAQ_Entry', faqEntryFn)
+  .addFunction('FAQ_Answer', faqAnswerFn)
   .build();
 
-const main = flowChart('Start', startFn)
-  .addSubFlowChart('auth', auth, 'Authentication')
-  .addFunction('Dashboard', dashboardFn)
+const ragFlow = flowChart('RAG_Entry', ragEntryFn)
+  .addFunction('RAG_Retrieve', ragRetrieveFn)
+  .addFunction('RAG_Answer', ragAnswerFn)
+  .build();
+
+// Compose into main flow
+const mainChart = flowChart('Router', routerFn)
+  .addSubFlowChart('faq', faqFlow, 'FAQ Handler')
+  .addSubFlowChart('rag', ragFlow, 'RAG Handler')
+  .addFunction('Aggregate', aggregateFn)
   .build();
 ```
 
 ### Streaming (LLM)
 
 ```typescript
-flowChart('Prompt', promptFn)
-  .addStreamingFunction('LLM', 'llm-stream', callLLM)
-  .onStream((id, token) => process.stdout.write(token))
-  .addFunction('Parse', parseFn)
+const chart = flowChart('PreparePrompt', prepareFn)
+  .addStreamingFunction('AskLLM', 'llm-stream', askLLMFn)
+  .onStream((streamId, token) => {
+    process.stdout.write(token);
+  })
+  .onStreamEnd((streamId, fullText) => {
+    console.log('\nComplete:', fullText);
+  })
+  .addFunction('ProcessResponse', processFn)
   .build();
 ```
 
+---
+
 ## Scope
 
-Each stage receives its own scope instance. State is shared through explicit read/write methods &mdash; not property assignment.
+> **Each stage receives its own scope instance. Direct property assignment does NOT persist.**
 
 ```typescript
-// Write
-scope.setValue(['pipeline'], 'total', 99.50);
+// WRONG - Data is LOST
+scope.myData = { result: 'hello' };
 
-// Read
-const total = scope.getValue(['pipeline'], 'total');
+// CORRECT - Data persists
+scope.setValue([], 'myData', { result: 'hello' });
+const data = scope.getValue([], 'myData');
 ```
 
-Extend `BaseState` for typed access:
+| Method | Purpose |
+|--------|---------|
+| `setValue(path, key, value)` | Write (overwrites) |
+| `updateValue(path, key, value)` | Write (deep merge) |
+| `getValue(path, key)` | Read |
+
+### Typed Scope
+
+Extend `BaseState` with typed properties:
 
 ```typescript
-class OrderScope extends BaseState {
-  get total(): number {
-    return this.getValue(['pipeline'], 'total') ?? 0;
+class MyScope extends BaseState {
+  get cartTotal(): number {
+    return this.getValue(['pipeline'], 'cartTotal') ?? 0;
   }
-  set total(value: number) {
-    this.setValue(['pipeline'], 'total', value);
+  set cartTotal(value: number) {
+    this.setValue(['pipeline'], 'cartTotal', value);
   }
 }
 ```
 
-Or use Zod schemas for runtime validation &mdash; see the [Zod Scope guide](./docs/guides/ZOD_SCOPE.md).
+### Validated Scope (Zod)
+
+Use Zod schemas for runtime validation:
+
+```typescript
+import { z } from 'zod';
+
+const PipelineSchema = z.object({
+  cartTotal: z.number(),
+  transactionId: z.string().optional(),
+});
+
+class ValidatedScope extends BaseState {
+  setCartTotal(value: number) {
+    PipelineSchema.shape.cartTotal.parse(value);
+    this.setValue(['pipeline'], 'cartTotal', value);
+  }
+}
+```
+
+Full details: [Scope Communication Guide](./docs/guides/SCOPE_COMMUNICATION.md)
+
+---
 
 ## Observability
 
-FootPrint ships three built-in recorders:
+FootPrint includes a composable observability layer built on two concepts: **Scope** (the runtime memory container) and **Recorders** (pluggable observers).
+
+### Recorders
+
+Recorders observe scope operations without modifying them. Implement any subset of six hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
 
 ```typescript
 import { DebugRecorder, MetricRecorder, NarrativeRecorder } from 'footprint';
 
+// Built-in recorders
 scope.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
 scope.attachRecorder(new MetricRecorder());
 scope.attachRecorder(new NarrativeRecorder());
 ```
 
-Build your own by implementing any subset of six hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
+Recorders compose freely &mdash; attach multiple for different concerns. Error isolation is built in: if a recorder throws, the error is routed to `onError` hooks of other recorders, and the scope operation continues normally.
 
-Enable **enriched snapshots** for single-pass debug data:
+### Custom Recorders
 
 ```typescript
-const executor = new FlowChartExecutor(chart, scopeFactory, {
-  enrichSnapshots: true,
-});
+import { Recorder, WriteEvent, StageEvent } from 'footprint';
+
+class LLMRecorder implements Recorder {
+  readonly id = 'llm-recorder';
+  private stageStartTimes = new Map<string, number>();
+  private entries: Array<{ model?: string; latencyMs: number; tokens?: number }> = [];
+
+  onStageStart(event: StageEvent) {
+    this.stageStartTimes.set(event.stageName, event.timestamp);
+  }
+
+  onWrite(event: WriteEvent) {
+    if (event.key !== 'lastResponse') return;
+
+    const startTime = this.stageStartTimes.get(event.stageName);
+    const latencyMs = startTime ? event.timestamp - startTime : 0;
+    const response = event.value as Record<string, unknown>;
+
+    this.entries.push({
+      model: response.model as string | undefined,
+      latencyMs,
+      tokens: (response.usage as any)?.totalTokens,
+    });
+  }
+
+  getEntries() { return [...this.entries]; }
+}
+```
+
+### Enriched Snapshots
+
+Enable single-pass debug data capture &mdash; scope state, debug metadata, stage output, and history index during traversal:
+
+```typescript
+const chart = flowChart('entry', entryFn)
+  .addFunction('process', processFn)
+  .addTraversalExtractor((snapshot) => {
+    const { node, stepNumber, scopeState, debugInfo, stageOutput, historyIndex } = snapshot;
+    return { stageName: node.name, stepNumber, scopeState, debugInfo, stageOutput, historyIndex };
+  })
+  .build();
+
+const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, undefined, undefined, undefined, true);
 await executor.run();
 
 const enriched = executor.getEnrichedResults();
-const narrative = executor.getNarrative();
 ```
+
+Architecture details: [Scope Integration](./docs/architecture/SCOPE_INTEGRATION_PROPOSAL.md) &middot; [Memory Model](./docs/architecture/MEMORY_MODEL.md)
+
+---
 
 ## Stage Descriptions
 
-Attach descriptions to stages. The builder composes a full execution context automatically &mdash; no tree walking needed.
+Attach a human-readable `description` to any stage. The builder incrementally composes a full execution context description as stages are added &mdash; no tree walking required at read time.
 
 ```typescript
-flowChart('Seed', seedFn, 'seed', undefined, 'Initialize history')
-  .addFunction('Prompt', promptFn, 'prompt', undefined, 'Build messages')
-  .addDeciderFunction('Route', routeFn, 'route', undefined, 'Route on tool calls')
-    .addFunctionBranch('tools', 'RunTools', toolsFn, undefined, 'Execute tools')
-    .addFunctionBranch('done', 'Finish', finishFn, undefined, 'Final response')
+const chart = flowChart('SeedScope', seedFn, 'seed-scope', undefined, 'Initialize conversation history')
+  .addFunction('AssemblePrompt', promptFn, 'assemble-prompt', undefined, 'Build LLM message array')
+  .addStreamingFunction('CallLLM', 'llm-stream', llmFn, 'call-llm', undefined, 'Send messages to LLM provider')
+  .addFunction('ParseResponse', parseFn, 'parse-response', undefined, 'Extract text or tool calls')
+  .addDeciderFunction('RouteDecider', deciderFn, 'route-decider', undefined, 'Route based on tool calls')
+    .addFunctionBranch('execute-tools', 'ExecuteTools', toolsFn, undefined, 'Run tools and loop back')
+    .addFunctionBranch('finalize', 'Finalize', finalizeFn, undefined, 'Extract final response')
   .end()
   .build();
 
-// chart.description:
-// 1. Seed — Initialize history
-// 2. Prompt — Build messages
-// 3. Route — Route on tool calls
-//    → tools: Execute tools
-//    → done: Final response
+console.log(chart.description);
+// Pipeline: SeedScope
+// Steps:
+// 1. SeedScope — Initialize conversation history
+// 2. AssemblePrompt — Build LLM message array
+// 3. CallLLM — Send messages to LLM provider
+// 4. ParseResponse — Extract text or tool calls
+// 5. RouteDecider — Route based on tool calls
+//    → execute-tools: Run tools and loop back
+//    → finalize: Extract final response
 ```
 
-When registered as a tool handler, `chart.description` is auto-extracted as the tool description.
+The built `FlowChart` exposes two fields:
 
-## Examples
+| Field | Type | Description |
+|-------|------|-------------|
+| `flowChart.description` | `string` | Full numbered execution context description |
+| `flowChart.stageDescriptions` | `Map<string, string>` | Individual stage descriptions keyed by stage name |
 
-The [`demo/`](./demo) folder contains progressive examples:
+When a `FlowChart` is registered as a tool handler in `ToolRegistry`, the registry auto-extracts `flowChart.description` as the tool description &mdash; no manual duplication needed.
 
-| Demo | Pattern | Description |
-|------|---------|-------------|
-| [1-payment](./demo/src/1-payment/) | Linear | Basic stage chaining |
-| [2-llm-tool-loop](./demo/src/2-llm-tool-loop/) | Decider | Conditional branching |
-| [3-parallel](./demo/src/3-parallel/) | Fork | Parallel execution |
-| [4-selector](./demo/src/4-selector/) | Selector | Multi-choice parallel |
-| [5-composed](./demo/src/5-composed/) | Composition | Apps as building blocks |
-
-```bash
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
-```
+---
 
 ## Architecture
 
 FootPrint separates **building** from **executing**:
 
 ```
-FlowChartBuilder  ──build()──>  FlowChart  ──run()──>  Results
-   (DSL)                      (Compiled Tree)         (Runtime)
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│   FlowChartBuilder  │─────>│      FlowChart      │─────>│  FlowChartExecutor  │
+│   (Build-time DSL)  │      │   (Compiled Tree)   │      │   (Runtime Engine)  │
+└─────────────────────┘      └─────────────────────┘      └─────────────────────┘
+        │                            │                            │
+        │ flowChart()                │ .build()                   │ .run()
+        │ .addFunction()             │                            │ .getEnrichedResults()
+        │ .addDeciderFunction()      │                            │ .getExtractedResults()
+        │ .addSubFlowChart()         │                            │
+        └────────────────────────────┴────────────────────────────┘
 ```
 
-| Concept | Role |
-|---------|------|
-| `flowChart()` | Factory function to start building |
-| `FlowChartBuilder` | Fluent DSL for defining pipeline structure |
-| `FlowChart` | Compiled tree with stage functions and metadata |
-| `FlowChartExecutor` | Runtime engine &mdash; executes, records, extracts |
+- **FlowChartBuilder** &mdash; Fluent DSL for defining your flowchart structure
+- **FlowChart** &mdash; Compiled tree with stage functions and metadata
+- **FlowChartExecutor** &mdash; Runtime engine that executes the compiled flowchart
+
+---
+
+## API Reference
+
+### Builder Methods
+
+| Method | Description |
+|--------|-------------|
+| `start(name, fn?)` | Define root stage |
+| `addFunction(name, fn?)` | Add linear next stage |
+| `addListOfFunction(specs)` | Add parallel children (fork) |
+| `addDeciderFunction(name, fn)` | Add single-choice branching |
+| `addSelector(fn)` | Add multi-choice branching |
+| `addSubFlowChart(id, flow)` | Mount subflow as child |
+| `addSubFlowChartNext(id, flow)` | Mount subflow as next |
+| `addStreamingFunction(name, streamId?, fn?)` | Add streaming stage |
+| `addTraversalExtractor(fn)` | Register data extractor |
+| `loopTo(stageId)` | Loop back to earlier stage |
+| `build()` | Compile to FlowChart |
+| `execute(scopeFactory)` | Build + run (convenience) |
+| `toSpec()` | Export pure JSON (no functions) |
+
+### Executor Methods
+
+| Method | Description |
+|--------|-------------|
+| `run()` | Execute the flowchart |
+| `getExtractedResults()` | Extractor results map |
+| `getEnrichedResults()` | Enriched results (single-pass, when `enrichSnapshots: true`) |
+| `getSubflowResults()` | Subflow execution data |
+| `getNarrative()` | Plain-English execution story |
+| `getExtractorErrors()` | Errors from extractor |
+
+---
+
+## How FootPrint Compares
+
+FootPrint occupies a unique space between simple async/await and full workflow orchestration:
+
+| Aspect | async/await | FootPrint | Temporal / Step Functions |
+|--------|-------------|-----------|--------------------------|
+| **Control Flow** | Implicit in code | Explicit flowchart | External orchestrator |
+| **State** | Manual/global | Scoped & managed | Durable storage |
+| **Debugging** | Stack traces | Time-travel | Event history |
+| **Complexity** | Low | Medium | High |
+| **Use Case** | Scripts | Applications | Distributed systems |
+
+FootPrint gives you **explicit control flow** and **scoped state** without the operational overhead of distributed workflow systems.
+
+---
+
+## When to Use FootPrint
+
+**Use FootPrint when:**
+
+- Your problem naturally fits a flowchart
+- You need parallel + serial steps with explicit control
+- You want scoped state without global variable bugs
+- You need production observability and debugging
+- You're building AI-compatible applications
+
+**Don't use FootPrint when:**
+
+- Simple linear scripts (just use async/await)
+- You need a full workflow orchestration system (use Temporal, Step Functions)
+- You want an opaque agent to decide structure for you
+
+---
+
+## Examples
+
+The [`demo/`](./demo) folder contains progressive examples:
+
+| Demo | Pattern | Complexity | Key Concept |
+|------|---------|------------|-------------|
+| [1-payment](./demo/src/1-payment/) | Linear | Basic | Stage chaining |
+| [2-llm-tool-loop](./demo/src/2-llm-tool-loop/) | Decider | Intermediate | Conditional branching |
+| [3-parallel](./demo/src/3-parallel/) | Fork | Intermediate | Parallel execution |
+| [4-selector](./demo/src/4-selector/) | Selector | Advanced | Multi-choice parallel |
+| [5-composed](./demo/src/5-composed/) | Composition | Advanced | Apps as building blocks |
+
+```bash
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
+```
+
+Demo guide: [demo/README.md](./demo/README.md)
+
+---
 
 ## Documentation
 
 **Start here:** [Getting Started](./docs/guides/GETTING_STARTED.md) &middot; [Core Concepts](./docs/guides/CORE_CONCEPTS.md) &middot; [Patterns](./docs/guides/PATTERNS.md)
 
-**Guides:** [Scope Communication](./docs/guides/SCOPE_COMMUNICATION.md) &middot; [Dynamic Children](./docs/guides/DYNAMIC_CHILDREN.md) &middot; [Zod Scope](./docs/guides/ZOD_SCOPE.md)
+**Guides:** [Scope Communication](./docs/guides/SCOPE_COMMUNICATION.md) &middot; [Dynamic Children](./docs/guides/DYNAMIC_CHILDREN.md)
 
-**Features:** [Recorders](./docs/features/recorders.md) &middot; [Narrative Generation](./docs/features/narrative-generation.md) &middot; [Streaming](./docs/features/streaming.md) &middot; [Subflow Composition](./docs/features/subflow-composition.md) &middot; [Enriched Snapshots](./docs/features/observability-enriched-snapshots.md)
+**Features:** [The Cascade](./docs/features/README.md) &middot; [Stage Descriptions](./docs/features/stage-descriptions.md) &middot; [Recorders](./docs/features/recorders.md) &middot; [Narrative Generation](./docs/features/narrative-generation.md) &middot; [Enriched Snapshots](./docs/features/observability-enriched-snapshots.md) &middot; [Traversal Extractor](./docs/features/traversal-extractor.md)
 
-**Internals:** [Terminology](./docs/TERMINOLOGY.md) &middot; [Control-Flow Model](./docs/internals/CONTROL_FLOW_MODEL.md) &middot; [Scope Isolation](./docs/internals/SCOPE_ISOLATION_DESIGN.md) &middot; [Memory Model](./docs/architecture/MEMORY_MODEL.md)
+**Internals:** [Terminology](./docs/TERMINOLOGY.md) &middot; [Control-Flow Model](./docs/internals/CONTROL_FLOW_MODEL.md) &middot; [Scope Isolation](./docs/internals/SCOPE_ISOLATION_DESIGN.md) &middot; [Memory Model](./docs/architecture/MEMORY_MODEL.md) &middot; [Subgraph Architecture](./docs/SUBGRAPH_ARCHITECTURE.md)
 
 **Training** (~2 hours): [Functions](./docs/training/01-FUNCTIONS.md) &rarr; [Execution](./docs/training/02-EXECUTION.md) &rarr; [Memory](./docs/training/03-MEMORY.md) &rarr; [Scope](./docs/training/04-SCOPE.md) &rarr; [Flowchart Execution](./docs/training/05-FLOWCHART_EXECUTION.md)
 
-## Contributing
+---
 
-See the [architecture docs](./docs/architecture/FOLDER_REORGANIZATION_DESIGN.md) for project structure and design decisions.
+## Contributing
 
 ```
 src/
-├── core/           # Builder DSL, Executor, Pipeline, Memory
-├── internal/       # WriteBuffer, ExecutionHistory
-├── scope/          # BaseState, Scope, Recorders, Zod integration
-└── utils/          # Logger, scopeLog
+├── core/                    # Public API layer
+│   ├── builder/            # FlowChartBuilder DSL
+│   ├── memory/             # StageContext, GlobalStore, PipelineRuntime
+│   ├── executor/           # FlowChartExecutor, Pipeline
+│   │   └── handlers/       # StageRunner, NodeResolver, handlers
+│   ├── context/            # (deprecated re-exports)
+│   └── pipeline/           # (deprecated re-exports)
+├── internal/               # Library internals (not for consumers)
+│   ├── memory/             # WriteBuffer, utils
+│   └── history/            # ExecutionHistory
+├── scope/                  # Consumer extensibility layer
+│   ├── providers/          # Registry, resolve, guards
+│   ├── recorders/          # DebugRecorder, MetricRecorder
+│   ├── protection/         # Scope protection utilities
+│   └── state/              # Zod integration
+└── utils/                  # Shared utilities (logger, scopeLog)
 
 test/
-├── unit/           # Unit tests mirroring src/
-├── properties/     # Property-based tests (fast-check)
-└── scenarios/      # Cross-module integration tests
+├── unit/                   # Unit tests mirroring src/ structure
+├── properties/             # Property-based tests (fast-check)
+└── scenarios/              # Cross-module integration tests
 ```
+
+See [architecture docs](./docs/architecture/FOLDER_REORGANIZATION_DESIGN.md) for detailed design documentation.
+
+---
 
 ## License
 
