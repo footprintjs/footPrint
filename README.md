@@ -128,34 +128,60 @@ npm install footprint
 
 ## Quick Start
 
+### 1. Define your scope
+
+Define the shape of your data once. Stages read and write through this typed interface &mdash; no raw paths.
+
 ```typescript
 import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
 
-// Scope factory creates state containers for each stage
-const scopeFactory = (ctx: any, stageName: string) => new BaseState(ctx, stageName);
+// Define scope with typed getters/setters
+class OrderScope extends BaseState {
+  get cartTotal(): number {
+    return this.getValue([], 'cartTotal') ?? 0;
+  }
+  set cartTotal(value: number) {
+    this.setValue([], 'cartTotal', value);
+  }
+  get paymentStatus(): string {
+    return this.getValue([], 'paymentStatus') ?? 'pending';
+  }
+  set paymentStatus(value: string) {
+    this.setValue([], 'paymentStatus', value);
+  }
+}
 
-// Build your flowchart
-const chart = flowChart('ValidateCart', async (scope) => {
-    scope.setValue(['pipeline'], 'cartTotal', 79.98);
+const scopeFactory = (ctx: any, stageName: string) => new OrderScope(ctx, stageName);
+```
+
+### 2. Write stages that use the scope
+
+Each stage receives the typed scope. Read what the previous stage wrote, write what the next stage needs.
+
+```typescript
+const chart = flowChart('ValidateCart', async (scope: OrderScope) => {
+    scope.cartTotal = 79.98;
     return { valid: true };
   })
-  .addFunction('ProcessPayment', async (scope) => {
-    const total = scope.getValue(['pipeline'], 'cartTotal');
+  .addFunction('ProcessPayment', async (scope: OrderScope) => {
+    const total = scope.cartTotal; // reads what ValidateCart wrote
+    scope.paymentStatus = 'charged';
     return { success: true, amount: total };
   })
-  .addFunction('SendReceipt', async () => {
-    return { sent: true };
+  .addFunction('SendReceipt', async (scope: OrderScope) => {
+    return { sent: true, status: scope.paymentStatus };
   })
   .build();
+```
 
-// Execute with FlowChartExecutor
+### 3. Execute
+
+```typescript
 const executor = new FlowChartExecutor(chart, scopeFactory);
 const result = await executor.run();
 ```
 
-### One-liner execution
-
-For simple cases, skip the executor entirely:
+Or as a one-liner:
 
 ```typescript
 const result = await flowChart('ValidateCart', validateFn)
@@ -195,8 +221,7 @@ flowChart('Fetch', fetchFn)
 ```typescript
 flowChart('Classify', classifyFn)
   .addDeciderFunction('Route', async (scope) => {
-    return scope.getValue(['pipeline'], 'priority') === 'high'
-      ? 'express' : 'standard';
+    return scope.priority === 'high' ? 'express' : 'standard';
   })
     .addFunctionBranch('express', 'Express', expressFn)
     .addFunctionBranch('standard', 'Standard', standardFn)
@@ -244,37 +269,52 @@ const chart = flowChart('PreparePrompt', prepareFn)
 
 ## Scope
 
-> **Each stage receives its own scope instance. Direct property assignment does NOT persist.**
+Each stage receives its own scope instance. The scope is your typed interface to shared state &mdash; define it once, use it everywhere.
+
+### Typed Scope (Recommended)
+
+Extend `BaseState` with getters and setters. Stages get IntelliSense, and the data flows through the pipeline automatically.
 
 ```typescript
-// WRONG - Data is LOST
-scope.myData = { result: 'hello' };
-
-// CORRECT - Data persists
-scope.setValue([], 'myData', { result: 'hello' });
-const data = scope.getValue([], 'myData');
-```
-
-| Method | Purpose |
-|--------|---------|
-| `setValue(path, key, value)` | Write (overwrites) |
-| `updateValue(path, key, value)` | Write (deep merge) |
-| `getValue(path, key)` | Read |
-
-### Typed Scope
-
-Extend `BaseState` with typed properties:
-
-```typescript
-class MyScope extends BaseState {
-  get cartTotal(): number {
-    return this.getValue(['pipeline'], 'cartTotal') ?? 0;
+class AgentScope extends BaseState {
+  get messages(): Message[] {
+    return this.getValue([], 'messages') ?? [];
   }
-  set cartTotal(value: number) {
-    this.setValue(['pipeline'], 'cartTotal', value);
+  set messages(value: Message[]) {
+    this.setValue([], 'messages', value);
+  }
+  get model(): string {
+    return this.getValue([], 'model') ?? 'gpt-4';
   }
 }
 ```
+
+> **Direct property assignment does NOT persist.** Use `setValue` / `setObject` inside your getters/setters, not `scope.x = value` on a raw BaseState.
+
+### Raw Scope (Low-level)
+
+If you don't need a typed class, use the raw API:
+
+```typescript
+scope.setValue([], 'total', 79.98);          // write (overwrite)
+scope.updateValue([], 'config', { retries: 3 }); // write (deep merge)
+const total = scope.getValue([], 'total');   // read
+```
+
+### Paths are namespaces, not requirements
+
+The path array `[]` is an **organizational namespace**, not a routing mechanism. Use `[]` for flat state or group related keys under a namespace:
+
+```typescript
+// Flat (recommended for most cases)
+scope.setValue([], 'cartTotal', 100);
+
+// Namespaced (optional, for organization)
+scope.setValue(['payment'], 'status', 'charged');
+scope.setValue(['shipping'], 'carrier', 'FedEx');
+```
+
+Branch isolation in fork/parallel patterns is handled internally by `pipelineId` &mdash; you don't need to use paths to separate branch data.
 
 ### Validated Scope (Zod)
 
