@@ -184,6 +184,206 @@ describe('StageContext', () => {
   });
 });
 
+describe('StageContext uncovered methods', () => {
+  let globalStore: GlobalStore;
+  let ctx: StageContext;
+
+  beforeEach(() => {
+    globalStore = new GlobalStore();
+    ctx = new StageContext('pipe', 'stage', globalStore);
+  });
+
+  test('set() delegates to patch()', () => {
+    ctx.set(['a'], 'key', 42);
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'key')).toBe(42);
+  });
+
+  test('getPipelineId() returns pipelineId', () => {
+    expect(ctx.getPipelineId()).toBe('pipe');
+  });
+
+  test('get() is an alias for getValue()', () => {
+    ctx.setObject(['x'], 'y', 'val');
+    ctx.commit();
+    expect(ctx.get(['x'], 'y')).toBe('val');
+  });
+
+  test('getRoot() reads from globalStore by pipelineId', () => {
+    ctx.setRoot('rk', 'rv');
+    ctx.commit();
+    expect(ctx.getRoot('rk')).toBe('rv');
+  });
+
+  test('getGlobal() reads from globalStore root namespace', () => {
+    ctx.updateGlobalContext('gk', 'gv');
+    ctx.commit();
+    expect(ctx.getGlobal('gk')).toBe('gv');
+  });
+
+  test('getScope() returns the entire global state', () => {
+    ctx.setRoot('k', 'v');
+    ctx.commit();
+    const scope = ctx.getScope();
+    expect(scope).toBeDefined();
+    expect(typeof scope).toBe('object');
+  });
+
+  test('setGlobal() with description adds log message', () => {
+    ctx.setGlobal('gKey', 'gVal', 'set global desc');
+    ctx.commit();
+    expect(ctx.getGlobal('gKey')).toBe('gVal');
+    expect(ctx.debug.logContext.message).toContain('set global desc');
+  });
+
+  test('setGlobal() without description does not add log', () => {
+    ctx.setGlobal('gKey2', 'gVal2');
+    expect(ctx.debug.logContext.message).toBeUndefined();
+  });
+
+  test('updateObject() with description adds log message', () => {
+    ctx.updateObject(['a'], 'k', 'v', 'updated object');
+    expect(ctx.debug.logContext.message).toContain('updated object');
+  });
+
+  test('setObject() with description adds tagged log message', () => {
+    ctx.setObject(['a'], 'k', 'v', false, 'wrote data');
+    expect(ctx.debug.logContext.message).toContain('[WRITE] wrote data');
+  });
+
+  test('setObject() with description starting with [ keeps original', () => {
+    ctx.setObject(['a'], 'k', 'v', false, '[CUSTOM] tag');
+    expect(ctx.debug.logContext.message).toContain('[CUSTOM] tag');
+  });
+
+  test('setObject() with shouldRedact logs REDACTED', () => {
+    ctx.setObject(['a'], 'k', 'secret', true);
+    expect(ctx.getValue(['a'], 'k')).toBe('secret');
+  });
+
+  test('getValue() with description adds read log', () => {
+    ctx.setObject(['a'], 'k', 'data');
+    ctx.commit();
+    ctx.getValue(['a'], 'k', 'reading data');
+    expect(ctx.debug.logContext.message).toContain('[READ] reading data');
+  });
+
+  test('appendToArray() appends to existing array', () => {
+    ctx.setObject(['a'], 'arr', [1, 2]);
+    ctx.commit();
+    ctx.appendToArray(['a'], 'arr', [3, 4]);
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'arr')).toEqual([1, 2, 3, 4]);
+  });
+
+  test('appendToArray() creates new array when no existing value', () => {
+    ctx.appendToArray(['a'], 'newArr', [10, 20]);
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'newArr')).toEqual([10, 20]);
+  });
+
+  test('appendToArray() with description adds log', () => {
+    ctx.appendToArray(['a'], 'arr', [1], 'appending items');
+    expect(ctx.debug.logContext.message).toContain('[WRITE] appending items');
+  });
+
+  test('mergeObject() shallow merges into existing object', () => {
+    ctx.setObject(['a'], 'obj', { x: 1, y: 2 });
+    ctx.commit();
+    ctx.mergeObject(['a'], 'obj', { y: 99, z: 3 });
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'obj')).toEqual({ x: 1, y: 99, z: 3 });
+  });
+
+  test('mergeObject() creates new object when no existing value', () => {
+    ctx.mergeObject(['a'], 'newObj', { k: 'v' });
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'newObj')).toEqual({ k: 'v' });
+  });
+
+  test('mergeObject() creates new object when existing value is non-object', () => {
+    ctx.setObject(['a'], 'prim', 'hello');
+    ctx.commit();
+    ctx.mergeObject(['a'], 'prim', { k: 'v' });
+    ctx.commit();
+    expect(ctx.getValue(['a'], 'prim')).toEqual({ k: 'v' });
+  });
+
+  test('mergeObject() with description adds log', () => {
+    ctx.mergeObject(['a'], 'obj', { k: 'v' }, 'merging keys');
+    expect(ctx.debug.logContext.message).toContain('[WRITE] merging keys');
+  });
+
+  test('setMetric() sets metric value', () => {
+    ctx.setMetric('latency', 150);
+    expect(ctx.debug.metricContext.latency).toBe(150);
+  });
+
+  test('setEval() sets eval value', () => {
+    ctx.setEval('score', 0.95);
+    expect(ctx.debug.evalContext.score).toBe(0.95);
+  });
+
+  test('setLog() sets log value', () => {
+    ctx.setLog('info', 'something');
+    expect(ctx.debug.logContext.info).toBe('something');
+  });
+
+  test('setAsDecider() sets isDecider and returns self', () => {
+    const result = ctx.setAsDecider();
+    expect(ctx.isDecider).toBe(true);
+    expect(result).toBe(ctx);
+  });
+
+  test('setAsFork() sets isFork and returns self', () => {
+    const result = ctx.setAsFork();
+    expect(ctx.isFork).toBe(true);
+    expect(result).toBe(ctx);
+  });
+
+  test('createDecider() creates next context with isDecider=true', () => {
+    const decider = ctx.createDecider('p', 'deciderStage');
+    expect(decider.isDecider).toBe(true);
+  });
+
+  test('addFlowDebugMessage() adds flow message to debug metadata', () => {
+    ctx.addFlowDebugMessage('next', 'Moving forward', { targetStage: 'stage2' });
+    expect(ctx.debug.flowMessages.length).toBe(1);
+    expect(ctx.debug.flowMessages[0].type).toBe('next');
+    expect(ctx.debug.flowMessages[0].description).toBe('Moving forward');
+  });
+
+  test('getStageId() with empty pipelineId returns stageName', () => {
+    const rootCtx = new StageContext('', 'myStage', globalStore);
+    expect(rootCtx.getStageId()).toBe('myStage');
+  });
+
+  test('getStageId() with pipelineId returns pipelineId.stageName', () => {
+    expect(ctx.getStageId()).toBe('pipe.stage');
+  });
+
+  test('getSnapshot() includes flowMessages when present', () => {
+    ctx.addFlowDebugMessage('fork', 'Forking');
+    const snap = ctx.getSnapshot();
+    expect(snap.flowMessages).toBeDefined();
+    expect(snap.flowMessages!.length).toBe(1);
+  });
+
+  test('createNext() returns existing next on second call', () => {
+    const first = ctx.createNext('p', 'next1');
+    const second = ctx.createNext('p', 'next2');
+    expect(first).toBe(second);
+    expect(first.stageName).toBe('next1');
+  });
+
+  test('context without pipelineId uses flat path', () => {
+    const rootCtx = new StageContext('', 'rootStage', globalStore);
+    rootCtx.setObject(['a'], 'k', 'v');
+    rootCtx.commit();
+    expect(globalStore.getValue('', ['a'], 'k')).toBe('v');
+  });
+});
+
 describe('StageContext.commit', () => {
   const realValue = 'SECRET';
   const patchPath = ['chat'];

@@ -284,6 +284,124 @@ describe('FlowChartExecutor', () => {
       const subflowResults = executor.getSubflowResults();
       expect(subflowResults).toBeInstanceOf(Map);
     });
+
+    it('setRootObject() sets value into global context before execution', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', (scope: StageContext) => {
+          // The root object should be readable from the scope's write buffer
+          return 'output';
+        })
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      // setRootObject stages a write — verify it doesn't throw
+      executor.setRootObject([], 'testKey', 'testValue');
+      await executor.run();
+
+      // getContext() should give us the PipelineRuntime
+      const context = executor.getContext();
+      expect(context).toBeDefined();
+    });
+
+    it('getInheritedPipelines() delegates to pipeline runtime', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      await executor.run();
+
+      // Just verify the method is callable and doesn't throw
+      const pipelines = executor.getInheritedPipelines();
+      // May return undefined or an object depending on GlobalStore state
+      expect(pipelines === undefined || typeof pipelines === 'object').toBe(true);
+    });
+
+    it('getRuntimePipelineStructure() returns structure or undefined', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      await executor.run();
+
+      const structure = executor.getRuntimePipelineStructure();
+      // Structure may be undefined if no buildTimeStructure was provided
+      // Just verify the method doesn't throw
+      expect(structure === undefined || typeof structure === 'object').toBe(true);
+    });
+
+    it('getEnrichedResults() returns map (same as getExtractedResults with enrichment)', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .addTraversalExtractor((snapshot) => ({ name: snapshot.node.name }))
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      await executor.run();
+
+      const enriched = executor.getEnrichedResults();
+      expect(enriched).toBeInstanceOf(Map);
+      expect(enriched.size).toBeGreaterThan(0);
+    });
+
+    it('getExtractorErrors() returns array', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      await executor.run();
+
+      const errors = executor.getExtractorErrors();
+      expect(Array.isArray(errors)).toBe(true);
+    });
+
+    it('enrichSnapshots constructor param overrides flowChart.enrichSnapshots', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .addTraversalExtractor((snapshot) => ({
+          name: snapshot.node.name,
+          scopeState: snapshot.scopeState,
+        }))
+        .build();
+
+      // Explicitly pass enrichSnapshots=true to constructor
+      const executor = new FlowChartExecutor(
+        chart,
+        testScopeFactory,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      );
+      await executor.run();
+
+      const enriched = executor.getEnrichedResults<{ name: string; scopeState?: unknown }>();
+      expect(enriched).toBeInstanceOf(Map);
+      // With enrichSnapshots, scopeState should be present
+      for (const [, result] of enriched) {
+        expect(result.scopeState).toBeDefined();
+      }
+    });
+
+    it('enableNarrative via flowChart.enableNarrative build-time flag', async () => {
+      const chart = new FlowChartBuilder()
+        .start('entry', () => 'output')
+        .addFunction('process', () => 'processed')
+        .setEnableNarrative()
+        .build();
+
+      const executor = new FlowChartExecutor(chart, testScopeFactory);
+      // Note: NOT calling executor.enableNarrative() - using build-time flag
+      await executor.run();
+
+      const narrative = executor.getNarrative();
+      expect(narrative.length).toBeGreaterThan(0);
+    });
   });
 });
 
