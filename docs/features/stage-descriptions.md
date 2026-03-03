@@ -37,7 +37,7 @@ After `build()`, the FlowChart object contains:
 
 ```typescript
 chart.description
-// → "Pipeline: validate\nSteps:\n1. validate — Check that the user ID exists and is valid\n2. fetch — Query the registered users table by ID\n3. enrich — Attach payment and subscription data"
+// → "FlowChart: validate\nSteps:\n1. validate — Check that the user ID exists and is valid\n2. fetch — Query the registered users table by ID\n3. enrich — Attach payment and subscription data"
 
 chart.stageDescriptions
 // → Map {
@@ -123,14 +123,14 @@ Available tools:
 ```
 Available tools:
 - getUserDetails:
-    Pipeline: FetchRegistered
+    FlowChart: FetchRegistered
     Steps:
     1. ValidateUserId — Check that the user ID exists and is valid
     2. FetchFromRegisteredUsersTable — Query registered users by ID
     3. IncludeBillingInfo — Attach payment and subscription data
 
 - getUserInfo:
-    Pipeline: FetchGuest
+    FlowChart: FetchGuest
     Steps:
     1. ValidateSessionId — Check the session token is active
     2. FetchFromGuestSessions — Query guest browse sessions

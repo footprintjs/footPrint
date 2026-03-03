@@ -1,4 +1,4 @@
-# TreeOfFunctionsLib Demos
+# FootPrint Demos
 
 Progressive examples showcasing FlowChartBuilder - from simple linear flows to advanced async patterns with LLM integration.
 
@@ -8,7 +8,7 @@ This demo folder serves as **persistent memory for LLMs** and a comprehensive le
 
 ## Learning Path
 
-Follow these demos in order to master TreeOfFunctionsLib:
+Follow these demos in order to master FootPrint:
 
 | # | Demo | Domain | Pattern | Complexity | Time | Key Concepts |
 |---|------|--------|---------|------------|------|--------------|
@@ -53,7 +53,7 @@ Demo 9 (Metrics/LLM) ← Builds on: async patterns
 ## Quick Start
 
 ```bash
-# From TreeOfFunctionsLib root directory
+# From FootPrint root directory
 
 # Run any demo
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-linear-payment/index.ts

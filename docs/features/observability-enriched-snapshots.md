@@ -164,7 +164,7 @@ All methods are optional. Implement only the hooks you need.
 ## Concrete Example: Loan Approval Pipeline
 
 ```
-Pipeline: CreditCheck -> RiskAssessment (decider) -> Approval/Rejection
+FlowChart: CreditCheck -> RiskAssessment (decider) -> Approval/Rejection
 ```
 
 **Layer 1 (inbuilt):** CreditCheck stage reads `applicant.ssn`, writes `creditScore=580`

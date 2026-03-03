@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This folder contains the public API layer of TreeOfFunctionsLib. It provides the primary building blocks for constructing and executing flowchart-based pipelines. Consumers should import from this module for all core functionality.
+This folder contains the public API layer of FootPrint. It provides the primary building blocks for constructing and executing flowchart-based pipelines. Consumers should import from this module for all core functionality.
 
 The core module is the "what you use" layer - it exposes stable APIs that consumers depend on, while hiding implementation details in the `internal/` module.
 

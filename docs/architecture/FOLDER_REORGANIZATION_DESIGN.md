@@ -1,6 +1,6 @@
 # Folder Reorganization Design Document
 
-This document captures the architectural analysis and design decisions for reorganizing the TreeOfFunctionsLib folder structure.
+This document captures the architectural analysis and design decisions for reorganizing the FootPrint folder structure.
 
 ## Current State Analysis
 
@@ -326,7 +326,7 @@ Current circular dependency risk:
 
 Many consumers import from current paths:
 ```typescript
-import { StageContext } from 'tree-of-functions-lib/core/context/StageContext';
+import { StageContext } from 'footprint/core/context/StageContext';
 ```
 
 **Solution**: 

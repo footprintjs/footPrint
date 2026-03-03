@@ -1,6 +1,6 @@
-# TreeOfFunctionsLib Terminology Guide
+# FootPrint Terminology Guide
 
-This document explains the naming conventions and terminology used in TreeOfFunctionsLib. The library uses names inspired by compiler and runtime concepts to make the codebase intuitive for developers.
+This document explains the naming conventions and terminology used in FootPrint. The library uses names inspired by compiler and runtime concepts to make the codebase intuitive for developers.
 
 ## Architecture Overview
 
@@ -286,7 +286,7 @@ The library exports a clean, well-organized public API. Internal implementation 
 The D3-style factory function is the recommended way to create flowcharts:
 
 ```typescript
-import { flowChart, FlowChart, FlowChartExecutor } from 'tree-of-functions-lib';
+import { flowChart, FlowChart, FlowChartExecutor } from 'footprint';
 
 // Create and build a flowchart
 const chart: FlowChart = flowChart('entry', entryFn)
@@ -310,7 +310,7 @@ import {
   FlowChart,
   DeciderList,
   SelectorList,
-} from 'tree-of-functions-lib';
+} from 'footprint';
 ```
 
 **Builder Methods:**
@@ -349,7 +349,7 @@ type FlowChart<TOut = any, TScope = any> = {
 The recommended runtime engine for executing flowcharts:
 
 ```typescript
-import { FlowChartExecutor } from 'tree-of-functions-lib';
+import { FlowChartExecutor } from 'footprint';
 
 const executor = new FlowChartExecutor(
   flowChart,      // FlowChart from build()
@@ -381,7 +381,7 @@ import {
   PipelineRuntime,
   GlobalStore,
   StageMetadata,
-} from 'tree-of-functions-lib';
+} from 'footprint';
 ```
 
 ### State Management
@@ -390,7 +390,7 @@ import {
 import { 
   WriteBuffer,
   ExecutionHistory,
-} from 'tree-of-functions-lib';
+} from 'footprint';
 ```
 
 ### Pipeline Engine (Legacy)
@@ -403,7 +403,7 @@ import {
   StageNode,
   Selector,
   Decider,
-} from 'tree-of-functions-lib';
+} from 'footprint';
 ```
 
 > **Note:** Prefer `FlowChartExecutor` for new code. `Pipeline` requires separate `root` and `stageMap` parameters, while `FlowChartExecutor` accepts a single `FlowChart` object.
@@ -415,7 +415,7 @@ import {
   BaseState,
   ScopeFactory,
   ScopeProvider,
-} from 'tree-of-functions-lib';
+} from 'footprint';
 ```
 
 ---

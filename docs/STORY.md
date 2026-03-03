@@ -53,7 +53,7 @@ const chart = flowChart('Validate', validateFn, undefined, undefined, 'Check inp
   .build();
 
 // After execution, chart.description reads:
-// Pipeline: Validate
+// FlowChart: Validate
 // Steps:
 // 1. Validate — Check input data
 // 2. Process — Run business logic
@@ -91,7 +91,7 @@ This cycle costs everyone:
 When your application is built with FootPrint, every execution produces a readable trace. The customer — a non-technical business user — can see:
 
 ```
-Pipeline: Process Order
+FlowChart: Process Order
 Steps:
 1. ✅ Validate Cart — Check items and quantities (12ms)
 2. ✅ Check Inventory — Verify stock levels (45ms)

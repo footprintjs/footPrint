@@ -1,8 +1,8 @@
-# Subgraph Architecture in TreeOfFunctionsLib
+# Subgraph Architecture in FootPrint
 
 ## Overview
 
-This document explains how subgraphs (subflows) work in TreeOfFunctionsLib. A subgraph is a reusable, composable pipeline that can be mounted into a parent pipeline.
+This document explains how subgraphs (subflows) work in FootPrint. A subgraph is a reusable, composable pipeline that can be mounted into a parent pipeline.
 
 ## Key Concepts
 
