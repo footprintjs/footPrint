@@ -21,12 +21,14 @@ import type {
 } from '../types';
 import type { StageNode } from '../Pipeline';
 import { computeNodeType } from './RuntimeStructureManager';
-import { logger } from '../../../utils/logger';
+import { logger as defaultLogger } from '../../../utils/logger';
+import type { ILogger } from '../../../utils/logger';
 
 export class ExtractorRunner<TOut = any, TScope = any> {
   private readonly extractor?: TraversalExtractor;
   private readonly enrichSnapshots: boolean;
   private readonly pipelineRuntime: PipelineRuntime;
+  private readonly logger: ILogger;
 
   private extractedResults: Map<string, unknown> = new Map();
   private extractorErrors: ExtractorError[] = [];
@@ -48,10 +50,12 @@ export class ExtractorRunner<TOut = any, TScope = any> {
     extractor: TraversalExtractor | undefined,
     enrichSnapshots: boolean,
     pipelineRuntime: PipelineRuntime,
+    logger?: ILogger,
   ) {
     this.extractor = extractor;
     this.enrichSnapshots = enrichSnapshots;
     this.pipelineRuntime = pipelineRuntime;
+    this.logger = logger ?? defaultLogger;
   }
 
   /**
@@ -102,7 +106,7 @@ export class ExtractorRunner<TOut = any, TScope = any> {
 
           snapshot.historyIndex = this.pipelineRuntime.executionHistory.list().length;
         } catch (enrichError: any) {
-          logger.warn(`Enrichment error at stage '${stagePath}':`, { error: enrichError });
+          this.logger.warn(`Enrichment error at stage '${stagePath}':`, { error: enrichError });
         }
       }
 
@@ -112,7 +116,7 @@ export class ExtractorRunner<TOut = any, TScope = any> {
         this.extractedResults.set(stagePath, result);
       }
     } catch (error: any) {
-      logger.error(`Extractor error at stage '${stagePath}':`, { error });
+      this.logger.error(`Extractor error at stage '${stagePath}':`, { error });
       this.extractorErrors.push({
         stagePath,
         message: error?.message ?? String(error),

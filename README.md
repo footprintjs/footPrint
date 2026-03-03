@@ -39,19 +39,32 @@ await new FlowChartExecutor(chart, scopeFactory).run();
 
 ### The Problem
 
-Traditional code obscures control flow. Callbacks, promises, and async/await scatter your logic across files. When something breaks, you're left tracing through stack traces and console logs.
+We build applications as services and automation. We add traces for our **ops teams** &mdash; logs, spans, metrics &mdash; stitched together manually after the fact. Good enough for incident response. We never bother connecting the dots structurally, because the customer never sees them.
 
-### The Solution
+**That assumption just broke.**
 
-FootPrint makes control flow **explicit and inspectable**:
+AI applications serve users through LLMs. The user asks a follow-up question, and the LLM needs to explain what the tool did and why. User input is non-deterministic &mdash; you can't predict what they'll ask. So the LLM must reconstruct the reasoning chain from disconnected logs. That reconstruction is **expensive** (tokens), **slow** (multiple LLM turns), and **unreliable** (hallucinations when context is missing).
 
-- **Visual to Code** &mdash; Your whiteboard flowchart becomes executable code
-- **Execution as Artifact** &mdash; Every step is recorded, replayable, debuggable
-- **Scoped State** &mdash; No more global state bugs or race conditions
-- **Time-Travel Debugging** &mdash; Step backward and forward through execution
-- **Self-Documenting Tools** &mdash; Stage descriptions cascade into tool definitions. LLMs see the full inner workflow. No manual description writing needed.
-- **Built-in Observability** &mdash; Recorders capture per-stage data. DebugRecorder, MetricRecorder, and NarrativeRecorder ship out of the box. Debug without re-running.
-- **Narrative Generation** &mdash; Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
+The traces we built for ops dashboards are not enough. The new consumer of your execution data is a model &mdash; and it needs **causality**, not just events.
+
+### The Insight
+
+What if traces were connected **while executing**, not reconstructed after?
+
+OpenTelemetry tells you *what happened* &mdash; stage A took 50ms, stage B returned an error. FootPrint captures *why it happened* &mdash; stage A wrote `riskTier=medium`, the decider read that value and chose path B because DTI was below threshold. That's the gap: **causal traces** vs. event logs.
+
+FootPrint is not a replacement for your existing observability stack. It's a **semantic layer on top**. OTel handles distributed tracing, latency, error rates. FootPrint handles the reasoning &mdash; what decisions were made, what data flowed where, and why each branch was taken. They're complementary.
+
+### The Payoff
+
+When your application produces causal traces as a byproduct of execution:
+
+- **Ship the trace alongside the result** &mdash; The LLM gets structured context, not raw logs. Even cheap models can answer follow-ups accurately.
+- **Execution as artifact** &mdash; Every step is recorded, replayable, debuggable. Time-travel through your application's decisions.
+- **Self-documenting tools** &mdash; Stage descriptions cascade into tool definitions. LLMs see the full inner workflow. No manual description writing needed.
+- **Scoped state** &mdash; No global state bugs. Each stage gets isolated, patch-based memory with safe merges.
+- **Pluggable observability** &mdash; Recorders capture per-stage data. DebugRecorder, MetricRecorder, and NarrativeRecorder ship out of the box. Bring your own logger.
+- **Narrative generation** &mdash; Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
 
 ---
 

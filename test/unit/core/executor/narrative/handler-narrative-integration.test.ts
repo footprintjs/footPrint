@@ -73,6 +73,7 @@ function createTestContext<TOut = any, TScope = any>(
     ScopeFactory: (_context, stageName) => ({ stageName } as unknown as TScope),
     scopeProtectionMode: 'off',
     narrativeGenerator: mockNarrative,
+    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
   };
 }
 

@@ -29,6 +29,7 @@ import { ScopeFactory } from '../memory/types';
 import type { StageNode } from './Pipeline';
 import { ScopeProtectionMode } from '../../scope/protection/types';
 import type { INarrativeGenerator } from './narrative/types';
+import type { ILogger } from '../../utils/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Subflow Input Mapping Types
@@ -123,6 +124,8 @@ export interface PipelineContext<TOut = any, TScope = any> {
   readOnlyContext?: unknown;
   /** Narrative generator for producing human-readable execution story */
   narrativeGenerator: INarrativeGenerator;
+  /** Logger instance for runtime logging. Defaults to console-based logger. */
+  logger: ILogger;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

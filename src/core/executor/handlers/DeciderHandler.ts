@@ -29,7 +29,6 @@
  */
 
 import { StageContext } from '../../memory/StageContext';
-import { logger } from '../../../utils/logger';
 import type { StageNode, Decider } from '../Pipeline';
 import type { NodeResolver } from './NodeResolver';
 import type { PipelineContext, PipelineStageFunction, StageSnapshot } from '../types';
@@ -171,7 +170,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
           type: 'stageExecutionError',
           message: error.toString(),
         });
-        logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+        this.ctx.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         // Append narrative error sentence for the decider failure
         this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
@@ -182,7 +181,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       callExtractor(node, context, getStagePath(node, branchPath, context.stageName), stageOutput);
 
       if (breakFlag.shouldBreak) {
-        logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+        this.ctx.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput;
       }
     }
@@ -297,7 +296,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
         type: 'stageExecutionError',
         message: error.toString(),
       });
-      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+      this.ctx.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
       // Append narrative error sentence for the scope-based decider failure
       this.ctx.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
@@ -314,7 +313,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
 
     // If break was called during the decider, stop execution
     if (breakFlag.shouldBreak) {
-      logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+      this.ctx.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
       return branchId;
     }
 

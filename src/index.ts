@@ -171,3 +171,9 @@ export type {
   ScopeProtectionMode,
   ScopeProtectionOptions,
 } from './scope/protection';
+
+// ============================================================================
+// Logger - Pluggable logging interface
+// ============================================================================
+
+export type { ILogger } from './utils/logger';

@@ -29,6 +29,7 @@ function createTestContext<TOut = any, TScope = any>(
     scopeProtectionMode: 'off',
     throttlingErrorChecker: options.throttlingErrorChecker,
     narrativeGenerator: new NullNarrativeGenerator(),
+    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
   };
 }
 
