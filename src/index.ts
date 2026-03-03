@@ -1,5 +1,5 @@
 /**
- * TreeOfFunctionsLib - Public API
+ * FootPrint - Public API
  * 
  * WHY: This file defines the public interface for library consumers.
  * Internal implementation details are not exported.

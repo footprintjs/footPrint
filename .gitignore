@@ -26,3 +26,6 @@ Thumbs.db
 
 # Package manager
 *.tgz
+
+# Claude Code
+.claude/

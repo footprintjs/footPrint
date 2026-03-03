@@ -86,7 +86,7 @@ All parallel children can:
 ## Running the Demo
 
 ```bash
-# From TreeOfFunctionsLib root
+# From FootPrint root
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-parallel-shipping/index.ts
 ```
 

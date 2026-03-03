@@ -1541,9 +1541,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
 
     // Build the pre-built description string from accumulated parts
-    const rootName = this._root?.displayName ?? this._root?.name ?? 'Pipeline';
+    const rootName = this._root?.displayName ?? this._root?.name ?? 'FlowChart';
     const description = this._descriptionParts.length > 0
-      ? `Pipeline: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}`
+      ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}`
       : '';
 
     // Return _rootSpec directly - O(1) instead of O(n)

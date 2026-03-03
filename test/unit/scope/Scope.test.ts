@@ -581,4 +581,178 @@ describe('Scope', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Recorder Management Coverage
+  // ==========================================================================
+
+  describe('recorder management', () => {
+    test('attachStageRecorder adds to existing stage array', () => {
+      const recorder1 = { id: 'r1' };
+      const recorder2 = { id: 'r2' };
+
+      scope.attachStageRecorder('myStage', recorder1);
+      scope.attachStageRecorder('myStage', recorder2);
+
+      const recorders = scope.getRecorders();
+      expect(recorders).toContainEqual(recorder1);
+      expect(recorders).toContainEqual(recorder2);
+    });
+
+    test('getRecorders returns global and stage-level recorders', () => {
+      const globalRec = { id: 'global' };
+      const stageRec = { id: 'stage' };
+
+      scope.attachRecorder(globalRec);
+      scope.attachStageRecorder('myStage', stageRec);
+
+      const all = scope.getRecorders();
+      expect(all.length).toBe(2);
+      expect(all[0].id).toBe('global');
+      expect(all[1].id).toBe('stage');
+    });
+
+    test('getRecorders deduplicates same recorder attached globally and to stage', () => {
+      const rec = { id: 'shared' };
+
+      scope.attachRecorder(rec);
+      scope.attachStageRecorder('myStage', rec);
+
+      const all = scope.getRecorders();
+      expect(all.length).toBe(1);
+    });
+
+    test('detachRecorder removes from stage recorders (partial removal)', () => {
+      const rec1 = { id: 'r1' };
+      const rec2 = { id: 'r2' };
+
+      scope.attachStageRecorder('myStage', rec1);
+      scope.attachStageRecorder('myStage', rec2);
+
+      scope.detachRecorder('r1');
+
+      const recorders = scope.getRecorders();
+      expect(recorders.length).toBe(1);
+      expect(recorders[0].id).toBe('r2');
+    });
+
+    test('detachRecorder deletes stage entry when last recorder removed', () => {
+      const rec = { id: 'only' };
+      scope.attachStageRecorder('myStage', rec);
+
+      scope.detachRecorder('only');
+
+      const recorders = scope.getRecorders();
+      expect(recorders.length).toBe(0);
+    });
+  });
+
+  // ==========================================================================
+  // endStage with resetStageName
+  // ==========================================================================
+
+  describe('endStage resetStageName', () => {
+    test('endStage(true) resets stage name to empty string', () => {
+      scope.startStage('processing');
+      expect(scope.getStageName()).toBe('processing');
+
+      scope.endStage(true);
+      expect(scope.getStageName()).toBe('');
+    });
+
+    test('endStage(false) preserves stage name', () => {
+      scope.startStage('processing');
+      scope.endStage(false);
+      expect(scope.getStageName()).toBe('processing');
+    });
+  });
+
+  // ==========================================================================
+  // Recorder error handling in hooks
+  // ==========================================================================
+
+  describe('recorder error handling', () => {
+    test('recorder throwing in hook does not break execution', () => {
+      const failingRecorder = {
+        id: 'failing',
+        onWrite: () => { throw new Error('recorder boom'); },
+      };
+
+      scope.attachRecorder(failingRecorder);
+
+      // Should not throw despite the recorder error
+      expect(() => {
+        scope.setValue(['test'], 'key', 'value');
+      }).not.toThrow();
+    });
+
+    test('recorder error handler receives error event', () => {
+      const errors: any[] = [];
+      const failingRecorder = {
+        id: 'failing',
+        onWrite: () => { throw new Error('hook error'); },
+        onError: (event: any) => { errors.push(event); },
+      };
+
+      scope.attachRecorder(failingRecorder);
+      scope.setValue(['test'], 'key', 'value');
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].error).toBeInstanceOf(Error);
+      expect(errors[0].operation).toBe('write');
+    });
+
+    test('recorder error in onRead triggers error event with read operation', () => {
+      const errors: any[] = [];
+      const failingRecorder = {
+        id: 'failing',
+        onRead: () => { throw new Error('read hook error'); },
+        onError: (event: any) => { errors.push(event); },
+      };
+
+      scope.attachRecorder(failingRecorder);
+      scope.getValue(['test'], 'key');
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].operation).toBe('read');
+    });
+
+    test('recorder error in onCommit triggers error event with commit operation', () => {
+      const errors: any[] = [];
+      const failingRecorder = {
+        id: 'failing',
+        onCommit: () => { throw new Error('commit hook error'); },
+        onError: (event: any) => { errors.push(event); },
+      };
+
+      scope.attachRecorder(failingRecorder);
+      scope.setValue(['test'], 'key', 'value');
+      scope.commit();
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].operation).toBe('commit');
+    });
+
+    test('recorder error in development mode logs warning', () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'development';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const failingRecorder = {
+        id: 'dev-failing',
+        onWrite: () => { throw new Error('dev error'); },
+      };
+
+      scope.attachRecorder(failingRecorder);
+      scope.setValue(['test'], 'key', 'value');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('dev-failing'),
+        expect.any(Error),
+      );
+
+      warnSpy.mockRestore();
+      process.env.NODE_ENV = originalEnv;
+    });
+  });
 });

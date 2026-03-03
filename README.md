@@ -377,7 +377,7 @@ const chart = flowChart('SeedScope', seedFn, 'seed-scope', undefined, 'Initializ
   .build();
 
 console.log(chart.description);
-// Pipeline: SeedScope
+// FlowChart: SeedScope
 // Steps:
 // 1. SeedScope — Initialize conversation history
 // 2. AssemblePrompt — Build LLM message array

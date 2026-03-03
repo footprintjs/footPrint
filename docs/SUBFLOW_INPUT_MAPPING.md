@@ -1,6 +1,6 @@
 # Subflow Input Mapping
 
-This document describes the input/output mapping system for subflows in TreeOfFunctionsLib.
+This document describes the input/output mapping system for subflows in FootPrint.
 
 ## Overview
 

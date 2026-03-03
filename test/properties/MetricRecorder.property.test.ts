@@ -379,6 +379,16 @@ describe('MetricRecorder Property Tests', () => {
             { minLength: 1, maxLength: 20 }
           ),
           (pipelineId, stageName, pathKeyValues) => {
+            // Filter out conflicting paths where a shorter path with a scalar/null
+            // value would prevent a longer path from being set (e.g. setting b.y=null
+            // then trying to set b.y.A=0 would fail since null has no properties).
+            const fullPaths = pathKeyValues.map(([path, key]) => [...path, key].join('.'));
+            const filtered = pathKeyValues.filter((_, i) => {
+              const fp = fullPaths[i];
+              return !fullPaths.some((other, j) => j !== i && fp.startsWith(other + '.'));
+            });
+            if (filtered.length === 0) return; // skip degenerate case
+
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -390,20 +400,20 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set initial values for all paths
-            for (const [path, key, value] of pathKeyValues) {
+            for (const [path, key, value] of filtered) {
               scope.setValue(path, key, value);
             }
             scope.commit();
             metricRecorder.reset();
 
             // Act - read all paths
-            for (const [path, key] of pathKeyValues) {
+            for (const [path, key] of filtered) {
               scope.getValue(path, key);
             }
 
             // Assert - all reads should be counted
             const metrics = metricRecorder.getMetrics();
-            expect(metrics.totalReads).toBe(pathKeyValues.length);
+            expect(metrics.totalReads).toBe(filtered.length);
           }
         ),
         { numRuns: 100 }

@@ -103,7 +103,7 @@ if (allItemsDigital) {
 ## Running the Demo
 
 ```bash
-# From TreeOfFunctionsLib root
+# From FootPrint root
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-decider-order/index.ts
 ```
 

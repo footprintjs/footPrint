@@ -39,14 +39,14 @@ Both tools say "Gets user info." The LLM can't distinguish them.
 
 ```
 getUserDetails:
-  Pipeline: FetchRegistered
+  FlowChart: FetchRegistered
   Steps:
   1. ValidateUserId
   2. FetchFromRegisteredUsersTable -- Query registered users by ID
   3. IncludeBillingInfo -- Attach payment and subscription data
 
 getUserInfo:
-  Pipeline: FetchGuest
+  FlowChart: FetchGuest
   Steps:
   1. ValidateSessionId
   2. FetchFromGuestSessions -- Query guest browse sessions
@@ -59,7 +59,7 @@ The LLM picks correctly on the first try. Registered user with billing question?
 
 | | Build-time (Description) | Runtime (Narrative) |
 |---|---|---|
-| **When** | FlowChart construction | Pipeline execution |
+| **When** | FlowChart construction | FlowChart execution |
 | **What** | "Here's what I CAN do" | "Here's what I DID" |
 | **Who reads it** | LLM selecting tools/agents | LLM answering follow-ups |
 | **Analogy** | A job applicant's resume | A doctor's examination report |
@@ -98,11 +98,11 @@ Here's what the system prompt looks like with and without the cascade:
   "tools": [
     {
       "name": "getUserDetails",
-      "description": "Pipeline: FetchRegistered\nSteps:\n1. ValidateUserId\n2. FetchFromRegisteredUsersTable -- Query registered users by ID\n3. IncludeBillingInfo -- Attach payment and subscription data"
+      "description": "FlowChart: FetchRegistered\nSteps:\n1. ValidateUserId\n2. FetchFromRegisteredUsersTable -- Query registered users by ID\n3. IncludeBillingInfo -- Attach payment and subscription data"
     },
     {
       "name": "getUserInfo",
-      "description": "Pipeline: FetchGuest\nSteps:\n1. ValidateSessionId\n2. FetchFromGuestSessions -- Query guest browse sessions\n3. IncludeBrowseHistory -- Attach page views and search queries"
+      "description": "FlowChart: FetchGuest\nSteps:\n1. ValidateSessionId\n2. FetchFromGuestSessions -- Query guest browse sessions\n3. IncludeBrowseHistory -- Attach page views and search queries"
     }
   ]
 }
