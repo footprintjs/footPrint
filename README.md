@@ -14,22 +14,68 @@
 
 <br>
 
-FootPrint is a tiny, production-minded runtime for building **flowchart-like pipelines** where each node is just a function. It transforms how you think about application architecture: draw a flowchart, then build it.
+FootPrint is a tiny, production-minded runtime for building **flowchart-like pipelines** where each node is just a function. It produces **causal traces** and **plain-English narratives** as a byproduct of execution &mdash; so any LLM can explain what happened and why, without reconstructing from logs.
+
+### See it in action
+
+A loan application pipeline rejects an applicant. The runtime produces this narrative automatically:
 
 ```
-   Validate ────> Process ────> Notify
+1. The process began: received the loan application and captured applicant data.
+2. Next step: pulled the credit report and classified the credit tier.
+3. Next step: calculated the debt-to-income ratio from income and monthly debts.
+4. Next step: verified employment status and tenure.
+5. Next step: assessed overall risk by combining credit, DTI, and employment factors.
+6. Next step: evaluated the risk tier to determine the loan outcome.
+7. It evaluated the risk tier to determine the loan outcome: Risk tier: high.
+   Factors: below-average credit history; DTI at 60% exceeds the 43% maximum;
+   self-employed for only 1 year(s) — less than 2-year minimum; loan amount
+   ($40,000) is 95% of annual income, so it chose Reject Application.
 ```
+
+Ship that narrative alongside the result. Now even a $0.25 model can answer:
+
+> **User:** "Why was my loan rejected?"
+>
+> **LLM:** "Your application was rejected because your credit score of 580 falls in the 'fair' tier with below-average credit history, your debt-to-income ratio of 60% exceeds the 43% maximum, and your self-employment tenure of 1 year is below the 2-year minimum. These factors combined placed you in the 'high' risk tier, which triggered automatic rejection."
+
+That answer came from the trace &mdash; not from the LLM's imagination.
+
+### The code that produced it
 
 ```typescript
-import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
+import { FlowChartBuilder, FlowChartExecutor, BaseState } from 'footprint';
 
-const chart = flowChart('Validate', validateFn)
-  .addFunction('Process', processFn)
-  .addFunction('Notify', notifyFn)
+const chart = new FlowChartBuilder()
+  .setEnableNarrative()
+  .start('ReceiveApplication', receiveFn, 'receive-app', 'Receive Application',
+    'received the loan application and captured applicant data')
+  .addFunction('PullCreditReport', creditFn, 'pull-credit', 'Pull Credit Report',
+    'pulled the credit report and classified the credit tier')
+  .addFunction('CalculateDTI', dtiFn, 'calc-dti', 'Calculate DTI',
+    'calculated the debt-to-income ratio from income and monthly debts')
+  .addFunction('VerifyEmployment', employFn, 'verify-emp', 'Verify Employment',
+    'verified employment status and tenure')
+  .addFunction('AssessRisk', riskFn, 'assess-risk', 'Assess Risk',
+    'assessed overall risk by combining credit, DTI, and employment factors')
+  .addDeciderFunction('LoanDecision', deciderFn, 'loan-decision', 'Loan Decision',
+    'evaluated the risk tier to determine the loan outcome')
+    .addFunctionBranch('approved', 'Approve', approveFn, 'Approve Application')
+    .addFunctionBranch('rejected', 'Reject', rejectFn, 'Reject Application')
+    .addFunctionBranch('manual-review', 'Review', reviewFn, 'Manual Review')
+    .setDefault('manual-review')
+    .end()
   .build();
 
-await new FlowChartExecutor(chart, scopeFactory).run();
+const executor = new FlowChartExecutor(chart, scopeFactory);
+await executor.run();
+
+const narrative = executor.getNarrative(); // ← the 7 sentences above
 ```
+
+Each stage is a plain function. Each description becomes a sentence. The decider writes its rationale to scope, and the runtime captures it in the narrative. No post-processing, no log parsing, no reconstruction.
+
+**[Full working example with tests →](./demo/src/8-loan-application/)**
 
 ---
 
@@ -39,19 +85,15 @@ await new FlowChartExecutor(chart, scopeFactory).run();
 
 ### The Problem
 
-We build applications as services and automation. We add traces for our **ops teams** &mdash; logs, spans, metrics &mdash; stitched together manually after the fact. Good enough for incident response. We never bother connecting the dots structurally, because the customer never sees them.
+We build applications with traces for our **ops teams** &mdash; logs, spans, metrics &mdash; stitched together after the fact. Good enough for incident response.
 
-**That assumption just broke.**
-
-AI applications serve users through LLMs. The user asks a follow-up question, and the LLM needs to explain what the tool did and why. User input is non-deterministic &mdash; you can't predict what they'll ask. So the LLM must reconstruct the reasoning chain from disconnected logs. That reconstruction is **expensive** (tokens), **slow** (multiple LLM turns), and **unreliable** (hallucinations when context is missing).
-
-The traces we built for ops dashboards are not enough. The new consumer of your execution data is a model &mdash; and it needs **causality**, not just events.
+**That assumption just broke.** AI applications serve users through LLMs. The user asks "why was I rejected?" and the LLM needs to explain what the tool did and why. It must reconstruct the reasoning chain from disconnected logs. That reconstruction is **expensive** (tokens), **slow** (multiple LLM turns), and **unreliable** (hallucinations when context is missing).
 
 ### The Insight
 
 What if traces were connected **while executing**, not reconstructed after?
 
-OpenTelemetry tells you *what happened* &mdash; stage A took 50ms, stage B returned an error. FootPrint captures *why it happened* &mdash; stage A wrote `riskTier=medium`, the decider read that value and chose path B because DTI was below threshold. That's the gap: **causal traces** vs. event logs.
+OpenTelemetry tells you *what happened* &mdash; stage A took 50ms, stage B returned an error. FootPrint captures *why it happened* &mdash; stage A wrote `riskTier=high`, the decider read that value and chose the rejection path because DTI exceeded 43%. That's the gap: **causal traces** vs. event logs.
 
 FootPrint is not a replacement for your existing observability stack. It's a **semantic layer on top**. OTel handles distributed tracing, latency, error rates. FootPrint handles the reasoning &mdash; what decisions were made, what data flowed where, and why each branch was taken. They're complementary.
 
@@ -60,11 +102,11 @@ FootPrint is not a replacement for your existing observability stack. It's a **s
 When your application produces causal traces as a byproduct of execution:
 
 - **Ship the trace alongside the result** &mdash; The LLM gets structured context, not raw logs. Even cheap models can answer follow-ups accurately.
+- **Narrative generation** &mdash; Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
 - **Execution as artifact** &mdash; Every step is recorded, replayable, debuggable. Time-travel through your application's decisions.
 - **Self-documenting tools** &mdash; Stage descriptions cascade into tool definitions. LLMs see the full inner workflow. No manual description writing needed.
 - **Scoped state** &mdash; No global state bugs. Each stage gets isolated, patch-based memory with safe merges.
 - **Pluggable observability** &mdash; Recorders capture per-stage data. DebugRecorder, MetricRecorder, and NarrativeRecorder ship out of the box. Bring your own logger.
-- **Narrative generation** &mdash; Runtime produces plain-English execution stories. Feed to follow-up LLM calls for context continuity.
 
 ---
 
@@ -538,6 +580,7 @@ The [`demo/`](./demo) folder contains progressive examples:
 | [5-composed](./demo/src/5-composed/) | Composition | Advanced | Apps as building blocks |
 | [6-subflow-extractor](./demo/src/6-subflow-extractor/) | Subflow | Advanced | TraversalExtractor with subflows |
 | [7-build-vs-runtime](./demo/src/7-build-vs-runtime/) | Extraction | Advanced | toSpec() vs runtime extraction |
+| [8-loan-application](./demo/src/8-loan-application/) | Narrative | Intermediate | Causal traces & "why was I rejected?" |
 
 ```bash
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
