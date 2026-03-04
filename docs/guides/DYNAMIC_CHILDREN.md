@@ -1,6 +1,8 @@
 # Dynamic Children Pattern
 
-FootPrint supports **dynamic children** - the ability for stage handlers to create child nodes at runtime. This enables patterns like parallel tool execution where the number and type of children are determined during execution.
+FootPrint supports **dynamic children** — the ability for stage handlers to create child nodes at runtime. This enables patterns like parallel tool execution where the number and type of children are determined during execution.
+
+> **This is the only case where return values are required.** In all static flows (`addFunction`, `addDeciderFunction`, `addSelector`, etc.), data passes between stages via `scope.setValue()` / `scope.getValue()` and return values are optional. A stage must return a `StageNode` **only** when it needs to dynamically inject children, continuations, or branching at runtime.
 
 ## Overview
 

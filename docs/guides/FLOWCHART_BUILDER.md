@@ -92,6 +92,46 @@ builder
   .addSubFlowChart('sub', subflow, 'MountedSub');
 ```
 
+## Return Values: When Do You Need Them?
+
+In static flows (chains of `addFunction`, `addDeciderFunction`, `addSelector`, etc.), **return values are optional**. Data passes between stages via `scope.setValue()` / `scope.getValue()` — not via return values. The return value from a stage is captured by extractors for the execution artifact, but no downstream stage receives it directly.
+
+```typescript
+// ✅ Linear flow — no return needed
+builder
+  .start('ValidateCart', async (scope) => {
+    scope.setValue('cartTotal', 79.98);
+    // No return necessary — scope carries the data forward
+  })
+  .addFunction('ProcessPayment', async (scope) => {
+    const total = scope.getValue('cartTotal');
+    scope.setValue('paymentStatus', 'charged');
+  })
+  .addFunction('SendReceipt', async (scope) => {
+    const status = scope.getValue('paymentStatus');
+    // ... send receipt
+  });
+```
+
+**Return values ARE required for dynamic stages** — when a stage needs to inject children, continuations, or branching at runtime, it **must** return a `StageNode` object. This is the only way to create dynamic flow. See [Dynamic Children](./DYNAMIC_CHILDREN.md).
+
+```typescript
+// Return is REQUIRED — it defines what runs next
+async function toolBranch(scope: Scope) {
+  const toolCalls = scope.getValue('toolCalls');
+  return {
+    name: 'dynamicTools',
+    children: toolCalls.map(call => ({
+      id: `tool_${call.id}`,
+      name: call.name,
+      fn: async (s) => executeTool(call),
+    })),
+  };
+}
+```
+
+> **Rule of thumb**: If your stage function doesn't return a `StageNode`, the return value is optional. Use scope for all inter-stage data sharing.
+
 ## Navigation Methods
 
 ### `into(childId)`

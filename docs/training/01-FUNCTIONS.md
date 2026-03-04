@@ -210,15 +210,16 @@ function processPayment(amount: number): PaymentResult {
   return { success: true };
 }
 
-// FootPrint stage (same concept!)
-async function processPayment(scope: PaymentScope): Promise<PaymentResult> {
+// FootPrint stage (same concept, but uses scope for I/O)
+async function processPayment(scope: PaymentScope) {
   const amount = scope.getValue('amount');
   // ... process
-  return { success: true };
+  scope.setValue('paymentStatus', 'charged');
+  // No return needed — scope carries data to the next stage
 }
 ```
 
-The key difference: FootPrint stages receive a **scope** object instead of direct parameters. This enables the flowchart execution model.
+The key difference: FootPrint stages receive a **scope** object instead of direct parameters. Input comes from `scope.getValue()`, output goes to `scope.setValue()`. Return values are only needed when dynamically injecting stages at runtime (see [Dynamic Children](../guides/DYNAMIC_CHILDREN.md)).
 
 ---
 

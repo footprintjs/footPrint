@@ -26,7 +26,6 @@ Use `setValue()`, `updateValue()`, and `getValue()` to communicate between stage
 // ✅ CORRECT - Data persists across stages
 async function stageA(scope: MyScope) {
   scope.setValue('myData', { result: 'hello' });  // Writes to GlobalContext
-  return { success: true };
 }
 
 async function stageB(scope: MyScope) {
@@ -34,6 +33,8 @@ async function stageB(scope: MyScope) {
   console.log(myData);  // { result: 'hello' }
 }
 ```
+
+> **Note on return values**: In static flows, return values are **not** used for inter-stage communication — scope is. Return values are only needed when a stage returns a `StageNode` to create [dynamic children](./DYNAMIC_CHILDREN.md) at runtime.
 
 ## API Reference
 
@@ -163,23 +164,19 @@ async function myStage(scope: MyScope) {
 // askLLM stage
 async function askLLM(scope: AgentScope) {
   const response = await callLLM(scope.conversationHistory);
-  
+
   // Store in GlobalContext for downstream stages
   scope.setValue('llmResponse', response);
   if (response.toolCalls?.length > 0) {
     scope.setValue('toolCalls', response.toolCalls);
   }
-  
-  return { response };
 }
 
-// routeDecider stage
+// routeDecider stage (scope-based decider — reads from scope, returns branch ID)
 async function routeDecider(scope: AgentScope) {
-  // Read from GlobalContext
   const toolCalls = scope.getValue('toolCalls') as ToolCall[] | undefined;
-  
   const hasToolCalls = toolCalls && toolCalls.length > 0;
-  return { selectedBranch: hasToolCalls ? 'tool_branch' : 'direct_branch' };
+  return hasToolCalls ? 'tool_branch' : 'direct_branch';
 }
 ```
 
@@ -228,4 +225,4 @@ async function aggregateTools(scope: AgentScope) {
 | `scope.updateValue(key, value)` | Cross-stage data (merge) | ✅ Merges into GlobalContext |
 | `scope.getValue(key)` | Read shared data | ✅ Reads from GlobalContext |
 
-**Remember**: If you need data in a subsequent stage, use `setValue()`/`updateValue()`. Direct property assignment is only for stage-local convenience.
+**Remember**: If you need data in a subsequent stage, use `setValue()`/`updateValue()`. Direct property assignment is only for stage-local convenience. Return values are only needed when returning a `StageNode` for [dynamic flow](./DYNAMIC_CHILDREN.md).

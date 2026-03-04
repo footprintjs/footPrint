@@ -44,7 +44,7 @@ async function process() {           ┌─────────────�
 | Local Variables | Node Context | Private to one stage |
 | Closure Variables | Path Context | Shared within a branch |
 | Global Variables | Global Context | Shared across all stages |
-| Return Value | Stage Output | Result passed to next stage |
+| Return Value | Stage Output | Used for dynamic flow and decider/selector input (not needed in linear flows) |
 | Function Call | Stage Transition | Moving to next node |
 
 
@@ -68,18 +68,19 @@ In FootPrint, stages receive a **scope object**:
 
 ```typescript
 // FootPrint Stage
-async function validateCart(scope: CartScope): Promise<ValidationResult> {
+async function validateCart(scope: CartScope) {
   const cart = scope.getValue('cart');
   // ... validation logic
   scope.setValue('cartTotal', 79.98);
-  return { valid: true };
+  // No return needed — scope carries data to the next stage
 }
 ```
 
 Key differences:
 - Input comes from **scope**, not parameters
-- Output goes to **scope**, not just return value
+- Output goes to **scope**, not return value
 - Stage is **registered** in a flowchart, not called directly
+- Return values are only needed for [dynamic stages](../guides/DYNAMIC_CHILDREN.md) (returning a `StageNode`) or when feeding into a decider/selector
 
 ---
 
@@ -200,14 +201,14 @@ const scopeFactory = (ctx, stageName) => new BaseState(ctx, stageName);
 const builder = new FlowChartBuilder()
   .start('Validate', async (scope) => {
     scope.setValue('cartTotal', 79.98);
-    return { valid: true };
   })
   .addFunction('Process', async (scope) => {
     const total = scope.getValue('cartTotal');
-    return { processed: true, amount: total };
+    scope.setValue('paymentStatus', 'charged');
   })
   .addFunction('Notify', async (scope) => {
-    return { notified: true };
+    const status = scope.getValue('paymentStatus');
+    // ... send notification
   });
 
 // Execute

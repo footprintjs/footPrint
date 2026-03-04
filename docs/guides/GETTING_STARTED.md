@@ -18,12 +18,10 @@ const scopeFactory = (ctx: any, stageName: string) => new BaseState(ctx, stageNa
 const builder = new FlowChartBuilder()
   .start('Step1', async (scope) => {
     scope.setValue('message', 'Hello');
-    return { success: true };
   })
   .addFunction('Step2', async (scope) => {
     const msg = scope.getValue('message');
     console.log(msg); // "Hello"
-    return { done: true };
   });
 
 // 3. Execute
@@ -37,19 +35,19 @@ const result = await builder.execute(scopeFactory);
 A stage is a single function in your pipeline. Each stage:
 - Receives a `scope` object for state management
 - Receives a `breakFn` to stop execution
-- Returns an output value
+- Optionally returns a value (see below)
 
 ```typescript
 async function myStage(scope: BaseState, breakFn: () => void) {
-  // Do work
+  // Do work — use scope to pass data between stages
   scope.setValue('output', { data: 'value' });
-  
+
   // Optionally stop the pipeline
   if (shouldStop) breakFn();
-  
-  return { success: true };
 }
 ```
+
+> **Note**: Return values are only needed when returning a `StageNode` for [dynamic flow](./DYNAMIC_CHILDREN.md). In all other cases, use `scope.setValue()` / `scope.getValue()` for inter-stage communication.
 
 ### Scope Communication
 
