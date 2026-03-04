@@ -29,7 +29,6 @@
  */
 
 import { StageContext } from '../../memory/StageContext';
-import { logger } from '../../../utils/logger';
 import type { StageNode } from '../Pipeline';
 import type { NodeResolver } from './NodeResolver';
 import type { PipelineContext } from '../types';
@@ -149,7 +148,7 @@ export class LoopHandler<TOut = any, TScope = any> {
     const targetNode = this.nodeResolver.findNodeById(nodeId);
     if (!targetNode) {
       const errorMessage = `dynamicNext target node not found: ${nodeId}`;
-      logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
+      this.ctx.logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
 
@@ -208,14 +207,14 @@ export class LoopHandler<TOut = any, TScope = any> {
     const nextNodeId = dynamicNode.id;
     if (!nextNodeId) {
       const errorMessage = 'dynamicNext node must have an id when used as reference';
-      logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
+      this.ctx.logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
 
     const targetNode = this.nodeResolver.findNodeById(nextNodeId);
     if (!targetNode) {
       const errorMessage = `dynamicNext target node not found: ${nextNodeId}`;
-      logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
+      this.ctx.logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
 

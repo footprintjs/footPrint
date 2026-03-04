@@ -3,8 +3,8 @@
  *
  * Tests the basic functionality of the Scope class:
  *   - getValue: Reading values from scope
- *   - setValue: Overwriting values at path/key
- *   - updateValue: Deep-merging values at path/key
+ *   - setValue: Overwriting values at a key
+ *   - updateValue: Deep-merging values at a key
  *   - commit: Persisting staged writes to GlobalStore
  *   - Read-after-write consistency
  *   - Namespace isolation via pipelineId
@@ -62,17 +62,17 @@ describe('Scope', () => {
 
   describe('getValue', () => {
     test('should return undefined for non-existent keys', () => {
-      const value = scope.getValue(['config'], 'nonexistent');
+      const value = scope.getValue('nonexistent');
       expect(value).toBeUndefined();
     });
 
-    test('should return undefined for non-existent paths', () => {
-      const value = scope.getValue(['nonexistent', 'path']);
-      expect(value).toBeUndefined();
+    test('should return empty object when no key provided and nothing written', () => {
+      const value = scope.getValue();
+      expect(value).toEqual({});
     });
 
     test('should read values from GlobalStore after commit', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
       scope.commit();
 
       // Create a new scope to ensure we're reading from GlobalStore
@@ -82,13 +82,13 @@ describe('Scope', () => {
         globalStore,
       });
 
-      const value = newScope.getValue(['config'], 'timeout');
+      const value = newScope.getValue('timeout');
       expect(value).toBe(5000);
     });
 
-    test('should read entire object at path when key is omitted', () => {
-      scope.setValue(['config'], 'timeout', 5000);
-      scope.setValue(['config'], 'retries', 3);
+    test('should read value by key', () => {
+      scope.setValue('timeout', 5000);
+      scope.setValue('retries', 3);
       scope.commit();
 
       const newScope = new Scope({
@@ -97,8 +97,10 @@ describe('Scope', () => {
         globalStore,
       });
 
-      const config = newScope.getValue(['config']);
-      expect(config).toEqual({ timeout: 5000, retries: 3 });
+      const timeout = newScope.getValue('timeout');
+      expect(timeout).toBe(5000);
+      const retries = newScope.getValue('retries');
+      expect(retries).toBe(3);
     });
   });
 
@@ -108,65 +110,59 @@ describe('Scope', () => {
 
   describe('setValue', () => {
     test('should set primitive values', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'timeout');
+      const value = globalStore.getValue('test-pipeline', [], 'timeout');
       expect(value).toBe(5000);
     });
 
     test('should set string values', () => {
-      scope.setValue(['config'], 'name', 'test-name');
+      scope.setValue('name', 'test-name');
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'name');
+      const value = globalStore.getValue('test-pipeline', [], 'name');
       expect(value).toBe('test-name');
     });
 
     test('should set object values', () => {
-      scope.setValue(['users'], 'admin', { name: 'Admin', role: 'admin' });
+      scope.setValue('admin', { name: 'Admin', role: 'admin' });
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['users'], 'admin');
+      const value = globalStore.getValue('test-pipeline', [], 'admin');
       expect(value).toEqual({ name: 'Admin', role: 'admin' });
     });
 
     test('should set array values', () => {
-      scope.setValue(['config'], 'tags', ['a', 'b', 'c']);
+      scope.setValue('tags', ['a', 'b', 'c']);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'tags');
+      const value = globalStore.getValue('test-pipeline', [], 'tags');
       expect(value).toEqual(['a', 'b', 'c']);
     });
 
     test('should set null values', () => {
-      scope.setValue(['config'], 'nullable', null);
+      scope.setValue('nullable', null);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'nullable');
+      const value = globalStore.getValue('test-pipeline', [], 'nullable');
       expect(value).toBeNull();
     });
 
     test('should overwrite existing values', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
       scope.commit();
 
-      scope.setValue(['config'], 'timeout', 10000);
+      scope.setValue('timeout', 10000);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'timeout');
+      const value = globalStore.getValue('test-pipeline', [], 'timeout');
       expect(value).toBe(10000);
-    });
-
-    test('should throw TypeError for non-array path', () => {
-      expect(() => {
-        (scope as any).setValue('invalid', 'key', 'value');
-      }).toThrow(TypeError);
     });
 
     test('should throw TypeError for non-string key', () => {
       expect(() => {
-        (scope as any).setValue(['path'], 123, 'value');
+        (scope as any).setValue(123, 'value');
       }).toThrow(TypeError);
     });
   });
@@ -177,30 +173,30 @@ describe('Scope', () => {
 
   describe('updateValue', () => {
     test('should deep merge object values', () => {
-      scope.setValue(['config'], 'settings', { timeout: 5000 });
+      scope.setValue('settings', { timeout: 5000 });
       scope.commit();
 
-      scope.updateValue(['config'], 'settings', { retries: 3 });
+      scope.updateValue('settings', { retries: 3 });
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'settings');
+      const value = globalStore.getValue('test-pipeline', [], 'settings');
       expect(value).toEqual({ timeout: 5000, retries: 3 });
     });
 
     test('should deep merge nested objects', () => {
-      scope.setValue(['config'], 'settings', {
+      scope.setValue('settings', {
         http: { timeout: 5000 },
         logging: { level: 'info' },
       });
       scope.commit();
 
-      scope.updateValue(['config'], 'settings', {
+      scope.updateValue('settings', {
         http: { retries: 3 },
         cache: { enabled: true },
       });
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'settings');
+      const value = globalStore.getValue('test-pipeline', [], 'settings');
       expect(value).toEqual({
         http: { timeout: 5000, retries: 3 },
         logging: { level: 'info' },
@@ -209,44 +205,38 @@ describe('Scope', () => {
     });
 
     test('should union arrays without duplicates', () => {
-      scope.setValue(['config'], 'tags', ['a', 'b']);
+      scope.setValue('tags', ['a', 'b']);
       scope.commit();
 
-      scope.updateValue(['config'], 'tags', ['b', 'c', 'd']);
+      scope.updateValue('tags', ['b', 'c', 'd']);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'tags');
+      const value = globalStore.getValue('test-pipeline', [], 'tags');
       expect(value).toEqual(['a', 'b', 'c', 'd']);
     });
 
     test('should overwrite primitives', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
       scope.commit();
 
-      scope.updateValue(['config'], 'timeout', 10000);
+      scope.updateValue('timeout', 10000);
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'timeout');
+      const value = globalStore.getValue('test-pipeline', [], 'timeout');
       expect(value).toBe(10000);
     });
 
     test('should create value if it does not exist', () => {
-      scope.updateValue(['config'], 'newKey', { value: 42 });
+      scope.updateValue('newKey', { value: 42 });
       scope.commit();
 
-      const value = globalStore.getValue('test-pipeline', ['config'], 'newKey');
+      const value = globalStore.getValue('test-pipeline', [], 'newKey');
       expect(value).toEqual({ value: 42 });
-    });
-
-    test('should throw TypeError for non-array path', () => {
-      expect(() => {
-        (scope as any).updateValue('invalid', 'key', 'value');
-      }).toThrow(TypeError);
     });
 
     test('should throw TypeError for non-string key', () => {
       expect(() => {
-        (scope as any).updateValue(['path'], 123, 'value');
+        (scope as any).updateValue(123, 'value');
       }).toThrow(TypeError);
     });
   });
@@ -257,39 +247,39 @@ describe('Scope', () => {
 
   describe('read-after-write consistency', () => {
     test('should read setValue values immediately before commit', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
 
       // Read before commit
-      const value = scope.getValue(['config'], 'timeout');
+      const value = scope.getValue('timeout');
       expect(value).toBe(5000);
     });
 
     test('should read updateValue values immediately before commit', () => {
-      scope.setValue(['config'], 'settings', { timeout: 5000 });
+      scope.setValue('settings', { timeout: 5000 });
       scope.commit();
 
-      scope.updateValue(['config'], 'settings', { retries: 3 });
+      scope.updateValue('settings', { retries: 3 });
 
       // Read before commit
-      const value = scope.getValue(['config'], 'settings');
+      const value = scope.getValue('settings');
       expect(value).toEqual({ timeout: 5000, retries: 3 });
     });
 
     test('should reflect multiple writes before commit', () => {
-      scope.setValue(['config'], 'a', 1);
-      scope.setValue(['config'], 'b', 2);
-      scope.setValue(['config'], 'c', 3);
+      scope.setValue('a', 1);
+      scope.setValue('b', 2);
+      scope.setValue('c', 3);
 
-      expect(scope.getValue(['config'], 'a')).toBe(1);
-      expect(scope.getValue(['config'], 'b')).toBe(2);
-      expect(scope.getValue(['config'], 'c')).toBe(3);
+      expect(scope.getValue('a')).toBe(1);
+      expect(scope.getValue('b')).toBe(2);
+      expect(scope.getValue('c')).toBe(3);
     });
 
     test('should reflect overwrites before commit', () => {
-      scope.setValue(['config'], 'timeout', 5000);
-      scope.setValue(['config'], 'timeout', 10000);
+      scope.setValue('timeout', 5000);
+      scope.setValue('timeout', 10000);
 
-      const value = scope.getValue(['config'], 'timeout');
+      const value = scope.getValue('timeout');
       expect(value).toBe(10000);
     });
   });
@@ -300,42 +290,42 @@ describe('Scope', () => {
 
   describe('commit', () => {
     test('should persist all staged writes to GlobalStore', () => {
-      scope.setValue(['config'], 'a', 1);
-      scope.setValue(['config'], 'b', 2);
-      scope.updateValue(['config'], 'c', { nested: true });
+      scope.setValue('a', 1);
+      scope.setValue('b', 2);
+      scope.updateValue('c', { nested: true });
 
       scope.commit();
 
-      expect(globalStore.getValue('test-pipeline', ['config'], 'a')).toBe(1);
-      expect(globalStore.getValue('test-pipeline', ['config'], 'b')).toBe(2);
-      expect(globalStore.getValue('test-pipeline', ['config'], 'c')).toEqual({ nested: true });
+      expect(globalStore.getValue('test-pipeline', [], 'a')).toBe(1);
+      expect(globalStore.getValue('test-pipeline', [], 'b')).toBe(2);
+      expect(globalStore.getValue('test-pipeline', [], 'c')).toEqual({ nested: true });
     });
 
     test('should clear local cache after commit', () => {
-      scope.setValue(['config'], 'timeout', 5000);
+      scope.setValue('timeout', 5000);
       scope.commit();
 
       // Modify GlobalStore directly
-      globalStore.setValue('test-pipeline', ['config'], 'timeout', 9999);
+      globalStore.setValue('test-pipeline', [], 'timeout', 9999);
 
       // Should read from GlobalStore, not cache
-      const value = scope.getValue(['config'], 'timeout');
+      const value = scope.getValue('timeout');
       expect(value).toBe(9999);
     });
 
     test('should handle multiple commits', () => {
-      scope.setValue(['config'], 'a', 1);
+      scope.setValue('a', 1);
       scope.commit();
 
-      scope.setValue(['config'], 'b', 2);
+      scope.setValue('b', 2);
       scope.commit();
 
-      scope.setValue(['config'], 'c', 3);
+      scope.setValue('c', 3);
       scope.commit();
 
-      expect(globalStore.getValue('test-pipeline', ['config'], 'a')).toBe(1);
-      expect(globalStore.getValue('test-pipeline', ['config'], 'b')).toBe(2);
-      expect(globalStore.getValue('test-pipeline', ['config'], 'c')).toBe(3);
+      expect(globalStore.getValue('test-pipeline', [], 'a')).toBe(1);
+      expect(globalStore.getValue('test-pipeline', [], 'b')).toBe(2);
+      expect(globalStore.getValue('test-pipeline', [], 'c')).toBe(3);
     });
 
     test('should handle empty commit', () => {
@@ -362,15 +352,15 @@ describe('Scope', () => {
         globalStore,
       });
 
-      scope1.setValue(['config'], 'value', 'from-pipeline-1');
+      scope1.setValue('value', 'from-pipeline-1');
       scope1.commit();
 
-      scope2.setValue(['config'], 'value', 'from-pipeline-2');
+      scope2.setValue('value', 'from-pipeline-2');
       scope2.commit();
 
       // Each scope should see its own value
-      expect(scope1.getValue(['config'], 'value')).toBe('from-pipeline-1');
-      expect(scope2.getValue(['config'], 'value')).toBe('from-pipeline-2');
+      expect(scope1.getValue('value')).toBe('from-pipeline-1');
+      expect(scope2.getValue('value')).toBe('from-pipeline-2');
     });
 
     test('should not affect other pipelines when writing', () => {
@@ -386,11 +376,11 @@ describe('Scope', () => {
         globalStore,
       });
 
-      scope1.setValue(['config'], 'value', 'from-pipeline-1');
+      scope1.setValue('value', 'from-pipeline-1');
       scope1.commit();
 
       // scope2 should not see scope1's value
-      expect(scope2.getValue(['config'], 'value')).toBeUndefined();
+      expect(scope2.getValue('value')).toBeUndefined();
     });
   });
 
@@ -406,10 +396,10 @@ describe('Scope', () => {
       });
 
       test('should create a snapshot on each commit', () => {
-        scope.setValue(['config'], 'value', 'first');
+        scope.setValue('value', 'first');
         scope.commit();
 
-        scope.setValue(['config'], 'value', 'second');
+        scope.setValue('value', 'second');
         scope.commit();
 
         const snapshots = scope.getSnapshots();
@@ -417,7 +407,7 @@ describe('Scope', () => {
       });
 
       test('should include correct metadata in snapshots', () => {
-        scope.setValue(['config'], 'value', 'test');
+        scope.setValue('value', 'test');
         scope.commit();
 
         const snapshots = scope.getSnapshots();
@@ -430,7 +420,7 @@ describe('Scope', () => {
       });
 
       test('should return a copy of the snapshots array', () => {
-        scope.setValue(['config'], 'value', 'test');
+        scope.setValue('value', 'test');
         scope.commit();
 
         const snapshots1 = scope.getSnapshots();
@@ -443,21 +433,21 @@ describe('Scope', () => {
       });
 
       test('should capture state at time of commit', () => {
-        scope.setValue(['config'], 'value', 'first');
+        scope.setValue('value', 'first');
         scope.commit();
 
-        scope.setValue(['config'], 'value', 'second');
+        scope.setValue('value', 'second');
         scope.commit();
 
         const snapshots = scope.getSnapshots();
-        expect(snapshots[0].state).toEqual({ config: { value: 'first' } });
-        expect(snapshots[1].state).toEqual({ config: { value: 'second' } });
+        expect(snapshots[0].state).toEqual({ value: 'first' });
+        expect(snapshots[1].state).toEqual({ value: 'second' });
       });
     });
 
     describe('getStateAt', () => {
       test('should return undefined for negative index', () => {
-        scope.setValue(['config'], 'value', 'test');
+        scope.setValue('value', 'test');
         scope.commit();
 
         const state = scope.getStateAt(-1);
@@ -465,7 +455,7 @@ describe('Scope', () => {
       });
 
       test('should return undefined for index out of bounds', () => {
-        scope.setValue(['config'], 'value', 'test');
+        scope.setValue('value', 'test');
         scope.commit();
 
         const state = scope.getStateAt(5);
@@ -478,22 +468,22 @@ describe('Scope', () => {
       });
 
       test('should return state at specific snapshot index', () => {
-        scope.setValue(['config'], 'value', 'first');
+        scope.setValue('value', 'first');
         scope.commit();
 
-        scope.setValue(['config'], 'value', 'second');
+        scope.setValue('value', 'second');
         scope.commit();
 
-        scope.setValue(['config'], 'value', 'third');
+        scope.setValue('value', 'third');
         scope.commit();
 
-        expect(scope.getStateAt(0)).toEqual({ config: { value: 'first' } });
-        expect(scope.getStateAt(1)).toEqual({ config: { value: 'second' } });
-        expect(scope.getStateAt(2)).toEqual({ config: { value: 'third' } });
+        expect(scope.getStateAt(0)).toEqual({ value: 'first' });
+        expect(scope.getStateAt(1)).toEqual({ value: 'second' });
+        expect(scope.getStateAt(2)).toEqual({ value: 'third' });
       });
 
       test('should return a deep copy of the state', () => {
-        scope.setValue(['config'], 'nested', { a: { b: 1 } });
+        scope.setValue('nested', { a: { b: 1 } });
         scope.commit();
 
         const state1 = scope.getStateAt(0);
@@ -502,28 +492,28 @@ describe('Scope', () => {
         // Should be different object instances
         expect(state1).not.toBe(state2);
         // Nested objects should also be different instances
-        expect((state1 as any).config).not.toBe((state2 as any).config);
+        expect((state1 as any).nested).not.toBe((state2 as any).nested);
       });
 
       test('should NOT modify current execution state (read-only)', () => {
-        scope.setValue(['config'], 'value', 'first');
+        scope.setValue('value', 'first');
         scope.commit();
 
-        scope.setValue(['config'], 'value', 'second');
+        scope.setValue('value', 'second');
         scope.commit();
 
         // Get historical state
         const historicalState = scope.getStateAt(0);
 
         // Modify the returned state
-        (historicalState as any).config.value = 'modified';
+        (historicalState as any).value = 'modified';
 
         // Current state should be unchanged
-        expect(scope.getValue(['config'], 'value')).toBe('second');
+        expect(scope.getValue('value')).toBe('second');
 
         // Original snapshot should be unchanged
         const snapshots = scope.getSnapshots();
-        expect(snapshots[0].state).toEqual({ config: { value: 'first' } });
+        expect(snapshots[0].state).toEqual({ value: 'first' });
       });
     });
 
@@ -533,22 +523,22 @@ describe('Scope', () => {
       });
 
       test('should return 0 after first commit', () => {
-        scope.setValue(['config'], 'value', 'test');
+        scope.setValue('value', 'test');
         scope.commit();
 
         expect(scope.getCurrentSnapshotIndex()).toBe(0);
       });
 
       test('should increment with each commit', () => {
-        scope.setValue(['config'], 'value', 'first');
+        scope.setValue('value', 'first');
         scope.commit();
         expect(scope.getCurrentSnapshotIndex()).toBe(0);
 
-        scope.setValue(['config'], 'value', 'second');
+        scope.setValue('value', 'second');
         scope.commit();
         expect(scope.getCurrentSnapshotIndex()).toBe(1);
 
-        scope.setValue(['config'], 'value', 'third');
+        scope.setValue('value', 'third');
         scope.commit();
         expect(scope.getCurrentSnapshotIndex()).toBe(2);
       });
@@ -557,7 +547,7 @@ describe('Scope', () => {
     describe('snapshot immutability', () => {
       test('should create deep copies of state in snapshots', () => {
         const originalObject = { nested: { value: 1 } };
-        scope.setValue(['config'], 'data', originalObject);
+        scope.setValue('data', originalObject);
         scope.commit();
 
         // Modify the original object
@@ -565,19 +555,19 @@ describe('Scope', () => {
 
         // Snapshot should have the original value
         const snapshots = scope.getSnapshots();
-        expect(snapshots[0].state).toEqual({ config: { data: { nested: { value: 1 } } } });
+        expect(snapshots[0].state).toEqual({ data: { nested: { value: 1 } } });
       });
 
       test('should not affect snapshots when GlobalStore is modified', () => {
-        scope.setValue(['config'], 'value', 'original');
+        scope.setValue('value', 'original');
         scope.commit();
 
         // Modify GlobalStore directly
-        globalStore.setValue('test-pipeline', ['config'], 'value', 'modified');
+        globalStore.setValue('test-pipeline', [], 'value', 'modified');
 
         // Snapshot should still have original value
         const state = scope.getStateAt(0);
-        expect(state).toEqual({ config: { value: 'original' } });
+        expect(state).toEqual({ value: 'original' });
       });
     });
   });
@@ -682,7 +672,7 @@ describe('Scope', () => {
 
       // Should not throw despite the recorder error
       expect(() => {
-        scope.setValue(['test'], 'key', 'value');
+        scope.setValue('key', 'value');
       }).not.toThrow();
     });
 
@@ -695,7 +685,7 @@ describe('Scope', () => {
       };
 
       scope.attachRecorder(failingRecorder);
-      scope.setValue(['test'], 'key', 'value');
+      scope.setValue('key', 'value');
 
       expect(errors.length).toBe(1);
       expect(errors[0].error).toBeInstanceOf(Error);
@@ -711,7 +701,7 @@ describe('Scope', () => {
       };
 
       scope.attachRecorder(failingRecorder);
-      scope.getValue(['test'], 'key');
+      scope.getValue('key');
 
       expect(errors.length).toBe(1);
       expect(errors[0].operation).toBe('read');
@@ -726,7 +716,7 @@ describe('Scope', () => {
       };
 
       scope.attachRecorder(failingRecorder);
-      scope.setValue(['test'], 'key', 'value');
+      scope.setValue('key', 'value');
       scope.commit();
 
       expect(errors.length).toBe(1);
@@ -744,7 +734,7 @@ describe('Scope', () => {
       };
 
       scope.attachRecorder(failingRecorder);
-      scope.setValue(['test'], 'key', 'value');
+      scope.setValue('key', 'value');
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('dev-failing'),

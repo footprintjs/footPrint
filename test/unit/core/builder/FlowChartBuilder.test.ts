@@ -1,5 +1,5 @@
 import {
-  type BuiltFlow,
+  type FlowChart,
   type FlowChartSpec,
   DeciderList,
   FlowChartBuilder,

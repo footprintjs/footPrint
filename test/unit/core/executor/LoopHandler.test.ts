@@ -26,6 +26,7 @@ function createTestContext<TOut = any, TScope = any>(): PipelineContext<TOut, TS
     ScopeFactory: (_context, stageName) => ({ stageName } as unknown as TScope),
     scopeProtectionMode: 'off',
     narrativeGenerator: new NullNarrativeGenerator(),
+    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
   };
 }
 

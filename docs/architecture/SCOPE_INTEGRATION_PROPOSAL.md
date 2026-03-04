@@ -72,11 +72,11 @@ BaseState is what **flow developers extend** to define their scope:
 ```typescript
 class ChatScope extends BaseState {
   get userQuestion(): string | undefined {
-    return this.getValue([], 'userQuestion') as string;
+    return this.getValue('userQuestion') as string;
   }
-  
+
   set userQuestion(value: string) {
-    this.setObject([], 'userQuestion', value);
+    this.setObject('userQuestion', value);
   }
 }
 ```

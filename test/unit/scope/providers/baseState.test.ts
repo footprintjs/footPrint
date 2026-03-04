@@ -34,21 +34,21 @@ describe('BaseState', () => {
     const { ctx, calls } = makeCtx();
     const state = new BaseState(ctx, 'StageK', { ro: true });
 
-    // getValue
-    const v = state.getValue(['a', 'b'], 'c');
+    // getValue (BaseState now hardcodes [] for path)
+    const v = state.getValue('c');
     expect(v).toBe(42);
-    expect(ctx.getValue).toHaveBeenCalledWith(['a', 'b'], 'c');
-    expect(calls.getValue).toEqual([['a', 'b'], 'c']);
+    expect(ctx.getValue).toHaveBeenCalledWith([], 'c');
+    expect(calls.getValue).toEqual([[], 'c']);
 
-    // setObject (with shouldRedact)
-    state.setObject(['x'], 'y', 9, true);
-    expect(ctx.setObject).toHaveBeenCalledWith(['x'], 'y', 9, true, undefined);
-    expect(calls.setObject).toEqual([['x'], 'y', 9, true, undefined]);
+    // setValue (with shouldRedact — BaseState hardcodes [] for path)
+    state.setValue('y', 9, true);
+    expect(ctx.setObject).toHaveBeenCalledWith([], 'y', 9, true, undefined);
+    expect(calls.setObject).toEqual([[], 'y', 9, true, undefined]);
 
-    // updateObject
-    state.updateObject(['m'], 'n', { p: 1 });
-    expect(ctx.updateObject).toHaveBeenCalledWith(['m'], 'n', { p: 1 }, undefined);
-    expect(calls.updateObject).toEqual([['m'], 'n', { p: 1 }, undefined]);
+    // updateValue (BaseState hardcodes [] for path)
+    state.updateValue('n', { p: 1 });
+    expect(ctx.updateObject).toHaveBeenCalledWith([], 'n', { p: 1 }, undefined);
+    expect(calls.updateObject).toEqual([[], 'n', { p: 1 }, undefined]);
 
     // setObjectInRoot
     state.setObjectInRoot('rootKey', 'rootVal');

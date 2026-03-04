@@ -21,7 +21,6 @@ function makeReadEvent(overrides: Partial<ReadEvent> = {}): ReadEvent {
     stageName: 'testStage',
     pipelineId: 'pipeline1',
     timestamp: Date.now(),
-    path: ['data'],
     key: 'value',
     value: 'test',
     ...overrides,
@@ -33,7 +32,6 @@ function makeWriteEvent(overrides: Partial<WriteEvent> = {}): WriteEvent {
     stageName: 'testStage',
     pipelineId: 'pipeline1',
     timestamp: Date.now(),
-    path: ['data'],
     key: 'value',
     value: 'test',
     operation: 'set',
@@ -88,7 +86,6 @@ describe('NarrativeRecorder', () => {
 
       recorder.onRead(makeReadEvent({
         stageName: 'CallLLM',
-        path: ['agent'],
         key: 'messages',
         value: ['hello'],
       }));
@@ -97,7 +94,6 @@ describe('NarrativeRecorder', () => {
       expect(data).toBeDefined();
       expect(data!.reads).toHaveLength(1);
       expect(data!.reads[0].type).toBe('read');
-      expect(data!.reads[0].path).toEqual(['agent']);
       expect(data!.reads[0].key).toBe('messages');
       expect(data!.reads[0].valueSummary).toBe('(1 item)');
     });
@@ -142,7 +138,6 @@ describe('NarrativeRecorder', () => {
 
       recorder.onWrite(makeWriteEvent({
         stageName: 'Initialize',
-        path: ['agent'],
         key: 'model',
         value: 'gpt-4',
         operation: 'set',
@@ -152,7 +147,6 @@ describe('NarrativeRecorder', () => {
       expect(data).toBeDefined();
       expect(data!.writes).toHaveLength(1);
       expect(data!.writes[0].type).toBe('write');
-      expect(data!.writes[0].path).toEqual(['agent']);
       expect(data!.writes[0].key).toBe('model');
       expect(data!.writes[0].valueSummary).toBe('"gpt-4"');
       expect(data!.writes[0].operation).toBe('set');
@@ -274,35 +268,33 @@ describe('NarrativeRecorder', () => {
   // ==========================================================================
 
   describe('toSentences (full detail)', () => {
-    it('should produce read lines with path and value', () => {
+    it('should produce read lines with key and value', () => {
       const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
 
       recorder.onRead(makeReadEvent({
         stageName: 'CallLLM',
-        path: ['agent'],
         key: 'messages',
         value: ['msg1', 'msg2', 'msg3'],
       }));
 
       const sentences = recorder.toSentences();
       expect(sentences.get('CallLLM')).toEqual([
-        '  - Read: agent.messages = (3 items)',
+        '  - Read: messages = (3 items)',
       ]);
     });
 
-    it('should produce write lines with path and value', () => {
+    it('should produce write lines with key and value', () => {
       const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
 
       recorder.onWrite(makeWriteEvent({
         stageName: 'Initialize',
-        path: ['agent'],
         key: 'model',
         value: 'gpt-4',
       }));
 
       const sentences = recorder.toSentences();
       expect(sentences.get('Initialize')).toEqual([
-        '  - Wrote: agent.model = "gpt-4"',
+        '  - Wrote: model = "gpt-4"',
       ]);
     });
 
@@ -317,12 +309,11 @@ describe('NarrativeRecorder', () => {
       expect(lines[1]).toContain('Wrote');
     });
 
-    it('should handle stages with empty path', () => {
+    it('should handle stages with key only', () => {
       const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
 
       recorder.onWrite(makeWriteEvent({
         stageName: 's1',
-        path: [],
         key: 'rootKey',
         value: 42,
       }));
@@ -400,29 +391,27 @@ describe('NarrativeRecorder', () => {
 
       recorder.onRead(makeReadEvent({
         stageName: 'CallLLM',
-        path: ['agent'],
         key: 'messages',
         value: [1, 2, 3],
       }));
       recorder.onWrite(makeWriteEvent({
         stageName: 'CallLLM',
-        path: ['agent'],
         key: 'lastResponse',
         value: { content: 'hello' },
       }));
 
       const flat = recorder.toFlatSentences();
       expect(flat).toEqual([
-        'CallLLM: Read: agent.messages = (3 items)',
-        'CallLLM: Wrote: agent.lastResponse = {content}',
+        'CallLLM: Read: messages = (3 items)',
+        'CallLLM: Wrote: lastResponse = {content}',
       ]);
     });
 
     it('should maintain execution order across stages', () => {
       const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
 
-      recorder.onWrite(makeWriteEvent({ stageName: 'stage1', path: [], key: 'a', value: 1 }));
-      recorder.onWrite(makeWriteEvent({ stageName: 'stage2', path: [], key: 'b', value: 2 }));
+      recorder.onWrite(makeWriteEvent({ stageName: 'stage1', key: 'a', value: 1 }));
+      recorder.onWrite(makeWriteEvent({ stageName: 'stage2', key: 'b', value: 2 }));
 
       const flat = recorder.toFlatSentences();
       expect(flat[0]).toContain('stage1');
@@ -540,13 +529,11 @@ describe('NarrativeRecorder', () => {
       // Stage 1: Initialize — reads config, writes agent state
       recorder.onRead(makeReadEvent({
         stageName: 'Initialize',
-        path: ['config'],
         key: 'systemPrompt',
         value: 'You are a helpful assistant.',
       }));
       recorder.onWrite(makeWriteEvent({
         stageName: 'Initialize',
-        path: ['agent'],
         key: 'model',
         value: 'gpt-4',
       }));
@@ -554,13 +541,11 @@ describe('NarrativeRecorder', () => {
       // Stage 2: AssemblePrompt — reads conversation, writes messages
       recorder.onRead(makeReadEvent({
         stageName: 'Assemble Prompt',
-        path: ['agent'],
         key: 'conversationHistory',
         value: [{ role: 'user', content: 'Hello' }],
       }));
       recorder.onWrite(makeWriteEvent({
         stageName: 'Assemble Prompt',
-        path: ['agent'],
         key: 'messages',
         value: [
           { role: 'system', content: 'You are helpful' },
@@ -571,13 +556,11 @@ describe('NarrativeRecorder', () => {
       // Stage 3: CallLLM — reads messages, writes response
       recorder.onRead(makeReadEvent({
         stageName: 'Call LLM',
-        path: ['agent'],
         key: 'messages',
         value: [{ role: 'system' }, { role: 'user' }],
       }));
       recorder.onWrite(makeWriteEvent({
         stageName: 'Call LLM',
-        path: ['agent'],
         key: 'lastResponse',
         value: {
           content: 'Hello! How can I help you today?',
@@ -599,18 +582,18 @@ describe('NarrativeRecorder', () => {
       // Verify text sentences
       const sentences = recorder.toSentences();
       expect(sentences.get('Initialize')).toEqual([
-        '  - Read: config.systemPrompt = "You are a helpful assistant."',
-        '  - Wrote: agent.model = "gpt-4"',
+        '  - Read: systemPrompt = "You are a helpful assistant."',
+        '  - Wrote: model = "gpt-4"',
       ]);
-      expect(sentences.get('Call LLM')![0]).toContain('Read: agent.messages');
-      expect(sentences.get('Call LLM')![1]).toContain('Wrote: agent.lastResponse');
+      expect(sentences.get('Call LLM')![0]).toContain('Read: messages');
+      expect(sentences.get('Call LLM')![1]).toContain('Wrote: lastResponse');
       expect(sentences.get('Call LLM')![1]).toContain('content, model, usage');
 
       // Verify flat sentences
       const flat = recorder.toFlatSentences();
       expect(flat).toHaveLength(6);
-      expect(flat[0]).toBe('Initialize: Read: config.systemPrompt = "You are a helpful assistant."');
-      expect(flat[1]).toBe('Initialize: Wrote: agent.model = "gpt-4"');
+      expect(flat[0]).toBe('Initialize: Read: systemPrompt = "You are a helpful assistant."');
+      expect(flat[1]).toBe('Initialize: Wrote: model = "gpt-4"');
     });
   });
 });

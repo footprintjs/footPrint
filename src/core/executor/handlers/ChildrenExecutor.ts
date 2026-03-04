@@ -24,7 +24,6 @@
  */
 
 import { StageContext } from '../../memory/StageContext';
-import { logger } from '../../../utils/logger';
 import { PipelineContext, NodeResultType } from '../types';
 import type { StageNode, Selector } from '../Pipeline';
 
@@ -122,7 +121,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         .catch((error) => {
           childContext.commit();
           updateParentBreakFlag();
-          logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
+          this.ctx.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
           // WHY: Flag throttling errors in context for graceful degradation
           if (this.ctx.throttlingErrorChecker && this.ctx.throttlingErrorChecker(error)) {
             childContext.updateObject(['monitor'], 'isThrottled', true);
@@ -140,7 +139,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         // Store the full NodeResultType including id
         childrenResults[id] = { id, result, isError: isError ?? false };
       } else {
-        logger.error(`Execution failed: ${s.reason}`);
+        this.ctx.logger.error(`Execution failed: ${s.reason}`);
       }
     });
 
@@ -199,7 +198,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
       const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
-      logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
+      this.ctx.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
       throw new Error(errorMessage);
     }

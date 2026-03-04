@@ -62,7 +62,7 @@ class SpyRecorder implements Recorder {
       type: 'commit',
       event: {
         ...event,
-        mutations: event.mutations.map((m) => ({ ...m, path: [...m.path] })),
+        mutations: event.mutations.map((m) => ({ ...m })),
       },
     });
   }
@@ -72,7 +72,6 @@ class SpyRecorder implements Recorder {
       type: 'error',
       event: {
         ...event,
-        path: event.path ? [...event.path] : undefined,
       },
     });
   }
@@ -202,11 +201,10 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
           fc.nat({ max: 10 }),
-          (pipelineId, stageName, path, key, value, numReads) => {
+          (pipelineId, stageName, key, value, numReads) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -220,7 +218,7 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Set initial value so reads return something
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
 
             // Clear recorders to start fresh
@@ -229,7 +227,7 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform reads
             for (let i = 0; i < numReads; i++) {
-              scope.getValue(path, key);
+              scope.getValue(key);
             }
 
             // Assert - both recorders should have the same number of read events
@@ -246,7 +244,6 @@ describe('Consumer Recorder Property Tests', () => {
 
               expect(spyEvent.stageName).toBe(debugEntry.stageName);
               expect(spyEvent.pipelineId).toBe(pipelineId);
-              expect(spyEvent.path).toEqual(path);
               expect(spyEvent.key).toBe(key);
             }
           }
@@ -260,10 +257,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.array(arbJsonValue, { minLength: 1, maxLength: 10 }),
-          (pipelineId, stageName, path, key, values) => {
+          (pipelineId, stageName, key, values) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -278,7 +274,7 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform writes
             for (const value of values) {
-              scope.setValue(path, key, value);
+              scope.setValue(key, value);
             }
 
             // Assert - both recorders should have the same number of write events
@@ -292,7 +288,6 @@ describe('Consumer Recorder Property Tests', () => {
             for (let i = 0; i < values.length; i++) {
               const spyEvent = spyWriteEvents[i].event as WriteEvent;
               const debugData = debugEntries[i].data as {
-                path: string[];
                 key: string;
                 value: unknown;
                 operation: string;
@@ -300,7 +295,6 @@ describe('Consumer Recorder Property Tests', () => {
 
               expect(spyEvent.stageName).toBe(debugEntries[i].stageName);
               expect(spyEvent.pipelineId).toBe(pipelineId);
-              expect(spyEvent.path).toEqual(debugData.path);
               expect(spyEvent.key).toBe(debugData.key);
               expect(spyEvent.value).toEqual(debugData.value);
               expect(spyEvent.operation).toBe(debugData.operation);
@@ -316,7 +310,7 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          fc.array(fc.tuple(arbPath, arbKey, arbJsonValue), { minLength: 1, maxLength: 5 }),
+          fc.array(fc.tuple(arbKey, arbJsonValue), { minLength: 1, maxLength: 5 }),
           (pipelineId, stageName, writes) => {
             // Arrange
             const globalStore = new GlobalStore();
@@ -330,8 +324,8 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Act - perform writes and commit
-            for (const [path, key, value] of writes) {
-              scope.setValue(path, key, value);
+            for (const [key, value] of writes) {
+              scope.setValue(key, value);
             }
             scope.commit();
 
@@ -346,10 +340,9 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Verify mutations contain correct data
             for (let i = 0; i < writes.length; i++) {
-              const [expectedPath, expectedKey, expectedValue] = writes[i];
+              const [expectedKey, expectedValue] = writes[i];
               const mutation = commitEvent.mutations[i];
 
-              expect(mutation.path).toEqual(expectedPath);
               expect(mutation.key).toBe(expectedKey);
               expect(mutation.value).toEqual(expectedValue);
               expect(mutation.operation).toBe('set');
@@ -422,11 +415,10 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
           arbJsonValue,
-          (pipelineId, stageName, path, key, valueBefore, valueAfter) => {
+          (pipelineId, stageName, key, valueBefore, valueAfter) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -439,7 +431,7 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - attach recorder, perform operation, detach, perform another operation
             scope.attachRecorder(spyRecorder);
-            scope.setValue(path, key, valueBefore);
+            scope.setValue(key, valueBefore);
 
             // Verify recorder is in the list
             const recordersBeforeDetach = scope.getRecorders();
@@ -453,7 +445,7 @@ describe('Consumer Recorder Property Tests', () => {
             expect(recordersAfterDetach.some((r) => r.id === 'spy-recorder')).toBe(false);
 
             // Perform another operation
-            scope.setValue(path, key, valueAfter);
+            scope.setValue(key, valueAfter);
 
             // Assert - spy recorder should only have the first write event
             const writeEvents = spyRecorder.getEventsByType('write');
@@ -472,10 +464,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -490,8 +481,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform a sequence of operations
             scope.startStage(stageName);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
@@ -533,11 +524,10 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
           fc.integer({ min: 2, max: 5 }),
-          (pipelineId, stageName, path, key, value, numRecorders) => {
+          (pipelineId, stageName, key, value, numRecorders) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorders = Array.from(
@@ -553,8 +543,8 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Act - perform operations
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
 
             // Assert - all recorders should have the same events
@@ -587,10 +577,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           fc.uniqueArray(arbStageName, { minLength: 2, maxLength: 4 }),
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageNames, path, key, value) => {
+          (pipelineId, stageNames, key, value) => {
             fc.pre(stageNames.length >= 2);
 
             // Arrange
@@ -611,8 +600,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform operations in target stage
             scope.startStage(targetStage);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
@@ -620,8 +609,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Perform operations in other stage
             scope.startStage(otherStage);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
@@ -644,10 +633,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange - create a partial recorder that only implements onWrite
             const writeOnlyEvents: WriteEvent[] = [];
             const partialRecorder: Recorder = {
@@ -668,14 +656,13 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform various operations (should not throw)
             scope.startStage(stageName);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
             // Assert - only write events should be captured
             expect(writeOnlyEvents.length).toBe(1);
-            expect(writeOnlyEvents[0].path).toEqual(path);
             expect(writeOnlyEvents[0].key).toBe(key);
             expect(writeOnlyEvents[0].value).toEqual(value);
           }
@@ -689,10 +676,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -706,8 +692,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act
             scope.startStage(stageName);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
@@ -723,13 +709,11 @@ describe('Consumer Recorder Property Tests', () => {
 
             const writeEvent = events.find((e) => e.type === 'write')?.event as WriteEvent;
             expect(writeEvent).toBeDefined();
-            expect(Array.isArray(writeEvent.path)).toBe(true);
             expect(typeof writeEvent.key).toBe('string');
             expect(writeEvent.operation).toBe('set');
 
             const readEvent = events.find((e) => e.type === 'read')?.event as ReadEvent;
             expect(readEvent).toBeDefined();
-            expect(Array.isArray(readEvent.path)).toBe(true);
 
             const commitEvent = events.find((e) => e.type === 'commit')?.event as CommitEvent;
             expect(commitEvent).toBeDefined();
@@ -750,11 +734,10 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
           fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
-          (pipelineId, stageName, path, key, initialValue, updateValue) => {
+          (pipelineId, stageName, key, initialValue, updateValue) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -767,8 +750,8 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Act - set initial value, then update
-            scope.setValue(path, key, initialValue);
-            scope.updateValue(path, key, updateValue);
+            scope.setValue(key, initialValue);
+            scope.updateValue(key, updateValue);
 
             // Assert - should have two write events
             const writeEvents = spyRecorder.getEventsByType('write');
@@ -834,11 +817,10 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
           fc.nat({ max: 10 }),
-          (pipelineId, stageName, path, key, value, numReads) => {
+          (pipelineId, stageName, key, value, numReads) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -851,13 +833,13 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Set a value so reads return something
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
             spyRecorder.clear();
 
             // Act - perform reads
             for (let i = 0; i < numReads; i++) {
-              scope.getValue(path, key);
+              scope.getValue(key);
             }
 
             // Assert - all read events have complete context
@@ -869,7 +851,6 @@ describe('Consumer Recorder Property Tests', () => {
 
               // Additional ReadEvent-specific checks
               const readEvent = recorded.event as ReadEvent;
-              expect(Array.isArray(readEvent.path)).toBe(true);
             }
           }
         ),
@@ -882,10 +863,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.array(arbJsonValue, { minLength: 1, maxLength: 10 }),
-          (pipelineId, stageName, path, key, values) => {
+          (pipelineId, stageName, key, values) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -900,9 +880,9 @@ describe('Consumer Recorder Property Tests', () => {
             // Act - perform writes (both set and update)
             for (let i = 0; i < values.length; i++) {
               if (i % 2 === 0) {
-                scope.setValue(path, key, values[i]);
+                scope.setValue(key, values[i]);
               } else {
-                scope.updateValue(path, key, values[i]);
+                scope.updateValue(key, values[i]);
               }
             }
 
@@ -915,7 +895,6 @@ describe('Consumer Recorder Property Tests', () => {
 
               // Additional WriteEvent-specific checks
               const writeEvent = recorded.event as WriteEvent;
-              expect(Array.isArray(writeEvent.path)).toBe(true);
               expect(typeof writeEvent.key).toBe('string');
               expect(['set', 'update']).toContain(writeEvent.operation);
             }
@@ -930,7 +909,7 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          fc.array(fc.tuple(arbPath, arbKey, arbJsonValue), { minLength: 1, maxLength: 5 }),
+          fc.array(fc.tuple(arbKey, arbJsonValue), { minLength: 1, maxLength: 5 }),
           fc.nat({ max: 5 }),
           (pipelineId, stageName, writes, numCommits) => {
             // Arrange
@@ -946,8 +925,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform writes and multiple commits
             for (let c = 0; c <= numCommits; c++) {
-              for (const [p, k, v] of writes) {
-                scope.setValue(p, k, v);
+              for (const [k, v] of writes) {
+                scope.setValue(k, v);
               }
               scope.commit();
             }
@@ -1057,10 +1036,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.string({ minLength: 1, maxLength: 50 }),
-          (pipelineId, stageName, path, key, errorMessage) => {
+          (pipelineId, stageName, key, errorMessage) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -1081,7 +1059,7 @@ describe('Consumer Recorder Property Tests', () => {
             });
 
             // Act - perform a write which will trigger the error
-            scope.setValue(path, key, 'test-value');
+            scope.setValue(key, 'test-value');
 
             // Assert - error event should have complete context
             const errorEvents = spyRecorder.getEventsByType('error');
@@ -1106,10 +1084,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -1123,8 +1100,8 @@ describe('Consumer Recorder Property Tests', () => {
 
             // Act - perform a complete workflow with all event types
             scope.startStage(stageName);
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
             scope.endStage();
 
@@ -1163,10 +1140,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.array(arbJsonValue, { minLength: 2, maxLength: 10 }),
-          (pipelineId, stageName, path, key, values) => {
+          (pipelineId, stageName, key, values) => {
             // Arrange
             const globalStore = new GlobalStore();
             const spyRecorder = new SpyRecorder('spy-recorder');
@@ -1181,8 +1157,8 @@ describe('Consumer Recorder Property Tests', () => {
             // Act - perform multiple operations in the same stage
             scope.startStage(stageName);
             for (const value of values) {
-              scope.setValue(path, key, value);
-              scope.getValue(path, key);
+              scope.setValue(key, value);
+              scope.getValue(key);
             }
             scope.commit();
             scope.endStage();
@@ -1212,10 +1188,9 @@ describe('Consumer Recorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           fc.uniqueArray(arbStageName, { minLength: 2, maxLength: 5 }),
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageNames, path, key, value) => {
+          (pipelineId, stageNames, key, value) => {
             fc.pre(stageNames.length >= 2);
 
             // Arrange
@@ -1232,8 +1207,8 @@ describe('Consumer Recorder Property Tests', () => {
             // Act - perform operations in different stages
             for (const stageName of stageNames) {
               scope.startStage(stageName);
-              scope.setValue(path, key, value);
-              scope.getValue(path, key);
+              scope.setValue(key, value);
+              scope.getValue(key);
               scope.commit();
               scope.endStage();
             }

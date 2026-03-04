@@ -26,6 +26,7 @@ function createTestContext<TOut = any, TScope = any>(
     ScopeFactory: () => ({} as TScope),
     subflows,
     scopeProtectionMode: 'off',
+    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
   };
 }
 

@@ -69,9 +69,9 @@ In FootPrint, stages receive a **scope object**:
 ```typescript
 // FootPrint Stage
 async function validateCart(scope: CartScope): Promise<ValidationResult> {
-  const cart = scope.getValue([], 'cart');
+  const cart = scope.getValue('cart');
   // ... validation logic
-  scope.setObject(['pipeline'], 'cartTotal', 79.98);
+  scope.setValue('cartTotal', 79.98);
   return { valid: true };
 }
 ```
@@ -148,9 +148,9 @@ FootPrint scope is **explicit**:
 ```typescript
 async function myStage(scope: MyScope) {
   // Explicit scope levels
-  scope.setObject(['global'], 'config', { debug: true });  // Global Context
-  scope.setObject(['pipeline'], 'data', []);               // Path Context
-  scope.setObject([], 'temp', 'local');                    // Node Context
+  scope.setGlobal('config', { debug: true });              // Global Context
+  scope.setValue('data', []);                              // Scoped state
+  scope.setValue('temp', 'local');                         // Scoped state
 }
 ```
 
@@ -163,21 +163,21 @@ async function myStage(scope: MyScope) {
 │  │              GLOBAL CONTEXT                      │   │
 │  │  • Shared across ALL stages                      │   │
 │  │  • Lives for entire pipeline execution           │   │
-│  │  • scope.setObject(['global'], key, value)       │   │
+│  │  • scope.setGlobal(key, value)                  │   │
 │  └─────────────────────────────────────────────────┘   │
 │                         │                               │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │              PATH CONTEXT                        │   │
 │  │  • Shared within a branch/path                   │   │
 │  │  • Lives for the branch execution                │   │
-│  │  • scope.setObject(['pipeline'], key, value)     │   │
+│  │  • scope.setValue(key, value)                    │   │
 │  └─────────────────────────────────────────────────┘   │
 │                         │                               │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │              NODE CONTEXT                        │   │
 │  │  • Private to one stage                          │   │
 │  │  • Lives for stage execution only                │   │
-│  │  • scope.setObject([], key, value)               │   │
+│  │  • scope.setValue(key, value)                    │   │
 │  └─────────────────────────────────────────────────┘   │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
@@ -199,11 +199,11 @@ const scopeFactory = (ctx, stageName) => new BaseState(ctx, stageName);
 // Build the flowchart
 const builder = new FlowChartBuilder()
   .start('Validate', async (scope) => {
-    scope.setObject(['pipeline'], 'cartTotal', 79.98);
+    scope.setValue('cartTotal', 79.98);
     return { valid: true };
   })
   .addFunction('Process', async (scope) => {
-    const total = scope.getValue(['pipeline'], 'cartTotal');
+    const total = scope.getValue('cartTotal');
     return { processed: true, amount: total };
   })
   .addFunction('Notify', async (scope) => {

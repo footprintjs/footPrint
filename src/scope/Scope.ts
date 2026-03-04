@@ -7,8 +7,8 @@
  *
  * Key features:
  *   - getValue: Read values from the store with namespace isolation
- *   - setValue: Overwrite values at a path/key
- *   - updateValue: Deep-merge values at a path/key
+ *   - setValue: Overwrite values at a key
+ *   - updateValue: Deep-merge values at a key
  *   - commit: Flush staged writes to GlobalStore
  *   - Read-after-write consistency: Writes are immediately available for reads
  *
@@ -68,7 +68,6 @@ function deepMerge(dst: unknown, src: unknown): unknown {
  * Staged write entry for tracking mutations before commit.
  */
 interface StagedWrite {
-  path: string[];
   key: string;
   value: unknown;
   operation: 'set' | 'update';
@@ -78,7 +77,8 @@ interface StagedWrite {
  * Scope - Core runtime memory container for pipeline execution
  *
  * Provides getValue, setValue, updateValue, and commit operations with
- * namespace isolation via pipelineId.
+ * namespace isolation via pipelineId. Consumers operate on keys directly;
+ * path-based nesting is handled internally.
  */
 export class Scope {
   private readonly globalStore: GlobalStore;
@@ -155,22 +155,17 @@ export class Scope {
    * First checks the local cache for uncommitted writes (read-after-write
    * consistency), then falls back to GlobalStore.
    *
-   * @param path - The namespace path for the read operation
    * @param key - Optional key to read a specific field
-   * @returns The value at the path/key, or undefined if not found
+   * @returns The value at the key, or undefined if not found
    *
    * @example
    * ```typescript
-   * // Read entire object at path
-   * const config = scope.getValue(['config']);
-   *
-   * // Read specific key at path
-   * const timeout = scope.getValue(['config'], 'timeout');
+   * const timeout = scope.getValue('timeout');
    * ```
    */
-  getValue(path: string[], key?: string): unknown {
+  getValue(key?: string): unknown {
     // Build cache key for local lookup
-    const cacheKey = this.buildCacheKey(path, key);
+    const cacheKey = this.buildCacheKey(key);
 
     // Check local cache first for read-after-write consistency
     let value: unknown;
@@ -178,7 +173,7 @@ export class Scope {
       value = this.localCache.get(cacheKey);
     } else {
       // Fall back to GlobalStore
-      value = this.globalStore.getValue(this.pipelineId, path, key);
+      value = this.globalStore.getValue(this.pipelineId, [], key);
     }
 
     // Invoke onRead hook with ReadEvent
@@ -186,7 +181,6 @@ export class Scope {
       stageName: this.stageName,
       pipelineId: this.pipelineId,
       timestamp: Date.now(),
-      path,
       key,
       value,
     });
@@ -195,42 +189,37 @@ export class Scope {
   }
 
   /**
-   * Sets a value at the specified path/key, overwriting any existing value.
+   * Sets a value at the specified key, overwriting any existing value.
    *
    * The write is staged locally and made immediately available for subsequent
    * reads (read-after-write consistency). Call commit() to persist to GlobalStore.
    *
-   * @param path - The namespace path for the write operation
    * @param key - The key to write to
    * @param value - The value to write
    *
-   * @throws TypeError if path is not an array or key is not a string
+   * @throws TypeError if key is not a string
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'timeout', 5000);
-   * scope.setValue(['users'], 'admin', { name: 'Admin', role: 'admin' });
+   * scope.setValue('timeout', 5000);
+   * scope.setValue('admin', { name: 'Admin', role: 'admin' });
    * ```
    */
-  setValue(path: string[], key: string, value: unknown): void {
+  setValue(key: string, value: unknown): void {
     // Validate inputs
-    if (!Array.isArray(path)) {
-      throw new TypeError('path must be an array');
-    }
     if (typeof key !== 'string') {
       throw new TypeError('key must be a string');
     }
 
     // Stage the write
     this.stagedWrites.push({
-      path,
       key,
       value,
       operation: 'set',
     });
 
     // Update local cache for read-after-write consistency
-    const cacheKey = this.buildCacheKey(path, key);
+    const cacheKey = this.buildCacheKey(key);
     this.localCache.set(cacheKey, value);
 
     // Invoke onWrite hook with WriteEvent
@@ -238,7 +227,6 @@ export class Scope {
       stageName: this.stageName,
       pipelineId: this.pipelineId,
       timestamp: Date.now(),
-      path,
       key,
       value,
       operation: 'set',
@@ -246,7 +234,7 @@ export class Scope {
   }
 
   /**
-   * Updates a value at the specified path/key using deep merge semantics.
+   * Updates a value at the specified key using deep merge semantics.
    *
    * If the existing value is an object, the new value is deep-merged into it.
    * If the existing value is an array, arrays are unioned without duplicates.
@@ -255,44 +243,39 @@ export class Scope {
    * The write is staged locally and made immediately available for subsequent
    * reads (read-after-write consistency). Call commit() to persist to GlobalStore.
    *
-   * @param path - The namespace path for the update operation
    * @param key - The key to update
    * @param value - The value to merge
    *
-   * @throws TypeError if path is not an array or key is not a string
+   * @throws TypeError if key is not a string
    *
    * @example
    * ```typescript
    * // Existing: { timeout: 5000 }
-   * scope.updateValue(['config'], 'settings', { retries: 3 });
+   * scope.updateValue('settings', { retries: 3 });
    * // Result: { timeout: 5000, retries: 3 }
    * ```
    */
-  updateValue(path: string[], key: string, value: unknown): void {
+  updateValue(key: string, value: unknown): void {
     // Validate inputs
-    if (!Array.isArray(path)) {
-      throw new TypeError('path must be an array');
-    }
     if (typeof key !== 'string') {
       throw new TypeError('key must be a string');
     }
 
     // Stage the write
     this.stagedWrites.push({
-      path,
       key,
       value,
       operation: 'update',
     });
 
     // Get current value for merge (check cache first, then GlobalStore)
-    const cacheKey = this.buildCacheKey(path, key);
+    const cacheKey = this.buildCacheKey(key);
     let currentValue: unknown;
 
     if (this.localCache.has(cacheKey)) {
       currentValue = this.localCache.get(cacheKey);
     } else {
-      currentValue = this.globalStore.getValue(this.pipelineId, path, key);
+      currentValue = this.globalStore.getValue(this.pipelineId, [], key);
     }
 
     // Deep merge and update cache for read-after-write consistency
@@ -304,7 +287,6 @@ export class Scope {
       stageName: this.stageName,
       pipelineId: this.pipelineId,
       timestamp: Date.now(),
-      path,
       key,
       value,
       operation: 'update',
@@ -324,30 +306,28 @@ export class Scope {
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'timeout', 5000);
-   * scope.updateValue(['config'], 'settings', { retries: 3 });
+   * scope.setValue('timeout', 5000);
+   * scope.updateValue('settings', { retries: 3 });
    * scope.commit(); // Persists both writes to GlobalStore
    * ```
    */
   commit(): void {
-    // Build a map of final values for each path/key
+    // Build a map of final values for each key
     // This ensures deep merge semantics are preserved
-    const finalValues = new Map<string, { path: string[]; key: string; value: unknown }>();
+    const finalValues = new Map<string, { key: string; value: unknown }>();
 
     // Collect mutations for the CommitEvent
     const mutations: Array<{
-      path: string[];
       key: string;
       value: unknown;
       operation: 'set' | 'update';
     }> = [];
 
     for (const write of this.stagedWrites) {
-      const cacheKey = this.buildCacheKey(write.path, write.key);
+      const cacheKey = this.buildCacheKey(write.key);
 
       // Track mutation for CommitEvent
       mutations.push({
-        path: write.path,
         key: write.key,
         value: write.value,
         operation: write.operation,
@@ -356,7 +336,6 @@ export class Scope {
       if (write.operation === 'set') {
         // Set operations overwrite
         finalValues.set(cacheKey, {
-          path: write.path,
           key: write.key,
           value: write.value,
         });
@@ -366,15 +345,13 @@ export class Scope {
         if (existing) {
           // Merge with previously staged value
           finalValues.set(cacheKey, {
-            path: write.path,
             key: write.key,
             value: deepMerge(existing.value, write.value),
           });
         } else {
           // Merge with GlobalStore value
-          const currentValue = this.globalStore.getValue(this.pipelineId, write.path, write.key);
+          const currentValue = this.globalStore.getValue(this.pipelineId, [], write.key);
           finalValues.set(cacheKey, {
-            path: write.path,
             key: write.key,
             value: deepMerge(currentValue, write.value),
           });
@@ -384,8 +361,8 @@ export class Scope {
 
     // Apply all final values to GlobalStore using setValue
     // This ensures our deep merge semantics are preserved
-    for (const { path, key, value } of finalValues.values()) {
-      this.globalStore.setValue(this.pipelineId, path, key, value);
+    for (const { key, value } of finalValues.values()) {
+      this.globalStore.setValue(this.pipelineId, [], key, value);
     }
 
     // Create a snapshot of the current state for time-travel support
@@ -445,9 +422,9 @@ export class Scope {
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'a', 1);
+   * scope.setValue('a', 1);
    * scope.commit();
-   * scope.setValue(['config'], 'b', 2);
+   * scope.setValue('b', 2);
    * scope.commit();
    *
    * const snapshots = scope.getSnapshots();
@@ -469,13 +446,13 @@ export class Scope {
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'value', 'first');
+   * scope.setValue('value', 'first');
    * scope.commit();
-   * scope.setValue(['config'], 'value', 'second');
+   * scope.setValue('value', 'second');
    * scope.commit();
    *
    * const firstState = scope.getStateAt(0);
-   * console.log(firstState?.config?.value); // 'first'
+   * console.log(firstState?.value); // 'first'
    * ```
    */
   getStateAt(index: number): Record<string, unknown> | undefined {
@@ -498,11 +475,11 @@ export class Scope {
    * ```typescript
    * console.log(scope.getCurrentSnapshotIndex()); // -1 (no commits yet)
    *
-   * scope.setValue(['config'], 'value', 1);
+   * scope.setValue('value', 1);
    * scope.commit();
    * console.log(scope.getCurrentSnapshotIndex()); // 0
    *
-   * scope.setValue(['config'], 'value', 2);
+   * scope.setValue('value', 2);
    * scope.commit();
    * console.log(scope.getCurrentSnapshotIndex()); // 1
    * ```
@@ -789,19 +766,17 @@ export class Scope {
   }
 
   // ==========================================================================
-  // Path Construction Helpers
+  // Cache Helpers
   // ==========================================================================
 
   /**
    * Builds a cache key for local storage.
    *
-   * @param path - The namespace path
    * @param key - Optional key
    * @returns A string key for the local cache
    */
-  private buildCacheKey(path: string[], key?: string): string {
-    const pathStr = path.join('\u001F'); // Use unit separator as delimiter
-    return key !== undefined ? `${pathStr}\u001F${key}` : pathStr;
+  private buildCacheKey(key?: string): string {
+    return key !== undefined ? key : '';
   }
 
   // ==========================================================================

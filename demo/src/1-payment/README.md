@@ -8,7 +8,7 @@
 
 - Basic `FlowChartBuilder` usage
 - Chaining stages with `start()` and `addFunction()`
-- Scope communication with `setObject()` and `getValue()`
+- Scope communication with `setValue()` and `getValue()`
 
 ## The Flow
 
@@ -35,13 +35,13 @@ new FlowChartBuilder()
 ```typescript
 // Stage 1: Write data
 const validateCart = async (scope: BaseState) => {
-  scope.setObject(['pipeline'], 'cartTotal', 79.98);
+  scope.setValue('cartTotal', 79.98);
   return { valid: true };
 };
 
 // Stage 2: Read data
 const processPayment = async (scope: BaseState) => {
-  const total = scope.getValue(['pipeline'], 'cartTotal');
+  const total = scope.getValue('cartTotal');
   return { success: true, amount: total };
 };
 ```

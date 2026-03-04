@@ -216,10 +216,9 @@ describe('Scope Access Protection Property Tests', () => {
           }
 
           // Should include guidance about correct methods
-          const hasSetObject = errorMessage.includes('setObject');
           const hasSetValue = errorMessage.includes('setValue');
 
-          return hasSetObject && hasSetValue;
+          return hasSetValue;
         }),
         { numRuns: 100 },
       );

@@ -123,8 +123,8 @@ describe('Demo 1: Linear Flow (Payment)', () => {
 
       // Create a custom ProcessPayment that captures the read value
       const capturePayment = async (scope: BaseState) => {
-        capturedTotal = scope.getValue(['pipeline'], 'cartTotal') as number;
-        scope.setObject(['pipeline'], 'transactionId', 'TEST-TXN');
+        capturedTotal = scope.getValue('cartTotal') as number;
+        scope.setObject('transactionId', 'TEST-TXN');
         return { success: true };
       };
 
@@ -153,10 +153,10 @@ describe('Demo 1: Linear Flow (Payment)', () => {
       // Create a custom final stage that captures all scope values
       const captureReceipt = async (scope: BaseState) => {
         capturedValues = {
-          cartTotal: scope.getValue(['pipeline'], 'cartTotal'),
-          itemCount: scope.getValue(['pipeline'], 'itemCount'),
-          transactionId: scope.getValue(['pipeline'], 'transactionId'),
-          paymentStatus: scope.getValue(['pipeline'], 'paymentStatus'),
+          cartTotal: scope.getValue('cartTotal'),
+          itemCount: scope.getValue('itemCount'),
+          transactionId: scope.getValue('transactionId'),
+          paymentStatus: scope.getValue('paymentStatus'),
         };
         return { captured: true };
       };
@@ -254,7 +254,7 @@ describe('Demo 1: Linear Flow (Payment)', () => {
       let capturedTotal: number | undefined;
 
       const captureTotal = async (scope: BaseState) => {
-        capturedTotal = scope.getValue(['pipeline'], 'cartTotal') as number;
+        capturedTotal = scope.getValue('cartTotal') as number;
         return {};
       };
 
@@ -282,7 +282,7 @@ describe('Demo 1: Linear Flow (Payment)', () => {
       let capturedCount: number | undefined;
 
       const captureCount = async (scope: BaseState) => {
-        capturedCount = scope.getValue(['pipeline'], 'itemCount') as number;
+        capturedCount = scope.getValue('itemCount') as number;
         return {};
       };
 

@@ -257,11 +257,11 @@ FootPrint makes scope **explicit and structured**:
 ```
 Traditional Scope:               FootPrint Scope:
 ┌─────────────────┐             ┌─────────────────┐
-│  Global Scope   │             │  Global Context │  ← scope.setObject(['global'], ...)
+│  Global Scope   │             │  Global Context │  ← scope.setGlobal(key, value)
 ├─────────────────┤             ├─────────────────┤
-│  Closure Scope  │             │  Path Context   │  ← scope.setObject(['pipeline'], ...)
+│  Closure Scope  │             │  Path Context   │  ← scope.setValue(key, value)
 ├─────────────────┤             ├─────────────────┤
-│  Local Scope    │             │  Node Context   │  ← scope.setObject([], ...)
+│  Local Scope    │             │  Node Context   │  ← scope.setValue(key, value)
 └─────────────────┘             └─────────────────┘
 ```
 
@@ -277,8 +277,8 @@ function processOrder() {
 // FootPrint: explicit scope
 async function processOrder(scope: OrderScope) {
   const orderId = '123';
-  scope.setObject([], 'orderId', orderId);           // Node context
-  scope.setObject(['pipeline'], 'lastOrder', orderId); // Path context
+  scope.setValue('orderId', orderId);                  // Scoped state
+  scope.setValue('lastOrder', orderId);                // Scoped state
 }
 ```
 

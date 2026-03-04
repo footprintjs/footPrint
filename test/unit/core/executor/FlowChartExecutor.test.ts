@@ -9,7 +9,7 @@
  */
 
 import { FlowChartExecutor, FlowChart } from '../../../../src/core/executor/FlowChartExecutor';
-import { FlowChartBuilder, flowChart, BuiltFlow } from '../../../../src/core/builder/FlowChartBuilder';
+import { FlowChartBuilder, flowChart } from '../../../../src/core/builder/FlowChartBuilder';
 import { StageContext } from '../../../../src/core/memory/StageContext';
 import { ScopeFactory } from '../../../../src/core/memory/types';
 
@@ -70,14 +70,13 @@ describe('FlowChart Type', () => {
       expect(chart.extractor).toBeUndefined();
     });
 
-    it('BuiltFlow alias is equivalent to FlowChart', () => {
-      // BuiltFlow should be assignable to FlowChart and vice versa
-      const builtFlow: BuiltFlow = {
+    it('FlowChart type has expected structure', () => {
+      const chart: FlowChart = {
         root: { name: 'test' },
         stageMap: new Map(),
       };
-      const flowChart: FlowChart = builtFlow;
-      expect(flowChart).toBe(builtFlow);
+      expect(chart.root.name).toBe('test');
+      expect(chart.stageMap).toBeInstanceOf(Map);
     });
   });
 

@@ -21,8 +21,8 @@
  * @example
  * ```typescript
  * const store = new GlobalStore({ defaultConfig: {} });
- * store.setValue('pipeline-1', ['user'], 'name', 'Alice');
- * const name = store.getValue('pipeline-1', ['user'], 'name'); // 'Alice'
+ * store.setValue('pipeline-1', [], 'name', 'Alice');
+ * const name = store.getValue('pipeline-1', [], 'name'); // 'Alice'
  * ```
  */
 

@@ -17,11 +17,11 @@ const scopeFactory = (ctx: any, stageName: string) => new BaseState(ctx, stageNa
 // 2. Build your flow
 const builder = new FlowChartBuilder()
   .start('Step1', async (scope) => {
-    scope.setObject(['data'], 'message', 'Hello');
+    scope.setValue('message', 'Hello');
     return { success: true };
   })
   .addFunction('Step2', async (scope) => {
-    const msg = scope.getValue(['data'], 'message');
+    const msg = scope.getValue('message');
     console.log(msg); // "Hello"
     return { done: true };
   });
@@ -42,7 +42,7 @@ A stage is a single function in your pipeline. Each stage:
 ```typescript
 async function myStage(scope: BaseState, breakFn: () => void) {
   // Do work
-  scope.setObject(['results'], 'output', { data: 'value' });
+  scope.setValue('output', { data: 'value' });
   
   // Optionally stop the pipeline
   if (shouldStop) breakFn();
@@ -60,8 +60,8 @@ async function myStage(scope: BaseState, breakFn: () => void) {
 scope.myData = { result: 'hello' };
 
 // ✅ CORRECT - Data persists
-scope.setObject([], 'myData', { result: 'hello' });
-const data = scope.getValue([], 'myData');
+scope.setValue('myData', { result: 'hello' });
+const data = scope.getValue('myData');
 ```
 
 See [Scope Communication](./SCOPE_COMMUNICATION.md) for full details.

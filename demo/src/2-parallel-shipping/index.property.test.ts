@@ -206,7 +206,7 @@ describe('Property 2: Parallel Execution Timing', () => {
         const readValues: unknown[] = [];
 
         const parentStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], 'parentData', parentValue);
+          scope.setObject('parentData', parentValue);
           return { written: true };
         };
 
@@ -214,7 +214,7 @@ describe('Property 2: Parallel Execution Timing', () => {
           id: `child${i}`,
           name: `Child${i}`,
           fn: async (scope: BaseState) => {
-            const value = scope.getValue(['pipeline'], 'parentData');
+            const value = scope.getValue('parentData');
             readValues.push(value);
             return { childId: i };
           },
@@ -254,7 +254,7 @@ describe('Property 2: Parallel Execution Timing', () => {
           name: `Child${i}`,
           fn: async (scope: BaseState) => {
             // Write our own value
-            scope.setObject(['pipeline'], `child${i}Data`, i * 100);
+            scope.setObject(`child${i}Data`, i * 100);
 
             // Small delay to let other children write
             await new Promise((resolve) => setTimeout(resolve, 10));
@@ -263,7 +263,7 @@ describe('Property 2: Parallel Execution Timing', () => {
             const siblingValues: unknown[] = [];
             for (let j = 0; j < numChildren; j++) {
               if (j !== i) {
-                siblingValues.push(scope.getValue(['pipeline'], `child${j}Data`));
+                siblingValues.push(scope.getValue(`child${j}Data`));
               }
             }
 

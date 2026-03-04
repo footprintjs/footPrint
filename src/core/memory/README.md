@@ -65,10 +65,10 @@ The core memory module provides the **runtime memory system** for flow execution
 
 ```typescript
 // Reading from scope
-const question = scope.getValue([], 'userQuestion');
+const question = scope.getValue('userQuestion');
 
 // Writing to scope (current stage's namespace)
-scope.setObject([], 'expandedQuestion', expanded);
+scope.setValue('expandedQuestion', expanded);
 
 // Writing to global (root level)
 scope.setGlobal('sharedConfig', config);

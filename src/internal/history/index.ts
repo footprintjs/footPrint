@@ -17,7 +17,6 @@
 
 export {
   ExecutionHistory,
-  MemoryHistory, // Legacy alias
   type TraceItem,
   type CommitBundle,
 } from './ExecutionHistory';

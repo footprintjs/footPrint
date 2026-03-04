@@ -106,8 +106,8 @@ const shipmentData: ShipmentData = {
  * This data is then available to all parallel children (they can READ it).
  *
  * SCOPE OPERATIONS:
- * - setObject(['pipeline'], 'shipment', data): Stores shipment for children to READ
- * - setObject(['pipeline'], 'totalWeight', weight): Stores weight for children to READ
+ * - setObject('shipment', data): Stores shipment for children to READ
+ * - setObject('totalWeight', weight): Stores weight for children to READ
  */
 const prepareShipment = async (scope: BaseState) => {
   console.log('  [1] PrepareShipment: Initializing shipment data...');
@@ -116,8 +116,8 @@ const prepareShipment = async (scope: BaseState) => {
   const totalWeight = shipmentData.items.reduce((sum, item) => sum + item.weight * item.quantity, 0);
 
   // Store shipment data - children can READ these values
-  scope.setObject(['pipeline'], 'shipment', shipmentData);
-  scope.setObject(['pipeline'], 'totalWeight', totalWeight);
+  scope.setObject('shipment', shipmentData);
+  scope.setObject('totalWeight', totalWeight);
 
   console.log(`      Shipment prepared: ${shipmentData.orderId}, ${totalWeight}kg total`);
 
@@ -149,8 +149,8 @@ const calculateRate = async (scope: BaseState) => {
   await sleep(150);
 
   // CAN read from parent scope
-  const totalWeight = scope.getValue(['pipeline'], 'totalWeight') as number;
-  const shipment = scope.getValue(['pipeline'], 'shipment') as ShipmentData;
+  const totalWeight = scope.getValue('totalWeight') as number;
+  const shipment = scope.getValue('shipment') as ShipmentData;
 
   // Simple rate calculation based on weight and destination
   const baseRate = 5.99;
@@ -185,7 +185,7 @@ const checkInventory = async (scope: BaseState) => {
   await sleep(100);
 
   // CAN read from parent scope
-  const shipment = scope.getValue(['pipeline'], 'shipment') as ShipmentData;
+  const shipment = scope.getValue('shipment') as ShipmentData;
 
   // Simulate inventory check (all items available)
   const inventoryStatus = shipment.items.map((item) => ({
@@ -221,7 +221,7 @@ const validateAddress = async (scope: BaseState) => {
   await sleep(80);
 
   // CAN read from parent scope
-  const shipment = scope.getValue(['pipeline'], 'shipment') as ShipmentData;
+  const shipment = scope.getValue('shipment') as ShipmentData;
 
   // Simulate address validation result
   const validationResult = {
@@ -262,8 +262,8 @@ const createLabel = async (scope: BaseState) => {
 
   // Read from PARENT scope (PrepareShipment's writes)
   // Children's scope writes are NOT visible here due to scope isolation
-  const shipment = scope.getValue(['pipeline'], 'shipment') as ShipmentData;
-  const totalWeight = scope.getValue(['pipeline'], 'totalWeight') as number;
+  const shipment = scope.getValue('shipment') as ShipmentData;
+  const totalWeight = scope.getValue('totalWeight') as number;
 
   // Generate tracking number
   const trackingNumber = `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;

@@ -29,6 +29,7 @@ import type { ScopeFactory } from '../memory/types';
 import type { PipelineRuntime, RuntimeSnapshot } from '../memory/PipelineRuntime';
 import type { ScopeProtectionMode } from '../../scope/protection/types';
 import type { SerializedPipelineStructure } from '../builder/FlowChartBuilder';
+import type { ILogger } from '../../utils/logger';
 
 /**
  * Compiled flowchart ready for execution.
@@ -68,6 +69,14 @@ export type FlowChart<TOut = any, TScope = any> = {
    *
    */
   enableNarrative?: boolean;
+  /**
+   * Custom logger injected via FlowChartBuilder.setLogger().
+   *
+   * WHY: Flows from builder → FlowChart → FlowChartExecutor → Pipeline →
+   * PipelineContext → all handlers. When undefined, the default console
+   * logger is used.
+   */
+  logger?: ILogger;
   /**
    * Static build-time pipeline structure from FlowChartBuilder.
    *
@@ -219,6 +228,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       args.enrichSnapshots ?? args.flowChart.enrichSnapshots,
       narrativeFlag,
       args.flowChart.buildTimeStructure,
+      args.flowChart.logger,
     );
   }
 

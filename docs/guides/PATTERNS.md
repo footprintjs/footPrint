@@ -160,7 +160,7 @@ Create children at runtime by returning a `StageNode` from your handler:
 
 ```typescript
 async function toolBranchHandler(scope: Scope) {
-  const toolCalls = scope.getValue([], 'toolCalls');
+  const toolCalls = scope.getValue('toolCalls');
   
   // Return StageNode with dynamic children
   return {

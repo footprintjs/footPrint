@@ -68,7 +68,8 @@
 import { StageContext } from '../memory/StageContext';
 import { PipelineRuntime, RuntimeSnapshot } from '../memory/PipelineRuntime';
 import { ScopeFactory } from '../memory/types';
-import { logger } from '../../utils/logger';
+import { logger as defaultLogger } from '../../utils/logger';
+import type { ILogger } from '../../utils/logger';
 import {
   NodeResultType,
   PipelineStageFunction,
@@ -435,6 +436,9 @@ export class Pipeline<TOut, TScope> {
    */
   private readonly narrativeGenerator: INarrativeGenerator;
 
+  /** Logger instance used by the pipeline and all handlers. */
+  private readonly logger: ILogger;
+
 
   constructor(
     root: StageNode,
@@ -451,6 +455,7 @@ export class Pipeline<TOut, TScope> {
     enrichSnapshots?: boolean,
     narrativeEnabled?: boolean,
     buildTimeStructure?: SerializedPipelineStructure,
+    customLogger?: ILogger,
   ) {
     this.root = root;
     this.stageMap = stageMap;
@@ -461,13 +466,14 @@ export class Pipeline<TOut, TScope> {
     this.streamHandlers = streamHandlers;
     this.scopeProtectionMode = scopeProtectionMode ?? 'error';
     this.subflows = subflows;
+    this.logger = customLogger ?? defaultLogger;
 
     // Initialize RuntimeStructureManager (deep-clones buildTimeStructure)
     this.structureManager = new RuntimeStructureManager();
     this.structureManager.init(buildTimeStructure);
 
     // Initialize ExtractorRunner for traversal extractor coordination
-    this.extractorRunner = new ExtractorRunner(extractor, enrichSnapshots ?? false, this.pipelineRuntime);
+    this.extractorRunner = new ExtractorRunner(extractor, enrichSnapshots ?? false, this.pipelineRuntime, this.logger);
 
     // Create narrative generator (Null Object pattern for zero-cost default)
     this.narrativeGenerator = narrativeEnabled
@@ -520,6 +526,7 @@ export class Pipeline<TOut, TScope> {
       scopeProtectionMode: this.scopeProtectionMode,
       readOnlyContext: this.readOnlyContext,
       narrativeGenerator: this.narrativeGenerator,
+      logger: this.logger,
     };
   }
 
@@ -637,12 +644,12 @@ export class Pipeline<TOut, TScope> {
     // A node must provide at least one of: stage, children, or decider.
     if (!hasStageFunction && !isDeciderNode && !hasChildren) {
       const errorMessage = `Node '${node.name}' must define: embedded fn OR a stageMap entry OR have children/decider`;
-      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
     if (isDeciderNode && !hasChildren) {
       const errorMessage = 'Decider node needs to have children to execute';
-      logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
 
@@ -708,7 +715,7 @@ export class Pipeline<TOut, TScope> {
         });
         // Narrative: record the error so the story captures what went wrong
         this.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
-        logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         throw error;
       }
@@ -722,7 +729,7 @@ export class Pipeline<TOut, TScope> {
       if (breakFlag.shouldBreak) {
         // Narrative: record that execution stopped here due to break
         this.narrativeGenerator.onBreak(node.name, node.displayName);
-        logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+        this.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput; // leaf/early stop returns the stage's output
       }
 

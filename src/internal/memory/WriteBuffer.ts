@@ -205,5 +205,3 @@ export function applySmartMerge(
   return out;
 }
 
-// Legacy alias for backward compatibility during migration
-export { WriteBuffer as PatchedMemoryContext };

@@ -136,8 +136,8 @@ export function setCurrentOrder(order: OrderData) {
  * the scope-based decider (FulfillmentDecider) can read it to route execution.
  *
  * SCOPE OPERATIONS:
- * - setObject(['pipeline'], 'order', order): Stores order for later stages
- * - setObject(['pipeline'], 'fulfillmentType', type): Stores decision for decider
+ * - setObject('order', order): Stores order for later stages
+ * - setObject('fulfillmentType', type): Stores decision for decider
  */
 const analyzeOrder = async (scope: BaseState) => {
   console.log('  [1] AnalyzeOrder: Analyzing order...');
@@ -159,8 +159,8 @@ const analyzeOrder = async (scope: BaseState) => {
   }
 
   // Store in scope
-  scope.setObject(['pipeline'], 'order', order);
-  scope.setObject(['pipeline'], 'fulfillmentType', fulfillmentType);
+  scope.setObject('order', order);
+  scope.setObject('fulfillmentType', fulfillmentType);
 
   console.log(`      Order ${order.orderId}: ${fulfillmentType} fulfillment`);
 
@@ -181,7 +181,7 @@ const analyzeOrder = async (scope: BaseState) => {
 const standardFulfillment = async (scope: BaseState) => {
   console.log('  [2] StandardFulfillment: Processing standard shipment...');
 
-  const order = scope.getValue(['pipeline'], 'order') as OrderData;
+  const order = scope.getValue('order') as OrderData;
 
   // Simulate standard fulfillment process
   const fulfillmentResult = {
@@ -192,7 +192,7 @@ const standardFulfillment = async (scope: BaseState) => {
     orderId: order.orderId,
   };
 
-  scope.setObject(['pipeline'], 'fulfillmentResult', fulfillmentResult);
+  scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Standard shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
 
@@ -207,7 +207,7 @@ const standardFulfillment = async (scope: BaseState) => {
 const expressFulfillment = async (scope: BaseState) => {
   console.log('  [2] ExpressFulfillment: Processing express shipment...');
 
-  const order = scope.getValue(['pipeline'], 'order') as OrderData;
+  const order = scope.getValue('order') as OrderData;
 
   // Simulate express fulfillment process
   const fulfillmentResult = {
@@ -219,7 +219,7 @@ const expressFulfillment = async (scope: BaseState) => {
     priorityFee: 15.99,
   };
 
-  scope.setObject(['pipeline'], 'fulfillmentResult', fulfillmentResult);
+  scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Express shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
 
@@ -234,7 +234,7 @@ const expressFulfillment = async (scope: BaseState) => {
 const digitalDelivery = async (scope: BaseState) => {
   console.log('  [2] DigitalDelivery: Processing digital delivery...');
 
-  const order = scope.getValue(['pipeline'], 'order') as OrderData;
+  const order = scope.getValue('order') as OrderData;
 
   // Simulate digital delivery process
   const fulfillmentResult = {
@@ -248,7 +248,7 @@ const digitalDelivery = async (scope: BaseState) => {
     orderId: order.orderId,
   };
 
-  scope.setObject(['pipeline'], 'fulfillmentResult', fulfillmentResult);
+  scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Digital delivery ready: ${order.items.length} items`);
 
@@ -264,8 +264,8 @@ const digitalDelivery = async (scope: BaseState) => {
 const confirmOrder = async (scope: BaseState) => {
   console.log('  [3] ConfirmOrder: Finalizing order...');
 
-  const order = scope.getValue(['pipeline'], 'order') as OrderData;
-  const fulfillmentResult = scope.getValue(['pipeline'], 'fulfillmentResult') as any;
+  const order = scope.getValue('order') as OrderData;
+  const fulfillmentResult = scope.getValue('fulfillmentResult') as any;
 
   const confirmation = {
     orderId: order.orderId,
@@ -303,7 +303,7 @@ const confirmOrder = async (scope: BaseState) => {
  */
 const fulfillmentDecider = (scope: BaseState): string => {
   // Read fulfillmentType from scope — written by AnalyzeOrder stage
-  const type = (scope.getValue(['pipeline'], 'fulfillmentType') as FulfillmentType) ?? 'standard';
+  const type = (scope.getValue('fulfillmentType') as FulfillmentType) ?? 'standard';
   console.log(`  [Decider] Routing to: ${type}`);
   return type;
 };

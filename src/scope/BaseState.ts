@@ -38,10 +38,10 @@ import { StageContext } from '../core/memory/StageContext';
  * ```typescript
  * class MyScope extends BaseState {
  *   get userName(): string {
- *     return this.getValue(['user'], 'name') as string;
+ *     return this.getValue('name') as string;
  *   }
  *   set userName(value: string) {
- *     this.setObject(['user'], 'name', value);
+ *     this.setValue('name', value);
  *   }
  * }
  * ```
@@ -91,16 +91,16 @@ export class BaseState {
     return (this._stageContext as any).getFromGlobalContext?.(key);
   }
 
-  getValue(path: string[], key?: string) {
-    return this._stageContext.getValue(path, key);
+  getValue(key?: string) {
+    return this._stageContext.getValue([], key);
   }
 
-  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    return (this._stageContext as any).setObject(path, key, value, shouldRedact, description);
+  setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+    return (this._stageContext as any).setObject([], key, value, shouldRedact, description);
   }
 
-  updateObject(path: string[], key: string, value: unknown, description?: string) {
-    return this._stageContext.updateObject(path, key, value, description);
+  updateValue(key: string, value: unknown, description?: string) {
+    return this._stageContext.updateObject([], key, value, description);
   }
 
   setGlobal(key: string, value: unknown, description?: string) {

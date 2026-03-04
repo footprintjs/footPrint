@@ -111,5 +111,3 @@ export class ExecutionHistory {
   }
 }
 
-// Legacy alias for backward compatibility during migration
-export { ExecutionHistory as MemoryHistory };

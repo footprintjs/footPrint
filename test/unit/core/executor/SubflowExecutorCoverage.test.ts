@@ -39,6 +39,7 @@ function createTestContext<TOut = any, TScope = any>(
     subflows: subflows as any,
     scopeProtectionMode: 'off',
     narrativeGenerator: new NullNarrativeGenerator(),
+    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
   };
 }
 

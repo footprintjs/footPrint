@@ -235,12 +235,12 @@ class AgentScope {
 
   // Typed getter — no raw path strings in stage code
   getMessages(): Message[] {
-    return (this.core.getValue(['agent'], 'messages') as Message[]) ?? [];
+    return (this.core.getValue([], 'messages') as Message[]) ?? [];
   }
 
   // Typed setter — compile-time safety, IDE autocomplete
   setResult(result: string): void {
-    this.core.setObject(['agent'], 'result', result);
+    this.core.setObject([], 'result', result);
   }
 
   // Expose raw StageContext for advanced use cases
@@ -258,12 +258,12 @@ const executor = new FlowChartExecutor(chart, scopeFactory);
 
 ### Why This Matters
 
-Without a custom scope, stages use raw path arrays:
+Without a custom scope, stages use raw key strings:
 
 ```typescript
 // ❌ Fragile — typos silently fail, no autocomplete
-const msgs = scope.getValue(['agent'], 'mesages'); // typo → undefined
-scope.setObject(['agent'], 'result', value);
+const msgs = scope.getValue('mesages'); // typo → undefined
+scope.setValue('result', value);
 ```
 
 With a custom scope:

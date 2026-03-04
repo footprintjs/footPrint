@@ -69,21 +69,21 @@ describe('integration: stage runner + toScopeFactory', () => {
 
       doWork() {
         // write
-        this.setObject(['chat'], 'prompt', 'hi', true);
-        this.updateObject(['monitor'], 'exec', { t: 123 });
+        this.setValue('prompt', 'hi', true);
+        this.updateValue('exec', { t: 123 });
         // read
-        return this.getValue(['chat'], 'prompt');
+        return this.getValue('prompt');
       }
     }
 
     const { ctx, scope } = runStage(MyScope, (s: MyScope) => (s as any).doWork());
 
     // wrote with redact flag and merged object
-    expect(ctx.store['chat.prompt']).toBe('hi');
-    expect(ctx.store['monitor.exec']).toEqual({ t: 123 });
+    expect(ctx.store['prompt']).toBe('hi');
+    expect(ctx.store['exec']).toEqual({ t: 123 });
 
     // read back
-    expect((scope as MyScope).getValue(['chat'], 'prompt')).toBe('hi');
+    expect((scope as MyScope).getValue('prompt')).toBe('hi');
 
     // some trace of calls recorded
     expect(ctx.calls.find((c) => c.op === 'setObject')).toBeTruthy();

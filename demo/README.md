@@ -155,7 +155,7 @@ new FlowChartBuilder()
   .start('CheckStock', checkStock)
   .addSubFlowChart('audit', inventoryAuditSubflow, 'InventoryAudit', {
     inputMapper: (parentScope) => ({
-      warehouseId: parentScope.getValue(['pipeline'], 'warehouseId'),
+      warehouseId: parentScope.getValue('warehouseId'),
     }),
   })
   .addFunction('UpdateRecords', updateRecords);
@@ -257,10 +257,10 @@ console.log('Debug entries:', debugRecorder.getEntries());
 
 ```typescript
 // Write to scope (buffered until commit)
-scope.setObject(['pipeline'], 'key', value);
+scope.setValue('key', value);
 
 // Read from scope
-const value = scope.getValue(['pipeline'], 'key');
+const value = scope.getValue('key');
 
 // Commit writes (usually automatic at stage end)
 scope.commit();
@@ -282,8 +282,8 @@ const store = new GlobalStore('unique-pipeline-id');
 // Controls what data flows from parent to subflow
 const inputMapper = (parentScope: BaseState) => ({
   // Extract specific values from parent scope
-  orderId: parentScope.getValue(['pipeline'], 'orderId'),
-  customerId: parentScope.getValue(['pipeline'], 'customerId'),
+  orderId: parentScope.getValue('orderId'),
+  customerId: parentScope.getValue('customerId'),
 });
 
 // Subflow starts with these values in its isolated scope

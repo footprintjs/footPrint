@@ -636,10 +636,10 @@ describe('Public API — Scope', () => {
   test('BaseState subclass: consumer creates custom scope, reads/writes via setValue/getValue', async () => {
     class MyScope extends BaseState {
       getUserName(): string {
-        return this.getValue(['user'], 'name') as string;
+        return this.getValue('name') as string;
       }
       setUserName(value: string) {
-        this.setObject(['user'], 'name', value);
+        this.setValue('name', value);
       }
     }
 
@@ -680,8 +680,8 @@ describe('Public API — Scope', () => {
     expect(typeof BaseState.prototype.addEval).toBe('function');
     expect(typeof BaseState.prototype.getInitialValueFor).toBe('function');
     expect(typeof BaseState.prototype.getValue).toBe('function');
-    expect(typeof BaseState.prototype.setObject).toBe('function');
-    expect(typeof BaseState.prototype.updateObject).toBe('function');
+    expect(typeof BaseState.prototype.setValue).toBe('function');
+    expect(typeof BaseState.prototype.updateValue).toBe('function');
     expect(typeof BaseState.prototype.setGlobal).toBe('function');
     expect(typeof BaseState.prototype.getGlobal).toBe('function');
     expect(typeof BaseState.prototype.getReadOnlyValues).toBe('function');

@@ -28,7 +28,6 @@
 import { StageContext } from '../../memory/StageContext';
 import { PipelineRuntime } from '../../memory/PipelineRuntime';
 import { PipelineContext, SubflowResult, NodeResultType, PipelineStageFunction } from '../types';
-import { logger } from '../../../utils/logger';
 import type { StageNode, Selector, Decider } from '../Pipeline';
 import { isStageNodeReturn } from '../Pipeline';
 import { NodeResolver } from './NodeResolver';
@@ -193,7 +192,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       } catch (error: any) {
         parentContext.addError('inputMapperError', error.toString());
-        logger.error(`Error in inputMapper for subflow (${subflowId}):`, { error });
+        this.ctx.logger.error(`Error in inputMapper for subflow (${subflowId}):`, { error });
         throw error;
       }
     }
@@ -268,7 +267,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     } catch (error: any) {
       subflowError = error;
       parentContext.addError('subflowError', error.toString());
-      logger.error(`Error in subflow (${subflowId}):`, { error });
+      this.ctx.logger.error(`Error in subflow (${subflowId}):`, { error });
     } finally {
       // Clear the subflow root reference to avoid stale references
       this.currentSubflowRoot = undefined;
@@ -317,7 +316,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       } catch (error: any) {
         // Log outputMapper error but don't re-throw (non-fatal)
         parentContext.addError('outputMapperError', error.toString());
-        logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
+        this.ctx.logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
         // Don't re-throw - output mapping errors are non-fatal
       }
     }
@@ -560,7 +559,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           context.addLog('dynamicNextResolved', true);
           context.addLog('dynamicNextTarget', nextNode.id);
         } else {
-          logger.info(`Dynamic next node '${nextNode.id}' not found in subflow or main pipeline`);
+          this.ctx.logger.info(`Dynamic next node '${nextNode.id}' not found in subflow or main pipeline`);
           context.addLog('dynamicNextResolved', false);
           context.addLog('dynamicNextNotFound', nextNode.id);
         }
@@ -619,7 +618,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         })
         .catch((error) => {
           childContext.commit();
-          logger.info(`TREE PIPELINE: executeNodeChildrenInternal - Error for id: ${child?.id}`, { error });
+          this.ctx.logger.info(`TREE PIPELINE: executeNodeChildrenInternal - Error for id: ${child?.id}`, { error });
           return { id: child.id!, result: error, isError: true };
         });
     });
@@ -632,7 +631,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         const { id, result, isError } = s.value;
         childrenResults[id] = { id, result, isError };
       } else {
-        logger.error(`Execution failed: ${s.reason}`);
+        this.ctx.logger.error(`Execution failed: ${s.reason}`);
       }
     });
 
@@ -686,7 +685,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
       const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
-      logger.error(`Error in subflow (${branchPath}):`, { error: errorMessage });
+      this.ctx.logger.error(`Error in subflow (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
       throw new Error(errorMessage);
     }

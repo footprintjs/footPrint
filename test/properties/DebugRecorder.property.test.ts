@@ -80,7 +80,6 @@ const arbErrorEvent: fc.Arbitrary<ErrorEvent> = fc.record({
   timestamp: arbTimestamp,
   error: arbErrorMessage.map((msg) => new Error(msg)),
   operation: arbErrorOperation,
-  path: fc.option(arbPath, { nil: undefined }),
   key: fc.option(arbKey, { nil: undefined }),
 });
 
@@ -128,7 +127,7 @@ describe('DebugRecorder Property Tests', () => {
       );
     });
 
-    test('error data is captured correctly (error object, operation, path, key)', () => {
+    test('error data is captured correctly (error object, operation, key)', () => {
       fc.assert(
         fc.property(arbErrorEvent, (errorEvent) => {
           // Arrange
@@ -149,7 +148,6 @@ describe('DebugRecorder Property Tests', () => {
           const data = recordedError.data as {
             error: Error;
             operation: string;
-            path?: string[];
             key?: string;
             pipelineId: string;
           };
@@ -160,11 +158,6 @@ describe('DebugRecorder Property Tests', () => {
 
           // Verify operation type is captured
           expect(data.operation).toBe(errorEvent.operation);
-
-          // Verify path is captured (if provided)
-          if (errorEvent.path !== undefined) {
-            expect(data.path).toEqual(errorEvent.path);
-          }
 
           // Verify key is captured (if provided)
           if (errorEvent.key !== undefined) {
@@ -363,9 +356,8 @@ describe('DebugRecorder Property Tests', () => {
           arbPipelineId,
           arbTimestamp,
           arbErrorMessage,
-          arbPath,
           arbKey,
-          (stageName, pipelineId, timestamp, errorMessage, path, key) => {
+          (stageName, pipelineId, timestamp, errorMessage, key) => {
             // Arrange
             const debugRecorder = new DebugRecorder({ verbosity: 'minimal' });
             const operations: Array<'read' | 'write' | 'commit'> = ['read', 'write', 'commit'];
@@ -378,7 +370,6 @@ describe('DebugRecorder Property Tests', () => {
                 timestamp,
                 error: new Error(`${errorMessage}-${operation}`),
                 operation,
-                path,
                 key,
               });
             }
@@ -399,7 +390,7 @@ describe('DebugRecorder Property Tests', () => {
       );
     });
 
-    test('errors with optional path and key are handled correctly', () => {
+    test('errors with optional key are handled correctly', () => {
       fc.assert(
         fc.property(
           arbStageName,
@@ -407,11 +398,9 @@ describe('DebugRecorder Property Tests', () => {
           arbTimestamp,
           arbErrorMessage,
           arbErrorOperation,
-          fc.boolean(), // include path
           fc.boolean(), // include key
-          arbPath,
           arbKey,
-          (stageName, pipelineId, timestamp, errorMessage, operation, includePath, includeKey, path, key) => {
+          (stageName, pipelineId, timestamp, errorMessage, operation, includeKey, key) => {
             // Arrange
             const debugRecorder = new DebugRecorder({ verbosity: 'minimal' });
 
@@ -421,7 +410,6 @@ describe('DebugRecorder Property Tests', () => {
               timestamp,
               error: new Error(errorMessage),
               operation,
-              ...(includePath ? { path } : {}),
               ...(includeKey ? { key } : {}),
             };
 
@@ -435,14 +423,8 @@ describe('DebugRecorder Property Tests', () => {
             const data = errors[0].data as {
               error: Error;
               operation: string;
-              path?: string[];
               key?: string;
             };
-
-            // Path should be present only if included
-            if (includePath) {
-              expect(data.path).toEqual(path);
-            }
 
             // Key should be present only if included
             if (includeKey) {
@@ -490,7 +472,6 @@ describe('DebugRecorder Property Tests', () => {
       stageName: arbStageName,
       pipelineId: arbPipelineId,
       timestamp: arbTimestamp,
-      path: arbPath,
       key: arbKey,
       value: arbValue,
       operation: arbWriteOperation,
@@ -521,7 +502,7 @@ describe('DebugRecorder Property Tests', () => {
       );
     });
 
-    test('mutation data includes path, key, value, and operation type', () => {
+    test('mutation data includes key, value, and operation type', () => {
       fc.assert(
         fc.property(arbWriteEvent, (writeEvent) => {
           // Arrange
@@ -540,15 +521,11 @@ describe('DebugRecorder Property Tests', () => {
           expect(recordedWrite.timestamp).toBe(writeEvent.timestamp);
 
           const data = recordedWrite.data as {
-            path: string[];
             key: string;
             value: unknown;
             operation: 'set' | 'update';
             pipelineId: string;
           };
-
-          // Verify path is captured correctly
-          expect(data.path).toEqual(writeEvent.path);
 
           // Verify key is captured correctly
           expect(data.key).toBe(writeEvent.key);
@@ -592,11 +569,10 @@ describe('DebugRecorder Property Tests', () => {
           arbStageName,
           arbPipelineId,
           arbTimestamp,
-          arbPath,
           arbKey,
           arbValue,
           arbValue,
-          (stageName, pipelineId, timestamp, path, key, setValue, updateValue) => {
+          (stageName, pipelineId, timestamp, key, setValue, updateValue) => {
             // Arrange
             const debugRecorder = new DebugRecorder({ verbosity: 'verbose' });
 
@@ -605,7 +581,6 @@ describe('DebugRecorder Property Tests', () => {
               stageName,
               pipelineId,
               timestamp,
-              path,
               key,
               value: setValue,
               operation: 'set',
@@ -615,7 +590,6 @@ describe('DebugRecorder Property Tests', () => {
               stageName,
               pipelineId,
               timestamp: timestamp + 1,
-              path,
               key,
               value: updateValue,
               operation: 'update',
@@ -682,10 +656,9 @@ describe('DebugRecorder Property Tests', () => {
         fc.property(
           fc.uniqueArray(arbStageName, { minLength: 2, maxLength: 5 }),
           arbPipelineId,
-          arbPath,
           arbKey,
           arbValue,
-          (stageNames, pipelineId, path, key, value) => {
+          (stageNames, pipelineId, key, value) => {
             // Arrange
             const debugRecorder = new DebugRecorder({ verbosity: 'verbose' });
 
@@ -695,7 +668,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName: stageNames[i],
                 pipelineId,
                 timestamp: 1000 + i,
-                path,
                 key: `${key}_${i}`,
                 value,
                 operation: 'set',
@@ -795,10 +767,9 @@ describe('DebugRecorder Property Tests', () => {
           arbStageName,
           arbPipelineId,
           arbTimestamp,
-          arbPath,
           arbKey,
           arbWriteOperation,
-          (stageName, pipelineId, timestamp, path, key, operation) => {
+          (stageName, pipelineId, timestamp, key, operation) => {
             // Arrange
             const debugRecorder = new DebugRecorder({ verbosity: 'verbose' });
 
@@ -823,7 +794,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: timestamp + i,
-                path,
                 key: `${key}_${i}`,
                 value: testValues[i],
                 operation,
@@ -912,7 +882,6 @@ describe('DebugRecorder Property Tests', () => {
       stageName: arbStageName,
       pipelineId: arbPipelineId,
       timestamp: arbTimestamp,
-      path: arbPath,
       key: arbKey,
       value: arbValue,
       operation: arbWriteOperation,
@@ -925,7 +894,6 @@ describe('DebugRecorder Property Tests', () => {
       stageName: arbStageName,
       pipelineId: arbPipelineId,
       timestamp: arbTimestamp,
-      path: arbPath,
       key: fc.option(arbKey, { nil: undefined }),
       value: arbValue,
     });
@@ -1234,14 +1202,10 @@ describe('DebugRecorder Property Tests', () => {
           expect(recordedRead.timestamp).toBe(readEvent.timestamp);
 
           const data = recordedRead.data as {
-            path: string[];
             key?: string;
             value: unknown;
             pipelineId: string;
           };
-
-          // Verify path is captured
-          expect(data.path).toEqual(readEvent.path);
 
           // Verify key is captured (if provided)
           if (readEvent.key !== undefined) {
@@ -1375,7 +1339,6 @@ describe('DebugRecorder Property Tests', () => {
         stageName: fc.constant(stageName),
         pipelineId: arbPipelineId,
         timestamp: arbTimestamp,
-        path: arbPath,
         key: arbKey,
         value: arbValue,
         operation: arbWriteOperation,
@@ -1389,7 +1352,6 @@ describe('DebugRecorder Property Tests', () => {
         stageName: fc.constant(stageName),
         pipelineId: arbPipelineId,
         timestamp: arbTimestamp,
-        path: arbPath,
         key: fc.option(arbKey, { nil: undefined }),
         value: arbValue,
       });
@@ -1404,7 +1366,6 @@ describe('DebugRecorder Property Tests', () => {
         timestamp: arbTimestamp,
         error: arbErrorMessage.map((msg) => new Error(msg)),
         operation: arbErrorOperation,
-        path: fc.option(arbPath, { nil: undefined }),
         key: fc.option(arbKey, { nil: undefined }),
       });
 
@@ -1426,7 +1387,6 @@ describe('DebugRecorder Property Tests', () => {
                   stageName,
                   pipelineId,
                   timestamp: Date.now() + i,
-                  path: ['test'],
                   key: `key_${i}`,
                   value: `value_${i}`,
                   operation: 'set',
@@ -1475,7 +1435,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now(),
-                path: ['test'],
                 key: `key_${stageName}`,
                 value: `value_${stageName}`,
                 operation: 'set',
@@ -1522,7 +1481,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now(),
-                path: ['test'],
                 key: 'readKey',
                 value: 'readValue',
               });
@@ -1533,7 +1491,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now() + 1,
-                path: ['test'],
                 key: 'writeKey',
                 value: 'writeValue',
                 operation: 'set',
@@ -1545,7 +1502,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now() + 2,
-                path: ['test'],
                 key: 'updateKey',
                 value: 'updateValue',
                 operation: 'update',
@@ -1613,7 +1569,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now(),
-                path: ['test'],
                 key: 'key',
                 value: 'value',
                 operation: 'set',
@@ -1645,7 +1600,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: 1000 + i, // Incrementing timestamps
-                path: ['test'],
                 key: `key_${i}`,
                 value: values[i],
                 operation: 'set',
@@ -1691,7 +1645,6 @@ describe('DebugRecorder Property Tests', () => {
                   stageName,
                   pipelineId,
                   timestamp: timestamp++,
-                  path: ['test'],
                   key: `key_${round}`,
                   value: `value_${round}`,
                   operation: 'set',
@@ -1728,7 +1681,6 @@ describe('DebugRecorder Property Tests', () => {
             stageName,
             pipelineId,
             timestamp: Date.now(),
-            path: ['test'],
             key: 'key',
             value: 'value',
             operation: 'set',
@@ -1762,7 +1714,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now(),
-                path: ['test'],
                 key: 'beforeClear',
                 value: 'beforeClear',
                 operation: 'set',
@@ -1778,7 +1729,6 @@ describe('DebugRecorder Property Tests', () => {
                 stageName,
                 pipelineId,
                 timestamp: Date.now(),
-                path: ['test'],
                 key: 'afterClear',
                 value: 'afterClear',
                 operation: 'set',
@@ -1806,7 +1756,6 @@ describe('DebugRecorder Property Tests', () => {
             stageName,
             pipelineId,
             timestamp: 1000,
-            path: ['test'],
             key: 'readKey',
             value: 'readValue',
           });
@@ -1815,7 +1764,6 @@ describe('DebugRecorder Property Tests', () => {
             stageName,
             pipelineId,
             timestamp: 1001,
-            path: ['test'],
             key: 'writeKey',
             value: 'writeValue',
             operation: 'set',

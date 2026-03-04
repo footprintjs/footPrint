@@ -451,8 +451,8 @@ describe('Feature 3: Recorders', () => {
 
       // Simulate stage execution
       scope.startStage('testStage');
-      scope.setValue(['data'], 'name', 'Alice');
-      scope.getValue(['data'], 'name');
+      scope.setValue('name', 'Alice');
+      scope.getValue('name');
       scope.endStage();
 
       const entries = debugRecorder.getEntries();
@@ -482,8 +482,8 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'minStage', [debugRecorder]);
 
       scope.startStage('minStage');
-      scope.setValue(['data'], 'key', 'value');
-      scope.getValue(['data'], 'key');
+      scope.setValue('key', 'value');
+      scope.getValue('key');
       scope.endStage();
 
       const entries = debugRecorder.getEntries();
@@ -507,12 +507,12 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'stageA', [debugRecorder]);
 
       scope.startStage('stageA');
-      scope.setValue(['data'], 'a', 1);
+      scope.setValue('a', 1);
       scope.endStage();
 
       scope.startStage('stageB');
-      scope.setValue(['data'], 'b', 2);
-      scope.setValue(['data'], 'b2', 3);
+      scope.setValue('b', 2);
+      scope.setValue('b2', 3);
       scope.endStage();
 
       const stageAEntries = debugRecorder.getEntriesForStage('stageA');
@@ -546,9 +546,9 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'metricStage', [metricRecorder]);
 
       scope.startStage('metricStage');
-      scope.setValue(['data'], 'key1', 'val1');
-      scope.setValue(['data'], 'key2', 'val2');
-      scope.getValue(['data'], 'key1');
+      scope.setValue('key1', 'val1');
+      scope.setValue('key2', 'val2');
+      scope.getValue('key1');
       scope.commit();
       scope.endStage();
 
@@ -574,16 +574,16 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'first', [metricRecorder]);
 
       scope.startStage('first');
-      scope.setValue(['data'], 'a', 1);
-      scope.getValue(['data'], 'a');
+      scope.setValue('a', 1);
+      scope.getValue('a');
       scope.commit();
       scope.endStage();
 
       scope.startStage('second');
-      scope.setValue(['data'], 'b', 2);
-      scope.setValue(['data'], 'c', 3);
-      scope.getValue(['data'], 'b');
-      scope.getValue(['data'], 'c');
+      scope.setValue('b', 2);
+      scope.setValue('c', 3);
+      scope.getValue('b');
+      scope.getValue('c');
       scope.commit();
       scope.endStage();
 
@@ -609,8 +609,8 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'dataStage', [narrativeRecorder]);
 
       scope.startStage('dataStage');
-      scope.setValue(['agent'], 'model', 'gpt-4');
-      scope.getValue(['agent'], 'model');
+      scope.setValue('model', 'gpt-4');
+      scope.getValue('model');
       scope.endStage();
 
       const sentences = narrativeRecorder.toSentences();
@@ -639,9 +639,9 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'summaryStage', [narrativeRecorder]);
 
       scope.startStage('summaryStage');
-      scope.setValue(['data'], 'a', 1);
-      scope.setValue(['data'], 'b', 2);
-      scope.getValue(['data'], 'a');
+      scope.setValue('a', 1);
+      scope.setValue('b', 2);
+      scope.getValue('a');
       scope.endStage();
 
       const sentences = narrativeRecorder.toSentences();
@@ -667,8 +667,8 @@ describe('Feature 3: Recorders', () => {
       const scope = createScopeWithRecorders(globalStore, 'structStage', [narrativeRecorder]);
 
       scope.startStage('structStage');
-      scope.setValue(['config'], 'timeout', 5000);
-      scope.getValue(['config'], 'timeout');
+      scope.setValue('timeout', 5000);
+      scope.getValue('timeout');
       scope.endStage();
 
       const stageData = narrativeRecorder.getStageData();
@@ -702,8 +702,8 @@ describe('Feature 3: Recorders', () => {
       ]);
 
       scope.startStage('multiStage');
-      scope.setValue(['data'], 'key', 'value');
-      scope.getValue(['data'], 'key');
+      scope.setValue('key', 'value');
+      scope.getValue('key');
       scope.commit();
       scope.endStage();
 
@@ -740,14 +740,14 @@ describe('Feature 3: Recorders', () => {
 
       // Stage 1
       scope.startStage('stage1');
-      scope.setValue(['data'], 'x', 1);
+      scope.setValue('x', 1);
       scope.commit();
       scope.endStage();
 
       // Stage 2
       scope.startStage('stage2');
-      scope.setValue(['data'], 'y', 2);
-      scope.setValue(['data'], 'z', 3);
+      scope.setValue('y', 2);
+      scope.setValue('z', 3);
       scope.commit();
       scope.endStage();
 
@@ -787,7 +787,7 @@ describe('Feature 3: Recorders', () => {
 
       scope.attachRecorder(debugRecorder);
       scope.startStage('before');
-      scope.setValue(['data'], 'a', 1);
+      scope.setValue('a', 1);
       scope.endStage();
 
       const entriesBeforeDetach = debugRecorder.getEntries().length;
@@ -797,7 +797,7 @@ describe('Feature 3: Recorders', () => {
       scope.detachRecorder(debugRecorder.id);
 
       scope.startStage('after');
-      scope.setValue(['data'], 'b', 2);
+      scope.setValue('b', 2);
       scope.endStage();
 
       // No new entries should have been added after detachment
@@ -1039,9 +1039,9 @@ describe('Feature 5: Observability (3-layer model)', () => {
 
     // Simulate stage execution
     scope.startStage('processData');
-    scope.setValue(['input'], 'query', 'search term');
-    scope.getValue(['input'], 'query');
-    scope.setValue(['output'], 'result', { items: [1, 2, 3] });
+    scope.setValue('query', 'search term');
+    scope.getValue('query');
+    scope.setValue('result', { items: [1, 2, 3] });
     scope.commit();
     scope.endStage();
 
@@ -1330,9 +1330,9 @@ describe('Combined Cascade: All Features Together', () => {
 
     // Simulate a pre-processing stage using Scope directly
     scope.startStage('preProcess');
-    scope.setValue(['config'], 'apiKey', 'sk-test-key');
-    scope.setValue(['config'], 'model', 'gpt-4');
-    scope.getValue(['config'], 'apiKey');
+    scope.setValue('apiKey', 'sk-test-key');
+    scope.setValue('model', 'gpt-4');
+    scope.getValue('apiKey');
     scope.commit();
     scope.endStage();
 

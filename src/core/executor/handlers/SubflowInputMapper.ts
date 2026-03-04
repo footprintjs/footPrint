@@ -163,6 +163,8 @@ export function createSubflowPipelineContext<TOut = any, TScope = any>(
 
     // Propagate narrative generator from parent so subflow events are recorded
     narrativeGenerator: parentCtx.narrativeGenerator,
+    // Propagate logger from parent so subflow uses the same logger
+    logger: parentCtx.logger,
   };
 }
 

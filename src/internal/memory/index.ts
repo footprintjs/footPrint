@@ -19,7 +19,6 @@
 // WriteBuffer - Transactional write buffer
 export {
   WriteBuffer,
-  PatchedMemoryContext, // Legacy alias
   applySmartMerge,
   DELIM,
   type MemoryPatch,

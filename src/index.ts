@@ -37,13 +37,7 @@ export type {
   // Types for flow definition
   FlowChartSpec,
   StageFn,
-  ParallelSpec,
-  BranchBody,
-  BranchSpec,
-  // FlowChart type (renamed from BuiltFlow)
   FlowChart,
-  // Legacy alias for backward compatibility
-  BuiltFlow,
   ExecOptions,
   // Build-time extractor types for customizing toSpec() output
   BuildTimeNodeMetadata,
@@ -102,11 +96,8 @@ export {
   FlowChartExecutor,
 } from './core/executor/FlowChartExecutor';
 
-// Re-export FlowChart type from executor module as well (for backward compatibility)
-export type { FlowChart as ExecutorFlowChart } from './core/builder';
-
 // ============================================================================
-// Pipeline - Legacy runtime execution engine (use FlowChartExecutor instead)
+// Pipeline - Runtime execution engine
 // ============================================================================
 
 export { 
@@ -119,9 +110,6 @@ export type {
   Decider, 
   StageNode, 
 } from './core/executor/Pipeline';
-
-// Re-export Selector as FlowChartSelector for consumers who need it
-export type { Selector as FlowChartSelector } from './core/executor/Pipeline';
 
 // Pipeline types for consumers
 export type { 
@@ -171,3 +159,9 @@ export type {
   ScopeProtectionMode,
   ScopeProtectionOptions,
 } from './scope/protection';
+
+// ============================================================================
+// Logger - Pluggable logging interface
+// ============================================================================
+
+export type { ILogger } from './utils/logger';

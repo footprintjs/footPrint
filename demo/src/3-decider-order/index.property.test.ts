@@ -98,13 +98,13 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
 
           // Entry stage writes the selected ID to scope
           const entryStage = async (scope: BaseState) => {
-            scope.setObject(['pipeline'], 'selectedBranch', selectedId);
+            scope.setObject('selectedBranch', selectedId);
             return { started: true };
           };
 
           // Scope-based decider reads from scope
           const decider = (scope: BaseState) => {
-            return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? branchIds[0];
+            return (scope.getValue('selectedBranch') as string) ?? branchIds[0];
           };
 
           // Build pipeline using addDeciderFunction
@@ -159,12 +159,12 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         }));
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], 'selectedBranch', selectedId);
+          scope.setObject('selectedBranch', selectedId);
           return { started: true };
         };
 
         const decider = (scope: BaseState) => {
-          return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? branchIds[0];
+          return (scope.getValue('selectedBranch') as string) ?? branchIds[0];
         };
 
         const builder = new FlowChartBuilder();
@@ -220,12 +220,12 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         }));
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], 'selectedBranch', unknownId);
+          scope.setObject('selectedBranch', unknownId);
           return { started: true };
         };
 
         const decider = (scope: BaseState) => {
-          return (scope.getValue(['pipeline'], 'selectedBranch') as string) ?? 'default';
+          return (scope.getValue('selectedBranch') as string) ?? 'default';
         };
 
         const builder = new FlowChartBuilder();
@@ -271,12 +271,12 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
           const executedBranches: string[] = [];
 
           const entryStage = async (scope: BaseState) => {
-            scope.setObject(['pipeline'], 'routingTarget', targetBranch);
+            scope.setObject('routingTarget', targetBranch);
             return { irrelevantOutput: 'this is ignored by the decider' };
           };
 
           const decider = (scope: BaseState) => {
-            return (scope.getValue(['pipeline'], 'routingTarget') as string) ?? 'branch-a';
+            return (scope.getValue('routingTarget') as string) ?? 'branch-a';
           };
 
           const builder = new FlowChartBuilder();
@@ -326,12 +326,12 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         };
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], 'target', 'selected');
+          scope.setObject('target', 'selected');
           return { started: true };
         };
 
         const decider = (scope: BaseState) => {
-          return (scope.getValue(['pipeline'], 'target') as string) ?? 'selected';
+          return (scope.getValue('target') as string) ?? 'selected';
         };
 
         const builder = new FlowChartBuilder();

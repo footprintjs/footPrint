@@ -19,12 +19,11 @@ export function createErrorMessage(propertyName: string, stageName: string): str
 
 ❌ Incorrect: scope.${propertyName} = value
 
-✅ Correct: scope.setObject([], '${propertyName}', value)
-       or: scope.setValue('${propertyName}', value)
+✅ Correct: scope.setValue('${propertyName}', value)
 
 Why this matters:
-Each stage receives a NEW scope instance from ScopeFactory. Direct property 
-assignments are lost when the next stage executes. Use setObject() or setValue() 
+Each stage receives a NEW scope instance from ScopeFactory. Direct property
+assignments are lost when the next stage executes. Use setValue()
 to persist data to the shared GlobalStore.`;
 }
 
@@ -51,7 +50,7 @@ to persist data to the shared GlobalStore.`;
  * scope.config = { foo: 'bar' };
  * 
  * // This works correctly:
- * scope.setObject([], 'config', { foo: 'bar' });
+ * scope.setValue('config', { foo: 'bar' });
  * ```
  */
 export function createProtectedScope<T extends object>(

@@ -37,6 +37,7 @@ import type {
 } from '../executor/types';
 import type { ScopeFactory } from '../memory/types';
 import type { ScopeProtectionMode } from '../../scope/protection/types';
+import type { ILogger } from '../../utils/logger';
 
 // Re-export stream types for consumers
 export type { StreamHandlers, StreamTokenHandler, StreamLifecycleHandler };
@@ -180,6 +181,8 @@ export type FlowChart<TOut = any, TScope = any> = {
    *
    */
   enableNarrative?: boolean;
+  /** Custom logger injected via FlowChartBuilder.setLogger(). */
+  logger?: ILogger;
   /** Pre-built execution context description string. Empty string when no descriptions provided. */
   description: string;
   /** Individual stage descriptions keyed by stage name. Empty map when no descriptions provided. */
@@ -812,6 +815,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   private _enableNarrative = false;
 
+  /** Custom logger injected by the consumer via setLogger(). */
+  private _logger?: ILogger;
+
   /* ── Description accumulator fields ── */
 
   /** Accumulated description lines, built incrementally as stages are added. */
@@ -874,6 +880,35 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   setEnableNarrative(): this {
     this._enableNarrative = true;
+    return this;
+  }
+
+  /**
+   * Inject a custom logger for runtime logging.
+   *
+   * WHY: Consumers bring their own logger (Winston, Pino, Bunyan, or any
+   * object with info/log/debug/error/warn methods). The logger flows from
+   * builder → FlowChart → FlowChartExecutor → Pipeline → all handlers.
+   * When not set, the default console-based logger is used.
+   *
+   * DESIGN: Fluent API — returns `this` for chaining.
+   *
+   * @param logger - Any object satisfying the ILogger interface
+   * @returns this builder for chaining
+   *
+   * @example
+   * ```typescript
+   * import pino from 'pino';
+   *
+   * const chart = flowChart('entry', entryFn)
+   *   .setLogger(pino())
+   *   .addFunction('process', processFn)
+   *   .build();
+   * ```
+   *
+   */
+  setLogger(logger: ILogger): this {
+    this._logger = logger;
     return this;
   }
 
@@ -1555,6 +1590,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
       ...(this._enableNarrative ? { enableNarrative: true } : {}),
+      ...(this._logger ? { logger: this._logger } : {}),
       description,
       stageDescriptions: new Map(this._stageDescriptions),
     };
@@ -1811,41 +1847,13 @@ export function specToStageNode(spec: FlowChartSpec): StageNode<any, any> {
 }
 
 /* ============================================================================
- * Legacy Type Aliases (for backward compatibility)
+ * Additional Type Exports
  * ========================================================================== */
-
-/**
- * @deprecated Use FlowChart instead. This alias exists for backward compatibility.
- */
-export type BuiltFlow<TOut = any, TScope = any> = FlowChart<TOut, TScope>;
 
 /**
  * A stage function (relaxed generics for builder ergonomics).
  */
 export type StageFn = PipelineStageFunction<any, any>;
-
-/**
- * Legacy ParallelSpec with build callback (for backward compatibility).
- * @deprecated Use SimplifiedParallelSpec instead.
- */
-export type ParallelSpec<TOut = any, TScope = any> = SimplifiedParallelSpec<TOut, TScope> & {
-  /** @deprecated Build callbacks are no longer supported. Use addSubFlowChartBranch instead. */
-  build?: never;
-};
-
-/**
- * A branch body for deciders.
- * @deprecated Use addSubFlowChartBranch for nested flowcharts.
- */
-export type BranchBody<TOut = any, TScope = any> =
-  | { name?: string; fn?: PipelineStageFunction<TOut, TScope> }
-  | ((b: FlowChartBuilder<TOut, TScope>) => void);
-
-/**
- * Branch spec for deciders.
- * @deprecated Use addSubFlowChartBranch for nested flowcharts.
- */
-export type BranchSpec<TOut = any, TScope = any> = Record<string, BranchBody<TOut, TScope>>;
 
 /**
  * A reference node that points to a subflow definition.

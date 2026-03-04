@@ -166,5 +166,3 @@ export class PipelineRuntime {
   }
 }
 
-// Legacy alias for backward compatibility during migration
-export { PipelineRuntime as TreePipelineContext };

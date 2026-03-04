@@ -111,10 +111,9 @@ describe('MetricRecorder Property Tests', () => {
           arbPipelineId,
           arbStageName,
           arbOperationSequence,
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, operations, path, key, value) => {
+          (pipelineId, stageName, operations, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -126,7 +125,7 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set an initial value so reads return something
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
 
             // Reset metrics after setup to get clean counts
@@ -141,11 +140,11 @@ describe('MetricRecorder Property Tests', () => {
             for (const op of operations) {
               switch (op) {
                 case 'read':
-                  scope.getValue(path, key);
+                  scope.getValue(key);
                   expectedReads++;
                   break;
                 case 'write':
-                  scope.setValue(path, key, value);
+                  scope.setValue(key, value);
                   expectedWrites++;
                   break;
                 case 'commit':
@@ -174,10 +173,9 @@ describe('MetricRecorder Property Tests', () => {
           fc.nat({ max: 20 }), // N reads
           fc.nat({ max: 20 }), // M writes
           fc.nat({ max: 10 }), // K commits
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, numReads, numWrites, numCommits, path, key, value) => {
+          (pipelineId, stageName, numReads, numWrites, numCommits, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -189,7 +187,7 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set an initial value so reads return something
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
 
             // Reset metrics after setup
@@ -197,10 +195,10 @@ describe('MetricRecorder Property Tests', () => {
 
             // Act - perform exactly N reads, M writes, K commits
             for (let i = 0; i < numReads; i++) {
-              scope.getValue(path, key);
+              scope.getValue(key);
             }
             for (let i = 0; i < numWrites; i++) {
-              scope.setValue(path, key, value);
+              scope.setValue(key, value);
             }
             for (let i = 0; i < numCommits; i++) {
               scope.commit();
@@ -232,10 +230,9 @@ describe('MetricRecorder Property Tests', () => {
           fc.array(fc.nat({ max: 10 }), { minLength: 2, maxLength: 4 }), // reads per stage
           fc.array(fc.nat({ max: 10 }), { minLength: 2, maxLength: 4 }), // writes per stage
           fc.array(fc.nat({ max: 5 }), { minLength: 2, maxLength: 4 }), // commits per stage
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageNames, readCounts, writeCounts, commitCounts, path, key, value) => {
+          (pipelineId, stageNames, readCounts, writeCounts, commitCounts, key, value) => {
             // Ensure we have matching arrays
             const numStages = Math.min(stageNames.length, readCounts.length, writeCounts.length, commitCounts.length);
             fc.pre(numStages >= 2);
@@ -251,7 +248,7 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set an initial value
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
             metricRecorder.reset();
 
@@ -272,10 +269,10 @@ describe('MetricRecorder Property Tests', () => {
 
               // Perform operations
               for (let i = 0; i < numReads; i++) {
-                scope.getValue(path, key);
+                scope.getValue(key);
               }
               for (let i = 0; i < numWrites; i++) {
-                scope.setValue(path, key, value);
+                scope.setValue(key, value);
               }
               for (let i = 0; i < numCommits; i++) {
                 scope.commit();
@@ -326,10 +323,9 @@ describe('MetricRecorder Property Tests', () => {
           arbStageName,
           fc.nat({ max: 15 }), // setValues
           fc.nat({ max: 15 }), // updateValues
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, numSetValues, numUpdateValues, path, key, value) => {
+          (pipelineId, stageName, numSetValues, numUpdateValues, key, value) => {
             // Precondition: at least one operation must be performed to test counting
             fc.pre(numSetValues + numUpdateValues > 0);
 
@@ -344,16 +340,16 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set an initial value
-            scope.setValue(path, key, { initial: value });
+            scope.setValue(key, { initial: value });
             scope.commit();
             metricRecorder.reset();
 
             // Act - perform setValues and updateValues
             for (let i = 0; i < numSetValues; i++) {
-              scope.setValue(path, key, value);
+              scope.setValue(key, value);
             }
             for (let i = 0; i < numUpdateValues; i++) {
-              scope.updateValue(path, key, { updated: value });
+              scope.updateValue(key, { updated: value });
             }
 
             // Assert - both setValue and updateValue should count as writes
@@ -375,17 +371,16 @@ describe('MetricRecorder Property Tests', () => {
           arbPipelineId,
           arbStageName,
           fc.array(
-            fc.tuple(arbPath, arbKey, arbPrimitive),
+            fc.tuple(arbKey, arbPrimitive),
             { minLength: 1, maxLength: 20 }
           ),
-          (pipelineId, stageName, pathKeyValues) => {
-            // Filter out conflicting paths where a shorter path with a scalar/null
-            // value would prevent a longer path from being set (e.g. setting b.y=null
-            // then trying to set b.y.A=0 would fail since null has no properties).
-            const fullPaths = pathKeyValues.map(([path, key]) => [...path, key].join('.'));
-            const filtered = pathKeyValues.filter((_, i) => {
-              const fp = fullPaths[i];
-              return !fullPaths.some((other, j) => j !== i && fp.startsWith(other + '.'));
+          (pipelineId, stageName, keyValues) => {
+            // Deduplicate by key to avoid conflicts
+            const seen = new Set<string>();
+            const filtered = keyValues.filter(([key]) => {
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
             });
             if (filtered.length === 0) return; // skip degenerate case
 
@@ -399,16 +394,16 @@ describe('MetricRecorder Property Tests', () => {
               recorders: [metricRecorder],
             });
 
-            // Set initial values for all paths
-            for (const [path, key, value] of filtered) {
-              scope.setValue(path, key, value);
+            // Set initial values for all keys
+            for (const [key, value] of filtered) {
+              scope.setValue(key, value);
             }
             scope.commit();
             metricRecorder.reset();
 
-            // Act - read all paths
-            for (const [path, key] of filtered) {
-              scope.getValue(path, key);
+            // Act - read all keys
+            for (const [key] of filtered) {
+              scope.getValue(key);
             }
 
             // Assert - all reads should be counted
@@ -420,16 +415,16 @@ describe('MetricRecorder Property Tests', () => {
       );
     });
 
-    test('writes with different paths/keys are all counted', () => {
+    test('writes with different keys are all counted', () => {
       fc.assert(
         fc.property(
           arbPipelineId,
           arbStageName,
           fc.array(
-            fc.tuple(arbPath, arbKey, arbPrimitive),
+            fc.tuple(arbKey, arbPrimitive),
             { minLength: 1, maxLength: 20 }
           ),
-          (pipelineId, stageName, pathKeyValues) => {
+          (pipelineId, stageName, keyValues) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -440,14 +435,14 @@ describe('MetricRecorder Property Tests', () => {
               recorders: [metricRecorder],
             });
 
-            // Act - write all paths
-            for (const [path, key, value] of pathKeyValues) {
-              scope.setValue(path, key, value);
+            // Act - write all keys
+            for (const [key, value] of keyValues) {
+              scope.setValue(key, value);
             }
 
             // Assert - all writes should be counted
             const metrics = metricRecorder.getMetrics();
-            expect(metrics.totalWrites).toBe(pathKeyValues.length);
+            expect(metrics.totalWrites).toBe(keyValues.length);
           }
         ),
         { numRuns: 100 }
@@ -496,7 +491,6 @@ describe('MetricRecorder Property Tests', () => {
           fc.array(
             fc.tuple(
               arbOperation,
-              arbPath,
               arbKey,
               arbPrimitive
             ),
@@ -513,9 +507,9 @@ describe('MetricRecorder Property Tests', () => {
               recorders: [metricRecorder],
             });
 
-            // Set initial values for all paths used
-            for (const [, path, key, value] of operationsWithData) {
-              scope.setValue(path, key, value);
+            // Set initial values for all keys used
+            for (const [, key, value] of operationsWithData) {
+              scope.setValue(key, value);
             }
             scope.commit();
             metricRecorder.reset();
@@ -526,14 +520,14 @@ describe('MetricRecorder Property Tests', () => {
             let expectedCommits = 0;
 
             // Act - execute interleaved operations
-            for (const [op, path, key, value] of operationsWithData) {
+            for (const [op, key, value] of operationsWithData) {
               switch (op) {
                 case 'read':
-                  scope.getValue(path, key);
+                  scope.getValue(key);
                   expectedReads++;
                   break;
                 case 'write':
-                  scope.setValue(path, key, value);
+                  scope.setValue(key, value);
                   expectedWrites++;
                   break;
                 case 'commit':
@@ -713,11 +707,10 @@ describe('MetricRecorder Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbPrimitive,
           fc.nat({ max: 10 }), // Number of operations
-          (pipelineId, stageName, path, key, value, numOps) => {
+          (pipelineId, stageName, key, value, numOps) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -732,8 +725,8 @@ describe('MetricRecorder Property Tests', () => {
             scope.startStage(stageName);
 
             for (let i = 0; i < numOps; i++) {
-              scope.setValue(path, key, value);
-              scope.getValue(path, key);
+              scope.setValue(key, value);
+              scope.getValue(key);
             }
             if (numOps > 0) {
               scope.commit();
@@ -897,10 +890,9 @@ describe('MetricRecorder Property Tests', () => {
           arbPipelineId,
           arbStageName,
           arbOperationSequence,
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, operations, path, key, value) => {
+          (pipelineId, stageName, operations, key, value) => {
             // Arrange - create recorder and perform arbitrary operations
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -915,10 +907,10 @@ describe('MetricRecorder Property Tests', () => {
             for (const op of operations) {
               switch (op) {
                 case 'read':
-                  scope.getValue(path, key);
+                  scope.getValue(key);
                   break;
                 case 'write':
-                  scope.setValue(path, key, value);
+                  scope.setValue(key, value);
                   break;
                 case 'commit':
                   scope.commit();
@@ -961,10 +953,9 @@ describe('MetricRecorder Property Tests', () => {
           arbStageName,
           arbOperationSequence,
           arbOperationSequence,
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, operationsBefore, operationsAfter, path, key, value) => {
+          (pipelineId, stageName, operationsBefore, operationsAfter, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -979,10 +970,10 @@ describe('MetricRecorder Property Tests', () => {
             for (const op of operationsBefore) {
               switch (op) {
                 case 'read':
-                  scope.getValue(path, key);
+                  scope.getValue(key);
                   break;
                 case 'write':
-                  scope.setValue(path, key, value);
+                  scope.setValue(key, value);
                   break;
                 case 'commit':
                   scope.commit();
@@ -1002,11 +993,11 @@ describe('MetricRecorder Property Tests', () => {
             for (const op of operationsAfter) {
               switch (op) {
                 case 'read':
-                  scope.getValue(path, key);
+                  scope.getValue(key);
                   expectedReads++;
                   break;
                 case 'write':
-                  scope.setValue(path, key, value);
+                  scope.setValue(key, value);
                   expectedWrites++;
                   break;
                 case 'commit':
@@ -1035,10 +1026,9 @@ describe('MetricRecorder Property Tests', () => {
           fc.array(fc.nat({ max: 10 }), { minLength: 1, maxLength: 5 }), // reads per stage
           fc.array(fc.nat({ max: 10 }), { minLength: 1, maxLength: 5 }), // writes per stage
           fc.array(fc.nat({ max: 5 }), { minLength: 1, maxLength: 5 }), // commits per stage
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageNames, readCounts, writeCounts, commitCounts, path, key, value) => {
+          (pipelineId, stageNames, readCounts, writeCounts, commitCounts, key, value) => {
             // Ensure we have matching arrays
             const numStages = Math.min(
               stageNames.length,
@@ -1059,7 +1049,7 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Set an initial value
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
 
             // Perform operations in each stage
@@ -1068,10 +1058,10 @@ describe('MetricRecorder Property Tests', () => {
               scope.startStage(stageName);
 
               for (let i = 0; i < readCounts[s]; i++) {
-                scope.getValue(path, key);
+                scope.getValue(key);
               }
               for (let i = 0; i < writeCounts[s]; i++) {
-                scope.setValue(path, key, value);
+                scope.setValue(key, value);
               }
               for (let i = 0; i < commitCounts[s]; i++) {
                 scope.commit();
@@ -1113,10 +1103,9 @@ describe('MetricRecorder Property Tests', () => {
           arbPipelineId,
           arbStageName,
           fc.nat({ max: 10 }), // number of resets
-          arbPath,
           arbKey,
           arbPrimitive,
-          (pipelineId, stageName, numResets, path, key, value) => {
+          (pipelineId, stageName, numResets, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const metricRecorder = new MetricRecorder('test-metrics');
@@ -1128,8 +1117,8 @@ describe('MetricRecorder Property Tests', () => {
             });
 
             // Perform some operations
-            scope.setValue(path, key, value);
-            scope.getValue(path, key);
+            scope.setValue(key, value);
+            scope.getValue(key);
             scope.commit();
 
             // Act - reset multiple times

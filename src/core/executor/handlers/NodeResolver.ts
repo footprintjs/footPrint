@@ -23,7 +23,6 @@
  */
 
 import { StageContext } from '../../memory/StageContext';
-import { logger } from '../../../utils/logger';
 import { PipelineContext } from '../types';
 import type { StageNode, Decider } from '../Pipeline';
 
@@ -138,7 +137,7 @@ export class NodeResolver<TOut = any, TScope = any> {
 
     if (!subflowDef) {
       // Subflow not found in dictionary - might be using old approach
-      logger.info(
+      this.ctx.logger.info(
         `Subflow not found in subflows dictionary for node '${node.name}' (tried keys: ${keysToTry.join(', ')})`,
       );
       return node;
