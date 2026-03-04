@@ -44,6 +44,9 @@ export { LoopHandler } from './LoopHandler';
 // Decider evaluation and branching
 export { DeciderHandler } from './DeciderHandler';
 
+// Scope-based selector evaluation and multi-choice branching
+export { SelectorHandler } from './SelectorHandler';
+
 // Runtime structure management (dynamic pipeline structure tracking)
 export { RuntimeStructureManager, computeNodeType } from './RuntimeStructureManager';
 

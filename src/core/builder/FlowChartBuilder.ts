@@ -742,6 +742,252 @@ export class SelectorList<TOut = any, TScope = any> {
 
 
 /* ============================================================================
+ * SelectorFnList (scope-based selector - mirrors DeciderList)
+ * ========================================================================== */
+
+/**
+ * Fluent helper returned by addSelectorFunction to add branches.
+ *
+ * WHY: Mirrors DeciderList but for multi-choice selection. The selector function
+ * IS the stage — it reads from scope and returns string[] of branch IDs.
+ * Children matching those IDs execute in parallel.
+ *
+ * DESIGN: Identical branch-adding API to DeciderList/SelectorList.
+ * The key difference is in `end()`: sets `selectorFn = true` on the StageNode
+ * (like DeciderList sets `deciderFn = true`).
+ */
+export class SelectorFnList<TOut = any, TScope = any> {
+  private readonly b: FlowChartBuilder<TOut, TScope>;
+  private readonly curNode: StageNode<TOut, TScope>;
+  private readonly curSpec: SerializedPipelineStructure;
+  private readonly branchIds = new Set<string>();
+
+  /* ── Description accumulator references ── */
+  private readonly parentDescriptionParts: string[];
+  private readonly parentStageDescriptions: Map<string, string>;
+  private readonly reservedStepNumber: number;
+  private readonly selectorDescription?: string;
+  /** Collected branch info for description accumulation at end() */
+  private readonly branchDescInfo: Array<{ id: string; displayName?: string; description?: string }> = [];
+
+  constructor(
+    builder: FlowChartBuilder<TOut, TScope>,
+    curNode: StageNode<TOut, TScope>,
+    curSpec: SerializedPipelineStructure,
+    parentDescriptionParts: string[] = [],
+    parentStageDescriptions: Map<string, string> = new Map(),
+    reservedStepNumber: number = 0,
+    selectorDescription?: string,
+  ) {
+    this.b = builder;
+    this.curNode = curNode;
+    this.curSpec = curSpec;
+    this.parentDescriptionParts = parentDescriptionParts;
+    this.parentStageDescriptions = parentStageDescriptions;
+    this.reservedStepNumber = reservedStepNumber;
+    this.selectorDescription = selectorDescription;
+  }
+
+  /**
+   * Add a simple function branch (no nested flowchart).
+   */
+  addFunctionBranch(
+    id: string,
+    name: string,
+    fn?: PipelineStageFunction<TOut, TScope>,
+    displayName?: string,
+    description?: string,
+  ): SelectorFnList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    // Create StageNode directly
+    const node: StageNode<TOut, TScope> = { name: name ?? id };
+    if (id) node.id = id;
+    if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
+    if (fn) {
+      node.fn = fn;
+      this.b._addToMap(name, fn);
+    }
+
+    // Create SerializedPipelineStructure with type='stage' and apply extractor
+    let spec: SerializedPipelineStructure = { name: name ?? id, type: 'stage' };
+    if (id) spec.id = id;
+    if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
+
+    // Apply extractor immediately
+    spec = this.b._applyExtractorToNode(spec);
+
+    // Add to parent's children
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+
+    // Track branch info for description accumulation at end()
+    this.branchDescInfo.push({ id, displayName, description });
+
+    return this;
+  }
+
+  /**
+   * Mount a prebuilt flowchart as a branch.
+   *
+   * @param id - Unique identifier for the subflow mount point
+   * @param subflow - The prebuilt FlowChart to mount
+   * @param mountName - Optional display name for the mount point
+   * @param options - Optional input/output mapping options for data flow between parent and subflow
+   */
+  addSubFlowChartBranch(
+    id: string,
+    subflow: FlowChart<TOut, TScope>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): SelectorFnList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    const displayName = mountName || id;
+
+    // Namespace the subflow's stage names with mount id to prevent collisions
+    const prefixedRoot = (this.b as any)._prefixNodeTree(subflow.root, id);
+
+    // Register subflow definition with prefixed root
+    if (!this.b._subflowDefs.has(id)) {
+      this.b._subflowDefs.set(id, { root: prefixedRoot });
+    }
+
+    // Create reference StageNode
+    const node: StageNode<TOut, TScope> = {
+      name: displayName,
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName: displayName,
+    };
+
+    // Store subflowMountOptions if provided
+    if (options) {
+      node.subflowMountOptions = options;
+    }
+
+    // Create a WRAPPER spec for the subflow mount point.
+    const spec: SerializedPipelineStructure = {
+      name: displayName,
+      type: 'stage',
+      id,
+      displayName,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName: displayName,
+      subflowStructure: subflow.buildTimeStructure,
+    };
+
+    // Add to parent's children
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+
+    // Merge stage maps with namespace prefix
+    this.b._mergeStageMap(subflow.stageMap, id);
+
+    // Merge nested subflows with namespace prefix
+    if (subflow.subflows) {
+      for (const [key, def] of Object.entries(subflow.subflows)) {
+        const prefixedKey = `${id}/${key}`;
+        if (!this.b._subflowDefs.has(prefixedKey)) {
+          this.b._subflowDefs.set(prefixedKey, {
+            root: (this.b as any)._prefixNodeTree(
+              def.root as StageNode<TOut, TScope>,
+              id,
+            ),
+          });
+        }
+      }
+    }
+
+    return this;
+  }
+
+  /**
+   * Add multiple simple branches.
+   */
+  addBranchList(
+    branches: Array<{
+      id: string;
+      name: string;
+      fn?: PipelineStageFunction<TOut, TScope>;
+      displayName?: string;
+    }>,
+  ): SelectorFnList<TOut, TScope> {
+    for (const { id, name, fn, displayName } of branches) {
+      this.addFunctionBranch(id, name, fn, displayName);
+    }
+    return this;
+  }
+
+  /**
+   * Finalize the selector and return to main builder.
+   *
+   * WHY: Sets `selectorFn = true` on the StageNode so Pipeline/SelectorHandler
+   * knows the fn IS the selector — it reads from scope and returns branch IDs.
+   *
+   */
+  end(): FlowChartBuilder<TOut, TScope> {
+    const children = this.curNode.children;
+    if (!children || children.length === 0) {
+      throw new Error(`[FlowChartBuilder] selector at '${this.curNode.name}' requires at least one branch`);
+    }
+
+    // Mark node's fn as the selector. The fn receives (scope, breakFn) and
+    // returns branch ID(s). Pipeline/SelectorHandler will use the
+    // selectorFn flag to route to the scope-based execution path.
+    this.curNode.selectorFn = true;
+
+    // Set branchIds and type on spec
+    this.curSpec.branchIds = children
+      .map((c) => c.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    // Set type to 'decider' (selector is a type of decision node for visualization)
+    this.curSpec.type = 'decider';
+    this.curSpec.hasSelector = true;
+
+    // Accumulate description lines for the selector and its branches
+    if (this.reservedStepNumber > 0) {
+      const selectorLabel = this.curNode.displayName || this.curNode.name;
+      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
+      const mainLine = this.selectorDescription
+        ? `${this.reservedStepNumber}. ${selectorLabel} — ${this.selectorDescription}`
+        : `${this.reservedStepNumber}. ${selectorLabel} — Selects from: ${branchIdList}`;
+      this.parentDescriptionParts.push(mainLine);
+
+      if (this.selectorDescription) {
+        this.parentStageDescriptions.set(this.curNode.name, this.selectorDescription);
+      }
+
+      // Append arrow lines for each branch
+      for (const branch of this.branchDescInfo) {
+        const branchText = branch.description || branch.displayName;
+        if (branchText) {
+          this.parentDescriptionParts.push(`   → ${branch.id}: ${branchText}`);
+        }
+        // Store individual branch descriptions
+        if (branch.description) {
+          this.parentStageDescriptions.set(branch.id, branch.description);
+        }
+      }
+    }
+
+    return this.b;
+  }
+}
+
+
+/* ============================================================================
  * FlowChartBuilder (simplified)
  * ========================================================================== */
 
@@ -1158,6 +1404,97 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return new SelectorList<TOut, TScope>(
       this, cur, curSpec, selector,
       this._descriptionParts, this._stageDescriptions, this._stepCounter,
+    );
+  }
+
+  /**
+   * Add a scope-based selector function — returns SelectorFnList for adding branches.
+   *
+   * WHY: Makes the selector a first-class stage function that reads from scope
+   * (shared state) instead of the previous stage's output. This decouples the
+   * selector from the preceding stage's return type, provides debug visibility
+   * (step number, extractor call, snapshot), and aligns with addDeciderFunction.
+   *
+   * DESIGN: The selector function IS the stage function — its return value (string | string[])
+   * contains the branch IDs. No separate selector invocation step. The function is registered
+   * in the stageMap like any other stage, and `selectorFn = true` on the StageNode
+   * tells Pipeline to interpret the return value as branch IDs and route to SelectorHandler.
+   *
+   * @param name - Stage name for the selector node
+   * @param fn - Stage function that receives (scope, breakFn) and returns branch ID(s)
+   * @param id - Optional stable ID for the node (for debug UI, time-travel, etc.)
+   * @param displayName - Optional display name for UI visualization
+   * @param description - Optional description of what this selector does
+   * @returns SelectorFnList for fluent branch configuration
+   *
+   * @example
+   * ```typescript
+   * flowChart('entry', entryFn)
+   *   .addSelectorFunction('PickChannels', async (scope) => {
+   *     const prefs = scope.get('prefs');
+   *     const channels = [];
+   *     if (prefs.email) channels.push('email');
+   *     if (prefs.sms) channels.push('sms');
+   *     return channels;
+   *   }, 'pick-channels')
+   *     .addFunctionBranch('email', 'SendEmail', sendEmailFn)
+   *     .addFunctionBranch('sms', 'SendSMS', sendSmsFn)
+   *   .end()
+   *   .build();
+   * ```
+   *
+   */
+  addSelectorFunction(
+    name: string,
+    fn: PipelineStageFunction<TOut, TScope>,
+    id?: string,
+    displayName?: string,
+    description?: string,
+  ): SelectorFnList<TOut, TScope> {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    if (cur.selectorFn) fail(`selector already defined at '${cur.name}'`);
+    if (cur.deciderFn) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
+    if (cur.nextNodeSelector) fail(`selector already defined at '${cur.name}'`);
+
+    // Create StageNode with the selector function as the stage function
+    const node: StageNode<TOut, TScope> = { name };
+    if (id) node.id = id;
+    if (displayName) node.displayName = displayName;
+    if (description) node.description = description;
+    node.fn = fn;
+
+    // Register fn in stageMap so Pipeline can resolve it during execution
+    this._addToMap(name, fn);
+
+    // Create SerializedPipelineStructure with hasSelector: true
+    // Type will be set to 'decider' in SelectorFnList.end()
+    let spec: SerializedPipelineStructure = { name, type: 'stage', hasSelector: true };
+    if (id) spec.id = id;
+    if (displayName) spec.displayName = displayName;
+    if (description) spec.description = description;
+
+    // Apply build-time extractor to the node
+    spec = this._applyExtractorToNode(spec);
+
+    // Link to current node as next
+    cur.next = node;
+    curSpec.next = spec;
+
+    // Move cursor to the new selector node
+    this._cursor = node;
+    this._cursorSpec = spec;
+
+    // Reserve a step number for the selector — the full description line
+    // (including branch names) is deferred to SelectorFnList.end()
+    this._stepCounter++;
+    this._stageStepMap.set(name, this._stepCounter);
+
+    // Return SelectorFnList for fluent branch configuration
+    return new SelectorFnList<TOut, TScope>(
+      this, node, spec,
+      this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
     );
   }
 

@@ -88,6 +88,7 @@ import { SubflowExecutor } from './handlers/SubflowExecutor';
 import { StageRunner } from './handlers/StageRunner';
 import { LoopHandler } from './handlers/LoopHandler';
 import { DeciderHandler } from './handlers/DeciderHandler';
+import { SelectorHandler } from './handlers/SelectorHandler';
 import { RuntimeStructureManager } from './handlers/RuntimeStructureManager';
 import { ExtractorRunner } from './handlers/ExtractorRunner';
 import { NarrativeGenerator } from './narrative/NarrativeGenerator';
@@ -155,6 +156,31 @@ export type StageNode<TOut = any, TScope = any> = {
    *
    */
   deciderFn?: boolean;
+  /**
+   * When true, this node's `fn` is a scope-based selector function.
+   * The fn receives (scope, breakFn) and its return value (string | string[])
+   * is used as the branch ID(s) to select the child node(s) to execute in parallel.
+   *
+   * WHY: Distinguishes scope-based selectors (created via `addSelectorFunction`)
+   * from output-based selectors (created via `addSelector`) so that Pipeline
+   * can route to the correct execution path (SelectorHandler vs ChildrenExecutor).
+   *
+   * DESIGN: Mirrors the `deciderFn` flag pattern. A boolean flag rather than
+   * storing the function separately because the function is already in `node.fn`
+   * and the stageMap. The flag tells Pipeline to interpret the return value as
+   * branch IDs and route to SelectorHandler.handleScopeBased().
+   *
+   * Mutually exclusive with `nextNodeSelector`, `nextNodeDecider`, and `deciderFn`:
+   * - `selectorFn = true` → scope-based selector (reads from scope, fn returns branch IDs)
+   * - `nextNodeSelector` set → output-based selector (reads previous stage's return value)
+   * - `deciderFn = true` → scope-based decider (single-choice)
+   * - `nextNodeDecider` set → output-based decider (single-choice)
+   *
+   * When set, `fn` MUST be defined (either embedded or in stageMap).
+   * When set, `children` MUST be defined with at least one branch.
+   *
+   */
+  selectorFn?: boolean;
   /**
    * Selector for multi-choice branching.
    * Unlike Decider (picks ONE), Selector can pick MULTIPLE children to execute in parallel.
@@ -426,6 +452,13 @@ export class Pipeline<TOut, TScope> {
   private readonly deciderHandler: DeciderHandler<TOut, TScope>;
 
   /**
+   * SelectorHandler module for scope-based selector evaluation and multi-choice branching.
+   * Extracted following the same pattern as DeciderHandler for Single Responsibility Principle.
+   *
+   */
+  private readonly selectorHandler: SelectorHandler<TOut, TScope>;
+
+  /**
    * Narrative generator for producing human-readable execution story.
    *
    * WHY: Holds either a NarrativeGenerator (when enabled) or a
@@ -505,6 +538,7 @@ export class Pipeline<TOut, TScope> {
     );
 
     this.deciderHandler = new DeciderHandler(this.createPipelineContext(), this.nodeResolver);
+    this.selectorHandler = new SelectorHandler(this.createPipelineContext(), this.childrenExecutor);
   }
 
   /**
@@ -629,6 +663,7 @@ export class Pipeline<TOut, TScope> {
     const hasStageFunction = Boolean(stageFunc);
     const isLegacyDecider = Boolean(node.nextNodeDecider);
     const isScopeBasedDecider = Boolean(node.deciderFn);
+    const isScopeBasedSelector = Boolean(node.selectorFn);
     const isDeciderNode = isLegacyDecider || isScopeBasedDecider;
     const hasChildren = Boolean(node.children?.length);
     const hasNext = Boolean(node.next);
@@ -641,14 +676,19 @@ export class Pipeline<TOut, TScope> {
     // Note: Dynamic behavior is detected via isStageNodeReturn() on stage output, not via node flags
 
     // ───────────────────────── 1) Validation ─────────────────────────
-    // A node must provide at least one of: stage, children, or decider.
-    if (!hasStageFunction && !isDeciderNode && !hasChildren) {
+    // A node must provide at least one of: stage, children, or decider/selector.
+    if (!hasStageFunction && !isDeciderNode && !isScopeBasedSelector && !hasChildren) {
       const errorMessage = `Node '${node.name}' must define: embedded fn OR a stageMap entry OR have children/decider`;
       this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
     if (isDeciderNode && !hasChildren) {
       const errorMessage = 'Decider node needs to have children to execute';
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+    if (isScopeBasedSelector && !hasChildren) {
+      const errorMessage = 'Selector node needs to have children to execute';
       this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
@@ -661,7 +701,40 @@ export class Pipeline<TOut, TScope> {
 
     const breakFn = () => (breakFlag.shouldBreak = true);
 
-    // ───────────────────────── 2) Decider node ─────────────────────────
+    // ───────────────────────── 2a) Scope-based selector node ─────────────────────────
+    // selector order: stage (fn IS the selector) → commit → resolve children → parallel execute
+    // Route to SelectorHandler when selectorFn = true.
+    if (isScopeBasedSelector) {
+      // Set fork context for structureMetadata propagation
+      const previousForkId = this.extractorRunner.currentForkId;
+      this.extractorRunner.currentForkId = node.id ?? node.name;
+
+      try {
+        const selectorResult = await this.selectorHandler.handleScopeBased(
+          node,
+          stageFunc!,
+          context,
+          breakFlag,
+          branchPath,
+          this.executeStage.bind(this),
+          this.executeNode.bind(this),
+          this.extractorRunner.callExtractor.bind(this.extractorRunner),
+          this.extractorRunner.getStagePath.bind(this.extractorRunner),
+        );
+
+        // If there's a next node, continue after selector children complete
+        if (hasNext) {
+          const nextStageContext = context.createNext(branchPath as string, node.next!.name);
+          return await this.executeNode(node.next!, nextStageContext, breakFlag, branchPath);
+        }
+
+        return selectorResult;
+      } finally {
+        this.extractorRunner.currentForkId = previousForkId;
+      }
+    }
+
+    // ───────────────────────── 2b) Decider node ─────────────────────────
     // decider order: stage (optional) → commit → decider → chosen child
     // Route to the correct DeciderHandler method based on decider type:
     // - Scope-based (deciderFn): fn IS the decider, returns branch ID directly
