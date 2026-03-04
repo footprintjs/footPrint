@@ -159,7 +159,6 @@ export class DebugRecorder implements Recorder {
       stageName: event.stageName,
       timestamp: event.timestamp,
       data: {
-        path: event.path,
         key: event.key,
         value: event.value,
         pipelineId: event.pipelineId,
@@ -187,7 +186,6 @@ export class DebugRecorder implements Recorder {
       stageName: event.stageName,
       timestamp: event.timestamp,
       data: {
-        path: event.path,
         key: event.key,
         value: event.value,
         operation: event.operation,
@@ -214,7 +212,6 @@ export class DebugRecorder implements Recorder {
       data: {
         error: event.error,
         operation: event.operation,
-        path: event.path,
         key: event.key,
         pipelineId: event.pipelineId,
       },

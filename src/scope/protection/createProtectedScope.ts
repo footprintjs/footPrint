@@ -19,7 +19,7 @@ export function createErrorMessage(propertyName: string, stageName: string): str
 
 ❌ Incorrect: scope.${propertyName} = value
 
-✅ Correct: scope.setObject([], '${propertyName}', value)
+✅ Correct: scope.setObject('${propertyName}', value)
        or: scope.setValue('${propertyName}', value)
 
 Why this matters:
@@ -51,7 +51,7 @@ to persist data to the shared GlobalStore.`;
  * scope.config = { foo: 'bar' };
  * 
  * // This works correctly:
- * scope.setObject([], 'config', { foo: 'bar' });
+ * scope.setObject('config', { foo: 'bar' });
  * ```
  */
 export function createProtectedScope<T extends object>(

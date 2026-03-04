@@ -16,13 +16,13 @@ describe('Pipeline – Embedded Stage Functions', () => {
       name: 'A',
       fn: jest.fn((scope: PipelineScope) => {
         calls.push('A');
-        scope.setObject(['data'], 'a', 1);
+        scope.setObject('a', 1);
       }),
       next: {
         name: 'B',
         fn: jest.fn((scope: PipelineScope) => {
           calls.push('B');
-          scope.setObject(['data'], 'b', 2);
+          scope.setObject('b', 2);
         }),
       },
     };
@@ -33,9 +33,9 @@ describe('Pipeline – Embedded Stage Functions', () => {
     expect(calls).toEqual(['A', 'B']);
     const tree = p.getContextTree();
     // @ts-ignore (shape depends on your context impl)
-    expect(tree.globalContext?.data?.a).toBe(1);
+    expect(tree.globalContext?.a).toBe(1);
     // @ts-ignore
-    expect(tree.globalContext?.data?.b).toBe(2);
+    expect(tree.globalContext?.b).toBe(2);
   });
 
   it('honors breakFn with embedded fn', async () => {

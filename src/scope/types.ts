@@ -43,14 +43,11 @@ export interface RecorderContext {
  *
  * Extends RecorderContext with details about the read operation.
  *
- * @property path - The namespace path for the read operation
- * @property key - The key being read (optional for path-only reads)
+ * @property key - The key being read (optional for key-only reads)
  * @property value - The value that was read (may be undefined if not found)
  */
 export interface ReadEvent extends RecorderContext {
-  /** The namespace path for the read operation */
-  path: string[];
-  /** The key being read (optional for path-only reads) */
+  /** The key being read (optional for key-only reads) */
   key?: string;
   /** The value that was read (may be undefined if not found) */
   value: unknown;
@@ -61,14 +58,11 @@ export interface ReadEvent extends RecorderContext {
  *
  * Extends RecorderContext with details about the write operation.
  *
- * @property path - The namespace path for the write operation
  * @property key - The key being written to
  * @property value - The value being written
  * @property operation - The type of write: 'set' (overwrite) or 'update' (merge)
  */
 export interface WriteEvent extends RecorderContext {
-  /** The namespace path for the write operation */
-  path: string[];
   /** The key being written to */
   key: string;
   /** The value being written */
@@ -87,8 +81,6 @@ export interface WriteEvent extends RecorderContext {
 export interface CommitEvent extends RecorderContext {
   /** Array of all mutations applied in this commit */
   mutations: Array<{
-    /** The namespace path for the mutation */
-    path: string[];
     /** The key that was mutated */
     key: string;
     /** The value that was written */
@@ -105,7 +97,6 @@ export interface CommitEvent extends RecorderContext {
  *
  * @property error - The error that occurred
  * @property operation - The type of operation that failed
- * @property path - The path involved in the failed operation (if applicable)
  * @property key - The key involved in the failed operation (if applicable)
  */
 export interface ErrorEvent extends RecorderContext {
@@ -113,8 +104,6 @@ export interface ErrorEvent extends RecorderContext {
   error: Error;
   /** The type of operation that failed */
   operation: 'read' | 'write' | 'commit';
-  /** The path involved in the failed operation (if applicable) */
-  path?: string[];
   /** The key involved in the failed operation (if applicable) */
   key?: string;
 }

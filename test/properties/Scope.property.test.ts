@@ -100,7 +100,7 @@ describe('Scope Property Tests', () => {
      * Property 1: Read-After-Write Consistency
      * **Validates: Requirements 1.1, 1.2, 1.5**
      *
-     * For any Scope instance, path, key, and value, if setValue is called with
+     * For any Scope instance, key, and value, if setValue is called with
      * that value, an immediate getValue with the same path and key SHALL return
      * that exact value.
      */
@@ -109,10 +109,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -122,8 +121,8 @@ describe('Scope Property Tests', () => {
             });
 
             // Act
-            scope.setValue(path, key, value);
-            const retrievedValue = scope.getValue(path, key);
+            scope.setValue(key, value);
+            const retrievedValue = scope.getValue(key);
 
             // Assert - value should be immediately available before commit
             expect(retrievedValue).toEqual(value);
@@ -145,10 +144,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -158,9 +156,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Act
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
-            const retrievedValue = scope.getValue(path, key);
+            const retrievedValue = scope.getValue(key);
 
             // Assert - value should be available after commit
             expect(retrievedValue).toEqual(value);
@@ -182,10 +180,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.array(arbJsonValue, { minLength: 2, maxLength: 5 }),
-          (pipelineId, stageName, path, key, values) => {
+          (pipelineId, stageName, key, values) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -196,9 +193,9 @@ describe('Scope Property Tests', () => {
 
             // Act - write multiple values to the same path/key
             for (const value of values) {
-              scope.setValue(path, key, value);
+              scope.setValue(key, value);
             }
-            const retrievedValue = scope.getValue(path, key);
+            const retrievedValue = scope.getValue(key);
 
             // Assert - should return the last written value
             const lastValue = values[values.length - 1];
@@ -221,10 +218,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           fc.uniqueArray(arbKey, { minLength: 2, maxLength: 5 }),
           fc.array(arbJsonValue, { minLength: 2, maxLength: 5 }),
-          (pipelineId, stageName, path, keys, values) => {
+          (pipelineId, stageName, keys, values) => {
             // Ensure we have matching keys and values
             const pairs = keys.slice(0, Math.min(keys.length, values.length))
               .map((key, i) => ({ key, value: values[i] }));
@@ -241,12 +237,12 @@ describe('Scope Property Tests', () => {
 
             // Act - write different values to different keys
             for (const { key, value } of pairs) {
-              scope.setValue(path, key, value);
+              scope.setValue(key, value);
             }
 
             // Assert - each key should return its own value
             for (const { key, value } of pairs) {
-              const retrievedValue = scope.getValue(path, key);
+              const retrievedValue = scope.getValue(key);
               expect(retrievedValue).toEqual(value);
             }
           }
@@ -268,10 +264,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId, stageName, path, key, value) => {
+          (pipelineId, stageName, key, value) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope1 = new Scope({
@@ -281,7 +276,7 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - write and commit with first scope
-            scope1.setValue(path, key, value);
+            scope1.setValue(key, value);
             scope1.commit();
 
             // Create a new scope with the same pipelineId
@@ -291,7 +286,7 @@ describe('Scope Property Tests', () => {
               globalStore,
             });
 
-            const retrievedValue = scope2.getValue(path, key);
+            const retrievedValue = scope2.getValue(key);
 
             // Assert - new scope should read the committed value
             expect(retrievedValue).toEqual(value);
@@ -350,11 +345,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbNestedObject,
           arbNestedObject,
-          (pipelineId, stageName, path, key, existingObj, updateObj) => {
+          (pipelineId, stageName, key, existingObj, updateObj) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -364,9 +358,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - set initial value, then update with new object
-            scope.setValue(path, key, existingObj);
-            scope.updateValue(path, key, updateObj);
-            const result = scope.getValue(path, key) as Record<string, unknown>;
+            scope.setValue(key, existingObj);
+            scope.updateValue(key, updateObj);
+            const result = scope.getValue(key) as Record<string, unknown>;
 
             // Assert - all keys from existing object should be present (unless overwritten)
             // and all keys from update object should be present
@@ -393,12 +387,11 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbKey, // shared key that will conflict
           arbPrimitive,
           arbPrimitive,
-          (pipelineId, stageName, path, key, sharedKey, existingValue, updateValue) => {
+          (pipelineId, stageName, key, sharedKey, existingValue, updateValue) => {
             // Skip if values are the same (no conflict to test)
             fc.pre(existingValue !== updateValue);
 
@@ -414,9 +407,9 @@ describe('Scope Property Tests', () => {
             const updateObj = { [sharedKey]: updateValue };
 
             // Act
-            scope.setValue(path, key, existingObj);
-            scope.updateValue(path, key, updateObj);
-            const result = scope.getValue(path, key) as Record<string, unknown>;
+            scope.setValue(key, existingObj);
+            scope.updateValue(key, updateObj);
+            const result = scope.getValue(key) as Record<string, unknown>;
 
             // Assert - update value should take precedence
             expect(result[sharedKey]).toEqual(updateValue);
@@ -431,11 +424,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbPrimitiveArray,
           arbPrimitiveArray,
-          (pipelineId, stageName, path, key, existingArray, updateArray) => {
+          (pipelineId, stageName, key, existingArray, updateArray) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -445,9 +437,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Act
-            scope.setValue(path, key, existingArray);
-            scope.updateValue(path, key, updateArray);
-            const result = scope.getValue(path, key) as unknown[];
+            scope.setValue(key, existingArray);
+            scope.updateValue(key, updateArray);
+            const result = scope.getValue(key) as unknown[];
 
             // Assert - result should be an array
             expect(Array.isArray(result)).toBe(true);
@@ -480,11 +472,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbPrimitiveArray,
           arbPrimitiveArray,
-          (pipelineId, stageName, path, key, existingArray, updateArray) => {
+          (pipelineId, stageName, key, existingArray, updateArray) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -494,9 +485,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Act
-            scope.setValue(path, key, existingArray);
-            scope.updateValue(path, key, updateArray);
-            const result = scope.getValue(path, key) as unknown[];
+            scope.setValue(key, existingArray);
+            scope.updateValue(key, updateArray);
+            const result = scope.getValue(key) as unknown[];
 
             // Assert - elements from existing array should appear before new elements from update
             // (encounter order preserved means existing elements come first)
@@ -529,14 +520,13 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbKey, // nested key
           arbKey, // leaf key 1
           arbKey, // leaf key 2
           arbPrimitive,
           arbPrimitive,
-          (pipelineId, stageName, path, key, nestedKey, leafKey1, leafKey2, value1, value2) => {
+          (pipelineId, stageName, key, nestedKey, leafKey1, leafKey2, value1, value2) => {
             // Skip if leaf keys are the same
             fc.pre(leafKey1 !== leafKey2);
 
@@ -561,9 +551,9 @@ describe('Scope Property Tests', () => {
             };
 
             // Act
-            scope.setValue(path, key, existingObj);
-            scope.updateValue(path, key, updateObj);
-            const result = scope.getValue(path, key) as Record<string, Record<string, unknown>>;
+            scope.setValue(key, existingObj);
+            scope.updateValue(key, updateObj);
+            const result = scope.getValue(key) as Record<string, Record<string, unknown>>;
 
             // Assert - both leaf keys should be present in the nested object
             expect(result[nestedKey]).toHaveProperty(leafKey1);
@@ -581,11 +571,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbPrimitive,
           arbPrimitive,
-          (pipelineId, stageName, path, key, existingValue, updateValue) => {
+          (pipelineId, stageName, key, existingValue, updateValue) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -595,9 +584,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - set primitive, then update with another primitive
-            scope.setValue(path, key, existingValue);
-            scope.updateValue(path, key, updateValue);
-            const result = scope.getValue(path, key);
+            scope.setValue(key, existingValue);
+            scope.updateValue(key, updateValue);
+            const result = scope.getValue(key);
 
             // Assert - update value should completely replace existing
             expect(result).toEqual(updateValue);
@@ -612,11 +601,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.uniqueArray(arbKey, { minLength: 3, maxLength: 5 }),
           fc.array(arbPrimitive, { minLength: 3, maxLength: 5 }),
-          (pipelineId, stageName, path, key, uniqueKeys, values) => {
+          (pipelineId, stageName, key, uniqueKeys, values) => {
             // Ensure we have enough unique keys
             fc.pre(uniqueKeys.length >= 3);
 
@@ -635,9 +623,9 @@ describe('Scope Property Tests', () => {
 
             // Act - apply multiple updates
             for (const update of updates) {
-              scope.updateValue(path, key, update);
+              scope.updateValue(key, update);
             }
-            const result = scope.getValue(path, key) as Record<string, unknown>;
+            const result = scope.getValue(key) as Record<string, unknown>;
 
             // Assert - all keys from all updates should be present
             for (let i = 0; i < 3; i++) {
@@ -656,11 +644,10 @@ describe('Scope Property Tests', () => {
         fc.property(
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbNestedObject,
           arbNestedObject,
-          (pipelineId, stageName, path, key, existingObj, updateObj) => {
+          (pipelineId, stageName, key, existingObj, updateObj) => {
             // Arrange
             const globalStore = new GlobalStore();
             const scope = new Scope({
@@ -670,11 +657,11 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - set, update, then commit
-            scope.setValue(path, key, existingObj);
-            scope.updateValue(path, key, updateObj);
-            const beforeCommit = scope.getValue(path, key) as Record<string, unknown>;
+            scope.setValue(key, existingObj);
+            scope.updateValue(key, updateObj);
+            const beforeCommit = scope.getValue(key) as Record<string, unknown>;
             scope.commit();
-            const afterCommit = scope.getValue(path, key) as Record<string, unknown>;
+            const afterCommit = scope.getValue(key) as Record<string, unknown>;
 
             // Assert - value should be the same before and after commit
             expect(afterCommit).toEqual(beforeCommit);
@@ -713,10 +700,9 @@ describe('Scope Property Tests', () => {
           arbPipelineId,
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId1, pipelineId2, stageName, path, key, value) => {
+          (pipelineId1, pipelineId2, stageName, key, value) => {
             // Ensure different namespaces
             fc.pre(pipelineId1 !== pipelineId2);
 
@@ -734,10 +720,10 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - write to scope1
-            scope1.setValue(path, key, value);
+            scope1.setValue(key, value);
 
             // Assert - scope2 should not see scope1's uncommitted value
-            expect(scope2.getValue(path, key)).toBeUndefined();
+            expect(scope2.getValue(key)).toBeUndefined();
           }
         ),
         { numRuns: 100 }
@@ -750,10 +736,9 @@ describe('Scope Property Tests', () => {
           arbPipelineId,
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId1, pipelineId2, stageName, path, key, value) => {
+          (pipelineId1, pipelineId2, stageName, key, value) => {
             // Ensure different namespaces
             fc.pre(pipelineId1 !== pipelineId2);
 
@@ -771,11 +756,11 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - write and commit to scope1
-            scope1.setValue(path, key, value);
+            scope1.setValue(key, value);
             scope1.commit();
 
             // Assert - scope2 should not see scope1's committed value
-            expect(scope2.getValue(path, key)).toBeUndefined();
+            expect(scope2.getValue(key)).toBeUndefined();
           }
         ),
         { numRuns: 100 }
@@ -788,11 +773,10 @@ describe('Scope Property Tests', () => {
           arbPipelineId,
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
           arbJsonValue,
-          (pipelineId1, pipelineId2, stageName, path, key, value1, value2) => {
+          (pipelineId1, pipelineId2, stageName, key, value1, value2) => {
             // Ensure different namespaces and different values
             fc.pre(pipelineId1 !== pipelineId2);
 
@@ -810,14 +794,14 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - write different values to same path/key in each namespace
-            scope1.setValue(path, key, value1);
-            scope2.setValue(path, key, value2);
+            scope1.setValue(key, value1);
+            scope2.setValue(key, value2);
             scope1.commit();
             scope2.commit();
 
             // Assert - each scope should see its own value
-            expect(scope1.getValue(path, key)).toEqual(value1);
-            expect(scope2.getValue(path, key)).toEqual(value2);
+            expect(scope1.getValue(key)).toEqual(value1);
+            expect(scope2.getValue(key)).toEqual(value2);
           }
         ),
         { numRuns: 100 }
@@ -830,11 +814,10 @@ describe('Scope Property Tests', () => {
           arbPipelineId,
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
           fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
-          (pipelineId1, pipelineId2, stageName, path, key, obj1, obj2) => {
+          (pipelineId1, pipelineId2, stageName, key, obj1, obj2) => {
             // Ensure different namespaces
             fc.pre(pipelineId1 !== pipelineId2);
 
@@ -852,18 +835,18 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - set initial values and update in scope1
-            scope1.setValue(path, key, obj1);
-            scope2.setValue(path, key, obj2);
+            scope1.setValue(key, obj1);
+            scope2.setValue(key, obj2);
             scope1.commit();
             scope2.commit();
 
             // Update scope1 with additional properties
             const updateObj = { additionalProp: 'updated' };
-            scope1.updateValue(path, key, updateObj);
+            scope1.updateValue(key, updateObj);
             scope1.commit();
 
             // Assert - scope2 should not see scope1's update
-            const scope2Value = scope2.getValue(path, key) as Record<string, unknown>;
+            const scope2Value = scope2.getValue(key) as Record<string, unknown>;
             expect(scope2Value).toEqual(obj2);
             expect(scope2Value).not.toHaveProperty('additionalProp');
           }
@@ -877,10 +860,9 @@ describe('Scope Property Tests', () => {
         fc.property(
           fc.uniqueArray(arbPipelineId, { minLength: 3, maxLength: 5 }),
           arbStageName,
-          arbPath,
           arbKey,
           fc.array(arbJsonValue, { minLength: 3, maxLength: 5 }),
-          (pipelineIds, stageName, path, key, values) => {
+          (pipelineIds, stageName, key, values) => {
             // Ensure we have enough unique pipelineIds
             fc.pre(pipelineIds.length >= 3);
 
@@ -897,13 +879,13 @@ describe('Scope Property Tests', () => {
 
             // Act - write different values to same path/key in each namespace
             scopes.forEach((scope, i) => {
-              scope.setValue(path, key, values[i % values.length]);
+              scope.setValue(key, values[i % values.length]);
               scope.commit();
             });
 
             // Assert - each scope should see only its own value
             scopes.forEach((scope, i) => {
-              const retrievedValue = scope.getValue(path, key);
+              const retrievedValue = scope.getValue(key);
               expect(retrievedValue).toEqual(values[i % values.length]);
             });
           }
@@ -918,10 +900,9 @@ describe('Scope Property Tests', () => {
           arbPipelineId,
           arbPipelineId,
           arbStageName,
-          arbPath,
           arbKey,
           arbJsonValue,
-          (pipelineId1, pipelineId2, stageName, path, key, value) => {
+          (pipelineId1, pipelineId2, stageName, key, value) => {
             // Ensure different namespaces
             fc.pre(pipelineId1 !== pipelineId2);
 
@@ -934,7 +915,7 @@ describe('Scope Property Tests', () => {
             });
 
             // Act - write and commit to scope1
-            scope1.setValue(path, key, value);
+            scope1.setValue(key, value);
             scope1.commit();
 
             // Create new scope instances
@@ -950,9 +931,9 @@ describe('Scope Property Tests', () => {
             });
 
             // Assert - new scope with same pipelineId should see the value
-            expect(scope1New.getValue(path, key)).toEqual(value);
+            expect(scope1New.getValue(key)).toEqual(value);
             // Assert - new scope with different pipelineId should not see the value
-            expect(scope2New.getValue(path, key)).toBeUndefined();
+            expect(scope2New.getValue(key)).toBeUndefined();
           }
         ),
         { numRuns: 100 }
@@ -1032,7 +1013,7 @@ describe('Property 4: History Growth Invariant', () => {
 
           // Act - perform N commits with some data
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], `key${i}`, i);
+            scope.setValue(`key${i}`, i);
             scope.commit();
           }
 
@@ -1062,7 +1043,7 @@ describe('Property 4: History Growth Invariant', () => {
           // Act & Assert - verify count after each commit
           for (let i = 0; i < numCommits; i++) {
             const countBefore = scope.getSnapshots().length;
-            scope.setValue(['data'], `key${i}`, i);
+            scope.setValue(`key${i}`, i);
             scope.commit();
             const countAfter = scope.getSnapshots().length;
 
@@ -1098,7 +1079,7 @@ describe('Property 4: History Growth Invariant', () => {
           for (let commitIdx = 0; commitIdx < writesPerCommit.length; commitIdx++) {
             const numWrites = writesPerCommit[commitIdx];
             for (let writeIdx = 0; writeIdx < numWrites; writeIdx++) {
-              scope.setValue(['data', `commit${commitIdx}`], `key${writeIdx}`, writeIdx);
+              scope.setValue(`key${writeIdx}`, writeIdx);
             }
             scope.commit();
           }
@@ -1111,7 +1092,7 @@ describe('Property 4: History Growth Invariant', () => {
     );
   });
 
-  test('snapshot count is independent of path and key variations', () => {
+  test('snapshot count is independent of key variations', () => {
     fc.assert(
       fc.property(
         arbPipelineId,
@@ -1126,14 +1107,11 @@ describe('Property 4: History Growth Invariant', () => {
             globalStore,
           });
 
-          // Act - perform commits with varying paths/keys
-          // Use paths that are guaranteed not to conflict with pipelineId
+          // Act - perform commits with varying keys
           for (let i = 0; i < numCommits; i++) {
-            // Use unique paths and keys for each commit
-            const path = [`path${i}`, `subpath${i % 3}`];
             const key = `key${i}`;
             const value = i * 100;
-            scope.setValue(path, key, value);
+            scope.setValue(key, value);
             scope.commit();
           }
 
@@ -1190,7 +1168,7 @@ describe('Property 4: History Growth Invariant', () => {
 
           // Act - perform N commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], `key${i}`, i);
+            scope.setValue(`key${i}`, i);
             scope.commit();
           }
 
@@ -1222,7 +1200,7 @@ describe('Property 4: History Growth Invariant', () => {
 
           // Act - perform N commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], `key${i}`, i);
+            scope.setValue(`key${i}`, i);
             scope.commit();
           }
 
@@ -1330,15 +1308,15 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Act - commit each value sequentially
           for (let i = 0; i < values.length; i++) {
-            scope.setValue(['data'], 'value', values[i]);
+            scope.setValue('value', values[i]);
             scope.commit();
           }
 
           // Assert - verify each snapshot contains the correct state
           for (let i = 0; i < values.length; i++) {
             const state = scope.getStateAt(i);
-            expect(state?.data).toBeDefined();
-            expect((state?.data as Record<string, unknown>)?.value).toEqual(values[i]);
+            expect(state).toBeDefined();
+            expect(state?.value).toEqual(values[i]);
           }
         }
       ),
@@ -1373,7 +1351,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Act - commit each key/value pair and track expected state
           for (const { key, value } of commits) {
-            scope.setValue(['data'], key, value);
+            scope.setValue(key, value);
             scope.commit();
 
             // Update accumulated state
@@ -1385,11 +1363,10 @@ describe('Property 5: Time-Travel Retrieval', () => {
           // Assert - verify each snapshot matches expected state
           for (let i = 0; i < commits.length; i++) {
             const state = scope.getStateAt(i);
-            const dataState = state?.data as Record<string, unknown> | undefined;
 
             // Verify all keys that should exist at this point
             for (const key of Object.keys(expectedStates[i])) {
-              expect(dataState?.[key]).toEqual(expectedStates[i][key]);
+              expect(state?.[key]).toEqual(expectedStates[i][key]);
             }
           }
         }
@@ -1416,7 +1393,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Act - perform N commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], `key${i}`, i);
+            scope.setValue(`key${i}`, i);
             scope.commit();
           }
 
@@ -1452,7 +1429,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
           // Act - perform N commits with distinct values
           for (let i = 0; i < numCommits; i++) {
             const value = i * 100 + 42; // Distinct value for each commit
-            scope.setValue(['data'], 'counter', value);
+            scope.setValue('counter', value);
             scope.commit();
             valuesAtCommit.push(value);
           }
@@ -1461,7 +1438,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
           for (let i = 0; i < numCommits; i++) {
             const state = scope.getStateAt(i);
             expect(state).toBeDefined();
-            expect((state?.data as Record<string, unknown>)?.counter).toEqual(valuesAtCommit[i]);
+            expect(state?.counter).toEqual(valuesAtCommit[i]);
           }
         }
       ),
@@ -1474,9 +1451,8 @@ describe('Property 5: Time-Travel Retrieval', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         fc.array(arbPrimitive, { minLength: 3, maxLength: 10 }),
-        (pipelineId, stageName, path, values) => {
+        (pipelineId, stageName, values) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -1485,23 +1461,16 @@ describe('Property 5: Time-Travel Retrieval', () => {
             globalStore,
           });
 
-          // Act - commit values at the same path/key
+          // Act - commit values at the same key
           for (let i = 0; i < values.length; i++) {
-            scope.setValue(path, 'evolving', values[i]);
+            scope.setValue('evolving', values[i]);
             scope.commit();
           }
 
           // Assert - each snapshot should reflect the value at that point in time
           for (let i = 0; i < values.length; i++) {
             const state = scope.getStateAt(i);
-
-            // Navigate to the correct nested path in the state
-            let current: unknown = state;
-            for (const segment of path) {
-              current = (current as Record<string, unknown>)?.[segment];
-            }
-
-            expect((current as Record<string, unknown>)?.evolving).toEqual(values[i]);
+            expect((state as Record<string, unknown>)?.evolving).toEqual(values[i]);
           }
         }
       ),
@@ -1526,7 +1495,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -1538,13 +1507,13 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Assert - each state should have its own distinct value
           for (let i = 0; i < numCommits; i++) {
-            expect((states[i]?.data as Record<string, unknown>)?.value).toEqual(i);
+            expect(states[i]?.value).toEqual(i);
           }
 
           // Assert - states are independent (different values at different indices)
           if (numCommits >= 2) {
-            expect((states[0]?.data as Record<string, unknown>)?.value)
-              .not.toEqual((states[numCommits - 1]?.data as Record<string, unknown>)?.value);
+            expect(states[0]?.value)
+              .not.toEqual(states[numCommits - 1]?.value);
           }
         }
       ),
@@ -1552,15 +1521,14 @@ describe('Property 5: Time-Travel Retrieval', () => {
     );
   });
 
-  test('getStateAt with nested paths returns correct historical state', () => {
+  test('getStateAt with multiple keys returns correct historical state', () => {
     fc.assert(
       fc.property(
         arbPipelineId,
         arbStageName,
         fc.array(
           fc.record({
-            level1: arbKey,
-            level2: arbKey,
+            key: arbKey,
             value: arbPrimitive,
           }),
           { minLength: 2, maxLength: 8 }
@@ -1574,38 +1542,26 @@ describe('Property 5: Time-Travel Retrieval', () => {
             globalStore,
           });
 
-          // Track expected nested state at each commit
-          const expectedStates: Array<Record<string, Record<string, unknown>>> = [];
-          const accumulatedState: Record<string, Record<string, unknown>> = {};
+          // Track expected state at each commit
+          const expectedStates: Array<Record<string, unknown>> = [];
+          const accumulatedState: Record<string, unknown> = {};
 
-          // Act - commit nested values
-          for (const { level1, level2, value } of commits) {
-            scope.setValue([level1], level2, value);
+          // Act - commit values
+          for (const { key, value } of commits) {
+            scope.setValue(key, value);
             scope.commit();
 
             // Update accumulated state
-            if (!accumulatedState[level1]) {
-              accumulatedState[level1] = {};
-            }
-            accumulatedState[level1][level2] = value;
-
-            // Deep copy for expected state
-            const stateCopy: Record<string, Record<string, unknown>> = {};
-            for (const key of Object.keys(accumulatedState)) {
-              stateCopy[key] = { ...accumulatedState[key] };
-            }
-            expectedStates.push(stateCopy);
+            accumulatedState[key] = value;
+            expectedStates.push({ ...accumulatedState });
           }
 
-          // Assert - verify each snapshot matches expected nested state
+          // Assert - verify each snapshot matches expected state
           for (let i = 0; i < commits.length; i++) {
             const state = scope.getStateAt(i);
 
-            for (const level1Key of Object.keys(expectedStates[i])) {
-              const level1State = state?.[level1Key] as Record<string, unknown> | undefined;
-              for (const level2Key of Object.keys(expectedStates[i][level1Key])) {
-                expect(level1State?.[level2Key]).toEqual(expectedStates[i][level1Key][level2Key]);
-              }
+            for (const key of Object.keys(expectedStates[i])) {
+              expect(state?.[key]).toEqual(expectedStates[i][key]);
             }
           }
         }
@@ -1632,7 +1588,7 @@ describe('Property 5: Time-Travel Retrieval', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i * 10);
+            scope.setValue('value', i * 10);
             scope.commit();
           }
 
@@ -1743,12 +1699,12 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
           // Get current state before time-travel
-          const currentValueBefore = scope.getValue(['data'], 'value');
+          const currentValueBefore = scope.getValue('value');
 
           // Call getStateAt for various indices
           for (let i = 0; i < numCommits; i++) {
@@ -1756,7 +1712,7 @@ describe('Property 6: Time-Travel Immutability', () => {
           }
 
           // Current state should be unchanged
-          const currentValueAfter = scope.getValue(['data'], 'value');
+          const currentValueAfter = scope.getValue('value');
           expect(currentValueAfter).toEqual(currentValueBefore);
         }
       ),
@@ -1781,7 +1737,7 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -1819,7 +1775,7 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -1833,12 +1789,12 @@ describe('Property 6: Time-Travel Immutability', () => {
           }
 
           // Current state should be unchanged
-          const currentValue = scope.getValue(['data'], 'value');
+          const currentValue = scope.getValue('value');
           expect(currentValue).toEqual(numCommits - 1); // Last committed value
 
           // Historical state at index 0 should still be 0
           const historicalStateAgain = scope.getStateAt(0);
-          expect((historicalStateAgain?.data as Record<string, unknown>)?.value).toEqual(0);
+          expect(historicalStateAgain?.value).toEqual(0);
         }
       ),
       { numRuns: 100 }
@@ -1862,7 +1818,7 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -1875,7 +1831,7 @@ describe('Property 6: Time-Travel Immutability', () => {
           // Other snapshots should be unaffected
           for (let i = 1; i < numCommits; i++) {
             const stateI = scope.getStateAt(i);
-            expect((stateI?.data as Record<string, unknown>)?.value).toEqual(i);
+            expect(stateI?.value).toEqual(i);
           }
         }
       ),
@@ -1900,13 +1856,13 @@ describe('Property 6: Time-Travel Immutability', () => {
           });
 
           // Commit nested objects
-          scope.setValue(['config'], 'settings', obj1);
+          scope.setValue('settings', obj1);
           scope.commit();
-          scope.setValue(['config'], 'settings', obj2);
+          scope.setValue('settings', obj2);
           scope.commit();
 
           // Get current state before time-travel
-          const currentBefore = scope.getValue(['config'], 'settings');
+          const currentBefore = scope.getValue('settings');
 
           // Call getStateAt for first commit
           const historicalState = scope.getStateAt(0);
@@ -1918,7 +1874,7 @@ describe('Property 6: Time-Travel Immutability', () => {
           }
 
           // Current state should be unchanged
-          const currentAfter = scope.getValue(['config'], 'settings');
+          const currentAfter = scope.getValue('settings');
           expect(currentAfter).toEqual(currentBefore);
           expect(currentAfter).toEqual(obj2);
         }
@@ -1945,12 +1901,12 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
           // Get current state before time-travel
-          const currentValueBefore = scope.getValue(['data'], 'value');
+          const currentValueBefore = scope.getValue('value');
           const snapshotCountBefore = scope.getSnapshots().length;
 
           // Call getStateAt many times with various indices
@@ -1964,7 +1920,7 @@ describe('Property 6: Time-Travel Immutability', () => {
           }
 
           // Current state should be unchanged
-          const currentValueAfter = scope.getValue(['data'], 'value');
+          const currentValueAfter = scope.getValue('value');
           const snapshotCountAfter = scope.getSnapshots().length;
 
           expect(currentValueAfter).toEqual(currentValueBefore);
@@ -1993,12 +1949,12 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
           // Get current state before time-travel
-          const currentValueBefore = scope.getValue(['data'], 'value');
+          const currentValueBefore = scope.getValue('value');
           const snapshotCountBefore = scope.getSnapshots().length;
 
           // Call getStateAt with out-of-bounds indices
@@ -2008,7 +1964,7 @@ describe('Property 6: Time-Travel Immutability', () => {
           scope.getStateAt(numCommits + offset);
 
           // Current state should be unchanged
-          const currentValueAfter = scope.getValue(['data'], 'value');
+          const currentValueAfter = scope.getValue('value');
           const snapshotCountAfter = scope.getSnapshots().length;
 
           expect(currentValueAfter).toEqual(currentValueBefore);
@@ -2036,7 +1992,7 @@ describe('Property 6: Time-Travel Immutability', () => {
 
           // Perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2110,7 +2066,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits with some data
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2155,7 +2111,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2187,7 +2143,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2219,7 +2175,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2251,7 +2207,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2286,7 +2242,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', i);
+            scope.setValue('value', i);
             scope.commit();
           }
 
@@ -2362,7 +2318,7 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits with data
           for (let i = 0; i < numCommits; i++) {
-            scope.setValue(['data'], 'value', value);
+            scope.setValue('value', value);
             scope.commit();
           }
 
@@ -2405,11 +2361,11 @@ describe('Property 7: Snapshot Metadata Completeness', () => {
 
           // Act - perform commits on both scopes
           for (let i = 0; i < numCommits; i++) {
-            scope1.setValue(['data'], 'value', i);
+            scope1.setValue('value', i);
             scope1.commit();
           }
           for (let i = 0; i < numCommits; i++) {
-            scope2.setValue(['data'], 'value', i + 100);
+            scope2.setValue('value', i + 100);
             scope2.commit();
           }
 
@@ -2568,9 +2524,8 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
-        (pipelineId, stageName, path, key) => {
+        (pipelineId, stageName, key) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2582,15 +2537,14 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Act
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - onRead should be invoked exactly once
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
           expect(readInvocations.length).toBe(1);
 
           // Verify event data
-          const event = readInvocations[0].event as { path: string[]; key?: string; stageName: string; pipelineId: string };
-          expect(event.path).toEqual(path);
+          const event = readInvocations[0].event as { key?: string; stageName: string; pipelineId: string };
           expect(event.key).toBe(key);
           expect(event.stageName).toBe(stageName);
           expect(event.pipelineId).toBe(pipelineId);
@@ -2605,10 +2559,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2620,7 +2573,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Act
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Assert - onWrite should be invoked exactly once
           const writeInvocations = invocations.filter(i => i.hook === 'onWrite');
@@ -2628,14 +2581,12 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Verify event data
           const event = writeInvocations[0].event as {
-            path: string[];
             key: string;
             value: unknown;
             operation: string;
             stageName: string;
             pipelineId: string;
           };
-          expect(event.path).toEqual(path);
           expect(event.key).toBe(key);
           expect(event.value).toEqual(value);
           expect(event.operation).toBe('set');
@@ -2652,10 +2603,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2667,7 +2617,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Act
-          scope.updateValue(path, key, value);
+          scope.updateValue(key, value);
 
           // Assert - onWrite should be invoked exactly once
           const writeInvocations = invocations.filter(i => i.hook === 'onWrite');
@@ -2675,14 +2625,12 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Verify event data
           const event = writeInvocations[0].event as {
-            path: string[];
             key: string;
             value: unknown;
             operation: string;
             stageName: string;
             pipelineId: string;
           };
-          expect(event.path).toEqual(path);
           expect(event.key).toBe(key);
           expect(event.value).toEqual(value);
           expect(event.operation).toBe('update');
@@ -2699,10 +2647,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2714,7 +2661,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Stage a write first
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Clear invocations to isolate commit behavior
           invocations.length = 0;
@@ -2728,7 +2675,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Verify event data
           const event = commitInvocations[0].event as {
-            mutations: Array<{ path: string[]; key: string; value: unknown; operation: string }>;
+            mutations: Array<{ key: string; value: unknown; operation: string }>;
             stageName: string;
             pipelineId: string;
           };
@@ -2836,10 +2783,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2852,9 +2798,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Act - perform a sequence of operations
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -2879,11 +2825,10 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         fc.array(arbOperationType, { minLength: 1, maxLength: 10 }),
-        (pipelineId, stageName, path, key, value, operations) => {
+        (pipelineId, stageName, key, value, operations) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -2907,15 +2852,15 @@ describe('Property 8: Recorder Hook Invocation', () => {
           for (const op of operations) {
             switch (op) {
               case 'read':
-                scope.getValue(path, key);
+                scope.getValue(key);
                 expectedCounts.onRead++;
                 break;
               case 'setValue':
-                scope.setValue(path, key, value);
+                scope.setValue(key, value);
                 expectedCounts.onWrite++;
                 break;
               case 'updateValue':
-                scope.updateValue(path, key, value);
+                scope.updateValue(key, value);
                 expectedCounts.onWrite++;
                 break;
               case 'commit':
@@ -2956,7 +2901,6 @@ describe('Property 8: Recorder Hook Invocation', () => {
         arbStageName,
         fc.array(
           fc.record({
-            path: arbPath,
             key: arbKey,
             value: arbPrimitive,
             operation: fc.constantFrom('set', 'update') as fc.Arbitrary<'set' | 'update'>,
@@ -2977,9 +2921,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
           // Act - perform all writes
           for (const write of writes) {
             if (write.operation === 'set') {
-              scope.setValue(write.path, write.key, write.value);
+              scope.setValue(write.key, write.value);
             } else {
-              scope.updateValue(write.path, write.key, write.value);
+              scope.updateValue(write.key, write.value);
             }
           }
 
@@ -2994,7 +2938,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
           expect(commitInvocations.length).toBe(1);
 
           const event = commitInvocations[0].event as {
-            mutations: Array<{ path: string[]; key: string; value: unknown; operation: string }>;
+            mutations: Array<{ key: string; value: unknown; operation: string }>;
           };
 
           // Verify mutation count matches write count
@@ -3002,7 +2946,6 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Verify each mutation has correct data
           for (let i = 0; i < writes.length; i++) {
-            expect(event.mutations[i].path).toEqual(writes[i].path);
             expect(event.mutations[i].key).toBe(writes[i].key);
             expect(event.mutations[i].value).toEqual(writes[i].value);
             expect(event.mutations[i].operation).toBe(writes[i].operation);
@@ -3018,10 +2961,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Capture time before test
           const timeBefore = Date.now();
 
@@ -3037,8 +2979,8 @@ describe('Property 8: Recorder Hook Invocation', () => {
 
           // Act - perform operations
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
+          scope.getValue(key);
+          scope.setValue(key, value);
           scope.commit();
           scope.endStage();
 
@@ -3069,10 +3011,9 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -3084,14 +3025,14 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Set a value and commit
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Clear invocations
           invocations.length = 0;
 
           // Act - read the value
-          const readValue = scope.getValue(path, key);
+          const readValue = scope.getValue(key);
 
           // Assert - read event contains the actual value
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
@@ -3111,9 +3052,8 @@ describe('Property 8: Recorder Hook Invocation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
-        (pipelineId, stageName, path, key) => {
+        (pipelineId, stageName, key) => {
           // Arrange
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createMockRecorder('test-recorder');
@@ -3125,7 +3065,7 @@ describe('Property 8: Recorder Hook Invocation', () => {
           });
 
           // Act - read a non-existent key
-          const readValue = scope.getValue(path, key);
+          const readValue = scope.getValue(key);
 
           // Assert - read event contains undefined
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
@@ -3287,10 +3227,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onRead
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('read-only-recorder', ['onRead']);
@@ -3303,9 +3242,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3324,10 +3263,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onWrite
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('write-only-recorder', ['onWrite']);
@@ -3340,9 +3278,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3361,10 +3299,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onCommit
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('commit-only-recorder', ['onCommit']);
@@ -3377,9 +3314,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3398,10 +3335,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onStageStart and onStageEnd
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('stage-only-recorder', ['onStageStart', 'onStageEnd']);
@@ -3414,9 +3350,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3437,10 +3373,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onError
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('error-only-recorder', ['onError']);
@@ -3453,9 +3388,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3472,10 +3407,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with no hooks at all
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('empty-recorder', []);
@@ -3488,9 +3422,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3507,11 +3441,10 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbHookSubset,
-        (pipelineId, stageName, path, key, value, implementedHooks) => {
+        (pipelineId, stageName, key, value, implementedHooks) => {
           // Arrange - create recorder with arbitrary subset of hooks
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('partial-recorder', implementedHooks);
@@ -3526,9 +3459,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -3568,11 +3501,10 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbHookSubset,
-        (pipelineId, stageName, path, key, value, implementedHooks) => {
+        (pipelineId, stageName, key, value, implementedHooks) => {
           // Arrange - create recorder with arbitrary subset of hooks
           const globalStore = new GlobalStore();
           const { recorder } = createPartialRecorder('partial-recorder', implementedHooks);
@@ -3584,10 +3516,10 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
           });
 
           // Act - perform operations
-          scope.setValue(path, key, value);
-          const readValue = scope.getValue(path, key);
+          scope.setValue(key, value);
+          const readValue = scope.getValue(key);
           scope.commit();
-          const readValueAfterCommit = scope.getValue(path, key);
+          const readValueAfterCommit = scope.getValue(key);
 
           // Assert - values should be correct regardless of partial recorder
           expect(readValue).toEqual(value);
@@ -3603,13 +3535,12 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbHookSubset,
         arbHookSubset,
         arbHookSubset,
-        (pipelineId, stageName, path, key, value, hooks1, hooks2, hooks3) => {
+        (pipelineId, stageName, key, value, hooks1, hooks2, hooks3) => {
           // Arrange - create multiple partial recorders with different hook subsets
           const globalStore = new GlobalStore();
           const { recorder: recorder1, invocations: invocations1 } = createPartialRecorder('recorder-1', hooks1);
@@ -3629,8 +3560,8 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
 
           // Act - perform all operations (should not throw)
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
+          scope.getValue(key);
+          scope.setValue(key, value);
           scope.commit();
           scope.endStage();
 
@@ -3655,11 +3586,10 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbHookSubset,
-        (pipelineId, stageName, path, key, value, implementedHooks) => {
+        (pipelineId, stageName, key, value, implementedHooks) => {
           // Arrange - create scope without recorders, then attach partial recorder
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -3674,8 +3604,8 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
           const hookSet = new Set(implementedHooks);
 
           // Act - perform operations (should not throw)
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
+          scope.getValue(key);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - only implemented hooks should have been invoked
@@ -3693,11 +3623,10 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbHookSubset,
-        (pipelineId, stageName, path, key, value, implementedHooks) => {
+        (pipelineId, stageName, key, value, implementedHooks) => {
           // Arrange - create scope and attach partial recorder at stage level
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -3712,8 +3641,8 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
           const hookSet = new Set(implementedHooks);
 
           // Act - perform operations (should not throw)
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
+          scope.getValue(key);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - only implemented hooks should have been invoked
@@ -3731,10 +3660,9 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange - create recorder with only onRead and onWrite
           const globalStore = new GlobalStore();
           const { recorder, invocations } = createPartialRecorder('partial-recorder', ['onRead', 'onWrite']);
@@ -3746,12 +3674,11 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
           });
 
           // Act
-          scope.setValue(path, key, value);
-          scope.getValue(path, key);
+          scope.setValue(key, value);
+          scope.getValue(key);
 
           // Assert - events should have correct data
           const writeEvent = invocations.find(i => i.hook === 'onWrite')?.event as {
-            path: string[];
             key: string;
             value: unknown;
             operation: string;
@@ -3759,7 +3686,6 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
             pipelineId: string;
           };
           expect(writeEvent).toBeDefined();
-          expect(writeEvent.path).toEqual(path);
           expect(writeEvent.key).toBe(key);
           expect(writeEvent.value).toEqual(value);
           expect(writeEvent.operation).toBe('set');
@@ -3767,14 +3693,12 @@ describe('Property 9: Partial Recorder Graceful Handling', () => {
           expect(writeEvent.pipelineId).toBe(pipelineId);
 
           const readEvent = invocations.find(i => i.hook === 'onRead')?.event as {
-            path: string[];
             key?: string;
             value: unknown;
             stageName: string;
             pipelineId: string;
           };
           expect(readEvent).toBeDefined();
-          expect(readEvent.path).toEqual(path);
           expect(readEvent.key).toBe(key);
           expect(readEvent.value).toEqual(value);
           expect(readEvent.stageName).toBe(stageName);
@@ -3977,10 +3901,9 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, recorderCount) => {
+        (pipelineId, stageName, key, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -3995,7 +3918,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Act
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - all recorders should receive onRead
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
@@ -4017,11 +3940,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4036,7 +3958,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Act
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Assert - all recorders should receive onWrite
           const writeInvocations = invocations.filter(i => i.hook === 'onWrite');
@@ -4058,11 +3980,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4077,7 +3998,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Stage a write first
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           invocations.length = 0; // Clear write invocations
           globalInvocationCounter = 0;
 
@@ -4185,11 +4106,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4204,7 +4124,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Act - perform a single operation
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - invocations should be in attachment order
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
@@ -4226,11 +4146,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4245,7 +4164,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Act
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Assert - all recorders received identical event data
           const writeInvocations = invocations.filter(i => i.hook === 'onWrite');
@@ -4253,7 +4172,6 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
 
           // Compare event data across all recorders
           const firstEvent = writeInvocations[0].event as {
-            path: string[];
             key: string;
             value: unknown;
             operation: string;
@@ -4263,7 +4181,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
 
           for (let i = 1; i < recorderCount; i++) {
             const currentEvent = writeInvocations[i].event as typeof firstEvent;
-            expect(currentEvent.path).toEqual(firstEvent.path);
+            expect(currentEvent.key).toEqual(firstEvent.key);
             expect(currentEvent.key).toBe(firstEvent.key);
             expect(currentEvent.value).toEqual(firstEvent.value);
             expect(currentEvent.operation).toBe(firstEvent.operation);
@@ -4281,11 +4199,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4300,20 +4217,19 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Set a value first so read returns something
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
           invocations.length = 0;
           globalInvocationCounter = 0;
 
           // Act
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - all recorders received identical event data
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
           expect(readInvocations.length).toBe(recorderCount);
 
           const firstEvent = readInvocations[0].event as {
-            path: string[];
             key?: string;
             value: unknown;
             stageName: string;
@@ -4322,7 +4238,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
 
           for (let i = 1; i < recorderCount; i++) {
             const currentEvent = readInvocations[i].event as typeof firstEvent;
-            expect(currentEvent.path).toEqual(firstEvent.path);
+            expect(currentEvent.key).toEqual(firstEvent.key);
             expect(currentEvent.key).toBe(firstEvent.key);
             expect(currentEvent.value).toEqual(firstEvent.value);
             expect(currentEvent.stageName).toBe(firstEvent.stageName);
@@ -4339,11 +4255,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4358,7 +4273,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Stage writes
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           invocations.length = 0;
           globalInvocationCounter = 0;
 
@@ -4370,7 +4285,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           expect(commitInvocations.length).toBe(recorderCount);
 
           const firstEvent = commitInvocations[0].event as {
-            mutations: Array<{ path: string[]; key: string; value: unknown; operation: string }>;
+            mutations: Array<{ key: string; value: unknown; operation: string }>;
             stageName: string;
             pipelineId: string;
           };
@@ -4392,11 +4307,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4412,8 +4326,8 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
 
           // Act - perform multiple operations
           scope.startStage(stageName);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
+          scope.getValue(key);
+          scope.setValue(key, value);
           scope.commit();
           scope.endStage();
 
@@ -4441,11 +4355,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4467,7 +4380,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           }
 
           // Act
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - invocations should be in attachment order
           const readInvocations = invocations.filter(i => i.hook === 'onRead');
@@ -4487,11 +4400,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4506,7 +4418,7 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
           });
 
           // Act
-          scope.updateValue(path, key, value);
+          scope.updateValue(key, value);
 
           // Assert - all recorders should receive onWrite with operation 'update'
           const writeInvocations = invocations.filter(i => i.hook === 'onWrite');
@@ -4530,13 +4442,12 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbRecorderCount,
         fc.integer({ min: 1, max: 5 }), // number of read operations
         fc.integer({ min: 1, max: 5 }), // number of write operations
-        (pipelineId, stageName, path, key, value, recorderCount, readCount, writeCount) => {
+        (pipelineId, stageName, key, value, recorderCount, readCount, writeCount) => {
           // Reset counter for this property run
           globalInvocationCounter = 0;
 
@@ -4552,10 +4463,10 @@ describe('Property 10: Multiple Recorders Event Distribution', () => {
 
           // Act - perform multiple operations
           for (let i = 0; i < readCount; i++) {
-            scope.getValue(path, `${key}${i}`);
+            scope.getValue(`${key}${i}`);
           }
           for (let i = 0; i < writeCount; i++) {
-            scope.setValue(path, `${key}${i}`, value);
+            scope.setValue(`${key}${i}`, value);
           }
 
           // Assert - total invocations = recorderCount * (readCount + writeCount)
@@ -4724,11 +4635,10 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbJsonValue,
-        (pipelineId, stageName, path, key, valueBefore, valueAfter) => {
+        (pipelineId, stageName, key, valueBefore, valueAfter) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations: HookInvocation[] = [];
@@ -4743,8 +4653,8 @@ describe('Property 11: Recorder Detachment', () => {
           scope.attachRecorder(recorder);
 
           // Act - perform operations before detachment
-          scope.getValue(path, key);
-          scope.setValue(path, key, valueBefore);
+          scope.getValue(key);
+          scope.setValue(key, valueBefore);
           scope.commit();
 
           // Record count before detachment
@@ -4757,8 +4667,8 @@ describe('Property 11: Recorder Detachment', () => {
           scope.detachRecorder(recorder.id);
 
           // Act - perform operations after detachment
-          scope.getValue(path, key);
-          scope.setValue(path, key, valueAfter);
+          scope.getValue(key);
+          scope.setValue(key, valueAfter);
           scope.commit();
 
           // Assert - no new invocations after detachment
@@ -4774,11 +4684,10 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbJsonValue,
-        (pipelineId, stageName, path, key, valueBefore, valueAfter) => {
+        (pipelineId, stageName, key, valueBefore, valueAfter) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations: HookInvocation[] = [];
@@ -4793,8 +4702,8 @@ describe('Property 11: Recorder Detachment', () => {
           scope.attachStageRecorder(stageName, recorder);
 
           // Act - perform operations before detachment
-          scope.getValue(path, key);
-          scope.setValue(path, key, valueBefore);
+          scope.getValue(key);
+          scope.setValue(key, valueBefore);
           scope.commit();
 
           // Record count before detachment
@@ -4807,8 +4716,8 @@ describe('Property 11: Recorder Detachment', () => {
           scope.detachRecorder(recorder.id);
 
           // Act - perform operations after detachment
-          scope.getValue(path, key);
-          scope.setValue(path, key, valueAfter);
+          scope.getValue(key);
+          scope.setValue(key, valueAfter);
           scope.commit();
 
           // Assert - no new invocations after detachment
@@ -4824,10 +4733,9 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations1: HookInvocation[] = [];
@@ -4845,7 +4753,7 @@ describe('Property 11: Recorder Detachment', () => {
           scope.attachRecorder(recorder2);
 
           // Perform initial operation
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Both should have received the event
           expect(invocations1.length).toBe(1);
@@ -4855,7 +4763,7 @@ describe('Property 11: Recorder Detachment', () => {
           scope.detachRecorder(recorder1.id);
 
           // Perform another operation
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Assert - recorder1 should not receive new events
           expect(invocations1.length).toBe(1); // Still 1 from before
@@ -4873,10 +4781,9 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations: HookInvocation[] = [];
@@ -4891,7 +4798,7 @@ describe('Property 11: Recorder Detachment', () => {
           scope.attachRecorder(recorder);
 
           // Perform one operation to verify attachment works
-          scope.getValue(path, key);
+          scope.getValue(key);
           expect(invocations.length).toBe(1);
 
           // Detach the recorder
@@ -4899,9 +4806,9 @@ describe('Property 11: Recorder Detachment', () => {
           const countAfterDetach = invocations.length;
 
           // Act - perform all operation types after detachment
-          scope.getValue(path, key);           // onRead
-          scope.setValue(path, key, value);    // onWrite
-          scope.updateValue(path, key, value); // onWrite (update)
+          scope.getValue(key);           // onRead
+          scope.setValue(key, value);    // onWrite
+          scope.updateValue(key, value); // onWrite (update)
           scope.commit();                      // onCommit
           scope.startStage('newStage');        // onStageStart
           scope.endStage();                    // onStageEnd
@@ -4923,11 +4830,10 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         fc.integer({ min: 2, max: 5 }),
-        (pipelineId, stageName, path, key, value, recorderCount) => {
+        (pipelineId, stageName, key, value, recorderCount) => {
           // Arrange
           const globalStore = new GlobalStore();
           const allInvocations: Map<string, HookInvocation[]> = new Map();
@@ -4952,7 +4858,7 @@ describe('Property 11: Recorder Detachment', () => {
           }
 
           // Perform initial operation - all should receive
-          scope.getValue(path, key);
+          scope.getValue(key);
           for (const [, invocations] of allInvocations) {
             expect(invocations.length).toBe(1);
           }
@@ -4965,7 +4871,7 @@ describe('Property 11: Recorder Detachment', () => {
             scope.detachRecorder(recorderToDetach.id);
 
             // Perform operation
-            scope.setValue(path, `${key}${i}`, value);
+            scope.setValue(`${key}${i}`, value);
 
             // Detached recorder should not receive new events
             expect(allInvocations.get(recorderToDetach.id)!.length).toBe(countBeforeDetach);
@@ -4988,10 +4894,9 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations: HookInvocation[] = [];
@@ -5009,7 +4914,7 @@ describe('Property 11: Recorder Detachment', () => {
           scope.detachRecorder('non-existent-recorder');
 
           // Act - perform operation
-          scope.getValue(path, key);
+          scope.getValue(key);
 
           // Assert - original recorder should still receive events
           expect(invocations.length).toBe(1);
@@ -5025,10 +4930,9 @@ describe('Property 11: Recorder Detachment', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const invocations: HookInvocation[] = [];
@@ -5043,21 +4947,21 @@ describe('Property 11: Recorder Detachment', () => {
           scope.attachRecorder(recorder);
 
           // Perform operation - should receive
-          scope.getValue(path, key);
+          scope.getValue(key);
           expect(invocations.length).toBe(1);
 
           // Detach recorder
           scope.detachRecorder(recorder.id);
 
           // Perform operation - should NOT receive
-          scope.getValue(path, key);
+          scope.getValue(key);
           expect(invocations.length).toBe(1);
 
           // Re-attach recorder
           scope.attachRecorder(recorder);
 
           // Perform operation - should receive again
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           expect(invocations.length).toBe(2);
           expect(invocations[1].hook).toBe('onWrite');
         }
@@ -5232,10 +5136,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, attachedStage, differentStage, path, key, value) => {
+        (pipelineId, attachedStage, differentStage, key, value) => {
           // Ensure stages are different
           fc.pre(attachedStage !== differentStage);
 
@@ -5255,9 +5158,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(attachedStage, stageRecorder);
 
           // Act - perform operations while in the different stage
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
 
           // Assert - stage-level recorder should receive NO events
@@ -5275,11 +5178,10 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbJsonValue,
-        (pipelineId, attachedStage, otherStage, path, key, value1, value2) => {
+        (pipelineId, attachedStage, otherStage, key, value1, value2) => {
           // Ensure stages are different
           fc.pre(attachedStage !== otherStage);
 
@@ -5299,7 +5201,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(attachedStage, stageRecorder);
 
           // Act - perform operations in other stage (should NOT trigger recorder)
-          scope.setValue(path, key, value1);
+          scope.setValue(key, value1);
           scope.commit();
           const countInOtherStage = invocations.length;
 
@@ -5307,8 +5209,8 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.startStage(attachedStage);
 
           // Perform operations in attached stage (SHOULD trigger recorder)
-          scope.getValue(path, key);
-          scope.setValue(path, key, value2);
+          scope.getValue(key);
+          scope.setValue(key, value2);
           scope.commit();
           scope.endStage();
 
@@ -5332,11 +5234,10 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbJsonValue,
-        (pipelineId, attachedStage, otherStage, path, key, value1, value2) => {
+        (pipelineId, attachedStage, otherStage, key, value1, value2) => {
           // Ensure stages are different
           fc.pre(attachedStage !== otherStage);
 
@@ -5356,8 +5257,8 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(attachedStage, stageRecorder);
 
           // Act - perform operations in attached stage (SHOULD trigger recorder)
-          scope.getValue(path, key);
-          scope.setValue(path, key, value1);
+          scope.getValue(key);
+          scope.setValue(key, value1);
           scope.commit();
           const countInAttachedStage = invocations.length;
 
@@ -5368,8 +5269,8 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.startStage(otherStage);
 
           // Perform operations in other stage (should NOT trigger recorder)
-          scope.getValue(path, key);
-          scope.setValue(path, key, value2);
+          scope.getValue(key);
+          scope.setValue(key, value2);
           scope.commit();
 
           // Assert - no new invocations after switching away
@@ -5387,10 +5288,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbStageName,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stage1, stage2, stage3, path, key, value) => {
+        (pipelineId, stage1, stage2, stage3, key, value) => {
           // Ensure all stages are different
           fc.pre(stage1 !== stage2 && stage2 !== stage3 && stage1 !== stage3);
 
@@ -5416,7 +5316,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(stage3, recorder3);
 
           // Act - perform operations in stage1
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - only recorder1 should have received events
@@ -5427,7 +5327,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           // Clear and switch to stage2
           const count1AfterStage1 = invocations1.length;
           scope.startStage(stage2);
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - only recorder2 should have received new events
@@ -5438,7 +5338,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           // Clear and switch to stage3
           const count2AfterStage2 = invocations2.length;
           scope.startStage(stage3);
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - only recorder3 should have received new events
@@ -5468,10 +5368,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, attachedStage, otherStage, path, key, value) => {
+        (pipelineId, attachedStage, otherStage, key, value) => {
           // Ensure stages are different
           fc.pre(attachedStage !== otherStage);
 
@@ -5494,7 +5393,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(attachedStage, stageRecorder);
 
           // Act - perform operations in other stage
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - global recorder should receive events, stage recorder should not
@@ -5505,7 +5404,7 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
 
           // Switch to attached stage
           scope.startStage(attachedStage);
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - both recorders should receive events now
@@ -5533,10 +5432,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, attachedStage, otherStage, path, key, value) => {
+        (pipelineId, attachedStage, otherStage, key, value) => {
           // Ensure stages are different
           fc.pre(attachedStage !== otherStage);
 
@@ -5557,9 +5455,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
 
           // Act - perform all operation types in attached stage
           scope.startStage(attachedStage); // onStageStart
-          scope.getValue(path, key);        // onRead
-          scope.setValue(path, key, value); // onWrite
-          scope.updateValue(path, key, { extra: 'data' }); // onWrite
+          scope.getValue(key);        // onRead
+          scope.setValue(key, value); // onWrite
+          scope.updateValue(key, { extra: 'data' }); // onWrite
           scope.commit();                   // onCommit
           scope.endStage();                 // onStageEnd
 
@@ -5576,9 +5474,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
 
           // Switch to other stage and perform same operations
           scope.startStage(otherStage);
-          scope.getValue(path, key);
-          scope.setValue(path, key, value);
-          scope.updateValue(path, key, { extra: 'data' });
+          scope.getValue(key);
+          scope.setValue(key, value);
+          scope.updateValue(key, { extra: 'data' });
           scope.commit();
           scope.endStage();
 
@@ -5596,10 +5494,9 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, attachedStage, otherStage, path, key, value) => {
+        (pipelineId, attachedStage, otherStage, key, value) => {
           // Ensure stages are different
           fc.pre(attachedStage !== otherStage);
 
@@ -5619,20 +5516,20 @@ describe('Property 12: Stage-Level Recorder Isolation', () => {
           scope.attachStageRecorder(attachedStage, stageRecorder);
 
           // Phase 1: Operations in attached stage
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
           const countPhase1 = invocations.length;
           expect(countPhase1).toBeGreaterThan(0);
 
           // Phase 2: Switch away - no events
           scope.startStage(otherStage);
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
           expect(invocations.length).toBe(countPhase1);
 
           // Phase 3: Switch back - events resume
           scope.startStage(attachedStage);
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
           expect(invocations.length).toBeGreaterThan(countPhase1);
 
@@ -5732,10 +5629,9 @@ describe('Property 22: GlobalStore Delegation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -5745,11 +5641,11 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write and commit
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - value should be retrievable directly from GlobalStore
-          const retrievedFromGlobalStore = globalStore.getValue(pipelineId, path, key);
+          const retrievedFromGlobalStore = globalStore.getValue(pipelineId, [], key);
           expect(retrievedFromGlobalStore).toEqual(value);
         }
       ),
@@ -5762,10 +5658,9 @@ describe('Property 22: GlobalStore Delegation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -5775,12 +5670,12 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write and commit through Scope
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - reading from GlobalStore with same pipelineId returns same value
-          const fromGlobalStore = globalStore.getValue(pipelineId, path, key);
-          const fromScope = scope.getValue(path, key);
+          const fromGlobalStore = globalStore.getValue(pipelineId, [], key);
+          const fromScope = scope.getValue(key);
 
           expect(fromGlobalStore).toEqual(fromScope);
           expect(fromGlobalStore).toEqual(value);
@@ -5796,11 +5691,10 @@ describe('Property 22: GlobalStore Delegation', () => {
         arbPipelineId,
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
         arbJsonValue,
-        (pipelineId1, pipelineId2, stageName, path, key, value1, value2) => {
+        (pipelineId1, pipelineId2, stageName, key, value1, value2) => {
           // Ensure different pipelineIds and different values to test isolation
           fc.pre(pipelineId1 !== pipelineId2);
           fc.pre(JSON.stringify(value1) !== JSON.stringify(value2));
@@ -5819,15 +5713,15 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write different values to same path/key in different namespaces
-          scope1.setValue(path, key, value1);
+          scope1.setValue(key, value1);
           scope1.commit();
-          scope2.setValue(path, key, value2);
+          scope2.setValue(key, value2);
           scope2.commit();
 
           // Assert - GlobalStore maintains namespace isolation
           // Each pipelineId should have its own value, not affected by the other
-          const fromGlobalStore1 = globalStore.getValue(pipelineId1, path, key);
-          const fromGlobalStore2 = globalStore.getValue(pipelineId2, path, key);
+          const fromGlobalStore1 = globalStore.getValue(pipelineId1, [], key);
+          const fromGlobalStore2 = globalStore.getValue(pipelineId2, [], key);
 
           expect(fromGlobalStore1).toEqual(value1);
           expect(fromGlobalStore2).toEqual(value2);
@@ -5846,10 +5740,9 @@ describe('Property 22: GlobalStore Delegation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -5859,7 +5752,7 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write and commit
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
           scope.commit();
 
           // Assert - verify the value is stored in the correct namespace structure
@@ -5875,7 +5768,7 @@ describe('Property 22: GlobalStore Delegation', () => {
           expect(pipelineNamespace).toBeDefined();
 
           // Verify value is retrievable via GlobalStore API
-          const retrievedValue = globalStore.getValue(pipelineId, path, key);
+          const retrievedValue = globalStore.getValue(pipelineId, [], key);
           expect(retrievedValue).toEqual(value);
         }
       ),
@@ -5907,13 +5800,13 @@ describe('Property 22: GlobalStore Delegation', () => {
 
           // Act - write and commit multiple values
           for (const { key, value } of pairs) {
-            scope.setValue(['data'], key, value);
+            scope.setValue(key, value);
             scope.commit();
           }
 
           // Assert - all values should be persisted in GlobalStore
           for (const { key, value } of pairs) {
-            const fromGlobalStore = globalStore.getValue(pipelineId, ['data'], key);
+            const fromGlobalStore = globalStore.getValue(pipelineId, [], key);
             expect(fromGlobalStore).toEqual(value);
           }
         }
@@ -5927,11 +5820,10 @@ describe('Property 22: GlobalStore Delegation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
         fc.dictionary(arbKey, arbPrimitive, { minKeys: 1, maxKeys: 3 }),
-        (pipelineId, stageName, path, key, obj1, obj2) => {
+        (pipelineId, stageName, key, obj1, obj2) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -5941,12 +5833,12 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - set initial value, update with merge, then commit
-          scope.setValue(path, key, obj1);
-          scope.updateValue(path, key, obj2);
+          scope.setValue(key, obj1);
+          scope.updateValue(key, obj2);
           scope.commit();
 
           // Assert - GlobalStore should have the merged value
-          const fromGlobalStore = globalStore.getValue(pipelineId, path, key) as Record<string, unknown>;
+          const fromGlobalStore = globalStore.getValue(pipelineId, [], key) as Record<string, unknown>;
 
           // All keys from obj1 should be present (unless overwritten by obj2)
           for (const k of Object.keys(obj1)) {
@@ -5972,10 +5864,9 @@ describe('Property 22: GlobalStore Delegation', () => {
       fc.property(
         arbPipelineId,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName, path, key, value) => {
+        (pipelineId, stageName, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope = new Scope({
@@ -5985,14 +5876,14 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write but do NOT commit
-          scope.setValue(path, key, value);
+          scope.setValue(key, value);
 
           // Assert - value should NOT be in GlobalStore yet
-          const fromGlobalStore = globalStore.getValue(pipelineId, path, key);
+          const fromGlobalStore = globalStore.getValue(pipelineId, [], key);
           expect(fromGlobalStore).toBeUndefined();
 
           // But should be readable from Scope (read-after-write consistency)
-          const fromScope = scope.getValue(path, key);
+          const fromScope = scope.getValue(key);
           expect(fromScope).toEqual(value);
         }
       ),
@@ -6006,10 +5897,9 @@ describe('Property 22: GlobalStore Delegation', () => {
         arbPipelineId,
         arbStageName,
         arbStageName,
-        arbPath,
         arbKey,
         arbJsonValue,
-        (pipelineId, stageName1, stageName2, path, key, value) => {
+        (pipelineId, stageName1, stageName2, key, value) => {
           // Arrange
           const globalStore = new GlobalStore();
           const scope1 = new Scope({
@@ -6019,7 +5909,7 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Act - write and commit with first scope
-          scope1.setValue(path, key, value);
+          scope1.setValue(key, value);
           scope1.commit();
 
           // Create a new scope with the same pipelineId but different stage
@@ -6030,11 +5920,11 @@ describe('Property 22: GlobalStore Delegation', () => {
           });
 
           // Assert - new scope should read the committed value from GlobalStore
-          const fromScope2 = scope2.getValue(path, key);
+          const fromScope2 = scope2.getValue(key);
           expect(fromScope2).toEqual(value);
 
           // And it should match what's in GlobalStore
-          const fromGlobalStore = globalStore.getValue(pipelineId, path, key);
+          const fromGlobalStore = globalStore.getValue(pipelineId, [], key);
           expect(fromScope2).toEqual(fromGlobalStore);
         }
       ),

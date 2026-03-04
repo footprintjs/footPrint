@@ -65,8 +65,6 @@ export type NarrativeDetail = 'summary' | 'full';
 export interface NarrativeOperation {
   /** Whether this was a 'read' or 'write' operation */
   type: 'read' | 'write';
-  /** The namespace path for the operation */
-  path: string[];
   /** The key being accessed */
   key: string;
   /** Summarized value string */
@@ -192,7 +190,6 @@ export class NarrativeRecorder implements Recorder {
     const stageData = this.getOrCreateStageData(event.stageName);
     stageData.reads.push({
       type: 'read',
-      path: event.path,
       key: event.key ?? '',
       valueSummary: summarizeValue(event.value, this.maxValueLength),
     });
@@ -211,7 +208,6 @@ export class NarrativeRecorder implements Recorder {
     const stageData = this.getOrCreateStageData(event.stageName);
     stageData.writes.push({
       type: 'write',
-      path: event.path,
       key: event.key,
       valueSummary: summarizeValue(event.value, this.maxValueLength),
       operation: event.operation,
@@ -315,16 +311,14 @@ export class NarrativeRecorder implements Recorder {
       } else {
         // Full detail mode — individual operations
         for (const read of data.reads) {
-          const path = formatPath(read.path, read.key);
           if (read.valueSummary) {
-            lines.push(`  - Read: ${path} = ${read.valueSummary}`);
+            lines.push(`  - Read: ${read.key} = ${read.valueSummary}`);
           } else {
-            lines.push(`  - Read: ${path}`);
+            lines.push(`  - Read: ${read.key}`);
           }
         }
         for (const write of data.writes) {
-          const path = formatPath(write.path, write.key);
-          lines.push(`  - Wrote: ${path} = ${write.valueSummary}`);
+          lines.push(`  - Wrote: ${write.key} = ${write.valueSummary}`);
         }
       }
 
@@ -469,19 +463,6 @@ function summarizeValue(value: unknown, maxLen: number): string {
   }
 
   return String(value);
-}
-
-/**
- * Formats a path + key into a readable dotted string.
- *
- * @example
- * formatPath(['agent'], 'lastResponse') → "agent.lastResponse"
- * formatPath(['user', 'profile'], 'name') → "user.profile.name"
- * formatPath([], 'root') → "root"
- */
-function formatPath(path: string[], key: string): string {
-  if (path.length === 0) return key;
-  return `${path.join('.')}.${key}`;
 }
 
 /**

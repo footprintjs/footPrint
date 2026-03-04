@@ -111,17 +111,17 @@ describe('BaseState Scenario Tests', () => {
   describe('Consumer subclass workflow', () => {
     class UserScope extends BaseState {
       get userName(): string {
-        return this.getValue(['user'], 'name') as string;
+        return this.getValue('name') as string;
       }
       set userName(value: string) {
-        this.setObject(['user'], 'name', value);
+        this.setObject('name', value);
       }
 
       get userAge(): number {
-        return this.getValue(['user'], 'age') as number;
+        return this.getValue('age') as number;
       }
       set userAge(value: number) {
-        this.setObject(['user'], 'age', value);
+        this.setObject('age', value);
       }
 
       recordLatency(ms: number) {
@@ -220,10 +220,10 @@ describe('BaseState Scenario Tests', () => {
   describe('BaseState subclass used as scopeFactory in FlowChartExecutor', () => {
     class TrackingScope extends BaseState {
       setData(key: string, value: unknown) {
-        this.setObject([], key, value);
+        this.setObject(key, value);
       }
       getData(key: string) {
-        return this.getValue([], key);
+        return this.getValue(key);
       }
     }
 
@@ -266,10 +266,10 @@ describe('BaseState Scenario Tests', () => {
         this.addDebugInfo('steps', name);
       }
       writeResult(key: string, value: unknown) {
-        this.setObject(['results'], key, value);
+        this.setObject(key, value);
       }
       readResult(key: string) {
-        return this.getValue(['results'], key);
+        return this.getValue(key);
       }
     }
 
@@ -378,7 +378,7 @@ describe('createProtectedScope Scenario Tests', () => {
     it('should allow calling methods like setValue, getValue on a scope object', () => {
       const store: Record<string, any> = {};
       const scope = {
-        setObject: (path: string[], key: string, val: any) => { store[key] = val; },
+        setObject: (key: string, val: any) => { store[key] = val; },
         getValue: (key: string) => store[key],
         addDebugInfo: (k: string, v: any) => { store[`debug_${k}`] = v; },
       };
@@ -386,7 +386,7 @@ describe('createProtectedScope Scenario Tests', () => {
       const ps = createProtectedScope(scope, { mode: 'error', stageName: 'test' });
 
       // Method calls should work fine
-      ps.setObject([], 'name', 'Alice');
+      ps.setObject('name', 'Alice');
       expect(ps.getValue('name')).toBe('Alice');
       ps.addDebugInfo('step', 'done');
       expect(store['debug_step']).toBe('done');
@@ -647,10 +647,10 @@ describe('Property-Based Tests', () => {
           const { ctx } = makeRealContext();
           const state = new BaseState(ctx, 'test');
 
-          state.setObject([], key, value);
+          state.setObject(key, value);
           ctx.commit();
 
-          const readBack = state.getValue([], key);
+          const readBack = state.getValue(key);
           // Use JSON comparison to handle deep equality for objects/arrays
           return JSON.stringify(readBack) === JSON.stringify(value);
         }),

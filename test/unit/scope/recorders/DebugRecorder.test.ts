@@ -61,7 +61,6 @@ describe('DebugRecorder', () => {
         timestamp: 1000,
         error,
         operation: 'read',
-        path: ['data'],
         key: 'value',
       };
 
@@ -105,7 +104,7 @@ describe('DebugRecorder', () => {
       expect((errors[0].data as any).operation).toBe('commit');
     });
 
-    it('should capture error path and key when provided', () => {
+    it('should capture error key when provided', () => {
       const recorder = new DebugRecorder();
       const error = new Error('Test error');
 
@@ -115,12 +114,10 @@ describe('DebugRecorder', () => {
         timestamp: 1000,
         error,
         operation: 'read',
-        path: ['data', 'nested'],
         key: 'myKey',
       });
 
       const errors = recorder.getErrors();
-      expect((errors[0].data as any).path).toEqual(['data', 'nested']);
       expect((errors[0].data as any).key).toBe('myKey');
     });
 
@@ -159,7 +156,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'pipeline1',
         timestamp: 1000,
-        path: ['data'],
         key: 'value',
         value: { test: 'data' },
         operation: 'set',
@@ -171,7 +167,6 @@ describe('DebugRecorder', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].type).toBe('write');
       expect(entries[0].stageName).toBe('stage1');
-      expect((entries[0].data as any).path).toEqual(['data']);
       expect((entries[0].data as any).key).toBe('value');
       expect((entries[0].data as any).value).toEqual({ test: 'data' });
       expect((entries[0].data as any).operation).toBe('set');
@@ -184,7 +179,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: ['data'],
         key: 'value',
         value: 'test',
         operation: 'set',
@@ -200,7 +194,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         key: 'k1',
         value: 1,
         operation: 'set',
@@ -210,7 +203,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         key: 'k2',
         value: 2,
         operation: 'update',
@@ -222,21 +214,19 @@ describe('DebugRecorder', () => {
       expect((entries[1].data as any).operation).toBe('update');
     });
 
-    it('should capture path and key for each write (Requirement 6.3)', () => {
+    it('should capture key for each write (Requirement 6.3)', () => {
       const recorder = new DebugRecorder({ verbosity: 'verbose' });
 
       recorder.onWrite({
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: ['nested', 'path'],
         key: 'myKey',
         value: 'myValue',
         operation: 'set',
       });
 
       const entries = recorder.getEntries();
-      expect((entries[0].data as any).path).toEqual(['nested', 'path']);
       expect((entries[0].data as any).key).toBe('myKey');
     });
   });
@@ -253,7 +243,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'pipeline1',
         timestamp: 1000,
-        path: ['data'],
         key: 'value',
         value: 'test',
       };
@@ -264,7 +253,6 @@ describe('DebugRecorder', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].type).toBe('read');
       expect(entries[0].stageName).toBe('stage1');
-      expect((entries[0].data as any).path).toEqual(['data']);
       expect((entries[0].data as any).key).toBe('value');
       expect((entries[0].data as any).value).toBe('test');
     });
@@ -276,7 +264,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: ['data'],
         value: 'test',
       });
 
@@ -290,7 +277,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: ['data'],
         value: { nested: 'object' },
       });
 
@@ -380,7 +366,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test1',
       });
 
@@ -392,7 +377,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         value: 'test2',
       });
 
@@ -418,7 +402,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -441,7 +424,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -449,7 +431,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         key: 'k',
         value: 'v',
         operation: 'set',
@@ -474,7 +455,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'first',
       });
 
@@ -482,7 +462,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         key: 'k',
         value: 'second',
         operation: 'set',
@@ -500,7 +479,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -524,7 +502,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -540,7 +517,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 3000,
-        path: [],
         key: 'k',
         value: 'v',
         operation: 'set',
@@ -566,7 +542,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -586,7 +561,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test1',
       });
 
@@ -594,7 +568,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage2',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         value: 'test2',
       });
 
@@ -602,7 +575,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 3000,
-        path: [],
         key: 'k',
         value: 'v',
         operation: 'set',
@@ -624,7 +596,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -644,7 +615,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         value: 'test',
       });
 
@@ -652,7 +622,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 3000,
-        path: [],
         key: 'k',
         value: 'v',
         operation: 'set',
@@ -697,7 +666,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'test',
       });
 
@@ -725,7 +693,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'p1',
         timestamp: 1000,
-        path: [],
         value: 'old',
       });
 
@@ -735,7 +702,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage2',
         pipelineId: 'p1',
         timestamp: 2000,
-        path: [],
         value: 'new',
       });
 
@@ -786,7 +752,6 @@ describe('DebugRecorder', () => {
         stageName: 'processData',
         pipelineId: 'main',
         timestamp: baseTime + 10,
-        path: ['input'],
         key: 'data',
         value: { items: [1, 2, 3] },
       });
@@ -796,7 +761,6 @@ describe('DebugRecorder', () => {
         stageName: 'processData',
         pipelineId: 'main',
         timestamp: baseTime + 50,
-        path: ['output'],
         key: 'result',
         value: { sum: 6 },
         operation: 'set',
@@ -834,7 +798,6 @@ describe('DebugRecorder', () => {
         stageName: 'failingStage',
         pipelineId: 'main',
         timestamp: 1010,
-        path: ['input'],
         value: undefined,
       });
 
@@ -844,7 +807,6 @@ describe('DebugRecorder', () => {
         timestamp: 1020,
         error: new Error('Input data not found'),
         operation: 'read',
-        path: ['input'],
         key: 'data',
       });
 
@@ -877,7 +839,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'main',
         timestamp: 1010,
-        path: [],
         value: 'test',
       });
 
@@ -885,7 +846,6 @@ describe('DebugRecorder', () => {
         stageName: 'stage1',
         pipelineId: 'main',
         timestamp: 1020,
-        path: [],
         key: 'k',
         value: 'v',
         operation: 'set',
