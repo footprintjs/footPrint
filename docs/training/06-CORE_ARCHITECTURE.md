@@ -43,8 +43,8 @@ Here's how each training concept maps to FootPrint's source code:
 │    Lifetime                    →    commitPatch() flushes to global        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Module 4: Scope                                                            │
-│    Local Scope                 →    scope.setObject([], key, value)        │
-│    Closure Scope               →    scope.setObject(['pipeline'], key, val)│
+│    Local Scope                 →    scope.setValue(key, value)             │
+│    Closure Scope               →    scope.setValue(key, value)             │
 │    Global Scope                →    scope.setGlobal(key, value)            │
 │    Scope Chain                 →    StageContext.getValue() lookup         │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -93,7 +93,7 @@ class _N<TOut, TScope> {
 | Module 1 Concept | FootPrint Implementation | Source Location |
 |------------------|-------------------------|-----------------|
 | Function name | `StageNode.name` | `FlowChartBuilder.ts:_N.name` |
-| Parameters | `scope.getValue(path, key)` | `BaseState.ts:getValue()` |
+| Parameters | `scope.getValue(key)` | `BaseState.ts:getValue()` |
 | Return value | `Promise<TOut>` from stage function | `types.ts:PipelineStageFunction` |
 | Encapsulation | Stage only sees its scope | `StageContext` isolation |
 
@@ -108,14 +108,14 @@ function calculateTotal(price: number, quantity: number): number {
 // FootPrint equivalent: stage receives scope, produces output
 async function calculateTotal(scope: OrderScope): Promise<OrderResult> {
   // Input via scope (not parameters)
-  const price = scope.getValue(['order'], 'price');
-  const quantity = scope.getValue(['order'], 'quantity');
-  
+  const price = scope.getValue('price');
+  const quantity = scope.getValue('quantity');
+
   // Computation (same as traditional function)
   const total = price * quantity;
-  
+
   // Output via scope AND return
-  scope.setObject(['order'], 'total', total);
+  scope.setValue('total', total);
   return { total };
 }
 ```
@@ -290,19 +290,19 @@ commitPatch(): void {
 │  Stage Execution                                                        │
 │                                                                         │
 │  1. Stage writes to scope                                               │
-│     scope.setObject(['order'], 'total', 100)                           │
+│     scope.setValue('total', 100)                                       │
 │              │                                                          │
 │              ▼                                                          │
 │  ┌─────────────────────────────────┐                                   │
 │  │  PatchedMemoryContext           │  ← Local "stack" (staged writes)  │
-│  │  _overwrites: { 'order.total': 100 }                                │
+│  │  _overwrites: { 'total': 100 }                                      │
 │  └─────────────────────────────────┘                                   │
 │              │                                                          │
 │              │ commitPatch() (when stage completes)                     │
 │              ▼                                                          │
 │  ┌─────────────────────────────────┐                                   │
 │  │  GlobalContext                  │  ← Shared "heap" (committed)      │
-│  │  _state: { order: { total: 100 } }                                  │
+│  │  _state: { total: 100 }                                              │
 │  └─────────────────────────────────┘                                   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -326,14 +326,13 @@ export class BaseState {
   protected _stageContext: StageContext;
   protected _stageName: string;
   
-  // Node Context (local scope) - private to this stage
-  // Path: [] means current stage namespace
-  getValue(path: string[], key?: string) {
-    return this._stageContext.getValue(path, key);
+  // Scoped state - read/write within pipeline namespace
+  getValue(key?: string) {
+    return this._stageContext.getValue([], key);
   }
-  
-  setObject(path: string[], key: string, value: unknown) {
-    return this._stageContext.setObject(path, key, value);
+
+  setValue(key: string, value: unknown) {
+    return this._stageContext.setObject([], key, value);
   }
   
   // Global Context (global scope) - shared everywhere
@@ -376,8 +375,8 @@ getValue(path: string[], key?: string) {
 
 | Module 4 Concept | FootPrint Implementation | Source Location |
 |------------------|-------------------------|-----------------|
-| Local scope | `scope.setObject([], key, val)` | `BaseState.ts:setObject` |
-| Closure scope | `scope.setObject(['pipeline'], key, val)` | `BaseState.ts:setObject` |
+| Local scope | `scope.setValue(key, val)` | `BaseState.ts:setObject` |
+| Closure scope | `scope.setValue(key, val)` | `BaseState.ts:setObject` |
 | Global scope | `scope.setGlobal(key, val)` | `BaseState.ts:setGlobal` |
 | Scope chain | `StageContext.getValue()` lookup | `StageContext.ts:getValue` |
 | Scope resolution | `withNamespace()` path building | `StageContext.ts:withNamespace` |
@@ -386,15 +385,15 @@ getValue(path: string[], key?: string) {
 
 ```typescript
 async function myStage(scope: BaseState) {
-  // Module 4: Local Scope → FootPrint: Node Context
-  // Only this stage can see 'temp'
-  scope.setObject([], 'temp', 'local value');
+  // Module 4: Local Scope → FootPrint: Scoped state
+  // Only this stage can see 'temp' (until committed)
+  scope.setValue('temp', 'local value');
   // Stored at: ['pipelines', pipelineId, 'temp']
-  
-  // Module 4: Closure Scope → FootPrint: Path Context  
+
+  // Module 4: Closure Scope → FootPrint: Scoped state (after commit)
   // All stages in this pipeline can see 'sharedData'
-  scope.setObject(['pipeline'], 'sharedData', { items: [] });
-  // Stored at: ['pipelines', pipelineId, 'pipeline', 'sharedData']
+  scope.setValue('sharedData', { items: [] });
+  // Stored at: ['pipelines', pipelineId, 'sharedData']
   
   // Module 4: Global Scope → FootPrint: Global Context
   // All stages everywhere can see 'config'
@@ -600,7 +599,7 @@ src/
     └── core/
         └── BaseState.ts         ← Module 4: User-facing scope API
             • getValue()            Read from scope
-            • setObject()           Write to scope (path-based)
+            • setValue()            Write to scope
             • setGlobal()           Write to global scope
 ```
 
@@ -613,7 +612,7 @@ src/
 | Module 1 | Function | `PipelineStageFunction` | `(scope) => Promise<T>` |
 | Module 2 | Call Stack | `StageContext` | `createNextContext()` |
 | Module 3 | Memory | `PatchedMemoryContext` + `GlobalContext` | `commitPatch()` |
-| Module 4 | Scope | `BaseState` | `setObject(path, key, val)` |
+| Module 4 | Scope | `BaseState` | `setValue(key, val)` |
 | Module 5 | Flowchart | `FlowChartBuilder` | `addFunction()`, `addDecider()` |
 
 ---

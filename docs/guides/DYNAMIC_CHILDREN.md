@@ -40,7 +40,7 @@ Return a `StageNode` with `children` to create parallel children at runtime:
 
 ```typescript
 async function toolBranchHandler(scope: Scope) {
-  const toolCalls = scope.getValue([], 'toolCalls');
+  const toolCalls = scope.getValue('toolCalls');
   
   if (!toolCalls?.length) {
     return { message: 'No tools to execute' }; // Regular output
@@ -94,7 +94,7 @@ Return a `StageNode` with `next` to create a linear continuation:
 
 ```typescript
 async function processHandler(scope: Scope) {
-  const needsValidation = scope.getValue([], 'needsValidation');
+  const needsValidation = scope.getValue('needsValidation');
   
   if (needsValidation) {
     // Return dynamic next node
@@ -142,7 +142,7 @@ Return a `StageNode` with `children` and `nextNodeSelector` for runtime multi-ch
 
 ```typescript
 async function toolDispatchHandler(scope: Scope) {
-  const toolCalls = scope.getValue([], 'toolCalls');
+  const toolCalls = scope.getValue('toolCalls');
   
   // Create all possible tool nodes
   const toolNodes = toolRegistry.getAllTools().map(tool => ({
@@ -170,7 +170,7 @@ The primary use case - execute tools requested by an LLM:
 
 ```typescript
 async function toolBranch(scope: Scope) {
-  const llmResponse = scope.getValue([], 'llmResponse');
+  const llmResponse = scope.getValue('llmResponse');
   const toolCalls = llmResponse.tool_calls || [];
   
   if (toolCalls.length === 0) {
@@ -200,7 +200,7 @@ Create workflow steps based on runtime data:
 
 ```typescript
 async function workflowBuilder(scope: Scope) {
-  const config = scope.getValue([], 'workflowConfig');
+  const config = scope.getValue('workflowConfig');
   
   const steps = config.steps.map((step, i) => ({
     id: `step_${i}`,
@@ -221,7 +221,7 @@ Process items in parallel based on runtime conditions:
 
 ```typescript
 async function batchProcessor(scope: Scope) {
-  const items = scope.getValue([], 'items');
+  const items = scope.getValue('items');
   const processableItems = items.filter(item => item.status === 'pending');
   
   if (processableItems.length === 0) {

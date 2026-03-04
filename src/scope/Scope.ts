@@ -422,9 +422,9 @@ export class Scope {
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'a', 1);
+   * scope.setValue('a', 1);
    * scope.commit();
-   * scope.setValue(['config'], 'b', 2);
+   * scope.setValue('b', 2);
    * scope.commit();
    *
    * const snapshots = scope.getSnapshots();
@@ -446,13 +446,13 @@ export class Scope {
    *
    * @example
    * ```typescript
-   * scope.setValue(['config'], 'value', 'first');
+   * scope.setValue('value', 'first');
    * scope.commit();
-   * scope.setValue(['config'], 'value', 'second');
+   * scope.setValue('value', 'second');
    * scope.commit();
    *
    * const firstState = scope.getStateAt(0);
-   * console.log(firstState?.config?.value); // 'first'
+   * console.log(firstState?.value); // 'first'
    * ```
    */
   getStateAt(index: number): Record<string, unknown> | undefined {
@@ -475,11 +475,11 @@ export class Scope {
    * ```typescript
    * console.log(scope.getCurrentSnapshotIndex()); // -1 (no commits yet)
    *
-   * scope.setValue(['config'], 'value', 1);
+   * scope.setValue('value', 1);
    * scope.commit();
    * console.log(scope.getCurrentSnapshotIndex()); // 0
    *
-   * scope.setValue(['config'], 'value', 2);
+   * scope.setValue('value', 2);
    * scope.commit();
    * console.log(scope.getCurrentSnapshotIndex()); // 1
    * ```

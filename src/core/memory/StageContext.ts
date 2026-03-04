@@ -25,7 +25,7 @@
  * @example
  * ```typescript
  * const ctx = new StageContext('pipeline-1', 'validate', globalStore);
- * ctx.setObject(['user'], 'name', 'Alice');
+ * ctx.setObject([], 'name', 'Alice');
  * ctx.commit(); // Atomically applies to GlobalStore
  * ```
  */
@@ -249,9 +249,9 @@ export class StageContext {
    * WHY: Stages and subflow output mappers frequently need to add items to
    * collections (e.g., appending a message to conversation history). Without
    * this primitive, consumers must do a manual read-append-write:
-   *   const arr = scope.getValue(path, key);
+   *   const arr = scope.getValue(key);
    *   arr.push(newItem);
-   *   scope.setObject(path, key, arr);
+   *   scope.setValue(key, arr);
    *
    * This method encapsulates that pattern as a first-class operation.
    *

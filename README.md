@@ -138,16 +138,16 @@ import { flowChart, FlowChartExecutor, BaseState } from 'footprint';
 // Define scope with typed getters/setters
 class OrderScope extends BaseState {
   get cartTotal(): number {
-    return this.getValue([], 'cartTotal') ?? 0;
+    return this.getValue('cartTotal') ?? 0;
   }
   set cartTotal(value: number) {
-    this.setValue([], 'cartTotal', value);
+    this.setValue('cartTotal', value);
   }
   get paymentStatus(): string {
-    return this.getValue([], 'paymentStatus') ?? 'pending';
+    return this.getValue('paymentStatus') ?? 'pending';
   }
   set paymentStatus(value: string) {
-    this.setValue([], 'paymentStatus', value);
+    this.setValue('paymentStatus', value);
   }
 }
 
@@ -278,13 +278,13 @@ Extend `BaseState` with getters and setters. Stages get IntelliSense, and the da
 ```typescript
 class AgentScope extends BaseState {
   get messages(): Message[] {
-    return this.getValue([], 'messages') ?? [];
+    return this.getValue('messages') ?? [];
   }
   set messages(value: Message[]) {
-    this.setValue([], 'messages', value);
+    this.setValue('messages', value);
   }
   get model(): string {
-    return this.getValue([], 'model') ?? 'gpt-4';
+    return this.getValue('model') ?? 'gpt-4';
   }
 }
 ```
@@ -296,25 +296,10 @@ class AgentScope extends BaseState {
 If you don't need a typed class, use the raw API:
 
 ```typescript
-scope.setValue([], 'total', 79.98);          // write (overwrite)
-scope.updateValue([], 'config', { retries: 3 }); // write (deep merge)
-const total = scope.getValue([], 'total');   // read
+scope.setValue('total', 79.98);              // write (overwrite)
+scope.updateValue('config', { retries: 3 }); // write (deep merge)
+const total = scope.getValue('total');       // read
 ```
-
-### Paths are namespaces, not requirements
-
-The path array `[]` is an **organizational namespace**, not a routing mechanism. Use `[]` for flat state or group related keys under a namespace:
-
-```typescript
-// Flat (recommended for most cases)
-scope.setValue([], 'cartTotal', 100);
-
-// Namespaced (optional, for organization)
-scope.setValue(['payment'], 'status', 'charged');
-scope.setValue(['shipping'], 'carrier', 'FedEx');
-```
-
-Branch isolation in fork/parallel patterns is handled internally by `pipelineId` &mdash; you don't need to use paths to separate branch data.
 
 ### Validated Scope (Zod)
 
@@ -331,7 +316,7 @@ const PipelineSchema = z.object({
 class ValidatedScope extends BaseState {
   setCartTotal(value: number) {
     PipelineSchema.shape.cartTotal.parse(value);
-    this.setValue(['pipeline'], 'cartTotal', value);
+    this.setValue('cartTotal', value);
   }
 }
 ```

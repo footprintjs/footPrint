@@ -46,10 +46,10 @@ import { BaseState, Scope, MetricRecorder, DebugRecorder } from './scope';
 // Define a custom scope class
 class MyScope extends BaseState {
   get userName(): string {
-    return this.getValue(['user'], 'name') as string;
+    return this.getValue('name') as string;
   }
   set userName(value: string) {
-    this.setObject(['user'], 'name', value);
+    this.setObject('name', value);
   }
 }
 

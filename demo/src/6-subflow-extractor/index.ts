@@ -34,13 +34,13 @@ const metadataExtractor: TraversalExtractor<StageMetadata> = (snapshot) => {
 // Main flow stages
 const prepareRequest = async (scope: BaseState) => {
   console.log('  [Main] Preparing request...');
-  scope.setObject(['pipeline'], 'request', { query: 'Hello, world!' });
+  scope.setObject('request', { query: 'Hello, world!' });
   return { prepared: true };
 };
 
 const aggregateResults = async (scope: BaseState) => {
   console.log('  [Main] Aggregating results...');
-  const llmResponse = scope.getValue(['pipeline'], 'llmResponse');
+  const llmResponse = scope.getValue('llmResponse');
   return { aggregated: true, llmResponse };
 };
 
@@ -48,13 +48,13 @@ const aggregateResults = async (scope: BaseState) => {
 const callLLM = async (scope: BaseState) => {
   console.log('  [Subflow] Calling LLM...');
   const response = 'Hello! How can I help you today?';
-  scope.setObject(['pipeline'], 'llmResponse', response);
+  scope.setObject('llmResponse', response);
   return { response };
 };
 
 const processResponse = async (scope: BaseState) => {
   console.log('  [Subflow] Processing response...');
-  const response = scope.getValue(['pipeline'], 'llmResponse');
+  const response = scope.getValue('llmResponse');
   return { processed: true, response };
 };
 

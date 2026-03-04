@@ -212,7 +212,7 @@ function processPayment(amount: number): PaymentResult {
 
 // FootPrint stage (same concept!)
 async function processPayment(scope: PaymentScope): Promise<PaymentResult> {
-  const amount = scope.getValue([], 'amount');
+  const amount = scope.getValue('amount');
   // ... process
   return { success: true };
 }

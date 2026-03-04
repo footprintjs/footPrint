@@ -43,13 +43,13 @@ Selector:  A → ? → [selected subset] → C
 
 ```typescript
 // Write data (overwrites)
-scope.setObject(['path'], 'key', value);
+scope.setValue('key', value);
 
 // Write data (deep merge)
-scope.updateObject(['path'], 'key', value);
+scope.updateValue('key', value);
 
 // Read data
-const value = scope.getValue(['path'], 'key');
+const value = scope.getValue('key');
 ```
 
 ### Builder Pattern

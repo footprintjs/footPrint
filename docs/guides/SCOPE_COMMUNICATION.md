@@ -20,17 +20,17 @@ async function stageB(scope: MyScope) {
 
 ## The Solution: GlobalContext Methods
 
-Use `setObject()`, `updateObject()`, and `getValue()` to communicate between stages. These methods write to and read from the shared `GlobalContext`.
+Use `setValue()`, `updateValue()`, and `getValue()` to communicate between stages. These methods write to and read from the shared `GlobalContext`.
 
 ```typescript
 // ✅ CORRECT - Data persists across stages
 async function stageA(scope: MyScope) {
-  scope.setObject([], 'myData', { result: 'hello' });  // Writes to GlobalContext
+  scope.setValue('myData', { result: 'hello' });  // Writes to GlobalContext
   return { success: true };
 }
 
 async function stageB(scope: MyScope) {
-  const myData = scope.getValue([], 'myData');  // Reads from GlobalContext
+  const myData = scope.getValue('myData');  // Reads from GlobalContext
   console.log(myData);  // { result: 'hello' }
 }
 ```
@@ -39,36 +39,35 @@ async function stageB(scope: MyScope) {
 
 ### Writing Data
 
-#### `setObject(path: string[], key: string, value: unknown)`
-Hard overwrite - replaces any existing value at the path.
+#### `setValue(key: string, value: unknown)`
+Hard overwrite - replaces any existing value.
 
 ```typescript
-scope.setObject(['config'], 'settings', { theme: 'dark' });
-// Writes to: pipelines/<pipelineId>/config/settings
+scope.setValue('settings', { theme: 'dark' });
 ```
 
-#### `updateObject(path: string[], key: string, value: unknown)`
-Deep merge - merges value with existing data at the path.
+#### `updateValue(key: string, value: unknown)`
+Deep merge - merges value with existing data.
 
 ```typescript
-scope.updateObject(['results'], 'toolA', { output: 'data' });
-scope.updateObject(['results'], 'toolB', { output: 'more' });
+scope.updateValue('toolA', { output: 'data' });
+scope.updateValue('toolB', { output: 'more' });
 // Results in: { toolA: { output: 'data' }, toolB: { output: 'more' } }
 ```
 
 ### Reading Data
 
-#### `getValue(path: string[], key?: string)`
+#### `getValue(key?: string)`
 Reads from GlobalContext. Supports read-after-write within the same stage.
 
 ```typescript
-const settings = scope.getValue(['config'], 'settings');
-const allResults = scope.getValue(['results']);  // Returns entire object at path
+const settings = scope.getValue('settings');
+const allState = scope.getValue();  // Returns entire scope state
 ```
 
 ## Parallel Children (Fork) Communication
 
-When using parallel children (fork), each child gets its own scope instance. Use `updateObject()` to aggregate results:
+When using parallel children (fork), each child gets its own scope instance. Use `updateValue()` to aggregate results:
 
 ```typescript
 // Parent stage creates children
@@ -78,13 +77,13 @@ function createChildHandlers(items: Item[]): StageNode[] {
     id: `child_${item.id}`,
     fn: async (scope) => {
       const result = await processItem(item);
-      
+
       // ✅ Write to shared GlobalContext - all children merge into same object
-      scope.updateObject(['childResults'], item.id, {
+      scope.updateValue(item.id, {
         itemId: item.id,
         output: result,
       });
-      
+
       return { itemId: item.id, result };
     },
   }));
@@ -93,8 +92,8 @@ function createChildHandlers(items: Item[]): StageNode[] {
 // Aggregation stage reads all results
 async function aggregateStage(scope: MyScope) {
   // Read merged results from all children
-  const childResults = scope.getValue(['childResults']) as Record<string, ChildResult>;
-  
+  const childResults = scope.getValue() as Record<string, ChildResult>;
+
   const allResults = Object.values(childResults);
   // Process aggregated results...
 }
@@ -105,7 +104,7 @@ async function aggregateStage(scope: MyScope) {
 Pipeline automatically calls `commitPatch()` after each stage completes:
 
 1. Stage handler runs
-2. All `setObject()`/`updateObject()` calls are batched in `PatchedMemoryContext`
+2. All `setValue()`/`updateValue()` calls are batched in `PatchedMemoryContext`
 3. `commitPatch()` flushes patches to `GlobalContext`
 4. Next stage can read the committed values via `getValue()`
 
@@ -113,8 +112,8 @@ Pipeline automatically calls `commitPatch()` after each stage completes:
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Stage A   │     │   Stage B   │     │   Stage C   │
 │             │     │             │     │             │
-│ setObject() │────▶│ getValue()  │────▶│ getValue()  │
-│             │     │ setObject() │     │             │
+│ setValue()  │────▶│ getValue()  │────▶│ getValue()  │
+│             │     │ setValue()  │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘
        │                   │                   │
        ▼                   ▼                   ▼
@@ -148,8 +147,8 @@ class MyScope extends BaseState {
 // Usage in stage handler
 async function myStage(scope: MyScope) {
   // ✅ Use inherited methods for cross-stage communication
-  scope.setObject([], 'sharedData', { value: 123 });
-  const data = scope.getValue([], 'sharedData');
+  scope.setValue('sharedData', { value: 123 });
+  const data = scope.getValue('sharedData');
   
   // Instance properties are fine for stage-local data
   scope.currentItem = { id: 'local' };
@@ -166,9 +165,9 @@ async function askLLM(scope: AgentScope) {
   const response = await callLLM(scope.conversationHistory);
   
   // Store in GlobalContext for downstream stages
-  scope.setObject([], 'llmResponse', response);
+  scope.setValue('llmResponse', response);
   if (response.toolCalls?.length > 0) {
-    scope.setObject([], 'toolCalls', response.toolCalls);
+    scope.setValue('toolCalls', response.toolCalls);
   }
   
   return { response };
@@ -177,7 +176,7 @@ async function askLLM(scope: AgentScope) {
 // routeDecider stage
 async function routeDecider(scope: AgentScope) {
   // Read from GlobalContext
-  const toolCalls = scope.getValue([], 'toolCalls') as ToolCall[] | undefined;
+  const toolCalls = scope.getValue('toolCalls') as ToolCall[] | undefined;
   
   const hasToolCalls = toolCalls && toolCalls.length > 0;
   return { selectedBranch: hasToolCalls ? 'tool_branch' : 'direct_branch' };
@@ -192,7 +191,7 @@ const toolHandler = async (scope: AgentScope) => {
   const result = await executeTool(toolCall);
   
   // Merge into shared results object
-  scope.updateObject(['toolResults'], toolCall.id, {
+  scope.updateValue(toolCall.id, {
     toolCallId: toolCall.id,
     output: result.output,
     isError: result.isError,
@@ -203,7 +202,7 @@ const toolHandler = async (scope: AgentScope) => {
 
 // Aggregation stage
 async function aggregateTools(scope: AgentScope) {
-  const toolResultsMap = scope.getValue(['toolResults']) as Record<string, ToolResult>;
+  const toolResultsMap = scope.getValue() as Record<string, ToolResult>;
   const results = Object.values(toolResultsMap || {});
   
   return { aggregatedResults: results, hasErrors: results.some(r => r.isError) };
@@ -214,7 +213,7 @@ async function aggregateTools(scope: AgentScope) {
 
 1. **Check commitPatch was called**: Pipeline logs patch commits. Look for `writeTrace` in debug output.
 
-2. **Verify path namespacing**: Values are stored under `pipelines/<pipelineId>/<path>/<key>`. Use `getValue` with correct path.
+2. **Verify namespacing**: Values are stored under `pipelines/<pipelineId>/<key>`. Use `getValue` with the correct key.
 
 3. **Read-after-write**: Within the same stage, `getValue` returns uncommitted values from the patch.
 
@@ -225,8 +224,8 @@ async function aggregateTools(scope: AgentScope) {
 | Method | Use Case | Behavior |
 |--------|----------|----------|
 | `scope.property = value` | Stage-local data only | ❌ Lost after stage |
-| `scope.setObject(path, key, value)` | Cross-stage data (overwrite) | ✅ Persists in GlobalContext |
-| `scope.updateObject(path, key, value)` | Cross-stage data (merge) | ✅ Merges into GlobalContext |
-| `scope.getValue(path, key)` | Read shared data | ✅ Reads from GlobalContext |
+| `scope.setValue(key, value)` | Cross-stage data (overwrite) | ✅ Persists in GlobalContext |
+| `scope.updateValue(key, value)` | Cross-stage data (merge) | ✅ Merges into GlobalContext |
+| `scope.getValue(key)` | Read shared data | ✅ Reads from GlobalContext |
 
-**Remember**: If you need data in a subsequent stage, use `setObject()`/`updateObject()`. Direct property assignment is only for stage-local convenience.
+**Remember**: If you need data in a subsequent stage, use `setValue()`/`updateValue()`. Direct property assignment is only for stage-local convenience.

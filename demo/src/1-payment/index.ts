@@ -21,15 +21,15 @@ const cartItems = [
 const validateCart = async (scope: BaseState) => {
   console.log('  [1] Validating cart...');
   const total = cartItems.reduce((sum, i) => sum + i.price, 0);
-  scope.setObject(['pipeline'], 'cartTotal', total);
+  scope.setObject('cartTotal', total);
   return { valid: true, total, itemCount: cartItems.length };
 };
 
 const processPayment = async (scope: BaseState) => {
   console.log('  [2] Processing payment...');
-  const total = scope.getValue(['pipeline'], 'cartTotal');
+  const total = scope.getValue('cartTotal');
   const txId = `TX-${Date.now()}`;
-  scope.setObject(['pipeline'], 'transactionId', txId);
+  scope.setObject('transactionId', txId);
   return { success: true, txId, amount: total };
 };
 
@@ -40,8 +40,8 @@ const updateInventory = async () => {
 
 const sendReceipt = async (scope: BaseState) => {
   console.log('  [4] Sending receipt...');
-  const txId = scope.getValue(['pipeline'], 'transactionId');
-  const total = scope.getValue(['pipeline'], 'cartTotal');
+  const txId = scope.getValue('transactionId');
+  const total = scope.getValue('cartTotal');
   return { sent: true, txId, total };
 };
 

@@ -86,10 +86,10 @@ Within a SINGLE flow, stages share state via `pipelineId` namespace:
 
 ```typescript
 // Stage A writes
-scope.setObject([], 'result', { value: 42 });
+scope.setValue('result', { value: 42 });
 
 // Stage B reads (same flow)
-const result = scope.getValue([], 'result'); // Gets { value: 42 }
+const result = scope.getValue('result'); // Gets { value: 42 }
 ```
 
 The lookup is flat: `WriteBuffer → GlobalStore[pipelineId]`
@@ -103,7 +103,7 @@ Would allow subflows to read from parent's namespace:
 parentScope.userQuery = "Hello";
 
 // Subflow would automatically see it (NOT IMPLEMENTED)
-const query = subflowScope.getValue([], 'userQuery'); // Would find parent's value
+const query = subflowScope.getValue('userQuery'); // Would find parent's value
 ```
 
 The lookup would be chained: `local → parent → grandparent → global`

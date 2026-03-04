@@ -16,9 +16,8 @@
  * KEY CONCEPTS:
  * - start(): Defines the entry point stage
  * - addFunction(): Chains subsequent stages
- * - scope.setObject(): Writes data to scope (buffered until commit)
+ * - scope.setValue(): Writes data to scope (buffered until commit)
  * - scope.getValue(): Reads data from scope
- * - Scope path ['pipeline']: Standard namespace for pipeline-level data
  *
  * DOMAIN: Payment Processing
  * A typical e-commerce payment flow:
@@ -39,7 +38,7 @@ import { FlowChartBuilder, BaseState } from 'footprint';
  *
  * WHY: The scope factory is called before each stage executes, providing
  * the stage with access to shared state. BaseState is the standard
- * implementation that provides getValue/setObject/commit operations.
+ * implementation that provides getValue/setValue/commit operations.
  *
  * DESIGN: We use a simple factory that creates BaseState instances.
  * In production, you might add recorders for metrics/debugging.
@@ -82,8 +81,8 @@ const cartItems: CartItem[] = [
  * This pattern of "validate and enrich" is common in pipelines.
  *
  * SCOPE OPERATIONS:
- * - setObject(['pipeline'], 'cartTotal', total): Stores calculated total
- * - setObject(['pipeline'], 'itemCount', count): Stores item count
+ * - setValue('cartTotal', total): Stores calculated total
+ * - setValue('itemCount', count): Stores item count
  *
  * These values are available to subsequent stages via getValue().
  */
@@ -95,11 +94,10 @@ const validateCart = async (scope: BaseState) => {
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   // Store in scope for subsequent stages
-  // WHY: Using scope.setObject() makes data available to later stages
-  // The path ['pipeline'] is a standard namespace for pipeline-level data
-  scope.setObject(['pipeline'], 'cartTotal', total);
-  scope.setObject(['pipeline'], 'itemCount', itemCount);
-  scope.setObject(['pipeline'], 'cartItems', cartItems);
+  // WHY: Using scope.setValue() makes data available to later stages
+  scope.setObject('cartTotal', total);
+  scope.setObject('itemCount', itemCount);
+  scope.setObject('cartItems', cartItems);
 
   console.log(`      Cart validated: ${itemCount} items, $${total.toFixed(2)} total`);
 
@@ -119,22 +117,22 @@ const validateCart = async (scope: BaseState) => {
  * This is the core pattern for stage-to-stage communication.
  *
  * SCOPE OPERATIONS:
- * - getValue(['pipeline'], 'cartTotal'): Reads total from previous stage
- * - setObject(['pipeline'], 'transactionId', txId): Stores new value
+ * - getValue('cartTotal'): Reads total from previous stage
+ * - setValue('transactionId', txId): Stores new value
  */
 const processPayment = async (scope: BaseState) => {
   console.log('  [2] ProcessPayment: Processing payment...');
 
   // Read value written by previous stage
   // WHY: getValue() retrieves data stored by earlier stages
-  const total = scope.getValue(['pipeline'], 'cartTotal') as number;
+  const total = scope.getValue('cartTotal') as number;
 
   // Simulate payment processing
   const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Store transaction ID for later stages
-  scope.setObject(['pipeline'], 'transactionId', transactionId);
-  scope.setObject(['pipeline'], 'paymentStatus', 'completed');
+  scope.setObject('transactionId', transactionId);
+  scope.setObject('paymentStatus', 'completed');
 
   console.log(`      Payment processed: $${total.toFixed(2)}, Transaction: ${transactionId}`);
 
@@ -153,13 +151,13 @@ const processPayment = async (scope: BaseState) => {
  * to write new values. Not every stage needs to modify scope.
  *
  * SCOPE OPERATIONS:
- * - getValue(['pipeline'], 'cartItems'): Reads items to update inventory
+ * - getValue('cartItems'): Reads items to update inventory
  */
 const updateInventory = async (scope: BaseState) => {
   console.log('  [3] UpdateInventory: Updating inventory levels...');
 
   // Read cart items from scope
-  const items = scope.getValue(['pipeline'], 'cartItems') as CartItem[];
+  const items = scope.getValue('cartItems') as CartItem[];
 
   // Simulate inventory update
   const updatedItems = items.map((item) => ({
@@ -183,17 +181,17 @@ const updateInventory = async (scope: BaseState) => {
  * Demonstrates reading multiple scope values.
  *
  * SCOPE OPERATIONS:
- * - getValue(['pipeline'], 'transactionId'): From ProcessPayment
- * - getValue(['pipeline'], 'cartTotal'): From ValidateCart
- * - getValue(['pipeline'], 'itemCount'): From ValidateCart
+ * - getValue('transactionId'): From ProcessPayment
+ * - getValue('cartTotal'): From ValidateCart
+ * - getValue('itemCount'): From ValidateCart
  */
 const sendReceipt = async (scope: BaseState) => {
   console.log('  [4] SendReceipt: Sending receipt email...');
 
   // Read values from multiple previous stages
-  const transactionId = scope.getValue(['pipeline'], 'transactionId') as string;
-  const total = scope.getValue(['pipeline'], 'cartTotal') as number;
-  const itemCount = scope.getValue(['pipeline'], 'itemCount') as number;
+  const transactionId = scope.getValue('transactionId') as string;
+  const total = scope.getValue('cartTotal') as number;
+  const itemCount = scope.getValue('itemCount') as number;
 
   // Simulate sending receipt
   const receiptId = `RCP-${transactionId.slice(4)}`;
@@ -290,7 +288,7 @@ async function main() {
   console.log('\n📚 Key Takeaways:');
   console.log('   • start() defines the entry point');
   console.log('   • addFunction() chains subsequent stages');
-  console.log('   • scope.setObject() stores data for later stages');
+  console.log('   • scope.setValue() stores data for later stages');
   console.log('   • scope.getValue() retrieves data from earlier stages');
   console.log('   • Stages execute in the order they are added\n');
 }

@@ -276,9 +276,9 @@ Instead of implicit memory management, FootPrint makes it explicit:
 
 ```typescript
 // FootPrint: explicit scope levels
-scope.setObject(['global'], 'config', { ... });   // Global context
-scope.setObject(['pipeline'], 'data', { ... });   // Path context
-scope.setObject([], 'local', { ... });            // Node context
+scope.setGlobal('config', { ... });               // Global context
+scope.setValue('data', { ... });                   // Scoped state
+scope.setValue('local', { ... });                  // Scoped state
 ```
 
 This eliminates:

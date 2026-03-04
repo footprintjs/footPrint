@@ -20,7 +20,7 @@ let currentPrefs = { email: true, sms: true, push: true };
 // Stage functions
 const analyzeNotificationPrefs = async (scope: BaseState) => {
   console.log('  [Analyze] Checking user notification preferences...');
-  scope.setObject(['pipeline'], 'prefs', currentPrefs);
+  scope.setObject('prefs', currentPrefs);
   return { prefs: currentPrefs, analyzed: true };
 };
 

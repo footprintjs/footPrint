@@ -45,14 +45,14 @@ import { BaseState } from '../BaseState';
 // Using a class that extends BaseState
 class MyScope extends BaseState {
   get userName(): string {
-    return this.getValue(['user'], 'name') as string;
+    return this.getValue('name') as string;
   }
 }
 const factory1 = toScopeFactory(MyScope);
 
 // Using a factory function
 const factory2 = toScopeFactory((ctx, stageName) => ({
-  getValue: (key: string) => ctx.getValue([stageName], key),
+  getValue: (key: string) => ctx.getValue([], key),
 }));
 
 // Registering a custom resolver (e.g., for Zod schemas)

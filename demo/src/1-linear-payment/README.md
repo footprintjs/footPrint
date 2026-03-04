@@ -27,10 +27,10 @@ new FlowChartBuilder()
 
 ```typescript
 // Write to scope (buffered until commit)
-scope.setObject(['pipeline'], 'cartTotal', total);
+scope.setValue('cartTotal', total);
 
 // Read from scope
-const total = scope.getValue(['pipeline'], 'cartTotal');
+const total = scope.getValue('cartTotal');
 ```
 
 ### 3. Stage Function Signature
@@ -38,12 +38,12 @@ const total = scope.getValue(['pipeline'], 'cartTotal');
 ```typescript
 const myStage = async (scope: BaseState) => {
   // Read from scope
-  const input = scope.getValue(['pipeline'], 'key');
-  
+  const input = scope.getValue('key');
+
   // Do work...
-  
+
   // Write to scope
-  scope.setObject(['pipeline'], 'result', output);
+  scope.setValue('result', output);
   
   // Return value becomes stage output
   return { success: true, data: output };

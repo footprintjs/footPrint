@@ -79,12 +79,12 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue: unknown;
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], key, value);
+          scope.setObject(key, value);
           return { written: true };
         };
 
         const readStage = async (scope: BaseState) => {
-          readValue = scope.getValue(['pipeline'], key);
+          readValue = scope.getValue(key);
           return { read: true };
         };
 
@@ -133,14 +133,14 @@ describe('Property 1: Scope State Round-Trip', () => {
 
         const writeStage = async (scope: BaseState) => {
           for (const [key, value] of pairs) {
-            scope.setObject(['pipeline'], key, value);
+            scope.setObject(key, value);
           }
           return { written: pairs.length };
         };
 
         const readStage = async (scope: BaseState) => {
           for (const [key] of pairs) {
-            readValues.set(key, scope.getValue(['pipeline'], key));
+            readValues.set(key, scope.getValue(key));
           }
           return { read: pairs.length };
         };
@@ -181,12 +181,12 @@ describe('Property 1: Scope State Round-Trip', () => {
         const readValues: unknown[] = [];
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], key, value);
+          scope.setObject(key, value);
           return { written: true };
         };
 
         const readStage = (stageNum: number) => async (scope: BaseState) => {
-          readValues.push(scope.getValue(['pipeline'], key));
+          readValues.push(scope.getValue(key));
           return { stage: stageNum };
         };
 
@@ -228,17 +228,17 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue: unknown;
 
         const writeStage1 = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], key, value1);
+          scope.setObject(key, value1);
           return { written: 1 };
         };
 
         const writeStage2 = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], key, value2);
+          scope.setObject(key, value2);
           return { written: 2 };
         };
 
         const readStage = async (scope: BaseState) => {
-          readValue = scope.getValue(['pipeline'], key);
+          readValue = scope.getValue(key);
           return { read: true };
         };
 
@@ -278,14 +278,14 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue2: unknown;
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(['pipeline'], key1, value1);
-          scope.setObject(['pipeline'], key2, value2);
+          scope.setObject(key1, value1);
+          scope.setObject(key2, value2);
           return { written: 2 };
         };
 
         const readStage = async (scope: BaseState) => {
-          readValue1 = scope.getValue(['pipeline'], key1);
-          readValue2 = scope.getValue(['pipeline'], key2);
+          readValue1 = scope.getValue(key1);
+          readValue2 = scope.getValue(key2);
           return { read: 2 };
         };
 

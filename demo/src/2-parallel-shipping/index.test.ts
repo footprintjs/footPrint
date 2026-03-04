@@ -227,12 +227,12 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       const readValues: Record<string, unknown> = {};
 
       const parentStage = async (scope: BaseState) => {
-        scope.setObject(['pipeline'], 'parentData', { value: 42 });
+        scope.setObject('parentData', { value: 42 });
         return { written: true };
       };
 
       const childStage = (id: string) => async (scope: BaseState) => {
-        readValues[id] = scope.getValue(['pipeline'], 'parentData');
+        readValues[id] = scope.getValue('parentData');
         return { childId: id };
       };
 
@@ -268,7 +268,7 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       let aggregatedData: Record<string, unknown> = {};
 
       const childStage = (id: string, value: number) => async (scope: BaseState) => {
-        scope.setObject(['pipeline'], `child${id}`, value);
+        scope.setObject(`child${id}`, value);
         // Return value IS aggregated (unlike scope writes)
         return { childId: id, value };
       };
@@ -276,9 +276,9 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       const aggregateStage = async (scope: BaseState) => {
         // These will be undefined because children have isolated scopes
         aggregatedData = {
-          child1: scope.getValue(['pipeline'], 'child1'),
-          child2: scope.getValue(['pipeline'], 'child2'),
-          child3: scope.getValue(['pipeline'], 'child3'),
+          child1: scope.getValue('child1'),
+          child2: scope.getValue('child2'),
+          child3: scope.getValue('child3'),
         };
         return { aggregated: true };
       };
@@ -339,7 +339,7 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       let capturedWeight: number | undefined;
 
       const captureWeight = async (scope: BaseState) => {
-        capturedWeight = scope.getValue(['pipeline'], 'totalWeight') as number;
+        capturedWeight = scope.getValue('totalWeight') as number;
         return {};
       };
 
