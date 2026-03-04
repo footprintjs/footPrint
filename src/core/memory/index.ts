@@ -17,8 +17,8 @@
 // Core classes
 export { GlobalStore } from './GlobalStore';
 export { StageContext, type StageSnapshot } from './StageContext';
-export { PipelineRuntime, TreePipelineContext, type NarrativeEntry, type RuntimeSnapshot } from './PipelineRuntime';
-export { StageMetadata, DebugContext } from './StageMetadata';
+export { PipelineRuntime, type NarrativeEntry, type RuntimeSnapshot } from './PipelineRuntime';
+export { StageMetadata } from './StageMetadata';
 
 // Types
 export type { ScopeFactory } from './types';

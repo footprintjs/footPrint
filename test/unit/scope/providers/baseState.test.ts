@@ -40,13 +40,13 @@ describe('BaseState', () => {
     expect(ctx.getValue).toHaveBeenCalledWith([], 'c');
     expect(calls.getValue).toEqual([[], 'c']);
 
-    // setObject (with shouldRedact — BaseState hardcodes [] for path)
-    state.setObject('y', 9, true);
+    // setValue (with shouldRedact — BaseState hardcodes [] for path)
+    state.setValue('y', 9, true);
     expect(ctx.setObject).toHaveBeenCalledWith([], 'y', 9, true, undefined);
     expect(calls.setObject).toEqual([[], 'y', 9, true, undefined]);
 
-    // updateObject (BaseState hardcodes [] for path)
-    state.updateObject('n', { p: 1 });
+    // updateValue (BaseState hardcodes [] for path)
+    state.updateValue('n', { p: 1 });
     expect(ctx.updateObject).toHaveBeenCalledWith([], 'n', { p: 1 }, undefined);
     expect(calls.updateObject).toEqual([[], 'n', { p: 1 }, undefined]);
 

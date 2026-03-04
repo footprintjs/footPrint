@@ -114,14 +114,14 @@ describe('BaseState Scenario Tests', () => {
         return this.getValue('name') as string;
       }
       set userName(value: string) {
-        this.setObject('name', value);
+        this.setValue('name', value);
       }
 
       get userAge(): number {
         return this.getValue('age') as number;
       }
       set userAge(value: number) {
-        this.setObject('age', value);
+        this.setValue('age', value);
       }
 
       recordLatency(ms: number) {
@@ -144,7 +144,7 @@ describe('BaseState Scenario Tests', () => {
       expect(scope).toBeInstanceOf(UserScope);
     });
 
-    it('should round-trip values via setObject / getValue', () => {
+    it('should round-trip values via setValue / getValue', () => {
       const { ctx } = makeRealContext();
       const scope = new UserScope(ctx, 'myStage');
 
@@ -220,7 +220,7 @@ describe('BaseState Scenario Tests', () => {
   describe('BaseState subclass used as scopeFactory in FlowChartExecutor', () => {
     class TrackingScope extends BaseState {
       setData(key: string, value: unknown) {
-        this.setObject(key, value);
+        this.setValue(key, value);
       }
       getData(key: string) {
         return this.getValue(key);
@@ -266,7 +266,7 @@ describe('BaseState Scenario Tests', () => {
         this.addDebugInfo('steps', name);
       }
       writeResult(key: string, value: unknown) {
-        this.setObject(key, value);
+        this.setValue(key, value);
       }
       readResult(key: string) {
         return this.getValue(key);
@@ -378,7 +378,7 @@ describe('createProtectedScope Scenario Tests', () => {
     it('should allow calling methods like setValue, getValue on a scope object', () => {
       const store: Record<string, any> = {};
       const scope = {
-        setObject: (key: string, val: any) => { store[key] = val; },
+        setValue: (key: string, val: any) => { store[key] = val; },
         getValue: (key: string) => store[key],
         addDebugInfo: (k: string, v: any) => { store[`debug_${k}`] = v; },
       };
@@ -386,7 +386,7 @@ describe('createProtectedScope Scenario Tests', () => {
       const ps = createProtectedScope(scope, { mode: 'error', stageName: 'test' });
 
       // Method calls should work fine
-      ps.setObject('name', 'Alice');
+      ps.setValue('name', 'Alice');
       expect(ps.getValue('name')).toBe('Alice');
       ps.addDebugInfo('step', 'done');
       expect(store['debug_step']).toBe('done');
@@ -402,7 +402,6 @@ describe('createProtectedScope Scenario Tests', () => {
         fail('Expected error to be thrown');
       } catch (e: any) {
         expect(e.message).toContain('fooBar');
-        expect(e.message).toContain('setObject');
         expect(e.message).toContain('setValue');
         expect(e.message).toContain('myStage');
       }
@@ -638,7 +637,7 @@ describe('Property-Based Tests', () => {
   // 4.1 BaseState properties (fast-check)
   // --------------------------------------------------------------------------
   describe('BaseState properties', () => {
-    it('any key/value written with setObject can be read back with getValue', () => {
+    it('any key/value written with setValue can be read back with getValue', () => {
       fc.assert(
         fc.property(arbIdentifier, arbValue, (key, value) => {
           // Skip undefined values since they cannot be distinguished from "not found"
@@ -647,7 +646,7 @@ describe('Property-Based Tests', () => {
           const { ctx } = makeRealContext();
           const state = new BaseState(ctx, 'test');
 
-          state.setObject(key, value);
+          state.setValue(key, value);
           ctx.commit();
 
           const readBack = state.getValue(key);

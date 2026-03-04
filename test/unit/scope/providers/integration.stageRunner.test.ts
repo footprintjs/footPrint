@@ -69,8 +69,8 @@ describe('integration: stage runner + toScopeFactory', () => {
 
       doWork() {
         // write
-        this.setObject('prompt', 'hi', true);
-        this.updateObject('exec', { t: 123 });
+        this.setValue('prompt', 'hi', true);
+        this.updateValue('exec', { t: 123 });
         // read
         return this.getValue('prompt');
       }

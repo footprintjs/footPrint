@@ -16,13 +16,13 @@ describe('Pipeline – Embedded Stage Functions', () => {
       name: 'A',
       fn: jest.fn((scope: PipelineScope) => {
         calls.push('A');
-        scope.setObject('a', 1);
+        scope.setValue('a', 1);
       }),
       next: {
         name: 'B',
         fn: jest.fn((scope: PipelineScope) => {
           calls.push('B');
-          scope.setObject('b', 2);
+          scope.setValue('b', 2);
         }),
       },
     };

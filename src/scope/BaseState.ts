@@ -7,8 +7,7 @@
  *
  * RESPONSIBILITIES:
  * - Provide debug/metric/eval logging methods
- * - Provide getValue/setObject/updateObject methods for state access
- * - Provide setValue/updateValue aliases for a consistent get/set/update API
+ * - Provide getValue/setValue/updateValue methods for state access
  * - Provide getInitialValueFor for accessing global context
  * - Provide getReadOnlyValues for accessing read-only context
  *
@@ -96,28 +95,12 @@ export class BaseState {
     return this._stageContext.getValue([], key);
   }
 
-  setObject(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+  setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
     return (this._stageContext as any).setObject([], key, value, shouldRedact, description);
   }
 
-  updateObject(key: string, value: unknown, description?: string) {
-    return this._stageContext.updateObject([], key, value, description);
-  }
-
-  /**
-   * Alias for {@link setObject} — overwrite a value at a key.
-   * Pairs naturally with {@link getValue} for a consistent get/set API.
-   */
-  setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    return this.setObject(key, value, shouldRedact, description);
-  }
-
-  /**
-   * Alias for {@link updateObject} — deep-merge a value at a key.
-   * Pairs naturally with {@link getValue} for a consistent get/update API.
-   */
   updateValue(key: string, value: unknown, description?: string) {
-    return this.updateObject(key, value, description);
+    return this._stageContext.updateObject([], key, value, description);
   }
 
   setGlobal(key: string, value: unknown, description?: string) {

@@ -12,7 +12,7 @@ export type DefineScopeOptions = {
 /**
  * Build a ScopeFactory from a Zod object schema.
  * - Creates a lazy, copy-on-write proxy driven by the schema
- * - Attaches BaseState-compatible helpers (addDebugInfo, getValue, setObject, etc.)
+ * - Attaches BaseState-compatible helpers (addDebugInfo, getValue, setValue, etc.)
  * - Honors strictness for validation on writes
  */
 export function defineScopeFromZod<S extends z.ZodObject<any>>(

@@ -1847,41 +1847,13 @@ export function specToStageNode(spec: FlowChartSpec): StageNode<any, any> {
 }
 
 /* ============================================================================
- * Legacy Type Aliases (for backward compatibility)
+ * Additional Type Exports
  * ========================================================================== */
-
-/**
- * @deprecated Use FlowChart instead. This alias exists for backward compatibility.
- */
-export type BuiltFlow<TOut = any, TScope = any> = FlowChart<TOut, TScope>;
 
 /**
  * A stage function (relaxed generics for builder ergonomics).
  */
 export type StageFn = PipelineStageFunction<any, any>;
-
-/**
- * Legacy ParallelSpec with build callback (for backward compatibility).
- * @deprecated Use SimplifiedParallelSpec instead.
- */
-export type ParallelSpec<TOut = any, TScope = any> = SimplifiedParallelSpec<TOut, TScope> & {
-  /** @deprecated Build callbacks are no longer supported. Use addSubFlowChartBranch instead. */
-  build?: never;
-};
-
-/**
- * A branch body for deciders.
- * @deprecated Use addSubFlowChartBranch for nested flowcharts.
- */
-export type BranchBody<TOut = any, TScope = any> =
-  | { name?: string; fn?: PipelineStageFunction<TOut, TScope> }
-  | ((b: FlowChartBuilder<TOut, TScope>) => void);
-
-/**
- * Branch spec for deciders.
- * @deprecated Use addSubFlowChartBranch for nested flowcharts.
- */
-export type BranchSpec<TOut = any, TScope = any> = Record<string, BranchBody<TOut, TScope>>;
 
 /**
  * A reference node that points to a subflow definition.

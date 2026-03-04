@@ -37,8 +37,8 @@ export function attachBaseStateCompat<T extends object>(
 
   getInitialValueFor(k: string): unknown;
   getValue(path: string[], key?: string): unknown;
-  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
-  updateObject(path: string[], key: string, value: unknown, description?: string): void;
+  setValue(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
+  updateValue(path: string[], key: string, value: unknown, description?: string): void;
   setObjectInRoot(key: string, value: unknown): void;
 
   getReadOnlyValues(): unknown;
@@ -53,9 +53,9 @@ export function attachBaseStateCompat<T extends object>(
 
     getInitialValueFor: (k: string) => ctx.getFromGlobalContext?.(k),
     getValue: (path: string[], key?: string) => ctx.getValue(path, key),
-    setObject: (path: string[], key: string, value: unknown, shouldRedact = false, description?: string) =>
+    setValue: (path: string[], key: string, value: unknown, shouldRedact = false, description?: string) =>
       (ctx as any).setObject(path, key, value, shouldRedact, description),
-    updateObject: (path: string[], key: string, value: unknown, description?: string) =>
+    updateValue: (path: string[], key: string, value: unknown, description?: string) =>
       ctx.updateObject(path, key, value, description),
     setObjectInRoot: (key: string, value: unknown) => ctx.setRoot?.(key, value),
 

@@ -5,7 +5,7 @@
  * This is the killer feature - apps become building blocks!
  */
 
-import { FlowChartBuilder, BaseState, Pipeline, BuiltFlow } from 'footprint';
+import { FlowChartBuilder, BaseState, Pipeline, FlowChart } from 'footprint';
 
 // Simple scope factory
 const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
@@ -16,7 +16,7 @@ const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
 // MINI APPS (simplified versions of demos 1-4 for composition)
 // ============================================================================
 
-function buildPaymentApp(): BuiltFlow {
+function buildPaymentApp(): FlowChart {
   const validateCart = async () => {
     console.log('    [Payment] Validating cart...');
     return { valid: true, total: 79.98 };
@@ -33,7 +33,7 @@ function buildPaymentApp(): BuiltFlow {
     .build();
 }
 
-function buildLLMApp(): BuiltFlow {
+function buildLLMApp(): FlowChart {
   const callLLM = async () => {
     console.log('    [LLM] Calling LLM...');
     return { type: 'response', content: 'Hello from LLM!' };
@@ -50,7 +50,7 @@ function buildLLMApp(): BuiltFlow {
     .build();
 }
 
-function buildParallelApp(): BuiltFlow {
+function buildParallelApp(): FlowChart {
   const fetchA = async () => {
     console.log('    [Parallel] Fetching A...');
     return { source: 'A', data: 'Data from A' };
@@ -70,7 +70,7 @@ function buildParallelApp(): BuiltFlow {
     .build();
 }
 
-function buildSelectorApp(): BuiltFlow {
+function buildSelectorApp(): FlowChart {
   const analyze = async () => {
     console.log('    [Selector] Analyzing...');
     return { channels: ['email', 'push'] };
@@ -101,7 +101,7 @@ function buildSelectorApp(): BuiltFlow {
 // MEGA ORCHESTRATOR APP
 // ============================================================================
 
-function buildMegaApp(): BuiltFlow {
+function buildMegaApp(): FlowChart {
   // Build all sub-apps
   const paymentApp = buildPaymentApp();
   const llmApp = buildLLMApp();

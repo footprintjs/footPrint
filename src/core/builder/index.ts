@@ -37,13 +37,9 @@ export type {
   ExecOptions,
 } from './FlowChartBuilder';
 
-// Legacy type aliases (for backward compatibility)
+// Additional types
 export type {
-  BuiltFlow,
   StageFn,
-  ParallelSpec,
-  BranchBody,
-  BranchSpec,
   SubflowRef,
 } from './FlowChartBuilder';
 

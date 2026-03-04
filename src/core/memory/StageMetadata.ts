@@ -97,5 +97,3 @@ export class StageMetadata {
   }
 }
 
-// Legacy aliases for backward compatibility during migration
-export { StageMetadata as DebugContext };
