@@ -8,6 +8,7 @@ This section provides educational documentation for developers and students inte
 |----------|-------------|
 | [Control-Flow Model](./CONTROL_FLOW_MODEL.md) | Flowchart-based execution and traversal semantics |
 | [Execution Artifact](./EXECUTION_ARTIFACT.md) | Execution as a durable, inspectable artifact |
+| [Scope Isolation Design](./SCOPE_ISOLATION_DESIGN.md) | Scope isolation and protection design |
 
 ## Overview
 

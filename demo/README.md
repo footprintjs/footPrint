@@ -10,42 +10,46 @@ This demo folder serves as **persistent memory for LLMs** and a comprehensive le
 
 Follow these demos in order to master FootPrint:
 
-| # | Demo | Domain | Pattern | Complexity | Time | Key Concepts |
-|---|------|--------|---------|------------|------|--------------|
-| 1 | [Linear Payment](./src/1-linear-payment/) | Payment | Linear | ⭐ | 5 min | `start()`, `addFunction()`, `scope.setValue/getValue` |
-| 2 | [Parallel Shipping](./src/2-parallel-shipping/) | Shipping | Fork-Join | ⭐⭐ | 10 min | `addListOfFunction()`, parallel execution, timing |
-| 3 | [Decider Order](./src/3-decider-order/) | Order Processing | Decider | ⭐⭐ | 10 min | `addDeciderFunction()`, single-choice branching |
-| 4 | [Selector Support](./src/4-selector-support/) | Customer Support | Selector | ⭐⭐⭐ | 15 min | `addSelector()`, multi-choice parallel |
-| 5 | [Subflow Inventory](./src/5-subflow-inventory/) | Inventory | Subflow | ⭐⭐⭐ | 15 min | `addSubFlowChart()`, SubflowInputMapper, scope isolation |
-| 6 | [Subflow Decider Fulfillment](./src/6-subflow-decider-fulfillment/) | Fulfillment | Subflow+Decider | ⭐⭐⭐⭐ | 20 min | Complex subflows with internal branching |
-| 7 | [Nested Subflows Checkout](./src/7-nested-subflows-checkout/) | E-commerce | Nested Subflows | ⭐⭐⭐⭐ | 20 min | Subflows containing subflows, scope inheritance |
-| 8 | [Async Race Multi-Tenant](./src/8-async-race-multitenant/) | Multi-Tenant | Async/Race | ⭐⭐⭐⭐⭐ | 25 min | pipelineId isolation, race conditions, GlobalStore |
-| 9 | [Metrics Debug LLM](./src/9-metrics-debug-llm/) | AI Assistant | Advanced | ⭐⭐⭐⭐⭐ | 30 min | MetricRecorder, DebugRecorder, LLM tool loop |
+There are two demo tracks: a **quick-start track** (concise, pattern-focused) and a **domain track** (detailed, real-world domains with tests).
 
-**Total learning time: ~2.5 hours**
+### Quick-Start Track
+
+| # | Demo | Pattern | Complexity | Key Concepts |
+|---|------|---------|------------|--------------|
+| 1 | [Payment](./src/1-payment/) | Linear | ⭐ | `start()`, `addFunction()`, scope basics |
+| 2 | [LLM Tool Loop](./src/2-llm-tool-loop/) | Decider | ⭐⭐ | `addDeciderFunction()`, conditional branching |
+| 3 | [Parallel](./src/3-parallel/) | Fork | ⭐⭐ | `addListOfFunction()`, parallel execution |
+| 4 | [Selector](./src/4-selector/) | Selector | ⭐⭐⭐ | `addSelector()`, multi-choice parallel |
+| 5 | [Composed](./src/5-composed/) | Composition | ⭐⭐⭐⭐ | `addSubFlowChart()`, apps as building blocks |
+| 6 | [Subflow Extractor](./src/6-subflow-extractor/) | Subflow | ⭐⭐⭐ | `TraversalExtractor`, subflow step numbers |
+| 7 | [Build vs Runtime](./src/7-build-vs-runtime/) | Extraction | ⭐⭐⭐ | `toSpec()` vs runtime extraction |
+
+### Domain Track (with tests)
+
+| # | Demo | Domain | Pattern | Complexity | Key Concepts |
+|---|------|--------|---------|------------|--------------|
+| 1 | [Linear Payment](./src/1-linear-payment/) | Payment | Linear | ⭐ | `start()`, `addFunction()`, `scope.setValue/getValue` |
+| 2 | [Parallel Shipping](./src/2-parallel-shipping/) | Shipping | Fork-Join | ⭐⭐ | `addListOfFunction()`, parallel execution, timing |
+| 3 | [Decider Order](./src/3-decider-order/) | Order Processing | Decider | ⭐⭐ | `addDeciderFunction()`, single-choice branching |
 
 ---
 
-## Prerequisites by Demo
+## Prerequisites (Quick-Start Track)
 
 ```
-Demo 1 (Linear)
+Demo 1 (Payment/Linear)
     ↓
-Demo 2 (Parallel) ← Builds on: scope operations
+Demo 2 (LLM Tool Loop/Decider) ← Builds on: scope operations
     ↓
-Demo 3 (Decider) ← Builds on: parallel concepts
+Demo 3 (Parallel/Fork) ← Builds on: linear + branching concepts
     ↓
-Demo 4 (Selector) ← Builds on: decider concepts
+Demo 4 (Selector) ← Builds on: decider + parallel concepts
     ↓
-Demo 5 (Subflow) ← Builds on: all branching patterns
+Demo 5 (Composed) ← Builds on: all branching patterns
     ↓
-Demo 6 (Subflow+Decider) ← Builds on: subflow basics
+Demo 6 (Subflow Extractor) ← Builds on: subflow composition
     ↓
-Demo 7 (Nested Subflows) ← Builds on: subflow composition
-    ↓
-Demo 8 (Async/Race) ← Builds on: all composition patterns
-    ↓
-Demo 9 (Metrics/LLM) ← Builds on: async patterns
+Demo 7 (Build vs Runtime) ← Builds on: extraction concepts
 ```
 
 ---
@@ -55,16 +59,19 @@ Demo 9 (Metrics/LLM) ← Builds on: async patterns
 ```bash
 # From FootPrint root directory
 
-# Run any demo
+# Quick-Start Track
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-llm-tool-loop/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-parallel/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/4-selector/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-composed/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/6-subflow-extractor/index.ts
+npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/7-build-vs-runtime/index.ts
+
+# Domain Track
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-linear-payment/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/2-parallel-shipping/index.ts
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/3-decider-order/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/4-selector-support/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/5-subflow-inventory/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/6-subflow-decider-fulfillment/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/7-nested-subflows-checkout/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/8-async-race-multitenant/index.ts
-npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/9-metrics-debug-llm/index.ts
 
 # Run demo tests
 npm test -- --testPathPattern="demo/src"
@@ -139,115 +146,56 @@ new FlowChartBuilder()
 
 **WHY**: When multiple actions should happen based on conditions. Zero, one, or many branches execute in parallel.
 
-### 5. Subflow (Demo 5)
+### 5. Composition (Demo 5)
 
-Reusable pipeline composition:
-
-```typescript
-// Define reusable subflow
-const inventoryAuditSubflow = new FlowChartBuilder()
-  .start('ScanItems', scanItems)
-  .addFunction('VerifyCounts', verifyCounts)
-  .build();
-
-// Mount in parent pipeline
-new FlowChartBuilder()
-  .start('CheckStock', checkStock)
-  .addSubFlowChart('audit', inventoryAuditSubflow, 'InventoryAudit', {
-    inputMapper: (parentScope) => ({
-      warehouseId: parentScope.getValue('warehouseId'),
-    }),
-  })
-  .addFunction('UpdateRecords', updateRecords);
-```
-
-**WHY**: Enables modular, testable pipeline components. SubflowInputMapper controls what data flows into subflow.
-
-### 6. Subflow with Decider (Demo 6)
-
-Complex subflows with internal branching:
+Mount entire flowcharts as nodes in larger workflows:
 
 ```typescript
-const fulfillmentSubflow = new FlowChartBuilder()
-  .start('ValidateOrder', validateOrder)
-  .addDeciderFunction('ShippingDecider', (scope) => scope.getValue('shippingMethod'))
-    .addFunctionBranch('ground', 'GroundShipping', groundShipping)
-    .addFunctionBranch('air', 'AirShipping', airShipping)
-    .end()
+const subflow = new FlowChartBuilder()
+  .start('SubEntry', subEntryFn)
+  .addFunction('SubProcess', subProcessFn)
   .build();
 
 new FlowChartBuilder()
-  .start('ProcessOrder', processOrder)
-  .addSubFlowChart('fulfill', fulfillmentSubflow, 'Fulfillment')
-  .addFunction('ConfirmShipment', confirmShipment);
+  .start('MainEntry', mainEntryFn)
+  .addSubFlowChart('sub', subflow, 'SubflowName')
+  .addFunction('Aggregate', aggregateFn);
 ```
 
-**WHY**: Subflows can contain any pattern, enabling sophisticated reusable components.
+**WHY**: Enables modular, testable pipeline components. Apps become reusable building blocks.
 
-### 7. Nested Subflows (Demo 7)
+### 6. Subflow Extractor (Demo 6)
 
-Subflows containing subflows:
+TraversalExtractor with subflow step numbering:
 
 ```typescript
-const fraudCheckSubflow = new FlowChartBuilder()
-  .start('AnalyzeRisk', analyzeRisk)
+const chart = flowChart('PrepareRequest', prepareFn)
+  .addSubFlowChart('llm', llmSubflow, 'LLM Core')
+  .addFunction('AggregateResults', aggregateFn)
+  .addTraversalExtractor((snapshot) => ({
+    stageName: snapshot.node.name,
+    stepNumber: snapshot.stepNumber,
+  }))
   .build();
-
-const paymentSubflow = new FlowChartBuilder()
-  .start('ValidateCard', validateCard)
-  .addSubFlowChart('fraud', fraudCheckSubflow, 'FraudCheck')
-  .addFunction('ChargeCard', chargeCard)
-  .build();
-
-new FlowChartBuilder()
-  .start('InitiateCheckout', initiateCheckout)
-  .addSubFlowChart('payment', paymentSubflow, 'Payment')
-  .addFunction('CompleteOrder', completeOrder);
 ```
 
-**WHY**: Scope isolation propagates through all nesting levels. Each subflow has its own isolated scope.
+**WHY**: Step numbers increment through subflows, enabling unified execution tracing.
 
-### 8. Async & Race Conditions (Demo 8)
+### 7. Build vs Runtime (Demo 7)
 
-**CRITICAL CONCEPT**: pipelineId for namespace isolation
+Two types of extraction:
 
 ```typescript
-// WITHOUT pipelineId - RACE CONDITION!
-const store = new GlobalStore(); // Shared across all pipelines
-// Concurrent pipelines can overwrite each other's data
+// Build-time: static structure (no functions)
+const spec = chart.toSpec();
 
-// WITH pipelineId - SAFE
-const store1 = new GlobalStore('tenant-A-request-123');
-const store2 = new GlobalStore('tenant-B-request-456');
-// Each pipeline has isolated namespace in GlobalStore
+// Runtime: dynamic execution data
+const executor = new FlowChartExecutor(chart, scopeFactory);
+await executor.run();
+const results = executor.getExtractedResults();
 ```
 
-**WHY**: In multi-tenant systems, concurrent pipeline executions MUST use unique pipelineIds to prevent data corruption.
-
-### 9. Metrics, Debug & LLM Integration (Demo 9)
-
-Observability and AI patterns:
-
-```typescript
-import { MetricRecorder, DebugRecorder } from 'footprint';
-
-// Attach recorders for observability
-const metricRecorder = new MetricRecorder();
-const debugRecorder = new DebugRecorder();
-
-const scopeFactory = (ctx, stageName, readOnly) => {
-  const scope = new BaseState(ctx, stageName, readOnly);
-  scope.addRecorder(metricRecorder);
-  scope.addRecorder(debugRecorder);
-  return scope;
-};
-
-// After execution
-console.log('Metrics:', metricRecorder.getMetrics());
-console.log('Debug entries:', debugRecorder.getEntries());
-```
-
-**WHY**: Production pipelines need observability. Recorders capture timing, read/write counts, and debug info.
+**WHY**: `toSpec()` gives you JSON-serializable structure for FE-BE transport. Runtime extraction gives you actual execution data.
 
 ---
 

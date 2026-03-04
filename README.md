@@ -538,6 +538,8 @@ The [`demo/`](./demo) folder contains progressive examples:
 | [3-parallel](./demo/src/3-parallel/) | Fork | Intermediate | Parallel execution |
 | [4-selector](./demo/src/4-selector/) | Selector | Advanced | Multi-choice parallel |
 | [5-composed](./demo/src/5-composed/) | Composition | Advanced | Apps as building blocks |
+| [6-subflow-extractor](./demo/src/6-subflow-extractor/) | Subflow | Advanced | TraversalExtractor with subflows |
+| [7-build-vs-runtime](./demo/src/7-build-vs-runtime/) | Extraction | Advanced | toSpec() vs runtime extraction |
 
 ```bash
 npx ts-node -r tsconfig-paths/register -P demo/tsconfig.json demo/src/1-payment/index.ts

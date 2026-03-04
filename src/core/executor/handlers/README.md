@@ -40,6 +40,8 @@ The handlers were extracted from the monolithic `Pipeline.ts` to enable:
 | `SubflowInputMapper.ts` | Maps input/output data between parent and subflow scopes |
 | `LoopHandler.ts` | Handles dynamic next nodes and loop-back iteration counting |
 | `DeciderHandler.ts` | Evaluates decider functions and routes to chosen branches |
+| `ExtractorRunner.ts` | Runs traversal extractors to capture per-stage snapshots |
+| `RuntimeStructureManager.ts` | Manages runtime structure resolution for subflows and dynamic children |
 | `index.ts` | Barrel export for all handlers |
 
 ## Usage Example
