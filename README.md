@@ -161,15 +161,13 @@ Each stage receives the typed scope. Read what the previous stage wrote, write w
 ```typescript
 const chart = flowChart('ValidateCart', async (scope: OrderScope) => {
     scope.cartTotal = 79.98;
-    return { valid: true };
   })
   .addFunction('ProcessPayment', async (scope: OrderScope) => {
     const total = scope.cartTotal; // reads what ValidateCart wrote
     scope.paymentStatus = 'charged';
-    return { success: true, amount: total };
   })
   .addFunction('SendReceipt', async (scope: OrderScope) => {
-    return { sent: true, status: scope.paymentStatus };
+    console.log('Receipt sent, status:', scope.paymentStatus);
   })
   .build();
 ```
