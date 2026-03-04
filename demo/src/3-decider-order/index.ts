@@ -158,14 +158,6 @@ const analyzeOrder = async (scope: BaseState) => {
   scope.setObject('fulfillmentType', fulfillmentType);
 
   console.log(`      Order ${order.orderId}: ${fulfillmentType} fulfillment`);
-
-  // Return value is passed to decider function
-  return {
-    orderId: order.orderId,
-    fulfillmentType,
-    itemCount: order.items.length,
-    totalAmount: order.totalAmount,
-  };
 };
 
 /**
@@ -190,8 +182,6 @@ const standardFulfillment = async (scope: BaseState) => {
   scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Standard shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
-
-  return fulfillmentResult;
 };
 
 /**
@@ -217,8 +207,6 @@ const expressFulfillment = async (scope: BaseState) => {
   scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Express shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
-
-  return fulfillmentResult;
 };
 
 /**
@@ -246,8 +234,6 @@ const digitalDelivery = async (scope: BaseState) => {
   scope.setObject('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Digital delivery ready: ${order.items.length} items`);
-
-  return fulfillmentResult;
 };
 
 /**
@@ -271,8 +257,6 @@ const confirmOrder = async (scope: BaseState) => {
   };
 
   console.log(`      Order confirmed: ${confirmation.orderId}`);
-
-  return confirmation;
 };
 
 // ============================================================================

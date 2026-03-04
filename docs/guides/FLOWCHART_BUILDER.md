@@ -18,7 +18,7 @@ Define the root stage of the flow.
 
 ```typescript
 builder.start('RootStage', async (scope) => {
-  return { initialized: true };
+  scope.setValue('initialized', true);
 });
 ```
 

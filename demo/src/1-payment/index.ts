@@ -17,12 +17,12 @@ const cartItems = [
   { id: 2, name: 'Gadget', price: 49.99 },
 ];
 
-// Stage functions - each receives scope and returns output
+// Stage functions - each receives scope, communicates via scope operations
 const validateCart = async (scope: BaseState) => {
   console.log('  [1] Validating cart...');
   const total = cartItems.reduce((sum, i) => sum + i.price, 0);
   scope.setObject('cartTotal', total);
-  return { valid: true, total, itemCount: cartItems.length };
+  scope.setObject('itemCount', cartItems.length);
 };
 
 const processPayment = async (scope: BaseState) => {
@@ -30,19 +30,17 @@ const processPayment = async (scope: BaseState) => {
   const total = scope.getValue('cartTotal');
   const txId = `TX-${Date.now()}`;
   scope.setObject('transactionId', txId);
-  return { success: true, txId, amount: total };
 };
 
 const updateInventory = async () => {
   console.log('  [3] Updating inventory...');
-  return { updated: cartItems.length };
 };
 
 const sendReceipt = async (scope: BaseState) => {
   console.log('  [4] Sending receipt...');
   const txId = scope.getValue('transactionId');
   const total = scope.getValue('cartTotal');
-  return { sent: true, txId, total };
+  console.log(`      Receipt sent: ${txId}, $${total}`);
 };
 
 // Build the payment flow

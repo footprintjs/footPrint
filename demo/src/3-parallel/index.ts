@@ -18,7 +18,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const prepareRequest = async (scope: BaseState) => {
   console.log('  [Prepare] Setting up parallel fetches...');
   scope.setObject('userId', 'user-123');
-  return { userId: 'user-123', timestamp: Date.now() };
 };
 
 const fetchUserProfile = async () => {
@@ -41,10 +40,6 @@ const fetchUserPreferences = async () => {
 
 const aggregateResults = async () => {
   console.log('  [Aggregate] Combining all results...');
-  return {
-    aggregated: true,
-    sources: ['profile', 'orders', 'preferences'],
-  };
 };
 
 // Build the parallel flow

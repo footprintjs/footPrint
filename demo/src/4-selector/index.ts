@@ -27,24 +27,20 @@ const analyzeNotificationPrefs = async (scope: BaseState) => {
 const sendEmail = async () => {
   console.log('  [Email] Sending email notification...');
   await sleep(100);
-  return { channel: 'email', sent: true, to: 'user@example.com' };
 };
 
 const sendSMS = async () => {
   console.log('  [SMS] Sending SMS notification...');
   await sleep(80);
-  return { channel: 'sms', sent: true, to: '+1234567890' };
 };
 
 const sendPush = async () => {
   console.log('  [Push] Sending push notification...');
   await sleep(60);
-  return { channel: 'push', sent: true, deviceId: 'device-abc' };
 };
 
 const confirmDelivery = async () => {
   console.log('  [Confirm] Confirming delivery...');
-  return { confirmed: true, timestamp: Date.now() };
 };
 
 // Selector function - returns array of branch IDs to execute

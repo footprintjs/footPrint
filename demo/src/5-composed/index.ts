@@ -19,12 +19,10 @@ const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
 function buildPaymentApp(): FlowChart {
   const validateCart = async () => {
     console.log('    [Payment] Validating cart...');
-    return { valid: true, total: 79.98 };
   };
 
   const processPayment = async () => {
     console.log('    [Payment] Processing payment...');
-    return { success: true, txId: `TX-${Date.now()}` };
   };
 
   return new FlowChartBuilder()
@@ -36,12 +34,10 @@ function buildPaymentApp(): FlowChart {
 function buildLLMApp(): FlowChart {
   const callLLM = async () => {
     console.log('    [LLM] Calling LLM...');
-    return { type: 'response', content: 'Hello from LLM!' };
   };
 
   const formatResponse = async () => {
     console.log('    [LLM] Formatting response...');
-    return { formatted: true, message: 'Hello from LLM!' };
   };
 
   return new FlowChartBuilder()
@@ -53,16 +49,18 @@ function buildLLMApp(): FlowChart {
 function buildParallelApp(): FlowChart {
   const fetchA = async () => {
     console.log('    [Parallel] Fetching A...');
-    return { source: 'A', data: 'Data from A' };
+    return { source: 'A', data: 'Data from A' }; // Parallel children return into result bundle
   };
 
   const fetchB = async () => {
     console.log('    [Parallel] Fetching B...');
-    return { source: 'B', data: 'Data from B' };
+    return { source: 'B', data: 'Data from B' }; // Parallel children return into result bundle
   };
 
   return new FlowChartBuilder()
-    .start('ParallelEntry', async () => ({ started: true }))
+    .start('ParallelEntry', async () => {
+      console.log('    [Parallel] Starting...');
+    })
     .addListOfFunction([
       { id: 'fetchA', name: 'FetchA', fn: fetchA },
       { id: 'fetchB', name: 'FetchB', fn: fetchB },
@@ -71,6 +69,7 @@ function buildParallelApp(): FlowChart {
 }
 
 function buildSelectorApp(): FlowChart {
+  // Stage before selector MUST return data — selector reads the output
   const analyze = async () => {
     console.log('    [Selector] Analyzing...');
     return { channels: ['email', 'push'] };
@@ -78,12 +77,10 @@ function buildSelectorApp(): FlowChart {
 
   const sendEmail = async () => {
     console.log('    [Selector] Sending email...');
-    return { channel: 'email', sent: true };
   };
 
   const sendPush = async () => {
     console.log('    [Selector] Sending push...');
-    return { channel: 'push', sent: true };
   };
 
   const selector = (output: any) => output?.channels || ['email'];
@@ -112,17 +109,11 @@ function buildMegaApp(): FlowChart {
   const orchestrate = async () => {
     console.log('\n  [Orchestrator] Starting mega workflow...');
     console.log('  [Orchestrator] Launching 4 sub-applications in parallel!\n');
-    return { orchestrated: true, timestamp: Date.now() };
   };
 
   // Final aggregation
   const aggregate = async () => {
     console.log('\n  [Aggregate] Collecting results from all apps...');
-    return {
-      completed: true,
-      appsExecuted: ['payment', 'llm', 'parallel', 'selector'],
-      timestamp: Date.now(),
-    };
   };
 
   // THE POWER MOVE: Compose all apps as subtrees!

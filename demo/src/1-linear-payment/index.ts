@@ -100,14 +100,6 @@ const validateCart = async (scope: BaseState) => {
   scope.setObject('cartItems', cartItems);
 
   console.log(`      Cart validated: ${itemCount} items, $${total.toFixed(2)} total`);
-
-  // Return value becomes the stage output (available in traversal extractors)
-  return {
-    valid: true,
-    total,
-    itemCount,
-    items: cartItems.map((i) => i.name),
-  };
 };
 
 /**
@@ -135,13 +127,6 @@ const processPayment = async (scope: BaseState) => {
   scope.setObject('paymentStatus', 'completed');
 
   console.log(`      Payment processed: $${total.toFixed(2)}, Transaction: ${transactionId}`);
-
-  return {
-    success: true,
-    transactionId,
-    amount: total,
-    timestamp: new Date().toISOString(),
-  };
 };
 
 /**
@@ -167,11 +152,6 @@ const updateInventory = async (scope: BaseState) => {
   }));
 
   console.log(`      Inventory updated for ${items.length} products`);
-
-  return {
-    updated: true,
-    itemsUpdated: updatedItems,
-  };
 };
 
 /**
@@ -197,15 +177,6 @@ const sendReceipt = async (scope: BaseState) => {
   const receiptId = `RCP-${transactionId.slice(4)}`;
 
   console.log(`      Receipt sent: ${receiptId} for ${itemCount} items ($${total.toFixed(2)})`);
-
-  return {
-    sent: true,
-    receiptId,
-    transactionId,
-    total,
-    itemCount,
-    sentAt: new Date().toISOString(),
-  };
 };
 
 // ============================================================================

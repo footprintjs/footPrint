@@ -26,7 +26,6 @@ const callLLM = async (scope: BaseState) => {
   const response = mockResponses[callIndex++];
   scope.setObject('llmResponse', response);
   console.log(`        Response type: ${response.type}`);
-  return response;
 };
 
 const executeToolCall = async (scope: BaseState) => {
@@ -34,18 +33,15 @@ const executeToolCall = async (scope: BaseState) => {
   console.log(`  [Tool] Executing tool: ${response.tool}`);
   const result = response.tool === 'search' ? 'Sunny, 72°F' : '4';
   scope.setObject('toolResult', result);
-  return { tool: response.tool, result };
 };
 
 const formatResponse = async (scope: BaseState) => {
   const response = scope.getValue('llmResponse') as any;
-  console.log('  [Response] Formatting final response...');
-  return { finalAnswer: response.content };
+  console.log(`  [Response] Final answer: ${response.content}`);
 };
 
 const handleError = async () => {
   console.log('  [Error] Handling error...');
-  return { error: 'Unknown response type' };
 };
 
 // Decider function - determines which branch to take

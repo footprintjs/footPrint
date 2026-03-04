@@ -35,13 +35,12 @@ const metadataExtractor: TraversalExtractor<StageMetadata> = (snapshot) => {
 const prepareRequest = async (scope: BaseState) => {
   console.log('  [Main] Preparing request...');
   scope.setObject('request', { query: 'Hello, world!' });
-  return { prepared: true };
 };
 
 const aggregateResults = async (scope: BaseState) => {
   console.log('  [Main] Aggregating results...');
   const llmResponse = scope.getValue('llmResponse');
-  return { aggregated: true, llmResponse };
+  console.log(`      LLM said: ${llmResponse}`);
 };
 
 // Subflow stages (LLM Core)
@@ -49,13 +48,12 @@ const callLLM = async (scope: BaseState) => {
   console.log('  [Subflow] Calling LLM...');
   const response = 'Hello! How can I help you today?';
   scope.setObject('llmResponse', response);
-  return { response };
 };
 
 const processResponse = async (scope: BaseState) => {
   console.log('  [Subflow] Processing response...');
   const response = scope.getValue('llmResponse');
-  return { processed: true, response };
+  console.log(`      Processed: ${response}`);
 };
 
 // Build the subflow (LLM Core)

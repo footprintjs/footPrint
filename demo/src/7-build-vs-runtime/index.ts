@@ -81,27 +81,25 @@ const runtimeExtractor: TraversalExtractor<RuntimeStageData> = (snapshot) => {
 const entry = async (scope: BaseState) => {
   console.log('  [Stage] entry');
   scope.setObject('started', true);
-  return { stage: 'entry' };
 };
 
-const process = async (scope: BaseState) => {
+const process = async () => {
   console.log('  [Stage] process');
-  return { stage: 'process' };
 };
 
-const childA = async (scope: BaseState) => {
+// Parallel children — returns go into result bundle
+const childA = async () => {
   console.log('  [Stage] childA');
-  return { stage: 'childA' };
+  return { source: 'A' };
 };
 
-const childB = async (scope: BaseState) => {
+const childB = async () => {
   console.log('  [Stage] childB');
-  return { stage: 'childB' };
+  return { source: 'B' };
 };
 
-const aggregate = async (scope: BaseState) => {
+const aggregate = async () => {
   console.log('  [Stage] aggregate');
-  return { stage: 'aggregate' };
 };
 
 // ============================================================

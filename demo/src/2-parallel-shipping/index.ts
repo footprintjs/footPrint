@@ -18,13 +18,13 @@
  * - Total time ≈ max(child times), not sum(child times)
  * - Children can READ from parent scope
  * - Children have ISOLATED scopes (writes don't propagate to parent)
- * - Use return values to pass data from children to subsequent stages
+ * - Parallel children return values go into a result bundle
  *
  * IMPORTANT SCOPE BEHAVIOR:
  * Parallel children have ISOLATED scopes. This means:
  * - Children CAN read values written by parent stages
  * - Children CANNOT write values that subsequent stages can read via scope
- * - To pass data from children, use the stage return value
+ * - Parallel children return values go into the result bundle
  *
  * DOMAIN: Shipping Preparation
  * When preparing a shipment, multiple independent checks can run in parallel:
@@ -120,12 +120,6 @@ const prepareShipment = async (scope: BaseState) => {
   scope.setObject('totalWeight', totalWeight);
 
   console.log(`      Shipment prepared: ${shipmentData.orderId}, ${totalWeight}kg total`);
-
-  return {
-    orderId: shipmentData.orderId,
-    itemCount: shipmentData.items.length,
-    totalWeight,
-  };
 };
 
 /**
@@ -137,7 +131,7 @@ const prepareShipment = async (scope: BaseState) => {
  * SCOPE BEHAVIOR:
  * - CAN read 'totalWeight' and 'shipment' from parent scope
  * - Writes to scope are ISOLATED (not visible to CreateLabel)
- * - Return value IS available to subsequent stages
+ * - Return value goes into the parallel result bundle
  *
  * TIMING: 150ms simulated delay
  */
@@ -161,7 +155,7 @@ const calculateRate = async (scope: BaseState) => {
   const elapsed = Date.now() - startTime;
   console.log(`      Rate calculated: $${totalRate.toFixed(2)} (${elapsed}ms)`);
 
-  // Return value is the way to pass data from children
+  // Parallel children return into the result bundle
   return {
     rate: totalRate,
     breakdown: { baseRate, weightRate, distanceRate },
@@ -278,8 +272,6 @@ const createLabel = async (scope: BaseState) => {
   };
 
   console.log(`      Label created: ${trackingNumber}`);
-
-  return label;
 };
 
 // ============================================================================
@@ -395,7 +387,7 @@ async function main() {
   console.log('   • Total time ≈ max(child times), not sum');
   console.log('   • Children CAN read from parent scope');
   console.log('   • Children have ISOLATED scopes (writes not visible to siblings/parent)');
-  console.log('   • Use return values to pass data from children');
+  console.log('   • Parallel children return values go into the result bundle');
   console.log('   • Next stage waits for ALL children to complete\n');
 }
 
