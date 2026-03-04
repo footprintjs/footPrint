@@ -478,6 +478,103 @@ describe('BaseState', () => {
   });
 
   // ========================================================================
+  // setValue / updateValue aliases
+  // ========================================================================
+
+  describe('setValue (alias for setObject)', () => {
+    test('delegates to setObject with all arguments', () => {
+      const { ctx } = makeMockContext();
+      const state = new BaseState(ctx, 'aliasStage');
+
+      state.setValue('cartTotal', 79.98, false, 'set cart total');
+
+      expect(ctx.setObject).toHaveBeenCalledWith([], 'cartTotal', 79.98, false, 'set cart total');
+    });
+
+    test('works without optional arguments', () => {
+      const { ctx } = makeMockContext();
+      const state = new BaseState(ctx, 'aliasStage');
+
+      state.setValue('name', 'Alice');
+
+      expect(ctx.setObject).toHaveBeenCalledWith([], 'name', 'Alice', undefined, undefined);
+    });
+
+    test('round-trips with getValue using real context', () => {
+      const { ctx } = makeRealContext('alias-pipe', 'alias-stage');
+      const state = new BaseState(ctx, 'alias-stage');
+
+      state.setValue('greeting', 'hello');
+      ctx.commit();
+
+      expect(state.getValue('greeting')).toBe('hello');
+    });
+  });
+
+  describe('updateValue (alias for updateObject)', () => {
+    test('delegates to updateObject with all arguments', () => {
+      const { ctx } = makeMockContext();
+      const state = new BaseState(ctx, 'aliasStage');
+
+      state.updateValue('config', { retries: 3 }, 'bump retries');
+
+      expect(ctx.updateObject).toHaveBeenCalledWith([], 'config', { retries: 3 }, 'bump retries');
+    });
+
+    test('works without description', () => {
+      const { ctx } = makeMockContext();
+      const state = new BaseState(ctx, 'aliasStage');
+
+      state.updateValue('tags', ['new']);
+
+      expect(ctx.updateObject).toHaveBeenCalledWith([], 'tags', ['new'], undefined);
+    });
+
+    test('deep-merges with getValue using real context', () => {
+      const { ctx } = makeRealContext('alias-pipe', 'alias-stage');
+      const state = new BaseState(ctx, 'alias-stage');
+
+      state.setValue('config', { timeout: 30, retries: 1 });
+      ctx.commit();
+      state.updateValue('config', { retries: 3 });
+      ctx.commit();
+
+      const result = state.getValue('config') as any;
+      expect(result).toEqual({ timeout: 30, retries: 3 });
+    });
+  });
+
+  describe('property: setValue/updateValue aliases forward correctly', () => {
+    test('setValue forwards arbitrary key/value to setObject', () => {
+      fc.assert(
+        fc.property(arbKey, arbValue, (key, value) => {
+          const { ctx } = makeMockContext();
+          const state = new BaseState(ctx, 'prop-stage');
+
+          state.setValue(key, value);
+
+          expect(ctx.setObject).toHaveBeenCalledWith([], key, value, undefined, undefined);
+        }),
+        { numRuns: 50 },
+      );
+    });
+
+    test('updateValue forwards arbitrary key/value to updateObject', () => {
+      fc.assert(
+        fc.property(arbKey, arbValue, (key, value) => {
+          const { ctx } = makeMockContext();
+          const state = new BaseState(ctx, 'prop-stage');
+
+          state.updateValue(key, value);
+
+          expect(ctx.updateObject).toHaveBeenCalledWith([], key, value, undefined);
+        }),
+        { numRuns: 50 },
+      );
+    });
+  });
+
+  // ========================================================================
   // BRAND symbol
   // ========================================================================
 
