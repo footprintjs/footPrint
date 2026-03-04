@@ -69,15 +69,14 @@ Children return a bundle object:
 Route to exactly ONE child based on a decision function:
 
 ```typescript
-const routeDecider = (output: any) => {
-  if (output?.type === 'tool_call') return 'tool';
-  if (output?.type === 'response') return 'response';
-  return 'error';
-};
-
 const builder = new FlowChartBuilder()
   .start('CallLLM', callLLMFn)
-  .addDecider(routeDecider)
+  .addDeciderFunction('Router', (scope) => {
+    const type = scope.get('type');
+    if (type === 'tool_call') return 'tool';
+    if (type === 'response') return 'response';
+    return 'error';
+  })
     .addFunctionBranch('tool', 'ExecuteTool', executeToolFn)
     .addFunctionBranch('response', 'FormatResponse', formatFn)
     .addFunctionBranch('error', 'HandleError', errorFn)
@@ -100,14 +99,12 @@ const builder = new FlowChartBuilder()
 Route to ONE OR MORE children based on a selector function:
 
 ```typescript
-const toolSelector = (output: any) => {
-  // Return array of child IDs to execute in parallel
-  return output.toolCalls.map(t => t.id);
-};
-
 const builder = new FlowChartBuilder()
   .start('AnalyzeRequest', analyzeFn)
-  .addSelector(toolSelector)
+  .addSelector((scope) => {
+    // Return array of child IDs to execute in parallel
+    return scope.get('toolCalls').map(t => t.id);
+  })
     .addFunctionBranch('search', 'SearchTool', searchFn)
     .addFunctionBranch('calculator', 'CalculatorTool', calcFn)
     .addFunctionBranch('weather', 'WeatherTool', weatherFn)
@@ -141,7 +138,7 @@ Patterns can be nested:
 ```typescript
 const builder = new FlowChartBuilder()
   .start('Entry', entryFn)
-  .addDecider(routeDecider)
+  .addDeciderFunction('Router', (scope) => scope.get('route'))
     .addFunctionBranch('path_a', 'PathA', pathAFn, (b) => {
       // Nested fork inside decider branch
       b.addListOfFunction([

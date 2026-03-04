@@ -53,7 +53,7 @@ Here's how each training concept maps to FootPrint's source code:
 │    Execution Tree              →    StageContext.next / .children          │
 │    Linear Flow                 →    FlowChartBuilder.addFunction()         │
 │    Fork (Parallel)             →    FlowChartBuilder.addListOfFunction()   │
-│    Decider (Conditional)       →    FlowChartBuilder.addDecider()          │
+│    Decider (Conditional)       →    FlowChartBuilder.addDeciderFunction()  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -446,9 +446,9 @@ export class FlowChartBuilder<TOut, TScope> {
   }
   
   // Decider flow (A → ? → [B1 or B2])
-  addDecider(decider: (out?) => string): DeciderList {
+  addDeciderFunction(name: string, decider: (scope?) => string): DeciderList {
     const cur = this._needCursor();
-    return new DeciderList(this, cur, decider);
+    return new DeciderList(this, cur, name, decider);
   }
 }
 ```
@@ -474,7 +474,7 @@ export interface StageNode<TOut, TScope> {
 | Stage | `StageNode` | `Pipeline.ts:StageNode` |
 | Linear flow | `StageNode.next` | `FlowChartBuilder.ts:addFunction` |
 | Fork (parallel) | `StageNode.children` | `FlowChartBuilder.ts:addListOfFunction` |
-| Decider (conditional) | `StageNode.nextNodeDecider` | `FlowChartBuilder.ts:addDecider` |
+| Decider (conditional) | `StageNode.nextNodeDecider` | `FlowChartBuilder.ts:addDeciderFunction` |
 | Execution tree | `StageContext` tree | `StageContext.ts` |
 | Graph construction | `FlowChartBuilder` | `FlowChartBuilder.ts` |
 
@@ -505,14 +505,14 @@ builder
 // Module 5: Decider (A → ? → [B1 or B2] → C)
 builder
   .start('A', fnA)
-  .addDecider((out) => out.route)
+  .addDeciderFunction('Router', (scope) => scope.get('route'))
     .addFunctionBranch('b1', 'B1', fnB1)
     .addFunctionBranch('b2', 'B2', fnB2)
     .end()
   .addFunction('C', fnC);
 
 // Internal structure:
-// { name: 'A', fn: fnA, children: [...], nextNodeDecider: (out) => out.route, next: { name: 'C' } }
+// { name: 'Router', fn: deciderFn, children: [...], nextNodeDecider: (scope) => scope.get('route'), next: { name: 'C' } }
 ```
 
 ---
@@ -570,7 +570,7 @@ src/
 │       • start()                   Creates root StageNode
 │       • addFunction()             Linear edge (next)
 │       • addListOfFunction()       Parallel edges (children)
-│       • addDecider()              Conditional routing
+│       • addDeciderFunction()      Conditional routing
 │
 ├── core/
 │   ├── pipeline/
@@ -613,7 +613,7 @@ src/
 | Module 2 | Call Stack | `StageContext` | `createNextContext()` |
 | Module 3 | Memory | `PatchedMemoryContext` + `GlobalContext` | `commitPatch()` |
 | Module 4 | Scope | `BaseState` | `setValue(key, val)` |
-| Module 5 | Flowchart | `FlowChartBuilder` | `addFunction()`, `addDecider()` |
+| Module 5 | Flowchart | `FlowChartBuilder` | `addFunction()`, `addDeciderFunction()` |
 
 ---
 

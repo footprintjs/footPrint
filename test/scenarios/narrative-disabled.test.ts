@@ -87,9 +87,10 @@ describe('Scenario: Narrative Disabled — Zero-Cost for Production Pipelines', 
     const chart = new FlowChartBuilder()
       .start('entry', (scope: StageContext) => {
         scope.setLog('deciderRationale', 'user is premium');
+        scope.set([], 'route', 'premium');
         return 'premium';
       })
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', (scope) => scope.get([], 'route') as string)
         .addFunctionBranch('premium', 'Premium Path', () => 'premium-result')
         .addFunctionBranch('basic', 'Basic Path', () => 'basic-result')
       .end()

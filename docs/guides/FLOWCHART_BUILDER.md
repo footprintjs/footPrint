@@ -50,14 +50,14 @@ builder.addListOfFunction([
 ]);
 ```
 
-### `addDecider(deciderFn)`
+### `addDeciderFunction(name, fn, id?)`
 
-Add single-choice branching. Returns a `DeciderList` for adding branches.
+Add single-choice branching. The function receives `scope` and returns a branch ID. Returns a `DeciderList` for adding branches.
 
 ```typescript
 builder
   .start('Router', routerFn)
-  .addDecider((output) => output.route)
+  .addDeciderFunction('Route', (scope) => scope.get('route'))
     .addFunctionBranch('a', 'BranchA', branchAFn)
     .addFunctionBranch('b', 'BranchB', branchBFn)
     .setDefault('a')
@@ -191,7 +191,7 @@ const diagram = builder.toMermaid();
 
 ## DeciderList Methods
 
-Returned by `addDecider()`:
+Returned by `addDeciderFunction()`:
 
 | Method | Description |
 |--------|-------------|

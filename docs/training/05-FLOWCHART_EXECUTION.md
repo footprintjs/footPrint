@@ -272,10 +272,10 @@ builder
 ```typescript
 builder
   .start('A', fnA)
-  .addDecider('route', deciderFn, [
-    { name: 'path1', fn: fnPath1 },
-    { name: 'path2', fn: fnPath2 },
-  ])
+  .addDeciderFunction('Router', (scope) => scope.get('route'))
+    .addFunctionBranch('path1', 'path1', fnPath1)
+    .addFunctionBranch('path2', 'path2', fnPath2)
+    .end()
   .addFunction('C', fnC);
 ```
 

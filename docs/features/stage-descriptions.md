@@ -56,16 +56,6 @@ flowChart('seed', seedFn, 'seed', undefined, 'Initialize the pipeline')
   .build();
 ```
 
-**Decider (conditional branching):**
-```typescript
-builder
-  .addDecider('route', deciderFn, 'route', undefined, 'Decide which path based on user role')
-  .addBranch('admin', adminFn, 'admin', undefined, 'Grant full admin access')
-  .addBranch('viewer', viewerFn, 'viewer', undefined, 'Grant read-only access')
-  .endDecider()
-  .build();
-```
-
 **Decider function (scope-based):**
 ```typescript
 builder

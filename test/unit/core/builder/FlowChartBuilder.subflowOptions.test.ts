@@ -122,15 +122,16 @@ describe('FlowChartBuilder — SubflowMountOptions', () => {
 
       const main = new FlowChartBuilder()
         .start('entry')
-        .addDecider(() => 'branchA')
+        .addDeciderFunction('Decider', () => 'branchA')
           .addSubFlowChartBranch('branchA', subflowA, 'Branch A', optionsA)
           .addSubFlowChartBranch('branchB', subflowB, 'Branch B')
         .end()
         .build();
 
-      // Find branch nodes in children
-      const branchA = main.root.children?.find(c => c.id === 'branchA');
-      const branchB = main.root.children?.find(c => c.id === 'branchB');
+      // addDeciderFunction creates a new node as root.next
+      const deciderNode = main.root.next!;
+      const branchA = deciderNode.children?.find(c => c.id === 'branchA');
+      const branchB = deciderNode.children?.find(c => c.id === 'branchB');
 
       expect(branchA).toBeDefined();
       expect(branchA?.subflowMountOptions).toBeDefined();
@@ -200,13 +201,14 @@ describe('FlowChartBuilder — SubflowMountOptions', () => {
 
       const main = new FlowChartBuilder()
         .start('entry')
-        .addDecider(() => 'branch1')
+        .addDeciderFunction('Decider', () => 'branch1')
           .addSubFlowChartBranch('branch1', subflow, 'Branch 1')
           .addFunctionBranch('branch2', 'Branch 2')
         .end()
         .build();
 
-      expect(main.root.children).toHaveLength(2);
+      // addDeciderFunction creates a new node as root.next
+      expect(main.root.next!.children).toHaveLength(2);
     });
 
     it('selector branches work without options parameter', () => {

@@ -6,8 +6,8 @@
 
 ## What You'll Learn
 
-- Conditional branching with `addDecider()`
-- Decider functions that route to one branch
+- Conditional branching with `addDeciderFunction()`
+- Decider functions that read from scope and route to one branch
 - The classic LLM agent loop pattern
 
 ## The Flow
@@ -26,12 +26,13 @@
 
 ### 1. Decider Function
 
-A decider returns a single branch ID based on the previous stage's output:
+A decider reads from scope (shared state) and returns a single branch ID:
 
 ```typescript
-const routeDecider = (output: any) => {
-  if (output?.type === 'tool_call') return 'tool';
-  if (output?.type === 'response') return 'response';
+const routeDecider = (scope: BaseState) => {
+  const response = scope.getValue('llmResponse') as any;
+  if (response?.type === 'tool_call') return 'tool';
+  if (response?.type === 'response') return 'response';
   return 'error';  // Default fallback
 };
 ```
@@ -41,7 +42,7 @@ const routeDecider = (output: any) => {
 ```typescript
 new FlowChartBuilder()
   .start('CallLLM', callLLMFn)
-  .addDecider(routeDecider)
+  .addDeciderFunction('RouteDecider', routeDecider)
     .addFunctionBranch('tool', 'ExecuteToolCall', executeToolFn)
     .addFunctionBranch('response', 'FormatResponse', formatFn)
     .addFunctionBranch('error', 'HandleError', errorFn)

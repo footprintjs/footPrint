@@ -314,14 +314,16 @@ describe('FlowChartBuilder Subflow Metadata Property Tests', () => {
             // Mount via decider branch
             const mainBuilder = new FlowChartBuilder()
               .start(mainRootName, undefined, mainRootId)
-              .addDecider(() => subflowId)
+              .addDeciderFunction('Decider', () => subflowId)
               .addSubFlowChartBranch(subflowId, subflow, subflowName)
               .end();
 
             const { root } = mainBuilder.build();
 
+            // addDeciderFunction creates a new decider node as root.next
+            const deciderNode = root.next!;
             // Verify subflow metadata on decider branch
-            const subflowBranch = root.children?.find((c) => c.id === subflowId);
+            const subflowBranch = deciderNode.children?.find((c) => c.id === subflowId);
 
             return (
               subflowBranch !== undefined &&

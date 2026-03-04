@@ -365,14 +365,17 @@ describe('FlowChartBuilder Selector Property Tests', () => {
           // Mount it in a parent tree via decider
           const parent = new FlowChartBuilder()
             .start(rootName)
-            .addDecider(() => 'sub')
+            .addDeciderFunction('Decider', () => 'sub')
             .addSubFlowChartBranch('sub', subtree, 'Subtree')
             .end();
 
           const { root, subflows } = parent.build();
 
-          // Find the mounted subtree reference node
-          const mountedRef = root.children?.find((c) => c.id === 'sub');
+          // addDeciderFunction creates a new decider node as next of root
+          const deciderNode = root.next;
+
+          // Find the mounted subtree reference node on the decider node
+          const mountedRef = deciderNode?.children?.find((c) => c.id === 'sub');
 
           // Reference node should be a subflow root with metadata
           const isRefNode = mountedRef !== undefined &&
@@ -446,21 +449,13 @@ describe('FlowChartBuilder Selector Property Tests', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           const fb = new FlowChartBuilder().start(rootName);
-          
+
           // Add decider first
-          fb.addDecider(() => branchId)
+          fb.addDeciderFunction('Decider', () => branchId)
             .addFunctionBranch(branchId, branchName)
             .end();
 
-          // Try to add selector on same node (root) - should fail
-          // In simplified builder, we need a fresh builder to test this
-          const fb2 = new FlowChartBuilder().start(rootName);
-          fb2.addDecider(() => branchId)
-            .addFunctionBranch(branchId, branchName)
-            .end();
-
-          // The decider is already set, so adding selector should throw
-          // But in simplified builder, we can't add selector after end()
+          // In simplified builder, we can't add selector after end()
           // because cursor doesn't move back. This test validates the
           // mutual exclusivity at the API level.
           return true; // Simplified builder prevents this by design
@@ -473,13 +468,13 @@ describe('FlowChartBuilder Selector Property Tests', () => {
       fc.assert(
         fc.property(stageNameArb, branchIdArb, stageNameArb, (rootName, branchId, branchName) => {
           const fb = new FlowChartBuilder().start(rootName);
-          
+
           // Add selector first
           fb.addSelector(() => branchId)
             .addFunctionBranch(branchId, branchName)
             .end();
 
-          // In simplified builder, we can't add decider after end()
+          // In simplified builder, we can't add deciderFunction after end()
           // because cursor doesn't move back. This test validates the
           // mutual exclusivity at the API level.
           return true; // Simplified builder prevents this by design
@@ -499,17 +494,19 @@ describe('FlowChartBuilder Selector Property Tests', () => {
             .end()
             .build();
 
-          // Root has decider, mounts subflow with selector - should work
+          // Root has decider function, mounts subflow with selector - should work
           const fb = new FlowChartBuilder()
             .start(rootName)
-            .addDecider(() => branchId)
+            .addDeciderFunction('Decider', () => branchId)
             .addSubFlowChartBranch(branchId, selectorSubflow)
             .end();
 
           try {
             const { root, subflows } = fb.build();
-            // Root should have decider
-            const hasDecider = typeof root.nextNodeDecider === 'function';
+            // addDeciderFunction creates a new decider node as next of root
+            const deciderNode = root.next;
+            // Decider node should have deciderFn set
+            const hasDecider = deciderNode?.deciderFn === true;
             // Subflow should have selector
             const hasSelector = subflows?.[branchId]?.root?.nextNodeSelector !== undefined;
             return hasDecider && hasSelector;

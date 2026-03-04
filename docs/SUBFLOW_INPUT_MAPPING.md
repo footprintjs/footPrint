@@ -110,7 +110,7 @@ All subflow builder methods accept `SubflowMountOptions`:
 .addSubFlowChart(subflow, options)
 
 // Decider branch
-.addDecider('decide', deciderFn)
+.addDeciderFunction('Decide', deciderFn)
   .addSubFlowChartBranch('branchA', subflowA, optionsA)
   .addSubFlowChartBranch('branchB', subflowB, optionsB)
   .done()

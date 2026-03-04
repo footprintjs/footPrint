@@ -263,10 +263,13 @@ describe('Feature 2: Narrative Generation (end-to-end)', () => {
   it('should produce decision narrative with selected branch', async () => {
     const chart = new FlowChartBuilder()
       .start('entry', (scope: StageContext) => {
-        scope.setLog('deciderRationale', 'user prefers express delivery');
+        scope.setObject([], 'route', 'express');
         return 'express';
       })
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', (scope: StageContext) => {
+        scope.setLog('deciderRationale', 'user prefers express delivery');
+        return scope.get([], 'route') as string;
+      })
         .addFunctionBranch('express', 'Express Delivery', () => 'shipped-fast')
         .addFunctionBranch('standard', 'Standard Delivery', () => 'shipped-slow')
       .end()
@@ -1264,13 +1267,14 @@ describe('Combined Cascade: All Features Together', () => {
         'entry',
         (scope: StageContext) => {
           scope.setLog('deciderRationale', 'priority is high');
+          scope.setObject([], 'route', 'fast');
           return 'fast';
         },
         undefined,
         'Entry',
         'Validate and prepare the request',
       )
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', (scope: StageContext) => scope.get([], 'route') as string)
         .addFunctionBranch('fast', 'Fast Track', () => 'fast-done')
         .addFunctionBranch('slow', 'Slow Track', () => 'slow-done')
       .end()

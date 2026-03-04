@@ -51,7 +51,7 @@ describe('DeciderList.addSubFlowChartBranch — nested subflow merge (lines 412-
 
     const main = new FlowChartBuilder()
       .start('entry', noop)
-      .addDecider(() => 'branchA')
+      .addDeciderFunction('Decider', () => 'branchA')
         .addSubFlowChartBranch('branchA', nested, 'BranchA')
         .addFunctionBranch('branchB', 'BranchB', noop)
       .end()
@@ -72,7 +72,7 @@ describe('DeciderList.addBranchList (lines 440-443)', () => {
   test('adds multiple branches via addBranchList', () => {
     const { root } = new FlowChartBuilder()
       .start('chooser', noop)
-      .addDecider(() => 'a')
+      .addDeciderFunction('Decider', () => 'a')
         .addBranchList([
           { id: 'a', name: 'Alpha', fn: noop, displayName: 'Alpha Display' },
           { id: 'b', name: 'Beta', fn: noop },
@@ -80,47 +80,29 @@ describe('DeciderList.addBranchList (lines 440-443)', () => {
       .end()
       .build();
 
-    expect(root.children).toHaveLength(2);
-    expect(root.children![0].id).toBe('a');
-    expect(root.children![1].id).toBe('b');
+    expect(root.next!.children).toHaveLength(2);
+    expect(root.next!.children![0].id).toBe('a');
+    expect(root.next!.children![1].id).toBe('b');
   });
 });
 
 /* ==========================================================================
- * Line 484: DeciderList.end() legacy decider — returns raw id when neither
- *           id is valid and no fallback is valid
+ * DeciderList.end() scope-based decider — verifies deciderFn is set
  * ========================================================================== */
 
-describe('DeciderList.end() legacy decider fallback returns raw id (line 484)', () => {
-  test('returns raw id when it is not in validIds and fallbackId is not in validIds', async () => {
+describe('DeciderList.end() sets deciderFn on the node', () => {
+  test('sets deciderFn = true on the decider node', () => {
     const { root } = new FlowChartBuilder()
       .start('dec', noop)
-      .addDecider(() => 'UNKNOWN')
+      .addDeciderFunction('Decider', () => 'UNKNOWN')
         .addFunctionBranch('left', 'Left', noop)
-      // No setDefault — fallbackId is undefined
       .end()
       .build();
 
-    const decider = (root as any).nextNodeDecider as (out?: any) => Promise<string>;
-    // 'UNKNOWN' is not in validIds, and there is no fallbackId
-    const result = await decider();
-    expect(result).toBe('UNKNOWN');
-  });
-
-  test('returns raw id when fallbackId exists but is also not in validIds', async () => {
-    // This tests the edge case where fallbackId is set but doesn't match any branch
-    const { root } = new FlowChartBuilder()
-      .start('dec', noop)
-      .addDecider(() => 'MISSING')
-        .addFunctionBranch('left', 'Left', noop)
-        .setDefault('nonexistent') // fallbackId is set to something not in validIds
-      .end()
-      .build();
-
-    const decider = (root as any).nextNodeDecider as (out?: any) => Promise<string>;
-    // 'MISSING' is not valid, fallbackId 'nonexistent' is also not valid
-    const result = await decider();
-    expect(result).toBe('MISSING');
+    // addDeciderFunction creates a new node as root.next
+    const deciderNode = root.next!;
+    expect(deciderNode.deciderFn).toBe(true);
+    expect(deciderNode.children).toHaveLength(1);
   });
 });
 
@@ -159,10 +141,10 @@ describe('DeciderList.end() description accumulation (lines 506, 513, 517)', () 
     expect(chart.description).toContain('slow: Handles slow requests');
   });
 
-  test('legacy decider without deciderDescription uses auto-generated line', () => {
+  test('decider without deciderDescription uses auto-generated line', () => {
     const chart = new FlowChartBuilder()
       .start('entry', noop, 'entry-id', 'Entry')
-      .addDecider(() => 'a')
+      .addDeciderFunction('Decider', () => 'a')
         .addFunctionBranch('a', 'Alpha', noop, 'Alpha Display')
         .addFunctionBranch('b', 'Beta', noop)
       .end()
@@ -583,11 +565,10 @@ describe('SelectorList.end() — requires at least one branch', () => {
  * ========================================================================== */
 
 describe('addDeciderFunction — validation edge cases', () => {
-  test('throws when decider already defined via addDecider', () => {
+  test('throws when decider already defined via addDeciderFunction', () => {
     const b = new FlowChartBuilder().start('entry', noop);
-    // Add a legacy decider first — this sets nextNodeDecider (after end())
-    // Actually, addDecider sets hasDecider on spec and returns DeciderList.
-    // The check is on cur.nextNodeDecider and cur.deciderFn.
+    // Actually, addDeciderFunction sets hasDecider on spec and returns DeciderList.
+    // The check is on cur.deciderFn.
     // We need to set up a scenario where cursor already has these.
 
     // Use addDeciderFunction, then try addDeciderFunction again:
@@ -623,7 +604,7 @@ describe('addSelector — validation edge cases', () => {
 
   test('throws when decider already defined (mutually exclusive)', () => {
     const b = new FlowChartBuilder().start('entry', noop);
-    (b as any)._cursor.nextNodeDecider = async () => 'a';
+    (b as any)._cursor.deciderFn = true;
     expect(() => b.addSelector(async () => ['x'])).toThrow(
       /decider and selector are mutually exclusive/i,
     );
@@ -811,22 +792,24 @@ describe('DeciderList.end() — scope-based decider (line 473)', () => {
 });
 
 /* ==========================================================================
- * Legacy decider with async decider function (line 481)
+ * Scope-based decider with async function
  * ========================================================================== */
 
-describe('DeciderList.end() — legacy decider with async decider function', () => {
-  test('handles async decider function (Promise path)', async () => {
+describe('DeciderList.end() — scope-based decider with async decider function', () => {
+  test('sets deciderFn = true and preserves async fn', () => {
     const { root } = new FlowChartBuilder()
       .start('entry', noop)
-      .addDecider(async () => 'branchA')
+      .addDeciderFunction('Decider', async () => 'branchA')
         .addFunctionBranch('branchA', 'A', noop)
         .addFunctionBranch('branchB', 'B', noop)
       .end()
       .build();
 
-    const decider = (root as any).nextNodeDecider as (out?: any) => Promise<string>;
-    const result = await decider();
-    expect(result).toBe('branchA');
+    // addDeciderFunction creates a new node as root.next
+    const deciderNode = root.next!;
+    expect(deciderNode.deciderFn).toBe(true);
+    expect(deciderNode.fn).toBeDefined();
+    expect(deciderNode.children).toHaveLength(2);
   });
 });
 
@@ -839,7 +822,7 @@ describe('Duplicate branch IDs', () => {
     expect(() => {
       new FlowChartBuilder()
         .start('entry', noop)
-        .addDecider(() => 'a')
+        .addDeciderFunction('Decider', () => 'a')
           .addFunctionBranch('a', 'Alpha', noop)
           .addFunctionBranch('a', 'Alpha2', noop);
     }).toThrow(/duplicate decider branch id 'a'/i);
@@ -860,7 +843,7 @@ describe('Duplicate branch IDs', () => {
     expect(() => {
       new FlowChartBuilder()
         .start('entry', noop)
-        .addDecider(() => 'a')
+        .addDeciderFunction('Decider', () => 'a')
           .addSubFlowChartBranch('a', sub, 'A')
           .addSubFlowChartBranch('a', sub, 'A2');
     }).toThrow(/duplicate decider branch id 'a'/i);
@@ -941,12 +924,12 @@ describe('DeciderList.addSubFlowChartBranch with mount options', () => {
     const options = { inputMapping: { key: 'val' } } as any;
     const { root } = new FlowChartBuilder()
       .start('entry', noop)
-      .addDecider(() => 'a')
+      .addDeciderFunction('Decider', () => 'a')
         .addSubFlowChartBranch('a', sub, 'A', options)
       .end()
       .build();
 
-    expect(root.children?.[0]?.subflowMountOptions).toEqual(options);
+    expect(root.next!.children?.[0]?.subflowMountOptions).toEqual(options);
   });
 });
 
@@ -1145,40 +1128,22 @@ describe('addTraversalExtractor and addBuildTimeExtractor', () => {
 });
 
 /* ==========================================================================
- * addDecider validation — mutually exclusive checks
+ * addDeciderFunction validation — mutually exclusive checks
  * ========================================================================== */
 
-describe('addDecider — mutually exclusive validation', () => {
-  test('throws when decider already defined (nextNodeDecider)', () => {
-    const b = new FlowChartBuilder().start('entry', noop);
-    (b as any)._cursor.nextNodeDecider = async () => 'x';
-    expect(() => b.addDecider(() => 'a')).toThrow(/decider already defined/i);
-  });
-
+describe('addDeciderFunction — mutually exclusive validation', () => {
   test('throws when decider already defined (deciderFn)', () => {
     const b = new FlowChartBuilder().start('entry', noop);
     (b as any)._cursor.deciderFn = true;
-    expect(() => b.addDecider(() => 'a')).toThrow(/decider already defined/i);
+    expect(() => b.addDeciderFunction('Decider', () => 'a')).toThrow(/decider already defined/i);
   });
 
   test('throws when selector already defined', () => {
     const b = new FlowChartBuilder().start('entry', noop);
     (b as any)._cursor.nextNodeSelector = async () => ['x'];
-    expect(() => b.addDecider(() => 'a')).toThrow(
+    expect(() => b.addDeciderFunction('Decider', () => 'a')).toThrow(
       /decider and selector are mutually exclusive/i,
     );
-  });
-});
-
-/* ==========================================================================
- * addDeciderFunction validation — nextNodeDecider already set
- * ========================================================================== */
-
-describe('addDeciderFunction — nextNodeDecider already set', () => {
-  test('throws when nextNodeDecider already set', () => {
-    const b = new FlowChartBuilder().start('entry', noop);
-    (b as any)._cursor.nextNodeDecider = async () => 'x';
-    expect(() => b.addDeciderFunction('Dec', noop)).toThrow(/decider already defined/i);
   });
 });
 

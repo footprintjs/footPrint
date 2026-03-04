@@ -13,27 +13,28 @@ Decider branching solves the problem of:
 
 ## Key Concepts
 
-### 1. addDecider()
+### 1. addDeciderFunction()
 
 ```typescript
 new FlowChartBuilder()
   .start('AnalyzeOrder', analyzeOrder)
-  .addDecider(fulfillmentDecider)
+  .addDeciderFunction('FulfillmentDecider', fulfillmentDecider)
     .addFunctionBranch('standard', 'StandardFulfillment', standardFulfillment)
     .addFunctionBranch('express', 'ExpressFulfillment', expressFulfillment)
     .addFunctionBranch('digital', 'DigitalDelivery', digitalDelivery)
-    .setDefault('standard')
+    .addFunctionBranch('default', 'StandardFulfillment', standardFulfillment)
     .end()
   .addFunction('ConfirmOrder', confirmOrder);
 ```
 
 ### 2. Decider Function
 
-The decider function receives the previous stage's output and returns a branch ID:
+The decider function reads from scope (shared state) and returns a branch ID:
 
 ```typescript
-const fulfillmentDecider = (output: { fulfillmentType: string }): string => {
-  return output.fulfillmentType; // Returns 'standard', 'express', or 'digital'
+const fulfillmentDecider = (scope: BaseState): string => {
+  const type = scope.getValue('fulfillmentType') ?? 'standard';
+  return type; // Returns 'standard', 'express', or 'digital'
 };
 ```
 
@@ -136,13 +137,13 @@ npm test -- --testPathPattern="3-decider-order/index.property"
 
 ## Default Branch
 
-The `.setDefault(id)` method specifies which branch executes if the decider returns an unknown ID:
+A `default` branch can be added to handle cases where the decider returns an unknown ID:
 
 ```typescript
-.addDecider(decider)
+.addDeciderFunction('MyDecider', decider)
   .addFunctionBranch('a', 'BranchA', fnA)
   .addFunctionBranch('b', 'BranchB', fnB)
-  .setDefault('a')  // If decider returns 'unknown', BranchA executes
+  .addFunctionBranch('default', 'BranchA', fnA)  // Fallback for unknown IDs
   .end()
 ```
 

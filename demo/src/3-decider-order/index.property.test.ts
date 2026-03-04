@@ -195,7 +195,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
    * the default branch (id='default') should execute.
    *
    * NOTE: For scope-based deciders, the default fallback uses a branch with
-   * id='default', not setDefault(). This differs from legacy addDecider.
+   * id='default'.
    *
    * **Validates: Requirements 8.1, 8.2**
    */

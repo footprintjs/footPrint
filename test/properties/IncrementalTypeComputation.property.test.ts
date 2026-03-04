@@ -107,7 +107,7 @@ describe('Incremental Type Computation Property Tests', () => {
       );
     });
 
-    it('addDecider().end() sets parent type="decider"', () => {
+    it('addDeciderFunction().end() sets parent type="decider"', () => {
       fc.assert(
         fc.property(
           stageNameArb,
@@ -116,16 +116,20 @@ describe('Incremental Type Computation Property Tests', () => {
             const [branch1, branch2] = branches;
             const { buildTimeStructure } = new FlowChartBuilder()
               .start(rootName)
-              .addDecider(() => branch1)
+              .addDeciderFunction('Decider', () => branch1)
               .addFunctionBranch(branch1, `${branch1}Stage`)
               .addFunctionBranch(branch2, `${branch2}Stage`)
               .end()
               .build();
 
+            // addDeciderFunction creates a new decider node as next of root
+            const deciderSpec = buildTimeStructure.next;
             return (
-              buildTimeStructure.type === 'decider' &&
-              buildTimeStructure.hasDecider === true &&
-              buildTimeStructure.children?.every((c) => c.type === 'stage') === true
+              buildTimeStructure.type === 'stage' &&
+              deciderSpec !== undefined &&
+              deciderSpec.type === 'decider' &&
+              deciderSpec.hasDecider === true &&
+              deciderSpec.children?.every((c) => c.type === 'stage') === true
             );
           },
         ),
@@ -450,13 +454,15 @@ describe('Incremental Type Computation Property Tests', () => {
 
             const { buildTimeStructure } = new FlowChartBuilder()
               .start(rootName)
-              .addDecider(() => subflowId)
+              .addDeciderFunction('Decider', () => subflowId)
               .addSubFlowChartBranch(subflowId, subflow)
               .end()
               .build();
 
-            // Find the mounted subflow in children - the branch id is subflowId
-            const mountedSubflow = buildTimeStructure.children?.find((c) => c.subflowId === subflowId);
+            // addDeciderFunction creates a new decider node as next of root
+            const deciderSpec = buildTimeStructure.next;
+            // Find the mounted subflow in children of the decider node
+            const mountedSubflow = deciderSpec?.children?.find((c) => c.subflowId === subflowId);
 
             // Should have subflow metadata on the WRAPPER node
             // Internal structure is preserved in subflowStructure property

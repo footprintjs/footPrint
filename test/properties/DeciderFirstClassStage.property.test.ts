@@ -4,12 +4,11 @@
  * INVARIANTS TESTED:
  * These properties must hold for ALL valid inputs:
  * 1. addDeciderFunction produces correct build output structure
- * 2. Legacy addDecider produces correct build output structure (backward compat)
- * 3. Scope-based decider routes to correct branch
- * 4. Default fallback for invalid branch IDs
- * 5. Error propagation on decider throw
- * 6. Debug visibility for scope-based deciders
- * 7. Mixed pipeline execution (legacy + scope-based)
+ * 2. Scope-based decider routes to correct branch
+ * 3. Default fallback for invalid branch IDs
+ * 4. Error propagation on decider throw
+ * 5. Debug visibility for scope-based deciders
+ * 6. Multiple scope-based deciders execute independently
  *
  * GENERATOR STRATEGY:
  * - Generate random valid stage names (alphanumeric, starting with letter)
@@ -20,7 +19,7 @@
  * - Verify structural properties of the built FlowChart
  * - Verify execution-time routing, error handling, and debug visibility
  *
- * Feature: decider-first-class-stage, Property 1-7
+ * Feature: decider-first-class-stage, Property 1-6
  */
 
 import * as fc from 'fast-check';
@@ -306,125 +305,15 @@ describe('Feature: decider-first-class-stage', () => {
     });
   });
 
-  /**
-   * PROPERTY 2: Build-time correctness of legacy addDecider
-   *
-   * For any valid decider function and set of branches with unique IDs,
-   * calling addDecider(fn) followed by branch additions and end() SHALL produce
-   * a FlowChart where:
-   * - The StageNode has nextNodeDecider set (wrapped with default handling)
-   * - deciderFn is NOT set to true
-   * - The legacy execution path is preserved
-   *
-   * **Validates: Requirements 4.1, 5.2**
-   *
-   * COUNTEREXAMPLE MEANING:
-   * If this fails, it means the legacy addDecider API is broken, which would
-   * break backward compatibility for existing consumers.
-   */
-  describe('Property 2: Build-time correctness of legacy addDecider', () => {
-    it('should produce nextNodeDecider and no deciderFn for legacy deciders', () => {
-      fc.assert(
-        fc.property(
-          arbStageName, // rootName
-          arbBranches, // branches
-          fc.boolean(), // useDefault
-          (rootName, branches, useDefault) => {
-            // Create a legacy decider function that returns the first branch ID
-            const legacyDecider = () => branches[0].id;
-
-            const builder = new FlowChartBuilder();
-            builder.start(rootName, () => 'root-output');
-
-            let deciderList = builder.addDecider(legacyDecider as any);
-
-            for (const branch of branches) {
-              const branchFn = branch.hasFn ? (() => `output-${branch.id}`) : undefined;
-              deciderList = deciderList.addFunctionBranch(
-                branch.id,
-                branch.name,
-                branchFn as any,
-              );
-            }
-
-            if (useDefault && branches.length > 0) {
-              deciderList = deciderList.setDefault(branches[0].id);
-            }
-
-            deciderList.end();
-            const flowChart = builder.build();
-
-            // The root node should have the decider properties
-            // (addDecider sets decider on the current cursor, which is root)
-            const rootNode = flowChart.root;
-
-            // nextNodeDecider must be set (legacy path)
-            // _Requirements: 5.2_
-            expect(rootNode.nextNodeDecider).toBeDefined();
-            expect(typeof rootNode.nextNodeDecider).toBe('function');
-
-            // deciderFn must NOT be set (legacy path)
-            // _Requirements: 5.2_
-            expect(rootNode.deciderFn).toBeUndefined();
-
-            // Children must match branches
-            expect(rootNode.children).toBeDefined();
-            expect(rootNode.children!.length).toBe(branches.length);
-
-            // Spec must have correct structure
-            const rootSpec = flowChart.buildTimeStructure;
-            expect(rootSpec.hasDecider).toBe(true);
-            expect(rootSpec.type).toBe('decider');
-            expect(rootSpec.branchIds).toBeDefined();
-            expect(rootSpec.branchIds!.length).toBe(branches.length);
-          },
-        ),
-        { numRuns: 100 },
-      );
-    });
-
-    it('should correctly route via nextNodeDecider with default fallback', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          arbStageName,
-          arbBranches,
-          async (rootName, branches) => {
-            // Decider returns an invalid ID
-            const legacyDecider = () => 'nonexistent-branch';
-            const defaultBranchId = branches[0].id;
-
-            const builder = new FlowChartBuilder();
-            builder.start(rootName, () => 'root-output');
-
-            let deciderList = builder.addDecider(legacyDecider as any);
-
-            for (const branch of branches) {
-              deciderList = deciderList.addFunctionBranch(branch.id, branch.name);
-            }
-
-            deciderList.setDefault(defaultBranchId).end();
-            const flowChart = builder.build();
-
-            // The wrapped decider should fall back to default
-            const wrappedDecider = flowChart.root.nextNodeDecider!;
-            const result = await wrappedDecider(undefined);
-            expect(result).toBe(defaultBranchId);
-          },
-        ),
-        { numRuns: 100 },
-      );
-    });
-  });
-
   /* ============================================================================
-   * Execution-Level Property Tests (Properties 3-7)
+   * Execution-Level Property Tests (Properties 2-6)
    *
    * These tests verify runtime behavior of scope-based deciders by building
    * and executing full pipelines. They complement the build-time tests above.
    * ========================================================================== */
 
   /**
-   * PROPERTY 3: Scope-based decider routes to correct branch
+   * PROPERTY 2: Scope-based decider routes to correct branch
    *
    * For any scope-based decider function (sync or async) that returns a valid
    * branch ID, and any set of branches containing that ID, executing the pipeline
@@ -438,7 +327,7 @@ describe('Feature: decider-first-class-stage', () => {
    * execution to the branch matching the returned ID, or scope writes are not
    * being committed before branch execution.
    */
-  describe('Property 3: Scope-based decider routes to correct branch', () => {
+  describe('Property 2: Scope-based decider routes to correct branch', () => {
     it('should route to the correct branch for any valid branch ID (sync and async)', async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -560,7 +449,7 @@ describe('Feature: decider-first-class-stage', () => {
   });
 
   /**
-   * PROPERTY 4: Default fallback for invalid branch IDs
+   * PROPERTY 3: Default fallback for invalid branch IDs
    *
    * For any scope-based decider that returns a branch ID not matching any child,
    * and a default branch configured (with id='default'), the pipeline SHALL
@@ -573,7 +462,7 @@ describe('Feature: decider-first-class-stage', () => {
    * scope-based deciders, causing runtime errors when the decider returns
    * an unexpected branch ID.
    */
-  describe('Property 4: Default fallback for invalid branch IDs', () => {
+  describe('Property 3: Default fallback for invalid branch IDs', () => {
     it('should fall back to default branch when decider returns invalid ID', async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -667,7 +556,7 @@ describe('Feature: decider-first-class-stage', () => {
   });
 
   /**
-   * PROPERTY 5: Error propagation on decider throw
+   * PROPERTY 4: Error propagation on decider throw
    *
    * For any scope-based decider function that throws an error, the pipeline
    * SHALL commit the partial patch, call the extractor with error info
@@ -680,7 +569,7 @@ describe('Feature: decider-first-class-stage', () => {
    * properly propagated or the partial patch is not being committed,
    * which would break error handling and forensic debugging.
    */
-  describe('Property 5: Error propagation on decider throw', () => {
+  describe('Property 4: Error propagation on decider throw', () => {
     it('should propagate errors and call extractor with error info', async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -755,7 +644,7 @@ describe('Feature: decider-first-class-stage', () => {
   });
 
   /**
-   * PROPERTY 6: Debug visibility for scope-based deciders
+   * PROPERTY 5: Debug visibility for scope-based deciders
    *
    * For any scope-based decider execution with an extractor configured,
    * the extractor SHALL receive a StageSnapshot with a positive stepNumber,
@@ -769,7 +658,7 @@ describe('Feature: decider-first-class-stage', () => {
    * If this fails, it means scope-based deciders are not appearing as
    * full stages in the debug UI, breaking observability and time-travel.
    */
-  describe('Property 6: Debug visibility for scope-based deciders', () => {
+  describe('Property 5: Debug visibility for scope-based deciders', () => {
     it('should produce correct StageSnapshot with debug metadata', async () => {
       await fc.assert(
         fc.asyncProperty(
@@ -941,184 +830,155 @@ describe('Feature: decider-first-class-stage', () => {
   });
 
   /**
-   * PROPERTY 7: Mixed pipeline execution
+   * PROPERTY 6: Multiple scope-based deciders execute independently
    *
-   * For any pipeline containing both legacy addDecider nodes and new
-   * addDeciderFunction nodes, each decider SHALL execute according to its
-   * type (output-based vs scope-based) and produce the correct branch
-   * selection, with the DeciderList fluent API working identically for both.
+   * For any two separate pipelines each containing addDeciderFunction nodes,
+   * each decider SHALL execute according to its scope-based function and
+   * produce the correct branch selection independently.
    *
-   * **Validates: Requirements 4.3, 4.4, 5.3, 5.4**
+   * **Validates: Requirements 4.3, 5.3**
    *
    * COUNTEREXAMPLE MEANING:
-   * If this fails, it means having both legacy and scope-based deciders in
-   * the same pipeline causes interference, breaking backward compatibility
-   * or the new scope-based execution path.
+   * If this fails, it means having multiple scope-based deciders in
+   * separate pipelines causes interference.
    */
-  describe('Property 7: Mixed pipeline execution', () => {
-    it('should execute both legacy and scope-based deciders correctly in the same pipeline', async () => {
+  describe('Property 6: Multiple scope-based deciders execute independently', () => {
+    it('should execute two scope-based deciders correctly in separate pipelines', async () => {
       await fc.assert(
         fc.asyncProperty(
-          fc.nat({ max: 1 }), // legacyTargetIndex (0 or 1)
-          fc.nat({ max: 1 }), // scopeTargetIndex (0 or 1)
-          async (legacyTargetIndex, scopeTargetIndex) => {
-            // Define two branches for each decider
-            const legacyBranches = [
-              { id: 'legacy_a', name: 'LegacyA' },
-              { id: 'legacy_b', name: 'LegacyB' },
+          fc.nat({ max: 1 }), // firstTargetIndex (0 or 1)
+          fc.nat({ max: 1 }), // secondTargetIndex (0 or 1)
+          async (firstTargetIndex, secondTargetIndex) => {
+            const firstBranches = [
+              { id: 'first_a', name: 'FirstA' },
+              { id: 'first_b', name: 'FirstB' },
             ];
-            const scopeBranches = [
-              { id: 'scope_a', name: 'ScopeA' },
-              { id: 'scope_b', name: 'ScopeB' },
+            const secondBranches = [
+              { id: 'second_a', name: 'SecondA' },
+              { id: 'second_b', name: 'SecondB' },
             ];
 
-            const legacyTargetId = legacyBranches[legacyTargetIndex].id;
-            const scopeTargetId = scopeBranches[scopeTargetIndex].id;
+            const firstTargetId = firstBranches[firstTargetIndex].id;
+            const secondTargetId = secondBranches[secondTargetIndex].id;
 
             const executedBranches: string[] = [];
 
-            // Build a pipeline: entry → legacy decider (on entry) → chosen branch
-            //   → scope decider → chosen branch
-            // The legacy decider's chosen branch writes the scope target,
-            // then the scope decider reads it.
-            //
-            // Structure:
-            //   entry (with legacy decider) → [LegacyA | LegacyB]
-            //   Each legacy branch → ScopeDecider → [ScopeA | ScopeB]
-            //
-            // But that's complex. Simpler: use two separate pipelines in sequence
-            // within the same test to verify non-interference.
-            //
-            // Actually, the simplest approach: entry → addFunction('middle') → addDeciderFunction
-            // where entry has the legacy decider.
-            //
-            // Wait — addDecider sets the decider on the CURRENT cursor (entry).
-            // addDeciderFunction creates a NEW node as next. So:
-            //   entry (legacy decider) → chosen branch writes to scope
-            //   Then we can't chain after a decider's branches.
-            //
-            // Better approach: Build a pipeline where:
-            //   entry → legacy decider → [LegacyA, LegacyB]
-            //   Each legacy branch is a subflow that ends with a scope write.
-            //   After the decider, we can't chain. So let's use two separate
-            //   pipelines and verify each works independently in the same test.
-
-            // Pipeline 1: Legacy decider
-            const legacyBuilder = new FlowChartBuilder();
-            legacyBuilder.start('legacyEntry', ((scope: StageContext) => {
-              return legacyTargetId;
+            // Pipeline 1: Scope-based decider
+            const firstBuilder = new FlowChartBuilder();
+            firstBuilder.start('firstEntry', ((scope: StageContext) => {
+              scope.setObject([], 'firstRoute', firstTargetId);
             }) as any);
 
-            let legacyDeciderList = legacyBuilder.addDecider(
-              ((out?: any) => String(out)) as any,
+            let firstDeciderList = firstBuilder.addDeciderFunction(
+              'FirstDecider',
+              ((scope: StageContext) => {
+                return scope.getValue([], 'firstRoute') as string;
+              }) as any,
+              'first-decider',
             );
 
-            for (const branch of legacyBranches) {
-              legacyDeciderList = legacyDeciderList.addFunctionBranch(
+            for (const branch of firstBranches) {
+              firstDeciderList = firstDeciderList.addFunctionBranch(
                 branch.id,
                 branch.name,
                 (() => { executedBranches.push(branch.id); }) as any,
               );
             }
-            legacyDeciderList.end();
-            const legacyChart = legacyBuilder.build();
+            firstDeciderList.end();
+            const firstChart = firstBuilder.build();
 
             // Pipeline 2: Scope-based decider
-            const scopeBuilder = new FlowChartBuilder();
-            scopeBuilder.start('scopeEntry', ((scope: StageContext) => {
-              scope.setObject([], 'scopeRoute', scopeTargetId);
+            const secondBuilder = new FlowChartBuilder();
+            secondBuilder.start('secondEntry', ((scope: StageContext) => {
+              scope.setObject([], 'secondRoute', secondTargetId);
             }) as any);
 
-            let scopeDeciderList = scopeBuilder.addDeciderFunction(
-              'ScopeDecider',
+            let secondDeciderList = secondBuilder.addDeciderFunction(
+              'SecondDecider',
               ((scope: StageContext) => {
-                return scope.getValue([], 'scopeRoute') as string;
+                return scope.getValue([], 'secondRoute') as string;
               }) as any,
-              'scope-decider',
+              'second-decider',
             );
 
-            for (const branch of scopeBranches) {
-              scopeDeciderList = scopeDeciderList.addFunctionBranch(
+            for (const branch of secondBranches) {
+              secondDeciderList = secondDeciderList.addFunctionBranch(
                 branch.id,
                 branch.name,
                 (() => { executedBranches.push(branch.id); }) as any,
               );
             }
-            scopeDeciderList.end();
-            const scopeChart = scopeBuilder.build();
+            secondDeciderList.end();
+            const secondChart = secondBuilder.build();
 
             // Execute both pipelines
-            await new FlowChartExecutor(legacyChart, testScopeFactory).run();
-            await new FlowChartExecutor(scopeChart, testScopeFactory).run();
+            await new FlowChartExecutor(firstChart, testScopeFactory).run();
+            await new FlowChartExecutor(secondChart, testScopeFactory).run();
 
             // PROPERTY: Both deciders should have executed their correct branches
-            // _Requirements: 4.3, 5.3, 5.4_
+            // _Requirements: 4.3, 5.3_
             expect(executedBranches.length).toBe(2);
-
-            // PROPERTY: Legacy decider routed correctly (output-based)
-            expect(executedBranches[0]).toBe(legacyTargetId);
-
-            // PROPERTY: Scope-based decider routed correctly (scope-based)
-            expect(executedBranches[1]).toBe(scopeTargetId);
+            expect(executedBranches[0]).toBe(firstTargetId);
+            expect(executedBranches[1]).toBe(secondTargetId);
           },
         ),
         { numRuns: 100 },
       );
     });
 
-    it('should use identical DeciderList API for both decider types', async () => {
+    it('should use identical DeciderList API for multiple addDeciderFunction calls', async () => {
       await fc.assert(
         fc.asyncProperty(
           arbBranches,
           async (branches) => {
             const targetId = branches[0].id;
 
-            // Build two pipelines: one with legacy, one with scope-based
-            // Both use the same DeciderList API (addFunctionBranch, end)
-            const legacyExecuted: string[] = [];
-            const scopeExecuted: string[] = [];
+            const firstExecuted: string[] = [];
+            const secondExecuted: string[] = [];
 
-            // Legacy pipeline
-            const legacyBuilder = new FlowChartBuilder();
-            legacyBuilder.start('entry', (() => targetId) as any);
-            let legacyList = legacyBuilder.addDecider(((out?: any) => String(out)) as any);
+            // Pipeline 1: Scope-based decider with constant return
+            const firstBuilder = new FlowChartBuilder();
+            firstBuilder.start('entry', (() => 'entry') as any);
+            let firstList = firstBuilder.addDeciderFunction(
+              'Decider',
+              (() => targetId) as any,
+            );
             for (const branch of branches) {
-              legacyList = legacyList.addFunctionBranch(
+              firstList = firstList.addFunctionBranch(
                 branch.id,
                 branch.name,
-                (() => { legacyExecuted.push(branch.id); }) as any,
+                (() => { firstExecuted.push(branch.id); }) as any,
               );
             }
-            legacyList.end();
-            const legacyChart = legacyBuilder.build();
+            firstList.end();
+            const firstChart = firstBuilder.build();
 
-            // Scope-based pipeline
-            const scopeBuilder = new FlowChartBuilder();
-            scopeBuilder.start('entry', ((scope: StageContext) => {
+            // Pipeline 2: Scope-based decider with scope read
+            const secondBuilder = new FlowChartBuilder();
+            secondBuilder.start('entry', ((scope: StageContext) => {
               scope.setObject([], 'target', targetId);
             }) as any);
-            let scopeList = scopeBuilder.addDeciderFunction(
+            let secondList = secondBuilder.addDeciderFunction(
               'Decider',
               ((scope: StageContext) => scope.getValue([], 'target') as string) as any,
             );
             for (const branch of branches) {
-              scopeList = scopeList.addFunctionBranch(
+              secondList = secondList.addFunctionBranch(
                 branch.id,
                 branch.name,
-                (() => { scopeExecuted.push(branch.id); }) as any,
+                (() => { secondExecuted.push(branch.id); }) as any,
               );
             }
-            scopeList.end();
-            const scopeChart = scopeBuilder.build();
+            secondList.end();
+            const secondChart = secondBuilder.build();
 
             // Execute both
-            await new FlowChartExecutor(legacyChart, testScopeFactory).run();
-            await new FlowChartExecutor(scopeChart, testScopeFactory).run();
+            await new FlowChartExecutor(firstChart, testScopeFactory).run();
+            await new FlowChartExecutor(secondChart, testScopeFactory).run();
 
             // PROPERTY: Both should route to the same branch
-            // _Requirements: 4.4_
-            expect(legacyExecuted).toEqual([targetId]);
-            expect(scopeExecuted).toEqual([targetId]);
+            expect(firstExecuted).toEqual([targetId]);
+            expect(secondExecuted).toEqual([targetId]);
           },
         ),
         { numRuns: 100 },

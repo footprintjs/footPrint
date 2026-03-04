@@ -4,9 +4,9 @@
  * BUSINESS CONTEXT:
  * Decider nodes are the most valuable part of the narrative for LLM context
  * engineering — knowing *why* a branch was taken lets even a cheaper model
- * reason about the execution. This test verifies that both legacy deciders
- * (addDecider) and scope-based deciders (addDeciderFunction) produce correct
- * narrative sentences, with and without rationale.
+ * reason about the execution. This test verifies that deciders
+ * (addDeciderFunction) produce correct narrative sentences, with and without
+ * rationale.
  *
  * MODULES INVOLVED:
  * - FlowChartBuilder: Constructs pipelines with decider nodes
@@ -15,8 +15,8 @@
  * - DeciderHandler: Calls onDecision() after branch selection
  *
  * KEY BEHAVIORS TESTED:
- * 1. Legacy decider with rationale produces sentence with branch name and rationale
- * 2. Legacy decider without rationale produces sentence with branch name only
+ * 1. Decider with rationale produces sentence with branch name and rationale
+ * 2. Decider without rationale produces sentence with branch name only
  * 3. Scope-based decider produces decision sentence with branch selected
  *
  * _Requirements: 4.1, 4.2, 4.3_
@@ -32,10 +32,10 @@ const testScopeFactory: ScopeFactory<StageContext> = (context: StageContext) => 
 
 describe('Scenario: Decider Pipeline Narrative', () => {
   /**
-   * SCENARIO: Legacy decider with rationale produces a decision sentence
+   * SCENARIO: Decider with rationale produces a decision sentence
    *
    * GIVEN: A pipeline with a stage that sets deciderRationale, followed by
-   *        a legacy decider (addDecider) that selects a branch
+   *        a decider (addDeciderFunction) that selects a branch
    * WHEN: The pipeline executes with narrative enabled
    * THEN: The narrative contains a decision sentence with both the branch
    *       name and the rationale text
@@ -48,15 +48,18 @@ describe('Scenario: Decider Pipeline Narrative', () => {
    *
    * _Requirements: 4.1_
    */
-  it('should include branch name and rationale for legacy decider with rationale', async () => {
+  it('should include branch name and rationale for decider with rationale', async () => {
     // GIVEN: A pipeline where the entry stage sets deciderRationale,
-    // then a legacy decider picks a branch
+    // then a decider picks a branch
     const chart = new FlowChartBuilder()
       .start('entry', (scope: StageContext) => {
-        scope.setLog('deciderRationale', 'the user role equals admin');
+        scope.set([], 'route', 'grantAccess');
         return 'grantAccess';
       })
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', (scope) => {
+        scope.setLog('deciderRationale', 'the user role equals admin');
+        return scope.get([], 'route') as string;
+      })
         .addFunctionBranch('grantAccess', 'Grant Full Access', () => 'granted')
         .addFunctionBranch('denyAccess', 'Deny Access', () => 'denied')
       .end()
@@ -83,9 +86,9 @@ describe('Scenario: Decider Pipeline Narrative', () => {
   });
 
   /**
-   * SCENARIO: Legacy decider without rationale still produces a decision sentence
+   * SCENARIO: Decider without rationale still produces a decision sentence
    *
-   * GIVEN: A pipeline with a legacy decider where no deciderRationale is set
+   * GIVEN: A pipeline with a decider where no deciderRationale is set
    * WHEN: The pipeline executes with narrative enabled
    * THEN: The narrative contains a decision sentence with the branch name
    *       but no rationale clause
@@ -97,11 +100,11 @@ describe('Scenario: Decider Pipeline Narrative', () => {
    *
    * _Requirements: 4.3_
    */
-  it('should include branch name without rationale for legacy decider', async () => {
+  it('should include branch name without rationale for decider', async () => {
     // GIVEN: A pipeline where no deciderRationale is set
     const chart = new FlowChartBuilder()
       .start('entry', () => 'pathB')
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', () => 'pathB')
         .addFunctionBranch('pathA', 'Path Alpha', () => 'a')
         .addFunctionBranch('pathB', 'Path Beta', () => 'b')
       .end()
@@ -248,10 +251,13 @@ describe('Scenario: Decider Pipeline Narrative', () => {
     const chart = new FlowChartBuilder()
       .start('entry', () => 'setup-done', undefined, 'Validate Input')
       .addFunction('router', (scope: StageContext) => {
-        scope.setLog('deciderRationale', 'account balance exceeds threshold');
+        scope.set([], 'route', 'premium');
         return 'premium';
       })
-      .addDecider((out) => out as string)
+      .addDeciderFunction('Decider', (scope) => {
+        scope.setLog('deciderRationale', 'account balance exceeds threshold');
+        return scope.get([], 'route') as string;
+      })
         .addFunctionBranch('premium', 'Premium Service', () => 'premium-result')
         .addFunctionBranch('basic', 'Basic Service', () => 'basic-result')
       .end()

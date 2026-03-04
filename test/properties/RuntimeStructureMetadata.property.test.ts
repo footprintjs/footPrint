@@ -77,15 +77,15 @@ describe('RuntimeStructureMetadata Property-Based Tests', () => {
           async (baseName, numBranches) => {
             let deciderMetadata: RuntimeStructureMetadata | undefined;
             const extractor: TraversalExtractor = (snapshot) => {
-              if (snapshot.node.nextNodeDecider) {
+              if (snapshot.node.deciderFn) {
                 deciderMetadata = snapshot.structureMetadata;
               }
               return { captured: true };
             };
 
             // Build a decider with N branches
-            let builder = flowChart(`${baseName}Decider`, async () => 'branch0')
-              .addDecider((out) => out as string);
+            let builder = flowChart(`${baseName}Decider`, async () => 'entry-done')
+              .addDeciderFunction('Decider', () => 'branch0');
 
             for (let i = 0; i < numBranches; i++) {
               builder = builder.addFunctionBranch(`branch${i}`, `${baseName}Branch${i}`, async () => `result${i}`);

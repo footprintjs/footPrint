@@ -209,7 +209,7 @@ describe('Property 4: Loop with Decider Branches', () => {
       fc.property(stageNameArb, stageIdArb, stageNameArb, stageIdArb, (rootName, targetId, branchName, branchId) => {
         const fb = new FlowChartBuilder()
           .start(rootName, undefined, targetId)
-          .addDecider(() => branchId)
+          .addDeciderFunction('Decider', () => branchId)
           .addFunctionBranch(branchId, branchName)
           .end()
           .loopTo(targetId);
@@ -217,11 +217,15 @@ describe('Property 4: Loop with Decider Branches', () => {
         const { root } = fb.build();
 
         // Root should have children (decider branches) AND a next reference node (loop)
+        // Note: addDeciderFunction creates a new decider node as next of root,
+        // so the decider node has children and the loop reference
+        const deciderNode = root.next;
         return (
-          root.children !== undefined &&
-          root.children.length === 1 &&
-          root.next !== undefined &&
-          root.next.id === targetId
+          deciderNode !== undefined &&
+          deciderNode.children !== undefined &&
+          deciderNode.children.length === 1 &&
+          deciderNode.next !== undefined &&
+          deciderNode.next.id === targetId
         );
       }),
       { numRuns: 100 },
@@ -233,19 +237,22 @@ describe('Property 4: Loop with Decider Branches', () => {
       fc.property(stageNameArb, stageIdArb, stageNameArb, stageIdArb, (rootName, targetId, branchName, branchId) => {
         const fb = new FlowChartBuilder()
           .start(rootName, undefined, targetId)
-          .addDecider(() => branchId)
+          .addDeciderFunction('Decider', () => branchId)
           .addFunctionBranch(branchId, branchName)
           .end()
           .loopTo(targetId);
 
         const spec = fb.toSpec();
 
+        // addDeciderFunction creates a new decider node as next of root
+        const deciderSpec = spec.next;
         return (
-          spec.children !== undefined &&
-          spec.children.length === 1 &&
-          spec.loopTarget === targetId &&
-          spec.next !== undefined &&
-          spec.next.id === targetId
+          deciderSpec !== undefined &&
+          deciderSpec.children !== undefined &&
+          deciderSpec.children.length === 1 &&
+          deciderSpec.loopTarget === targetId &&
+          deciderSpec.next !== undefined &&
+          deciderSpec.next.id === targetId
         );
       }),
       { numRuns: 100 },

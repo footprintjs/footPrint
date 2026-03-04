@@ -356,7 +356,7 @@ describe('Property 5: Subflow Mounting Creates Reference Nodes', () => {
           // Mount all subflows as decider branches
           let builder = new FlowChartBuilder()
             .start('root')
-            .addDecider(() => subflowSpecs[0].id);
+            .addDeciderFunction('Decider', () => subflowSpecs[0].id);
 
           for (let i = 0; i < subflows.length; i++) {
             builder = builder.addSubFlowChartBranch(subflowSpecs[i].id, subflows[i]) as any;
@@ -364,11 +364,13 @@ describe('Property 5: Subflow Mounting Creates Reference Nodes', () => {
 
           const { root, subflows: defs } = (builder as any).end().build();
 
+          // addDeciderFunction creates a new decider node as root.next
+          const deciderNode = root.next!;
           // Verify reference nodes
-          expect(root.children).toBeDefined();
-          expect(root.children!.length).toBe(subflows.length);
+          expect(deciderNode.children).toBeDefined();
+          expect(deciderNode.children!.length).toBe(subflows.length);
 
-          for (const child of root.children!) {
+          for (const child of deciderNode.children!) {
             expect(child.isSubflowRoot).toBe(true);
             expect(child.subflowId).toBeDefined();
             expect(defs).toBeDefined();

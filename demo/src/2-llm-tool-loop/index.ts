@@ -1,7 +1,7 @@
 /**
  * Demo 2: LLM Tool Loop (Decider Pattern)
  *
- * Shows conditional branching with addDecider() - the classic LLM agent loop.
+ * Shows conditional branching with addDeciderFunction() - the classic LLM agent loop.
  */
 
 import { FlowChartBuilder, BaseState } from 'footprint';
@@ -49,9 +49,11 @@ const handleError = async () => {
 };
 
 // Decider function - determines which branch to take
-const routeDecider = (output: any) => {
-  if (output?.type === 'tool_call') return 'tool';
-  if (output?.type === 'response') return 'response';
+// Reads from scope (written by the preceding stage) instead of stage output
+const routeDecider = (scope: BaseState) => {
+  const response = scope.getValue('llmResponse') as any;
+  if (response?.type === 'tool_call') return 'tool';
+  if (response?.type === 'response') return 'response';
   return 'error';
 };
 
@@ -59,7 +61,7 @@ const routeDecider = (output: any) => {
 export function buildLLMToolLoop() {
   return new FlowChartBuilder()
     .start('CallLLM', callLLM)
-    .addDecider(routeDecider)
+    .addDeciderFunction('RouteDecider', routeDecider as any)
       .addFunctionBranch('tool', 'ExecuteToolCall', executeToolCall)
       .addFunctionBranch('response', 'FormatResponse', formatResponse)
       .addFunctionBranch('error', 'HandleError', handleError)
@@ -78,7 +80,7 @@ async function main() {
 
     const builder = new FlowChartBuilder()
       .start('CallLLM', callLLM)
-      .addDecider(routeDecider)
+      .addDeciderFunction('RouteDecider', routeDecider as any)
         .addFunctionBranch('tool', 'ExecuteToolCall', executeToolCall)
         .addFunctionBranch('response', 'FormatResponse', formatResponse)
         .addFunctionBranch('error', 'HandleError', handleError)

@@ -14,7 +14,7 @@ Follow these demos in order to master FootPrint:
 |---|------|--------|---------|------------|------|--------------|
 | 1 | [Linear Payment](./src/1-linear-payment/) | Payment | Linear | ⭐ | 5 min | `start()`, `addFunction()`, `scope.setValue/getValue` |
 | 2 | [Parallel Shipping](./src/2-parallel-shipping/) | Shipping | Fork-Join | ⭐⭐ | 10 min | `addListOfFunction()`, parallel execution, timing |
-| 3 | [Decider Order](./src/3-decider-order/) | Order Processing | Decider | ⭐⭐ | 10 min | `addDecider()`, single-choice branching |
+| 3 | [Decider Order](./src/3-decider-order/) | Order Processing | Decider | ⭐⭐ | 10 min | `addDeciderFunction()`, single-choice branching |
 | 4 | [Selector Support](./src/4-selector-support/) | Customer Support | Selector | ⭐⭐⭐ | 15 min | `addSelector()`, multi-choice parallel |
 | 5 | [Subflow Inventory](./src/5-subflow-inventory/) | Inventory | Subflow | ⭐⭐⭐ | 15 min | `addSubFlowChart()`, SubflowInputMapper, scope isolation |
 | 6 | [Subflow Decider Fulfillment](./src/6-subflow-decider-fulfillment/) | Fulfillment | Subflow+Decider | ⭐⭐⭐⭐ | 20 min | Complex subflows with internal branching |
@@ -112,7 +112,7 @@ Single-choice branching: `A → ? → (B1 OR B2 OR B3)`
 ```typescript
 new FlowChartBuilder()
   .start('AnalyzeOrder', analyzeOrder)
-  .addDecider((output) => output.fulfillmentType)
+  .addDeciderFunction('FulfillmentDecider', (scope) => scope.getValue('fulfillmentType'))
     .addFunctionBranch('standard', 'StandardFulfillment', standardFulfillment)
     .addFunctionBranch('express', 'ExpressFulfillment', expressFulfillment)
     .addFunctionBranch('digital', 'DigitalDelivery', digitalDelivery)
@@ -170,7 +170,7 @@ Complex subflows with internal branching:
 ```typescript
 const fulfillmentSubflow = new FlowChartBuilder()
   .start('ValidateOrder', validateOrder)
-  .addDecider((output) => output.shippingMethod)
+  .addDeciderFunction('ShippingDecider', (scope) => scope.getValue('shippingMethod'))
     .addFunctionBranch('ground', 'GroundShipping', groundShipping)
     .addFunctionBranch('air', 'AirShipping', airShipping)
     .end()

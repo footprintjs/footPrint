@@ -133,7 +133,7 @@ export function createSmartContextFinderSubGraph(): FlowChart<Output, Scope> {
   return new FlowChartBuilder<any, SmartContextFinderScope>()
     .start('extractInput', extractInputStage)
     .addFunction('keywordMatcher', keywordMatcherStage)
-    .addDecider(decideKeywordMatch)
+    .addDeciderFunction('DecideKeywordMatch', (scope) => scope.get('keywordMatchResult'))
       .addFunctionBranch('matched', 'finalize', finalizeResultStage)
       .addFunctionBranch('not_matched', 'checkPinned', checkPinnedContextStage)
     .end()

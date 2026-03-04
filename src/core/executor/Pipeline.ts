@@ -138,8 +138,8 @@ export type StageNode<TOut = any, TScope = any> = {
    * The fn receives (scope, breakFn) and its string return value
    * is used as the branch ID to select the child node to execute.
    *
-   * WHY: Distinguishes scope-based deciders (new `addDeciderFunction` API)
-   * from legacy output-based deciders (`addDecider` API) so that Pipeline
+   * WHY: Distinguishes scope-based deciders (created via `addDeciderFunction`)
+   * from dynamically injected output-based deciders so that Pipeline
    * and DeciderHandler can route to the correct execution path.
    *
    * DESIGN: A boolean flag rather than storing the function separately
@@ -148,7 +148,7 @@ export type StageNode<TOut = any, TScope = any> = {
    *
    * Mutually exclusive with `nextNodeDecider`:
    * - `deciderFn = true` → scope-based decider (reads from scope, fn returns branch ID)
-   * - `nextNodeDecider` set → legacy output-based decider (reads from previous stage output)
+   * - `nextNodeDecider` set → dynamically injected output-based decider
    *
    * When set, `fn` MUST be defined (either embedded or in stageMap).
    * When set, `children` MUST be defined with at least one branch.
@@ -665,7 +665,7 @@ export class Pipeline<TOut, TScope> {
     // decider order: stage (optional) → commit → decider → chosen child
     // Route to the correct DeciderHandler method based on decider type:
     // - Scope-based (deciderFn): fn IS the decider, returns branch ID directly
-    // - Legacy (nextNodeDecider): separate decider function evaluates after optional stage
+    // - Output-based (nextNodeDecider): separate decider function evaluates after optional stage (dynamic only)
     if (isDeciderNode) {
       if (isScopeBasedDecider) {
         // Scope-based decider: fn is required (it IS the decider)
@@ -681,7 +681,7 @@ export class Pipeline<TOut, TScope> {
           this.extractorRunner.getStagePath.bind(this.extractorRunner),
         );
       } else {
-        // Legacy output-based decider: stage is optional, decider is separate
+        // Output-based decider (dynamic): stage is optional, decider is separate
         return this.deciderHandler.handle(
           node,
           stageFunc,

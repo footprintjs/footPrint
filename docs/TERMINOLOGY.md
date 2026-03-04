@@ -319,7 +319,7 @@ import {
 | `start(name, fn?)` | Define the root function |
 | `addFunction(name, fn?)` | Add a linear stage |
 | `addListOfFunction(specs)` | Add parallel children (fork) |
-| `addDecider(fn)` | Add single-choice branching |
+| `addDeciderFunction(name, fn)` | Add single-choice branching |
 | `addSelector(fn)` | Add multi-choice branching |
 | `addSubFlowChart(id, flow)` | Mount subflow as child |
 | `addSubFlowChartNext(id, flow)` | Mount subflow as continuation |

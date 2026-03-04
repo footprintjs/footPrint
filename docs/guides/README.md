@@ -59,7 +59,7 @@ new FlowChartBuilder()
   .start('Entry', entryFn)           // Root node
   .addFunction('Next', nextFn)       // Linear chain
   .addListOfFunction([...])          // Parallel fork
-  .addDecider(deciderFn)             // Single-choice
+  .addDeciderFunction('Name', fn)    // Single-choice
   .addSelector(selectorFn)           // Multi-choice
   .execute(scopeFactory);            // Run it
 ```

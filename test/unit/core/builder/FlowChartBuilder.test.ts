@@ -104,40 +104,45 @@ describe('FlowChartBuilder — build shapes', () => {
     });
   });
 
-  test('decider: addDecider().addFunctionBranch().end() creates branches + decider fn', () => {
+  test('decider: addDeciderFunction().addFunctionBranch().end() creates branches + decider fn', () => {
     const fb = new FlowChartBuilder()
       .start('chooser')
-      .addDecider(() => 'B')
+      .addDeciderFunction('Decider', () => 'B')
       .addFunctionBranch('A', 'A')
       .addFunctionBranch('B', 'B')
       .end();
 
     const { root } = fb.build();
+    // addDeciderFunction creates a new node linked as root.next
     expect(prune(root)).toEqual({
       name: 'chooser',
-      children: [
-        { id: 'A', name: 'A' },
-        { id: 'B', name: 'B' },
-      ],
+      next: {
+        name: 'Decider',
+        children: [
+          { id: 'A', name: 'A' },
+          { id: 'B', name: 'B' },
+        ],
+      },
     });
-    // decider exists
-    expect(typeof (root as any).nextNodeDecider).toBe('function');
-    // wrapper honors default if set; verify wrapper shape via invocation
-    const dec = (root as any).nextNodeDecider as (x?: any) => any;
-    return expect(dec({})).resolves.toBe('B');
+    // deciderFn flag is set on the decider node
+    expect(root.next!.deciderFn).toBe(true);
+    expect(root.next!.fn).toBeDefined();
   });
 
-  test('decider .setDefault routes unknown id to default instead of engine throw', async () => {
+  test('decider .setDefault — default branch is available for runtime fallback', () => {
     const fb = new FlowChartBuilder()
       .start('dec')
-      .addDecider(() => 'UNKNOWN')
+      .addDeciderFunction('Decider', () => 'UNKNOWN')
       .addFunctionBranch('left', 'LEFT')
       .addFunctionBranch('right', 'RIGHT')
       .setDefault('left')
       .end();
     const { root } = fb.build();
-    const dec = (root as any).nextNodeDecider as (x?: any) => any;
-    await expect(dec({})).resolves.toBe('left');
+    const deciderNode = root.next!;
+    expect(deciderNode.deciderFn).toBe(true);
+    // 2 real branches + 1 default alias
+    expect(deciderNode.children).toHaveLength(3);
+    expect(deciderNode.children![2].id).toBe('default');
   });
 
   test('composition (decider branches): addSubFlowChartBranch mounts subflows as references', () => {
@@ -147,7 +152,7 @@ describe('FlowChartBuilder — build shapes', () => {
 
     const chatbot = new FlowChartBuilder()
       .start('Entry')
-      .addDecider(() => 'qa')
+      .addDeciderFunction('Decider', () => 'qa')
       .addSubFlowChartBranch('smalltalk', smalltalk, 'Smalltalk')
       .addSubFlowChartBranch('qa', rag, 'QA')
       .end()
@@ -160,14 +165,17 @@ describe('FlowChartBuilder — build shapes', () => {
       expect.arrayContaining(['Entry', 'Smalltalk', 'QA', 'Tail']),
     );
     
-    // Reference nodes should have subflow metadata
+    // addDeciderFunction creates a new Decider node as root.next
     expect(prune(root)).toEqual({
       name: 'Entry',
-      children: [
-        { id: 'smalltalk', name: 'Smalltalk', isSubflowRoot: true, subflowId: 'smalltalk', subflowName: 'Smalltalk' },
-        { id: 'qa', name: 'QA', isSubflowRoot: true, subflowId: 'qa', subflowName: 'QA' },
-      ],
-      next: { name: 'Tail' },
+      next: {
+        name: 'Decider',
+        children: [
+          { id: 'smalltalk', name: 'Smalltalk', isSubflowRoot: true, subflowId: 'smalltalk', subflowName: 'Smalltalk' },
+          { id: 'qa', name: 'QA', isSubflowRoot: true, subflowId: 'qa', subflowName: 'QA' },
+        ],
+        next: { name: 'Tail' },
+      },
     });
     
     // Subflow definitions should be in the subflows dictionary
@@ -234,7 +242,7 @@ describe('FlowChartBuilder — validations & errors', () => {
 
   test('decider requires at least one branch', () => {
     const fb = new FlowChartBuilder().start('dec');
-    expect(() => fb.addDecider(() => 'x').end()).toThrow(/requires at least one branch/i);
+    expect(() => fb.addDeciderFunction('Decider', () => 'x').end()).toThrow(/requires at least one branch/i);
   });
 
   test('stageMap collision when mounting subtree throws', () => {
@@ -308,7 +316,7 @@ describe('FlowChartBuilder — toSpec() & specToStageNode()', () => {
     // Build conversation subflow with decider
     const conversationFlow = new FlowChartBuilder()
       .start('retriever')
-      .addDecider(() => 'intent')
+      .addDeciderFunction('Decider', () => 'intent')
         .addSubFlowChartBranch('intent', intentBranch)
         .addSubFlowChartBranch('alt', altBranch)
       .end()

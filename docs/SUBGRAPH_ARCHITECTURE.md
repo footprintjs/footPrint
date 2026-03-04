@@ -78,7 +78,7 @@ const llmFlow = createLLMCoreSubGraph();
 
 new FlowChartBuilder()
   .start('entry')
-  .addDecider(decideRoute)
+  .addDeciderFunction('RouteDecider', (scope) => scope.get('route'))
     .addFunctionBranch('simple', 'simpleHandler', simpleFn)
     .addSubFlowChartBranch('complex', llmFlow, 'LLM Core')  // subflow as branch
   .end()
@@ -151,7 +151,7 @@ If the subflow ends with a **decider** (which has `children` but no `next`):
 // ✅ CORRECT: Subflow ends with linear stage
 const smartContextFinder = new FlowChartBuilder()
   .start('analyze')
-  .addDecider(decideType)
+  .addDeciderFunction('DecideType', (scope) => scope.get('type'))
     .addFunctionBranch('typeA', 'handleA', handleAFn)
     .addFunctionBranch('typeB', 'handleB', handleBFn)
   .end()
@@ -170,7 +170,7 @@ builder.addSubFlowChartNext('scf', smartContextFinder, 'Smart Context Finder')
 const llmCore = new FlowChartBuilder()
   .start('prepareHistory')
   .addFunction('askLLM', askLLMFn)
-  .addDecider(decideRoute)
+  .addDeciderFunction('RouteDecider', (scope) => scope.get('route'))
     .addFunctionBranch('tool_branch', 'toolBranch', toolBranchFn)
     .addFunctionBranch('response_branch', 'finalAnswer', finalAnswerFn)
   .end()  // ← Ends with decider!
@@ -191,7 +191,7 @@ builder
   .addFunction('contextAggregator', contextAggregatorFn, 'contextAggregator', 'Aggregate Context')
   .addFunction('prepareHistory', prepareHistoryFn)
   .addFunction('askLLM', askLLMFn)
-  .addDecider(decideRoute)
+  .addDeciderFunction('RouteDecider', (scope) => scope.get('route'))
     .addFunctionBranch('tool_branch', 'toolBranch', toolBranchFn)
     .addFunctionBranch('response_branch', 'prepareResponse', prepareResponseFn)  // ← In branch
   .end();

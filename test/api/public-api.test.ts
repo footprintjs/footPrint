@@ -113,11 +113,11 @@ describe('Public API — Builder', () => {
 
   // ─── Decider ───
 
-  test('decider: addDecider picks one branch', async () => {
+  test('decider: addDeciderFunction picks one branch', async () => {
     const order: string[] = [];
 
-    const chart = flowChart('entry', () => { order.push('entry'); return 'B'; })
-      .addDecider((out) => out as string)
+    const chart = flowChart('entry', (scope: StageContext) => { order.push('entry'); scope.setObject([], 'route', 'B'); return 'B'; })
+      .addDeciderFunction('Decider', (scope: StageContext) => scope.get([], 'route') as string)
         .addFunctionBranch('A', 'handleA', () => { order.push('A'); return 'doneA'; })
         .addFunctionBranch('B', 'handleB', () => { order.push('B'); return 'doneB'; })
       .end()
@@ -305,8 +305,8 @@ describe('Public API — Builder', () => {
   test('decider with setDefault routes unknown id to default branch', async () => {
     const order: string[] = [];
 
-    const chart = flowChart('entry', () => { return 'UNKNOWN'; })
-      .addDecider((out) => out as string)
+    const chart = flowChart('entry', (scope: StageContext) => { scope.setObject([], 'route', 'UNKNOWN'); return 'UNKNOWN'; })
+      .addDeciderFunction('Decider', (scope: StageContext) => scope.get([], 'route') as string)
         .addFunctionBranch('left', 'Left', () => { order.push('left'); return 'l'; })
         .addFunctionBranch('right', 'Right', () => { order.push('right'); return 'r'; })
         .setDefault('left')
@@ -338,7 +338,7 @@ describe('Public API — Builder', () => {
 
   test('decider requires at least one branch', () => {
     const fb = flowChart('dec');
-    expect(() => fb.addDecider(() => 'x').end()).toThrow(/requires at least one branch/i);
+    expect(() => fb.addDeciderFunction('Decider', () => 'x').end()).toThrow(/requires at least one branch/i);
   });
 
   // ─── addSubFlowChartBranch in decider ───
@@ -347,15 +347,16 @@ describe('Public API — Builder', () => {
     const sub = flowChart('subRoot', () => 'done').build();
 
     const chart = flowChart('entry')
-      .addDecider(() => 'mySub')
+      .addDeciderFunction('Decider', () => 'mySub')
         .addSubFlowChartBranch('mySub', sub, 'MySubflow')
         .addFunctionBranch('other', 'Other')
       .end()
       .build();
 
-    expect(chart.root.children).toHaveLength(2);
-    expect(chart.root.children![0].isSubflowRoot).toBe(true);
-    expect(chart.root.children![0].subflowId).toBe('mySub');
+    // addDeciderFunction creates a new decider node as root.next
+    expect(chart.root.next!.children).toHaveLength(2);
+    expect(chart.root.next!.children![0].isSubflowRoot).toBe(true);
+    expect(chart.root.next!.children![0].subflowId).toBe('mySub');
     expect(chart.subflows).toBeDefined();
     expect(chart.subflows!['mySub']).toBeDefined();
   });

@@ -239,7 +239,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
   }
 
   /**
-   * Handle a scope-based decider node (created via `addDeciderFunction`).
+   * Handle a scope-based decider node (created via `addDeciderFunction` in the builder).
    *
    * WHY: Scope-based deciders are first-class stage functions — the decider IS the stage.
    * Unlike legacy deciders where the stage and decider are separate invocations,

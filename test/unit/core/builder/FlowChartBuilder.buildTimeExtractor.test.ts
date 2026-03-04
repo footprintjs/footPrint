@@ -144,18 +144,18 @@ describe('FlowChartBuilder Build-Time Extractor', () => {
       // DeciderList.end() sets the type to 'decider'. We need to check the final state.
       const builder = new FlowChartBuilder(extractor)
         .start('entry', async () => 'branchA')
-        .addDecider((out) => out as string)
+        .addDeciderFunction('Decider', () => 'branchA')
           .addFunctionBranch('branchA', 'branchAStage', async () => 'A')
           .addFunctionBranch('branchB', 'branchBStage', async () => 'B')
         .end();
-      
+
       const spec = builder.toSpec();
 
-      // With incremental application, the root spec has the decider info
-      expect(spec.type).toBe('decider');
-      expect(spec.hasDecider).toBe(true);
-      expect(spec.branchIds).toEqual(['branchA', 'branchB']);
-      expect(spec.children?.length).toBe(2);
+      // addDeciderFunction creates a new decider node as next of root
+      expect(spec.next?.type).toBe('decider');
+      expect(spec.next?.hasDecider).toBe(true);
+      expect(spec.next?.branchIds).toEqual(['branchA', 'branchB']);
+      expect(spec.next?.children?.length).toBe(2);
     });
 
     it('should include selector properties in metadata', () => {
@@ -304,14 +304,14 @@ describe('FlowChartBuilder Build-Time Extractor', () => {
 
       const spec = new FlowChartBuilder()
         .start('entry', async () => 'branchA')
-        .addDecider((out) => out as string)
+        .addDeciderFunction('Decider', () => 'branchA')
           .addFunctionBranch('branchA', 'branchAStage', async () => 'A')
         .end()
         .addBuildTimeExtractor(extractor)
         .toSpec<NodeWithType>();
 
-      expect(spec.type).toBe('decider');
-      expect(spec.children?.[0].type).toBe('stage');
+      expect(spec.next?.type).toBe('decider');
+      expect(spec.next?.children?.[0].type).toBe('stage');
     });
 
     it('should allow removing properties', () => {
@@ -434,17 +434,18 @@ describe('Incremental Type Computation', () => {
     /**
      * **Validates: Requirement 1.4**
      */
-    it('addDecider().end() should set type="decider"', () => {
+    it('addDeciderFunction().end() should set type="decider"', () => {
       const { buildTimeStructure } = new FlowChartBuilder()
         .start('entry', async () => 'branchA')
-        .addDecider((out) => out as string)
+        .addDeciderFunction('Decider', () => 'branchA')
           .addFunctionBranch('branchA', 'branchAStage', async () => 'A')
           .addFunctionBranch('branchB', 'branchBStage', async () => 'B')
         .end()
         .build();
 
-      expect(buildTimeStructure.type).toBe('decider');
-      expect(buildTimeStructure.hasDecider).toBe(true);
+      // addDeciderFunction creates a new decider node as next of root
+      expect(buildTimeStructure.next?.type).toBe('decider');
+      expect(buildTimeStructure.next?.hasDecider).toBe(true);
     });
 
     /**
@@ -576,12 +577,14 @@ describe('Incremental Type Computation', () => {
 
       const { buildTimeStructure } = new FlowChartBuilder()
         .start('entry', async () => 'sub1')
-        .addDecider((out) => out as string)
+        .addDeciderFunction('Decider', () => 'sub1')
           .addSubFlowChartBranch('sub1', subflow, 'SubflowBranch')
         .end()
         .build();
 
-      const mountedSubflow = buildTimeStructure.children?.find(c => c.subflowId === 'sub1');
+      // addDeciderFunction creates a new decider node as next of root
+      const deciderSpec = buildTimeStructure.next;
+      const mountedSubflow = deciderSpec?.children?.find(c => c.subflowId === 'sub1');
       expect(mountedSubflow).toBeDefined();
       expect(mountedSubflow?.isSubflowRoot).toBe(true);
       expect(mountedSubflow?.subflowId).toBe('sub1');

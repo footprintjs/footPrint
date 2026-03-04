@@ -493,16 +493,17 @@ describe('flowChart() Factory Function', () => {
       });
     });
 
-    it('supports addDecider chaining', () => {
+    it('supports addDeciderFunction chaining', () => {
       const chart = flowChart('entry', () => 'typeA')
-        .addDecider((out) => out as string)
+        .addDeciderFunction('Decider', () => 'typeA')
           .addFunctionBranch('typeA', 'handleA', () => 'A')
           .addFunctionBranch('typeB', 'handleB', () => 'B')
           .end()
         .build();
 
       expect(chart.root.name).toBe('entry');
-      expect(chart.root.children?.length).toBe(2);
+      // addDeciderFunction creates a new decider node as root.next
+      expect(chart.root.next!.children?.length).toBe(2);
     });
 
     it('supports addListOfFunction chaining', () => {

@@ -231,36 +231,20 @@ interface CursorState<TOut, TScope> {
  * ========================================================================== */
 
 /**
- * Fluent helper returned by addDecider / addDeciderFunction to add branches.
+ * Fluent helper returned by addDeciderFunction to add branches.
  *
- * WHY: Provides a fluent API for configuring decider branches regardless of
- * whether the decider is legacy (output-based) or scope-based. The `isScopeBased`
- * flag controls how `end()` wires the node — setting `nextNodeDecider` (legacy)
- * vs `deciderFn` (new scope-based).
- *
- * DESIGN: Reuses the same class for both old and new decider types. Only the
- * constructor parameters and `end()` behavior differ based on `isScopeBased`.
- * All branch methods (addFunctionBranch, addSubFlowChartBranch, addBranchList,
- * setDefault) remain identical for both modes.
+ * WHY: Provides a fluent API for configuring decider branches.
+ * The `end()` method wires the node by setting `deciderFn = true`,
+ * meaning the stage function IS the decider — it reads from scope
+ * and returns a branch ID string.
  *
  */
 export class DeciderList<TOut = any, TScope = any> {
   private readonly b: FlowChartBuilder<TOut, TScope>;
   private readonly curNode: StageNode<TOut, TScope>;
   private readonly curSpec: SerializedPipelineStructure;
-  private readonly originalDecider: ((out?: TOut) => string | Promise<string>) | null;
   private readonly branchIds = new Set<string>();
   private defaultId?: string;
-
-  /**
-   * Whether this DeciderList is for a scope-based decider (addDeciderFunction)
-   * vs a legacy output-based decider (addDecider).
-   *
-   * WHY: Controls how `end()` wires the StageNode — scope-based sets `deciderFn = true`
-   * while legacy wraps the decider function and sets `nextNodeDecider`.
-   *
-   */
-  private readonly isScopeBased: boolean;
 
   /* ── Description accumulator references ── */
   private readonly parentDescriptionParts: string[];
@@ -274,8 +258,6 @@ export class DeciderList<TOut = any, TScope = any> {
     builder: FlowChartBuilder<TOut, TScope>,
     curNode: StageNode<TOut, TScope>,
     curSpec: SerializedPipelineStructure,
-    decider: ((out?: TOut) => string | Promise<string>) | null,
-    isScopeBased: boolean = false,
     parentDescriptionParts: string[] = [],
     parentStageDescriptions: Map<string, string> = new Map(),
     reservedStepNumber: number = 0,
@@ -284,8 +266,6 @@ export class DeciderList<TOut = any, TScope = any> {
     this.b = builder;
     this.curNode = curNode;
     this.curSpec = curSpec;
-    this.originalDecider = decider;
-    this.isScopeBased = isScopeBased;
     this.parentDescriptionParts = parentDescriptionParts;
     this.parentStageDescriptions = parentStageDescriptions;
     this.reservedStepNumber = reservedStepNumber;
@@ -457,9 +437,8 @@ export class DeciderList<TOut = any, TScope = any> {
   /**
    * Finalize the decider and return to main builder.
    *
-   * WHY: Wires the StageNode differently based on whether this is a scope-based
-   * or legacy decider. Scope-based sets `deciderFn = true` (the fn IS the decider),
-   * while legacy wraps the decider function with default handling and sets `nextNodeDecider`.
+   * WHY: Sets `deciderFn = true` on the StageNode so Pipeline/DeciderHandler
+   * knows the fn IS the decider — it reads from scope and returns a branch ID.
    *
    */
   end(): FlowChartBuilder<TOut, TScope> {
@@ -468,27 +447,26 @@ export class DeciderList<TOut = any, TScope = any> {
       throw new Error(`[FlowChartBuilder] decider at '${this.curNode.name}' requires at least one branch`);
     }
 
-    if (this.isScopeBased) {
-      // Scope-based: mark node's fn as the decider, don't set nextNodeDecider.
-      // The fn receives (scope, breakFn) and returns a branch ID string.
-      // Pipeline/DeciderHandler will use the deciderFn flag to route to the
-      // scope-based execution path.
-      this.curNode.deciderFn = true;
-    } else {
-      // Legacy: wrap decider with default handling, set nextNodeDecider
-      const validIds = new Set(children.map((c) => c.id));
-      const fallbackId = this.defaultId;
+    // Mark node's fn as the decider. The fn receives (scope, breakFn) and
+    // returns a branch ID string. Pipeline/DeciderHandler will use the
+    // deciderFn flag to route to the scope-based execution path.
+    this.curNode.deciderFn = true;
 
-      this.curNode.nextNodeDecider = async (out?: TOut) => {
-        const raw = this.originalDecider!(out);
-        const id = raw instanceof Promise ? await raw : raw;
-        if (id && validIds.has(id)) return id;
-        if (fallbackId && validIds.has(fallbackId)) return fallbackId;
-        return id;
-      };
+    // Apply default branch: add a child alias with id 'default' pointing to
+    // the same node as the specified defaultId branch, so DeciderHandler's
+    // fallback logic (which looks for child.id === 'default') works.
+    if (this.defaultId) {
+      const defaultChild = children.find((c) => c.id === this.defaultId);
+      if (defaultChild) {
+        const defaultAlias: StageNode<TOut, TScope> = {
+          ...defaultChild,
+          id: 'default',
+        };
+        children.push(defaultAlias);
+      }
     }
 
-    // Common: set branchIds and type on spec
+    // Set branchIds and type on spec
     this.curSpec.branchIds = children
       .map((c) => c.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
@@ -1072,41 +1050,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /* ─────────────────────────── Branching API ─────────────────────────── */
 
   /**
-   * Add a legacy output-based decider — returns DeciderList for adding branches.
-   *
-   * WHY: This is the original decider API where the decider function receives
-   * the previous stage's output and returns a branch ID. Kept for backward
-   * compatibility with existing consumers.
-   *
-   * @deprecated Use {@link addDeciderFunction} instead. The new API makes the decider
-   * a first-class stage function that reads from scope, providing better decoupling,
-   * debug visibility, and alignment with modern state-based routing patterns.
-   *
-   */
-  addDecider(
-    decider: (out?: TOut) => string | Promise<string>,
-  ): DeciderList<TOut, TScope> {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
-
-    if (cur.nextNodeDecider) fail(`decider already defined at '${cur.name}'`);
-    if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
-    if (cur.nextNodeSelector) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
-
-    // Mark as decider in spec (type will be set to 'decider' in DeciderList.end())
-    curSpec.hasDecider = true;
-
-    // Reserve a step number for the decider — the full description line
-    // (including branch names) is deferred to DeciderList.end()
-    this._stepCounter++;
-    this._stageStepMap.set(cur.name, this._stepCounter);
-
-    return new DeciderList<TOut, TScope>(
-      this, cur, curSpec, decider, false,
-      this._descriptionParts, this._stageDescriptions, this._stepCounter,
-    );
-  }
-
   /**
    * Add a scope-based decider function — returns DeciderList for adding branches.
    *
@@ -1151,7 +1094,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
 
-    if (cur.nextNodeDecider) fail(`decider already defined at '${cur.name}'`);
     if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
     if (cur.nextNodeSelector) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
 
@@ -1188,11 +1130,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
 
-    // Return DeciderList with isScopeBased = true and decider = null
-    // (no legacy decider function — the fn IS the decider)
-    // Pass reserved step number and description accumulator references
+    // Return DeciderList for fluent branch configuration
     return new DeciderList<TOut, TScope>(
-      this, node, spec, null, true,
+      this, node, spec,
       this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
     );
   }
@@ -1205,7 +1145,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const curSpec = this._needCursorSpec();
 
     if (cur.nextNodeSelector) fail(`selector already defined at '${cur.name}'`);
-    if (cur.nextNodeDecider) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
+    if (cur.deciderFn) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
 
     // Mark as selector in spec (type will be set to 'decider' in SelectorList.end())
     curSpec.hasSelector = true;
@@ -1802,7 +1742,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * 
  * // Main flow with subflow branches
  * const main = flowChart('entry', entryFn)
- *   .addDecider(deciderFn)
+ *   .addDeciderFunction('Router', deciderFn)
  *     .addSubFlowChartBranch('branchA', branchA)
  *   .end()
  *   .build();

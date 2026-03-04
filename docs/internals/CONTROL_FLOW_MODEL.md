@@ -172,7 +172,7 @@ This section provides educational context for developers and students interested
 
 | Pattern | Description | Code Reference |
 |---------|-------------|----------------|
-| **Builder Pattern** | `FlowChartBuilder` provides a fluent API for constructing pipeline graphs. Methods like `start()`, `addFunction()`, `addDecider()` chain together to build complex flows. | [`FlowChartBuilder.ts`](../../src/builder/FlowChartBuilder.ts) |
+| **Builder Pattern** | `FlowChartBuilder` provides a fluent API for constructing pipeline graphs. Methods like `start()`, `addFunction()`, `addDeciderFunction()` chain together to build complex flows. | [`FlowChartBuilder.ts`](../../src/builder/FlowChartBuilder.ts) |
 | **Strategy Pattern** | Decider and Selector functions are interchangeable strategies for routing control flow. The engine delegates routing decisions to these pluggable functions. | [`Pipeline.ts:Decider`, `Pipeline.ts:Selector`](../../src/core/pipeline/Pipeline.ts) |
 | **Command Pattern** | Each stage function encapsulates a computation as a command object. The pipeline engine invokes these commands in sequence without knowing their internals. | [`Pipeline.ts:executeStage`](../../src/core/pipeline/Pipeline.ts) |
 | **Composite Pattern** | `StageNode` is a composite structure where nodes can contain children (fork) or a single next node (linear), forming a recursive tree. | [`Pipeline.ts:StageNode`](../../src/core/pipeline/Pipeline.ts) |

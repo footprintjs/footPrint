@@ -16,7 +16,7 @@ The builder is the entry point for consumers who want to define pipeline structu
 
 ## Design Decisions
 
-1. **Fluent Builder Pattern**: The builder uses method chaining (`start().addFunction().addDecider()...`) for ergonomic pipeline construction. This makes the code read like a description of the pipeline flow.
+1. **Fluent Builder Pattern**: The builder uses method chaining (`start().addFunction().addDeciderFunction()...`) for ergonomic pipeline construction. This makes the code read like a description of the pipeline flow.
 
 2. **Incremental Structure Building**: The builder constructs both `StageNode` (for execution) and `SerializedPipelineStructure` (for visualization) simultaneously. This ensures consistency between runtime and debug views.
 
@@ -41,7 +41,9 @@ import { flowChart, FlowChartBuilder } from './core/builder';
 // Using factory function (recommended)
 const chart = flowChart('entry', entryFn, 'entry-id')
   .addFunction('process', processFn, 'process-id')
-  .addDecider((out) => out.success ? 'success' : 'failure')
+  .addDeciderFunction('Router', async (scope) => {
+    return scope.get('success') ? 'success' : 'failure';
+  }, 'router-id')
     .addFunctionBranch('success', 'handleSuccess', successFn)
     .addFunctionBranch('failure', 'handleFailure', failureFn)
     .end()
