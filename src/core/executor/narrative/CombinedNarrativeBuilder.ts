@@ -274,7 +274,7 @@ export class CombinedNarrativeBuilder {
   private parseSentence(sentence: string): { type: string; stageName?: string } {
     // "The process began: {description}." or "The process began with {name}."
     if (sentence.startsWith('The process began')) {
-      const match = sentence.match(/The process began(?:: (.+)|with (.+))\./);
+      const match = sentence.match(/The process began(?:: (.+)| with (.+))\./);
       const stageName = match?.[2]?.trim();
       return { type: 'stage', stageName };
     }
