@@ -389,3 +389,183 @@ The main risks are:
 4. **No loop guards** means a production infinite loop is one dynamic next away
 
 Fix these four issues, and the library is in very strong shape for production use.
+
+---
+
+## 9. Deep Dive: Memory Architecture & The Scope/Pipeline Disconnection
+
+This section provides line-by-line analysis of the three-layer memory system and the critical architectural gap between the Scope+Recorder system and the Pipeline+StageContext execution path.
+
+### 9.1 The Three Memory Layers — What Works Well
+
+**GlobalStore** (`src/core/memory/GlobalStore.ts`)
+
+The GlobalStore is well-designed as a single source of truth. Specific observations:
+
+- **Line 41-47**: The `mergeWith` constructor logic correctly handles defaults vs initial context. The merge callback (`typeof objValue === 'undefined' ? srcValue : objValue`) ensures existing values survive, which is the right semantic for "defaults are overridable."
+- **Line 89-93**: The `getValue` fallback chain (pipeline-scoped → global) is clean. It means any pipeline can read global state that wasn't explicitly set in its namespace. This is a good design for shared configuration (e.g., API keys, model settings) without copy overhead.
+- **Line 99-101**: `getState()` returns the raw `this.context` object — no clone. This is intentional for performance but means any consumer holding a reference sees mutations in real-time. The code relies on this being read-only in practice. Consider `Object.freeze` in dev mode for safety, or document the contract explicitly.
+
+**WriteBuffer** (`src/internal/memory/WriteBuffer.ts`)
+
+- **Line 56-63**: The two-patch-bucket design (`overwritePatch` + `updatePatch`) with a chronological `opTrace` is clever. It allows `applySmartMerge` to replay operations in order while maintaining type semantics (set vs merge). This is essentially a WAL (write-ahead log) pattern from databases.
+- **Line 79-86**: The `set()` method correctly clones values going into the overwrite patch (`structuredClone(value)`) to prevent aliasing. Good defensive programming.
+- **Line 97-106**: The `merge()` method accumulates into `updatePatch` via `deepSmartMerge`, meaning multiple merges to the same path within a single buffer lifecycle produce the correct cumulative result. This is the right behavior.
+- **Line 155-174**: The `deepSmartMerge` function has a subtle behavior worth noting: array union uses `Set` which means `[{a:1}, {a:1}]` would NOT deduplicate objects (since object identity differs). This is correct for most cases but could surprise users merging arrays of objects. Document this.
+
+**StageContext** (`src/core/memory/StageContext.ts`)
+
+- **Line 99-104**: Lazy WriteBuffer creation (`getWriteBuffer()`) is a good optimization — stages that only read pay zero cost. But there's a subtlety: once created, the WriteBuffer snapshots the **current** GlobalStore state. If two stages run sequentially and the first commits before the second creates its buffer, the second will see committed changes. If the buffer was created before the first commits, it sees stale state. The execution model handles this correctly (commit → then create next context), but it's fragile.
+- **Line 139-159**: The `commit()` method does three things: (1) applies patches to GlobalStore, (2) redacts and records to ExecutionHistory, (3) logs write trace to debug. This is well-structured. However, note that the `commit()` doesn't clear the WriteBuffer — the buffer's own `commit()` method handles that. This two-level commit (StageContext.commit → WriteBuffer.commit → GlobalStore.applyPatch) is correct but adds one level of indirection that could confuse new contributors.
+
+**ExecutionHistory** (`src/internal/history/ExecutionHistory.ts`)
+
+- **Line 76-83**: The `materialise()` method replays all commits up to `stepIdx` — O(n) time complexity. The comment says "memory footprint stays < 100KB for typical pipelines" which assumes small state objects. For AI agent pipelines with full conversation histories (easily 50KB+ per step), this assumption breaks. Consider a checkpoint strategy: store full snapshots every N commits and replay only the tail.
+- **Line 91-95**: The `record()` method mutates the bundle's `idx` in place (`bundle.idx = this.steps.length`). This mutates the caller's object, which is a side-effect. Defensively copy the bundle or document that it's mutated.
+
+### 9.2 The Disconnection: Scope + Recorders vs Pipeline + StageContext
+
+This is the central architectural issue. There are two completely parallel state management paths:
+
+```
+Path A (Pipeline execution):
+  FlowChartExecutor → Pipeline → StageRunner → ScopeFactory(StageContext) → BaseState
+    ↓ writes go to ↓
+  StageContext → WriteBuffer → GlobalStore
+    ↓ observability via ↓
+  StageMetadata (logs, errors, metrics, flowMessages)
+  ExecutionHistory (commit bundles for time-travel)
+
+Path B (Scope standalone):
+  new Scope({ globalStore, pipelineId, stageName }) → Scope
+    ↓ writes go to ↓
+  Scope.stagedWrites[] → localCache → GlobalStore.setValue()
+    ↓ observability via ↓
+  Recorder hooks (onRead, onWrite, onCommit, onStageStart, onStageEnd)
+  Scope.snapshots[] (full-state snapshots for time-travel)
+```
+
+**These paths never intersect.** Here's why:
+
+1. **`ScopeFactory` signature** (`src/core/memory/types.ts:10`): `(core: StageContext, stageName: string, readOnlyContext?: unknown) => TScope`. The factory receives a `StageContext`, not a `Scope`. The typical consumer wraps it in `BaseState`.
+
+2. **`BaseState`** (`src/scope/BaseState.ts:94-107`): Delegates `getValue`, `setValue`, `updateValue` to `StageContext` methods. No `Scope` involved. No recorder hooks fire.
+
+3. **`Scope` is not exported from the public API** (`src/index.ts`): `Scope` class is absent from the barrel exports. Only `NarrativeRecorder` (and its types) are exported from the recorder system. `DebugRecorder` and `MetricRecorder` aren't even exported!
+
+4. **Pipeline never creates a `Scope`** (`src/core/executor/handlers/StageRunner.ts:85`): `const rawScope = this.ctx.ScopeFactory(context, node.name, ...)` — passes `StageContext` to the factory. The result is whatever the consumer's factory returns (typically `BaseState` subclass or the raw `StageContext` itself).
+
+### 9.3 Line-by-Line: Where Scope.ts Diverges from StageContext
+
+**Scope.ts commit vs StageContext commit — different algorithms**:
+
+`Scope.commit()` (lines 353-421):
+```
+1. Builds a Map<cacheKey, {key, value}> from stagedWrites
+2. For 'update' operations: deep-merges with existing (from finalValues or GlobalStore)
+3. Calls GlobalStore.setValue() for each final value individually
+4. Creates a full-state snapshot via createSnapshot()
+5. Invokes onCommit hook
+6. Clears stagedWrites[] and localCache
+```
+
+`StageContext.commit()` (lines 139-159):
+```
+1. Gets commit bundle from WriteBuffer.commit() (patches + trace)
+2. Calls GlobalStore.applyPatch() with overwrite + updates + trace (single atomic operation)
+3. Redacts sensitive paths
+4. Records to ExecutionHistory
+5. Logs writeTrace to debug metadata
+```
+
+**Key differences**:
+- Scope applies individual `setValue()` calls — NOT atomic. If it fails mid-way, partial writes persist.
+- StageContext applies a single `applyPatch()` — atomic via trace replay.
+- Scope stores full-state snapshots (expensive). StageContext stores diff bundles (cheap, replay needed).
+- Scope fires recorder hooks. StageContext records to ExecutionHistory.
+
+**Scope.ts deep merge vs WriteBuffer deep merge — subtly different semantics**:
+
+`Scope.deepMerge()` (line 40-65): Array union via `new Set()`.
+`WriteBuffer.deepSmartMerge()` (line 155-174): Array union via `new Set()`.
+
+These happen to be identical today, but they're separate implementations. If one changes, the other won't. This is a DRY violation that will eventually cause a divergence bug.
+
+### 9.4 Recorder System — Well-Designed but Orphaned
+
+The Recorder interface (`src/scope/types.ts:160-224`) is a clean observer pattern:
+
+- **All hooks optional**: Allows partial implementations (e.g., MetricRecorder doesn't need onError)
+- **Error isolation** (Scope.ts:759-783): Recorder errors don't break scope operations. Errors are forwarded to `onError` hooks on other recorders. This is production-grade resilience.
+- **Stage-level scoping**: `attachStageRecorder()` allows targeted observation per stage without global noise. Smart design.
+
+The three recorder implementations are solid:
+
+- **MetricRecorder**: Clean, minimal overhead per-hook. The `getMetrics()` aggregation is O(stages), which is fine. One note: `stageStartTimes` uses a `Map<string, number>` keyed by stage name, which means re-entrant stages (loops) will overwrite the start time. For loops, duration tracking gives you the LAST iteration's time, not cumulative. This may be surprising.
+
+- **DebugRecorder**: Verbosity toggle is clean. Stores full event payloads in the `data` field which means it holds references to potentially large values (entire LLM responses). Consider storing summarized values like NarrativeRecorder does.
+
+- **NarrativeRecorder**: The best-designed of the three. `summarizeValue()` (lines 457-486) is smart about token budget — truncates strings, shows array lengths, shows object key counts. The interleaved `operations[]` timeline with `stepNumber` is well-thought-out for debugging.
+
+**But none of this fires during actual pipeline execution.** That's the problem.
+
+### 9.5 Bridging Strategy — Concrete Recommendation
+
+The cleanest bridge would be to make `BaseState` (which IS used during pipeline execution) optionally fire recorder hooks. Here's the minimal change:
+
+**Option A: Add recorder support to BaseState (Minimal, ~50 LOC)**
+
+```typescript
+// In BaseState constructor:
+constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, recorders?: Recorder[]) {
+  // ... existing code ...
+  this._recorders = recorders ?? [];
+}
+
+// In BaseState.getValue():
+getValue(key?: string) {
+  const value = this._stageContext.getValue([], key);
+  for (const r of this._recorders) {
+    r.onRead?.({ stageName: this._stageName, pipelineId: this.getPipelineId(), timestamp: Date.now(), key, value });
+  }
+  return value;
+}
+```
+
+This preserves the existing StageContext+WriteBuffer execution path (which is correct and battle-tested) while enabling recorders to observe operations. The ScopeFactory can pass recorders through when creating BaseState instances.
+
+**Option B: Wrap StageContext in Scope (Medium, ~100 LOC)**
+
+Create a `ScopeFactory` that wraps `StageContext` in a `Scope` instance which delegates to `StageContext` for actual I/O but fires recorder hooks. This requires making `Scope` use `StageContext` as its backing store instead of its own `stagedWrites[]` + `localCache`.
+
+**Option C: Add recorder hooks directly to StageContext (Largest change)**
+
+This would make StageContext aware of recorders. It's the most integrated but changes the core layer, which affects all consumers.
+
+**My recommendation: Option A.** It's additive, doesn't change the proven execution path, and enables the full recorder ecosystem with minimal risk.
+
+### 9.6 What Should Be Removed
+
+If Option A is adopted, `Scope.ts` can be kept as a standalone utility (for users who want a simpler API without Pipeline), but the following should happen:
+
+1. **Export it** from `src/index.ts` if it's intended for consumer use, or **delete it** if it's dead code
+2. **Export DebugRecorder and MetricRecorder** from `src/index.ts` — they're currently not exported, which means consumers can't use them even with Scope
+3. **Delete the duplicate `deepMerge`** in `Scope.ts` and import the one from `WriteBuffer.ts`, or extract both to a shared utility
+4. **Remove the time-travel snapshots** from Scope.ts (`createSnapshot`, `getSnapshots`, `getStateAt`, `getCurrentSnapshotIndex`) — this duplicates ExecutionHistory with worse performance characteristics (full snapshots vs diff replay)
+
+### 9.7 Summary Table
+
+| Component | Status | Verdict |
+|-----------|--------|---------|
+| GlobalStore | Used in production path | Keep as-is |
+| WriteBuffer | Used in production path, has stale-read bug | Fix the bug (Section 2.2) |
+| StageContext | Used in production path, no recorder hooks | Add recorder bridge via BaseState |
+| ExecutionHistory | Used in production path | Keep, add checkpoint strategy for large state |
+| PipelineRuntime | Used in production path | Keep as-is |
+| Scope.ts | NOT used in production path | Either integrate as BaseState's backing store or delete |
+| Recorder interface | Well-designed, orphaned | Bridge to BaseState (Option A) |
+| DebugRecorder | Not exported, orphaned | Export or delete |
+| MetricRecorder | Not exported, orphaned | Export or delete |
+| NarrativeRecorder | Exported but only works with Scope | Bridge to BaseState |
+| BaseState | Used in production path, no recorder hooks | Add optional recorder support |
+| StageMetadata | Used in production path | Keep, this serves a different purpose (debug metadata vs data-level observability) |
