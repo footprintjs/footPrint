@@ -88,7 +88,7 @@ export class BaseState {
 
   // ---------------- getters / setters
   getInitialValueFor(key: string) {
-    return (this._stageContext as any).getFromGlobalContext?.(key);
+    return this._stageContext.getFromGlobalContext?.(key);
   }
 
   getValue(key?: string) {
@@ -96,7 +96,7 @@ export class BaseState {
   }
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    return (this._stageContext as any).setObject([], key, value, shouldRedact, description);
+    return this._stageContext.setObject([], key, value, shouldRedact, description);
   }
 
   updateValue(key: string, value: unknown, description?: string) {
@@ -104,19 +104,19 @@ export class BaseState {
   }
 
   deleteValue(key: string, description?: string) {
-    return (this._stageContext as any).setObject([], key, undefined, false, description ?? `deleted ${key}`);
+    return this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
   }
 
   setGlobal(key: string, value: unknown, description?: string) {
-    return (this._stageContext as any).setGlobal?.(key, value, description);
+    return this._stageContext.setGlobal?.(key, value, description);
   }
 
   getGlobal(key: string) {
-    return (this._stageContext as any).getGlobal?.(key);
+    return this._stageContext.getGlobal?.(key);
   }
 
   setObjectInRoot(key: string, value: unknown) {
-    return (this._stageContext as any).setRoot?.(key, value);
+    return this._stageContext.setRoot?.(key, value);
   }
 
   // ---------------- read-only + misc
@@ -125,6 +125,6 @@ export class BaseState {
   }
 
   getPipelineId() {
-    return (this._stageContext as any).pipelineId;
+    return this._stageContext.pipelineId;
   }
 }

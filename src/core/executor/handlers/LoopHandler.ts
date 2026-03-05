@@ -66,6 +66,8 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
  * const result = await handler.handle(dynamicNext, node, context, breakFlag, branchPath, executeNode);
  * ```
  */
+export const DEFAULT_MAX_ITERATIONS = 1000;
+
 export class LoopHandler<TOut = any, TScope = any> {
   /**
    * Iteration counter for loop support.
@@ -87,12 +89,16 @@ export class LoopHandler<TOut = any, TScope = any> {
    */
   private readonly onIterationUpdate?: (nodeId: string, count: number) => void;
 
+  private readonly maxIterations: number;
+
   constructor(
     private readonly ctx: PipelineContext<TOut, TScope>,
     private readonly nodeResolver: NodeResolver<TOut, TScope>,
     onIterationUpdate?: (nodeId: string, count: number) => void,
+    maxIterations?: number,
   ) {
     this.onIterationUpdate = onIterationUpdate;
+    this.maxIterations = maxIterations ?? DEFAULT_MAX_ITERATIONS;
   }
 
   /**
@@ -246,6 +252,12 @@ export class LoopHandler<TOut = any, TScope = any> {
    */
   getAndIncrementIteration(nodeId: string): number {
     const current = this.iterationCounters.get(nodeId) ?? 0;
+    if (current >= this.maxIterations) {
+      throw new Error(
+        `Maximum loop iterations (${this.maxIterations}) exceeded for node '${nodeId}'. ` +
+        `Set maxIterations to increase the limit.`,
+      );
+    }
     this.iterationCounters.set(nodeId, current + 1);
 
     // Notify Pipeline to update runtime pipeline structure with iteration count

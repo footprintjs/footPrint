@@ -132,12 +132,15 @@ export class WriteBuffer {
       trace: [...this.opTrace],
     };
 
-    // Reset for next stage - defensive programming
+    // Reset buffer to empty state after commit.
+    // FIX: Previously reset workingCopy to baseSnapshot, causing stale reads
+    // (buffer returned old baseSnapshot values instead of falling through to
+    // GlobalStore). Empty buffer ensures post-commit reads go to GlobalStore.
     this.overwritePatch = {};
     this.updatePatch = {};
     this.opTrace.length = 0;
     this.redactedPaths.clear();
-    this.workingCopy = structuredClone(this.baseSnapshot);
+    this.workingCopy = {};
 
     return payload;
   }

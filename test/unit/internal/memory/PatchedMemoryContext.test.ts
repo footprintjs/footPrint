@@ -255,6 +255,48 @@ describe('WriteBuffer – additional edge‑cases', () => {
       expect(Object.keys(updates).length).toBe(1);
     });
   });
+
+  /* ---------------------------------------------------------------------- */
+  describe('stale-read fix after commit', () => {
+    it('get() returns undefined after commit, not stale baseSnapshot value', () => {
+      const ctx = new WriteBuffer({ count: 0 });
+
+      ctx.set(['count'], 1);
+      ctx.commit();
+
+      // After commit, buffer is empty — reads should return undefined
+      // (in full system, StageContext falls through to GlobalStore)
+      expect(ctx.get(['count'])).toBeUndefined();
+    });
+
+    it('buffer is clean after each commit cycle', () => {
+      const ctx = new WriteBuffer({ a: 'original', b: 'original' });
+
+      ctx.set(['a'], 'first');
+      ctx.commit();
+
+      // After commit, buffer has no data — previous baseSnapshot values gone
+      expect(ctx.get(['a'])).toBeUndefined();
+
+      ctx.set(['b'], 'second');
+      expect(ctx.get(['b'])).toBe('second');
+      ctx.commit();
+
+      expect(ctx.get(['b'])).toBeUndefined();
+    });
+
+    it('new writes after commit are visible before next commit', () => {
+      const ctx = new WriteBuffer({ x: 0, y: 0 });
+
+      ctx.set(['x'], 10);
+      ctx.commit();
+
+      ctx.set(['y'], 20);
+      // New write is visible, committed value is not (lives in GlobalStore)
+      expect(ctx.get(['x'])).toBeUndefined();
+      expect(ctx.get(['y'])).toBe(20);
+    });
+  });
 });
 
 describe('WriteBuffer redaction flags', () => {

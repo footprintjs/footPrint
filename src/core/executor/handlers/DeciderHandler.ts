@@ -340,11 +340,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // Log flow control decision for decider branch
     // WHY: Narrative style helps with debugging — the message should explain
     // WHICH condition led to this branch, not just say "chose X path".
-    // We read deciderRationale from StageMetadata (debug logs) instead of scope
-    // because the WriteBuffer has a stale-read bug: after commit() resets the
-    // buffer's workingCopy to baseSnapshot, getValue reads the stale baseSnapshot
-    // value from a previous iteration instead of falling through to GlobalStore.
-    // StageMetadata is per-context and doesn't have this issue.
+    // We read deciderRationale from StageMetadata (debug logs) for consistency.
     const chosenName = chosen.displayName || chosen.name;
     const wasDefault = chosen.id !== branchId;
     const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
