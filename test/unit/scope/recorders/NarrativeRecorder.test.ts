@@ -279,7 +279,7 @@ describe('NarrativeRecorder', () => {
 
       const sentences = recorder.toSentences();
       expect(sentences.get('CallLLM')).toEqual([
-        '  - Read: messages = (3 items)',
+        '  - Step 1: Read: messages = (3 items)',
       ]);
     });
 
@@ -294,11 +294,11 @@ describe('NarrativeRecorder', () => {
 
       const sentences = recorder.toSentences();
       expect(sentences.get('Initialize')).toEqual([
-        '  - Wrote: model = "gpt-4"',
+        '  - Step 1: Write: model = "gpt-4"',
       ]);
     });
 
-    it('should list reads before writes for a stage', () => {
+    it('should list operations in interleaved execution order', () => {
       const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
 
       recorder.onRead(makeReadEvent({ stageName: 's1', key: 'input', value: 'data' }));
@@ -306,7 +306,7 @@ describe('NarrativeRecorder', () => {
 
       const lines = recorder.toSentences().get('s1')!;
       expect(lines[0]).toContain('Read');
-      expect(lines[1]).toContain('Wrote');
+      expect(lines[1]).toContain('Write');
     });
 
     it('should handle stages with key only', () => {
@@ -319,7 +319,7 @@ describe('NarrativeRecorder', () => {
       }));
 
       const lines = recorder.toSentences().get('s1')!;
-      expect(lines[0]).toBe('  - Wrote: rootKey = 42');
+      expect(lines[0]).toBe('  - Step 1: Write: rootKey = 42');
     });
 
     it('should preserve execution order across stages', () => {
@@ -402,8 +402,8 @@ describe('NarrativeRecorder', () => {
 
       const flat = recorder.toFlatSentences();
       expect(flat).toEqual([
-        'CallLLM: Read: messages = (3 items)',
-        'CallLLM: Wrote: lastResponse = {content}',
+        'CallLLM: Step 1: Read: messages = (3 items)',
+        'CallLLM: Step 2: Write: lastResponse = {content}',
       ]);
     });
 
@@ -582,18 +582,122 @@ describe('NarrativeRecorder', () => {
       // Verify text sentences
       const sentences = recorder.toSentences();
       expect(sentences.get('Initialize')).toEqual([
-        '  - Read: systemPrompt = "You are a helpful assistant."',
-        '  - Wrote: model = "gpt-4"',
+        '  - Step 1: Read: systemPrompt = "You are a helpful assistant."',
+        '  - Step 2: Write: model = "gpt-4"',
       ]);
       expect(sentences.get('Call LLM')![0]).toContain('Read: messages');
-      expect(sentences.get('Call LLM')![1]).toContain('Wrote: lastResponse');
+      expect(sentences.get('Call LLM')![1]).toContain('Write: lastResponse');
       expect(sentences.get('Call LLM')![1]).toContain('content, model, usage');
 
       // Verify flat sentences
       const flat = recorder.toFlatSentences();
       expect(flat).toHaveLength(6);
-      expect(flat[0]).toBe('Initialize: Read: systemPrompt = "You are a helpful assistant."');
-      expect(flat[1]).toBe('Initialize: Wrote: model = "gpt-4"');
+      expect(flat[0]).toBe('Initialize: Step 1: Read: systemPrompt = "You are a helpful assistant."');
+      expect(flat[1]).toBe('Initialize: Step 2: Write: model = "gpt-4"');
+    });
+  });
+
+  // ==========================================================================
+  // Interleaved Operations Timeline
+  // ==========================================================================
+
+  describe('interleaved operations', () => {
+    it('should track operations in execution order', () => {
+      const recorder = new NarrativeRecorder({ id: 'test' });
+
+      recorder.onRead(makeReadEvent({ stageName: 's1', key: 'a', value: 1 }));
+      recorder.onWrite(makeWriteEvent({ stageName: 's1', key: 'b', value: 2, operation: 'set' }));
+      recorder.onRead(makeReadEvent({ stageName: 's1', key: 'c', value: 3 }));
+
+      const data = recorder.getStageDataFor('s1')!;
+      expect(data.operations).toHaveLength(3);
+      expect(data.operations[0].type).toBe('read');
+      expect(data.operations[0].key).toBe('a');
+      expect(data.operations[1].type).toBe('write');
+      expect(data.operations[1].key).toBe('b');
+      expect(data.operations[2].type).toBe('read');
+      expect(data.operations[2].key).toBe('c');
+    });
+
+    it('should assign step numbers to operations', () => {
+      const recorder = new NarrativeRecorder({ id: 'test' });
+
+      recorder.onRead(makeReadEvent({ stageName: 's1', key: 'a', value: 1 }));
+      recorder.onWrite(makeWriteEvent({ stageName: 's1', key: 'b', value: 2 }));
+
+      const data = recorder.getStageDataFor('s1')!;
+      expect(data.operations[0].stepNumber).toBe(1);
+      expect(data.operations[1].stepNumber).toBe(2);
+    });
+
+    it('should preserve interleaved order in toSentences full detail', () => {
+      const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
+
+      recorder.onWrite(makeWriteEvent({ stageName: 's1', key: 'x', value: 10 }));
+      recorder.onRead(makeReadEvent({ stageName: 's1', key: 'y', value: 20 }));
+      recorder.onWrite(makeWriteEvent({ stageName: 's1', key: 'z', value: 30 }));
+
+      const lines = recorder.toSentences().get('s1')!;
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toContain('Write');
+      expect(lines[0]).toContain('x');
+      expect(lines[1]).toContain('Read');
+      expect(lines[1]).toContain('y');
+      expect(lines[2]).toContain('Write');
+      expect(lines[2]).toContain('z');
+    });
+  });
+
+  // ==========================================================================
+  // Delete Operation Support
+  // ==========================================================================
+
+  describe('delete operations', () => {
+    it('should record delete operations', () => {
+      const recorder = new NarrativeRecorder({ id: 'test' });
+
+      recorder.onWrite(makeWriteEvent({
+        stageName: 's1',
+        key: 'tempData',
+        value: undefined,
+        operation: 'delete',
+      }));
+
+      const data = recorder.getStageDataFor('s1')!;
+      expect(data.writes).toHaveLength(1);
+      expect(data.writes[0].operation).toBe('delete');
+      expect(data.operations).toHaveLength(1);
+      expect(data.operations[0].operation).toBe('delete');
+    });
+
+    it('should render delete operations in toSentences', () => {
+      const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
+
+      recorder.onWrite(makeWriteEvent({
+        stageName: 's1',
+        key: 'tempData',
+        value: undefined,
+        operation: 'delete',
+      }));
+
+      const lines = recorder.toSentences().get('s1')!;
+      expect(lines[0]).toContain('Delete');
+      expect(lines[0]).toContain('tempData');
+    });
+
+    it('should render update operations distinctly from writes', () => {
+      const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
+
+      recorder.onWrite(makeWriteEvent({
+        stageName: 's1',
+        key: 'settings',
+        value: { retries: 3 },
+        operation: 'update',
+      }));
+
+      const lines = recorder.toSentences().get('s1')!;
+      expect(lines[0]).toContain('Update');
+      expect(lines[0]).toContain('settings');
     });
   });
 });

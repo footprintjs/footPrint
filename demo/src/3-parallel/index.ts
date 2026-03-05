@@ -17,7 +17,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Stage functions
 const prepareRequest = async (scope: BaseState) => {
   console.log('  [Prepare] Setting up parallel fetches...');
-  scope.setObject('userId', 'user-123');
+  scope.setValue('userId', 'user-123');
 };
 
 const fetchUserProfile = async () => {

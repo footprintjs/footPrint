@@ -70,7 +70,7 @@ function deepMerge(dst: unknown, src: unknown): unknown {
 interface StagedWrite {
   key: string;
   value: unknown;
-  operation: 'set' | 'update';
+  operation: 'set' | 'update' | 'delete';
 }
 
 /**
@@ -294,6 +294,45 @@ export class Scope {
   }
 
   /**
+   * Deletes a value at the specified key by setting it to undefined.
+   *
+   * The delete is staged locally (sets undefined) and made immediately
+   * available for subsequent reads. Call commit() to persist to GlobalStore.
+   *
+   * @param key - The key to delete
+   *
+   * @throws TypeError if key is not a string
+   *
+   * @example
+   * ```typescript
+   * scope.deleteValue('temporaryData');
+   * ```
+   */
+  deleteValue(key: string): void {
+    if (typeof key !== 'string') {
+      throw new TypeError('key must be a string');
+    }
+
+    this.stagedWrites.push({
+      key,
+      value: undefined,
+      operation: 'delete',
+    });
+
+    const cacheKey = this.buildCacheKey(key);
+    this.localCache.set(cacheKey, undefined);
+
+    this.invokeHook('onWrite', {
+      stageName: this.stageName,
+      pipelineId: this.pipelineId,
+      timestamp: Date.now(),
+      key,
+      value: undefined,
+      operation: 'delete',
+    });
+  }
+
+  /**
    * Commits all staged writes to GlobalStore.
    *
    * Applies all setValue and updateValue operations that have been staged
@@ -320,7 +359,7 @@ export class Scope {
     const mutations: Array<{
       key: string;
       value: unknown;
-      operation: 'set' | 'update';
+      operation: 'set' | 'update' | 'delete';
     }> = [];
 
     for (const write of this.stagedWrites) {
@@ -333,8 +372,8 @@ export class Scope {
         operation: write.operation,
       });
 
-      if (write.operation === 'set') {
-        // Set operations overwrite
+      if (write.operation === 'set' || write.operation === 'delete') {
+        // Set and delete operations overwrite (delete sets undefined)
         finalValues.set(cacheKey, {
           key: write.key,
           value: write.value,

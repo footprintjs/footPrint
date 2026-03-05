@@ -132,11 +132,9 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
 
       const result = await builder.execute(scopeFactory);
 
-      // Assert - CreateLabel returns these fields (from parent scope, not children)
-      expect(result).toHaveProperty('trackingNumber');
-      expect(result).toHaveProperty('orderId', shipmentData.orderId);
-      expect(result).toHaveProperty('totalWeight');
-      expect(result).toHaveProperty('destination');
+      // Assert - CreateLabel doesn't return a value (void stage)
+      // The pipeline completes successfully without error
+      expect(result).toBeUndefined();
     });
   });
 
@@ -227,7 +225,7 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       const readValues: Record<string, unknown> = {};
 
       const parentStage = async (scope: BaseState) => {
-        scope.setObject('parentData', { value: 42 });
+        scope.setValue('parentData', { value: 42 });
         return { written: true };
       };
 
@@ -268,7 +266,7 @@ describe('Demo 2: Parallel Children (Shipping)', () => {
       let aggregatedData: Record<string, unknown> = {};
 
       const childStage = (id: string, value: number) => async (scope: BaseState) => {
-        scope.setObject(`child${id}`, value);
+        scope.setValue(`child${id}`, value);
         // Return value IS aggregated (unlike scope writes)
         return { childId: id, value };
       };

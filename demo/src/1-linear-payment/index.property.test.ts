@@ -79,7 +79,7 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue: unknown;
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(key, value);
+          scope.setValue(key, value);
           return { written: true };
         };
 
@@ -133,7 +133,7 @@ describe('Property 1: Scope State Round-Trip', () => {
 
         const writeStage = async (scope: BaseState) => {
           for (const [key, value] of pairs) {
-            scope.setObject(key, value);
+            scope.setValue(key, value);
           }
           return { written: pairs.length };
         };
@@ -181,7 +181,7 @@ describe('Property 1: Scope State Round-Trip', () => {
         const readValues: unknown[] = [];
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(key, value);
+          scope.setValue(key, value);
           return { written: true };
         };
 
@@ -228,12 +228,12 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue: unknown;
 
         const writeStage1 = async (scope: BaseState) => {
-          scope.setObject(key, value1);
+          scope.setValue(key, value1);
           return { written: 1 };
         };
 
         const writeStage2 = async (scope: BaseState) => {
-          scope.setObject(key, value2);
+          scope.setValue(key, value2);
           return { written: 2 };
         };
 
@@ -278,8 +278,8 @@ describe('Property 1: Scope State Round-Trip', () => {
         let readValue2: unknown;
 
         const writeStage = async (scope: BaseState) => {
-          scope.setObject(key1, value1);
-          scope.setObject(key2, value2);
+          scope.setValue(key1, value1);
+          scope.setValue(key2, value2);
           return { written: 2 };
         };
 

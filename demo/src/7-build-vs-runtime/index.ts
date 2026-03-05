@@ -80,7 +80,7 @@ const runtimeExtractor: TraversalExtractor<RuntimeStageData> = (snapshot) => {
 
 const entry = async (scope: BaseState) => {
   console.log('  [Stage] entry');
-  scope.setObject('started', true);
+  scope.setValue('started', true);
 };
 
 const process = async () => {

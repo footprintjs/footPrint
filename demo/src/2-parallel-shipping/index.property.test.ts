@@ -206,7 +206,7 @@ describe('Property 2: Parallel Execution Timing', () => {
         const readValues: unknown[] = [];
 
         const parentStage = async (scope: BaseState) => {
-          scope.setObject('parentData', parentValue);
+          scope.setValue('parentData', parentValue);
           return { written: true };
         };
 
@@ -254,7 +254,7 @@ describe('Property 2: Parallel Execution Timing', () => {
           name: `Child${i}`,
           fn: async (scope: BaseState) => {
             // Write our own value
-            scope.setObject(`child${i}Data`, i * 100);
+            scope.setValue(`child${i}Data`, i * 100);
 
             // Small delay to let other children write
             await new Promise((resolve) => setTimeout(resolve, 10));

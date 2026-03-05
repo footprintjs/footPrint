@@ -92,9 +92,13 @@ export type { CommitBundle, TraceItem } from './internal/history/ExecutionHistor
 // FlowChartExecutor - Runtime execution engine (recommended)
 // ============================================================================
 
-export { 
+export {
   FlowChartExecutor,
 } from './core/executor/FlowChartExecutor';
+
+// CombinedNarrativeBuilder - Unified flow + step + conditions narrative
+export { CombinedNarrativeBuilder } from './core/executor/narrative/CombinedNarrativeBuilder';
+export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './core/executor/narrative/CombinedNarrativeBuilder';
 
 // ============================================================================
 // Pipeline - Runtime execution engine
@@ -159,6 +163,13 @@ export type {
   ScopeProtectionMode,
   ScopeProtectionOptions,
 } from './scope/protection';
+
+// ============================================================================
+// Recorders - Pluggable scope observers
+// ============================================================================
+
+export { NarrativeRecorder } from './scope/recorders/NarrativeRecorder';
+export type { NarrativeOperation, StageNarrativeData, NarrativeDetail, NarrativeRecorderOptions } from './scope/recorders/NarrativeRecorder';
 
 // ============================================================================
 // Logger - Pluggable logging interface

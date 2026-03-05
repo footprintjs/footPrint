@@ -21,15 +21,15 @@ const cartItems = [
 const validateCart = async (scope: BaseState) => {
   console.log('  [1] Validating cart...');
   const total = cartItems.reduce((sum, i) => sum + i.price, 0);
-  scope.setObject('cartTotal', total);
-  scope.setObject('itemCount', cartItems.length);
+  scope.setValue('cartTotal', total);
+  scope.setValue('itemCount', cartItems.length);
 };
 
 const processPayment = async (scope: BaseState) => {
   console.log('  [2] Processing payment...');
   const total = scope.getValue('cartTotal');
   const txId = `TX-${Date.now()}`;
-  scope.setObject('transactionId', txId);
+  scope.setValue('transactionId', txId);
 };
 
 const updateInventory = async () => {

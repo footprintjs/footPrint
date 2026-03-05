@@ -109,31 +109,31 @@ export function createTestScopeFactory(options: TestScopeFactoryOptions = {}) {
     if (recordOperations && onOperation) {
       // Wrap getValue to record reads
       const originalGetValue = scope.getValue.bind(scope);
-      scope.getValue = (path: string[], key: string) => {
-        const value = originalGetValue(path, key);
+      scope.getValue = (key?: string) => {
+        const value = originalGetValue(key);
         onOperation({
           type: 'read',
           stageName,
-          path,
-          key,
+          path: [],
+          key: key ?? '',
           value,
           timestamp: Date.now(),
         });
         return value;
       };
 
-      // Wrap setObject to record writes
-      const originalSetObject = scope.setObject.bind(scope);
-      scope.setObject = (path: string[], key: string, value: unknown) => {
+      // Wrap setValue to record writes
+      const originalSetValue = scope.setValue.bind(scope);
+      scope.setValue = (key: string, value: unknown) => {
         onOperation({
           type: 'write',
           stageName,
-          path,
+          path: [],
           key,
           value,
           timestamp: Date.now(),
         });
-        return originalSetObject(path, key, value);
+        return originalSetValue(key, value);
       };
     }
 
@@ -452,7 +452,7 @@ export function assertScopeValue(
   key: string,
   expected: unknown,
 ): void {
-  const actual = scope.getValue(path, key);
+  const actual = scope.getValue(key);
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
       `Scope value mismatch at path [${path.join('.')}].${key}\n` +

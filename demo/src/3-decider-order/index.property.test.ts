@@ -98,7 +98,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
 
           // Entry stage writes the selected ID to scope
           const entryStage = async (scope: BaseState) => {
-            scope.setObject('selectedBranch', selectedId);
+            scope.setValue('selectedBranch', selectedId);
             return { started: true };
           };
 
@@ -159,7 +159,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         }));
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject('selectedBranch', selectedId);
+          scope.setValue('selectedBranch', selectedId);
           return { started: true };
         };
 
@@ -220,7 +220,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         }));
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject('selectedBranch', unknownId);
+          scope.setValue('selectedBranch', unknownId);
           return { started: true };
         };
 
@@ -271,7 +271,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
           const executedBranches: string[] = [];
 
           const entryStage = async (scope: BaseState) => {
-            scope.setObject('routingTarget', targetBranch);
+            scope.setValue('routingTarget', targetBranch);
             return { irrelevantOutput: 'this is ignored by the decider' };
           };
 
@@ -326,7 +326,7 @@ describe('Property: Scope-Based Decider Single Branch Selection', () => {
         };
 
         const entryStage = async (scope: BaseState) => {
-          scope.setObject('target', 'selected');
+          scope.setValue('target', 'selected');
           return { started: true };
         };
 

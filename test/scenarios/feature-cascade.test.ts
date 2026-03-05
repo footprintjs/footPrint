@@ -625,7 +625,7 @@ describe('Feature 3: Recorders', () => {
 
       // Lines should mention read and write operations
       const fullText = stageLines!.join('\n');
-      expect(fullText).toContain('Wrote');
+      expect(fullText).toContain('Write');
       expect(fullText).toContain('Read');
     });
 

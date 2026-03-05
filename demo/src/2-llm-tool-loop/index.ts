@@ -24,7 +24,7 @@ let callIndex = 0;
 const callLLM = async (scope: BaseState) => {
   console.log('  [LLM] Calling LLM...');
   const response = mockResponses[callIndex++];
-  scope.setObject('llmResponse', response);
+  scope.setValue('llmResponse', response);
   console.log(`        Response type: ${response.type}`);
 };
 
@@ -32,7 +32,7 @@ const executeToolCall = async (scope: BaseState) => {
   const response = scope.getValue('llmResponse') as any;
   console.log(`  [Tool] Executing tool: ${response.tool}`);
   const result = response.tool === 'search' ? 'Sunny, 72°F' : '4';
-  scope.setObject('toolResult', result);
+  scope.setValue('toolResult', result);
 };
 
 const formatResponse = async (scope: BaseState) => {

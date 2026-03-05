@@ -95,9 +95,9 @@ const validateCart = async (scope: BaseState) => {
 
   // Store in scope for subsequent stages
   // WHY: Using scope.setValue() makes data available to later stages
-  scope.setObject('cartTotal', total);
-  scope.setObject('itemCount', itemCount);
-  scope.setObject('cartItems', cartItems);
+  scope.setValue('cartTotal', total);
+  scope.setValue('itemCount', itemCount);
+  scope.setValue('cartItems', cartItems);
 
   console.log(`      Cart validated: ${itemCount} items, $${total.toFixed(2)} total`);
 };
@@ -123,8 +123,8 @@ const processPayment = async (scope: BaseState) => {
   const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Store transaction ID for later stages
-  scope.setObject('transactionId', transactionId);
-  scope.setObject('paymentStatus', 'completed');
+  scope.setValue('transactionId', transactionId);
+  scope.setValue('paymentStatus', 'completed');
 
   console.log(`      Payment processed: $${total.toFixed(2)}, Transaction: ${transactionId}`);
 };

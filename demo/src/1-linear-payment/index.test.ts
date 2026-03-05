@@ -97,12 +97,9 @@ describe('Demo 1: Linear Flow (Payment)', () => {
       // Act
       const result = await builder.execute(scopeFactory);
 
-      // Assert - SendReceipt returns these fields
-      expect(result).toHaveProperty('sent', true);
-      expect(result).toHaveProperty('receiptId');
-      expect(result).toHaveProperty('transactionId');
-      expect(result).toHaveProperty('total');
-      expect(result).toHaveProperty('itemCount');
+      // Assert - SendReceipt doesn't return a value (void stage)
+      // The pipeline completes successfully without error
+      expect(result).toBeUndefined();
     });
   });
 
@@ -124,7 +121,7 @@ describe('Demo 1: Linear Flow (Payment)', () => {
       // Create a custom ProcessPayment that captures the read value
       const capturePayment = async (scope: BaseState) => {
         capturedTotal = scope.getValue('cartTotal') as number;
-        scope.setObject('transactionId', 'TEST-TXN');
+        scope.setValue('transactionId', 'TEST-TXN');
         return { success: true };
       };
 

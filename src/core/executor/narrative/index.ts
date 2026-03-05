@@ -9,3 +9,5 @@
 export { INarrativeGenerator } from './types';
 export { NarrativeGenerator } from './NarrativeGenerator';
 export { NullNarrativeGenerator } from './NullNarrativeGenerator';
+export { CombinedNarrativeBuilder } from './CombinedNarrativeBuilder';
+export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './CombinedNarrativeBuilder';

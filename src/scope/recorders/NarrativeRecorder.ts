@@ -70,7 +70,9 @@ export interface NarrativeOperation {
   /** Summarized value string */
   valueSummary: string;
   /** For writes: the type of write operation */
-  operation?: 'set' | 'update';
+  operation?: 'set' | 'update' | 'delete';
+  /** 1-based step number within the stage (set when using operations timeline) */
+  stepNumber?: number;
 }
 
 /**
@@ -79,6 +81,7 @@ export interface NarrativeOperation {
  * @property stageName - The stage these operations belong to
  * @property reads - All read operations in execution order
  * @property writes - All write operations in execution order
+ * @property operations - All operations interleaved in actual execution order
  */
 export interface StageNarrativeData {
   /** The stage these operations belong to */
@@ -87,6 +90,8 @@ export interface StageNarrativeData {
   reads: NarrativeOperation[];
   /** All write operations in execution order */
   writes: NarrativeOperation[];
+  /** All operations interleaved in actual execution order (reads + writes + deletes) */
+  operations: NarrativeOperation[];
 }
 
 /**
@@ -188,11 +193,14 @@ export class NarrativeRecorder implements Recorder {
    */
   onRead(event: ReadEvent): void {
     const stageData = this.getOrCreateStageData(event.stageName);
-    stageData.reads.push({
+    const op: NarrativeOperation = {
       type: 'read',
       key: event.key ?? '',
       valueSummary: summarizeValue(event.value, this.maxValueLength),
-    });
+      stepNumber: stageData.operations.length + 1,
+    };
+    stageData.reads.push(op);
+    stageData.operations.push(op);
   }
 
   /**
@@ -206,12 +214,15 @@ export class NarrativeRecorder implements Recorder {
    */
   onWrite(event: WriteEvent): void {
     const stageData = this.getOrCreateStageData(event.stageName);
-    stageData.writes.push({
+    const op: NarrativeOperation = {
       type: 'write',
       key: event.key,
       valueSummary: summarizeValue(event.value, this.maxValueLength),
       operation: event.operation,
-    });
+      stepNumber: stageData.operations.length + 1,
+    };
+    stageData.writes.push(op);
+    stageData.operations.push(op);
   }
 
   // ==========================================================================
@@ -243,6 +254,7 @@ export class NarrativeRecorder implements Recorder {
         stageName: data.stageName,
         reads: [...data.reads],
         writes: [...data.writes],
+        operations: [...data.operations],
       });
     }
     return copy;
@@ -261,6 +273,7 @@ export class NarrativeRecorder implements Recorder {
       stageName: data.stageName,
       reads: [...data.reads],
       writes: [...data.writes],
+      operations: [...data.operations],
     };
   }
 
@@ -309,16 +322,22 @@ export class NarrativeRecorder implements Recorder {
           lines.push(`  - ${capitalize(parts.join(', '))}`);
         }
       } else {
-        // Full detail mode — individual operations
-        for (const read of data.reads) {
-          if (read.valueSummary) {
-            lines.push(`  - Read: ${read.key} = ${read.valueSummary}`);
+        // Full detail mode — interleaved operations in execution order
+        for (const op of data.operations) {
+          const stepPrefix = op.stepNumber ? `Step ${op.stepNumber}: ` : '';
+          if (op.type === 'read') {
+            if (op.valueSummary) {
+              lines.push(`  - ${stepPrefix}Read: ${op.key} = ${op.valueSummary}`);
+            } else {
+              lines.push(`  - ${stepPrefix}Read: ${op.key}`);
+            }
+          } else if (op.operation === 'delete') {
+            lines.push(`  - ${stepPrefix}Delete: ${op.key}`);
+          } else if (op.operation === 'update') {
+            lines.push(`  - ${stepPrefix}Update: ${op.key} = ${op.valueSummary}`);
           } else {
-            lines.push(`  - Read: ${read.key}`);
+            lines.push(`  - ${stepPrefix}Write: ${op.key} = ${op.valueSummary}`);
           }
-        }
-        for (const write of data.writes) {
-          lines.push(`  - Wrote: ${write.key} = ${write.valueSummary}`);
         }
       }
 
@@ -405,6 +424,7 @@ export class NarrativeRecorder implements Recorder {
         stageName,
         reads: [],
         writes: [],
+        operations: [],
       };
       this.stages.set(stageName, data);
       this.stageOrder.push(stageName);

@@ -103,6 +103,10 @@ export class BaseState {
     return this._stageContext.updateObject([], key, value, description);
   }
 
+  deleteValue(key: string, description?: string) {
+    return (this._stageContext as any).setObject([], key, undefined, false, description ?? `deleted ${key}`);
+  }
+
   setGlobal(key: string, value: unknown, description?: string) {
     return (this._stageContext as any).setGlobal?.(key, value, description);
   }

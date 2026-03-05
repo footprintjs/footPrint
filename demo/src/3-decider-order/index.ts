@@ -154,8 +154,8 @@ const analyzeOrder = async (scope: BaseState) => {
   }
 
   // Store in scope
-  scope.setObject('order', order);
-  scope.setObject('fulfillmentType', fulfillmentType);
+  scope.setValue('order', order);
+  scope.setValue('fulfillmentType', fulfillmentType);
 
   console.log(`      Order ${order.orderId}: ${fulfillmentType} fulfillment`);
 };
@@ -179,7 +179,7 @@ const standardFulfillment = async (scope: BaseState) => {
     orderId: order.orderId,
   };
 
-  scope.setObject('fulfillmentResult', fulfillmentResult);
+  scope.setValue('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Standard shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
 };
@@ -204,7 +204,7 @@ const expressFulfillment = async (scope: BaseState) => {
     priorityFee: 15.99,
   };
 
-  scope.setObject('fulfillmentResult', fulfillmentResult);
+  scope.setValue('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Express shipment scheduled: ${fulfillmentResult.estimatedDays} days`);
 };
@@ -231,7 +231,7 @@ const digitalDelivery = async (scope: BaseState) => {
     orderId: order.orderId,
   };
 
-  scope.setObject('fulfillmentResult', fulfillmentResult);
+  scope.setValue('fulfillmentResult', fulfillmentResult);
 
   console.log(`      Digital delivery ready: ${order.items.length} items`);
 };

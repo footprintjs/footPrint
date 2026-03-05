@@ -116,8 +116,8 @@ const prepareShipment = async (scope: BaseState) => {
   const totalWeight = shipmentData.items.reduce((sum, item) => sum + item.weight * item.quantity, 0);
 
   // Store shipment data - children can READ these values
-  scope.setObject('shipment', shipmentData);
-  scope.setObject('totalWeight', totalWeight);
+  scope.setValue('shipment', shipmentData);
+  scope.setValue('totalWeight', totalWeight);
 
   console.log(`      Shipment prepared: ${shipmentData.orderId}, ${totalWeight}kg total`);
 };

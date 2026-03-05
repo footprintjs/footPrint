@@ -67,8 +67,8 @@ export interface WriteEvent extends RecorderContext {
   key: string;
   /** The value being written */
   value: unknown;
-  /** The type of write: 'set' (overwrite) or 'update' (merge) */
-  operation: 'set' | 'update';
+  /** The type of write: 'set' (overwrite), 'update' (merge), or 'delete' (remove) */
+  operation: 'set' | 'update' | 'delete';
 }
 
 /**
@@ -85,8 +85,8 @@ export interface CommitEvent extends RecorderContext {
     key: string;
     /** The value that was written */
     value: unknown;
-    /** The type of mutation: 'set' (overwrite) or 'update' (merge) */
-    operation: 'set' | 'update';
+    /** The type of mutation: 'set' (overwrite), 'update' (merge), or 'delete' (remove) */
+    operation: 'set' | 'update' | 'delete';
   }>;
 }
 

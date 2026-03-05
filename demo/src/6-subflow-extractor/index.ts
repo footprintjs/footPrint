@@ -34,7 +34,7 @@ const metadataExtractor: TraversalExtractor<StageMetadata> = (snapshot) => {
 // Main flow stages
 const prepareRequest = async (scope: BaseState) => {
   console.log('  [Main] Preparing request...');
-  scope.setObject('request', { query: 'Hello, world!' });
+  scope.setValue('request', { query: 'Hello, world!' });
 };
 
 const aggregateResults = async (scope: BaseState) => {
@@ -47,7 +47,7 @@ const aggregateResults = async (scope: BaseState) => {
 const callLLM = async (scope: BaseState) => {
   console.log('  [Subflow] Calling LLM...');
   const response = 'Hello! How can I help you today?';
-  scope.setObject('llmResponse', response);
+  scope.setValue('llmResponse', response);
 };
 
 const processResponse = async (scope: BaseState) => {
