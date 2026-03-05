@@ -171,6 +171,15 @@ export type {
 export { NarrativeRecorder } from './scope/recorders/NarrativeRecorder';
 export type { NarrativeOperation, StageNarrativeData, NarrativeDetail, NarrativeRecorderOptions } from './scope/recorders/NarrativeRecorder';
 
+export { MetricRecorder } from './scope/recorders/MetricRecorder';
+export type { StageMetrics, AggregatedMetrics } from './scope/recorders/MetricRecorder';
+
+export { DebugRecorder } from './scope/recorders/DebugRecorder';
+export type { DebugEntry, DebugVerbosity, DebugRecorderOptions } from './scope/recorders/DebugRecorder';
+
+// Recorder interface and event types
+export type { Recorder, RecorderContext, ReadEvent, WriteEvent, CommitEvent, ErrorEvent, StageEvent } from './scope/types';
+
 // ============================================================================
 // Logger - Pluggable logging interface
 // ============================================================================

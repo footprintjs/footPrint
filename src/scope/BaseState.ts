@@ -3,27 +3,30 @@
  *
  * WHY: Base class that library consumers extend to create custom scope classes.
  * Provides a consistent interface for accessing pipeline context, debug logging,
- * metrics, and state management.
+ * metrics, state management, and optional recorder support.
  *
  * RESPONSIBILITIES:
  * - Provide debug/metric/eval logging methods
  * - Provide getValue/setValue/updateValue methods for state access
  * - Provide getInitialValueFor for accessing global context
  * - Provide getReadOnlyValues for accessing read-only context
+ * - Bridge Recorder hooks to the real StageContext execution path
  *
  * DESIGN DECISIONS:
  * - Uses a runtime brand (Symbol) to detect subclasses reliably
  * - Wraps StageContext to provide a consumer-friendly API
  * - Methods are intentionally simple - complex logic belongs in StageContext
+ * - Recorder support is opt-in: attach recorders to observe read/write/commit operations
  *
  * RELATED:
  * - {@link StageContext} - The underlying context this class wraps
- * - {@link Scope} - Uses BaseState subclasses for scope creation
+ * - {@link Recorder} - Pluggable observer interface for scope operations
  * - {@link guards.ts} - Uses isSubclassOfStateScope to detect BaseState subclasses
  */
 
 import { treeConsole } from '../utils/scopeLog';
 import { StageContext } from '../core/memory/StageContext';
+import type { Recorder, ReadEvent, WriteEvent, CommitEvent, ErrorEvent, StageEvent } from './types';
 
 /**
  * BaseState
@@ -59,10 +62,73 @@ export class BaseState {
   protected _stageName: string;
   protected readonly _readOnlyValues?: unknown;
 
+  /** Recorders attached to this BaseState instance */
+  private _recorders: Recorder[] = [];
+
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown) {
     this._stageContext = context;
     this._stageName = stageName;
     this._readOnlyValues = readOnlyValues;
+  }
+
+  // ---------------- Recorder Management
+
+  /**
+   * Attaches a recorder to observe read/write/commit operations on this scope.
+   * Recorders are invoked in attachment order.
+   */
+  attachRecorder(recorder: Recorder): void {
+    this._recorders.push(recorder);
+  }
+
+  /**
+   * Detaches a recorder by its ID. No-op if not found.
+   */
+  detachRecorder(recorderId: string): void {
+    this._recorders = this._recorders.filter((r) => r.id !== recorderId);
+  }
+
+  /**
+   * Returns a copy of all attached recorders.
+   */
+  getRecorders(): Recorder[] {
+    return [...this._recorders];
+  }
+
+  /**
+   * Signals the start of stage execution. Invokes onStageStart on all recorders.
+   */
+  notifyStageStart(): void {
+    this._invokeHook('onStageStart', {
+      stageName: this._stageName,
+      pipelineId: this._stageContext.pipelineId,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Signals the end of stage execution. Invokes onStageEnd on all recorders.
+   */
+  notifyStageEnd(duration?: number): void {
+    this._invokeHook('onStageEnd', {
+      stageName: this._stageName,
+      pipelineId: this._stageContext.pipelineId,
+      timestamp: Date.now(),
+      duration,
+    });
+  }
+
+  /**
+   * Signals that staged writes have been committed.
+   * Called by the pipeline after context.commit().
+   */
+  notifyCommit(mutations: CommitEvent['mutations']): void {
+    this._invokeHook('onCommit', {
+      stageName: this._stageName,
+      pipelineId: this._stageContext.pipelineId,
+      timestamp: Date.now(),
+      mutations,
+    });
   }
 
   // ---------------- Debug (not included in final context)
@@ -92,19 +158,70 @@ export class BaseState {
   }
 
   getValue(key?: string) {
-    return this._stageContext.getValue([], key);
+    const value = this._stageContext.getValue([], key);
+
+    if (this._recorders.length > 0) {
+      this._invokeHook('onRead', {
+        stageName: this._stageName,
+        pipelineId: this._stageContext.pipelineId,
+        timestamp: Date.now(),
+        key,
+        value,
+      });
+    }
+
+    return value;
   }
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    return this._stageContext.setObject([], key, value, shouldRedact, description);
+    const result = this._stageContext.setObject([], key, value, shouldRedact, description);
+
+    if (this._recorders.length > 0) {
+      this._invokeHook('onWrite', {
+        stageName: this._stageName,
+        pipelineId: this._stageContext.pipelineId,
+        timestamp: Date.now(),
+        key,
+        value,
+        operation: 'set',
+      });
+    }
+
+    return result;
   }
 
   updateValue(key: string, value: unknown, description?: string) {
-    return this._stageContext.updateObject([], key, value, description);
+    const result = this._stageContext.updateObject([], key, value, description);
+
+    if (this._recorders.length > 0) {
+      this._invokeHook('onWrite', {
+        stageName: this._stageName,
+        pipelineId: this._stageContext.pipelineId,
+        timestamp: Date.now(),
+        key,
+        value,
+        operation: 'update',
+      });
+    }
+
+    return result;
   }
 
   deleteValue(key: string, description?: string) {
-    return this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
+    const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
+
+    if (this._recorders.length > 0) {
+      this._invokeHook('onWrite', {
+        stageName: this._stageName,
+        pipelineId: this._stageContext.pipelineId,
+        timestamp: Date.now(),
+        key,
+        value: undefined,
+        operation: 'delete',
+      });
+    }
+
+    return result;
   }
 
   setGlobal(key: string, value: unknown, description?: string) {
@@ -126,5 +243,32 @@ export class BaseState {
 
   getPipelineId() {
     return this._stageContext.pipelineId;
+  }
+
+  // ---------------- Internal recorder hook invocation
+
+  /**
+   * Invokes a hook on all attached recorders with fail-safe error handling.
+   * Recorder errors are caught and forwarded to onError hooks (avoiding infinite recursion).
+   */
+  private _invokeHook(hook: keyof Omit<Recorder, 'id'>, event: unknown): void {
+    for (const recorder of this._recorders) {
+      try {
+        const hookFn = recorder[hook];
+        if (typeof hookFn === 'function') {
+          (hookFn as (event: unknown) => void).call(recorder, event);
+        }
+      } catch (error) {
+        if (hook !== 'onError') {
+          this._invokeHook('onError', {
+            stageName: this._stageName,
+            pipelineId: this._stageContext.pipelineId,
+            timestamp: Date.now(),
+            error: error as Error,
+            operation: hook === 'onRead' ? 'read' : hook === 'onCommit' ? 'commit' : 'write',
+          });
+        }
+      }
+    }
   }
 }

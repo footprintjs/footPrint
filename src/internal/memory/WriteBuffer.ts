@@ -155,7 +155,7 @@ export class WriteBuffer {
  * - Objects: Recursive merge
  * - Primitives: Source wins
  */
-function deepSmartMerge(dst: any, src: any): any {
+export function deepSmartMerge(dst: any, src: any): any {
   if (src === null || typeof src !== 'object') return src;
 
   // Array vs array -> union (preserves encounter order)

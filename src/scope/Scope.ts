@@ -18,51 +18,10 @@
  * @module scope/Scope
  */
 
-import _get from 'lodash.get';
-import _set from 'lodash.set';
-
 import type { GlobalStore } from '../core/memory/GlobalStore';
 import type { ExecutionHistory } from '../internal/history/ExecutionHistory';
-import type { Recorder, ScopeOptions, ScopeSnapshot } from './types';
-
-/**
- * Deep merge helper for updateValue operations.
- *
- * Merges source into destination with the following semantics:
- *   - Arrays: Union without duplicates (encounter order preserved)
- *   - Objects: Recursive merge
- *   - Primitives: Source wins
- *
- * @param dst - Destination object
- * @param src - Source object to merge
- * @returns Merged result
- */
-function deepMerge(dst: unknown, src: unknown): unknown {
-  // Primitives or null - source wins
-  if (src === null || typeof src !== 'object') {
-    return src;
-  }
-
-  // Array vs array -> union without duplicates
-  if (Array.isArray(src) && Array.isArray(dst)) {
-    return [...new Set([...dst, ...src])];
-  }
-
-  // Array vs non-array -> source wins (replace)
-  if (Array.isArray(src)) {
-    return [...src];
-  }
-
-  // Object merge
-  const dstObj = dst && typeof dst === 'object' && !Array.isArray(dst) ? dst : {};
-  const out: Record<string, unknown> = { ...(dstObj as Record<string, unknown>) };
-
-  for (const key of Object.keys(src as Record<string, unknown>)) {
-    out[key] = deepMerge(out[key], (src as Record<string, unknown>)[key]);
-  }
-
-  return out;
-}
+import { deepSmartMerge } from '../internal/memory/WriteBuffer';
+import type { Recorder, ScopeOptions } from './types';
 
 /**
  * Staged write entry for tracking mutations before commit.
@@ -108,12 +67,6 @@ export class Scope {
    * Will be populated in Task 5.1.
    */
   private stageRecorders: Map<string, Recorder[]> = new Map();
-
-  /**
-   * Snapshot history for time-travel support.
-   * Will be populated in Task 3.1.
-   */
-  private snapshots: ScopeSnapshot[] = [];
 
   /**
    * Stage start time for duration tracking.
@@ -279,7 +232,7 @@ export class Scope {
     }
 
     // Deep merge and update cache for read-after-write consistency
-    const mergedValue = deepMerge(currentValue, value);
+    const mergedValue = deepSmartMerge(currentValue, value);
     this.localCache.set(cacheKey, mergedValue);
 
     // Invoke onWrite hook with WriteEvent
@@ -385,14 +338,14 @@ export class Scope {
           // Merge with previously staged value
           finalValues.set(cacheKey, {
             key: write.key,
-            value: deepMerge(existing.value, write.value),
+            value: deepSmartMerge(existing.value, write.value),
           });
         } else {
           // Merge with GlobalStore value
           const currentValue = this.globalStore.getValue(this.pipelineId, [], write.key);
           finalValues.set(cacheKey, {
             key: write.key,
-            value: deepMerge(currentValue, write.value),
+            value: deepSmartMerge(currentValue, write.value),
           });
         }
       }
@@ -403,9 +356,6 @@ export class Scope {
     for (const { key, value } of finalValues.values()) {
       this.globalStore.setValue(this.pipelineId, [], key, value);
     }
-
-    // Create a snapshot of the current state for time-travel support
-    this.createSnapshot();
 
     // Invoke onCommit hook with CommitEvent
     this.invokeHook('onCommit', {
@@ -418,113 +368,6 @@ export class Scope {
     // Clear staged writes and local cache
     this.stagedWrites = [];
     this.localCache.clear();
-  }
-
-  // ==========================================================================
-  // Time-Travel Support
-  // ==========================================================================
-
-  /**
-   * Creates a snapshot of the current state.
-   *
-   * Called internally after each commit to record the state for time-travel.
-   * The snapshot includes a deep copy of the state to ensure immutability.
-   */
-  private createSnapshot(): void {
-    // Get the current state from GlobalStore for this pipeline's namespace
-    const fullState = this.globalStore.getState() as Record<string, unknown>;
-    const pipelines = fullState.pipelines as Record<string, unknown> | undefined;
-    const pipelineState = pipelines?.[this.pipelineId] as Record<string, unknown> | undefined;
-
-    // Create a deep copy of the state to ensure immutability
-    const stateCopy = pipelineState ? structuredClone(pipelineState) : {};
-
-    const snapshot: ScopeSnapshot = {
-      index: this.snapshots.length,
-      stageName: this.stageName,
-      pipelineId: this.pipelineId,
-      timestamp: Date.now(),
-      state: stateCopy as Record<string, unknown>,
-    };
-
-    this.snapshots.push(snapshot);
-  }
-
-  /**
-   * Returns all recorded snapshots.
-   *
-   * Snapshots are created on each commit and contain the state at that point
-   * in time. This method returns a shallow copy of the snapshots array to
-   * prevent external modification.
-   *
-   * @returns Array of all recorded snapshots
-   *
-   * @example
-   * ```typescript
-   * scope.setValue('a', 1);
-   * scope.commit();
-   * scope.setValue('b', 2);
-   * scope.commit();
-   *
-   * const snapshots = scope.getSnapshots();
-   * console.log(snapshots.length); // 2
-   * ```
-   */
-  getSnapshots(): ScopeSnapshot[] {
-    return [...this.snapshots];
-  }
-
-  /**
-   * Returns the state at a specific snapshot index.
-   *
-   * This is a read-only operation that does NOT modify the current execution
-   * state. Returns undefined if the index is out of bounds.
-   *
-   * @param index - The snapshot index (0-based)
-   * @returns The state at that snapshot, or undefined if out of bounds
-   *
-   * @example
-   * ```typescript
-   * scope.setValue('value', 'first');
-   * scope.commit();
-   * scope.setValue('value', 'second');
-   * scope.commit();
-   *
-   * const firstState = scope.getStateAt(0);
-   * console.log(firstState?.value); // 'first'
-   * ```
-   */
-  getStateAt(index: number): Record<string, unknown> | undefined {
-    if (index < 0 || index >= this.snapshots.length) {
-      return undefined;
-    }
-
-    // Return a deep copy to ensure immutability (time-travel is read-only)
-    return structuredClone(this.snapshots[index].state);
-  }
-
-  /**
-   * Returns the index of the most recent snapshot.
-   *
-   * Returns -1 if no snapshots have been recorded yet.
-   *
-   * @returns The index of the most recent snapshot, or -1 if none exist
-   *
-   * @example
-   * ```typescript
-   * console.log(scope.getCurrentSnapshotIndex()); // -1 (no commits yet)
-   *
-   * scope.setValue('value', 1);
-   * scope.commit();
-   * console.log(scope.getCurrentSnapshotIndex()); // 0
-   *
-   * scope.setValue('value', 2);
-   * scope.commit();
-   * console.log(scope.getCurrentSnapshotIndex()); // 1
-   * ```
-   */
-  getCurrentSnapshotIndex(): number {
-    return this.snapshots.length - 1;
   }
 
   // ==========================================================================
