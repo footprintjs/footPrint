@@ -2,17 +2,19 @@
  * Tests for Demo 8: Loan Application — "Why Was I Rejected?"
  *
  * BEHAVIOR: Verifies that the loan application pipeline produces correct
- * decisions AND narratives for different applicant profiles.
+ * decisions AND combined narratives for different applicant profiles.
  *
- * WHY: The narrative is the product — it must correctly capture the causal
- * chain from application data through risk assessment to decision.
+ * WHY: The combined narrative (flow + steps + conditions) is the product.
+ * It must correctly capture the causal chain from application data through
+ * risk assessment to decision — all built automatically from read/write ops.
  */
-import { FlowChartExecutor, BaseState, StageContext } from 'footprint';
+import { FlowChartExecutor, BaseState, StageContext, NarrativeRecorder } from 'footprint';
 import {
   buildLoanApplicationFlow,
   runLoanApplication,
   sampleApplications,
   setCurrentApplication,
+  createInstrumentedScopeFactory,
 } from './index';
 
 // ============================================================================
@@ -75,43 +77,117 @@ describe('Demo 8: Loan Application', () => {
   });
 
   // ============================================================================
-  // Narrative Tests — The Core Value Proposition
+  // Combined Narrative Tests — The Core Value Proposition
   // ============================================================================
 
-  describe('narrative generation', () => {
-    it('should produce a narrative that explains the rejection', async () => {
+  describe('combined narrative', () => {
+    it('should produce a combined narrative with flow + steps for rejection', async () => {
       const result = await runLoanApplication(sampleApplications.rejected);
 
-      // The narrative should exist and have multiple sentences
-      expect(result.narrative.length).toBeGreaterThan(0);
+      // Combined narrative should have flow-level stages and step-level operations
+      expect(result.combinedNarrative.length).toBeGreaterThan(0);
 
-      // Join narrative for easier assertion
-      const fullNarrative = result.narrative.join(' ');
+      const fullText = result.combinedNarrative.join('\n');
 
-      // The narrative should mention the process beginning
-      expect(fullNarrative).toContain('The process began');
+      // Flow level: stages should be numbered
+      expect(fullText).toMatch(/Stage \d+/);
 
-      // The narrative should mention the decision
-      expect(fullNarrative).toMatch(/Reject/i);
+      // Step level: operations should appear as steps
+      expect(fullText).toMatch(/Step \d+/);
+
+      // Should contain read and write operations
+      expect(fullText).toContain('Write');
+      expect(fullText).toContain('Read');
     });
 
-    it('should produce a narrative that explains the approval', async () => {
+    it('should capture the rejection condition in the narrative', async () => {
+      const result = await runLoanApplication(sampleApplications.rejected);
+      const fullText = result.combinedNarrative.join('\n');
+
+      // The decider condition should appear
+      expect(fullText).toMatch(/Condition|Reject/i);
+    });
+
+    it('should capture the approval condition in the narrative', async () => {
       const result = await runLoanApplication(sampleApplications.approved);
-      const fullNarrative = result.narrative.join(' ');
+      const fullText = result.combinedNarrative.join('\n');
 
-      expect(fullNarrative).toContain('The process began');
-      expect(fullNarrative).toMatch(/Approve/i);
+      expect(fullText).toMatch(/Approve/i);
     });
 
-    it('should capture stage descriptions in the narrative', async () => {
+    it('should capture step-level data that explains the decision', async () => {
       const result = await runLoanApplication(sampleApplications.rejected);
-      const fullNarrative = result.narrative.join(' ');
+      const fullText = result.combinedNarrative.join('\n');
 
-      // Stage descriptions should appear as narrative sentences
-      expect(fullNarrative).toMatch(/credit/i);
-      expect(fullNarrative).toMatch(/debt-to-income|DTI/i);
-      expect(fullNarrative).toMatch(/employment/i);
-      expect(fullNarrative).toMatch(/risk/i);
+      // The step-level data should include the actual values that led to rejection
+      expect(fullText).toContain('creditTier');
+      expect(fullText).toContain('dtiStatus');
+      expect(fullText).toContain('riskTier');
+    });
+
+    it('should produce different narratives for different applicants', async () => {
+      const rejected = await runLoanApplication(sampleApplications.rejected);
+      const approved = await runLoanApplication(sampleApplications.approved);
+
+      const rejectedText = rejected.combinedNarrative.join('\n');
+      const approvedText = approved.combinedNarrative.join('\n');
+
+      // Both should have stage structure
+      expect(rejectedText).toMatch(/Stage \d+/);
+      expect(approvedText).toMatch(/Stage \d+/);
+
+      // But different decision branches
+      expect(rejectedText).toMatch(/Reject/i);
+      expect(approvedText).toMatch(/Approve/i);
+    });
+  });
+
+  // ============================================================================
+  // NarrativeRecorder Integration Tests
+  // ============================================================================
+
+  describe('NarrativeRecorder step capture', () => {
+    it('should capture all stage operations with step numbers', async () => {
+      const result = await runLoanApplication(sampleApplications.rejected);
+      const stageData = result.recorder.getStageData();
+
+      // ReceiveApplication should have writes for all applicant fields
+      const receiveData = stageData.get('ReceiveApplication');
+      expect(receiveData).toBeDefined();
+      expect(receiveData!.writes.length).toBeGreaterThanOrEqual(8);
+      expect(receiveData!.operations[0].stepNumber).toBe(1);
+
+      // PullCreditReport should have reads and writes
+      const creditData = stageData.get('PullCreditReport');
+      expect(creditData).toBeDefined();
+      expect(creditData!.reads.length).toBeGreaterThanOrEqual(1);
+      expect(creditData!.writes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should preserve interleaved operation order within stages', async () => {
+      const result = await runLoanApplication(sampleApplications.rejected);
+      const stageData = result.recorder.getStageData();
+
+      // CalculateDTI reads annualIncome and monthlyDebts, then writes dtiRatio etc.
+      const dtiData = stageData.get('CalculateDTI');
+      expect(dtiData).toBeDefined();
+      expect(dtiData!.operations.length).toBeGreaterThan(0);
+
+      // First operations should be reads, followed by writes
+      const firstRead = dtiData!.operations.findIndex(op => op.type === 'read');
+      const firstWrite = dtiData!.operations.findIndex(op => op.type === 'write');
+      expect(firstRead).toBeLessThan(firstWrite);
+    });
+
+    it('should produce flat sentences for all stages', async () => {
+      const result = await runLoanApplication(sampleApplications.rejected);
+      const flat = result.recorder.toFlatSentences();
+
+      // Should have entries for multiple stages
+      expect(flat.length).toBeGreaterThan(10);
+
+      // Each entry should have format "StageName: Step N: ..."
+      expect(flat[0]).toMatch(/^[\w]+: Step \d+:/);
     });
   });
 
@@ -129,7 +205,6 @@ describe('Demo 8: Loan Application', () => {
 
       const executed = tracker.getExecutedStages();
 
-      // Common stages should all appear before the branch
       const receiveIdx = executed.indexOf('ReceiveApplication');
       const creditIdx = executed.indexOf('PullCreditReport');
       const dtiIdx = executed.indexOf('CalculateDTI');

@@ -21,15 +21,22 @@
  * 6. LoanDecision        — Route to approved/rejected/manual-review based on riskTier
  *
  * KEY CONCEPTS:
- * - Every stage writes its reasoning to scope — not just the result, but WHY
- * - The decider reads from scope and the narrative captures the decision + rationale
- * - NarrativeGenerator produces plain-English execution story
+ * - Stage functions just read/write scope — the narrative captures it automatically
+ * - No verbose descriptions needed in the builder — stage names suffice
+ * - NarrativeRecorder captures every read/write/delete as ordered steps
+ * - CombinedNarrativeBuilder merges flow-level + step-level into one output
  * - The LLM gets everything it needs to answer follow-ups — no reconstruction
  *
  * BUILDS ON: Demo 3 (Decider)
  */
 
-import { FlowChartBuilder, FlowChartExecutor, BaseState, StageContext } from 'footprint';
+import {
+  FlowChartBuilder,
+  FlowChartExecutor,
+  BaseState,
+  NarrativeRecorder,
+  CombinedNarrativeBuilder,
+} from 'footprint';
 
 // ============================================================================
 // Types
@@ -121,8 +128,6 @@ const receiveApplication = async (scope: BaseState) => {
  *
  * Reads: rawCreditScore
  * Writes: creditScore, creditTier, creditFlags
- *
- * The creditTier is the first input to the risk assessment.
  */
 const pullCreditReport = async (scope: BaseState) => {
   const score = scope.getValue('rawCreditScore') as number;
@@ -317,17 +322,83 @@ const manualReviewApplication = async (scope: BaseState) => {
   scope.setValue('decisionMessage', `${name}, your application has been forwarded for manual review by a loan officer.`);
 };
 
-
 // ============================================================================
-// Scope Factory
+// Narrative-Instrumented Scope Factory
 // ============================================================================
 
 /**
- * Creates a scope instance for each stage.
+ * Creates a scope factory that instruments BaseState to feed a NarrativeRecorder.
+ *
+ * WHY: The NarrativeRecorder captures every getValue/setValue as ordered steps.
+ * By wrapping BaseState methods, the consumer gets step-level data narrative
+ * (Step 1: Read, Step 2: Write) without changing any stage function code.
+ *
+ * This is the consumer-side pattern: stage functions stay clean,
+ * and the narrative infrastructure is wired up in the scope factory.
  */
-const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
-  return new BaseState(ctx, stageName, readOnly);
-};
+function createInstrumentedScopeFactory(recorder: NarrativeRecorder) {
+  return (ctx: any, stageName: string, readOnly?: unknown) => {
+    const scope = new BaseState(ctx, stageName, readOnly);
+
+    // Wrap getValue to record reads
+    const originalGetValue = scope.getValue.bind(scope);
+    scope.getValue = (key?: string) => {
+      const value = originalGetValue(key);
+      recorder.onRead({
+        stageName,
+        pipelineId: '',
+        timestamp: Date.now(),
+        key: key ?? '',
+        value,
+      });
+      return value;
+    };
+
+    // Wrap setValue to record writes
+    const originalSetValue = scope.setValue.bind(scope);
+    scope.setValue = (key: string, value: unknown, shouldRedact?: boolean, description?: string) => {
+      recorder.onWrite({
+        stageName,
+        pipelineId: '',
+        timestamp: Date.now(),
+        key,
+        value,
+        operation: 'set',
+      });
+      return originalSetValue(key, value, shouldRedact, description);
+    };
+
+    // Wrap updateValue to record updates
+    const originalUpdateValue = scope.updateValue.bind(scope);
+    scope.updateValue = (key: string, value: unknown, description?: string) => {
+      recorder.onWrite({
+        stageName,
+        pipelineId: '',
+        timestamp: Date.now(),
+        key,
+        value,
+        operation: 'update',
+      });
+      return originalUpdateValue(key, value, description);
+    };
+
+    // Wrap deleteValue to record deletes
+    const originalDeleteValue = scope.deleteValue.bind(scope);
+    scope.deleteValue = (key: string, description?: string) => {
+      recorder.onWrite({
+        stageName,
+        pipelineId: '',
+        timestamp: Date.now(),
+        key,
+        value: undefined,
+        operation: 'delete',
+      });
+      return originalDeleteValue(key, description);
+    };
+
+    return scope;
+  };
+}
 
 // ============================================================================
 // Flow Builder
@@ -336,75 +407,25 @@ const scopeFactory = (ctx: any, stageName: string, readOnly?: unknown) => {
 /**
  * Builds the loan application processing flow.
  *
- * Stage descriptions flow into the narrative — they become the human-readable
- * story that the LLM uses to answer follow-up questions.
+ * NOTE: No verbose past-tense descriptions here. Stage names are enough —
+ * the NarrativeRecorder captures what each stage actually reads and writes,
+ * and CombinedNarrativeBuilder merges that into the narrative automatically.
  */
 export function buildLoanApplicationFlow() {
   return new FlowChartBuilder()
     .setEnableNarrative()
-    .start(
-      'ReceiveApplication',
-      receiveApplication,
-      'receive-app',
-      'Receive Application',
-      'received the loan application and captured applicant data',
-    )
-    .addFunction(
-      'PullCreditReport',
-      pullCreditReport,
-      'pull-credit',
-      'Pull Credit Report',
-      'pulled the credit report and classified the credit tier',
-    )
-    .addFunction(
-      'CalculateDTI',
-      calculateDTI,
-      'calc-dti',
-      'Calculate DTI',
-      'calculated the debt-to-income ratio from income and monthly debts',
-    )
-    .addFunction(
-      'VerifyEmployment',
-      verifyEmployment,
-      'verify-emp',
-      'Verify Employment',
-      'verified employment status and tenure',
-    )
-    .addFunction(
-      'AssessRisk',
-      assessRisk,
-      'assess-risk',
-      'Assess Risk',
-      'assessed overall risk by combining credit, DTI, and employment factors',
-    )
+    .start('ReceiveApplication', receiveApplication)
+    .addFunction('PullCreditReport', pullCreditReport)
+    .addFunction('CalculateDTI', calculateDTI)
+    .addFunction('VerifyEmployment', verifyEmployment)
+    .addFunction('AssessRisk', assessRisk)
     .addDeciderFunction(
       'LoanDecision',
       loanDecisionRouter as any,
-      'loan-decision',
-      'Loan Decision',
-      'evaluated the risk tier to determine the loan outcome',
     )
-      .addFunctionBranch(
-        'approved',
-        'ApproveApplication',
-        approveApplication,
-        'Approve Application',
-        'Application approved — all risk factors within acceptable limits',
-      )
-      .addFunctionBranch(
-        'rejected',
-        'RejectApplication',
-        rejectApplication,
-        'Reject Application',
-        'Application rejected — risk factors exceed acceptable thresholds',
-      )
-      .addFunctionBranch(
-        'manual-review',
-        'ManualReview',
-        manualReviewApplication,
-        'Manual Review',
-        'Application forwarded for manual review — borderline risk factors',
-      )
+      .addFunctionBranch('approved', 'ApproveApplication', approveApplication)
+      .addFunctionBranch('rejected', 'RejectApplication', rejectApplication)
+      .addFunctionBranch('manual-review', 'ManualReview', manualReviewApplication)
       .setDefault('manual-review')
       .end()
     .build();
@@ -426,31 +447,50 @@ export const stages = {
   manualReviewApplication,
 };
 
+export { createInstrumentedScopeFactory };
+
 // ============================================================================
 // Demo Execution
 // ============================================================================
 
 /**
- * Runs the loan application pipeline and returns narrative + data trace.
+ * Runs the loan application pipeline and returns the combined narrative.
  *
- * This is the core of the demo: after execution, you get TWO things:
- * 1. The pipeline narrative (what happened and why)
- * 2. The data narrative (what was read and written at each stage)
+ * This is the core of the demo: after execution, you get a COMBINED narrative
+ * that weaves together:
+ * 1. Flow-level: what stages ran and in what order
+ * 2. Step-level: what each stage read and wrote (captured automatically)
+ * 3. Conditions: why the decider chose a particular branch
  *
- * Combined, any LLM can answer "why was I rejected?" without reconstruction.
+ * No verbose descriptions needed — the narrative builds itself from the data.
  */
 export async function runLoanApplication(application: LoanApplication) {
   setCurrentApplication(application);
 
+  // 1. Create a NarrativeRecorder to capture step-level operations
+  const recorder = new NarrativeRecorder({ id: 'loan-narrative', detail: 'full' });
+
+  // 2. Build the flow and create an executor with the instrumented scope factory
   const flowChart = buildLoanApplicationFlow();
+  const scopeFactory = createInstrumentedScopeFactory(recorder);
   const executor = new FlowChartExecutor(flowChart, scopeFactory);
 
+  // 3. Run the pipeline
   await executor.run();
 
-  // Get the execution narrative (what happened and why)
-  const narrative = executor.getNarrative();
+  // 4. Get the flow-level narrative (what stages ran, which branches were taken)
+  const flowNarrative = executor.getNarrative();
 
-  return { narrative };
+  // 5. Combine flow narrative + step-level operations into one unified output
+  const builder = new CombinedNarrativeBuilder();
+  const combinedNarrative = builder.build(flowNarrative, recorder);
+
+  // Also return the raw pieces for testing
+  return {
+    combinedNarrative,
+    flowNarrative,
+    recorder,
+  };
 }
 
 /**
@@ -470,14 +510,26 @@ async function main() {
   console.log(`  Credit Score: ${app.creditScore} | Employment: ${app.employmentStatus} (${app.employmentYears}yr)`);
   console.log(`  Loan Request: $${app.loanAmount.toLocaleString()} for ${app.loanPurpose}`);
 
-  const { narrative } = await runLoanApplication(app);
+  const { combinedNarrative, recorder } = await runLoanApplication(app);
 
-  // ── The execution narrative (what happened and why) ──
+  // ── The combined narrative (flow + steps + conditions) ──
   console.log('\n' + '-'.repeat(72));
-  console.log('  EXECUTION NARRATIVE (what the LLM receives):');
+  console.log('  COMBINED NARRATIVE (what the LLM receives):');
   console.log('-'.repeat(72));
-  for (const sentence of narrative) {
-    console.log(`  ${sentence}`);
+  for (const line of combinedNarrative) {
+    console.log(`  ${line}`);
+  }
+
+  // ── Step-level detail (from NarrativeRecorder) ──
+  console.log('\n' + '-'.repeat(72));
+  console.log('  STEP-LEVEL DETAIL (per-stage operations):');
+  console.log('-'.repeat(72));
+  const sentences = recorder.toSentences();
+  for (const [stageName, lines] of sentences) {
+    console.log(`  ${stageName}:`);
+    for (const line of lines) {
+      console.log(`  ${line}`);
+    }
   }
 
   // ── The punchline ──
@@ -485,37 +537,45 @@ async function main() {
   console.log('  THE PUNCHLINE:');
   console.log('-'.repeat(72));
   console.log(`
-  Without FootPrint, the LLM must reconstruct the rejection reason from
-  disconnected logs. It might hallucinate, miss a factor, or require
-  multiple expensive tool calls to piece together the story.
+  No past-tense descriptions were written for any stage.
+  The narrative built itself from the actual read/write operations:
 
-  With FootPrint, the LLM receives the narrative above AS-IS.
-  Even a $0.25 model can now answer:
+    Stage 1: ReceiveApplication
+      Step 1: Write applicantName = "Bob Martinez"
+      Step 2: Write annualIncome = 42000
+      ...
+    Stage 3: CalculateDTI
+      Step 1: Read annualIncome = 42000
+      Step 2: Read monthlyDebts = 2100
+      Step 3: Write dtiRatio = 0.6
+      Step 4: Write dtiPercent = 60
+      Step 5: Write dtiStatus = "excessive"
+      Step 6: Write dtiFlags = (1 item)
+    [Condition]: risk tier is high → chose "Reject Application"
+
+  The LLM reads this trace and answers:
 
     User: "Why was my loan rejected?"
-    LLM:  "Your application was rejected because your credit score of 580
-           falls in the 'fair' tier with below-average credit history,
-           your debt-to-income ratio of 60% exceeds the 43% maximum,
-           and your self-employment tenure of 1 year is below the
-           2-year minimum. These factors combined placed you in the
-           'high' risk tier, which triggered automatic rejection."
+    LLM:  "Your DTI of 60% exceeded the 43% maximum, your credit score
+           of 580 is in the 'fair' tier, and your self-employment of
+           1 year is below the 2-year minimum. Combined risk: high."
 
   That answer came from the trace — not from the LLM's imagination.
 `);
 
-  // ── Now show the approved case for contrast ──
+  // ── Approved case for contrast ──
   console.log('='.repeat(72));
   console.log('  For contrast, here is the APPROVED narrative:');
   console.log('='.repeat(72));
 
   const approvedResult = await runLoanApplication(sampleApplications.approved);
-  for (const sentence of approvedResult.narrative) {
-    console.log(`  ${sentence}`);
+  for (const line of approvedResult.combinedNarrative) {
+    console.log(`  ${line}`);
   }
 
   console.log('\n' + '='.repeat(72));
-  console.log('  The difference is in the decision branch — same pipeline,');
-  console.log('  different data, different narrative. No reconstruction needed.');
+  console.log('  Same pipeline, different data, different narrative.');
+  console.log('  No reconstruction needed.');
   console.log('='.repeat(72) + '\n');
 }
 
