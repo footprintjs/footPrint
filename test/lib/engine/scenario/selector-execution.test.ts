@@ -11,13 +11,17 @@
  * - Error in selector stage propagates
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -48,9 +52,18 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const order: string[] = [];
     const stageMap = new Map<string, StageFunction>();
 
-    const emailFn = () => { order.push('email'); return 'email-sent'; };
-    const smsFn = () => { order.push('sms'); return 'sms-sent'; };
-    const pushFn = () => { order.push('push'); return 'push-sent'; };
+    const emailFn = () => {
+      order.push('email');
+      return 'email-sent';
+    };
+    const smsFn = () => {
+      order.push('sms');
+      return 'sms-sent';
+    };
+    const pushFn = () => {
+      order.push('push');
+      return 'push-sent';
+    };
 
     stageMap.set('email', emailFn);
     stageMap.set('sms', smsFn);
@@ -67,7 +80,8 @@ describe('Scenario: Selector Execution (scope-based)', () => {
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -85,8 +99,14 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const order: string[] = [];
     const stageMap = new Map<string, StageFunction>();
 
-    const aFn = () => { order.push('A'); return 'A-done'; };
-    const bFn = () => { order.push('B'); return 'B-done'; };
+    const aFn = () => {
+      order.push('A');
+      return 'A-done';
+    };
+    const bFn = () => {
+      order.push('B');
+      return 'B-done';
+    };
     stageMap.set('A', aFn);
     stageMap.set('B', bFn);
 
@@ -100,7 +120,8 @@ describe('Scenario: Selector Execution (scope-based)', () => {
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -116,19 +137,20 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const order: string[] = [];
     const stageMap = new Map<string, StageFunction>();
 
-    const aFn = () => { order.push('A'); };
+    const aFn = () => {
+      order.push('A');
+    };
     stageMap.set('A', aFn);
 
-    const children: StageNode[] = [
-      { name: 'A', id: 'a', fn: aFn },
-    ];
+    const children: StageNode[] = [{ name: 'A', id: 'a', fn: aFn }];
 
     const selectorFn = () => []; // select nothing
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -146,16 +168,15 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const aFn = () => {};
     stageMap.set('A', aFn);
 
-    const children: StageNode[] = [
-      { name: 'A', id: 'a', fn: aFn },
-    ];
+    const children: StageNode[] = [{ name: 'A', id: 'a', fn: aFn }];
 
     const selectorFn = () => ['nonexistent'];
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -168,17 +189,18 @@ describe('Scenario: Selector Execution (scope-based)', () => {
   it('error in selector stage function propagates', async () => {
     const stageMap = new Map<string, StageFunction>();
 
-    const children: StageNode[] = [
-      { name: 'A', id: 'a', fn: () => {} },
-    ];
+    const children: StageNode[] = [{ name: 'A', id: 'a', fn: () => {} }];
 
-    const selectorFn = () => { throw new Error('selector-crash'); };
+    const selectorFn = () => {
+      throw new Error('selector-crash');
+    };
     const root = buildSelectorTree(selectorFn, children, stageMap);
     stageMap.set('A', () => {});
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -198,17 +220,18 @@ describe('Scenario: Selector Execution (scope-based)', () => {
       return ['a'];
     };
 
-    const aFn = () => { order.push('A'); };
+    const aFn = () => {
+      order.push('A');
+    };
     stageMap.set('A', aFn);
 
-    const children: StageNode[] = [
-      { name: 'A', id: 'a', fn: aFn },
-    ];
+    const children: StageNode[] = [{ name: 'A', id: 'a', fn: aFn }];
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -240,7 +263,8 @@ describe('Scenario: Selector Execution (scope-based)', () => {
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -253,16 +277,23 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const narrative = traverser.getNarrative();
     expect(narrative.length).toBeGreaterThan(0);
     // Should mention the selection
-    expect(narrative.some(s => s.includes('selected') || s.includes('Email'))).toBe(true);
+    expect(narrative.some((s) => s.includes('selected') || s.includes('Email'))).toBe(true);
   });
 
   it('selector followed by next node continues execution', async () => {
     const order: string[] = [];
     const stageMap = new Map<string, StageFunction>();
 
-    const aFn = () => { order.push('A'); };
-    const bFn = () => { order.push('B'); };
-    const afterFn = () => { order.push('after'); return 'final'; };
+    const aFn = () => {
+      order.push('A');
+    };
+    const bFn = () => {
+      order.push('B');
+    };
+    const afterFn = () => {
+      order.push('after');
+      return 'final';
+    };
     stageMap.set('A', aFn);
     stageMap.set('B', bFn);
     stageMap.set('after', afterFn);
@@ -287,7 +318,8 @@ describe('Scenario: Selector Execution (scope-based)', () => {
 
     const runtime = new ExecutionRuntime('selector');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',

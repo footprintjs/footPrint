@@ -63,16 +63,9 @@ export interface StreamHandlers {
 // Subflow Mount Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface SubflowMountOptions<
-  TParentScope = any,
-  TSubflowInput = any,
-  TSubflowOutput = any,
-> {
+export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
   inputMapper?: (parentScope: TParentScope) => TSubflowInput;
-  outputMapper?: (
-    subflowOutput: TSubflowOutput,
-    parentScope: TParentScope,
-  ) => Record<string, unknown>;
+  outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,17 +179,13 @@ export interface FlowChartSpec {
 /** Metadata provided to the build-time extractor for each node. */
 export type BuildTimeNodeMetadata = FlowChartSpec;
 
-export type BuildTimeExtractor<TResult = FlowChartSpec> = (
-  metadata: BuildTimeNodeMetadata,
-) => TResult;
+export type BuildTimeExtractor<TResult = FlowChartSpec> = (metadata: BuildTimeNodeMetadata) => TResult;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Traversal Extractor (runtime)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TraversalExtractor<TResult = unknown> = (
-  snapshot: unknown,
-) => TResult | undefined | null;
+export type TraversalExtractor<TResult = unknown> = (snapshot: unknown) => TResult | undefined | null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FlowChart — compiled output of build()

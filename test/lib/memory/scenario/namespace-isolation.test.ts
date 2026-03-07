@@ -1,6 +1,6 @@
+import { EventLog } from '../../../../src/lib/memory/EventLog';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 
 describe('Scenario: namespace isolation between runs', () => {
   it('two runs can write the same key without collision', () => {

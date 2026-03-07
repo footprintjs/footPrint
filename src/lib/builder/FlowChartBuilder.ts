@@ -13,19 +13,19 @@
  */
 
 import type {
-  StageNode,
-  PipelineStageFunction,
-  StreamHandlers,
-  StreamTokenHandler,
-  StreamLifecycleHandler,
-  TraversalExtractor,
-  SubflowMountOptions,
-  FlowChartSpec,
   BuildTimeExtractor,
-  SimplifiedParallelSpec,
-  SerializedPipelineStructure,
   FlowChart,
+  FlowChartSpec,
   ILogger,
+  PipelineStageFunction,
+  SerializedPipelineStructure,
+  SimplifiedParallelSpec,
+  StageNode,
+  StreamHandlers,
+  StreamLifecycleHandler,
+  StreamTokenHandler,
+  SubflowMountOptions,
+  TraversalExtractor,
 } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ export class DeciderList<TOut = any, TScope = any> {
     curSpec: SerializedPipelineStructure,
     parentDescriptionParts: string[] = [],
     parentStageDescriptions: Map<string, string> = new Map(),
-    reservedStepNumber: number = 0,
+    reservedStepNumber = 0,
     deciderDescription?: string,
   ) {
     this.b = builder;
@@ -244,7 +244,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     curSpec: SerializedPipelineStructure,
     parentDescriptionParts: string[] = [],
     parentStageDescriptions: Map<string, string> = new Map(),
-    reservedStepNumber: number = 0,
+    reservedStepNumber = 0,
     selectorDescription?: string,
   ) {
     this.b = builder;
@@ -422,26 +422,18 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
     const label = displayName || name;
-    const line = description
-      ? `${this._stepCounter}. ${label} — ${description}`
-      : `${this._stepCounter}. ${label}`;
+    const line = description ? `${this._stepCounter}. ${label} — ${description}` : `${this._stepCounter}. ${label}`;
     this._descriptionParts.push(line);
     if (description) {
       this._stageDescriptions.set(name, description);
     }
   }
 
-  private _appendSubflowDescription(
-    id: string,
-    displayName: string,
-    subflow: FlowChart<TOut, TScope>,
-  ): void {
+  private _appendSubflowDescription(id: string, displayName: string, subflow: FlowChart<TOut, TScope>): void {
     this._stepCounter++;
     this._stageStepMap.set(id, this._stepCounter);
     if (subflow.description) {
-      this._descriptionParts.push(
-        `${this._stepCounter}. [Sub-Execution: ${displayName}] — ${subflow.description}`,
-      );
+      this._descriptionParts.push(`${this._stepCounter}. [Sub-Execution: ${displayName}] — ${subflow.description}`);
       const lines = subflow.description.split('\n');
       const stepsIdx = lines.findIndex((l) => l.startsWith('Steps:'));
       if (stepsIdx >= 0) {
@@ -615,8 +607,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageStepMap.set(name, this._stepCounter);
 
     return new DeciderList<TOut, TScope>(
-      this, node, spec,
-      this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
+      this,
+      node,
+      spec,
+      this._descriptionParts,
+      this._stageDescriptions,
+      this._stepCounter,
+      description,
     );
   }
 
@@ -655,8 +652,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageStepMap.set(name, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
-      this, node, spec,
-      this._descriptionParts, this._stageDescriptions, this._stepCounter, description,
+      this,
+      node,
+      spec,
+      this._descriptionParts,
+      this._stageDescriptions,
+      this._stepCounter,
+      description,
     );
   }
 
@@ -887,9 +889,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
 
     const rootName = this._root?.displayName ?? this._root?.name ?? 'FlowChart';
-    const description = this._descriptionParts.length > 0
-      ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}`
-      : '';
+    const description =
+      this._descriptionParts.length > 0 ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}` : '';
 
     return {
       root,
@@ -963,10 +964,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageMap.set(name, fn);
   }
 
-  _mergeStageMap(
-    other: Map<string, PipelineStageFunction<TOut, TScope>>,
-    prefix?: string,
-  ) {
+  _mergeStageMap(other: Map<string, PipelineStageFunction<TOut, TScope>>, prefix?: string) {
     for (const [k, v] of other) {
       const key = prefix ? `${prefix}/${k}` : k;
       if (this._stageMap.has(key)) {
@@ -978,10 +976,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
   }
 
-  _prefixNodeTree(
-    node: StageNode<TOut, TScope>,
-    prefix: string,
-  ): StageNode<TOut, TScope> {
+  _prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };
     clone.name = `${prefix}/${node.name}`;
@@ -993,19 +988,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return clone;
   }
 
-  _mergeSubflows(
-    subflows: Record<string, { root: StageNode<TOut, TScope> }> | undefined,
-    prefix: string,
-  ) {
+  _mergeSubflows(subflows: Record<string, { root: StageNode<TOut, TScope> }> | undefined, prefix: string) {
     if (!subflows) return;
     for (const [key, def] of Object.entries(subflows)) {
       const prefixedKey = `${prefix}/${key}`;
       if (!this._subflowDefs.has(prefixedKey)) {
         this._subflowDefs.set(prefixedKey, {
-          root: this._prefixNodeTree(
-            def.root as StageNode<TOut, TScope>,
-            prefix,
-          ),
+          root: this._prefixNodeTree(def.root as StageNode<TOut, TScope>, prefix),
         });
       }
     }

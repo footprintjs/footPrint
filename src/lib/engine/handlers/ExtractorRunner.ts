@@ -6,15 +6,15 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
+import type { StageNode } from '../graph/StageNode';
 import type {
+  ExtractorError,
   IExecutionRuntime,
   ILogger,
-  TraversalExtractor,
-  ExtractorError,
-  StageSnapshot,
   RuntimeStructureMetadata,
+  StageSnapshot,
+  TraversalExtractor,
 } from '../types';
-import type { StageNode } from '../graph/StageNode';
 import { computeNodeType } from './RuntimeStructureManager';
 
 export class ExtractorRunner<TOut = any, TScope = any> {
@@ -25,7 +25,7 @@ export class ExtractorRunner<TOut = any, TScope = any> {
 
   private extractedResults: Map<string, unknown> = new Map();
   private extractorErrors: ExtractorError[] = [];
-  private stepCounter: number = 0;
+  private stepCounter = 0;
 
   /** Current subflow context for metadata propagation. Set/cleared during subflow execution. */
   currentSubflowId?: string;
@@ -115,7 +115,7 @@ export class ExtractorRunner<TOut = any, TScope = any> {
    */
   getStagePath(node: StageNode, branchPath?: string, contextStageName?: string): string {
     const baseName = node.id ?? node.name;
-    const nodeId = (contextStageName && contextStageName !== node.name) ? contextStageName : baseName;
+    const nodeId = contextStageName && contextStageName !== node.name ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
   }
@@ -142,11 +142,7 @@ export class ExtractorRunner<TOut = any, TScope = any> {
       metadata.streamId = node.streamId;
     }
 
-    const hasDynamicChildren = Boolean(
-      node.children?.length &&
-      !node.nextNodeSelector &&
-      node.fn,
-    );
+    const hasDynamicChildren = Boolean(node.children?.length && !node.nextNodeSelector && node.fn);
     if (hasDynamicChildren) {
       metadata.isDynamic = true;
     }

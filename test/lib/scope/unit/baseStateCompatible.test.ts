@@ -1,4 +1,4 @@
-import { attachScopeMethods, attachBaseStateCompat } from '../../../../src/lib/scope/providers/baseStateCompatible';
+import { attachBaseStateCompat, attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 
 function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {

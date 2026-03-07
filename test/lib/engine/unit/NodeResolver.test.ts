@@ -1,7 +1,7 @@
-import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
-import type { HandlerDeps } from '../../../../src/lib/engine/types';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { HandlerDeps } from '../../../../src/lib/engine/types';
 
 function makeDeps(root: StageNode): HandlerDeps {
   return {
@@ -79,5 +79,4 @@ describe('NodeResolver', () => {
       expect(resolved.name).toBe('actual-subflow');
     });
   });
-
 });

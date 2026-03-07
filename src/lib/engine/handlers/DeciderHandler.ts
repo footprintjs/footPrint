@@ -6,8 +6,8 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps, StageFunction } from '../types';
 import type { StageNode } from '../graph/StageNode';
+import type { HandlerDeps, StageFunction } from '../types';
 
 /** Callback for running a stage with commit + extractor. Avoids circular dep with traverser. */
 export type RunStageFn<TOut = any, TScope = any> = (
@@ -42,9 +42,7 @@ export type GetStagePathFn<TOut = any, TScope = any> = (
 ) => string;
 
 export class DeciderHandler<TOut = any, TScope = any> {
-  constructor(
-    private readonly deps: HandlerDeps<TOut, TScope>,
-  ) {}
+  constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}
 
   /**
    * Handle a scope-based decider (created via addDeciderFunction).

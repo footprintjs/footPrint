@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
+
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
+import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
 
 function makeCtxLike(): StageContextLike & { store: Record<string, unknown> } {
   const store: Record<string, unknown> = {};
@@ -17,7 +18,7 @@ function makeCtxLike(): StageContextLike & { store: Record<string, unknown> } {
     updateObject(path: string[], key: string, value: unknown): void {
       const fullKey = [...path, key].filter(Boolean).join('.');
       const existing = store[fullKey];
-      store[fullKey] = typeof existing === 'object' && existing ? { ...existing as any, ...value as any } : value;
+      store[fullKey] = typeof existing === 'object' && existing ? { ...(existing as any), ...(value as any) } : value;
     },
     addLog() {},
     addError() {},
@@ -58,7 +59,7 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
     proxy.metadata.set({ a: 'one' });
     proxy.metadata.merge({ b: 'two' });
     // After merge, updateObject should have been called
-    expect(ctx.store['metadata']).toEqual({ a: 'one', b: 'two' });
+    expect(ctx.store.metadata).toEqual({ a: 'one', b: 'two' });
   });
 
   it('record.merge() skips write when validation fails in warn mode', () => {
@@ -72,7 +73,7 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
     // Merge with invalid value (string instead of number) — should silently fail in warn mode
     proxy.scores.merge({ b: 'not-a-number' as any });
     // The original value should remain unchanged since validation failed
-    expect(ctx.store['scores']).toEqual({ a: 1 });
+    expect(ctx.store.scores).toEqual({ a: 1 });
   });
 
   it('record.merge() throws when validation fails in deny mode', () => {

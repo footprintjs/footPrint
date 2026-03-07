@@ -6,8 +6,8 @@ describe('DeciderList (addDeciderFunction)', () => {
   it('creates decider node with branches', () => {
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addFunctionBranch('a', 'BranchA', noop)
-        .addFunctionBranch('b', 'BranchB', noop)
+      .addFunctionBranch('a', 'BranchA', noop)
+      .addFunctionBranch('b', 'BranchB', noop)
       .end()
       .build();
 
@@ -22,7 +22,7 @@ describe('DeciderList (addDeciderFunction)', () => {
   it('sets spec type to decider after end()', () => {
     const spec = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('a', 'A', noop)
       .end()
       .toSpec();
 
@@ -35,7 +35,7 @@ describe('DeciderList (addDeciderFunction)', () => {
     const branchFn = async () => {};
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addFunctionBranch('a', 'BranchA', branchFn)
+      .addFunctionBranch('a', 'BranchA', branchFn)
       .end()
       .build();
 
@@ -46,8 +46,8 @@ describe('DeciderList (addDeciderFunction)', () => {
     expect(() => {
       flowChart('entry', noop)
         .addDeciderFunction('Router', async () => 'a')
-          .addFunctionBranch('a', 'A', noop)
-          .addFunctionBranch('a', 'A2', noop);
+        .addFunctionBranch('a', 'A', noop)
+        .addFunctionBranch('a', 'A2', noop);
     }).toThrow('duplicate decider branch');
   });
 
@@ -55,21 +55,21 @@ describe('DeciderList (addDeciderFunction)', () => {
     expect(() => {
       flowChart('entry', noop)
         .addDeciderFunction('Router', async () => 'a')
-      .end();
+        .end();
     }).toThrow('requires at least one branch');
   });
 
   it('setDefault adds default alias', () => {
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addFunctionBranch('a', 'A', noop)
-        .addFunctionBranch('b', 'B', noop)
-        .setDefault('b')
+      .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('b', 'B', noop)
+      .setDefault('b')
       .end()
       .build();
 
     const decider = chart.root.next!;
-    const defaultChild = decider.children!.find(c => c.id === 'default');
+    const defaultChild = decider.children!.find((c) => c.id === 'default');
     expect(defaultChild).toBeDefined();
     expect(defaultChild!.name).toBe('B');
   });
@@ -77,11 +77,11 @@ describe('DeciderList (addDeciderFunction)', () => {
   it('addBranchList adds multiple branches', () => {
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addBranchList([
-          { id: 'a', name: 'A', fn: noop },
-          { id: 'b', name: 'B', fn: noop },
-          { id: 'c', name: 'C', fn: noop },
-        ])
+      .addBranchList([
+        { id: 'a', name: 'A', fn: noop },
+        { id: 'b', name: 'B', fn: noop },
+        { id: 'c', name: 'C', fn: noop },
+      ])
       .end()
       .build();
 
@@ -92,7 +92,7 @@ describe('DeciderList (addDeciderFunction)', () => {
   it('continues building after end()', () => {
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('a', 'A', noop)
       .end()
       .addFunction('cleanup', noop)
       .build();
@@ -103,8 +103,8 @@ describe('DeciderList (addDeciderFunction)', () => {
   it('includes branch descriptions', () => {
     const chart = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'fast', undefined, undefined, 'routes traffic')
-        .addFunctionBranch('fast', 'FastPath', noop, 'Fast', 'handles express requests')
-        .addFunctionBranch('slow', 'SlowPath', noop, 'Slow', 'handles standard requests')
+      .addFunctionBranch('fast', 'FastPath', noop, 'Fast', 'handles express requests')
+      .addFunctionBranch('slow', 'SlowPath', noop, 'Slow', 'handles standard requests')
       .end()
       .build();
 

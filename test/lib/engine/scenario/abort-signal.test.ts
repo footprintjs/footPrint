@@ -4,14 +4,18 @@
  * Tests cooperative cancellation via AbortSignal and timeoutMs.
  */
 
+import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { FlowChart, ILogger, StageFunction } from '../../../../src/lib/engine/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
-import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger, FlowChart } from '../../../../src/lib/engine/types';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
@@ -32,7 +36,8 @@ describe('Scenario: AbortSignal', () => {
 
     const runtime = new ExecutionRuntime('stage1');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,
@@ -62,7 +67,8 @@ describe('Scenario: AbortSignal', () => {
 
     const runtime = new ExecutionRuntime('stage1');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,
@@ -86,7 +92,8 @@ describe('Scenario: AbortSignal', () => {
     const root: StageNode = { name: 'slowStage' };
     const runtime = new ExecutionRuntime('slowStage');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,

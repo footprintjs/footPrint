@@ -5,13 +5,17 @@
  * during linear, fork, and decider execution flows.
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -32,7 +36,8 @@ describe('Scenario: Narrative Flow', () => {
 
     const runtime = new ExecutionRuntime('A');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -56,7 +61,8 @@ describe('Scenario: Narrative Flow', () => {
     const root: StageNode = { name: 'A', id: 'A' };
     const runtime = new ExecutionRuntime('A');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -74,14 +80,17 @@ describe('Scenario: Narrative Flow', () => {
     stageMap.set('yes', () => 'approved');
 
     const root: StageNode = {
-      name: 'check', id: 'check', displayName: 'Check Eligibility',
+      name: 'check',
+      id: 'check',
+      displayName: 'Check Eligibility',
       deciderFn: true,
       children: [{ name: 'yes', id: 'yes', displayName: 'Approved' }],
     };
 
     const runtime = new ExecutionRuntime('check');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -102,7 +111,8 @@ describe('Scenario: Narrative Flow', () => {
     stageMap.set('taskB', () => 'b');
 
     const root: StageNode = {
-      name: 'dispatch', id: 'dispatch',
+      name: 'dispatch',
+      id: 'dispatch',
       children: [
         { name: 'taskA', id: 'taskA', displayName: 'Task A' },
         { name: 'taskB', id: 'taskB', displayName: 'Task B' },
@@ -111,7 +121,8 @@ describe('Scenario: Narrative Flow', () => {
 
     const runtime = new ExecutionRuntime('dispatch');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',

@@ -1,18 +1,13 @@
 import fc from 'fast-check';
+
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 
 describe('Property: snapshot isolation', () => {
   it('committed patches never mutate the original base object', () => {
     fc.assert(
       fc.property(
-        fc.dictionary(
-          fc.string({ minLength: 1, maxLength: 8 }),
-          fc.oneof(fc.integer(), fc.string(), fc.boolean()),
-        ),
-        fc.dictionary(
-          fc.string({ minLength: 1, maxLength: 8 }),
-          fc.oneof(fc.integer(), fc.string(), fc.boolean()),
-        ),
+        fc.dictionary(fc.string({ minLength: 1, maxLength: 8 }), fc.oneof(fc.integer(), fc.string(), fc.boolean())),
+        fc.dictionary(fc.string({ minLength: 1, maxLength: 8 }), fc.oneof(fc.integer(), fc.string(), fc.boolean())),
         (base, writes) => {
           const baseCopy = structuredClone(base);
           const buf = new TransactionBuffer(base);
@@ -33,13 +28,10 @@ describe('Property: snapshot isolation', () => {
   it('read-after-write is consistent within a buffer', () => {
     fc.assert(
       fc.property(
-        fc.array(
-          fc.tuple(
-            fc.string({ minLength: 1, maxLength: 8 }),
-            fc.oneof(fc.integer(), fc.string()),
-          ),
-          { minLength: 1, maxLength: 20 },
-        ),
+        fc.array(fc.tuple(fc.string({ minLength: 1, maxLength: 8 }), fc.oneof(fc.integer(), fc.string())), {
+          minLength: 1,
+          maxLength: 20,
+        }),
         (ops) => {
           const buf = new TransactionBuffer({});
           const expected: Record<string, any> = {};
@@ -62,16 +54,11 @@ describe('Property: snapshot isolation', () => {
   it('after commit, buffer reads return undefined (empty working copy)', () => {
     fc.assert(
       fc.property(
-        fc.array(
-          fc.tuple(
-            fc.string({ minLength: 1, maxLength: 8 }),
-            fc.integer(),
-          ),
-          { minLength: 1, maxLength: 10 },
-        ),
+        fc.array(fc.tuple(fc.string({ minLength: 1, maxLength: 8 }), fc.integer()), { minLength: 1, maxLength: 10 }),
         (ops) => {
           // Filter out keys that collide with Object.prototype (e.g. "toString")
-          const safeOps = ops.filter(([key]) => !(key in Object.prototype));
+          const protoKeys = new Set(Object.getOwnPropertyNames(Object.prototype));
+          const safeOps = ops.filter(([key]) => !protoKeys.has(key));
           if (safeOps.length === 0) return;
 
           const buf = new TransactionBuffer({});

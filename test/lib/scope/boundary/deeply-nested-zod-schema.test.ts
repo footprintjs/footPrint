@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
+
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
+import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
 
 function makeCtxLike(): StageContextLike {
   const store: Record<string, unknown> = {};
@@ -14,7 +15,7 @@ function makeCtxLike(): StageContextLike {
     updateObject(path: string[], key: string, value: unknown) {
       const k = [...path, key].filter(Boolean).join('.');
       const ex = store[k];
-      store[k] = typeof ex === 'object' && ex ? { ...ex as any, ...value as any } : value;
+      store[k] = typeof ex === 'object' && ex ? { ...(ex as any), ...(value as any) } : value;
     },
     addError() {},
   };

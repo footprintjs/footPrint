@@ -1,7 +1,7 @@
 import {
+  isSubclassOfScopeFacade,
   looksLikeClassCtor,
   looksLikeFactory,
-  isSubclassOfScopeFacade,
 } from '../../../../src/lib/scope/providers/guards';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
@@ -15,7 +15,9 @@ describe('looksLikeClassCtor', () => {
   });
 
   it('detects ES6 classes', () => {
-    class Foo { method() {} }
+    class Foo {
+      method() {}
+    }
     expect(looksLikeClassCtor(Foo)).toBe(true);
   });
 
@@ -32,14 +34,14 @@ describe('looksLikeClassCtor', () => {
 
   it('detects function with prototype methods (length > 1) as class-like', () => {
     function FakeCtor() {}
-    FakeCtor.prototype.myMethod = function() {};
+    FakeCtor.prototype.myMethod = function () {};
     expect(looksLikeClassCtor(FakeCtor)).toBe(true);
   });
 
   it('handles functions where Function.prototype.toString.call throws', () => {
     // Create a proxy that throws on toString but has prototype with methods
-    const fn = function() {};
-    fn.prototype.myMethod = function() {};
+    const fn = function () {};
+    fn.prototype.myMethod = function () {};
     // Even if toString threw, the prototype heuristic should still work
     expect(looksLikeClassCtor(fn)).toBe(true);
   });
@@ -56,7 +58,9 @@ describe('looksLikeFactory', () => {
   });
 
   it('returns false for classes', () => {
-    class Foo { method() {} }
+    class Foo {
+      method() {}
+    }
     expect(looksLikeFactory(Foo)).toBe(false);
   });
 
@@ -87,7 +91,9 @@ describe('isSubclassOfScopeFacade', () => {
   });
 
   it('returns false for unrelated classes', () => {
-    class Other { method() {} }
+    class Other {
+      method() {}
+    }
     expect(isSubclassOfScopeFacade(Other)).toBe(false);
   });
 

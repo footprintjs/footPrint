@@ -1,6 +1,6 @@
+import { EventLog } from '../../../../src/lib/memory/EventLog';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 
 describe('Scenario: multi-stage isolation', () => {
   it('parallel children get isolated transaction buffers', () => {

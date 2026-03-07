@@ -18,13 +18,9 @@ export class SharedMemory {
 
   constructor(defaultValues?: unknown, initialContext?: unknown) {
     this._defaultValues = defaultValues;
-    this.context = mergeWith(
-      initialContext || {},
-      defaultValues || {},
-      (objValue: unknown) => {
-        return typeof objValue === 'undefined' ? undefined : objValue;
-      },
-    );
+    this.context = mergeWith(initialContext || {}, defaultValues || {}, (objValue: unknown) => {
+      return typeof objValue === 'undefined' ? undefined : objValue;
+    });
   }
 
   /** Gets a clone of the default values. */

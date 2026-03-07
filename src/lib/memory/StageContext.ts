@@ -8,11 +8,11 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
-import type { FlowControlType, FlowMessage, StageSnapshot } from './types';
+import { DiagnosticCollector } from './DiagnosticCollector';
+import { EventLog } from './EventLog';
 import { SharedMemory } from './SharedMemory';
 import { TransactionBuffer } from './TransactionBuffer';
-import { EventLog } from './EventLog';
-import { DiagnosticCollector } from './DiagnosticCollector';
+import type { FlowControlType, FlowMessage, StageSnapshot } from './types';
 import { redactPatch } from './utils';
 
 export class StageContext {
@@ -134,10 +134,7 @@ export class StageContext {
   getValue(path: string[], key?: string, description?: string) {
     const buf = this.getTransactionBuffer();
     const fromPatch = buf.get(this.withNamespace(path, key as string));
-    const value =
-      typeof fromPatch !== 'undefined'
-        ? fromPatch
-        : this.sharedMemory.getValue(this.runId, path, key);
+    const value = typeof fromPatch !== 'undefined' ? fromPatch : this.sharedMemory.getValue(this.runId, path, key);
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
     }

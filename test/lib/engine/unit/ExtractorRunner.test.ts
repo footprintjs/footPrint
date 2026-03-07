@@ -74,13 +74,10 @@ describe('ExtractorRunner', () => {
     };
     const runner = new ExtractorRunner(extractor, true, runtime, mockLogger);
 
-    runner.callExtractor(
-      { name: 'test' } as any,
-      makeContext(),
-      'test',
-      undefined,
-      { type: 'stageError', message: 'boom' },
-    );
+    runner.callExtractor({ name: 'test' } as any, makeContext(), 'test', undefined, {
+      type: 'stageError',
+      message: 'boom',
+    });
 
     const snapshot = extractor.mock.calls[0][0];
     expect(snapshot.errorInfo).toEqual({ type: 'stageError', message: 'boom' });
@@ -101,10 +98,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('skips null/undefined results', () => {
-    const extractor = jest.fn()
-      .mockReturnValueOnce(null)
-      .mockReturnValueOnce(undefined)
-      .mockReturnValueOnce('valid');
+    const extractor = jest.fn().mockReturnValueOnce(null).mockReturnValueOnce(undefined).mockReturnValueOnce('valid');
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, mockLogger);
 
     runner.callExtractor({ name: 'a' } as any, makeContext(), 'a');
@@ -142,13 +136,18 @@ describe('ExtractorRunner', () => {
     const extractor = jest.fn().mockReturnValue('ok');
     const runtime = {
       globalStore: {
-        getState: () => { throw new Error('store broken'); },
+        getState: () => {
+          throw new Error('store broken');
+        },
       },
       executionHistory: { list: () => [] },
     };
     const logger: ILogger = {
-      info: jest.fn(), log: jest.fn(), debug: jest.fn(),
-      error: jest.fn(), warn: jest.fn(),
+      info: jest.fn(),
+      log: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
     };
     const runner = new ExtractorRunner(extractor, true, runtime, logger);
 
@@ -169,8 +168,11 @@ describe('ExtractorRunner', () => {
       throw 'string-error'; // eslint-disable-line no-throw-literal
     });
     const logger: ILogger = {
-      info: jest.fn(), log: jest.fn(), debug: jest.fn(),
-      error: jest.fn(), warn: jest.fn(),
+      info: jest.fn(),
+      log: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
     };
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, logger);
 

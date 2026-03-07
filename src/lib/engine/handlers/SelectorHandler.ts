@@ -8,15 +8,10 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps, StageFunction, NodeResultType } from '../types';
 import type { StageNode } from '../graph/StageNode';
+import type { HandlerDeps, NodeResultType, StageFunction } from '../types';
 import type { ChildrenExecutor } from './ChildrenExecutor';
-import type {
-  RunStageFn,
-  ExecuteNodeFn,
-  CallExtractorFn,
-  GetStagePathFn,
-} from './DeciderHandler';
+import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './DeciderHandler';
 
 export class SelectorHandler<TOut = any, TScope = any> {
   constructor(
@@ -71,15 +66,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
 
     if (selectedIds.length === 0) {
       context.addLog('skippedAllChildren', true);
-      context.addFlowDebugMessage('selected', `No children selected — skipping all branches.`, {
+      context.addFlowDebugMessage('selected', 'No children selected — skipping all branches.', {
         count: 0,
         targetStage: [],
       });
-      this.deps.narrativeGenerator.onSelected(
-        node.displayName || node.name,
-        [],
-        (node.children ?? []).length,
-      );
+      this.deps.narrativeGenerator.onSelected(node.displayName || node.name, [], (node.children ?? []).length);
       return {};
     }
 
@@ -91,7 +82,9 @@ export class SelectorHandler<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Scope-based selector '${node.name}' returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
+      const errorMessage = `Scope-based selector '${node.name}' returned unknown child IDs: ${missing.join(
+        ', ',
+      )}. Available: ${childIds.join(', ')}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
       throw new Error(errorMessage);
@@ -110,11 +103,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
     );
 
     const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
-    this.deps.narrativeGenerator.onSelected(
-      node.displayName || node.name,
-      selectedDisplayNames,
-      children.length,
-    );
+    this.deps.narrativeGenerator.onSelected(node.displayName || node.name, selectedDisplayNames, children.length);
 
     const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };
     return await this.childrenExecutor.executeNodeChildren(tempNode, context, undefined, branchPath);

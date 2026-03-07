@@ -6,12 +6,12 @@
  */
 
 import type { StageContext } from '../memory/StageContext';
-import type { StageNode, Decider, Selector } from './graph/StageNode';
 import type { ScopeProtectionMode } from '../scope/protection/types';
+import type { Decider, Selector, StageNode } from './graph/StageNode';
 import type { IControlFlowNarrative } from './narrative/types';
 
 // Re-export StageNode types for convenience
-export type { StageNode, Decider, Selector } from './graph/StageNode';
+export type { Decider, Selector, StageNode } from './graph/StageNode';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -79,11 +79,7 @@ export interface StreamHandlers {
 // Subflow
 // ---------------------------------------------------------------------------
 
-export interface SubflowMountOptions<
-  TParentScope = any,
-  TSubflowInput = any,
-  TSubflowOutput = any,
-> {
+export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
   inputMapper?: (parentScope: TParentScope) => TSubflowInput;
   outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
 }
@@ -203,9 +199,7 @@ export interface StageSnapshot<TOut = any, TScope = any> {
   historyIndex?: number;
 }
 
-export type TraversalExtractor<TResult = unknown> = (
-  snapshot: StageSnapshot,
-) => TResult | undefined | null;
+export type TraversalExtractor<TResult = unknown> = (snapshot: StageSnapshot) => TResult | undefined | null;
 
 export interface ExtractorError {
   stagePath: string;

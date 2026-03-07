@@ -1,9 +1,9 @@
-import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor';
-import type { HandlerDeps, SubflowResult } from '../../../../src/lib/engine/types';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
+import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor';
+import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { HandlerDeps, SubflowResult } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     stageMap: new Map(),
     root: { name: 'root' },
     executionRuntime: runtime,
-    ScopeFactory: (ctx: any, name: string, readOnly?: unknown) => ({ ...readOnly as any }),
+    ScopeFactory: (ctx: any, name: string, readOnly?: unknown) => ({ ...(readOnly as any) }),
     scopeProtectionMode: 'off' as any,
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
     logger: makeLogger(),
@@ -168,7 +168,9 @@ describe('SubflowExecutor', () => {
         subflowId: 'sf-bad-input',
         isSubflowRoot: false,
         subflowMountOptions: {
-          inputMapper: () => { throw inputError; },
+          inputMapper: () => {
+            throw inputError;
+          },
         },
       };
       const context = makeContext();
@@ -249,7 +251,9 @@ describe('SubflowExecutor', () => {
         subflowId: 'sf-bad-output',
         isSubflowRoot: false,
         subflowMountOptions: {
-          outputMapper: () => { throw new Error('output mapping failed'); },
+          outputMapper: () => {
+            throw new Error('output mapping failed');
+          },
         },
       };
       const context = makeContext();
@@ -411,7 +415,10 @@ describe('SubflowExecutor', () => {
         expect.anything(),
         expect.any(String),
         undefined,
-        expect.objectContaining({ type: 'stageExecutionError', message: expect.stringContaining('internal stage error') }),
+        expect.objectContaining({
+          type: 'stageExecutionError',
+          message: expect.stringContaining('internal stage error'),
+        }),
       );
     });
 
@@ -569,9 +576,7 @@ describe('SubflowExecutor', () => {
         name: 'childrenOnly',
         subflowId: 'sf-no-next',
         isSubflowRoot: false,
-        children: [
-          { name: 'c1', id: 'c1' },
-        ],
+        children: [{ name: 'c1', id: 'c1' }],
         // no next
       };
       const context = makeContext();
@@ -645,7 +650,11 @@ describe('SubflowExecutor', () => {
 
     it('resolves dynamic next from main pipeline when not found in subflow (lines 319-321)', async () => {
       const stageFn = jest.fn().mockResolvedValue('first');
-      const mainPipelineNode: StageNode = { name: 'mainNode', id: 'main-target', fn: jest.fn().mockResolvedValue('from-main') };
+      const mainPipelineNode: StageNode = {
+        name: 'mainNode',
+        id: 'main-target',
+        fn: jest.fn().mockResolvedValue('from-main'),
+      };
 
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'mainResolve') return stageFn;
@@ -732,8 +741,8 @@ describe('SubflowExecutor', () => {
 
       // Should have results for both children
       expect(result).toBeDefined();
-      expect(result['gc']).toEqual(expect.objectContaining({ id: 'gc', isError: false }));
-      expect(result['bc']).toEqual(expect.objectContaining({ id: 'bc', isError: true }));
+      expect(result.gc).toEqual(expect.objectContaining({ id: 'gc', isError: false }));
+      expect(result.bc).toEqual(expect.objectContaining({ id: 'bc', isError: true }));
     });
 
     it('handles all children succeeding', async () => {
@@ -758,8 +767,8 @@ describe('SubflowExecutor', () => {
 
       const result = await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-      expect(result['a']).toEqual(expect.objectContaining({ id: 'a', result: 'res-a', isError: false }));
-      expect(result['b']).toEqual(expect.objectContaining({ id: 'b', result: 'res-b', isError: false }));
+      expect(result.a).toEqual(expect.objectContaining({ id: 'a', result: 'res-a', isError: false }));
+      expect(result.b).toEqual(expect.objectContaining({ id: 'b', result: 'res-b', isError: false }));
     });
   });
 
@@ -808,9 +817,7 @@ describe('SubflowExecutor', () => {
         subflowId: 'sf-empty-sel',
         isSubflowRoot: false,
         nextNodeSelector: selector,
-        children: [
-          { name: 'ch', id: 'ch-id' },
-        ],
+        children: [{ name: 'ch', id: 'ch-id' }],
       };
       const context = makeContext();
       const resultsMap = new Map<string, SubflowResult>();
@@ -829,9 +836,7 @@ describe('SubflowExecutor', () => {
         subflowId: 'sf-unknown-sel',
         isSubflowRoot: false,
         nextNodeSelector: selector,
-        children: [
-          { name: 'existing', id: 'existing-id' },
-        ],
+        children: [{ name: 'existing', id: 'existing-id' }],
       };
       const context = makeContext();
       const resultsMap = new Map<string, SubflowResult>();

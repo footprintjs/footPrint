@@ -7,8 +7,8 @@ describe('Scenario: decider branching', () => {
     const deciderFn = async () => {};
     const chart = flowChart('input', noop)
       .addDeciderFunction('decide', deciderFn)
-        .addFunctionBranch('approve', 'Approve', noop)
-        .addFunctionBranch('reject', 'Reject', noop)
+      .addFunctionBranch('approve', 'Approve', noop)
+      .addFunctionBranch('reject', 'Reject', noop)
       .end()
       .addFunction('output', noop)
       .build();
@@ -25,8 +25,8 @@ describe('Scenario: decider branching', () => {
   it('spec has hasDecider and branch types', () => {
     const spec = flowChart('input', noop)
       .addDeciderFunction('decide', noop)
-        .addFunctionBranch('a', 'A', noop)
-        .addFunctionBranch('b', 'B', noop)
+      .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('b', 'B', noop)
       .end()
       .toSpec();
 
@@ -39,9 +39,9 @@ describe('Scenario: decider branching', () => {
   it('default branch adds a "default" alias child', () => {
     const chart = flowChart('input', noop)
       .addDeciderFunction('decide', noop)
-        .addFunctionBranch('yes', 'Yes', noop)
-        .addFunctionBranch('no', 'No', noop)
-        .setDefault('yes')
+      .addFunctionBranch('yes', 'Yes', noop)
+      .addFunctionBranch('no', 'No', noop)
+      .setDefault('yes')
       .end()
       .build();
 
@@ -55,7 +55,7 @@ describe('Scenario: decider branching', () => {
     expect(() => {
       flowChart('input', noop)
         .addDeciderFunction('decide', noop)
-          .addFunctionBranch('a', 'A', noop)
+        .addFunctionBranch('a', 'A', noop)
         .end()
         .addSelectorFunction('pick', noop);
     }).toThrow('mutually exclusive');
@@ -66,7 +66,7 @@ describe('Scenario: decider branching', () => {
     const approveFn = async () => {};
     const chart = flowChart('input', noop)
       .addDeciderFunction('decide', decideFn)
-        .addFunctionBranch('a', 'Approve', approveFn)
+      .addFunctionBranch('a', 'Approve', approveFn)
       .end()
       .build();
 

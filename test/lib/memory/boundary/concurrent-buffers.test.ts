@@ -1,6 +1,6 @@
+import { EventLog } from '../../../../src/lib/memory/EventLog';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 
 describe('Boundary: concurrent buffers', () => {
   it('100 parallel children all commit without data loss', () => {

@@ -1,3 +1,3 @@
 /* istanbul ignore file */
-export type { StageNode, Decider, Selector } from './StageNode';
+export type { Decider, Selector, StageNode } from './StageNode';
 export { isStageNodeReturn } from './StageNode';

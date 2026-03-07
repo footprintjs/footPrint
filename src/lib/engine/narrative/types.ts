@@ -16,7 +16,13 @@ export interface IControlFlowNarrative {
   onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void;
 
   /** Called when a decider selects a branch. Most valuable for LLM context. */
-  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string, deciderDescription?: string): void;
+  onDecision(
+    deciderName: string,
+    chosenBranch: string,
+    chosenDisplayName?: string,
+    rationale?: string,
+    deciderDescription?: string,
+  ): void;
 
   /** Called when a fork executes all children in parallel. */
   onFork(parentStage: string, childNames: string[]): void;

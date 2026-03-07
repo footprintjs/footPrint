@@ -1,16 +1,16 @@
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
-import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import {
-  toScopeFactory,
-  resolveScopeProvider,
-  registerScopeResolver,
   __clearScopeResolversForTests,
+  isSubclassOfScopeFacade,
   looksLikeClassCtor,
   looksLikeFactory,
-  isSubclassOfScopeFacade,
-  makeFactoryProvider,
   makeClassProvider,
+  makeFactoryProvider,
+  registerScopeResolver,
+  resolveScopeProvider,
+  toScopeFactory,
 } from '../../../../src/lib/scope/providers';
+import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx() {
   return new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
@@ -18,7 +18,9 @@ function makeCtx() {
 
 describe('Guards', () => {
   it('looksLikeClassCtor detects classes', () => {
-    class Foo { method() {} }
+    class Foo {
+      method() {}
+    }
     expect(looksLikeClassCtor(Foo)).toBe(true);
   });
 
@@ -33,7 +35,9 @@ describe('Guards', () => {
   });
 
   it('looksLikeFactory rejects classes', () => {
-    class Foo { method() {} }
+    class Foo {
+      method() {}
+    }
     expect(looksLikeFactory(Foo)).toBe(false);
   });
 
@@ -43,7 +47,9 @@ describe('Guards', () => {
   });
 
   it('isSubclassOfScopeFacade rejects unrelated classes', () => {
-    class Other { method() {} }
+    class Other {
+      method() {}
+    }
     expect(isSubclassOfScopeFacade(Other)).toBe(false);
   });
 });

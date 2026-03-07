@@ -19,9 +19,18 @@ export function unwrap(schema: ZodTypeAny | null | undefined): ZodTypeAny | null
   let s: unknown = schema ?? null;
   while (isZodNode(s)) {
     const def = (s as any)._def ?? {};
-    if (isZodNode(def.innerType)) { s = def.innerType; continue; }
-    if (isZodNode(def.schema)) { s = def.schema; continue; }
-    if (isZodNode(def.type)) { s = def.type; continue; }
+    if (isZodNode(def.innerType)) {
+      s = def.innerType;
+      continue;
+    }
+    if (isZodNode(def.schema)) {
+      s = def.schema;
+      continue;
+    }
+    if (isZodNode(def.type)) {
+      s = def.type;
+      continue;
+    }
     break;
   }
   return isZodNode(s) ? (s as ZodTypeAny) : null;

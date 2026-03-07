@@ -1,7 +1,7 @@
-import { ChildrenExecutor } from '../../../../src/lib/engine/handlers/ChildrenExecutor';
-import type { HandlerDeps } from '../../../../src/lib/engine/types';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import { ChildrenExecutor } from '../../../../src/lib/engine/handlers/ChildrenExecutor';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { HandlerDeps } from '../../../../src/lib/engine/types';
 
 function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   return {
@@ -71,9 +71,7 @@ describe('ChildrenExecutor', () => {
 
     it('executes all children in parallel and aggregates results', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn()
-        .mockResolvedValueOnce('result-A')
-        .mockResolvedValueOnce('result-B');
+      const executeNode = jest.fn().mockResolvedValueOnce('result-A').mockResolvedValueOnce('result-B');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const childA: StageNode = { name: 'childA', id: 'a' };
@@ -93,9 +91,7 @@ describe('ChildrenExecutor', () => {
     it('catches child errors and marks them with isError: true', async () => {
       const deps = makeDeps();
       const error = new Error('child failed');
-      const executeNode = jest.fn()
-        .mockResolvedValueOnce('ok')
-        .mockRejectedValueOnce(error);
+      const executeNode = jest.fn().mockResolvedValueOnce('ok').mockRejectedValueOnce(error);
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const childA: StageNode = { name: 'childA', id: 'a' };
@@ -376,12 +372,7 @@ describe('ChildrenExecutor', () => {
 
       // Only childB should be executed (via the temp node's children)
       expect(executeNode).toHaveBeenCalledTimes(1);
-      expect(executeNode).toHaveBeenCalledWith(
-        children[1],
-        expect.anything(),
-        expect.anything(),
-        'branch',
-      );
+      expect(executeNode).toHaveBeenCalledWith(children[1], expect.anything(), expect.anything(), 'branch');
     });
 
     it('wraps single string selector result in array', async () => {
@@ -421,9 +412,9 @@ describe('ChildrenExecutor', () => {
       const selector = jest.fn().mockResolvedValue(['nonexistent']);
       const children: StageNode[] = [{ name: 'childA', id: 'a' }];
 
-      await expect(
-        executor.executeSelectedChildren(selector, children, 'input', context, 'branch'),
-      ).rejects.toThrow('Selector returned unknown child IDs: nonexistent');
+      await expect(executor.executeSelectedChildren(selector, children, 'input', context, 'branch')).rejects.toThrow(
+        'Selector returned unknown child IDs: nonexistent',
+      );
 
       expect(context.addError).toHaveBeenCalledWith('selectorError', expect.stringContaining('nonexistent'));
     });

@@ -1,9 +1,6 @@
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { __clearScopeResolversForTests, toScopeFactory } from '../../../../src/lib/scope/providers';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import {
-  toScopeFactory,
-  __clearScopeResolversForTests,
-} from '../../../../src/lib/scope/providers';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
   return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
@@ -14,8 +11,13 @@ describe('Scenario: class scope vs factory scope', () => {
 
   it('class-based scope via toScopeFactory', () => {
     class UserScope extends ScopeFacade {
-      get name(): string { return this.getValue('name') as string; }
-      set name(v: string) { this.setValue('name', v); }
+      get name(): string {
+        return this.getValue('name') as string;
+      }
+
+      set name(v: string) {
+        this.setValue('name', v);
+      }
     }
 
     const factory = toScopeFactory(UserScope);

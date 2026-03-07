@@ -3,12 +3,7 @@
  *
  * Targets uncovered lines: 299-351, 377, 453, 778, 838, 869-870, 920-922, 972-973
  */
-import {
-  FlowChartBuilder,
-  flowChart,
-  specToStageNode,
-  SelectorFnList,
-} from '../../../../src/lib/builder';
+import { flowChart, FlowChartBuilder, SelectorFnList, specToStageNode } from '../../../../src/lib/builder';
 
 const noop = async () => {};
 
@@ -74,14 +69,13 @@ describe('specToStageNode (extended)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('SelectorFnList.addSubFlowChartBranch', () => {
-  const buildSubflow = () =>
-    flowChart('sub-start', noop).addFunction('sub-end', noop).build();
+  const buildSubflow = () => flowChart('sub-start', noop).addFunction('sub-end', noop).build();
 
   it('mounts a subflow as a selector branch', () => {
     const sub = buildSubflow();
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub, 'SubFlow')
+      .addSubFlowChartBranch('sf', sub, 'SubFlow')
       .end()
       .build();
 
@@ -97,7 +91,7 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     const sub = buildSubflow();
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub)
+      .addSubFlowChartBranch('sf', sub)
       .end()
       .build();
 
@@ -108,19 +102,19 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     const sub = buildSubflow();
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub)
+      .addSubFlowChartBranch('sf', sub)
       .end()
       .build();
 
     expect(chart.subflows).toBeDefined();
-    expect(chart.subflows!['sf']).toBeDefined();
+    expect(chart.subflows!.sf).toBeDefined();
   });
 
   it('merges subflow stageMap with prefix', () => {
     const sub = buildSubflow();
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub)
+      .addSubFlowChartBranch('sf', sub)
       .end()
       .build();
 
@@ -133,7 +127,7 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     const opts = { isolateScope: true };
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub, 'SubFlow', opts)
+      .addSubFlowChartBranch('sf', sub, 'SubFlow', opts)
       .end()
       .build();
 
@@ -145,8 +139,8 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     expect(() => {
       flowChart('entry', noop)
         .addSelectorFunction('Pick', async () => 'sf' as any)
-          .addSubFlowChartBranch('sf', sub)
-          .addSubFlowChartBranch('sf', sub);
+        .addSubFlowChartBranch('sf', sub)
+        .addSubFlowChartBranch('sf', sub);
     }).toThrow('duplicate selector branch');
   });
 
@@ -154,7 +148,7 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     const sub = buildSubflow();
     const spec = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
-        .addSubFlowChartBranch('sf', sub, 'SubFlow')
+      .addSubFlowChartBranch('sf', sub, 'SubFlow')
       .end()
       .toSpec();
 
@@ -172,11 +166,11 @@ describe('SelectorFnList.addBranchList', () => {
   it('adds multiple branches via addBranchList', () => {
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => ['a', 'b'] as any)
-        .addBranchList([
-          { id: 'a', name: 'A', fn: noop },
-          { id: 'b', name: 'B', fn: noop },
-          { id: 'c', name: 'C', fn: noop },
-        ])
+      .addBranchList([
+        { id: 'a', name: 'A', fn: noop },
+        { id: 'b', name: 'B', fn: noop },
+        { id: 'c', name: 'C', fn: noop },
+      ])
       .end()
       .build();
 
@@ -192,10 +186,10 @@ describe('SelectorFnList.addBranchList', () => {
     const fnB = async () => {};
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'a' as any)
-        .addBranchList([
-          { id: 'a', name: 'BranchA', fn: fnA },
-          { id: 'b', name: 'BranchB', fn: fnB },
-        ])
+      .addBranchList([
+        { id: 'a', name: 'BranchA', fn: fnA },
+        { id: 'b', name: 'BranchB', fn: fnB },
+      ])
       .end()
       .build();
 
@@ -211,9 +205,15 @@ describe('SelectorFnList.addBranchList', () => {
 describe('SelectorFnList description generation', () => {
   it('includes selector description in output when provided', () => {
     const chart = flowChart('entry', noop)
-      .addSelectorFunction('PickChannels', async () => ['email'] as any, undefined, undefined, 'selects notification channels')
-        .addFunctionBranch('email', 'SendEmail', noop, 'Email', 'sends via email')
-        .addFunctionBranch('sms', 'SendSMS', noop, 'SMS', 'sends via sms')
+      .addSelectorFunction(
+        'PickChannels',
+        async () => ['email'] as any,
+        undefined,
+        undefined,
+        'selects notification channels',
+      )
+      .addFunctionBranch('email', 'SendEmail', noop, 'Email', 'sends via email')
+      .addFunctionBranch('sms', 'SendSMS', noop, 'SMS', 'sends via sms')
       .end()
       .build();
 
@@ -226,8 +226,8 @@ describe('SelectorFnList description generation', () => {
   it('generates default selector description when no description provided', () => {
     const chart = flowChart('entry', noop)
       .addSelectorFunction('PickChannels', async () => ['email'] as any)
-        .addFunctionBranch('email', 'SendEmail', noop)
-        .addFunctionBranch('sms', 'SendSMS', noop)
+      .addFunctionBranch('email', 'SendEmail', noop)
+      .addFunctionBranch('sms', 'SendSMS', noop)
       .end()
       .build();
 
@@ -246,9 +246,7 @@ describe('subflow description', () => {
     // Force description to be empty to hit line 453
     (sub as any).description = '';
 
-    const chart = flowChart('main', noop)
-      .addSubFlowChart('sf', sub, 'SubName')
-      .build();
+    const chart = flowChart('main', noop).addSubFlowChart('sf', sub, 'SubName').build();
 
     expect(chart.description).toContain('[Sub-Execution: SubName]');
     // Line 453: no description means no " — " suffix
@@ -260,9 +258,7 @@ describe('subflow description', () => {
       .addFunction('sub-end', noop, undefined, 'SubEnd', 'finishes sub')
       .build();
 
-    const chart = flowChart('main', noop)
-      .addSubFlowChart('sf', sub, 'MySub')
-      .build();
+    const chart = flowChart('main', noop).addSubFlowChart('sf', sub, 'MySub').build();
 
     expect(chart.description).toContain('[Sub-Execution: MySub]');
   });
@@ -288,10 +284,7 @@ describe('addSubFlowChartNext edge cases', () => {
     // This happens if we try addSubFlowChartNext after addFunction on the same cursor
     // But addFunction moves the cursor. Let's use loopTo which sets next.
     expect(() => {
-      flowChart('main', noop, 'main')
-        .addFunction('step', noop, 'step')
-        .loopTo('main')
-        .addSubFlowChartNext('sf', sub);
+      flowChart('main', noop, 'main').addFunction('step', noop, 'step').loopTo('main').addSubFlowChartNext('sf', sub);
     }).toThrow('cannot add subflow as next when next is already defined');
   });
 });
@@ -303,10 +296,7 @@ describe('addSubFlowChartNext edge cases', () => {
 describe('loopTo with unknown target', () => {
   it('uses stage id as fallback when target not in step map', () => {
     // loopTo a stageId that was never registered (not added via start/addFunction)
-    const chart = flowChart('main', noop, 'main')
-      .addFunction('step', noop, 'step')
-      .loopTo('unknown-stage')
-      .build();
+    const chart = flowChart('main', noop, 'main').addFunction('step', noop, 'step').loopTo('unknown-stage').build();
 
     expect(chart.description).toContain('loops back to unknown-stage');
     expect(chart.description).not.toContain('loops back to step');
@@ -365,9 +355,7 @@ describe('addListOfFunction', () => {
 
   it('sets spec type to fork', () => {
     const spec = flowChart('fork', noop, 'fork')
-      .addListOfFunction([
-        { id: 'a', name: 'TaskA', fn: noop },
-      ])
+      .addListOfFunction([{ id: 'a', name: 'TaskA', fn: noop }])
       .toSpec();
 
     expect(spec.type).toBe('fork');
@@ -392,20 +380,16 @@ describe('addListOfFunction', () => {
 
   it('throws on missing child id', () => {
     expect(() => {
-      flowChart('fork', noop)
-        .addListOfFunction([
-          { id: '', name: 'TaskA', fn: noop },
-        ]);
+      flowChart('fork', noop).addListOfFunction([{ id: '', name: 'TaskA', fn: noop }]);
     }).toThrow('child id required');
   });
 
   it('throws on duplicate child id', () => {
     expect(() => {
-      flowChart('fork', noop)
-        .addListOfFunction([
-          { id: 'a', name: 'TaskA', fn: noop },
-          { id: 'a', name: 'TaskB', fn: noop },
-        ]);
+      flowChart('fork', noop).addListOfFunction([
+        { id: 'a', name: 'TaskA', fn: noop },
+        { id: 'a', name: 'TaskB', fn: noop },
+      ]);
     }).toThrow('duplicate child id');
   });
 
@@ -443,8 +427,8 @@ describe('toMermaid with children', () => {
   it('renders children edges in mermaid output', () => {
     const mermaid = flowChart('entry', noop)
       .addDeciderFunction('Router', async () => 'a', 'router')
-        .addFunctionBranch('a', 'BranchA', noop)
-        .addFunctionBranch('b', 'BranchB', noop)
+      .addFunctionBranch('a', 'BranchA', noop)
+      .addFunctionBranch('b', 'BranchB', noop)
       .end()
       .toMermaid();
 
@@ -481,8 +465,8 @@ describe('stageMap collision during subflow merge', () => {
 
     const chart = flowChart('main', noop)
       .addDeciderFunction('Router', async () => 'a')
-        .addSubFlowChartBranch('branchA', subA, 'SubA')
-        .addSubFlowChartBranch('branchB', subB, 'SubB')
+      .addSubFlowChartBranch('branchA', subA, 'SubA')
+      .addSubFlowChartBranch('branchB', subB, 'SubB')
       .end()
       .build();
 

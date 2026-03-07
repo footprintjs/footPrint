@@ -131,7 +131,7 @@ describe('ExecutionRuntime', () => {
       const narrative = runtime.getFullNarrative();
 
       expect(narrative.length).toBe(3);
-      const names = narrative.map(n => n.stageName);
+      const names = narrative.map((n) => n.stageName);
       expect(names).toContain('root');
       expect(names).toContain('child-a');
       expect(names).toContain('child-b');
@@ -146,7 +146,7 @@ describe('ExecutionRuntime', () => {
       const next = root.createNext('', 'next-stage');
 
       const narrative = runtime.getFullNarrative();
-      const names = narrative.map(n => n.stageName);
+      const names = narrative.map((n) => n.stageName);
 
       expect(names).toContain('root');
       expect(names).toContain('child-a');

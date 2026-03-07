@@ -1,11 +1,13 @@
 /* istanbul ignore file */
-export type { Recorder, RecorderContext, ReadEvent, WriteEvent, CommitEvent, ErrorEvent, StageEvent } from '../types';
-
-export { MetricRecorder } from './MetricRecorder';
-export type { StageMetrics, AggregatedMetrics } from './MetricRecorder';
-
+export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, RecorderContext, StageEvent, WriteEvent } from '../types';
+export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './DebugRecorder';
 export { DebugRecorder } from './DebugRecorder';
-export type { DebugVerbosity, DebugEntry, DebugRecorderOptions } from './DebugRecorder';
-
+export type { AggregatedMetrics, StageMetrics } from './MetricRecorder';
+export { MetricRecorder } from './MetricRecorder';
+export type {
+  NarrativeDetail,
+  NarrativeOperation,
+  NarrativeRecorderOptions,
+  StageNarrativeData,
+} from './NarrativeRecorder';
 export { NarrativeRecorder } from './NarrativeRecorder';
-export type { NarrativeDetail, NarrativeOperation, StageNarrativeData, NarrativeRecorderOptions } from './NarrativeRecorder';

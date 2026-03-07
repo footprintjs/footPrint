@@ -1,5 +1,5 @@
-import { RuntimeStructureManager, computeNodeType } from '../../../../src/lib/engine/handlers/RuntimeStructureManager';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import { computeNodeType, RuntimeStructureManager } from '../../../../src/lib/engine/handlers/RuntimeStructureManager';
 
 describe('computeNodeType', () => {
   it('returns "decider" for nodes with deciderFn', () => {
@@ -170,10 +170,7 @@ describe('RuntimeStructureManager', () => {
       name: 'selectorNode',
       id: 'sel-1',
       nextNodeSelector: () => ['x'],
-      children: [
-        { name: 'optA', id: 'oa' },
-        { name: 'optB' },
-      ],
+      children: [{ name: 'optA', id: 'oa' }, { name: 'optB' }],
     };
     const result = mgr.stageNodeToStructure(node);
     expect(result.hasSelector).toBe(true);
@@ -214,10 +211,7 @@ describe('RuntimeStructureManager', () => {
     const mgr = new RuntimeStructureManager();
     mgr.init({ name: 'root', id: 'root', type: 'stage' });
 
-    const children: StageNode[] = [
-      { name: 'd1', id: 'd1' },
-      { name: 'd2' },
-    ];
+    const children: StageNode[] = [{ name: 'd1', id: 'd1' }, { name: 'd2' }];
     mgr.updateDynamicChildren('root', children, false, true);
 
     const result = mgr.getStructure()!;

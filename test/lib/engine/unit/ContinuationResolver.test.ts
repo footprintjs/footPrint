@@ -1,9 +1,9 @@
+import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ContinuationResolver, DEFAULT_MAX_ITERATIONS } from '../../../../src/lib/engine/handlers/ContinuationResolver';
 import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
-import type { HandlerDeps } from '../../../../src/lib/engine/types';
-import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { IControlFlowNarrative } from '../../../../src/lib/engine/narrative/types';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { IControlFlowNarrative } from '../../../../src/lib/engine/narrative/types';
+import type { HandlerDeps } from '../../../../src/lib/engine/types';
 
 function makeDeps(root: StageNode): HandlerDeps {
   return {
@@ -107,12 +107,7 @@ describe('ContinuationResolver', () => {
 
       await resolver.resolve('target-id', root, context, breakFlag, 'path', executeNode);
 
-      expect(executeNode).toHaveBeenCalledWith(
-        target,
-        expect.anything(),
-        breakFlag,
-        'path',
-      );
+      expect(executeNode).toHaveBeenCalledWith(target, expect.anything(), breakFlag, 'path');
     });
 
     it('throws for unknown string reference', async () => {
@@ -137,12 +132,7 @@ describe('ContinuationResolver', () => {
 
       await resolver.resolve(dynamicNode, root, context, { shouldBreak: false }, 'path', executeNode);
 
-      expect(executeNode).toHaveBeenCalledWith(
-        dynamicNode,
-        expect.anything(),
-        { shouldBreak: false },
-        'path',
-      );
+      expect(executeNode).toHaveBeenCalledWith(dynamicNode, expect.anything(), { shouldBreak: false }, 'path');
       expect(context.addLog).toHaveBeenCalledWith('dynamicNextDirect', true);
     });
 

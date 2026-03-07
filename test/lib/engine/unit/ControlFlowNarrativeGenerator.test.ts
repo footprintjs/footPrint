@@ -143,7 +143,7 @@ describe('ControlFlowNarrativeGenerator', () => {
 
   it('accumulates sentences in execution order', () => {
     gen.onStageExecuted('a'); // first stage sentence
-    gen.onNext('a', 'b');     // transition sentence
+    gen.onNext('a', 'b'); // transition sentence
     // second onStageExecuted is a no-op (isFirstStage = false)
     gen.onDecision('b', 'c', 'C'); // decision sentence
     const s = gen.getSentences();

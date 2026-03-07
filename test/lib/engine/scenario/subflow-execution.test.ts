@@ -6,8 +6,8 @@
  */
 
 import { flowChart } from '../../../../src/lib/builder';
-import { FlowChartExecutor } from '../../../../src/lib/runner';
 import type { StageContext } from '../../../../src/lib/memory';
+import { FlowChartExecutor } from '../../../../src/lib/runner';
 
 const noopScope = (ctx: StageContext) => ({ ctx });
 
@@ -29,13 +29,17 @@ describe('Scenario: Subflow Execution', () => {
       return 'sub-result';
     }).build();
 
-    const chart = flowChart('start', (scope: any) => { order.push('start'); })
+    const chart = flowChart('start', (scope: any) => {
+      order.push('start');
+    })
       .addDeciderFunction('router', async () => {
         order.push('router');
         return 'sub';
       })
-        .addSubFlowChartBranch('sub', subChart, 'SubFlow')
-        .addFunctionBranch('other', 'other', () => { order.push('other'); })
+      .addSubFlowChartBranch('sub', subChart, 'SubFlow')
+      .addFunctionBranch('other', 'other', () => {
+        order.push('other');
+      })
       .end()
       .build();
 
@@ -63,12 +67,12 @@ describe('Scenario: Subflow Execution', () => {
       scope.setValue('parentData', 'hello');
     })
       .addDeciderFunction('route', async () => 'sub')
-        .addSubFlowChartBranch('sub', subChart, 'SubFlow', {
-          // inputMapper receives getScope() result — plain Record<string, unknown>
-          inputMapper: (parentScope: any) => ({
-            parentData: parentScope.parentData,
-          }),
-        })
+      .addSubFlowChartBranch('sub', subChart, 'SubFlow', {
+        // inputMapper receives getScope() result — plain Record<string, unknown>
+        inputMapper: (parentScope: any) => ({
+          parentData: parentScope.parentData,
+        }),
+      })
       .end()
       .build();
 
@@ -94,12 +98,12 @@ describe('Scenario: Subflow Execution', () => {
       scope.setValue('x', 10);
     })
       .addDeciderFunction('route', async () => 'sub')
-        .addSubFlowChartBranch('sub', subChart, 'Compute', {
-          // outputMapper receives (subflowOutput, parentScope) — 2 args
-          outputMapper: (output: any, _parentScope: any) => {
-            return { computeResult: output };
-          },
-        })
+      .addSubFlowChartBranch('sub', subChart, 'Compute', {
+        // outputMapper receives (subflowOutput, parentScope) — 2 args
+        outputMapper: (output: any, _parentScope: any) => {
+          return { computeResult: output };
+        },
+      })
       .end()
       .addFunction('verify', (scope: any) => {
         return scope.getValue('computeResult');
@@ -119,7 +123,7 @@ describe('Scenario: Subflow Execution', () => {
 
     const chart = flowChart('start', () => {})
       .addDeciderFunction('route', async () => 'sub')
-        .addSubFlowChartBranch('sub', subChart, 'Boom')
+      .addSubFlowChartBranch('sub', subChart, 'Boom')
       .end()
       .build();
 
@@ -132,7 +136,7 @@ describe('Scenario: Subflow Execution', () => {
 
     const chart = flowChart('start', () => {})
       .addDeciderFunction('route', async () => 'sub')
-        .addSubFlowChartBranch('sub', subChart, 'MySubFlow')
+      .addSubFlowChartBranch('sub', subChart, 'MySubFlow')
       .end()
       .setEnableNarrative()
       .build();
@@ -141,7 +145,7 @@ describe('Scenario: Subflow Execution', () => {
     await executor.run();
 
     const narrative = executor.getNarrative();
-    expect(narrative.some(s => s.includes('MySubFlow'))).toBe(true);
+    expect(narrative.some((s) => s.includes('MySubFlow'))).toBe(true);
   });
 
   it('subflow result is stored with correct structure', async () => {
@@ -149,7 +153,7 @@ describe('Scenario: Subflow Execution', () => {
 
     const chart = flowChart('outer', () => {})
       .addDeciderFunction('decide', async () => 'sf')
-        .addSubFlowChartBranch('sf', subChart, 'TestSubflow')
+      .addSubFlowChartBranch('sf', subChart, 'TestSubflow')
       .end()
       .build();
 

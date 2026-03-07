@@ -1,5 +1,5 @@
-import { flowChart } from '../../../../src/lib/builder';
 import type { FlowChartBuilder, StageNode } from '../../../../src/lib/builder';
+import { flowChart } from '../../../../src/lib/builder';
 
 const noop = async () => {};
 
@@ -14,7 +14,10 @@ describe('Boundary: large graph', () => {
     // Walk and count
     let count = 0;
     let node: StageNode | undefined = chart.root;
-    while (node) { count++; node = node.next; }
+    while (node) {
+      count++;
+      node = node.next;
+    }
 
     expect(count).toBe(200);
     expect(chart.stageMap.size).toBe(200);
@@ -27,17 +30,14 @@ describe('Boundary: large graph', () => {
       fn: noop,
     }));
 
-    const chart = flowChart('hub', noop)
-      .addListOfFunction(children)
-      .build();
+    const chart = flowChart('hub', noop).addListOfFunction(children).build();
 
     expect(chart.root.children).toHaveLength(100);
     expect(chart.stageMap.size).toBe(101); // hub + 100 children
   });
 
   it('handles decider with 50 branches', () => {
-    let decider = flowChart('input', noop)
-      .addDeciderFunction('decide', noop);
+    let decider = flowChart('input', noop).addDeciderFunction('decide', noop);
 
     for (let i = 0; i < 50; i++) {
       decider = decider.addFunctionBranch(`b${i}`, `Branch${i}`, noop);
@@ -58,7 +58,10 @@ describe('Boundary: large graph', () => {
     // Walk spec chain
     let count = 0;
     let s = spec;
-    while (s) { count++; s = s.next as any; }
+    while (s) {
+      count++;
+      s = s.next as any;
+    }
     expect(count).toBe(50);
   });
 

@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder';
-import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 
+import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 // We need to import the resolver and the registration mechanism
 // The ZodScopeResolver is exported from the resolver module
 import { ZodScopeResolver } from '../../../../src/lib/scope/state/zod/resolver';
+import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder';
 
 function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
   return {

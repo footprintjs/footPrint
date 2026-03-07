@@ -9,8 +9,8 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
+import type { Selector, StageNode } from '../graph/StageNode';
 import type { HandlerDeps, NodeResultType } from '../types';
-import type { StageNode, Selector } from '../graph/StageNode';
 
 /** Callback for recursive node execution. Avoids circular dependency with traverser. */
 export type ExecuteNodeFn<TOut = any, TScope = any> = (
@@ -21,10 +21,7 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
 ) => Promise<any>;
 
 export class ChildrenExecutor<TOut = any, TScope = any> {
-  constructor(
-    private deps: HandlerDeps<TOut, TScope>,
-    private executeNode: ExecuteNodeFn<TOut, TScope>,
-  ) {}
+  constructor(private deps: HandlerDeps<TOut, TScope>, private executeNode: ExecuteNodeFn<TOut, TScope>) {}
 
   /**
    * Execute all children in parallel. Each child commits on settle.
@@ -76,10 +73,12 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     if (node.failFast) {
       // Fail-fast: first child error rejects immediately (unwrapped)
       const results = await Promise.all(
-        allChildren.map((child, i) => childPromises[i].then((r) => {
-          if (r.isError) throw r.result;
-          return r;
-        })),
+        allChildren.map((child, i) =>
+          childPromises[i].then((r) => {
+            if (r.isError) throw r.result;
+            return r;
+          }),
+        ),
       );
       for (const { id, result, isError } of results) {
         childrenResults[id] = { id, result, isError: isError ?? false };
@@ -128,7 +127,9 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
+      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(
+        ', ',
+      )}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
       throw new Error(errorMessage);
@@ -140,16 +141,15 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     }
 
     const selectedNames = selectedChildren.map((c) => c.displayName || c.name).join(', ');
-    context.addFlowDebugMessage('selected',
+    context.addFlowDebugMessage(
+      'selected',
       `Running ${selectedNames} (${selectedChildren.length} of ${children.length} matched)`,
       { count: selectedChildren.length, targetStage: selectedChildren.map((c) => c.name) },
     );
 
     // Narrative: capture the selection
     const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
-    this.deps.narrativeGenerator.onSelected(
-      context.stageName || 'selector', selectedDisplayNames, children.length,
-    );
+    this.deps.narrativeGenerator.onSelected(context.stageName || 'selector', selectedDisplayNames, children.length);
 
     const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };
     return await this.executeNodeChildren(tempNode, context, undefined, branchPath);

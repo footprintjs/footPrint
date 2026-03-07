@@ -117,9 +117,11 @@ export class NarrativeRecorder implements Recorder {
         for (const op of data.operations) {
           const stepPrefix = op.stepNumber ? `Step ${op.stepNumber}: ` : '';
           if (op.type === 'read') {
-            lines.push(op.valueSummary
-              ? `  - ${stepPrefix}Read: ${op.key} = ${op.valueSummary}`
-              : `  - ${stepPrefix}Read: ${op.key}`);
+            lines.push(
+              op.valueSummary
+                ? `  - ${stepPrefix}Read: ${op.key} = ${op.valueSummary}`
+                : `  - ${stepPrefix}Read: ${op.key}`,
+            );
           } else if (op.operation === 'delete') {
             lines.push(`  - ${stepPrefix}Delete: ${op.key}`);
           } else if (op.operation === 'update') {

@@ -1,6 +1,6 @@
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
-import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
+import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { Recorder } from '../../../../src/lib/scope/types';
 
 function makeCtx() {
@@ -17,7 +17,9 @@ describe('Boundary: many recorders', () => {
       counts[idx] = 0;
       scope.attachRecorder({
         id: `r-${idx}`,
-        onWrite: () => { counts[idx]++; },
+        onWrite: () => {
+          counts[idx]++;
+        },
       });
     }
 
@@ -35,14 +37,19 @@ describe('Boundary: many recorders', () => {
     for (let i = 0; i < 50; i++) {
       scope.attachRecorder({
         id: `r-${i}`,
-        onRead: i % 2 === 0
-          ? () => { throw new Error(`crash-${i}`); }
-          : undefined,
+        onRead:
+          i % 2 === 0
+            ? () => {
+                throw new Error(`crash-${i}`);
+              }
+            : undefined,
       });
     }
     scope.attachRecorder({
       id: 'catcher',
-      onError: () => { errorCount++; },
+      onError: () => {
+        errorCount++;
+      },
     });
 
     // Should not throw

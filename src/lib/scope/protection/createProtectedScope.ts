@@ -20,17 +20,23 @@ assignments are lost when the next stage executes. Use setValue()
 to persist data to the shared GlobalStore.`;
 }
 
-export function createProtectedScope<T extends object>(
-  scope: T,
-  options: ScopeProtectionOptions = {},
-): T {
+export function createProtectedScope<T extends object>(scope: T, options: ScopeProtectionOptions = {}): T {
   const {
     mode = 'error',
     stageName = 'unknown',
     logger = console.warn,
     allowedInternalProperties = [
-      'writeBuffer', 'next', 'children', 'parent', 'executionHistory',
-      'branchId', 'isDecider', 'isFork', 'debug', 'stageName', 'pipelineId',
+      'writeBuffer',
+      'next',
+      'children',
+      'parent',
+      'executionHistory',
+      'branchId',
+      'isDecider',
+      'isFork',
+      'debug',
+      'stageName',
+      'pipelineId',
       'globalStore',
     ],
   } = options;

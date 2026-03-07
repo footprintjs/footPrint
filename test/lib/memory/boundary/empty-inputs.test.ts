@@ -1,8 +1,8 @@
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
-import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
 import { DiagnosticCollector } from '../../../../src/lib/memory/DiagnosticCollector';
+import { EventLog } from '../../../../src/lib/memory/EventLog';
+import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
+import { StageContext } from '../../../../src/lib/memory/StageContext';
+import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 
 describe('Boundary: empty inputs', () => {
   describe('SharedMemory', () => {

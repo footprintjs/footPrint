@@ -1,4 +1,4 @@
 /* istanbul ignore file */
-export { FlowChartExecutor } from './FlowChartExecutor';
+export type { NarrativeEntry, RuntimeSnapshot } from './ExecutionRuntime';
 export { ExecutionRuntime } from './ExecutionRuntime';
-export type { RuntimeSnapshot, NarrativeEntry } from './ExecutionRuntime';
+export { FlowChartExecutor } from './FlowChartExecutor';

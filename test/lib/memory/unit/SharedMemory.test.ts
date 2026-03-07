@@ -48,11 +48,9 @@ describe('SharedMemory', () => {
 
   it('applies patches from commit bundles', () => {
     const mem = new SharedMemory();
-    mem.applyPatch(
-      { runs: { p1: { name: 'Bob' } } },
-      {},
-      [{ path: ['runs', 'p1', 'name'].join('\u001F'), verb: 'set' }],
-    );
+    mem.applyPatch({ runs: { p1: { name: 'Bob' } } }, {}, [
+      { path: ['runs', 'p1', 'name'].join('\u001F'), verb: 'set' },
+    ]);
     expect(mem.getValue('p1', [], 'name')).toBe('Bob');
   });
 
@@ -87,6 +85,6 @@ describe('SharedMemory', () => {
     const mem = new SharedMemory({ a: 1, b: 2 }, { a: 10 });
     const state = mem.getState();
     expect(state.a).toBe(10); // initial wins
-    expect(state.b).toBe(2);  // default fills gap
+    expect(state.b).toBe(2); // default fills gap
   });
 });

@@ -8,13 +8,17 @@
  * - Max iteration enforcement
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -50,7 +54,8 @@ describe('Scenario: Continuation Patterns', () => {
 
     const runtime = new ExecutionRuntime('start');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -73,8 +78,22 @@ describe('Scenario: Continuation Patterns', () => {
         name: 'dynamic-fork',
         // duck-typing: isStageNodeReturn checks name + continuation props
         children: [
-          { name: 'child1', id: 'c1', fn: () => { order.push('c1'); return 'c1-done'; } },
-          { name: 'child2', id: 'c2', fn: () => { order.push('c2'); return 'c2-done'; } },
+          {
+            name: 'child1',
+            id: 'c1',
+            fn: () => {
+              order.push('c1');
+              return 'c1-done';
+            },
+          },
+          {
+            name: 'child2',
+            id: 'c2',
+            fn: () => {
+              order.push('c2');
+              return 'c2-done';
+            },
+          },
         ],
       };
     });
@@ -83,7 +102,8 @@ describe('Scenario: Continuation Patterns', () => {
 
     const runtime = new ExecutionRuntime('producer');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -120,7 +140,8 @@ describe('Scenario: Continuation Patterns', () => {
 
     const runtime = new ExecutionRuntime('loop-entry');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -153,7 +174,8 @@ describe('Scenario: Continuation Patterns', () => {
 
     const runtime = new ExecutionRuntime('retry');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -166,7 +188,7 @@ describe('Scenario: Continuation Patterns', () => {
     const narrative = traverser.getNarrative();
     expect(narrative.length).toBeGreaterThan(0);
     // Should mention looping / iterations
-    expect(narrative.some(s => s.includes('pass') || s.includes('retry') || s.includes('loop'))).toBe(true);
+    expect(narrative.some((s) => s.includes('pass') || s.includes('retry') || s.includes('loop'))).toBe(true);
   });
 
   it('dynamic StageNode with children + next continues after children', async () => {
@@ -179,18 +201,37 @@ describe('Scenario: Continuation Patterns', () => {
         name: 'dynamic',
         // duck-typing: isStageNodeReturn checks name + continuation props
         children: [
-          { name: 'child', id: 'child', fn: () => { order.push('child'); } },
+          {
+            name: 'child',
+            id: 'child',
+            fn: () => {
+              order.push('child');
+            },
+          },
         ],
-        next: { name: 'after', fn: () => { order.push('after'); return 'final'; } },
+        next: {
+          name: 'after',
+          fn: () => {
+            order.push('after');
+            return 'final';
+          },
+        },
       };
     });
 
-    const after: StageNode = { name: 'after', fn: () => { order.push('after-static'); return 'static-final'; } };
+    const after: StageNode = {
+      name: 'after',
+      fn: () => {
+        order.push('after-static');
+        return 'static-final';
+      },
+    };
     const root: StageNode = { name: 'producer', id: 'producer', next: after };
 
     const runtime = new ExecutionRuntime('producer');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',

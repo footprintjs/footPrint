@@ -8,6 +8,7 @@
 
 import type { IControlFlowNarrative } from './types';
 
+/* eslint-disable @typescript-eslint/no-empty-function */
 export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative {
   onStageExecuted(): void {}
   onNext(): void {}
@@ -19,5 +20,7 @@ export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative 
   onLoop(): void {}
   onBreak(): void {}
   onError(): void {}
-  getSentences(): string[] { return []; }
+  getSentences(): string[] {
+    return [];
+  }
 }

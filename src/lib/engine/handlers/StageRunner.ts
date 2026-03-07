@@ -86,11 +86,18 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
   }
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
+    const onAbort = () =>
+      reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
-      (val) => { signal.removeEventListener('abort', onAbort); resolve(val); },
-      (err) => { signal.removeEventListener('abort', onAbort); reject(err); },
+      (val) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(val);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
     );
   });
 }

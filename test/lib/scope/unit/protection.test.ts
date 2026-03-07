@@ -1,4 +1,4 @@
-import { createProtectedScope, createErrorMessage } from '../../../../src/lib/scope/protection';
+import { createErrorMessage, createProtectedScope } from '../../../../src/lib/scope/protection';
 
 describe('createProtectedScope', () => {
   it('blocks direct property assignment in error mode', () => {
@@ -6,7 +6,9 @@ describe('createProtectedScope', () => {
       mode: 'error',
       stageName: 'test',
     });
-    expect(() => { (scope as any).foo = 'bar'; }).toThrow('Scope Access Error');
+    expect(() => {
+      (scope as any).foo = 'bar';
+    }).toThrow('Scope Access Error');
   });
 
   it('allows assignment in warn mode (but logs)', () => {

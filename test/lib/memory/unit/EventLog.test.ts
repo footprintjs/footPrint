@@ -1,7 +1,11 @@
 import { EventLog } from '../../../../src/lib/memory/EventLog';
 import type { CommitBundle } from '../../../../src/lib/memory/types';
 
-function makeBundle(stage: string, overwrite: Record<string, any> = {}, updates: Record<string, any> = {}): CommitBundle {
+function makeBundle(
+  stage: string,
+  overwrite: Record<string, any> = {},
+  updates: Record<string, any> = {},
+): CommitBundle {
   const trace: { path: string; verb: 'set' | 'merge' }[] = [];
   for (const key of Object.keys(overwrite)) {
     trace.push({ path: key, verb: 'set' });

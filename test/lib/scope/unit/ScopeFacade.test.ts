@@ -1,6 +1,6 @@
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import type { Recorder, ReadEvent, WriteEvent, CommitEvent, ErrorEvent } from '../../../../src/lib/scope/types';
+import type { CommitEvent, ErrorEvent, ReadEvent, Recorder, WriteEvent } from '../../../../src/lib/scope/types';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
   const mem = new SharedMemory();
@@ -177,7 +177,9 @@ describe('ScopeFacade', () => {
     const errors: ErrorEvent[] = [];
     scope.attachRecorder({
       id: 'bad',
-      onRead: () => { throw new Error('boom'); },
+      onRead: () => {
+        throw new Error('boom');
+      },
     });
     scope.attachRecorder({
       id: 'catcher',

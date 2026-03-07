@@ -48,19 +48,16 @@ describe('Scenario: fork (parallel children)', () => {
 
   it('throws on duplicate child id', () => {
     expect(() => {
-      flowChart('hub', noop)
-        .addListOfFunction([
-          { id: 'dup', name: 'A', fn: noop },
-          { id: 'dup', name: 'B', fn: noop },
-        ]);
+      flowChart('hub', noop).addListOfFunction([
+        { id: 'dup', name: 'A', fn: noop },
+        { id: 'dup', name: 'B', fn: noop },
+      ]);
     }).toThrow('duplicate child id');
   });
 
   it('can chain after fork', () => {
     const chart = flowChart('start', noop)
-      .addListOfFunction([
-        { id: 'p1', name: 'W1', fn: noop },
-      ])
+      .addListOfFunction([{ id: 'p1', name: 'W1', fn: noop }])
       .addFunction('finish', noop)
       .build();
 

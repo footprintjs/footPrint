@@ -15,7 +15,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { IExecutionRuntime, SubflowMountOptions, HandlerDeps } from '../types';
+import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types';
 
 /** Extract values from parent scope using inputMapper. */
 export function extractParentScopeValues<TParentScope, TSubflowInput>(

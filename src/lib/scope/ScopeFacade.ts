@@ -15,7 +15,7 @@
  */
 
 import { StageContext } from '../memory/StageContext';
-import type { Recorder, CommitEvent } from './types';
+import type { CommitEvent, Recorder } from './types';
 
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');

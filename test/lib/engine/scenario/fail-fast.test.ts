@@ -5,13 +5,17 @@
  * while default behavior (failFast: false) runs all children to completion.
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
@@ -28,12 +32,12 @@ describe('Scenario: failFast on fork', () => {
 
     stageMap.set('parent', () => 'parentResult');
     stageMap.set('childA', async () => {
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       order.push('childA');
       throw new Error('childA failed');
     });
     stageMap.set('childB', async () => {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       order.push('childB');
       return 'resultB';
     });
@@ -44,13 +48,14 @@ describe('Scenario: failFast on fork', () => {
 
     const runtime = new ExecutionRuntime('parent');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,
     });
 
-    const result = await traverser.execute() as any;
+    const result = (await traverser.execute()) as any;
     // Both children should have run
     expect(order).toContain('childA');
     expect(order).toContain('childB');
@@ -69,7 +74,7 @@ describe('Scenario: failFast on fork', () => {
       throw new Error('childA failed');
     });
     stageMap.set('childB', async () => {
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       order.push('childB');
       return 'resultB';
     });
@@ -80,7 +85,8 @@ describe('Scenario: failFast on fork', () => {
 
     const runtime = new ExecutionRuntime('parent');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,
@@ -102,13 +108,14 @@ describe('Scenario: failFast on fork', () => {
 
     const runtime = new ExecutionRuntime('parent');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       logger: silentLogger,
     });
 
-    const result = await traverser.execute() as any;
+    const result = (await traverser.execute()) as any;
     expect(result.childA.result).toBe('resultA');
     expect(result.childB.result).toBe('resultB');
   });

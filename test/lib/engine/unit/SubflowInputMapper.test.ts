@@ -1,7 +1,7 @@
 import {
+  applyOutputMapping,
   extractParentScopeValues,
   getInitialScopeValues,
-  applyOutputMapping,
 } from '../../../../src/lib/engine/handlers/SubflowInputMapper';
 
 describe('SubflowInputMapper', () => {
@@ -47,9 +47,7 @@ describe('SubflowInputMapper', () => {
 
     it('returns undefined for null mapper result', () => {
       const context = makeContext();
-      expect(
-        applyOutputMapping('output', {}, context, { outputMapper: () => null as any }),
-      ).toBeUndefined();
+      expect(applyOutputMapping('output', {}, context, { outputMapper: () => null as any })).toBeUndefined();
     });
 
     it('writes scalar values via setGlobal', () => {

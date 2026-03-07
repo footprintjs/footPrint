@@ -1,8 +1,13 @@
-import { DeciderHandler } from '../../../../src/lib/engine/handlers/DeciderHandler';
-import type { RunStageFn, ExecuteNodeFn, CallExtractorFn, GetStagePathFn } from '../../../../src/lib/engine/handlers/DeciderHandler';
-import type { HandlerDeps } from '../../../../src/lib/engine/types';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import type {
+  CallExtractorFn,
+  ExecuteNodeFn,
+  GetStagePathFn,
+  RunStageFn,
+} from '../../../../src/lib/engine/handlers/DeciderHandler';
+import { DeciderHandler } from '../../../../src/lib/engine/handlers/DeciderHandler';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { HandlerDeps } from '../../../../src/lib/engine/types';
 
 function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   return {
@@ -61,8 +66,15 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'child-a';
 
       const result = await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       expect(context.commit).toHaveBeenCalled();
@@ -80,8 +92,15 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'nonexistent-branch';
 
       await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       // Should resolve to default child
@@ -105,8 +124,15 @@ describe('DeciderHandler', () => {
 
       await expect(
         handler.handleScopeBased(
-          node, stageFunc, context, breakFlag, 'main',
-          noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+          node,
+          stageFunc,
+          context,
+          breakFlag,
+          'main',
+          noopRunStage,
+          noopExecuteNode,
+          noopCallExtractor,
+          noopGetStagePath,
         ),
       ).rejects.toThrow("doesn't match any child");
 
@@ -131,8 +157,15 @@ describe('DeciderHandler', () => {
       const executeNode = jest.fn();
 
       const result = await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, executeNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        executeNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       expect(result).toBe('child-a');
@@ -156,13 +189,22 @@ describe('DeciderHandler', () => {
       const breakFlag = { shouldBreak: false };
 
       const stageError = new Error('Stage exploded');
-      const failingRunStage: RunStageFn = async () => { throw stageError; };
+      const failingRunStage: RunStageFn = async () => {
+        throw stageError;
+      };
       const callExtractor = jest.fn();
 
       await expect(
         handler.handleScopeBased(
-          node, () => 'whatever', context, breakFlag, 'main',
-          failingRunStage, noopExecuteNode, callExtractor, noopGetStagePath,
+          node,
+          () => 'whatever',
+          context,
+          breakFlag,
+          'main',
+          failingRunStage,
+          noopExecuteNode,
+          callExtractor,
+          noopGetStagePath,
         ),
       ).rejects.toThrow('Stage exploded');
 
@@ -170,7 +212,10 @@ describe('DeciderHandler', () => {
       expect(context.commit).toHaveBeenCalled();
       // Should call extractor with error info
       expect(callExtractor).toHaveBeenCalledWith(
-        node, context, 'main.deciderStage', undefined,
+        node,
+        context,
+        'main.deciderStage',
+        undefined,
         expect.objectContaining({ type: 'stageExecutionError', message: expect.stringContaining('Stage exploded') }),
       );
       // Should log error to context
@@ -178,7 +223,11 @@ describe('DeciderHandler', () => {
       // Should log to deps.logger
       expect(deps.logger.error).toHaveBeenCalled();
       // Should call narrative generator onError
-      expect(narrativeGenerator.onError).toHaveBeenCalledWith('deciderStage', expect.stringContaining('Stage exploded'), undefined);
+      expect(narrativeGenerator.onError).toHaveBeenCalledWith(
+        'deciderStage',
+        expect.stringContaining('Stage exploded'),
+        undefined,
+      );
     });
   });
 
@@ -205,8 +254,15 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'child-a';
 
       await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       // Flow debug message should contain "Based on:" with the rationale
@@ -218,7 +274,11 @@ describe('DeciderHandler', () => {
 
       // Narrative generator should receive the rationale
       expect(narrativeGenerator.onDecision).toHaveBeenCalledWith(
-        'deciderStage', 'childA', 'Child A', 'User is premium', undefined,
+        'deciderStage',
+        'childA',
+        'Child A',
+        'User is premium',
+        undefined,
       );
     });
 
@@ -236,8 +296,15 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'child-a';
 
       await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
@@ -261,12 +328,23 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'child-a';
 
       await handler.handleScopeBased(
-        node, stageFunc, context, breakFlag, 'main',
-        noopRunStage, noopExecuteNode, noopCallExtractor, noopGetStagePath,
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
       );
 
       expect(narrativeGenerator.onDecision).toHaveBeenCalledWith(
-        'deciderStage', 'childA', 'Child A', undefined, 'Decides the route',
+        'deciderStage',
+        'childA',
+        'Child A',
+        undefined,
+        'Decides the route',
       );
     });
   });

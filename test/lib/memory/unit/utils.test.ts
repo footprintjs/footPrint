@@ -2,7 +2,7 @@
  * Coverage tests for src/lib/memory/utils.ts — lines 121-125 (redactPatch)
  */
 
-import { redactPatch, DELIM } from '../../../../src/lib/memory/utils';
+import { DELIM, redactPatch } from '../../../../src/lib/memory/utils';
 
 describe('redactPatch (lib)', () => {
   it('redacts an existing defined value (lines 122-125)', () => {

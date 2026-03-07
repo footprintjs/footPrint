@@ -8,8 +8,8 @@
  * Deep-clones build-time structure at init, then maintains O(1) lookup map.
  */
 
-import type { SerializedPipelineStructure } from '../types';
 import type { StageNode } from '../graph/StageNode';
+import type { SerializedPipelineStructure } from '../types';
 
 /**
  * Compute the node type from node properties.
@@ -19,11 +19,7 @@ export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'fork' |
   if (node.nextNodeSelector || node.deciderFn || node.selectorFn) return 'decider';
   if (node.isStreaming) return 'streaming';
 
-  const hasDynamicChildren = Boolean(
-    node.children?.length &&
-    !node.nextNodeSelector &&
-    node.fn,
-  );
+  const hasDynamicChildren = Boolean(node.children?.length && !node.nextNodeSelector && node.fn);
   if (node.children && node.children.length > 0 && !hasDynamicChildren) return 'fork';
 
   return 'stage';

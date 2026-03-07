@@ -10,12 +10,12 @@ export { StageRunner } from './StageRunner';
 export { NodeResolver } from './NodeResolver';
 
 // Parallel children execution
-export { ChildrenExecutor } from './ChildrenExecutor';
 export type { ExecuteNodeFn } from './ChildrenExecutor';
+export { ChildrenExecutor } from './ChildrenExecutor';
 
 // Single-choice conditional branching
+export type { CallExtractorFn, GetStagePathFn, RunStageFn } from './DeciderHandler';
 export { DeciderHandler } from './DeciderHandler';
-export type { RunStageFn, CallExtractorFn, GetStagePathFn } from './DeciderHandler';
 
 // Multi-choice filtered fan-out
 export { SelectorHandler } from './SelectorHandler';
@@ -28,15 +28,15 @@ export { SubflowExecutor } from './SubflowExecutor';
 
 // Subflow input/output mapping
 export {
+  applyOutputMapping,
+  createSubflowHandlerDeps,
   extractParentScopeValues,
   getInitialScopeValues,
-  createSubflowHandlerDeps,
   seedSubflowGlobalStore,
-  applyOutputMapping,
 } from './SubflowInputMapper';
 
 // Traversal extractor coordination
 export { ExtractorRunner } from './ExtractorRunner';
 
 // Runtime structure management (dynamic pipeline structure tracking)
-export { RuntimeStructureManager, computeNodeType } from './RuntimeStructureManager';
+export { computeNodeType, RuntimeStructureManager } from './RuntimeStructureManager';

@@ -6,17 +6,18 @@
  */
 
 import { flowChart, FlowChartBuilder } from '../../../../src/lib/builder';
-import { FlowChartExecutor } from '../../../../src/lib/runner';
-import { ExecutionRuntime } from '../../../../src/lib/runner';
-import { ScopeFacade, toScopeFactory } from '../../../../src/lib/scope';
 import type { StageContext } from '../../../../src/lib/memory';
+import { ExecutionRuntime, FlowChartExecutor } from '../../../../src/lib/runner';
+import { ScopeFacade, toScopeFactory } from '../../../../src/lib/scope';
 
 // ─── Helpers ───
 
 const noopScope = (ctx: StageContext) => ({ ctx });
 const log: string[] = [];
 
-function clearLog() { log.length = 0; }
+function clearLog() {
+  log.length = 0;
+}
 
 function makeScopeFactory() {
   return (ctx: StageContext, stageName: string) => ({
@@ -35,9 +36,16 @@ describe('FlowChartExecutor — end-to-end', () => {
   // === Linear execution ===
 
   it('executes a linear chain and returns result', async () => {
-    const chart = flowChart('A', (scope: any) => { log.push('A'); })
-      .addFunction('B', (scope: any) => { log.push('B'); })
-      .addFunction('C', (scope: any) => { log.push('C'); return 'done'; })
+    const chart = flowChart('A', (scope: any) => {
+      log.push('A');
+    })
+      .addFunction('B', (scope: any) => {
+        log.push('B');
+      })
+      .addFunction('C', (scope: any) => {
+        log.push('C');
+        return 'done';
+      })
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
@@ -68,13 +76,19 @@ describe('FlowChartExecutor — end-to-end', () => {
   // === Decider branching ===
 
   it('decider selects correct branch', async () => {
-    const chart = flowChart('check', (scope: any) => { log.push('check'); })
+    const chart = flowChart('check', (scope: any) => {
+      log.push('check');
+    })
       .addDeciderFunction('router', async (scope: any) => {
         log.push('router');
         return 'branchB';
       })
-        .addFunctionBranch('branchA', 'A', () => { log.push('A'); })
-        .addFunctionBranch('branchB', 'B', () => { log.push('B'); })
+      .addFunctionBranch('branchA', 'A', () => {
+        log.push('A');
+      })
+      .addFunctionBranch('branchB', 'B', () => {
+        log.push('B');
+      })
       .end()
       .build();
 
@@ -88,11 +102,31 @@ describe('FlowChartExecutor — end-to-end', () => {
   // === Fork (parallel children) ===
 
   it('fork executes all children in parallel', async () => {
-    const chart = flowChart('parent', (scope: any) => { log.push('parent'); })
+    const chart = flowChart('parent', (scope: any) => {
+      log.push('parent');
+    })
       .addListOfFunction([
-        { id: 'c1', name: 'child1', fn: () => { log.push('child1'); } },
-        { id: 'c2', name: 'child2', fn: () => { log.push('child2'); } },
-        { id: 'c3', name: 'child3', fn: () => { log.push('child3'); } },
+        {
+          id: 'c1',
+          name: 'child1',
+          fn: () => {
+            log.push('child1');
+          },
+        },
+        {
+          id: 'c2',
+          name: 'child2',
+          fn: () => {
+            log.push('child2');
+          },
+        },
+        {
+          id: 'c3',
+          name: 'child3',
+          fn: () => {
+            log.push('child3');
+          },
+        },
       ])
       .build();
 
@@ -112,7 +146,9 @@ describe('FlowChartExecutor — end-to-end', () => {
       log.push('A');
       breakFn();
     })
-      .addFunction('B', () => { log.push('B'); })
+      .addFunction('B', () => {
+        log.push('B');
+      })
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
@@ -184,8 +220,12 @@ describe('FlowChartExecutor — end-to-end', () => {
   // === Extractor ===
 
   it('getExtractedResults() collects extractor output', async () => {
-    const chart = flowChart('A', () => { return 'outputA'; })
-      .addFunction('B', () => { return 'outputB'; })
+    const chart = flowChart('A', () => {
+      return 'outputA';
+    })
+      .addFunction('B', () => {
+        return 'outputB';
+      })
       .addTraversalExtractor((snapshot: any) => ({
         name: snapshot.node.name,
         step: snapshot.stepNumber,
@@ -198,7 +238,8 @@ describe('FlowChartExecutor — end-to-end', () => {
     const results = executor.getExtractedResults<{ name: string; step: number }>();
     expect(results.size).toBeGreaterThan(0);
 
-    let hasA = false, hasB = false;
+    let hasA = false;
+    let hasB = false;
     for (const [key, val] of results) {
       if (val.name === 'A') hasA = true;
       if (val.name === 'B') hasB = true;
@@ -224,8 +265,14 @@ describe('FlowChartExecutor — end-to-end', () => {
 
     // Pass enrichSnapshots=true (9th constructor param)
     const executor = new FlowChartExecutor(
-      chart, scopeFactory,
-      undefined, undefined, undefined, undefined, undefined, undefined,
+      chart,
+      scopeFactory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
       true, // enrichSnapshots
     );
     await executor.run();
@@ -280,7 +327,9 @@ describe('FlowChartExecutor — end-to-end', () => {
 
   it('getExtractorErrors() collects extractor failures', async () => {
     const chart = flowChart('A', () => {})
-      .addTraversalExtractor(() => { throw new Error('extractor broke'); })
+      .addTraversalExtractor(() => {
+        throw new Error('extractor broke');
+      })
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
@@ -343,15 +392,11 @@ describe('FlowChartExecutor — streaming', () => {
       })
       .build();
 
-    const executor = new FlowChartExecutor(
-      chart, noopScope,
-      undefined, undefined, undefined, undefined,
-      {
-        onToken: (id, token) => tokens.push(token),
-        onStart: (id) => startedStreams.push(id),
-        onEnd: (id) => endedStreams.push(id),
-      },
-    );
+    const executor = new FlowChartExecutor(chart, noopScope, undefined, undefined, undefined, undefined, {
+      onToken: (id, token) => tokens.push(token),
+      onStart: (id) => startedStreams.push(id),
+      onEnd: (id) => endedStreams.push(id),
+    });
 
     await executor.run();
 
@@ -378,8 +423,13 @@ describe('FlowChartExecutor — embedded functions', () => {
 
 describe('FlowChartExecutor — ScopeFacade integration', () => {
   class TestScope extends ScopeFacade {
-    get name() { return this.getValue('name') as string; }
-    set name(v: string) { this.setValue('name', v); }
+    get name() {
+      return this.getValue('name') as string;
+    }
+
+    set name(v: string) {
+      this.setValue('name', v);
+    }
   }
 
   it('ScopeFacade subclass works as scope in executor', async () => {
@@ -395,8 +445,13 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     // scopeProtectionMode 'off' — ScopeFacade uses setValue/getValue internally,
     // but the proxy intercepts the setter before ScopeFacade's own setter runs
     const executor = new FlowChartExecutor(
-      chart, scopeFactory,
-      undefined, undefined, undefined, undefined, undefined,
+      chart,
+      scopeFactory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
       'off',
     );
     const result = await executor.run();
@@ -411,7 +466,9 @@ describe('FlowChartExecutor — throttlingErrorChecker', () => {
       .addListOfFunction([
         { id: 'ok', name: 'ok', fn: () => 'success' },
         {
-          id: 'throttled', name: 'throttled', fn: () => {
+          id: 'throttled',
+          name: 'throttled',
+          fn: () => {
             throw new Error('rate limited');
           },
         },
@@ -419,8 +476,11 @@ describe('FlowChartExecutor — throttlingErrorChecker', () => {
       .build();
 
     const executor = new FlowChartExecutor(
-      chart, noopScope,
-      undefined, undefined, undefined,
+      chart,
+      noopScope,
+      undefined,
+      undefined,
+      undefined,
       (error: unknown) => error instanceof Error && error.message.includes('rate limited'),
     );
 
@@ -437,11 +497,7 @@ describe('FlowChartExecutor — throttlingErrorChecker', () => {
     }).build();
 
     const checker = (error: unknown) => error instanceof Error && error.message.includes('throttle');
-    const executor = new FlowChartExecutor(
-      chart, scopeFactory,
-      undefined, undefined, undefined,
-      checker,
-    );
+    const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, checker);
 
     await executor.run();
 
@@ -465,8 +521,12 @@ describe('FlowChartExecutor — setRootObject', () => {
 
 describe('FlowChartExecutor — getEnrichedResults', () => {
   it('getEnrichedResults returns extractor results (covers line 135)', async () => {
-    const chart = flowChart('A', () => { return 'outputA'; })
-      .addFunction('B', () => { return 'outputB'; })
+    const chart = flowChart('A', () => {
+      return 'outputA';
+    })
+      .addFunction('B', () => {
+        return 'outputB';
+      })
       .addTraversalExtractor((snapshot: any) => ({
         name: snapshot.node.name,
       }))

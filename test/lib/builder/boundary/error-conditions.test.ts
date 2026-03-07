@@ -29,40 +29,33 @@ describe('Boundary: error conditions', () => {
 
   it('double loopTo throws', () => {
     expect(() => {
-      flowChart('a', noop)
-        .addFunction('b', noop)
-        .loopTo('a')
-        .loopTo('a');
+      flowChart('a', noop).addFunction('b', noop).loopTo('a').loopTo('a');
     }).toThrow();
   });
 
   it('parallel child without id throws', () => {
     expect(() => {
-      flowChart('a', noop)
-        .addListOfFunction([{ id: '', name: 'X', fn: noop }]);
+      flowChart('a', noop).addListOfFunction([{ id: '', name: 'X', fn: noop }]);
     }).toThrow('child id required');
   });
 
   it('empty decider branches throws', () => {
     expect(() => {
-      flowChart('a', noop)
-        .addDeciderFunction('d', noop)
-      .end();
+      flowChart('a', noop).addDeciderFunction('d', noop).end();
     }).toThrow('at least one branch');
   });
 
   it('empty selector branches throws', () => {
     expect(() => {
-      flowChart('a', noop)
-        .addSelectorFunction('pick', noop)
-      .end();
+      flowChart('a', noop).addSelectorFunction('pick', noop).end();
     }).toThrow('at least one branch');
   });
 
   it('buildTimeExtractor errors are captured, not thrown', () => {
-    const badExtractor = () => { throw new Error('extractor boom'); };
-    const builder = flowChart('a', noop, undefined, undefined, badExtractor)
-      .addFunction('b', noop);
+    const badExtractor = () => {
+      throw new Error('extractor boom');
+    };
+    const builder = flowChart('a', noop, undefined, undefined, badExtractor).addFunction('b', noop);
 
     // Should not throw during build
     const chart = builder.build();

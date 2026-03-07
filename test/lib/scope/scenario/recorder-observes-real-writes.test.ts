@@ -1,8 +1,8 @@
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
-import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder';
+import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
 import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
+import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
   return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());

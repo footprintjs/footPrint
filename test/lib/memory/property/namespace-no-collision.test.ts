@@ -1,4 +1,5 @@
 import fc from 'fast-check';
+
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 
 describe('Property: namespace no collision', () => {
@@ -38,21 +39,17 @@ describe('Property: namespace no collision', () => {
 
   it('run writes never corrupt global state', () => {
     fc.assert(
-      fc.property(
-        fc.string({ minLength: 1, maxLength: 8 }),
-        fc.integer(),
-        (runId, value) => {
-          const globalDefault = { immutable: 'global' };
-          const mem = new SharedMemory(globalDefault);
+      fc.property(fc.string({ minLength: 1, maxLength: 8 }), fc.integer(), (runId, value) => {
+        const globalDefault = { immutable: 'global' };
+        const mem = new SharedMemory(globalDefault);
 
-          mem.setValue(runId, [], 'data', value);
+        mem.setValue(runId, [], 'data', value);
 
-          // Global should still be intact
-          expect(mem.getValue('', [], 'immutable')).toBe('global');
-          // Run-specific write
-          expect(mem.getValue(runId, [], 'data')).toBe(value);
-        },
-      ),
+        // Global should still be intact
+        expect(mem.getValue('', [], 'immutable')).toBe('global');
+        // Run-specific write
+        expect(mem.getValue(runId, [], 'data')).toBe(value);
+      }),
       { numRuns: 50 },
     );
   });

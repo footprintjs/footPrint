@@ -6,8 +6,8 @@ describe('SelectorFnList (addSelectorFunction)', () => {
   it('creates scope-based selector with selectorFn flag', () => {
     const chart = flowChart('entry', noop)
       .addSelectorFunction('PickChannels', async () => ['email', 'sms'] as any)
-        .addFunctionBranch('email', 'SendEmail', noop)
-        .addFunctionBranch('sms', 'SendSMS', noop)
+      .addFunctionBranch('email', 'SendEmail', noop)
+      .addFunctionBranch('sms', 'SendSMS', noop)
       .end()
       .build();
 
@@ -19,7 +19,7 @@ describe('SelectorFnList (addSelectorFunction)', () => {
   it('sets hasSelector in spec', () => {
     const spec = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'a' as any)
-        .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('a', 'A', noop)
       .end()
       .toSpec();
 
@@ -30,8 +30,8 @@ describe('SelectorFnList (addSelectorFunction)', () => {
   it('sets branchIds in spec', () => {
     const spec = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => ['x'] as any)
-        .addFunctionBranch('x', 'X', noop)
-        .addFunctionBranch('y', 'Y', noop)
+      .addFunctionBranch('x', 'X', noop)
+      .addFunctionBranch('y', 'Y', noop)
       .end()
       .toSpec();
 
@@ -43,7 +43,7 @@ describe('SelectorFnList (addSelectorFunction)', () => {
     const selectorFn = async () => ['a'] as any;
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', selectorFn)
-        .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('a', 'A', noop)
       .end()
       .build();
 
@@ -54,8 +54,8 @@ describe('SelectorFnList (addSelectorFunction)', () => {
     expect(() => {
       flowChart('entry', noop)
         .addSelectorFunction('Pick', async () => 'a' as any)
-          .addFunctionBranch('a', 'A', noop)
-          .addFunctionBranch('a', 'A2', noop);
+        .addFunctionBranch('a', 'A', noop)
+        .addFunctionBranch('a', 'A2', noop);
     }).toThrow('duplicate selector branch');
   });
 
@@ -63,14 +63,14 @@ describe('SelectorFnList (addSelectorFunction)', () => {
     expect(() => {
       flowChart('entry', noop)
         .addSelectorFunction('Pick', async () => [] as any)
-      .end();
+        .end();
     }).toThrow('requires at least one branch');
   });
 
   it('continues building after end()', () => {
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'a' as any)
-        .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('a', 'A', noop)
       .end()
       .addFunction('finish', noop)
       .build();

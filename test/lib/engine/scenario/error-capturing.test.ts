@@ -17,14 +17,18 @@
  * - Scope writes before error are preserved
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger, FlowChart } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { FlowChart, ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
+import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
@@ -36,7 +40,11 @@ function simpleScopeFactory(context: any, stageName: string) {
 
 // ─────────────────────── Helpers ───────────────────────
 
-function createTraverser(root: StageNode, stageMap: Map<string, StageFunction>, opts?: { narrativeEnabled?: boolean; signal?: AbortSignal }) {
+function createTraverser(
+  root: StageNode,
+  stageMap: Map<string, StageFunction>,
+  opts?: { narrativeEnabled?: boolean; signal?: AbortSignal },
+) {
   const runtime = new ExecutionRuntime(root.name);
   const traverser = new FlowchartTraverser({
     root,
@@ -89,7 +97,9 @@ describe('Error capturing: Linear chain', () => {
 
   it('error metadata is recorded via addError', async () => {
     const stageMap = new Map<string, StageFunction>();
-    stageMap.set('failStage', () => { throw new Error('test error'); });
+    stageMap.set('failStage', () => {
+      throw new Error('test error');
+    });
 
     const root: StageNode = { name: 'failStage', id: 'failStage' };
     const { traverser, runtime } = createTraverser(root, stageMap);
@@ -106,7 +116,9 @@ describe('Error capturing: Linear chain', () => {
   it('narrative captures error event', async () => {
     const stageMap = new Map<string, StageFunction>();
     stageMap.set('A', () => 'ok');
-    stageMap.set('B', () => { throw new Error('narrative error'); });
+    stageMap.set('B', () => {
+      throw new Error('narrative error');
+    });
 
     const nodeB: StageNode = { name: 'B', id: 'B' };
     const root: StageNode = { name: 'A', id: 'A', next: nodeB };
@@ -123,9 +135,18 @@ describe('Error capturing: Linear chain', () => {
     const order: string[] = [];
     const stageMap = new Map<string, StageFunction>();
 
-    stageMap.set('A', () => { order.push('A'); return 'a'; });
-    stageMap.set('B', () => { order.push('B'); throw new Error('fail'); });
-    stageMap.set('C', () => { order.push('C'); return 'c'; });
+    stageMap.set('A', () => {
+      order.push('A');
+      return 'a';
+    });
+    stageMap.set('B', () => {
+      order.push('B');
+      throw new Error('fail');
+    });
+    stageMap.set('C', () => {
+      order.push('C');
+      return 'c';
+    });
 
     const nodeC: StageNode = { name: 'C', id: 'C' };
     const nodeB: StageNode = { name: 'B', id: 'B', next: nodeC };
@@ -148,14 +169,16 @@ describe('Error capturing: Fork children', () => {
       scope.set('data', 'good-data');
       return 'goodResult';
     });
-    stageMap.set('bad', () => { throw new Error('child error'); });
+    stageMap.set('bad', () => {
+      throw new Error('child error');
+    });
 
     const good: StageNode = { name: 'good', id: 'good' };
     const bad: StageNode = { name: 'bad', id: 'bad' };
     const root: StageNode = { name: 'parent', id: 'parent', children: [good, bad] };
 
     const { traverser, runtime } = createTraverser(root, stageMap);
-    const result = await traverser.execute() as any;
+    const result = (await traverser.execute()) as any;
 
     // Both children ran
     expect(result.good.isError).toBe(false);
@@ -170,9 +193,11 @@ describe('Error capturing: Fork children', () => {
   it('failFast: snapshot available after early rejection', async () => {
     const stageMap = new Map<string, StageFunction>();
     stageMap.set('parent', () => 'parentResult');
-    stageMap.set('fast-fail', () => { throw new Error('fast error'); });
+    stageMap.set('fast-fail', () => {
+      throw new Error('fast error');
+    });
     stageMap.set('slow', async () => {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       return 'slow-result';
     });
 
@@ -203,7 +228,9 @@ describe('Error capturing: Decider', () => {
 
     const branchA: StageNode = { name: 'branchA', id: 'branchA', fn: () => 'a' };
     const root: StageNode = {
-      name: 'decider', id: 'decider', deciderFn: true,
+      name: 'decider',
+      id: 'decider',
+      deciderFn: true,
       children: [branchA],
     };
 
@@ -223,7 +250,9 @@ describe('Error capturing: Decider', () => {
 
     const branchA: StageNode = { name: 'branchA', id: 'branchA', fn: () => 'a' };
     const root: StageNode = {
-      name: 'decider', id: 'decider', deciderFn: true,
+      name: 'decider',
+      id: 'decider',
+      deciderFn: true,
       children: [branchA],
     };
 
@@ -250,7 +279,9 @@ describe('Error capturing: Selector', () => {
     const branchA: StageNode = { name: 'branchA', id: 'branchA', fn: () => 'a' };
     const branchB: StageNode = { name: 'branchB', id: 'branchB', fn: () => 'b' };
     const root: StageNode = {
-      name: 'selector', id: 'selector', selectorFn: true,
+      name: 'selector',
+      id: 'selector',
+      selectorFn: true,
       children: [branchA, branchB],
     };
 
@@ -270,7 +301,9 @@ describe('Error capturing: Selector', () => {
 
     const branchA: StageNode = { name: 'branchA', id: 'branchA', fn: () => 'a' };
     const root: StageNode = {
-      name: 'selector', id: 'selector', selectorFn: true,
+      name: 'selector',
+      id: 'selector',
+      selectorFn: true,
       children: [branchA],
     };
 
@@ -376,7 +409,9 @@ describe('Error narrative: trace tells the story', () => {
   it('fork error narrative shows which child failed', async () => {
     const stageMap = new Map<string, StageFunction>();
     stageMap.set('orchestrator', () => 'go');
-    stageMap.set('apiCall', () => { throw new Error('API rate limited'); });
+    stageMap.set('apiCall', () => {
+      throw new Error('API rate limited');
+    });
     stageMap.set('dbQuery', () => 'db-data');
 
     const apiCall: StageNode = { name: 'apiCall', id: 'apiCall' };
@@ -385,7 +420,7 @@ describe('Error narrative: trace tells the story', () => {
 
     const { traverser } = createTraverser(root, stageMap, { narrativeEnabled: true });
 
-    const result = await traverser.execute() as any;
+    const result = (await traverser.execute()) as any;
     expect(result.apiCall.isError).toBe(true);
     expect(result.dbQuery.isError).toBe(false);
 

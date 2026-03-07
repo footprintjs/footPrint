@@ -8,20 +8,20 @@
  */
 
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from './ExecutionRuntime';
 import {
-  defaultLogger,
+  type ExtractorError,
   type FlowChart,
+  type RunOptions,
+  type ScopeFactory,
+  type SerializedPipelineStructure,
   type StageNode,
   type StreamHandlers,
-  type TraversalResult,
   type SubflowResult,
-  type ExtractorError,
-  type SerializedPipelineStructure,
-  type ScopeFactory,
-  type RunOptions,
+  type TraversalResult,
+  defaultLogger,
 } from '../engine/types';
 import type { ScopeProtectionMode } from '../scope/protection/types';
+import { ExecutionRuntime } from './ExecutionRuntime';
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
@@ -51,9 +51,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     enrichSnapshots?: boolean,
   ) {
     this.flowChartArgs = {
-      flowChart, scopeFactory, defaultValuesForContext, initialContext,
-      readOnlyContext, throttlingErrorChecker, streamHandlers,
-      scopeProtectionMode, enrichSnapshots,
+      flowChart,
+      scopeFactory,
+      defaultValuesForContext,
+      initialContext,
+      readOnlyContext,
+      throttlingErrorChecker,
+      streamHandlers,
+      scopeProtectionMode,
+      enrichSnapshots,
     };
     this.traverser = this.createTraverser();
   }
@@ -63,9 +69,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const fc = args.flowChart;
     const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
 
-    const runtime = new ExecutionRuntime(
-      fc.root.name, args.defaultValuesForContext, args.initialContext,
-    );
+    const runtime = new ExecutionRuntime(fc.root.name, args.defaultValuesForContext, args.initialContext);
 
     return new FlowchartTraverser<TOut, TScope>({
       root: fc.root,
@@ -102,7 +106,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (options?.timeoutMs && !signal) {
       const controller = new AbortController();
       signal = controller.signal;
-      timeoutId = setTimeout(() => controller.abort(new Error(`Execution timed out after ${options.timeoutMs}ms`)), options.timeoutMs);
+      timeoutId = setTimeout(
+        () => controller.abort(new Error(`Execution timed out after ${options.timeoutMs}ms`)),
+        options.timeoutMs,
+      );
     }
 
     this.traverser = this.createTraverser(signal);

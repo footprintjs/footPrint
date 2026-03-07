@@ -38,7 +38,13 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     }
   }
 
-  onDecision(deciderName: string, chosenBranch: string, chosenDisplayName?: string, rationale?: string, deciderDescription?: string): void {
+  onDecision(
+    deciderName: string,
+    chosenBranch: string,
+    chosenDisplayName?: string,
+    rationale?: string,
+    deciderDescription?: string,
+  ): void {
     const branchName = chosenDisplayName || chosenBranch;
     if (deciderDescription && rationale) {
       this.sentences.push(`It ${deciderDescription}: ${rationale}, so it chose ${branchName}.`);

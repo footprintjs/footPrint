@@ -7,13 +7,17 @@
  * - Selector nodes without children
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { ILogger } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory() {
@@ -45,7 +49,8 @@ describe('Boundary: Validation Errors', () => {
 
     const root: StageNode = { name: 'decider', deciderFn: true };
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: new ExecutionRuntime('decider'),
       scopeProtectionMode: 'off',
@@ -61,7 +66,8 @@ describe('Boundary: Validation Errors', () => {
 
     const root: StageNode = { name: 'selector', selectorFn: true };
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: new ExecutionRuntime('selector'),
       scopeProtectionMode: 'off',
@@ -77,7 +83,8 @@ describe('Boundary: Validation Errors', () => {
 
     const root: StageNode = { name: 'leaf' };
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: new ExecutionRuntime('leaf'),
       scopeProtectionMode: 'off',

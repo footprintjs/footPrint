@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
+
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
+import { defineScopeFromZod } from '../../../../src/lib/scope/state/zod/defineScopeFromZod';
 import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder';
 import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
-import { defineScopeFromZod } from '../../../../src/lib/scope/state/zod/defineScopeFromZod';
-import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 
 function makeCtxLike(): StageContextLike {
   const store: Record<string, unknown> = {};
@@ -19,7 +20,7 @@ function makeCtxLike(): StageContextLike {
     updateObject(path: string[], key: string, value: unknown): void {
       const fullKey = [...path, key].filter(Boolean).join('.');
       const existing = store[fullKey];
-      store[fullKey] = typeof existing === 'object' && existing ? { ...existing as any, ...value as any } : value;
+      store[fullKey] = typeof existing === 'object' && existing ? { ...(existing as any), ...(value as any) } : value;
     },
     addLog() {},
     addError() {},

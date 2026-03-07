@@ -11,8 +11,8 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps } from '../types';
 import type { StageNode } from '../graph/StageNode';
+import type { HandlerDeps } from '../types';
 import type { NodeResolver } from './NodeResolver';
 
 /** Callback for recursive node execution. Avoids circular dep with traverser. */
@@ -90,11 +90,14 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     context.addLog('dynamicNextTarget', nodeId);
     context.addLog('dynamicNextIteration', iteration);
 
-    context.addFlowDebugMessage('loop',
-      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`, {
+    context.addFlowDebugMessage(
+      'loop',
+      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`,
+      {
         targetStage: targetNode.name,
         iteration: iteration + 1,
-      });
+      },
+    );
 
     this.deps.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1, targetNode.description);
 
@@ -149,11 +152,14 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     context.addLog('dynamicNextTarget', nextNodeId);
     context.addLog('dynamicNextIteration', iteration);
 
-    context.addFlowDebugMessage('loop',
-      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`, {
+    context.addFlowDebugMessage(
+      'loop',
+      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`,
+      {
         targetStage: targetNode.name,
         iteration: iteration + 1,
-      });
+      },
+    );
 
     this.deps.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1, targetNode.description);
 
@@ -171,7 +177,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     if (current >= this.maxIterations) {
       throw new Error(
         `Maximum loop iterations (${this.maxIterations}) exceeded for node '${nodeId}'. ` +
-        `Set maxIterations to increase the limit.`,
+          'Set maxIterations to increase the limit.',
       );
     }
     this.iterationCounters.set(nodeId, current + 1);

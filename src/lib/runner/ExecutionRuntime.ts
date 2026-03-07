@@ -10,9 +10,9 @@
  * After execution, consumers query it for the full execution state.
  */
 
+import { EventLog } from '../memory/EventLog';
 import { SharedMemory } from '../memory/SharedMemory';
 import { StageContext } from '../memory/StageContext';
-import { EventLog } from '../memory/EventLog';
 import type { CommitBundle, FlowMessage, StageSnapshot } from '../memory/types';
 
 export interface NarrativeEntry {

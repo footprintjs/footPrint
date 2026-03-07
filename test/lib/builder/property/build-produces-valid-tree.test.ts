@@ -1,6 +1,7 @@
 import fc from 'fast-check';
-import { flowChart } from '../../../../src/lib/builder';
+
 import type { StageNode } from '../../../../src/lib/builder';
+import { flowChart } from '../../../../src/lib/builder';
 
 const noop = async () => {};
 
@@ -63,31 +64,34 @@ describe('Property: build produces valid tree', () => {
 
   it('spec chain length matches node chain length', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 20 }),
-        (chainLen) => {
-          let builder = flowChart('s0', noop);
-          for (let i = 1; i < chainLen; i++) {
-            builder = builder.addFunction(`s${i}`, noop);
-          }
+      fc.property(fc.integer({ min: 1, max: 20 }), (chainLen) => {
+        let builder = flowChart('s0', noop);
+        for (let i = 1; i < chainLen; i++) {
+          builder = builder.addFunction(`s${i}`, noop);
+        }
 
-          const chart = builder.build();
-          const spec = builder.toSpec();
+        const chart = builder.build();
+        const spec = builder.toSpec();
 
-          // Count node chain
-          let nodeCount = 0;
-          let node: StageNode | undefined = chart.root;
-          while (node) { nodeCount++; node = node.next; }
+        // Count node chain
+        let nodeCount = 0;
+        let node: StageNode | undefined = chart.root;
+        while (node) {
+          nodeCount++;
+          node = node.next;
+        }
 
-          // Count spec chain
-          let specCount = 0;
-          let s = spec;
-          while (s) { specCount++; s = s.next as any; }
+        // Count spec chain
+        let specCount = 0;
+        let s = spec;
+        while (s) {
+          specCount++;
+          s = s.next as any;
+        }
 
-          expect(nodeCount).toBe(chainLen);
-          expect(specCount).toBe(chainLen);
-        },
-      ),
+        expect(nodeCount).toBe(chainLen);
+        expect(specCount).toBe(chainLen);
+      }),
       { numRuns: 30 },
     );
   });

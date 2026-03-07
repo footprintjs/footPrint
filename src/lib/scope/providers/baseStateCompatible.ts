@@ -43,8 +43,7 @@ export function attachScopeMethods<T extends object>(
     getValue: (key?: string) => ctx.getValue([], key),
     setValue: (key: string, value: unknown, shouldRedact = false, description?: string) =>
       (ctx as any).setObject([], key, value, shouldRedact, description),
-    updateValue: (key: string, value: unknown, description?: string) =>
-      ctx.updateObject([], key, value, description),
+    updateValue: (key: string, value: unknown, description?: string) => ctx.updateObject([], key, value, description),
     setObjectInRoot: (key: string, value: unknown) => ctx.setRoot?.(key, value),
 
     getReadOnlyValues: () => readOnly,

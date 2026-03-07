@@ -36,9 +36,14 @@ describe('isStageNodeReturn', () => {
   });
 
   it('returns false when property access throws (proxy safety)', () => {
-    const proxy = new Proxy({}, {
-      get() { throw new Error('proxy trap'); },
-    });
+    const proxy = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('proxy trap');
+        },
+      },
+    );
     expect(isStageNodeReturn(proxy)).toBe(false);
   });
 

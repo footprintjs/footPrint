@@ -1,6 +1,6 @@
+import { EventLog } from '../../../../src/lib/memory/EventLog';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 
 describe('Boundary: deep nesting', () => {
   it('handles deeply nested paths (20 levels)', () => {
@@ -38,7 +38,7 @@ describe('Boundary: deep nesting', () => {
   it('handles nested children (tree depth 10 with branching)', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    let ctx = new StageContext('p1', 'root', mem, '', log);
+    const ctx = new StageContext('p1', 'root', mem, '', log);
 
     // Create a tree: each node has 2 children, 10 levels deep
     function createTree(parent: StageContext, depth: number) {

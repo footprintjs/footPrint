@@ -5,11 +5,11 @@
  * for any node, preventing runaway loops regardless of user code.
  */
 
+import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ContinuationResolver, DEFAULT_MAX_ITERATIONS } from '../../../../src/lib/engine/handlers/ContinuationResolver';
 import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
-import type { HandlerDeps } from '../../../../src/lib/engine/types';
-import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
+import type { HandlerDeps } from '../../../../src/lib/engine/types';
 
 function makeDeps(root: StageNode): HandlerDeps {
   return {
@@ -35,8 +35,7 @@ describe('Property: Iteration Limit', () => {
     }
 
     // 6th visit throws
-    expect(() => resolver.getAndIncrementIteration('loop-node'))
-      .toThrow('Maximum loop iterations (5) exceeded');
+    expect(() => resolver.getAndIncrementIteration('loop-node')).toThrow('Maximum loop iterations (5) exceeded');
   });
 
   it('enforces limit per-node independently', () => {

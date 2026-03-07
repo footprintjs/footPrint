@@ -10,62 +10,51 @@
 export { ScopeFacade } from './ScopeFacade';
 
 // Types
-export type {
-  Recorder,
-  RecorderContext,
-  ReadEvent,
-  WriteEvent,
-  CommitEvent,
-  ErrorEvent,
-  StageEvent,
-} from './types';
+export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, RecorderContext, StageEvent, WriteEvent } from './types';
 
 // Recorders
-export { MetricRecorder } from './recorders/MetricRecorder';
-export type { StageMetrics, AggregatedMetrics } from './recorders/MetricRecorder';
-
+export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './recorders/DebugRecorder';
 export { DebugRecorder } from './recorders/DebugRecorder';
-export type { DebugVerbosity, DebugEntry, DebugRecorderOptions } from './recorders/DebugRecorder';
-
-export { NarrativeRecorder } from './recorders/NarrativeRecorder';
+export type { AggregatedMetrics, StageMetrics } from './recorders/MetricRecorder';
+export { MetricRecorder } from './recorders/MetricRecorder';
 export type {
   NarrativeDetail,
   NarrativeOperation,
-  StageNarrativeData,
   NarrativeRecorderOptions,
+  StageNarrativeData,
 } from './recorders/NarrativeRecorder';
+export { NarrativeRecorder } from './recorders/NarrativeRecorder';
 
 // Protection
-export { createProtectedScope, createErrorMessage } from './protection';
 export type { ScopeProtectionMode, ScopeProtectionOptions } from './protection';
+export { createErrorMessage, createProtectedScope } from './protection';
 
 // Providers
-export {
-  toScopeFactory,
-  registerScopeResolver,
-  resolveScopeProvider,
-  __clearScopeResolversForTests,
-  looksLikeClassCtor,
-  looksLikeFactory,
-  isSubclassOfScopeFacade,
-  makeFactoryProvider,
-  makeClassProvider,
-  attachScopeMethods,
-  attachBaseStateCompat,
-} from './providers';
-
 export type {
-  StageContextLike,
+  ProviderResolver,
+  ResolveOptions,
   ScopeFactory,
   ScopeProvider,
-  ProviderResolver,
+  StageContextLike,
   StrictMode,
-  ResolveOptions,
+} from './providers';
+export {
+  __clearScopeResolversForTests,
+  attachBaseStateCompat,
+  attachScopeMethods,
+  isSubclassOfScopeFacade,
+  looksLikeClassCtor,
+  looksLikeFactory,
+  makeClassProvider,
+  makeFactoryProvider,
+  registerScopeResolver,
+  resolveScopeProvider,
+  toScopeFactory,
 } from './providers';
 
 // State / Zod
-export { defineScopeFromZod } from './state/zod/defineScopeFromZod';
 export type { DefineScopeOptions } from './state/zod/defineScopeFromZod';
+export { defineScopeFromZod } from './state/zod/defineScopeFromZod';
+export { ZodScopeResolver } from './state/zod/resolver';
 export { defineScopeSchema, isScopeSchema } from './state/zod/schema/builder';
 export { createScopeProxyFromZod } from './state/zod/scopeFactory';
-export { ZodScopeResolver } from './state/zod/resolver';

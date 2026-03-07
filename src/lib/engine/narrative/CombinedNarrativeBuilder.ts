@@ -56,16 +56,27 @@ export class CombinedNarrativeBuilder {
 
       if (parsed.type === 'stage') {
         stageCounter++;
-        entries.push({ type: 'stage', text: `Stage ${stageCounter}: ${sentence}`, depth: 0, stageName: parsed.stageName });
+        entries.push({
+          type: 'stage',
+          text: `Stage ${stageCounter}: ${sentence}`,
+          depth: 0,
+          stageName: parsed.stageName,
+        });
         if (parsed.stageName) {
           const data = this.findStageData(parsed.stageName, stageData);
-          if (data) { usedStages.add(data.stageName); this.addStepEntries(entries, data); }
+          if (data) {
+            usedStages.add(data.stageName);
+            this.addStepEntries(entries, data);
+          }
         }
       } else if (parsed.type === 'condition') {
         entries.push({ type: 'condition', text: `[Condition]: ${sentence}`, depth: 0 });
         if (parsed.stageName) {
           const data = this.findStageData(parsed.stageName, stageData);
-          if (data) { usedStages.add(data.stageName); this.addStepEntries(entries, data); }
+          if (data) {
+            usedStages.add(data.stageName);
+            this.addStepEntries(entries, data);
+          }
         }
       } else if (parsed.type === 'fork') {
         entries.push({ type: 'fork', text: `[Parallel]: ${sentence}`, depth: 0 });
@@ -103,14 +114,14 @@ export class CombinedNarrativeBuilder {
 
   private addStepEntries(entries: CombinedNarrativeEntry[], data: StageNarrativeData): void {
     for (const op of data.operations) {
-      const stepPrefix = this.options.includeStepNumbers && op.stepNumber
-        ? `Step ${op.stepNumber}: ` : '';
+      const stepPrefix = this.options.includeStepNumbers && op.stepNumber ? `Step ${op.stepNumber}: ` : '';
 
       let text: string;
       if (op.type === 'read') {
-        text = this.options.includeValues && op.valueSummary
-          ? `${stepPrefix}Read ${op.key} = ${op.valueSummary}`
-          : `${stepPrefix}Read ${op.key}`;
+        text =
+          this.options.includeValues && op.valueSummary
+            ? `${stepPrefix}Read ${op.key} = ${op.valueSummary}`
+            : `${stepPrefix}Read ${op.key}`;
       } else if (op.operation === 'delete') {
         text = `${stepPrefix}Delete ${op.key}`;
       } else if (op.operation === 'update') {
@@ -130,8 +141,10 @@ export class CombinedNarrativeBuilder {
   private findStageData(name: string, stageData: Map<string, StageNarrativeData>): StageNarrativeData | undefined {
     if (stageData.has(name)) return stageData.get(name);
     for (const [stageName, data] of Array.from(stageData.entries())) {
-      if (stageName.toLowerCase().includes(name.toLowerCase()) ||
-          name.toLowerCase().includes(stageName.toLowerCase())) {
+      if (
+        stageName.toLowerCase().includes(name.toLowerCase()) ||
+        name.toLowerCase().includes(stageName.toLowerCase())
+      ) {
         return data;
       }
     }
@@ -155,7 +168,8 @@ export class CombinedNarrativeBuilder {
       const match = sentence.match(/chose (.+)\./);
       return { type: 'condition', stageName: match?.[1]?.trim() };
     }
-    if (sentence.includes('paths were executed in parallel') || sentence.includes('paths were selected')) return { type: 'fork' };
+    if (sentence.includes('paths were executed in parallel') || sentence.includes('paths were selected'))
+      return { type: 'fork' };
     if (sentence.startsWith('Entering') || sentence.startsWith('Exiting')) return { type: 'subflow' };
     if (sentence.startsWith('On pass')) return { type: 'loop' };
     if (sentence.startsWith('Execution stopped')) return { type: 'break' };

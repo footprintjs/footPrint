@@ -1,15 +1,14 @@
 /* istanbul ignore file */
-export { toScopeFactory, registerScopeResolver } from './resolve';
-export { resolveScopeProvider, __clearScopeResolversForTests } from './registry';
-export { looksLikeClassCtor, looksLikeFactory, isSubclassOfScopeFacade } from './guards';
-export { makeFactoryProvider, makeClassProvider } from './providers';
-export { attachScopeMethods, attachBaseStateCompat } from './baseStateCompatible';
-
+export { attachBaseStateCompat, attachScopeMethods } from './baseStateCompatible';
+export { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards';
+export { makeClassProvider, makeFactoryProvider } from './providers';
+export { __clearScopeResolversForTests, resolveScopeProvider } from './registry';
+export { registerScopeResolver, toScopeFactory } from './resolve';
 export type {
-  StageContextLike,
+  ProviderResolver,
+  ResolveOptions,
   ScopeFactory,
   ScopeProvider,
-  ProviderResolver,
+  StageContextLike,
   StrictMode,
-  ResolveOptions,
 } from './types';

@@ -5,13 +5,17 @@
  * DeciderNode → fn returns branch ID → chosen child executes.
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -43,14 +47,16 @@ describe('Scenario: Decider Pattern', () => {
     const approve: StageNode = { name: 'approve', id: 'approve' };
     const reject: StageNode = { name: 'reject', id: 'reject' };
     const root: StageNode = {
-      name: 'decider', id: 'decider',
+      name: 'decider',
+      id: 'decider',
       deciderFn: true,
       children: [approve, reject],
     };
 
     const runtime = new ExecutionRuntime('decider');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -73,14 +79,16 @@ describe('Scenario: Decider Pattern', () => {
 
     const fallback: StageNode = { name: 'fallback', id: 'default' }; // id = 'default'
     const root: StageNode = {
-      name: 'decider', id: 'decider',
+      name: 'decider',
+      id: 'decider',
       deciderFn: true,
       children: [fallback],
     };
 
     const runtime = new ExecutionRuntime('decider');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -97,14 +105,16 @@ describe('Scenario: Decider Pattern', () => {
     stageMap.set('approve', () => 'approved');
 
     const root: StageNode = {
-      name: 'decider', id: 'decider',
+      name: 'decider',
+      id: 'decider',
       deciderFn: true,
       children: [{ name: 'approve', id: 'approve' }],
     };
 
     const runtime = new ExecutionRuntime('decider');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',

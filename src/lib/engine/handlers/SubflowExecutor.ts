@@ -13,16 +13,16 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps, IExecutionRuntime, StageFunction, SubflowResult, NodeResultType } from '../types';
-import type { StageNode, Selector } from '../graph/StageNode';
+import type { Selector, StageNode } from '../graph/StageNode';
 import { isStageNodeReturn } from '../graph/StageNode';
+import type { HandlerDeps, IExecutionRuntime, NodeResultType, StageFunction, SubflowResult } from '../types';
 import type { NodeResolver } from './NodeResolver';
 import { StageRunner } from './StageRunner';
 import {
-  getInitialScopeValues,
-  seedSubflowGlobalStore,
   applyOutputMapping,
   createSubflowHandlerDeps,
+  getInitialScopeValues,
+  seedSubflowGlobalStore,
 } from './SubflowInputMapper';
 
 /** Callback for running a stage function. Avoids circular dep with traverser. */
@@ -117,7 +117,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // Refresh rootStageContext so WriteBuffer sees committed data
       const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
       nestedRootContext = new StageContextClass(
-        '', nestedRootContext.stageName, nestedRuntime.globalStore, '', nestedRuntime.executionHistory,
+        '',
+        nestedRootContext.stageName,
+        nestedRuntime.globalStore,
+        '',
+        nestedRuntime.executionHistory,
       );
       nestedRuntime.rootStageContext = nestedRootContext;
     }
@@ -143,9 +147,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       this.currentSubflowRoot = subflowNode;
       this.currentSubflowDeps = subflowDeps;
 
-      subflowOutput = await this.executeSubflowInternal(
-        subflowNode, nestedRootContext, subflowBreakFlag, subflowId,
-      );
+      subflowOutput = await this.executeSubflowInternal(subflowNode, nestedRootContext, subflowBreakFlag, subflowId);
     } catch (error: any) {
       subflowError = error;
       parentContext.addError('subflowError', error.toString());
@@ -267,7 +269,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         if (dynamicNode.children && dynamicNode.children.length > 0) {
           node.children = dynamicNode.children;
           context.addLog('dynamicChildCount', dynamicNode.children.length);
-          context.addLog('dynamicChildIds', dynamicNode.children.map((c) => c.id || c.name));
+          context.addLog(
+            'dynamicChildIds',
+            dynamicNode.children.map((c) => c.id || c.name),
+          );
 
           if (typeof dynamicNode.nextNodeSelector === 'function') {
             node.nextNodeSelector = dynamicNode.nextNodeSelector;
@@ -295,7 +300,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (hasChildrenAfterStage) {
       if (node.nextNodeSelector) {
         const results = await this.executeSelectedChildrenInternal(
-          node.nextNodeSelector, node.children!, stageOutput, context, branchPath, breakFlag,
+          node.nextNodeSelector,
+          node.children!,
+          stageOutput,
+          context,
+          branchPath,
+          breakFlag,
         );
         if (!hasNextAfterStage) return results;
       } else {
@@ -339,7 +349,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
   private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string, contextStageName?: string): string {
     const baseName = node.id ?? node.name;
-    const nodeId = (contextStageName && contextStageName !== node.name) ? contextStageName : baseName;
+    const nodeId = contextStageName && contextStageName !== node.name ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
   }
@@ -402,7 +412,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(', ')}`;
+      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(
+        ', ',
+      )}`;
       this.deps.logger.error(`Error in subflow (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
       throw new Error(errorMessage);

@@ -1,12 +1,10 @@
 import { z } from 'zod';
-import { SharedMemory, StageContext, EventLog } from '../../../../src/lib/memory';
-import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
+
+import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { createProtectedScope } from '../../../../src/lib/scope/protection';
+import { __clearScopeResolversForTests, resolveScopeProvider } from '../../../../src/lib/scope/providers';
+import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
-import {
-  resolveScopeProvider,
-  __clearScopeResolversForTests,
-} from '../../../../src/lib/scope/providers';
 
 describe('Boundary: error conditions', () => {
   beforeEach(() => __clearScopeResolversForTests());
@@ -23,7 +21,9 @@ describe('Boundary: error conditions', () => {
       stageName: 'test',
       allowedInternalProperties: [],
     });
-    expect(() => { (scope as any).anything = 'value'; }).toThrow('Scope Access Error');
+    expect(() => {
+      (scope as any).anything = 'value';
+    }).toThrow('Scope Access Error');
   });
 
   it('createScopeProxyFromZod rejects non-Zod input', () => {
@@ -54,11 +54,15 @@ describe('Boundary: error conditions', () => {
 
     scope.attachRecorder({
       id: 'bad-read',
-      onRead: () => { throw new Error('read crash'); },
+      onRead: () => {
+        throw new Error('read crash');
+      },
     });
     scope.attachRecorder({
       id: 'bad-error',
-      onError: () => { throw new Error('error crash'); },
+      onError: () => {
+        throw new Error('error crash');
+      },
     });
 
     // Should not infinite loop

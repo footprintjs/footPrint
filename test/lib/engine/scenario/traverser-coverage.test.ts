@@ -11,13 +11,17 @@
  * - Lines 541-576: autoRegisterSubflowDef internals (stageMap merge, nested subflows)
  */
 
-import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
-import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type { StageFunction, ILogger, StreamHandlers } from '../../../../src/lib/engine/types';
+import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
+import type { ILogger, StageFunction, StreamHandlers } from '../../../../src/lib/engine/types';
+import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  info: jest.fn(),
+  log: jest.fn(),
+  debug: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -41,7 +45,8 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('root');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -68,9 +73,30 @@ describe('Scenario: Traverser Coverage', () => {
     };
     stageMap.set('parent', parentFn);
 
-    const childA: StageNode = { name: 'childA', id: 'a', fn: () => { order.push('childA'); return 'a-done'; } };
-    const childB: StageNode = { name: 'childB', id: 'b', fn: () => { order.push('childB'); return 'b-done'; } };
-    const childC: StageNode = { name: 'childC', id: 'c', fn: () => { order.push('childC'); return 'c-done'; } };
+    const childA: StageNode = {
+      name: 'childA',
+      id: 'a',
+      fn: () => {
+        order.push('childA');
+        return 'a-done';
+      },
+    };
+    const childB: StageNode = {
+      name: 'childB',
+      id: 'b',
+      fn: () => {
+        order.push('childB');
+        return 'b-done';
+      },
+    };
+    const childC: StageNode = {
+      name: 'childC',
+      id: 'c',
+      fn: () => {
+        order.push('childC');
+        return 'c-done';
+      },
+    };
 
     stageMap.set('childA', childA.fn as StageFunction);
     stageMap.set('childB', childB.fn as StageFunction);
@@ -81,12 +107,13 @@ describe('Scenario: Traverser Coverage', () => {
       id: 'parent',
       fn: parentFn,
       children: [childA, childB, childC],
-      nextNodeSelector: (_input: any) => ['a', 'c'],  // static selector picks a and c
+      nextNodeSelector: (_input: any) => ['a', 'c'], // static selector picks a and c
     };
 
     const runtime = new ExecutionRuntime('parent');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -113,11 +140,32 @@ describe('Scenario: Traverser Coverage', () => {
       return {
         name: 'dynamic-fork',
         children: [
-          { name: 'x', id: 'x', fn: () => { order.push('x'); return 'x-done'; } },
-          { name: 'y', id: 'y', fn: () => { order.push('y'); return 'y-done'; } },
-          { name: 'z', id: 'z', fn: () => { order.push('z'); return 'z-done'; } },
+          {
+            name: 'x',
+            id: 'x',
+            fn: () => {
+              order.push('x');
+              return 'x-done';
+            },
+          },
+          {
+            name: 'y',
+            id: 'y',
+            fn: () => {
+              order.push('y');
+              return 'y-done';
+            },
+          },
+          {
+            name: 'z',
+            id: 'z',
+            fn: () => {
+              order.push('z');
+              return 'z-done';
+            },
+          },
         ],
-        nextNodeSelector: (_input: any) => ['y'],  // only pick y
+        nextNodeSelector: (_input: any) => ['y'], // only pick y
       };
     });
 
@@ -125,7 +173,8 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('producer');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -177,12 +226,13 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('setup');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
       logger: silentLogger,
-      subflows: {},  // shared object ref so autoRegisterSubflowDef mutations are visible to deps
+      subflows: {}, // shared object ref so autoRegisterSubflowDef mutations are visible to deps
     });
 
     const result = await traverser.execute();
@@ -232,12 +282,13 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('producer');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
       logger: silentLogger,
-      subflows: {},  // shared object ref so autoRegisterSubflowDef mutations are visible to deps
+      subflows: {}, // shared object ref so autoRegisterSubflowDef mutations are visible to deps
     });
 
     const result = await traverser.execute();
@@ -261,14 +312,32 @@ describe('Scenario: Traverser Coverage', () => {
       return 'original';
     });
 
-    const nestedSubRoot: StageNode = { name: 'nested-entry', fn: () => { order.push('nested'); return 'nested-done'; } };
+    const nestedSubRoot: StageNode = {
+      name: 'nested-entry',
+      fn: () => {
+        order.push('nested');
+        return 'nested-done';
+      },
+    };
 
     const subStageMap = new Map<string, StageFunction>();
-    subStageMap.set('sub-only-stage', () => { order.push('sub-only'); return 'sub-only-done'; });
+    subStageMap.set('sub-only-stage', () => {
+      order.push('sub-only');
+      return 'sub-only-done';
+    });
     // This entry exists in parent stageMap — parent wins (first-write-wins from parent perspective)
-    subStageMap.set('shared-stage', () => { order.push('overwritten-shared'); return 'overwritten'; });
+    subStageMap.set('shared-stage', () => {
+      order.push('overwritten-shared');
+      return 'overwritten';
+    });
 
-    const subRoot: StageNode = { name: 'sub-root', fn: () => { order.push('sub-root'); return 'sub-done'; } };
+    const subRoot: StageNode = {
+      name: 'sub-root',
+      fn: () => {
+        order.push('sub-root');
+        return 'sub-done';
+      },
+    };
 
     stageMap.set('trigger', () => {
       order.push('trigger');
@@ -294,12 +363,13 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('trigger');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
       logger: silentLogger,
-      subflows: {},  // shared object ref so autoRegisterSubflowDef mutations are visible to deps
+      subflows: {}, // shared object ref so autoRegisterSubflowDef mutations are visible to deps
     });
 
     await traverser.execute();
@@ -351,7 +421,8 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('subflow-mount');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -402,7 +473,8 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('stream-stage');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -426,7 +498,9 @@ describe('Scenario: Traverser Coverage', () => {
     const streamIds: string[] = [];
 
     const streamHandlers: StreamHandlers = {
-      onStart: (streamId: string) => { streamIds.push(streamId); },
+      onStart: (streamId: string) => {
+        streamIds.push(streamId);
+      },
       onToken: () => {},
       onEnd: () => {},
     };
@@ -446,7 +520,8 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('auto-id-stream');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
@@ -491,12 +566,13 @@ describe('Scenario: Traverser Coverage', () => {
 
     const runtime = new ExecutionRuntime('start');
     const traverser = new FlowchartTraverser({
-      root, stageMap,
+      root,
+      stageMap,
       scopeFactory: simpleScopeFactory,
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
       logger: silentLogger,
-      subflows: {},  // empty dict — autoRegisterSubflowDef populates it
+      subflows: {}, // empty dict — autoRegisterSubflowDef populates it
     });
 
     await traverser.execute();

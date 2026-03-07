@@ -1,9 +1,10 @@
 import { z } from 'zod';
+
 import {
-  isZodNode,
-  unwrap,
   getRecordValueType,
+  isZodNode,
   parseWithThis,
+  unwrap,
 } from '../../../../src/lib/scope/state/zod/utils/validateHelper';
 
 describe('isZodNode', () => {
@@ -148,9 +149,7 @@ describe('parseWithThis', () => {
   });
 
   it('throws error from safeParse failure result', () => {
-    const error = new z.ZodError([
-      { code: 'custom', message: 'bad', path: [] },
-    ]);
+    const error = new z.ZodError([{ code: 'custom', message: 'bad', path: [] }]);
     const mockSchema = {
       safeParse: jest.fn().mockReturnValue({ success: false, error }),
       _def: {},
@@ -160,13 +159,13 @@ describe('parseWithThis', () => {
   });
 
   it('falls to wrapper pipeline when all direct methods fail with binding errors', () => {
-    let callCount = 0;
+    const callCount = 0;
     const mockSchema = {
       safeParse: jest.fn().mockImplementation(() => {
-        throw new Error("inst._zod is broken");
+        throw new Error('inst._zod is broken');
       }),
       parse: jest.fn().mockImplementation(() => {
-        throw new Error("inst._zod is broken");
+        throw new Error('inst._zod is broken');
       }),
       _def: {},
     } as any;
@@ -181,9 +180,9 @@ describe('parseWithThis', () => {
     // First safeParse returns something without 'success' property
     // Second safeParse.call also returns something without 'success'
     // Falls through to parse
-    let callIdx = 0;
+    const callIdx = 0;
     const mockSchema = {
-      safeParse: jest.fn().mockImplementation(function(this: any, val: any) {
+      safeParse: jest.fn().mockImplementation(function (this: any, val: any) {
         // Return something that doesn't have 'success' property
         return { unexpected: true };
       }),
@@ -199,7 +198,7 @@ describe('parseWithThis', () => {
     // Second safeParse.call (line 69) succeeds with a success result.
     let callCount = 0;
     const mockSchema = {
-      safeParse: jest.fn().mockImplementation(function(this: any, val: any) {
+      safeParse: jest.fn().mockImplementation(function (this: any, val: any) {
         callCount++;
         if (callCount === 1) {
           throw new Error("Cannot read properties of undefined (reading '_zod')");
@@ -218,10 +217,10 @@ describe('parseWithThis', () => {
     // All direct methods throw binding errors, wrapper also fails
     const mockSchema = {
       safeParse: jest.fn().mockImplementation(() => {
-        throw new Error("inst._zod broken");
+        throw new Error('inst._zod broken');
       }),
       parse: jest.fn().mockImplementation(() => {
-        throw new Error("inst._zod broken");
+        throw new Error('inst._zod broken');
       }),
       _def: {},
     } as any;

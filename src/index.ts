@@ -13,13 +13,8 @@
 // Builder — Flowchart construction
 // ============================================================================
 
-export { FlowChartBuilder, flowChart } from './lib/builder';
-
-export type {
-  FlowChart,
-  PipelineStageFunction as StageHandler,
-  StreamHandlers,
-} from './lib/builder';
+export type { FlowChart, PipelineStageFunction as StageHandler, StreamHandlers } from './lib/builder';
+export { flowChart, FlowChartBuilder } from './lib/builder';
 
 // ============================================================================
 // Runner — Execution convenience layer
@@ -39,7 +34,7 @@ export { DebugRecorder } from './lib/scope';
 export { NarrativeRecorder } from './lib/scope';
 
 // Recorder interface and core event types (needed to implement custom Recorder)
-export type { Recorder, ReadEvent, WriteEvent, CommitEvent, ErrorEvent } from './lib/scope';
+export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, WriteEvent } from './lib/scope';
 
 // Zod-based scope definitions
 export { defineScopeFromZod } from './lib/scope';
@@ -54,5 +49,5 @@ export { CombinedNarrativeBuilder } from './lib/engine';
 // Memory — ScopeFactory type (needed for FlowChartExecutor constructor)
 // ============================================================================
 
-export type { ScopeFactory } from './lib/memory';
 export type { RunOptions } from './lib/engine';
+export type { ScopeFactory } from './lib/memory';

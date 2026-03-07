@@ -8,8 +8,8 @@
  */
 
 import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps } from '../types';
 import type { StageNode } from '../graph/StageNode';
+import type { HandlerDeps } from '../types';
 
 export class NodeResolver<TOut = any, TScope = any> {
   constructor(private deps: HandlerDeps<TOut, TScope>) {}
@@ -79,5 +79,4 @@ export class NodeResolver<TOut = any, TScope = any> {
       subflowMountOptions: node.subflowMountOptions || subflowDef.root.subflowMountOptions,
     };
   }
-
 }

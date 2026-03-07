@@ -1,6 +1,7 @@
 import fc from 'fast-check';
-import { flowChart } from '../../../../src/lib/builder';
+
 import type { StageNode } from '../../../../src/lib/builder';
+import { flowChart } from '../../../../src/lib/builder';
 
 const noop = async () => {};
 
@@ -40,29 +41,26 @@ describe('Property: stage names unique', () => {
 
   it('all names in tree are reachable from root', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 2, max: 15 }),
-        (count) => {
-          let builder = flowChart('s0', noop);
-          const expectedNames = new Set(['s0']);
-          for (let i = 1; i < count; i++) {
-            builder = builder.addFunction(`s${i}`, noop);
-            expectedNames.add(`s${i}`);
-          }
-          const chart = builder.build();
+      fc.property(fc.integer({ min: 2, max: 15 }), (count) => {
+        let builder = flowChart('s0', noop);
+        const expectedNames = new Set(['s0']);
+        for (let i = 1; i < count; i++) {
+          builder = builder.addFunction(`s${i}`, noop);
+          expectedNames.add(`s${i}`);
+        }
+        const chart = builder.build();
 
-          const reachable = new Set<string>();
-          const walk = (node: StageNode | undefined) => {
-            if (!node) return;
-            reachable.add(node.name);
-            if (node.children) node.children.forEach(walk);
-            walk(node.next);
-          };
-          walk(chart.root);
+        const reachable = new Set<string>();
+        const walk = (node: StageNode | undefined) => {
+          if (!node) return;
+          reachable.add(node.name);
+          if (node.children) node.children.forEach(walk);
+          walk(node.next);
+        };
+        walk(chart.root);
 
-          expect(reachable).toEqual(expectedNames);
-        },
-      ),
+        expect(reachable).toEqual(expectedNames);
+      }),
       { numRuns: 30 },
     );
   });
