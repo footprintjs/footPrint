@@ -7,9 +7,9 @@
 
 <p align="center">
   <a href="https://github.com/footprintjs/footPrint/actions"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/footprint"><img src="https://img.shields.io/npm/v/footprint.svg?style=flat" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg?style=flat" alt="npm version"></a>
   <a href="https://github.com/footprintjs/footPrint/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <a href="https://www.npmjs.com/package/footprint"><img src="https://img.shields.io/npm/dm/footprint.svg" alt="Downloads"></a>
+  <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg" alt="Downloads"></a>
   <a href="https://footprintjs.github.io/footprint-playground/"><img src="https://img.shields.io/badge/Try_it-Interactive_Playground-6366f1?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTggNXYxNGwxMS03eiIvPjwvc3ZnPg==" alt="Interactive Playground"></a>
 </p>
 
@@ -18,7 +18,7 @@
 FootPrint is a runtime for building **flowchart pipelines** where each node is just a function. It produces **causal traces** as a byproduct of execution &mdash; so any LLM can explain what happened and why, without reconstructing from logs.
 
 ```bash
-npm install footprint
+npm install footprintjs
 ```
 
 ---

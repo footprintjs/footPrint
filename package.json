@@ -1,5 +1,5 @@
 {
-  "name": "footprint",
+  "name": "footprintjs",
   "version": "0.1.0",
   "description": "Turn your whiteboard flowchart into running code — with automatic causal traces for LLM reasoning",
   "license": "MIT",
