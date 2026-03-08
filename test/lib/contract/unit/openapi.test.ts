@@ -86,4 +86,21 @@ describe('OpenAPI generation', () => {
 
     expect(spec.info.description).toContain('Decides between');
   });
+
+  it('includes parallel children in description', () => {
+    const chart = flowChart('Fetch', () => {})
+      .addListOfFunction([
+        { id: 'a', name: 'ParseHTML', fn: () => {} },
+        { id: 'b', name: 'ParseCSS', fn: () => {} },
+      ])
+      .addFunction('Merge', () => {})
+      .build();
+
+    const contract = defineContract(chart, {});
+    const spec = contract.toOpenAPI();
+
+    expect(spec.info.description).toContain('parallel');
+    expect(spec.info.description).toContain('ParseHTML');
+    expect(spec.info.description).toContain('ParseCSS');
+  });
 });

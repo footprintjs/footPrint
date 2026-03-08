@@ -6,6 +6,8 @@ describe('isZodSchema', () => {
   it('detects Zod schemas', () => {
     expect(isZodSchema(z.string())).toBe(true);
     expect(isZodSchema(z.object({ name: z.string() }))).toBe(true);
+    expect(isZodSchema(z.number())).toBe(true);
+    expect(isZodSchema(z.array(z.string()))).toBe(true);
   });
 
   it('rejects non-Zod objects', () => {
@@ -13,6 +15,8 @@ describe('isZodSchema', () => {
     expect(isZodSchema(null)).toBe(false);
     expect(isZodSchema(42)).toBe(false);
     expect(isZodSchema({})).toBe(false);
+    expect(isZodSchema({ def: 'not-an-object' })).toBe(false);
+    expect(isZodSchema({ def: { noType: true } })).toBe(false);
   });
 });
 
@@ -34,6 +38,11 @@ describe('zodToJsonSchema', () => {
     expect(result).toEqual({ type: 'string', enum: ['a', 'b', 'c'] });
   });
 
+  it('converts literal (single value)', () => {
+    const result = zodToJsonSchema(z.literal('foo') as any);
+    expect(result).toEqual({ type: 'string', enum: ['foo'] });
+  });
+
   it('converts object with required and optional fields', () => {
     const schema = z.object({
       name: z.string(),
@@ -49,6 +58,21 @@ describe('zodToJsonSchema', () => {
         email: { type: 'string' },
       },
       required: ['name', 'age'],
+    });
+  });
+
+  it('converts object with all optional fields (no required array)', () => {
+    const schema = z.object({
+      a: z.string().optional(),
+      b: z.number().optional(),
+    });
+    const result = zodToJsonSchema(schema as any);
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        a: { type: 'string' },
+        b: { type: 'number' },
+      },
     });
   });
 
@@ -81,12 +105,64 @@ describe('zodToJsonSchema', () => {
     expect((result.properties as any).name.description).toBe('The user name');
   });
 
-  it('handles default values', () => {
+  it('handles default values in object fields', () => {
     const schema = z.object({
       retries: z.number().default(3),
     });
     const result = zodToJsonSchema(schema as any);
     expect((result.properties as any).retries.default).toBe(3);
+  });
+
+  it('converts top-level default', () => {
+    const result = zodToJsonSchema(z.string().default('hello') as any);
+    expect(result).toEqual({ type: 'string', default: 'hello' });
+  });
+
+  it('converts nullable', () => {
+    const result = zodToJsonSchema(z.string().nullable() as any);
+    expect(result).toEqual({
+      oneOf: [{ type: 'string' }, { type: 'null' }],
+    });
+  });
+
+  it('converts top-level optional', () => {
+    const result = zodToJsonSchema(z.string().optional() as any);
+    expect(result).toEqual({ type: 'string' });
+  });
+
+  it('converts union', () => {
+    const result = zodToJsonSchema(z.union([z.string(), z.number()]) as any);
+    expect(result).toEqual({
+      oneOf: [{ type: 'string' }, { type: 'number' }],
+    });
+  });
+
+  it('converts record', () => {
+    const result = zodToJsonSchema(z.record(z.string(), z.number()) as any);
+    expect(result).toEqual({
+      type: 'object',
+      additionalProperties: { type: 'number' },
+    });
+  });
+
+  it('converts any', () => {
+    const result = zodToJsonSchema(z.any() as any);
+    expect(result).toEqual({});
+  });
+
+  it('converts transform (unwraps to input schema)', () => {
+    const result = zodToJsonSchema(z.string().transform((s) => s.length) as any);
+    expect(result).toEqual({ type: 'string' });
+  });
+
+  it('returns empty for schema without def', () => {
+    const result = zodToJsonSchema({} as any);
+    expect(result).toEqual({});
+  });
+
+  it('converts described top-level schema', () => {
+    const result = zodToJsonSchema(z.string().describe('A name') as any);
+    expect(result).toEqual({ description: 'A name', type: 'string' });
   });
 });
 
