@@ -52,3 +52,18 @@ export { CombinedNarrativeBuilder } from './lib/engine';
 
 export type { RunOptions } from './lib/engine';
 export type { ScopeFactory } from './lib/memory';
+
+// ============================================================================
+// Contract — I/O boundary, schemas, and OpenAPI generation
+// ============================================================================
+
+export type {
+  FlowChartContract,
+  FlowChartContractOptions,
+  JsonSchema,
+  OpenAPIOptions,
+  OpenAPISpec,
+} from './lib/contract';
+export { defineContract } from './lib/contract';
+export { normalizeSchema, zodToJsonSchema } from './lib/contract';
+export { generateOpenAPI } from './lib/contract';

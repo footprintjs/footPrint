@@ -681,9 +681,70 @@ Measured on Node v22, Apple Silicon. Run `npm run bench` to reproduce.
 
 ---
 
+## Contract & OpenAPI
+
+Define I/O schemas on your flowchart and auto-generate OpenAPI 3.1 specs:
+
+```typescript
+import { flowChart, defineContract } from 'footprintjs';
+import { z } from 'zod';  // optional — raw JSON Schema also works
+
+const chart = flowChart('ProcessLoan', receiveFn)
+  .addFunction('Assess', assessFn)
+  .addDeciderFunction('Decide', deciderFn)
+    .addFunctionBranch('approved', 'Approve', approveFn)
+    .addFunctionBranch('rejected', 'Reject', rejectFn)
+    .end()
+  .build();
+
+// Define the contract — accepts Zod or raw JSON Schema
+const contract = defineContract(chart, {
+  inputSchema: z.object({
+    applicantName: z.string(),
+    creditScore: z.number(),
+  }),
+  outputSchema: z.object({
+    decision: z.enum(['approved', 'rejected']),
+    reason: z.string(),
+  }),
+  outputMapper: (scope) => ({
+    decision: scope.decision as string,
+    reason: scope.reason as string,
+  }),
+});
+
+// Auto-generate OpenAPI 3.1 spec
+const spec = contract.toOpenAPI({ version: '1.0.0', basePath: '/api' });
+// → { openapi: '3.1.0', paths: { '/api/processloan': { post: { ... } } }, ... }
+```
+
+Schemas can also be set at build time:
+
+```typescript
+const chart = flowChart('Greet', greetFn)
+  .setInputSchema(z.object({ name: z.string() }))
+  .setOutputSchema(z.object({ greeting: z.string() }))
+  .setOutputMapper((scope) => ({ greeting: scope.message as string }))
+  .build();
+```
+
+Zod is an **optional peer dependency** — zero bundle impact if not used. Pass raw JSON Schema instead:
+
+```typescript
+const contract = defineContract(chart, {
+  inputSchema: {
+    type: 'object',
+    properties: { name: { type: 'string' } },
+    required: ['name'],
+  },
+});
+```
+
+---
+
 ## Architecture
 
-FootPrint is five independent libraries, each usable standalone:
+FootPrint is six independent libraries, each usable standalone:
 
 ```
 src/lib/
@@ -691,7 +752,8 @@ src/lib/
 ├── builder/   Fluent flowchart DSL (FlowChartBuilder, DeciderList, SelectorFnList)
 ├── scope/     Scope facades, recorders, protection, Zod integration
 ├── engine/    DFS traversal, handlers, narrative generators
-└── runner/    Execution convenience (FlowChartExecutor, ExecutionRuntime)
+├── runner/    Execution convenience (FlowChartExecutor, ExecutionRuntime)
+└── contract/  I/O schemas, Zod→JSON Schema, OpenAPI 3.1 generation
 ```
 
 ---

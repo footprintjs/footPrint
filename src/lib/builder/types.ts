@@ -197,6 +197,12 @@ export type FlowChart<TOut = any, TScope = any> = {
   logger?: ILogger;
   description: string;
   stageDescriptions: Map<string, string>;
+  /** Input schema (Zod or JSON Schema) — declared via setInputSchema(). */
+  inputSchema?: unknown;
+  /** Output schema (Zod or JSON Schema) — declared via setOutputSchema(). */
+  outputSchema?: unknown;
+  /** Output mapper — extracts response from final scope. */
+  outputMapper?: (finalScope: Record<string, unknown>) => unknown;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -399,6 +399,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _stepCounter = 0;
   private _stageDescriptions = new Map<string, string>();
   private _stageStepMap = new Map<string, number>();
+  private _inputSchema?: unknown;
+  private _outputSchema?: unknown;
+  private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
 
   constructor(buildTimeExtractor?: BuildTimeExtractor<any>) {
     if (buildTimeExtractor) {
@@ -444,6 +447,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   setLogger(logger: ILogger): this {
     this._logger = logger;
+    return this;
+  }
+
+  /** Declare the input schema (readOnlyContext shape). Accepts Zod schema or JSON Schema. */
+  setInputSchema(schema: unknown): this {
+    this._inputSchema = schema;
+    return this;
+  }
+
+  /** Declare the output schema (response shape). Accepts Zod schema or JSON Schema. */
+  setOutputSchema(schema: unknown): this {
+    this._outputSchema = schema;
+    return this;
+  }
+
+  /** Set the output mapper that extracts the response from final scope. */
+  setOutputMapper(mapper: (finalScope: Record<string, unknown>) => unknown): this {
+    this._outputMapper = mapper;
     return this;
   }
 
@@ -862,6 +883,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       ...(this._logger ? { logger: this._logger } : {}),
       description,
       stageDescriptions: new Map(this._stageDescriptions),
+      ...(this._inputSchema ? { inputSchema: this._inputSchema } : {}),
+      ...(this._outputSchema ? { outputSchema: this._outputSchema } : {}),
+      ...(this._outputMapper ? { outputMapper: this._outputMapper } : {}),
     };
   }
 
