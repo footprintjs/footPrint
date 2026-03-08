@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">FootPrint</h1>
   <p align="center">
-    <strong>Turn your whiteboard flowchart into running code &mdash; with automatic causal traces.</strong>
+    <strong>The flowchart pattern for backend code &mdash; self-explainable systems that AI can reason about.</strong>
   </p>
 </p>
 
@@ -15,7 +15,9 @@
 
 <br>
 
-FootPrint is a runtime for building **flowchart pipelines** where each node is just a function. It produces **causal traces** as a byproduct of execution &mdash; so any LLM can explain what happened and why, without reconstructing from logs.
+**MVC is a pattern for structuring backends. FootPrint is a different pattern &mdash; the flowchart pattern &mdash; where your business logic is organized as a graph of functions with transactional state.** The code becomes self-explainable: AI can read the structure, trace every decision, and explain what happened without reconstructing from logs.
+
+> FootPrint is **not** a workflow engine, pipeline builder, or orchestrator. It's a code pattern &mdash; like how React changed how we build UIs, FootPrint changes how we structure backend logic to be AI-native.
 
 ```bash
 npm install footprintjs
@@ -53,14 +55,22 @@ console.log(executor.getNarrative());
 
 ---
 
-## Why FootPrint?
+## Why a new pattern?
 
-| | Without FootPrint | With FootPrint |
+**MVC** separates concerns into Model, View, Controller. It works, but the code is opaque to AI &mdash; an LLM can't trace why a request produced a specific result without parsing scattered logs.
+
+**The flowchart pattern** structures the same logic as a graph of named functions with managed state. This gives you two things MVC can't:
+
+1. **Self-describing code** &mdash; The structure auto-generates tool descriptions for LLM agents. No hand-written descriptions that drift from reality.
+2. **Self-explaining execution** &mdash; Every run produces a causal trace showing what happened and why. An LLM reads the trace and explains decisions accurately &mdash; no hallucination.
+
+| | MVC / Traditional | Flowchart Pattern (FootPrint) |
 |---|---|---|
-| **LLM explains a decision** | Reconstruct from scattered logs; expensive, slow, hallucination-prone | Read the causal trace; cheap model, fewer tokens, zero hallucination |
-| **Tool descriptions** | Write and maintain them by hand | Auto-generated from the flowchart structure |
-| **Debugging** | `console.log` + guesswork | Time-travel replay to any stage |
+| **Code structure** | Controllers with implicit flow | Explicit graph of named functions |
+| **LLM explains a decision** | Reconstruct from scattered logs | Read the causal trace directly |
+| **Tool descriptions for agents** | Write and maintain by hand | Auto-generated from the graph |
 | **State management** | Global/manual, race-prone | Transactional scope with atomic commits |
+| **Debugging** | `console.log` + guesswork | Time-travel replay to any stage |
 
 ### Example: Loan rejection
 
@@ -104,7 +114,7 @@ That answer came from the trace &mdash; not from the LLM's imagination.
 
 ## The code that produced it
 
-No one wrote those trace sentences. Stage functions just read and write scope &mdash; the narrative builds itself:
+This is regular backend code &mdash; just structured as a flowchart instead of a controller. No one wrote those trace sentences. The functions just read and write scope; the pattern produces the narrative automatically:
 
 ```typescript
 import {
@@ -189,15 +199,17 @@ await executor.run();
 const narrative = executor.getNarrative();  // ← the trace above
 ```
 
-`enableNarrative()` auto-instruments every scope. The executor captures stage transitions, decisions, reads, and writes &mdash; then merges them into the combined trace. No descriptions were written by hand.
+The functions are ordinary TypeScript &mdash; no decorators, no special annotations. The flowchart pattern captures stage transitions, decisions, reads, and writes automatically. That's the difference from MVC: in MVC, this trace doesn't exist. In the flowchart pattern, it's a byproduct of the structure.
 
 ---
 
-## Two narratives, both auto-generated
+## What makes it self-explainable
 
-### Build-time: tool description for LLM tool selection
+The flowchart pattern produces two AI-readable outputs automatically &mdash; no extra code needed:
 
-When you call `.build()`, FootPrint auto-generates `chart.description` &mdash; a structural summary of what the pipeline does:
+### Build-time: tool description for LLM agents
+
+When you call `.build()`, the structure auto-generates `chart.description` &mdash; a complete description of what the code does:
 
 ```
 FlowChart: ReceiveApplication
@@ -244,19 +256,19 @@ const tools = [
 
 ### Runtime: causal trace for LLM explanation
 
-After `.run()`, the combined narrative shows what the code *actually did* &mdash; every value read, every value written, every decision made. This is the trace shown at the top of this page. Ship it alongside the result so any follow-up LLM call can explain what happened and why.
+After `.run()`, the trace shows what the code *actually did* &mdash; every value read, every value written, every decision made. Ship it alongside the result so any LLM can explain what happened and why.
 
-**Build-time tells the LLM which tool to use. Runtime tells the LLM what the tool did.**
+**Build-time tells the LLM what the code does. Runtime tells the LLM what the code did.** That's what makes it self-explainable &mdash; the pattern produces both automatically.
 
 ---
 
-## How it works
+## How the pattern works
 
-FootPrint has three moving parts:
+The flowchart pattern has three parts &mdash; the same way MVC has Model, View, Controller:
 
-1. **Scope** &mdash; Transactional state shared across stages. Writes are buffered and committed atomically. Recorders observe every read/write without modifying behavior.
-2. **Builder** &mdash; Fluent API that compiles your flowchart into a traversable node tree.
-3. **Engine** &mdash; DFS traversal that executes stages, manages state, and generates narrative.
+1. **Builder** &mdash; Define your business logic as a graph of named functions. Like how a controller defines routes, but the structure is an explicit flowchart.
+2. **Scope** &mdash; Transactional state shared across stages. Writes are buffered and committed atomically. This replaces scattered state management.
+3. **Engine** &mdash; Executes the graph and auto-generates the causal trace. You write functions; the pattern produces the explanation.
 
 ```
 ┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
@@ -440,14 +452,18 @@ When a stage throws, the engine commits the trace *before* re-throwing &mdash; s
 
 ## How FootPrint Compares
 
-| Aspect | async/await | FootPrint | Temporal / Step Functions |
-|--------|-------------|-----------|--------------------------|
-| **Control Flow** | Implicit in code | Explicit flowchart | External orchestrator |
-| **State** | Manual/global | Scoped & transactional | Durable storage |
+FootPrint is a **code pattern**, not an orchestrator. It runs in your process, not as a separate service.
+
+| Aspect | MVC / async-await | FootPrint (flowchart pattern) | Temporal / Step Functions |
+|--------|-------------------|-------------------------------|--------------------------|
+| **What it is** | Code pattern | Code pattern | External orchestrator |
+| **Runs where** | In your process | In your process | Separate service |
+| **Control flow** | Implicit in code | Explicit graph of functions | External state machine |
+| **State** | Manual / global | Transactional scope | Durable storage |
+| **AI explains decisions** | Parse logs (hallucination-prone) | Read the causal trace (accurate) | Parse event history |
+| **Tool descriptions** | Write by hand | Auto-generated from structure | Write by hand |
 | **Debugging** | Stack traces | Time-travel replay | Event history |
-| **LLM Narrative** | None | Automatic from operations | None |
-| **Tool Descriptions** | Manual | Auto-generated from structure | Manual |
-| **Complexity** | Low | Medium | High |
+| **Complexity** | Low | Low-medium | High |
 
 ---
 
@@ -500,7 +516,7 @@ Zod is an **optional peer dependency** &mdash; zero bundle impact if not used.
 
 ## Architecture
 
-FootPrint is six independent libraries, each usable standalone:
+FootPrint is the reference implementation of the flowchart pattern &mdash; six independent libraries, each usable standalone:
 
 ```
 src/lib/
