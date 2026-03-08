@@ -27,7 +27,7 @@ describe('Property: recorder never breaks execution', () => {
 
         // Should not throw despite recorder error
         const result = scope.getValue(key || 'k');
-        return result === value;
+        return JSON.stringify(result) === JSON.stringify(value);
       }),
       { numRuns: 30 },
     );
