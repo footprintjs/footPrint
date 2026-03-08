@@ -77,8 +77,6 @@ export type StageNode<TOut = any, TScope = any> = {
   name: string;
   /** Optional stable id (required by decider/fork aggregation). */
   id?: string;
-  /** Human-readable display name for UI. */
-  displayName?: string;
   /** Human-readable description of what this stage does. */
   description?: string;
 
@@ -129,7 +127,6 @@ export interface SerializedPipelineStructure {
   name: string;
   id?: string;
   type: 'stage' | 'decider' | 'fork' | 'streaming';
-  displayName?: string;
   description?: string;
   children?: SerializedPipelineStructure[];
   next?: SerializedPipelineStructure;
@@ -155,7 +152,6 @@ export interface SerializedPipelineStructure {
 export interface FlowChartSpec {
   name: string;
   id?: string;
-  displayName?: string;
   description?: string;
   children?: FlowChartSpec[];
   next?: FlowChartSpec;
@@ -210,7 +206,6 @@ export type FlowChart<TOut = any, TScope = any> = {
 export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   id: string;
   name: string;
-  displayName?: string;
   fn?: PipelineStageFunction<TOut, TScope>;
 };
 
@@ -234,5 +229,4 @@ export type ExecOptions = {
 export interface SubflowRef {
   $ref: string;
   mountId: string;
-  displayName?: string;
 }

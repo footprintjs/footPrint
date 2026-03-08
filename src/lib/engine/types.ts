@@ -237,7 +237,6 @@ export interface SerializedPipelineNode {
   name: string;
   id?: string;
   type?: 'stage' | 'decider' | 'fork' | 'streaming' | 'loop' | 'user' | 'tool' | 'function' | 'sequence';
-  displayName?: string;
   description?: string;
   children?: SerializedPipelineNode[];
   next?: SerializedPipelineNode;

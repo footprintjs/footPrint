@@ -38,8 +38,8 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     const allChildren = node.children ?? [];
 
     // Narrative: capture the fan-out
-    const childDisplayNames = allChildren.map((c) => c.displayName || c.name);
-    this.deps.narrativeGenerator.onFork(node.displayName || node.name, childDisplayNames);
+    const childDisplayNames = allChildren.map((c) => c.name);
+    this.deps.narrativeGenerator.onFork(node.name, childDisplayNames);
 
     const childPromises: Promise<NodeResultType>[] = allChildren.map((child) => {
       const childBranchPath = branchPath || child.id;
@@ -140,7 +140,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       context.addLog('skippedChildIds', skippedIds);
     }
 
-    const selectedNames = selectedChildren.map((c) => c.displayName || c.name).join(', ');
+    const selectedNames = selectedChildren.map((c) => c.name).join(', ');
     context.addFlowDebugMessage(
       'selected',
       `Running ${selectedNames} (${selectedChildren.length} of ${children.length} matched)`,
@@ -148,7 +148,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     );
 
     // Narrative: capture the selection
-    const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
+    const selectedDisplayNames = selectedChildren.map((c) => c.name);
     this.deps.narrativeGenerator.onSelected(context.stageName || 'selector', selectedDisplayNames, children.length);
 
     const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };

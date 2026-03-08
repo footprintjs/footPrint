@@ -74,7 +74,6 @@ export class NodeResolver<TOut = any, TScope = any> {
       isSubflowRoot: node.isSubflowRoot,
       subflowId: node.subflowId,
       subflowName: node.subflowName,
-      displayName: node.displayName || subflowDef.root.displayName,
       id: node.id || subflowDef.root.id,
       subflowMountOptions: node.subflowMountOptions || subflowDef.root.subflowMountOptions,
     };

@@ -18,7 +18,6 @@ import type { CommitBundle, FlowMessage, StageSnapshot } from '../memory/types';
 export interface NarrativeEntry {
   stageId: string;
   stageName: string;
-  displayName?: string;
   stageMessages: string[];
   flowMessage?: FlowMessage;
   timeIndex: number;

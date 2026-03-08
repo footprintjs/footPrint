@@ -35,8 +35,6 @@ export type StageNode<TOut = any, TScope = any> = {
   name: string;
   /** Optional stable id (required by decider/fork aggregation) */
   id?: string;
-  /** Human-readable display name for UI */
-  displayName?: string;
   /** Description of what this stage does. Used for narrative and tool descriptions. */
   description?: string;
 

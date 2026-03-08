@@ -157,9 +157,9 @@ describe('ChildrenExecutor', () => {
       const executeNode = jest.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
-      const childA: StageNode = { name: 'childA', id: 'a', displayName: 'Child A' };
+      const childA: StageNode = { name: 'Child A', id: 'a' };
       const childB: StageNode = { name: 'childB', id: 'b' };
-      const node: StageNode = { name: 'parent', displayName: 'Parent', children: [childA, childB] };
+      const node: StageNode = { name: 'Parent', children: [childA, childB] };
       const context = makeContext();
 
       await executor.executeNodeChildren(node, context);
@@ -470,7 +470,7 @@ describe('ChildrenExecutor', () => {
 
       const selector = jest.fn().mockResolvedValue(['a']);
       const children: StageNode[] = [
-        { name: 'childA', id: 'a', displayName: 'Alpha' },
+        { name: 'Alpha', id: 'a' },
         { name: 'childB', id: 'b' },
       ];
 

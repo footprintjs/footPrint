@@ -65,7 +65,6 @@ export class RuntimeStructureManager {
       name: node.name,
       id: node.id,
       type: computeNodeType(node),
-      displayName: node.displayName,
       description: node.description,
     };
 

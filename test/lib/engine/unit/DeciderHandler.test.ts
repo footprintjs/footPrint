@@ -41,7 +41,7 @@ function makeContext(overrides: Record<string, any> = {}): any {
 }
 
 describe('DeciderHandler', () => {
-  const childA: StageNode = { name: 'childA', id: 'child-a', displayName: 'Child A' };
+  const childA: StageNode = { name: 'Child A', id: 'child-a' };
   const childB: StageNode = { name: 'childB', id: 'child-b' };
   const defaultChild: StageNode = { name: 'defaultChild', id: 'default' };
 
@@ -78,7 +78,7 @@ describe('DeciderHandler', () => {
       );
 
       expect(context.commit).toHaveBeenCalled();
-      expect(context.createNext).toHaveBeenCalledWith('main', 'childA');
+      expect(context.createNext).toHaveBeenCalledWith('main', 'Child A');
       expect(result).toBe('executed');
     });
 
@@ -226,7 +226,6 @@ describe('DeciderHandler', () => {
       expect(narrativeGenerator.onError).toHaveBeenCalledWith(
         'deciderStage',
         expect.stringContaining('Stage exploded'),
-        undefined,
       );
     });
   });
@@ -275,7 +274,6 @@ describe('DeciderHandler', () => {
       // Narrative generator should receive the rationale
       expect(narrativeGenerator.onDecision).toHaveBeenCalledWith(
         'deciderStage',
-        'childA',
         'Child A',
         'User is premium',
         undefined,
@@ -341,7 +339,6 @@ describe('DeciderHandler', () => {
 
       expect(narrativeGenerator.onDecision).toHaveBeenCalledWith(
         'deciderStage',
-        'childA',
         'Child A',
         undefined,
         'Decides the route',

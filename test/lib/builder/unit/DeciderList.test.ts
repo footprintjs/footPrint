@@ -102,9 +102,9 @@ describe('DeciderList (addDeciderFunction)', () => {
 
   it('includes branch descriptions', () => {
     const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'fast', undefined, undefined, 'routes traffic')
-      .addFunctionBranch('fast', 'FastPath', noop, 'Fast', 'handles express requests')
-      .addFunctionBranch('slow', 'SlowPath', noop, 'Slow', 'handles standard requests')
+      .addDeciderFunction('Router', async () => 'fast', undefined, 'routes traffic')
+      .addFunctionBranch('fast', 'FastPath', noop, 'handles express requests')
+      .addFunctionBranch('slow', 'SlowPath', noop, 'handles standard requests')
       .end()
       .build();
 

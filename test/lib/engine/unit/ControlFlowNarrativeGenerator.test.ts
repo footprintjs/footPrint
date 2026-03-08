@@ -13,41 +13,35 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onStageExecuted adds a sentence with description', () => {
-    gen.onStageExecuted('fetchData', 'Fetch Data', 'Retrieves user data');
+    gen.onStageExecuted('Fetch Data', 'Retrieves user data');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Retrieves user data');
   });
 
-  it('onStageExecuted uses displayName when no description', () => {
-    gen.onStageExecuted('fetchData', 'Fetch Data');
+  it('onStageExecuted uses name when no description', () => {
+    gen.onStageExecuted('Fetch Data');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Fetch Data');
   });
 
-  it('onStageExecuted falls back to name when no displayName', () => {
-    gen.onStageExecuted('fetchData');
-    const s = gen.getSentences();
-    expect(s[0]).toContain('fetchData');
-  });
-
   it('onNext records transition', () => {
-    gen.onNext('stage1', 'stage2', 'Stage 2');
+    gen.onNext('stage1', 'Stage 2');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Stage 2');
   });
 
   it('onNext uses description when provided (line 34)', () => {
-    gen.onNext('stage1', 'stage2', 'Stage 2', 'Fetches external data');
+    gen.onNext('stage1', 'Stage 2', 'Fetches external data');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Fetches external data');
   });
 
   it('onDecision records branch choice with rationale', () => {
-    gen.onDecision('checkAge', 'approve', 'Approve', 'age >= 18');
+    gen.onDecision('checkAge', 'Approve', 'age >= 18');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Approve');
@@ -55,14 +49,14 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onDecision works without rationale', () => {
-    gen.onDecision('checkAge', 'approve', 'Approve');
+    gen.onDecision('checkAge', 'Approve');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Approve');
   });
 
   it('onDecision with deciderDescription and rationale (line 44)', () => {
-    gen.onDecision('checkAge', 'approve', 'Approve', 'age is 21', 'checked eligibility');
+    gen.onDecision('checkAge', 'Approve', 'age is 21', 'checked eligibility');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('checked eligibility');
@@ -71,7 +65,7 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onDecision with deciderDescription but no rationale (line 46)', () => {
-    gen.onDecision('checkAge', 'approve', 'Approve', undefined, 'checked eligibility');
+    gen.onDecision('checkAge', 'Approve', undefined, 'checked eligibility');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('checked eligibility');
@@ -112,7 +106,7 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onLoop records iteration', () => {
-    gen.onLoop('askLLM', 'Ask LLM', 2);
+    gen.onLoop('Ask LLM', 2);
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Ask LLM');
@@ -120,7 +114,7 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onLoop uses description when provided (line 74)', () => {
-    gen.onLoop('askLLM', 'Ask LLM', 3, 'retries the LLM call');
+    gen.onLoop('Ask LLM', 3, 'retries the LLM call');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('retries the LLM call');
@@ -128,14 +122,14 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onBreak records early stop', () => {
-    gen.onBreak('validate', 'Validate');
+    gen.onBreak('Validate');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Validate');
   });
 
   it('onError records error', () => {
-    gen.onError('process', 'timeout');
+    gen.onError('Process', 'timeout');
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('timeout');
@@ -145,7 +139,7 @@ describe('ControlFlowNarrativeGenerator', () => {
     gen.onStageExecuted('a'); // first stage sentence
     gen.onNext('a', 'b'); // transition sentence
     // second onStageExecuted is a no-op (isFirstStage = false)
-    gen.onDecision('b', 'c', 'C'); // decision sentence
+    gen.onDecision('b', 'C'); // decision sentence
     const s = gen.getSentences();
     expect(s).toHaveLength(3);
   });
@@ -156,12 +150,12 @@ describe('NullControlFlowNarrativeGenerator', () => {
     const gen = new NullControlFlowNarrativeGenerator();
     gen.onStageExecuted('a');
     gen.onNext('a', 'b');
-    gen.onDecision('a', 'b', 'B');
+    gen.onDecision('a', 'B');
     gen.onFork('a', ['b', 'c']);
     gen.onSelected('a', ['b'], 2);
     gen.onSubflowEntry('x');
     gen.onSubflowExit('x');
-    gen.onLoop('a', 'A', 1);
+    gen.onLoop('A', 1);
     gen.onBreak('a');
     gen.onError('a', 'err');
     expect(gen.getSentences()).toEqual([]);

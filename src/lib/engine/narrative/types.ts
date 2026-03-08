@@ -10,19 +10,13 @@
 
 export interface IControlFlowNarrative {
   /** Called when a stage executes. First stage uses distinct opening pattern. */
-  onStageExecuted(stageName: string, displayName?: string, description?: string): void;
+  onStageExecuted(stageName: string, description?: string): void;
 
   /** Called on linear continuation from one stage to the next. */
-  onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void;
+  onNext(fromStage: string, toStage: string, description?: string): void;
 
   /** Called when a decider selects a branch. Most valuable for LLM context. */
-  onDecision(
-    deciderName: string,
-    chosenBranch: string,
-    chosenDisplayName?: string,
-    rationale?: string,
-    deciderDescription?: string,
-  ): void;
+  onDecision(deciderName: string, chosenBranch: string, rationale?: string, deciderDescription?: string): void;
 
   /** Called when a fork executes all children in parallel. */
   onFork(parentStage: string, childNames: string[]): void;
@@ -37,13 +31,13 @@ export interface IControlFlowNarrative {
   onSubflowExit(subflowName: string): void;
 
   /** Called on loop iteration (back-edge traversal). */
-  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number, description?: string): void;
+  onLoop(targetStage: string, iteration: number, description?: string): void;
 
   /** Called when a stage triggers break (early termination). */
-  onBreak(stageName: string, displayName?: string): void;
+  onBreak(stageName: string): void;
 
   /** Called when a stage throws an error. */
-  onError(stageName: string, errorMessage: string, displayName?: string): void;
+  onError(stageName: string, errorMessage: string): void;
 
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];

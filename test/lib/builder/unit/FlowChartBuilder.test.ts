@@ -9,10 +9,10 @@ describe('FlowChartBuilder', () => {
       expect(chart.root.name).toBe('root');
     });
 
-    it('sets id, displayName, description on root', () => {
-      const chart = new FlowChartBuilder().start('root', noop, 'root-id', 'Root Stage', 'initialises the flow').build();
+    it('sets id and description on root', () => {
+      const chart = new FlowChartBuilder().start('Root Stage', noop, 'root-id', 'initialises the flow').build();
       expect(chart.root.id).toBe('root-id');
-      expect(chart.root.displayName).toBe('Root Stage');
+      expect(chart.root.name).toBe('Root Stage');
       expect(chart.root.description).toBe('initialises the flow');
     });
 
@@ -105,16 +105,14 @@ describe('FlowChartBuilder', () => {
     });
 
     it('builds description from stage names', () => {
-      const chart = flowChart('entry', noop, undefined, 'Entry')
-        .addFunction('process', noop, undefined, 'Process')
-        .build();
+      const chart = flowChart('Entry', noop).addFunction('Process', noop).build();
       expect(chart.description).toContain('Entry');
       expect(chart.description).toContain('Process');
     });
 
     it('includes descriptions in description string', () => {
-      const chart = flowChart('entry', noop, undefined, undefined, undefined, 'start here')
-        .addFunction('end', noop, undefined, undefined, 'finish here')
+      const chart = flowChart('entry', noop, undefined, undefined, 'start here')
+        .addFunction('end', noop, undefined, 'finish here')
         .build();
       expect(chart.description).toContain('start here');
       expect(chart.description).toContain('finish here');
@@ -231,7 +229,7 @@ describe('flowChart factory', () => {
 
   it('passes buildTimeExtractor', () => {
     const ext = (n: any) => ({ ...n, tagged: true });
-    const chart = flowChart('a', noop, undefined, undefined, ext).build();
+    const chart = flowChart('a', noop, undefined, ext).build();
     expect((chart.buildTimeStructure as any).tagged).toBe(true);
   });
 });

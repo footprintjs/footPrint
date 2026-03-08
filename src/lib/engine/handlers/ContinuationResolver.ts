@@ -90,16 +90,12 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     context.addLog('dynamicNextTarget', nodeId);
     context.addLog('dynamicNextIteration', iteration);
 
-    context.addFlowDebugMessage(
-      'loop',
-      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`,
-      {
-        targetStage: targetNode.name,
-        iteration: iteration + 1,
-      },
-    );
+    context.addFlowDebugMessage('loop', `Looping back to ${targetNode.name} (iteration ${iteration + 1})`, {
+      targetStage: targetNode.name,
+      iteration: iteration + 1,
+    });
 
-    this.deps.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1, targetNode.description);
+    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
@@ -116,7 +112,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     context.addLog('dynamicNextDirect', true);
     context.addLog('dynamicNextName', dynamicNode.name);
 
-    context.addFlowDebugMessage('next', `Moving to ${dynamicNode.displayName || dynamicNode.name} stage (dynamic)`, {
+    context.addFlowDebugMessage('next', `Moving to ${dynamicNode.name} stage (dynamic)`, {
       targetStage: dynamicNode.name,
     });
 
@@ -152,16 +148,12 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     context.addLog('dynamicNextTarget', nextNodeId);
     context.addLog('dynamicNextIteration', iteration);
 
-    context.addFlowDebugMessage(
-      'loop',
-      `Looping back to ${targetNode.displayName || targetNode.name} (iteration ${iteration + 1})`,
-      {
-        targetStage: targetNode.name,
-        iteration: iteration + 1,
-      },
-    );
+    context.addFlowDebugMessage('loop', `Looping back to ${targetNode.name} (iteration ${iteration + 1})`, {
+      targetStage: targetNode.name,
+      iteration: iteration + 1,
+    });
 
-    this.deps.narrativeGenerator.onLoop(targetNode.name, targetNode.displayName, iteration + 1, targetNode.description);
+    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);

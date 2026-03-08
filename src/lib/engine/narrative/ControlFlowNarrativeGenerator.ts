@@ -17,35 +17,27 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
   private sentences: string[] = [];
   private isFirstStage = true;
 
-  onStageExecuted(stageName: string, displayName?: string, description?: string): void {
+  onStageExecuted(stageName: string, description?: string): void {
     if (this.isFirstStage) {
       if (description) {
         this.sentences.push(`The process began: ${description}.`);
       } else {
-        const name = displayName || stageName;
-        this.sentences.push(`The process began with ${name}.`);
+        this.sentences.push(`The process began with ${stageName}.`);
       }
       this.isFirstStage = false;
     }
   }
 
-  onNext(fromStage: string, toStage: string, toDisplayName?: string, description?: string): void {
+  onNext(fromStage: string, toStage: string, description?: string): void {
     if (description) {
       this.sentences.push(`Next step: ${description}.`);
     } else {
-      const name = toDisplayName || toStage;
-      this.sentences.push(`Next, it moved on to ${name}.`);
+      this.sentences.push(`Next, it moved on to ${toStage}.`);
     }
   }
 
-  onDecision(
-    deciderName: string,
-    chosenBranch: string,
-    chosenDisplayName?: string,
-    rationale?: string,
-    deciderDescription?: string,
-  ): void {
-    const branchName = chosenDisplayName || chosenBranch;
+  onDecision(deciderName: string, chosenBranch: string, rationale?: string, deciderDescription?: string): void {
+    const branchName = chosenBranch;
     if (deciderDescription && rationale) {
       this.sentences.push(`It ${deciderDescription}: ${rationale}, so it chose ${branchName}.`);
     } else if (deciderDescription) {
@@ -75,23 +67,20 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     this.sentences.push(`Exiting the ${subflowName} subflow.`);
   }
 
-  onLoop(targetStage: string, targetDisplayName: string | undefined, iteration: number, description?: string): void {
+  onLoop(targetStage: string, iteration: number, description?: string): void {
     if (description) {
       this.sentences.push(`On pass ${iteration}: ${description} again.`);
     } else {
-      const name = targetDisplayName || targetStage;
-      this.sentences.push(`On pass ${iteration} through ${name}.`);
+      this.sentences.push(`On pass ${iteration} through ${targetStage}.`);
     }
   }
 
-  onBreak(stageName: string, displayName?: string): void {
-    const name = displayName || stageName;
-    this.sentences.push(`Execution stopped at ${name}.`);
+  onBreak(stageName: string): void {
+    this.sentences.push(`Execution stopped at ${stageName}.`);
   }
 
-  onError(stageName: string, errorMessage: string, displayName?: string): void {
-    const name = displayName || stageName;
-    this.sentences.push(`An error occurred at ${name}: ${errorMessage}.`);
+  onError(stageName: string, errorMessage: string): void {
+    this.sentences.push(`An error occurred at ${stageName}: ${errorMessage}.`);
   }
 
   /** Returns a defensive copy of accumulated sentences. */

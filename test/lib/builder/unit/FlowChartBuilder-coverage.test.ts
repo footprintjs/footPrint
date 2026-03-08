@@ -87,7 +87,7 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
     expect(selector.children![0].subflowName).toBe('SubFlow');
   });
 
-  it('defaults displayName to id when mountName is not provided', () => {
+  it('defaults subflowName to id when mountName is not provided', () => {
     const sub = buildSubflow();
     const chart = flowChart('entry', noop)
       .addSelectorFunction('Pick', async () => 'sf' as any)
@@ -205,15 +205,9 @@ describe('SelectorFnList.addBranchList', () => {
 describe('SelectorFnList description generation', () => {
   it('includes selector description in output when provided', () => {
     const chart = flowChart('entry', noop)
-      .addSelectorFunction(
-        'PickChannels',
-        async () => ['email'] as any,
-        undefined,
-        undefined,
-        'selects notification channels',
-      )
-      .addFunctionBranch('email', 'SendEmail', noop, 'Email', 'sends via email')
-      .addFunctionBranch('sms', 'SendSMS', noop, 'SMS', 'sends via sms')
+      .addSelectorFunction('PickChannels', async () => ['email'] as any, undefined, 'selects notification channels')
+      .addFunctionBranch('email', 'SendEmail', noop, 'sends via email')
+      .addFunctionBranch('sms', 'SendSMS', noop, 'sends via sms')
       .end()
       .build();
 
@@ -254,8 +248,8 @@ describe('subflow description', () => {
   });
 
   it('includes subflow steps in parent description when subflow has description', () => {
-    const sub = flowChart('sub-start', noop, undefined, 'SubStart', undefined, 'initializes sub')
-      .addFunction('sub-end', noop, undefined, 'SubEnd', 'finishes sub')
+    const sub = flowChart('SubStart', noop, undefined, undefined, 'initializes sub')
+      .addFunction('SubEnd', noop, undefined, 'finishes sub')
       .build();
 
     const chart = flowChart('main', noop).addSubFlowChart('sf', sub, 'MySub').build();
@@ -396,7 +390,7 @@ describe('addListOfFunction', () => {
   it('includes parallel children in description', () => {
     const chart = flowChart('fork', noop)
       .addListOfFunction([
-        { id: 'a', name: 'TaskA', displayName: 'Task A', fn: noop },
+        { id: 'a', name: 'Task A', fn: noop },
         { id: 'b', name: 'TaskB', fn: noop },
       ])
       .build();

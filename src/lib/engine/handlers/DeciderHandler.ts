@@ -74,7 +74,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
-      this.deps.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
+      this.deps.narrativeGenerator.onError(node.name, error.toString());
       throw error;
     }
 
@@ -102,7 +102,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       }
     }
 
-    const chosenName = chosen.displayName || chosen.name;
+    const chosenName = chosen.name;
     const wasDefault = chosen.id !== branchId;
     const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
     let branchReason: string;
@@ -118,7 +118,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       rationale: rationale || `returned branchId: ${branchId}`,
     });
 
-    this.deps.narrativeGenerator.onDecision(node.name, chosen.name, chosen.displayName, rationale, node.description);
+    this.deps.narrativeGenerator.onDecision(node.name, chosen.name, rationale, node.description);
 
     const nextStageContext = context.createNext(branchPath as string, chosen.name);
     return executeNode(chosen, nextStageContext, breakFlag, branchPath);

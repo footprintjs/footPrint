@@ -358,7 +358,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           undefined,
           { type: 'stageExecutionError', message: error.toString() },
         );
-        this.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
+        this.narrativeGenerator.onError(node.name, error.toString());
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         throw error;
@@ -370,10 +370,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.extractorRunner.getStagePath(node, branchPath, context.stageName),
         stageOutput,
       );
-      this.narrativeGenerator.onStageExecuted(node.name, node.displayName, node.description);
+      this.narrativeGenerator.onStageExecuted(node.name, node.description);
 
       if (breakFlag.shouldBreak) {
-        this.narrativeGenerator.onBreak(node.name, node.displayName);
+        this.narrativeGenerator.onBreak(node.name);
         this.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput;
       }
@@ -484,7 +484,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         }
       } else {
         const childCount = node.children?.length ?? 0;
-        const childNames = node.children?.map((c) => c.displayName || c.name).join(', ');
+        const childNames = node.children?.map((c) => c.name).join(', ');
         context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
           count: childCount,
           targetStage: node.children?.map((c) => c.name),
@@ -525,8 +525,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     if (hasNext) {
       const nextNode = originalNext!;
-      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.displayName, nextNode.description);
-      context.addFlowDebugMessage('next', `Moving to ${nextNode.displayName || nextNode.name} stage`, {
+      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
+      context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
         targetStage: nextNode.name,
       });
       const nextCtx = context.createNext(branchPath as string, nextNode.name);
@@ -544,7 +544,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     context.addLog('isSubflowContainer', true);
     context.addLog('subflowId', node.id || node.name);
-    context.addLog('subflowName', node.displayName || node.name);
+    context.addLog('subflowName', node.name);
     context.addLog('hasSubflowData', true);
 
     const childStructure: any = {
@@ -554,7 +554,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       children: node.children!.map((c) => ({
         id: c.id || c.name,
         name: c.name,
-        displayName: c.displayName || c.name,
         type: 'stage',
       })),
     };
@@ -575,7 +574,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     this.subflowResults.set(node.id || node.name, {
       subflowId: node.id || node.name,
-      subflowName: node.displayName || node.name,
+      subflowName: node.name,
       treeContext: {
         globalContext: {},
         stageContexts: childStages as unknown as Record<string, unknown>,
@@ -627,7 +626,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       this.structureManager.updateDynamicSubflow(
         mountNodeId,
         subflowId,
-        subflowDef.root?.subflowName || subflowDef.root?.displayName,
+        subflowDef.root?.subflowName || subflowDef.root?.name,
         subflowDef.buildTimeStructure,
       );
     }

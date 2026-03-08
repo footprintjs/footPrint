@@ -55,7 +55,7 @@ describe('Boundary: error conditions', () => {
     const badExtractor = () => {
       throw new Error('extractor boom');
     };
-    const builder = flowChart('a', noop, undefined, undefined, badExtractor).addFunction('b', noop);
+    const builder = flowChart('a', noop, undefined, badExtractor).addFunction('b', noop);
 
     // Should not throw during build
     const chart = builder.build();

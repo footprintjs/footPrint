@@ -28,13 +28,13 @@ function simpleScopeFactory(context: any) {
 describe('Scenario: Narrative Flow', () => {
   it('captures narrative for linear chain', async () => {
     const stageMap = new Map<string, StageFunction>();
-    stageMap.set('A', () => 'a');
-    stageMap.set('B', () => 'b');
+    stageMap.set('Step A', () => 'a');
+    stageMap.set('Step B', () => 'b');
 
-    const nodeB: StageNode = { name: 'B', id: 'B', displayName: 'Step B' };
-    const root: StageNode = { name: 'A', id: 'A', displayName: 'Step A', next: nodeB };
+    const nodeB: StageNode = { name: 'Step B', id: 'B' };
+    const root: StageNode = { name: 'Step A', id: 'A', next: nodeB };
 
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('Step A');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -76,18 +76,17 @@ describe('Scenario: Narrative Flow', () => {
 
   it('captures narrative for decider decision', async () => {
     const stageMap = new Map<string, StageFunction>();
-    stageMap.set('check', () => 'yes');
-    stageMap.set('yes', () => 'approved');
+    stageMap.set('Check Eligibility', () => 'yes');
+    stageMap.set('Approved', () => 'approved');
 
     const root: StageNode = {
-      name: 'check',
+      name: 'Check Eligibility',
       id: 'check',
-      displayName: 'Check Eligibility',
       deciderFn: true,
-      children: [{ name: 'yes', id: 'yes', displayName: 'Approved' }],
+      children: [{ name: 'Approved', id: 'yes' }],
     };
 
-    const runtime = new ExecutionRuntime('check');
+    const runtime = new ExecutionRuntime('Check Eligibility');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -107,15 +106,15 @@ describe('Scenario: Narrative Flow', () => {
 
   it('captures narrative for fork fan-out', async () => {
     const stageMap = new Map<string, StageFunction>();
-    stageMap.set('taskA', () => 'a');
-    stageMap.set('taskB', () => 'b');
+    stageMap.set('Task A', () => 'a');
+    stageMap.set('Task B', () => 'b');
 
     const root: StageNode = {
       name: 'dispatch',
       id: 'dispatch',
       children: [
-        { name: 'taskA', id: 'taskA', displayName: 'Task A' },
-        { name: 'taskB', id: 'taskB', displayName: 'Task B' },
+        { name: 'Task A', id: 'taskA' },
+        { name: 'Task B', id: 'taskB' },
       ],
     };
 

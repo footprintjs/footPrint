@@ -49,7 +49,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
       });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
-      this.deps.narrativeGenerator.onError(node.name, error.toString(), node.displayName);
+      this.deps.narrativeGenerator.onError(node.name, error.toString());
       throw error;
     }
 
@@ -70,7 +70,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
         count: 0,
         targetStage: [],
       });
-      this.deps.narrativeGenerator.onSelected(node.displayName || node.name, [], (node.children ?? []).length);
+      this.deps.narrativeGenerator.onSelected(node.name, [], (node.children ?? []).length);
       return {};
     }
 
@@ -95,15 +95,15 @@ export class SelectorHandler<TOut = any, TScope = any> {
       context.addLog('skippedChildIds', skippedIds);
     }
 
-    const selectedNames = selectedChildren.map((c) => c.displayName || c.name).join(', ');
+    const selectedNames = selectedChildren.map((c) => c.name).join(', ');
     context.addFlowDebugMessage(
       'selected',
       `Running ${selectedNames} (${selectedChildren.length} of ${children.length} matched)`,
       { count: selectedChildren.length, targetStage: selectedChildren.map((c) => c.name) },
     );
 
-    const selectedDisplayNames = selectedChildren.map((c) => c.displayName || c.name);
-    this.deps.narrativeGenerator.onSelected(node.displayName || node.name, selectedDisplayNames, children.length);
+    const selectedDisplayNames = selectedChildren.map((c) => c.name);
+    this.deps.narrativeGenerator.onSelected(node.name, selectedDisplayNames, children.length);
 
     const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };
     return await this.childrenExecutor.executeNodeChildren(tempNode, context, undefined, branchPath);

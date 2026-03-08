@@ -69,85 +69,80 @@ No one wrote those trace sentences. Stage functions just read and write scope &m
 
 ```typescript
 import {
-  FlowChartBuilder, FlowChartExecutor, ScopeFacade, toScopeFactory,
+  flowChart, FlowChartExecutor, ScopeFacade, toScopeFactory,
 } from 'footprintjs';
 
-// ── The application data ──────────────────────────────────────────────
-
-const app = {
-  applicantName: 'Bob',
-  annualIncome: 42_000,
-  monthlyDebts: 2_100,
-  creditScore: 580,
-  employmentType: 'self-employed',
-  employmentYears: 1,
-};
-
-// ── Stage functions: just do the work, no descriptions needed ──────────
+// ── Stage functions: just read and write scope ─────────────────────────
 
 const receiveApplication = (scope: ScopeFacade) => {
-  scope.setValue('app', app);
+  scope.setValue('app', {
+    applicantName: 'Bob',
+    annualIncome: 42_000,
+    monthlyDebts: 2_100,
+    creditScore: 580,
+    employmentType: 'self-employed',
+    employmentYears: 1,
+  });
 };
 
 const pullCreditReport = (scope: ScopeFacade) => {
   const { creditScore } = scope.getValue('app') as any;
-  const tier = creditScore >= 740 ? 'excellent' : creditScore >= 670 ? 'good'
-             : creditScore >= 580 ? 'fair' : 'poor';
+  const tier = creditScore >= 740 ? 'excellent'
+    : creditScore >= 670 ? 'good'
+    : creditScore >= 580 ? 'fair' : 'poor';
+
   scope.setValue('creditTier', tier);
   scope.setValue('creditFlags', tier === 'fair' ? ['below-average credit'] : []);
 };
 
 const calculateDTI = (scope: ScopeFacade) => {
   const { annualIncome, monthlyDebts } = scope.getValue('app') as any;
-  const dtiRatio = Math.round((monthlyDebts / (annualIncome / 12)) * 100) / 100;
-  scope.setValue('dtiRatio', dtiRatio);
-  scope.setValue('dtiPercent', Math.round(dtiRatio * 100));
-  scope.setValue('dtiStatus', dtiRatio > 0.43 ? 'excessive' : 'healthy');
-  scope.setValue('dtiFlags',
-    dtiRatio > 0.43 ? [`DTI at ${Math.round(dtiRatio * 100)}% exceeds 43%`] : []);
+  const ratio = Math.round((monthlyDebts / (annualIncome / 12)) * 100) / 100;
+
+  scope.setValue('dtiRatio', ratio);
+  scope.setValue('dtiFlags', ratio > 0.43 ? [`DTI at ${Math.round(ratio * 100)}% exceeds 43%`] : []);
 };
 
 const verifyEmployment = (scope: ScopeFacade) => {
   const { employmentType, employmentYears } = scope.getValue('app') as any;
   const verified = employmentType !== 'self-employed' || employmentYears >= 2;
+
   scope.setValue('employmentVerified', verified);
-  scope.setValue('employmentFlags',
-    !verified ? [`${employmentType}, ${employmentYears}yr < 2yr minimum`] : []);
+  scope.setValue('employmentFlags', !verified
+    ? [`${employmentType}, ${employmentYears}yr < 2yr minimum`] : []);
 };
 
 const assessRisk = (scope: ScopeFacade) => {
-  const creditTier = scope.getValue('creditTier') as string;
-  const dtiStatus = scope.getValue('dtiStatus') as string;
+  const tier = scope.getValue('creditTier') as string;
+  const ratio = scope.getValue('dtiRatio') as number;
   const verified = scope.getValue('employmentVerified') as boolean;
-  const riskTier = (!verified || dtiStatus === 'excessive' || creditTier === 'poor')
-    ? 'high' : 'low';
-  scope.setValue('riskTier', riskTier);
-  scope.setValue('riskFactors', [/* collected flags */]);
+
+  scope.setValue('riskTier', (!verified || ratio > 0.43 || tier === 'poor') ? 'high' : 'low');
 };
 
+// Deciders return a branch ID — the only stage that needs a return value
 const loanDecider = (scope: ScopeFacade): string => {
   const tier = scope.getValue('riskTier') as string;
-  return tier === 'low' ? 'approved' : tier === 'high' ? 'rejected' : 'manual-review';
+  if (tier === 'low') return 'approved';
+  if (tier === 'high') return 'rejected';
+  return 'manual-review';
 };
 
-// ── Build the flow ─────────────────────────────────────────────────────
+// ── Build → Run → Narrative (D3-style chaining) ──────────────────────
 
-const chart = new FlowChartBuilder()
+const chart = flowChart('ReceiveApplication', receiveApplication)
   .setEnableNarrative()
-  .start('ReceiveApplication', receiveApplication)
   .addFunction('PullCreditReport', pullCreditReport)
   .addFunction('CalculateDTI', calculateDTI)
   .addFunction('VerifyEmployment', verifyEmployment)
   .addFunction('AssessRisk', assessRisk)
   .addDeciderFunction('LoanDecision', loanDecider as any)
-    .addFunctionBranch('approved', 'ApproveApplication', () => {})
-    .addFunctionBranch('rejected', 'RejectApplication', () => {})
+    .addFunctionBranch('approved', 'Approve', () => {})
+    .addFunctionBranch('rejected', 'Reject', () => {})
     .addFunctionBranch('manual-review', 'ManualReview', () => {})
     .setDefault('manual-review')
     .end()
   .build();
-
-// ── Run and get the narrative ──────────────────────────────────────────
 
 const executor = new FlowChartExecutor(chart, toScopeFactory(ScopeFacade));
 await executor.run();
