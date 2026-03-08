@@ -23,8 +23,9 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-function buildStepsDescription(chart: FlowChart): string {
-  // Walk buildTimeStructure to produce a step-by-step description
+function buildDescription(chart: FlowChart): string {
+  // Walk buildTimeStructure to produce a detailed step-by-step description
+  // that includes decider branches, parallel forks, etc.
   const lines: string[] = [];
   let step = 0;
 
@@ -48,9 +49,7 @@ function buildStepsDescription(chart: FlowChart): string {
   };
 
   walk(chart.buildTimeStructure);
-
-  const header = chart.description ? `${chart.description}\n\n` : '';
-  return `${header}FlowChart: ${chart.root.name}\nSteps:\n${lines.join('\n')}`;
+  return `FlowChart: ${chart.root.name}\nSteps:\n${lines.join('\n')}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +66,7 @@ export function generateOpenAPI(contract: FlowChartContract, options?: OpenAPIOp
   const operationId = slugify(rootName);
   const path = `${basePath === '/' ? '' : basePath}/${operationId}`;
 
-  const fullDescription = buildStepsDescription(chart);
+  const fullDescription = buildDescription(chart);
 
   // Build schemas for components
   const schemas: Record<string, JsonSchema> = {};
