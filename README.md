@@ -72,13 +72,24 @@ import {
   FlowChartBuilder, FlowChartExecutor, ScopeFacade, toScopeFactory,
 } from 'footprintjs';
 
-// ── Stage functions: just do the work, no descriptions needed ──────────
+// ── The application data ──────────────────────────────────────────────
 
-const receiveApplication = async (scope: ScopeFacade) => {
-  scope.setValue('app', app);                         // objects, arrays, nested — all supported
+const app = {
+  applicantName: 'Bob',
+  annualIncome: 42_000,
+  monthlyDebts: 2_100,
+  creditScore: 580,
+  employmentType: 'self-employed',
+  employmentYears: 1,
 };
 
-const pullCreditReport = async (scope: ScopeFacade) => {
+// ── Stage functions: just do the work, no descriptions needed ──────────
+
+const receiveApplication = (scope: ScopeFacade) => {
+  scope.setValue('app', app);
+};
+
+const pullCreditReport = (scope: ScopeFacade) => {
   const { creditScore } = scope.getValue('app') as any;
   const tier = creditScore >= 740 ? 'excellent' : creditScore >= 670 ? 'good'
              : creditScore >= 580 ? 'fair' : 'poor';
@@ -86,7 +97,7 @@ const pullCreditReport = async (scope: ScopeFacade) => {
   scope.setValue('creditFlags', tier === 'fair' ? ['below-average credit'] : []);
 };
 
-const calculateDTI = async (scope: ScopeFacade) => {
+const calculateDTI = (scope: ScopeFacade) => {
   const { annualIncome, monthlyDebts } = scope.getValue('app') as any;
   const dtiRatio = Math.round((monthlyDebts / (annualIncome / 12)) * 100) / 100;
   scope.setValue('dtiRatio', dtiRatio);
@@ -96,7 +107,15 @@ const calculateDTI = async (scope: ScopeFacade) => {
     dtiRatio > 0.43 ? [`DTI at ${Math.round(dtiRatio * 100)}% exceeds 43%`] : []);
 };
 
-const assessRisk = async (scope: ScopeFacade) => {
+const verifyEmployment = (scope: ScopeFacade) => {
+  const { employmentType, employmentYears } = scope.getValue('app') as any;
+  const verified = employmentType !== 'self-employed' || employmentYears >= 2;
+  scope.setValue('employmentVerified', verified);
+  scope.setValue('employmentFlags',
+    !verified ? [`${employmentType}, ${employmentYears}yr < 2yr minimum`] : []);
+};
+
+const assessRisk = (scope: ScopeFacade) => {
   const creditTier = scope.getValue('creditTier') as string;
   const dtiStatus = scope.getValue('dtiStatus') as string;
   const verified = scope.getValue('employmentVerified') as boolean;
@@ -121,9 +140,9 @@ const chart = new FlowChartBuilder()
   .addFunction('VerifyEmployment', verifyEmployment)
   .addFunction('AssessRisk', assessRisk)
   .addDeciderFunction('LoanDecision', loanDecider as any)
-    .addFunctionBranch('approved', 'ApproveApplication', approveFn)
-    .addFunctionBranch('rejected', 'RejectApplication', rejectFn)
-    .addFunctionBranch('manual-review', 'ManualReview', reviewFn)
+    .addFunctionBranch('approved', 'ApproveApplication', () => {})
+    .addFunctionBranch('rejected', 'RejectApplication', () => {})
+    .addFunctionBranch('manual-review', 'ManualReview', () => {})
     .setDefault('manual-review')
     .end()
   .build();
