@@ -312,6 +312,21 @@ describe('FlowChartExecutor — end-to-end', () => {
     expect(narrative.length).toBeGreaterThan(0);
   });
 
+  it('getNarrative() returns flow-only for plain scopes', async () => {
+    const chart = flowChart('validate', () => {})
+      .addFunction('process', () => {})
+      .setEnableNarrative()
+      .build();
+
+    const executor = new FlowChartExecutor(chart, noopScope);
+    await executor.run();
+
+    const narrative = executor.getNarrative();
+    expect(narrative.length).toBeGreaterThan(0);
+    // Plain scopes don't support attachRecorder, so no data steps
+    expect(narrative.some((s) => s.includes('Write'))).toBe(false);
+  });
+
   // === Error propagation ===
 
   it('stage errors propagate with correct error', async () => {
@@ -457,6 +472,89 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     const result = await executor.run();
 
     expect(result).toBe('Alice');
+  });
+
+  it('getNarrative() returns combined narrative with data operations', async () => {
+    const scopeFactory = toScopeFactory(TestScope);
+    const chart = flowChart('write', (scope: TestScope) => {
+      scope.name = 'Alice';
+    })
+      .addFunction('read', (scope: TestScope) => {
+        return scope.name;
+      })
+      .setEnableNarrative()
+      .build();
+
+    const executor = new FlowChartExecutor(
+      chart,
+      scopeFactory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'off',
+    );
+    await executor.run();
+
+    const narrative = executor.getNarrative();
+    expect(narrative.length).toBeGreaterThan(0);
+    // Combined narrative includes data operations
+    expect(narrative.some((s) => s.includes('Write'))).toBe(true);
+    expect(narrative.some((s) => s.includes('Read'))).toBe(true);
+    expect(narrative.some((s) => s.includes('Alice'))).toBe(true);
+  });
+
+  it('getFlowNarrative() returns flow-only sentences', async () => {
+    const scopeFactory = toScopeFactory(TestScope);
+    const chart = flowChart('write', (scope: TestScope) => {
+      scope.name = 'Bob';
+    })
+      .setEnableNarrative()
+      .build();
+
+    const executor = new FlowChartExecutor(
+      chart,
+      scopeFactory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'off',
+    );
+    await executor.run();
+
+    const flow = executor.getFlowNarrative();
+    expect(flow.length).toBeGreaterThan(0);
+    // Flow-only should NOT contain data step details
+    expect(flow.some((s) => s.includes('Write'))).toBe(false);
+  });
+
+  it('getNarrativeEntries() returns structured entries', async () => {
+    const scopeFactory = toScopeFactory(TestScope);
+    const chart = flowChart('init', (scope: TestScope) => {
+      scope.name = 'Charlie';
+    })
+      .setEnableNarrative()
+      .build();
+
+    const executor = new FlowChartExecutor(
+      chart,
+      scopeFactory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'off',
+    );
+    await executor.run();
+
+    const entries = executor.getNarrativeEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.some((e) => e.type === 'stage')).toBe(true);
+    expect(entries.some((e) => e.type === 'step')).toBe(true);
   });
 });
 

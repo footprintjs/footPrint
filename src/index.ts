@@ -43,6 +43,7 @@ export { defineScopeFromZod } from './lib/scope';
 // Engine — Narrative (commonly used)
 // ============================================================================
 
+export type { CombinedNarrativeEntry } from './lib/engine';
 export { CombinedNarrativeBuilder } from './lib/engine';
 
 // ============================================================================

@@ -27,5 +27,8 @@ Thumbs.db
 # Package manager
 *.tgz
 
+# Screenshots (Playwright testing artifacts)
+*.png
+
 # Claude Code
 .claude/
