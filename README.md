@@ -69,9 +69,8 @@ No one wrote those trace sentences. Stage functions just read and write scope &m
 
 ```typescript
 import {
-  FlowChartBuilder, FlowChartExecutor, ScopeFacade,
-  NarrativeRecorder, CombinedNarrativeBuilder,
-} from 'footprint';
+  FlowChartBuilder, FlowChartExecutor, ScopeFacade, toScopeFactory,
+} from 'footprintjs';
 
 // ── Stage functions: just do the work, no descriptions needed ──────────
 
@@ -129,27 +128,15 @@ const chart = new FlowChartBuilder()
     .end()
   .build();
 
-// ── Instrument scope with NarrativeRecorder ────────────────────────────
-
-const recorder = new NarrativeRecorder({ id: 'loan', detail: 'full' });
-
-const scopeFactory = (ctx: any, stageName: string) => {
-  const scope = new ScopeFacade(ctx, stageName);
-  scope.attachRecorder(recorder);
-  return scope;
-};
-
 // ── Run and get the narrative ──────────────────────────────────────────
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart, toScopeFactory(ScopeFacade));
 await executor.run();
 
-const flowNarrative = executor.getNarrative();     // control flow sentences
-const combined = new CombinedNarrativeBuilder();
-const narrative = combined.build(flowNarrative, recorder);  // ← the trace above
+const narrative = executor.getNarrative();  // ← the trace above
 ```
 
-The NarrativeRecorder observes every `getValue`/`setValue` call. The ControlFlowNarrativeGenerator captures stage transitions and decisions. CombinedNarrativeBuilder merges both into the trace. No descriptions were written by hand.
+`enableNarrative()` auto-instruments every scope. The executor captures stage transitions, decisions, reads, and writes &mdash; then merges them into the combined trace. No descriptions were written by hand.
 
 ---
 
@@ -238,7 +225,7 @@ FootPrint has three moving parts:
 ### Linear
 
 ```typescript
-import { flowChart } from 'footprint';
+import { flowChart } from 'footprintjs';
 
 flowChart('A', fnA)
   .addFunction('B', fnB)
@@ -365,7 +352,7 @@ Each stage receives a **scope** &mdash; a transactional interface to shared stat
 Extend `ScopeFacade` with domain-specific getters for type-safe reads:
 
 ```typescript
-import { ScopeFacade } from 'footprint';
+import { ScopeFacade } from 'footprintjs';
 
 class LoanScope extends ScopeFacade {
   get creditScore(): number {
@@ -403,7 +390,7 @@ const total = scope.getValue('total');       // read
 
 ```typescript
 import { z } from 'zod';
-import { defineScopeFromZod } from 'footprint';
+import { defineScopeFromZod } from 'footprintjs';
 
 const schema = z.object({
   creditScore: z.number(),
@@ -424,17 +411,18 @@ Recorders observe scope operations without modifying them. Attach multiple for d
 
 ```typescript
 import {
-  ScopeFacade, DebugRecorder, MetricRecorder, NarrativeRecorder,
-} from 'footprint';
+  ScopeFacade, DebugRecorder, MetricRecorder,
+} from 'footprintjs';
 
 const scopeFactory = (ctx: any, stageName: string) => {
   const scope = new ScopeFacade(ctx, stageName);
   scope.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
   scope.attachRecorder(new MetricRecorder());
-  scope.attachRecorder(new NarrativeRecorder({ id: 'trace', detail: 'full' }));
   return scope;
 };
 ```
+
+> **Note:** `NarrativeRecorder` is attached automatically when narrative is enabled via `setEnableNarrative()` or `executor.enableNarrative()`. You only need to attach it manually if you need custom options.
 
 Error isolation is built in: if a recorder throws, the error is routed to `onError` hooks of other recorders, and the scope operation continues normally.
 
@@ -443,7 +431,7 @@ Error isolation is built in: if a recorder throws, the error is routed to `onErr
 Implement any subset of six hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
 
 ```typescript
-import { Recorder, WriteEvent } from 'footprint';
+import { Recorder, WriteEvent } from 'footprintjs';
 
 class AuditRecorder implements Recorder {
   readonly id = 'audit';
@@ -591,7 +579,9 @@ An LLM reading this trace can immediately explain: *"The validation failed becau
 | Method | Description |
 |--------|-------------|
 | `run(options?)` | Execute the flowchart. Options: `{ signal?, timeoutMs? }` |
-| `getNarrative()` | Control-flow narrative sentences |
+| `getNarrative()` | Combined narrative (flow + data) with ScopeFacade; flow-only otherwise |
+| `getFlowNarrative()` | Flow-only narrative sentences |
+| `getNarrativeEntries()` | Structured `CombinedNarrativeEntry[]` for programmatic use |
 | `getSnapshot()` | Full execution tree + state |
 | `getExtractedResults()` | Extractor results map |
 | `getEnrichedResults()` | Enriched snapshots (scope state, debug info, output) |
