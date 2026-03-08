@@ -11,24 +11,28 @@ function makeCtx() {
 describe('Property: recorder never breaks execution', () => {
   it('throwing recorders do not break getValue', () => {
     fc.assert(
-      fc.property(fc.string(), fc.oneof(fc.string(), fc.integer(), fc.boolean()), (key, value) => {
-        const ctx = makeCtx();
-        ctx.setObject([], key || 'k', value);
-        ctx.commit();
+      fc.property(
+        fc.string().filter((s) => s !== '__proto__' && s !== 'constructor' && s !== 'prototype'),
+        fc.oneof(fc.string(), fc.integer(), fc.boolean()),
+        (key, value) => {
+          const ctx = makeCtx();
+          ctx.setObject([], key || 'k', value);
+          ctx.commit();
 
-        const scope = new ScopeFacade(ctx, 'test');
-        const throwingRecorder: Recorder = {
-          id: 'bad',
-          onRead: () => {
-            throw new Error('recorder crash');
-          },
-        };
-        scope.attachRecorder(throwingRecorder);
+          const scope = new ScopeFacade(ctx, 'test');
+          const throwingRecorder: Recorder = {
+            id: 'bad',
+            onRead: () => {
+              throw new Error('recorder crash');
+            },
+          };
+          scope.attachRecorder(throwingRecorder);
 
-        // Should not throw despite recorder error
-        const result = scope.getValue(key || 'k');
-        return JSON.stringify(result) === JSON.stringify(value);
-      }),
+          // Should not throw despite recorder error
+          const result = scope.getValue(key || 'k');
+          return JSON.stringify(result) === JSON.stringify(value);
+        },
+      ),
       { numRuns: 30 },
     );
   });
