@@ -21,9 +21,48 @@ FootPrint is a runtime for building **flowchart pipelines** where each node is j
 npm install footprintjs
 ```
 
+## Quick Start
+
+```typescript
+import { flowChart, FlowChartExecutor, ScopeFacade, toScopeFactory } from 'footprintjs';
+
+const chart = flowChart('Greet', (scope) => {
+    scope.setValue('name', 'Alice');
+  })
+  .addFunction('Personalize', (scope) => {
+    const name = scope.getValue('name');
+    scope.setValue('message', `Hello, ${name}!`);
+  })
+  .setEnableNarrative()
+  .build();
+
+const executor = new FlowChartExecutor(chart, toScopeFactory(ScopeFacade));
+const result = await executor.run();
+
+console.log(executor.getNarrative());
+// Stage 1: The process began with Greet.
+//   Step 1: Write name = "Alice"
+// Stage 2: Next, it moved on to Personalize.
+//   Step 1: Read name = "Alice"
+//   Step 2: Write message = "Hello, Alice!"
+```
+
+> **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
+>
+> **[Browse 20+ examples](https://github.com/footprintjs/footPrint-samples)** &mdash; features, flowchart patterns, and a full loan underwriting demo
+
 ---
 
-## Why causal traces?
+## Why FootPrint?
+
+| | Without FootPrint | With FootPrint |
+|---|---|---|
+| **LLM explains a decision** | Reconstruct from scattered logs; expensive, slow, hallucination-prone | Read the causal trace; cheap model, fewer tokens, zero hallucination |
+| **Tool descriptions** | Write and maintain them by hand | Auto-generated from the flowchart structure |
+| **Debugging** | `console.log` + guesswork | Time-travel replay to any stage |
+| **State management** | Global/manual, race-prone | Transactional scope with atomic commits |
+
+### Example: Loan rejection
 
 A loan application pipeline rejects Bob. The user asks: **"Why was I rejected?"**
 
