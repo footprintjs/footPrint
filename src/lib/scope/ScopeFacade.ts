@@ -25,6 +25,7 @@ export class ScopeFacade {
   protected readonly _readOnlyValues?: unknown;
 
   private _recorders: Recorder[] = [];
+  private _redactedKeys = new Set<string>();
 
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown) {
     this._stageContext = context;
@@ -104,12 +105,14 @@ export class ScopeFacade {
     const value = this._stageContext.getValue([], key);
 
     if (this._recorders.length > 0) {
+      const isRedacted = key !== undefined && this._redactedKeys.has(key);
       this._invokeHook('onRead', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value,
+        value: isRedacted ? '[REDACTED]' : value,
+        redacted: isRedacted || undefined,
       });
     }
 
@@ -119,14 +122,19 @@ export class ScopeFacade {
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
     const result = this._stageContext.setObject([], key, value, shouldRedact, description);
 
+    if (shouldRedact) {
+      this._redactedKeys.add(key);
+    }
+
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value,
+        value: shouldRedact ? '[REDACTED]' : value,
         operation: 'set',
+        redacted: shouldRedact || undefined,
       });
     }
 

@@ -247,4 +247,88 @@ describe('ScopeFacade', () => {
     ctx.commit();
     expect(ctx.getGlobal('setting')).toBe(42);
   });
+
+  // ── Redaction tests ──────────────────────────────────────────────────
+
+  it('setValue with shouldRedact sends [REDACTED] to recorder onWrite', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const events: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.setValue('ssn', '123-45-6789', true);
+    expect(events).toHaveLength(1);
+    expect(events[0].key).toBe('ssn');
+    expect(events[0].value).toBe('[REDACTED]');
+    expect(events[0].redacted).toBe(true);
+  });
+
+  it('getValue of redacted key sends [REDACTED] to recorder onRead', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    scope.setValue('password', 'secret', true);
+    ctx.commit();
+
+    const events: ReadEvent[] = [];
+    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+    const value = scope.getValue('password');
+
+    // Runtime gets the real value
+    expect(value).toBe('secret');
+    // Recorder gets redacted value
+    expect(events).toHaveLength(1);
+    expect(events[0].value).toBe('[REDACTED]');
+    expect(events[0].redacted).toBe(true);
+  });
+
+  it('non-redacted keys are not affected', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    const writeEvents: WriteEvent[] = [];
+    const readEvents: ReadEvent[] = [];
+    scope.attachRecorder({
+      id: 'r',
+      onWrite: (e) => writeEvents.push(e),
+      onRead: (e) => readEvents.push(e),
+    });
+
+    scope.setValue('name', 'Alice');
+    ctx.commit();
+    scope.getValue('name');
+
+    expect(writeEvents[0].value).toBe('Alice');
+    expect(writeEvents[0].redacted).toBeUndefined();
+    expect(readEvents[0].value).toBe('Alice');
+    expect(readEvents[0].redacted).toBeUndefined();
+  });
+
+  it('redaction persists across reads after setValue', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    scope.setValue('token', 'bearer-xyz', true);
+    ctx.commit();
+
+    const events: ReadEvent[] = [];
+    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+
+    // Read multiple times — all should be redacted
+    scope.getValue('token');
+    scope.getValue('token');
+    expect(events).toHaveLength(2);
+    expect(events[0].value).toBe('[REDACTED]');
+    expect(events[1].value).toBe('[REDACTED]');
+  });
+
+  it('all recorder types see redacted values', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+
+    const narrativeWrites: WriteEvent[] = [];
+    const debugWrites: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'narrative', onWrite: (e) => narrativeWrites.push(e) });
+    scope.attachRecorder({ id: 'debug', onWrite: (e) => debugWrites.push(e) });
+
+    scope.setValue('creditCard', '4111-1111-1111-1111', true);
+
+    expect(narrativeWrites[0].value).toBe('[REDACTED]');
+    expect(debugWrites[0].value).toBe('[REDACTED]');
+  });
 });
