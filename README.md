@@ -386,7 +386,7 @@ Pluggable recorders observe every operation: `DebugRecorder`, `MetricRecorder`, 
 | **Patch-Based State** | Atomic commits, safe merges, no race conditions |
 | **Composable Subflows** | Mount entire flowcharts as nodes in larger workflows |
 | **Streaming** | Built-in streaming stages for LLM token emission |
-| **PII Redaction** | `setValue(key, value, true)` &mdash; recorders see `[REDACTED]`, runtime gets the real value ([guide](docs/guides/scope.md#redaction-pii-protection)) |
+| **PII Redaction** | Per-key `setValue(key, value, true)` or declarative `RedactionPolicy` with exact keys, regex patterns, and field-level scrubbing &mdash; plus `getRedactionReport()` audit trail ([guide](docs/guides/scope.md#redaction-pii-protection)) |
 | **Pluggable Recorders** | DebugRecorder, MetricRecorder, NarrativeRecorder &mdash; or bring your own |
 | **Flow Recorders** | 7 narrative strategies for loop summarization &mdash; Windowed, Silent, Adaptive, Progressive, Milestone, RLE, Separate &mdash; or build custom ([examples](https://github.com/footprintjs/footPrint-samples/tree/main/examples/flow-recorders)) |
 

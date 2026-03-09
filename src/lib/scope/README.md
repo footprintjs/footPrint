@@ -88,6 +88,23 @@ scope.attachRecorder(auditRecorder);
 
 ---
 
+### 2b. Redaction — "The PII Shield"
+
+Redaction sits between the data layer and recorders. Two mechanisms:
+
+**Manual:** `setValue(key, value, true)` marks a key as redacted. All recorders see `[REDACTED]` for that key's reads and writes. Runtime always gets the real value.
+
+**Policy-based:** `RedactionPolicy` is a declarative config object with three dimensions:
+- `keys: string[]` — exact key names to always redact
+- `patterns: RegExp[]` — any key matching a pattern is auto-redacted
+- `fields: Record<string, string[]>` — field-level scrubbing within objects
+
+The policy is injected via `useRedactionPolicy()` on ScopeFacade, or at the executor level via `executor.setRedactionPolicy(policy)`. Cross-stage persistence is automatic via `useSharedRedactedKeys()`.
+
+`getRedactionReport()` returns a compliance-friendly audit trail: which keys were redacted, which fields were scrubbed, which patterns were active. Never includes actual values.
+
+---
+
 ### 3. Protection — "The Guard Rail"
 
 Proxy-based protection layer that intercepts direct property assignment on scope objects.

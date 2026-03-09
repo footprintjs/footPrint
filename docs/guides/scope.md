@@ -240,6 +240,79 @@ Three protection modes:
 
 ---
 
+## Redaction (PII Protection)
+
+Protect sensitive data in all recorder output. Two approaches: manual per-key and declarative policy.
+
+### Manual Redaction
+
+Flag individual keys at write time:
+
+```typescript
+scope.setValue('creditCard', '4111-1111-1111-1111', true);
+// Runtime getValue() → real value
+// All recorders → [REDACTED]
+```
+
+Once redacted, the key stays redacted for all subsequent reads and across stages (when using `FlowChartExecutor`).
+
+### RedactionPolicy (Recommended)
+
+Define once, applied everywhere — no per-call flags needed:
+
+```typescript
+import { FlowChartExecutor, type RedactionPolicy } from 'footprintjs';
+
+const policy: RedactionPolicy = {
+  keys: ['ssn', 'creditCard'],               // exact key names
+  patterns: [/password|secret|token/i],       // regex — any matching key auto-redacts
+  fields: { patient: ['ssn', 'dob'] },       // field-level — scrub specific fields within objects
+};
+
+const executor = new FlowChartExecutor(chart, scopeFactory);
+executor.setRedactionPolicy(policy);
+await executor.run();
+```
+
+**Exact keys** — `setValue('ssn', ...)` auto-redacts without passing `true`.
+
+**Patterns** — `setValue('dbPassword', ...)` matches `/password/i` and auto-redacts.
+
+**Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory but recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`.
+
+### Audit Trail
+
+After a run, get a compliance-friendly report of what was redacted:
+
+```typescript
+const report = executor.getRedactionReport();
+// {
+//   redactedKeys: ['ssn', 'creditCard', 'dbPassword'],
+//   fieldRedactions: { patient: ['ssn', 'dob'] },
+//   patterns: ['password|secret|token']
+// }
+```
+
+Never includes actual values — only key names, field names, and pattern sources.
+
+### Class-Level Policy
+
+Define a policy once in your scope subclass:
+
+```typescript
+class PatientScope extends ScopeFacade {
+  static readonly REDACTION_POLICY: RedactionPolicy = {
+    keys: ['ssn'],
+    patterns: [/password/i],
+    fields: { patient: ['dob', 'ssn'] },
+  };
+}
+```
+
+Then apply it in the scope factory or via `executor.setRedactionPolicy(PatientScope.REDACTION_POLICY)`.
+
+---
+
 ## Provider System
 
 The provider system normalizes different scope definitions to a single `ScopeFactory` interface:

@@ -10,7 +10,17 @@
 export { ScopeFacade } from './ScopeFacade';
 
 // Types
-export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, RecorderContext, StageEvent, WriteEvent } from './types';
+export type {
+  CommitEvent,
+  ErrorEvent,
+  ReadEvent,
+  Recorder,
+  RecorderContext,
+  RedactionPolicy,
+  RedactionReport,
+  StageEvent,
+  WriteEvent,
+} from './types';
 
 // Recorders
 export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './recorders/DebugRecorder';

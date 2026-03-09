@@ -25,6 +25,7 @@ import {
 } from '../engine/types';
 import type { ScopeProtectionMode } from '../scope/protection/types';
 import { NarrativeRecorder } from '../scope/recorders/NarrativeRecorder';
+import type { RedactionPolicy, RedactionReport } from '../scope/types';
 import { ExecutionRuntime } from './ExecutionRuntime';
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
@@ -32,6 +33,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private narrativeEnabled = false;
   private narrativeRecorder: NarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
+  private redactionPolicy: RedactionPolicy | undefined;
+  private sharedRedactedKeys = new Set<string>();
+  private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
 
   private readonly flowChartArgs: {
     flowChart: FlowChart<TOut, TScope>;
@@ -96,13 +100,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Share redacted keys across all scope instances in this pipeline run.
     // This ensures that once a key is marked as redacted in one stage,
     // subsequent stages' recorders also see it as redacted.
+    // Also injects the RedactionPolicy if one has been set.
     {
-      const sharedRedactedKeys = new Set<string>();
+      this.sharedRedactedKeys = new Set<string>();
+      this.sharedRedactedFieldsByKey = new Map<string, Set<string>>();
+      const sharedRedactedKeys = this.sharedRedactedKeys;
+      const policy = this.redactionPolicy;
       const prevFactory = scopeFactory;
       scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown) => {
         const scope = prevFactory(ctx, stageName, readOnly);
         if (scope && typeof (scope as any).useSharedRedactedKeys === 'function') {
           (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
+        }
+        if (policy && scope && typeof (scope as any).useRedactionPolicy === 'function') {
+          (scope as any).useRedactionPolicy(policy);
         }
         return scope;
       }) as ScopeFactory<TScope>;
@@ -132,6 +143,30 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   enableNarrative(): void {
     this.narrativeEnabled = true;
+  }
+
+  /**
+   * Set a declarative redaction policy that applies to all stages.
+   * Must be called before run().
+   */
+  setRedactionPolicy(policy: RedactionPolicy): void {
+    this.redactionPolicy = policy;
+  }
+
+  /**
+   * Returns a compliance-friendly report of all redaction activity from the
+   * most recent run. Never includes actual values.
+   */
+  getRedactionReport(): RedactionReport {
+    const fieldRedactions: Record<string, string[]> = {};
+    for (const [key, fields] of this.sharedRedactedFieldsByKey) {
+      fieldRedactions[key] = [...fields];
+    }
+    return {
+      redactedKeys: [...this.sharedRedactedKeys],
+      fieldRedactions,
+      patterns: (this.redactionPolicy?.patterns ?? []).map((p) => p.source),
+    };
   }
 
   // ─── FlowRecorder Management ───

@@ -15,7 +15,7 @@
  */
 
 import { StageContext } from '../memory/StageContext';
-import type { CommitEvent, Recorder } from './types';
+import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types';
 
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');
@@ -26,6 +26,8 @@ export class ScopeFacade {
 
   private _recorders: Recorder[] = [];
   private _redactedKeys: Set<string>;
+  private _redactionPolicy: RedactionPolicy | undefined;
+  private _redactedFieldsByKey: Map<string, Set<string>> = new Map();
 
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown) {
     this._stageContext = context;
@@ -47,6 +49,43 @@ export class ScopeFacade {
    */
   getRedactedKeys(): Set<string> {
     return this._redactedKeys;
+  }
+
+  /**
+   * Apply a declarative redaction policy. The policy is additive —
+   * it works alongside manual `setValue(..., true)` calls.
+   */
+  useRedactionPolicy(policy: RedactionPolicy): void {
+    this._redactionPolicy = policy;
+    // Pre-populate field-level redaction map from policy
+    if (policy.fields) {
+      for (const [key, fields] of Object.entries(policy.fields)) {
+        this._redactedFieldsByKey.set(key, new Set(fields));
+      }
+    }
+  }
+
+  /**
+   * Returns the current redaction policy (if any).
+   */
+  getRedactionPolicy(): RedactionPolicy | undefined {
+    return this._redactionPolicy;
+  }
+
+  /**
+   * Returns a compliance-friendly report of all redaction activity.
+   * Never includes actual values — only key names, field names, and patterns.
+   */
+  getRedactionReport(): RedactionReport {
+    const fieldRedactions: Record<string, string[]> = {};
+    for (const [key, fields] of this._redactedFieldsByKey) {
+      fieldRedactions[key] = [...fields];
+    }
+    return {
+      redactedKeys: [...this._redactedKeys],
+      fieldRedactions,
+      patterns: (this._redactionPolicy?.patterns ?? []).map((p) => p.source),
+    };
   }
 
   // ── Recorder Management ──────────────────────────────────────────────────
@@ -121,14 +160,25 @@ export class ScopeFacade {
     const value = this._stageContext.getValue([], key);
 
     if (this._recorders.length > 0) {
-      const isRedacted = key !== undefined && this._redactedKeys.has(key);
+      const isRedacted = key !== undefined && this._isKeyRedacted(key);
+      const fieldSet = key !== undefined ? this._redactedFieldsByKey.get(key) : undefined;
+
+      let recorderValue: unknown;
+      if (isRedacted) {
+        recorderValue = '[REDACTED]';
+      } else if (fieldSet && value && typeof value === 'object') {
+        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
+      } else {
+        recorderValue = value;
+      }
+
       this._invokeHook('onRead', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value: isRedacted ? '[REDACTED]' : value,
-        redacted: isRedacted || undefined,
+        value: recorderValue,
+        redacted: isRedacted || fieldSet !== undefined || undefined,
       });
     }
 
@@ -136,21 +186,36 @@ export class ScopeFacade {
   }
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    const result = this._stageContext.setObject([], key, value, shouldRedact, description);
+    // Auto-redact if key matches policy (exact keys or patterns)
+    const effectiveRedact = shouldRedact || this._isPolicyRedacted(key);
 
-    if (shouldRedact) {
+    const result = this._stageContext.setObject([], key, value, effectiveRedact, description);
+
+    if (effectiveRedact) {
       this._redactedKeys.add(key);
     }
 
+    // Check for field-level redaction from policy
+    const fieldSet = this._redactedFieldsByKey.get(key);
+
     if (this._recorders.length > 0) {
+      let recorderValue: unknown;
+      if (effectiveRedact) {
+        recorderValue = '[REDACTED]';
+      } else if (fieldSet && value && typeof value === 'object') {
+        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
+      } else {
+        recorderValue = value;
+      }
+
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value: shouldRedact ? '[REDACTED]' : value,
+        value: recorderValue,
         operation: 'set',
-        redacted: shouldRedact || undefined,
+        redacted: effectiveRedact || fieldSet !== undefined || undefined,
       });
     }
 
@@ -161,15 +226,26 @@ export class ScopeFacade {
     const result = this._stageContext.updateObject([], key, value, description);
 
     if (this._recorders.length > 0) {
-      const isRedacted = this._redactedKeys.has(key);
+      const isRedacted = this._isKeyRedacted(key);
+      const fieldSet = this._redactedFieldsByKey.get(key);
+
+      let recorderValue: unknown;
+      if (isRedacted) {
+        recorderValue = '[REDACTED]';
+      } else if (fieldSet && value && typeof value === 'object') {
+        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
+      } else {
+        recorderValue = value;
+      }
+
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value: isRedacted ? '[REDACTED]' : value,
+        value: recorderValue,
         operation: 'update',
-        redacted: isRedacted || undefined,
+        redacted: isRedacted || fieldSet !== undefined || undefined,
       });
     }
 
@@ -219,6 +295,35 @@ export class ScopeFacade {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
+
+  /** Checks if a key is redacted (explicit _redactedKeys set). */
+  private _isKeyRedacted(key: string): boolean {
+    return this._redactedKeys.has(key);
+  }
+
+  /** Checks if a key should be auto-redacted by the policy (exact keys + patterns). */
+  private _isPolicyRedacted(key: string): boolean {
+    if (!this._redactionPolicy) return false;
+    if (this._redactionPolicy.keys?.includes(key)) return true;
+    if (this._redactionPolicy.patterns) {
+      for (const p of this._redactionPolicy.patterns) {
+        p.lastIndex = 0; // Reset stateful global/sticky regexes
+        if (p.test(key)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Returns a shallow copy with specified fields replaced by '[REDACTED]'. */
+  private _scrubFields(obj: Record<string, unknown>, fields: Set<string>): Record<string, unknown> {
+    const copy = { ...obj };
+    for (const field of fields) {
+      if (Object.prototype.hasOwnProperty.call(copy, field)) {
+        copy[field] = '[REDACTED]';
+      }
+    }
+    return copy;
+  }
 
   private _invokeHook(hook: keyof Omit<Recorder, 'id'>, event: unknown): void {
     for (const recorder of this._recorders) {

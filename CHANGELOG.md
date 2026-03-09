@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-09
+
+### Added
+- **RedactionPolicy** — declarative, config-driven PII redaction
+  - `RedactionPolicy` type with `keys`, `patterns`, and `fields` dimensions
+  - `executor.setRedactionPolicy(policy)` — apply across all stages with one call
+  - `executor.getRedactionReport()` — compliance-friendly audit trail (keys, fields, patterns — never values)
+  - Exact key matching: `keys: ['ssn', 'creditCard']`
+  - Pattern matching: `patterns: [/password|secret|token/i]` — auto-redacts any matching key
+  - Field-level scrubbing: `fields: { patient: ['ssn', 'dob'] }` — redacts specific fields within objects
+  - Global regex `lastIndex` safety — stateful patterns handled correctly
+  - Policy is additive with existing manual `setValue(..., true)` approach
+- `RedactionPolicy` and `RedactionReport` types exported from `footprintjs`
+
 ## [0.5.0] - 2026-03-09
 
 ### Added

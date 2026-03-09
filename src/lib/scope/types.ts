@@ -50,6 +50,37 @@ export interface StageEvent extends RecorderContext {
 }
 
 // ============================================================================
+// Redaction Policy
+// ============================================================================
+
+/**
+ * Declarative redaction configuration — define once, applied everywhere.
+ *
+ * Configure at the scope class level (static property) or pass to
+ * FlowChartExecutor to apply across all stages.
+ */
+export interface RedactionPolicy {
+  /** Exact key names to always redact (e.g. ['ssn', 'creditCard']). */
+  keys?: string[];
+  /** Regex patterns — any key matching a pattern is auto-redacted. */
+  patterns?: RegExp[];
+  /** Field-level redaction within objects — key → array of fields to scrub. */
+  fields?: Record<string, string[]>;
+}
+
+/**
+ * Compliance-friendly report of what was redacted. Never includes values.
+ */
+export interface RedactionReport {
+  /** Keys fully redacted (exact match or pattern match). */
+  redactedKeys: string[];
+  /** Keys with field-level redaction → which fields were scrubbed. */
+  fieldRedactions: Record<string, string[]>;
+  /** Source strings of registered patterns. */
+  patterns: string[];
+}
+
+// ============================================================================
 // Recorder Interface
 // ============================================================================
 

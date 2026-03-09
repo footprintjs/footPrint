@@ -34,7 +34,15 @@ export { DebugRecorder } from './lib/scope';
 export { NarrativeRecorder } from './lib/scope';
 
 // Recorder interface and core event types (needed to implement custom Recorder)
-export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, WriteEvent } from './lib/scope';
+export type {
+  CommitEvent,
+  ErrorEvent,
+  ReadEvent,
+  Recorder,
+  RedactionPolicy,
+  RedactionReport,
+  WriteEvent,
+} from './lib/scope';
 
 // Zod-based scope definitions
 export { defineScopeFromZod } from './lib/scope';

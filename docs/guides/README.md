@@ -17,15 +17,24 @@ Comprehensive guides for using FootPrint — the flowchart pattern for self-expl
 
 ### PII Redaction — [scope.md#redaction](scope.md#redaction-pii-protection)
 
-Protect sensitive data in all recorder output with a single flag:
+Protect sensitive data in all recorder output — per-key flag or declarative policy:
 
 ```typescript
+// Per-key
 scope.setValue('creditCard', '4111-1111-1111-1111', true);
-// Runtime getValue() → real value
-// All recorders → [REDACTED]
+
+// Declarative policy — define once, applied everywhere
+executor.setRedactionPolicy({
+  keys: ['ssn', 'creditCard'],           // exact key matches
+  patterns: [/password|secret|token/i],  // regex auto-redact
+  fields: { patient: ['ssn', 'dob'] },  // field-level within objects
+});
+
+// Audit trail (after run)
+executor.getRedactionReport(); // { redactedKeys, fieldRedactions, patterns }
 ```
 
-Declare-once, applied everywhere. Cross-stage persistence is automatic when using `FlowChartExecutor`. Config-based patterns let you define sensitive fields once in a typed scope class.
+Cross-stage persistence is automatic. Runtime always gets real values — only recorders see `[REDACTED]`.
 
 ### Loop Narrative Strategies — [flow-recorders.md#strategies](flow-recorders.md#built-in-loop-strategies)
 
