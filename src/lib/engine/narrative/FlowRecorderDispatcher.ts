@@ -163,7 +163,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
    */
   getSentences(): string[] {
     for (const r of this.recorders) {
-      const candidate = r as Record<string, unknown>;
+      const candidate = r as unknown as Record<string, unknown>;
       if (typeof candidate.getSentences === 'function') {
         return (candidate.getSentences as () => string[])();
       }
