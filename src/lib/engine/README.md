@@ -92,38 +92,95 @@ Ten focused modules, each owning one aspect of execution. The traverser delegate
 
 ---
 
-### 3. ControlFlowNarrativeGenerator — "The Narrator"
+### 3. FlowRecorder System — "The Observers"
 
-Converts traversal events into plain-English sentences as they happen.
+Pluggable observers for control flow events. Mirrors the scope-level `Recorder` pattern at the engine layer.
 
-**Why it connects to the main goal:** This is the flow half of the causal explanation. When the engine traverses a decider node and takes the "reject" branch, the narrative generator produces *"A decision was made, and the path taken was Reject."* When the engine loops back to a retry stage, it produces *"On pass 3 through Retry."* These sentences are a first-class output — not debug logs, not optional annotations, but the story of what the engine did.
+**Why it connects to the main goal:** Every control flow decision — which branch was taken, how many times the loop ran, which subflow was entered — is a fact that consumers need. But different consumers need different views of those facts. An LLM needs a concise narrative. A dashboard needs metrics. An audit system needs every event. The FlowRecorder system lets all of them observe the same traversal without interfering with each other or with execution.
 
-**Why not reconstruct the narrative after execution?** Because reconstruction requires interpreting raw execution data — and interpretation is where hallucination happens. The narrative generator writes sentences *at the moment of decision*, when the context is unambiguous. The decider *just* chose "reject" — that's a fact, not an inference. Recording it immediately eliminates the gap between what happened and what gets reported.
+**Architecture:**
+
+```
+FlowRecorderDispatcher (implements IControlFlowNarrative)
+     │
+     ├── NarrativeFlowRecorder (default — produces plain-English sentences)
+     ├── WindowedNarrativeFlowRecorder (first N + last M, skip middle)
+     ├── SilentNarrativeFlowRecorder (summary only)
+     ├── AdaptiveNarrativeFlowRecorder (full detail → sampling)
+     ├── Custom FlowRecorder (metrics, audit, telemetry, ...)
+     └── ...any number of observers
+```
+
+The `FlowRecorderDispatcher` implements `IControlFlowNarrative`, so it drops into the traverser's `HandlerDeps` without changing any handler code. Each hook call fans out to all attached recorders with try/catch isolation — a failing recorder never breaks execution.
 
 **Two narrative systems, complementary:**
 
 ```
 memory/NarrativeRecorder     = DATA observation  → "wrote userName = 'Alice'"
-engine/ControlFlowNarrative  = FLOW observation  → "chose Reject because riskScore > 0.5"
+engine/FlowRecorder          = FLOW observation  → "chose Reject because riskScore > 0.5"
 CombinedNarrativeBuilder     = MERGE both        → the full story
 ```
 
-The data narrative (from `memory/scope/`) tells you what changed. The flow narrative (from this module) tells you what path was taken. Neither is complete alone. Together they answer *"What happened and why?"* — the question every trace consumer is asking.
+**Quick start:**
 
 ```typescript
-const narrative = new ControlFlowNarrativeGenerator();
-// ... traverser executes with this narrative ...
+import { FlowChartExecutor, NarrativeFlowRecorder } from 'footprintjs';
 
-narrative.getSentences();
-// [
-//   "The process began with Validate Input.",
-//   "Next, it moved on to Risk Assessment.",
-//   "A decision was made: DTI exceeds 43%, so the path taken was Reject.",
-//   "Execution stopped at Send Rejection Letter."
-// ]
+// Default narrative (auto-attached when narrative enabled)
+const executor = new FlowChartExecutor(chart, scopeFactory);
+executor.enableNarrative();
+await executor.run();
+executor.getFlowNarrative(); // plain-English sentences
+
+// Custom FlowRecorder
+const metricsRecorder = {
+  id: 'metrics',
+  onLoop: (event) => metrics.trackLoop(event.target, event.iteration),
+  onDecision: (event) => metrics.trackDecision(event.decider, event.chosen),
+};
+executor.attachFlowRecorder(metricsRecorder);
 ```
 
-**Key design decision:** The NullControlFlowNarrativeGenerator (Null Object pattern) means the traverser never checks `if (narrative)` — it always calls narrative methods. When narrative is disabled, the null implementation silently discards everything at zero cost. No conditionals in the hot path.
+**Built-in strategies for loop compression:**
+
+| Strategy | Best for | Output shape |
+|---|---|---|
+| `NarrativeFlowRecorder` | Default — full detail | Every iteration, every event |
+| `WindowedNarrativeFlowRecorder(3, 2)` | Moderate loops (10–200) | First 3 + last 2, skip middle |
+| `SilentNarrativeFlowRecorder` | Iteration details irrelevant | "Looped 50 times through X." |
+| `AdaptiveNarrativeFlowRecorder(5, 10)` | Unknown loop counts | Full for 5, then every 10th |
+| `ProgressiveNarrativeFlowRecorder(2)` | Convergence loops | Powers of 2: 1, 2, 4, 8, 16... |
+| `MilestoneNarrativeFlowRecorder(10)` | Progress markers | Every 10th iteration |
+| `RLENarrativeFlowRecorder` | Simple retry loops | "Looped 50 times (passes 1–50)." |
+| `SeparateNarrativeFlowRecorder` | UIs with collapsible sections | Clean main + full loop in separate channel |
+
+All strategies are tree-shakeable — consumers import only what they use.
+
+**FlowRecorder interface:**
+
+```typescript
+interface FlowRecorder {
+  readonly id: string;
+  onStageExecuted?(event: FlowStageEvent): void;
+  onNext?(event: FlowNextEvent): void;
+  onDecision?(event: FlowDecisionEvent): void;
+  onFork?(event: FlowForkEvent): void;
+  onSelected?(event: FlowSelectedEvent): void;
+  onSubflowEntry?(event: FlowSubflowEvent): void;
+  onSubflowExit?(event: FlowSubflowEvent): void;
+  onLoop?(event: FlowLoopEvent): void;
+  onBreak?(event: FlowBreakEvent): void;
+  onError?(event: FlowErrorEvent): void;
+}
+```
+
+All hooks are optional — implement only what you need. The `id` field supports attach/detach by identity.
+
+**Key design decisions:**
+- **Mirrors scope Recorder** — if you know Recorder, you know FlowRecorder
+- **Dispatcher = Null Object** — when no recorders attached, fast-path returns immediately (~0 cost)
+- **Error isolation** — try/catch per recorder per hook, errors swallowed, never breaks execution
+- **Non-breaking additive** — default behavior preserved; NarrativeFlowRecorder auto-attached when narrative enabled
 
 ---
 
@@ -217,11 +274,12 @@ Parent traverser hits a subflow reference
          FlowchartTraverser
         /         |         \
   handlers/   narrative/    graph/
-       |
-  HandlerDeps (types.ts)
-       |
-  memory/ (SharedMemory, StageContext, EventLog)
-  scope/ (ScopeFacade, protection, recorders)
+       |          |
+  HandlerDeps  FlowRecorderDispatcher
+  (types.ts)     ├── NarrativeFlowRecorder
+       |         ├── recorders/ (7 built-in strategies)
+  memory/        └── custom FlowRecorders
+  scope/
 ```
 
 External dependencies: none (inherits lodash from memory/).
@@ -230,11 +288,11 @@ External dependencies: none (inherits lodash from memory/).
 
 ## Test Coverage
 
-Four test tiers, 103 tests across 13 suites:
+Four test tiers across the engine:
 
 | Tier | What it proves | Example |
 |---|---|---|
-| **unit/** | Individual module correctness | NodeResolver.findNodeById, ContinuationResolver iteration counting |
-| **scenario/** | Multi-step workflow correctness | linear chain A→B→C, decider routing, fork fan-out, narrative capture |
-| **property/** | Invariants hold for random inputs | maxIterations always enforced, per-node independence |
-| **boundary/** | Edge cases and error paths | no-fn-no-children throws, decider-without-children throws |
+| **unit/** | Individual module correctness | NodeResolver.findNodeById, FlowRecorderDispatcher fan-out, strategy compression |
+| **scenario/** | Multi-step workflow correctness | linear chain A→B→C, FlowRecorder in real traversal, decider routing |
+| **property/** | Invariants hold for random inputs | maxIterations enforced, suppressed + emitted = total for all strategies |
+| **boundary/** | Edge cases and extremes | 0 iterations, 10K iterations, rapid attach/detach, empty recorders |

@@ -25,3 +25,28 @@ export { CombinedNarrativeBuilder } from './narrative/CombinedNarrativeBuilder';
 export { ControlFlowNarrativeGenerator } from './narrative/ControlFlowNarrativeGenerator';
 export { NullControlFlowNarrativeGenerator } from './narrative/NullControlFlowNarrativeGenerator';
 export type { IControlFlowNarrative } from './narrative/types';
+
+// FlowRecorder system
+export { FlowRecorderDispatcher } from './narrative/FlowRecorderDispatcher';
+export { NarrativeFlowRecorder } from './narrative/NarrativeFlowRecorder';
+export type {
+  FlowBreakEvent,
+  FlowDecisionEvent,
+  FlowErrorEvent,
+  FlowForkEvent,
+  FlowLoopEvent,
+  FlowNextEvent,
+  FlowRecorder,
+  FlowSelectedEvent,
+  FlowStageEvent,
+  FlowSubflowEvent,
+} from './narrative/types';
+
+// Built-in FlowRecorder strategies (tree-shakeable)
+export { AdaptiveNarrativeFlowRecorder } from './narrative/recorders/AdaptiveNarrativeFlowRecorder';
+export { MilestoneNarrativeFlowRecorder } from './narrative/recorders/MilestoneNarrativeFlowRecorder';
+export { ProgressiveNarrativeFlowRecorder } from './narrative/recorders/ProgressiveNarrativeFlowRecorder';
+export { RLENarrativeFlowRecorder } from './narrative/recorders/RLENarrativeFlowRecorder';
+export { SeparateNarrativeFlowRecorder } from './narrative/recorders/SeparateNarrativeFlowRecorder';
+export { SilentNarrativeFlowRecorder } from './narrative/recorders/SilentNarrativeFlowRecorder';
+export { WindowedNarrativeFlowRecorder } from './narrative/recorders/WindowedNarrativeFlowRecorder';

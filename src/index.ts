@@ -46,6 +46,19 @@ export { defineScopeFromZod } from './lib/scope';
 export type { CombinedNarrativeEntry } from './lib/engine';
 export { CombinedNarrativeBuilder } from './lib/engine';
 
+// FlowRecorder — Pluggable observer for control flow events (mirrors scope Recorder)
+export type { FlowLoopEvent, FlowRecorder } from './lib/engine';
+export { NarrativeFlowRecorder } from './lib/engine';
+
+// Built-in FlowRecorder strategies (tree-shakeable — import only what you use)
+export { AdaptiveNarrativeFlowRecorder } from './lib/engine';
+export { MilestoneNarrativeFlowRecorder } from './lib/engine';
+export { ProgressiveNarrativeFlowRecorder } from './lib/engine';
+export { RLENarrativeFlowRecorder } from './lib/engine';
+export { SeparateNarrativeFlowRecorder } from './lib/engine';
+export { SilentNarrativeFlowRecorder } from './lib/engine';
+export { WindowedNarrativeFlowRecorder } from './lib/engine';
+
 // ============================================================================
 // Memory — ScopeFactory type (needed for FlowChartExecutor constructor)
 // ============================================================================

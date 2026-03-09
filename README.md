@@ -51,7 +51,7 @@ console.log(executor.getNarrative());
 
 > **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
 >
-> **[Browse 20+ examples](https://github.com/footprintjs/footPrint-samples)** &mdash; features, flowchart patterns, and a full loan underwriting demo
+> **[Browse 25+ examples](https://github.com/footprintjs/footPrint-samples)** &mdash; features, flowchart patterns, flow recorder strategies, and a full loan underwriting demo
 
 ---
 
@@ -293,6 +293,7 @@ The flowchart pattern has three parts &mdash; the same way MVC has Model, View, 
 | **[Scope](docs/guides/scope.md)** | Typed, raw, and Zod scope; recorders; protection |
 | **[Execution Control](docs/guides/execution.md)** | breakFn, cancellation, timeout, fail-fast, loops |
 | **[Error Handling](docs/guides/error-handling.md)** | Commit-on-error, debug recorder, post-mortem |
+| **[Flow Recorders](docs/guides/flow-recorders.md)** | Pluggable observers for control flow narrative — 7 built-in strategies |
 | **[Contracts](docs/guides/contracts.md)** | defineContract, OpenAPI 3.1, Zod vs JSON Schema |
 | **[Internals](docs/internals/)** | Architecture deep-dives for each library |
 
@@ -386,6 +387,7 @@ Pluggable recorders observe every operation: `DebugRecorder`, `MetricRecorder`, 
 | **Composable Subflows** | Mount entire flowcharts as nodes in larger workflows |
 | **Streaming** | Built-in streaming stages for LLM token emission |
 | **Pluggable Recorders** | DebugRecorder, MetricRecorder, NarrativeRecorder &mdash; or bring your own |
+| **Flow Recorders** | 7 narrative strategies for loop summarization &mdash; Windowed, Silent, Adaptive, Progressive, Milestone, RLE, Separate &mdash; or build custom ([examples](https://github.com/footprintjs/footPrint-samples/tree/main/examples/flow-recorders)) |
 
 ---
 
@@ -441,6 +443,8 @@ When a stage throws, the engine commits the trace *before* re-throwing &mdash; s
 | `run(options?)` | Execute the flowchart. Options: `{ signal?, timeoutMs? }` |
 | `getNarrative()` | Combined narrative (flow + data) with ScopeFacade; flow-only otherwise |
 | `getFlowNarrative()` | Flow-only narrative sentences |
+| `attachFlowRecorder(recorder)` | Attach a FlowRecorder for pluggable narrative control |
+| `detachFlowRecorder(id)` | Detach a FlowRecorder by id |
 | `getNarrativeEntries()` | Structured `CombinedNarrativeEntry[]` for programmatic use |
 | `getSnapshot()` | Full execution tree + state |
 | `getExtractedResults()` | Extractor results map |

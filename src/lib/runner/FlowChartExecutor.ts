@@ -9,6 +9,7 @@
 
 import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder';
 import { CombinedNarrativeBuilder } from '../engine/narrative/CombinedNarrativeBuilder';
+import type { FlowRecorder } from '../engine/narrative/types';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser';
 import {
   type ExtractorError,
@@ -30,6 +31,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
   private narrativeEnabled = false;
   private narrativeRecorder: NarrativeRecorder | undefined;
+  private flowRecorders: FlowRecorder[] = [];
 
   private readonly flowChartArgs: {
     flowChart: FlowChart<TOut, TScope>;
@@ -109,11 +111,34 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       buildTimeStructure: fc.buildTimeStructure,
       logger: fc.logger ?? defaultLogger,
       signal,
+      flowRecorders: this.flowRecorders.length > 0 ? this.flowRecorders : undefined,
     });
   }
 
   enableNarrative(): void {
     this.narrativeEnabled = true;
+  }
+
+  // ─── FlowRecorder Management ───
+
+  /**
+   * Attach a FlowRecorder to observe control flow events.
+   * Automatically enables narrative if not already enabled.
+   * Must be called before run() — recorders are passed to the traverser at creation time.
+   */
+  attachFlowRecorder(recorder: FlowRecorder): void {
+    this.flowRecorders.push(recorder);
+    this.narrativeEnabled = true;
+  }
+
+  /** Detach all FlowRecorders with the given ID. */
+  detachFlowRecorder(id: string): void {
+    this.flowRecorders = this.flowRecorders.filter((r) => r.id !== id);
+  }
+
+  /** Returns a defensive copy of attached FlowRecorders. */
+  getFlowRecorders(): FlowRecorder[] {
+    return [...this.flowRecorders];
   }
 
   /**

@@ -31,9 +31,10 @@ import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager';
 import { SelectorHandler } from '../handlers/SelectorHandler';
 import { StageRunner } from '../handlers/StageRunner';
 import { SubflowExecutor } from '../handlers/SubflowExecutor';
-import { ControlFlowNarrativeGenerator } from '../narrative/ControlFlowNarrativeGenerator';
+import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher';
+import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator';
-import type { IControlFlowNarrative } from '../narrative/types';
+import type { FlowRecorder, IControlFlowNarrative } from '../narrative/types';
 import type {
   ExtractorError,
   HandlerDeps,
@@ -66,6 +67,8 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   buildTimeStructure?: SerializedPipelineStructure;
   logger: ILogger;
   signal?: AbortSignal;
+  /** Pre-configured FlowRecorders to attach when narrative is enabled. */
+  flowRecorders?: FlowRecorder[];
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -87,6 +90,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly structureManager: RuntimeStructureManager;
   private readonly extractorRunner: ExtractorRunner<TOut, TScope>;
   private readonly narrativeGenerator: IControlFlowNarrative;
+  private readonly flowRecorderDispatcher: FlowRecorderDispatcher | undefined;
 
   // Execution state
   private subflowResults: Map<string, SubflowResult> = new Map();
@@ -111,10 +115,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       this.logger,
     );
 
-    // Narrative generator (Null Object pattern for zero-cost default)
-    this.narrativeGenerator = opts.narrativeEnabled
-      ? new ControlFlowNarrativeGenerator()
-      : new NullControlFlowNarrativeGenerator();
+    // Narrative generator
+    // When narrative is enabled with FlowRecorders, use FlowRecorderDispatcher.
+    // When narrative is enabled without FlowRecorders, use legacy ControlFlowNarrativeGenerator.
+    // When disabled, use NullControlFlowNarrativeGenerator (zero-cost).
+    if (opts.narrativeEnabled) {
+      const dispatcher = new FlowRecorderDispatcher();
+      this.flowRecorderDispatcher = dispatcher;
+
+      // If custom FlowRecorders are provided, use them; otherwise attach default NarrativeFlowRecorder
+      if (opts.flowRecorders && opts.flowRecorders.length > 0) {
+        for (const recorder of opts.flowRecorders) {
+          dispatcher.attach(recorder);
+        }
+      } else {
+        dispatcher.attach(new NarrativeFlowRecorder());
+      }
+
+      this.narrativeGenerator = dispatcher;
+    } else {
+      this.narrativeGenerator = new NullControlFlowNarrativeGenerator();
+    }
 
     // Build shared deps bag
     const deps = this.createDeps(opts);
@@ -199,6 +220,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   getNarrative(): string[] {
     return this.narrativeGenerator.getSentences();
+  }
+
+  /** Returns the FlowRecorderDispatcher, or undefined if narrative is disabled. */
+  getFlowRecorderDispatcher(): FlowRecorderDispatcher | undefined {
+    return this.flowRecorderDispatcher;
   }
 
   // ─────────────────────── Core Traversal ───────────────────────
