@@ -266,7 +266,7 @@ import { FlowChartExecutor, type RedactionPolicy } from 'footprintjs';
 const policy: RedactionPolicy = {
   keys: ['ssn', 'creditCard'],               // exact key names
   patterns: [/password|secret|token/i],       // regex — any matching key auto-redacts
-  fields: { patient: ['ssn', 'dob'] },       // field-level — scrub specific fields within objects
+  fields: { patient: ['ssn', 'dob', 'address.zip'] }, // field-level — supports dot-notation for nested paths
 };
 
 const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -278,7 +278,7 @@ await executor.run();
 
 **Patterns** — `setValue('dbPassword', ...)` matches `/password/i` and auto-redacts.
 
-**Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory but recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`.
+**Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory but recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`. Supports dot-notation for nested paths: `fields: { patient: ['address.zip'] }` scrubs `patient.address.zip` while preserving all other nested properties.
 
 ### Audit Trail
 
@@ -304,7 +304,7 @@ class PatientScope extends ScopeFacade {
   static readonly REDACTION_POLICY: RedactionPolicy = {
     keys: ['ssn'],
     patterns: [/password/i],
-    fields: { patient: ['dob', 'ssn'] },
+    fields: { patient: ['dob', 'ssn', 'address.zip'] },
   };
 }
 ```

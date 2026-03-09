@@ -136,6 +136,89 @@ describe('RedactionPolicy — unit', () => {
     expect(writes[0].value).toBe('not-an-object');
   });
 
+  // ── Dot-notation (nested field) redaction ───────────────────────────
+
+  it('policy.fields with dot-notation scrubs nested fields on setValue', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { patient: ['address.zip', 'insurance.memberId'] } });
+    scope.setValue('patient', {
+      name: 'Alice',
+      address: { street: '123 Main', zip: '90210' },
+      insurance: { provider: 'Aetna', memberId: 'XYZ-123' },
+    });
+
+    const scrubbed = writes[0].value as any;
+    expect(scrubbed.name).toBe('Alice');
+    expect(scrubbed.address.street).toBe('123 Main');
+    expect(scrubbed.address.zip).toBe('[REDACTED]');
+    expect(scrubbed.insurance.provider).toBe('Aetna');
+    expect(scrubbed.insurance.memberId).toBe('[REDACTED]');
+    expect(writes[0].redacted).toBe(true);
+  });
+
+  it('policy.fields with dot-notation scrubs on getValue too', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
+    scope.setValue('patient', { name: 'Bob', address: { zip: '10001' } });
+    ctx.commit();
+
+    const reads: ReadEvent[] = [];
+    scope.attachRecorder({ id: 'r', onRead: (e) => reads.push(e) });
+    const value = scope.getValue('patient') as any;
+
+    // Runtime gets real value
+    expect(value.address.zip).toBe('10001');
+    // Recorder gets scrubbed
+    expect((reads[0].value as any).address.zip).toBe('[REDACTED]');
+  });
+
+  it('policy.fields with dot-notation ignores missing nested paths', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { user: ['address.zip'] } });
+    scope.setValue('user', { name: 'Alice' }); // no 'address' property at all
+
+    const val = writes[0].value as any;
+    expect(val.name).toBe('Alice');
+    expect(val.address).toBeUndefined();
+  });
+
+  it('policy.fields mixes dot-notation and flat fields', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { patient: ['ssn', 'address.zip'] } });
+    scope.setValue('patient', {
+      name: 'Alice',
+      ssn: '123-45-6789',
+      address: { street: '123 Main', zip: '90210' },
+    });
+
+    const scrubbed = writes[0].value as any;
+    expect(scrubbed.ssn).toBe('[REDACTED]');
+    expect(scrubbed.address.zip).toBe('[REDACTED]');
+    expect(scrubbed.name).toBe('Alice');
+    expect(scrubbed.address.street).toBe('123 Main');
+  });
+
+  it('dot-notation does not mutate the original object', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    scope.attachRecorder({ id: 'r', onWrite: () => {} });
+
+    scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
+    const original = { name: 'Alice', address: { zip: '90210' } };
+    scope.setValue('patient', original);
+
+    expect(original.address.zip).toBe('90210');
+  });
+
   // ── Combined policy ─────────────────────────────────────────────────
 
   it('exact keys + patterns + fields work together', () => {

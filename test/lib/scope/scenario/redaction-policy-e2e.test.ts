@@ -171,4 +171,70 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     expect(patient.ssn).toBe('999');
     expect(patient.dob).toBe('1990-01-01');
   });
+
+  // ── Dot-notation (nested field) with real recorders ─────────────────
+
+  it('dot-notation: DebugRecorder sees nested fields scrubbed', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'Intake');
+    const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
+    scope.attachRecorder(debug);
+    scope.useRedactionPolicy({
+      fields: { patient: ['address.zip', 'insurance.memberId'] },
+    });
+
+    scope.notifyStageStart();
+    scope.setValue('patient', {
+      name: 'Bob',
+      address: { street: '123 Main', city: 'LA', zip: '90210' },
+      insurance: { provider: 'Aetna', memberId: 'XYZ-123' },
+    });
+    scope.notifyStageEnd(5);
+
+    const entries = debug.getEntries();
+    const patientEntry = entries.find((e) => e.type === 'write' && (e.data as any).key === 'patient');
+    const val = (patientEntry!.data as any).value as any;
+
+    expect(val.name).toBe('Bob');
+    expect(val.address.street).toBe('123 Main');
+    expect(val.address.zip).toBe('[REDACTED]');
+    expect(val.insurance.provider).toBe('Aetna');
+    expect(val.insurance.memberId).toBe('[REDACTED]');
+  });
+
+  it('dot-notation: NarrativeRecorder never sees raw nested values', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'Intake');
+    const narrative = new NarrativeRecorder({ id: 'n1' });
+    scope.attachRecorder(narrative);
+    scope.useRedactionPolicy({
+      fields: { patient: ['address.zip'] },
+    });
+
+    scope.setValue('patient', {
+      name: 'Alice',
+      address: { street: '123 Main', zip: '90210' },
+    });
+
+    const sentences = narrative.toSentences();
+    const lines = sentences.get('Intake')!;
+
+    // NarrativeRecorder summarizes objects by key names, not values
+    // Verify raw zip never leaks
+    expect(lines.some((l) => l.includes('90210'))).toBe(false);
+  });
+
+  it('dot-notation: runtime returns real nested values', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    scope.useRedactionPolicy({
+      fields: { patient: ['address.zip'] },
+    });
+
+    scope.setValue('patient', { name: 'Alice', address: { zip: '90210' } });
+    ctx.commit();
+
+    const patient = scope.getValue('patient') as any;
+    expect(patient.address.zip).toBe('90210');
+  });
 });

@@ -158,4 +158,72 @@ describe('RedactionPolicy — boundary / edge cases', () => {
     scope.setValue('ssn', '123');
     expect(scope.getRedactedKeys().has('ssn')).toBe(true);
   });
+
+  // ── Dot-notation edge cases ───────────────────────────────────────
+
+  it('dot-notation: deeply nested path (3+ levels)', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { data: ['a.b.c.secret'] } });
+    scope.setValue('data', { a: { b: { c: { secret: 'deep', other: 'ok' } } } });
+
+    const val = writes[0].value as any;
+    expect(val.a.b.c.secret).toBe('[REDACTED]');
+    expect(val.a.b.c.other).toBe('ok');
+  });
+
+  it('dot-notation: missing intermediate path is safely ignored', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { data: ['a.b.c'] } });
+    scope.setValue('data', { x: 1 }); // 'a' doesn't exist at all
+
+    const val = writes[0].value as any;
+    expect(val.x).toBe(1);
+    expect(val.a).toBeUndefined();
+  });
+
+  it('dot-notation: mixed flat + nested fields in same policy', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({
+      keys: ['token'],
+      fields: { patient: ['ssn', 'address.zip'] },
+    });
+
+    scope.setValue('token', 'bearer-xyz');
+    scope.setValue('patient', {
+      name: 'Alice',
+      ssn: '123',
+      address: { street: 'Main', zip: '90210' },
+    });
+
+    expect(writes[0].value).toBe('[REDACTED]'); // exact key
+    const patient = writes[1].value as any;
+    expect(patient.ssn).toBe('[REDACTED]'); // flat field
+    expect(patient.address.zip).toBe('[REDACTED]'); // nested field
+    expect(patient.name).toBe('Alice');
+    expect(patient.address.street).toBe('Main');
+  });
+
+  it('dot-notation on updateValue works', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    const writes: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+    scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
+    scope.setValue('patient', { name: 'Alice', address: { zip: '90210' } });
+    ctx.commit();
+    scope.updateValue('patient', { name: 'Alice', address: { zip: '10001' } });
+
+    const update = writes[1];
+    expect((update.value as any).address.zip).toBe('[REDACTED]');
+  });
 });

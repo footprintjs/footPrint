@@ -64,7 +64,8 @@ export interface RedactionPolicy {
   keys?: string[];
   /** Regex patterns — any key matching a pattern is auto-redacted. */
   patterns?: RegExp[];
-  /** Field-level redaction within objects — key → array of fields to scrub. */
+  /** Field-level redaction within objects — key → array of fields to scrub.
+   *  Supports dot-notation for nested paths (e.g. 'address.zip'). */
   fields?: Record<string, string[]>;
 }
 

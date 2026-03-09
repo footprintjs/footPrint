@@ -97,7 +97,7 @@ Redaction sits between the data layer and recorders. Two mechanisms:
 **Policy-based:** `RedactionPolicy` is a declarative config object with three dimensions:
 - `keys: string[]` — exact key names to always redact
 - `patterns: RegExp[]` — any key matching a pattern is auto-redacted
-- `fields: Record<string, string[]>` — field-level scrubbing within objects
+- `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`)
 
 The policy is injected via `useRedactionPolicy()` on ScopeFacade, or at the executor level via `executor.setRedactionPolicy(policy)`. Cross-stage persistence is automatic via `useSharedRedactedKeys()`.
 

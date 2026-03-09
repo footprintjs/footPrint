@@ -116,4 +116,37 @@ describe('RedactionPolicy — property-based invariants', () => {
       { numRuns: 100 },
     );
   });
+
+  it('dot-notation: nested secret values never leak to recorders', () => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1 }), (secretValue) => {
+        const scope = new ScopeFacade(makeCtx(), 'test');
+        const writes: WriteEvent[] = [];
+        scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+
+        scope.useRedactionPolicy({ fields: { data: ['nested.secret'] } });
+        scope.setValue('data', { name: 'visible', nested: { secret: secretValue, other: 'ok' } });
+
+        const val = writes[0].value as any;
+        return val.nested.secret === '[REDACTED]' && val.nested.other === 'ok' && val.name === 'visible';
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it('dot-notation: original nested object is never mutated', () => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1 }), (secretValue) => {
+        const scope = new ScopeFacade(makeCtx(), 'test');
+        scope.attachRecorder({ id: 'r', onWrite: () => {} });
+
+        scope.useRedactionPolicy({ fields: { data: ['nested.secret'] } });
+        const original = { nested: { secret: secretValue } };
+        scope.setValue('data', original);
+
+        return original.nested.secret === secretValue;
+      }),
+      { numRuns: 50 },
+    );
+  });
 });

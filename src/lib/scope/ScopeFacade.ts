@@ -14,6 +14,10 @@
  * ```
  */
 
+import lodashGet from 'lodash.get';
+import lodashHas from 'lodash.has';
+import lodashSet from 'lodash.set';
+
 import { StageContext } from '../memory/StageContext';
 import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types';
 
@@ -314,12 +318,22 @@ export class ScopeFacade {
     return false;
   }
 
-  /** Returns a shallow copy with specified fields replaced by '[REDACTED]'. */
+  /**
+   * Returns a deep-cloned copy with specified fields replaced by '[REDACTED]'.
+   * Supports dot-notation paths (e.g. 'address.zip') for nested objects.
+   */
   private _scrubFields(obj: Record<string, unknown>, fields: Set<string>): Record<string, unknown> {
-    const copy = { ...obj };
+    const copy = structuredClone(obj);
     for (const field of fields) {
-      if (Object.prototype.hasOwnProperty.call(copy, field)) {
-        copy[field] = '[REDACTED]';
+      if (field.includes('.')) {
+        // Dot-notation path → deep scrub
+        if (lodashHas(copy, field)) {
+          lodashSet(copy, field, '[REDACTED]');
+        }
+      } else {
+        if (Object.prototype.hasOwnProperty.call(copy, field)) {
+          copy[field] = '[REDACTED]';
+        }
       }
     }
     return copy;

@@ -27,7 +27,7 @@ scope.setValue('creditCard', '4111-1111-1111-1111', true);
 executor.setRedactionPolicy({
   keys: ['ssn', 'creditCard'],           // exact key matches
   patterns: [/password|secret|token/i],  // regex auto-redact
-  fields: { patient: ['ssn', 'dob'] },  // field-level within objects
+  fields: { patient: ['ssn', 'dob', 'address.zip'] }, // dot-notation for nested paths
 });
 
 // Audit trail (after run)

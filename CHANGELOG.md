@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Exact key matching: `keys: ['ssn', 'creditCard']`
   - Pattern matching: `patterns: [/password|secret|token/i]` — auto-redacts any matching key
   - Field-level scrubbing: `fields: { patient: ['ssn', 'dob'] }` — redacts specific fields within objects
+  - Dot-notation nested paths: `fields: { patient: ['address.zip'] }` — scrubs deeply nested fields
   - Global regex `lastIndex` safety — stateful patterns handled correctly
   - Policy is additive with existing manual `setValue(..., true)` approach
 - `RedactionPolicy` and `RedactionReport` types exported from `footprintjs`
