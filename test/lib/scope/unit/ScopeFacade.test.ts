@@ -331,4 +331,78 @@ describe('ScopeFacade', () => {
     expect(narrativeWrites[0].value).toBe('[REDACTED]');
     expect(debugWrites[0].value).toBe('[REDACTED]');
   });
+
+  it('updateValue on a redacted key sends [REDACTED] to recorder', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    const events: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+
+    scope.setValue('config', { apiKey: 'secret' }, true);
+    scope.updateValue('config', { apiKey: 'new-secret', retries: 3 });
+
+    expect(events).toHaveLength(2);
+    expect(events[0].value).toBe('[REDACTED]');
+    expect(events[0].redacted).toBe(true);
+    expect(events[1].value).toBe('[REDACTED]');
+    expect(events[1].redacted).toBe(true);
+    expect(events[1].operation).toBe('update');
+  });
+
+  it('deleteValue clears redaction status for the key', () => {
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    const readEvents: ReadEvent[] = [];
+    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+
+    scope.setValue('token', 'secret', true);
+    ctx.commit();
+    scope.deleteValue('token');
+    ctx.commit();
+    scope.setValue('token', 'not-secret-anymore');
+    ctx.commit();
+    scope.getValue('token');
+
+    expect(readEvents).toHaveLength(1);
+    expect(readEvents[0].value).toBe('not-secret-anymore');
+    expect(readEvents[0].redacted).toBeUndefined();
+  });
+
+  // ── Shared redacted keys (cross-stage) ──────────────────────────────
+
+  it('useSharedRedactedKeys shares redaction across scope instances', () => {
+    const sharedSet = new Set<string>();
+    const ctx1 = makeCtx('p1', 'stage1');
+    const scope1 = new ScopeFacade(ctx1, 'stage1');
+    scope1.useSharedRedactedKeys(sharedSet);
+
+    // Stage 1 marks 'password' as redacted
+    scope1.setValue('password', 'secret123', true);
+    ctx1.commit();
+
+    // Stage 2 is a new scope with the same shared set
+    const ctx2 = makeCtx('p1', 'stage2');
+    const scope2 = new ScopeFacade(ctx2, 'stage2');
+    scope2.useSharedRedactedKeys(sharedSet);
+
+    // Pre-populate stage2's context so getValue works
+    ctx2.setObject([], 'password', 'secret123');
+    ctx2.commit();
+
+    const readEvents: ReadEvent[] = [];
+    scope2.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope2.getValue('password');
+
+    // Stage 2 should see redacted value because shared set has 'password'
+    expect(readEvents[0].value).toBe('[REDACTED]');
+    expect(readEvents[0].redacted).toBe(true);
+  });
+
+  it('getRedactedKeys returns the internal set', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    scope.setValue('secret', 'val', true);
+    const keys = scope.getRedactedKeys();
+    expect(keys.has('secret')).toBe(true);
+    expect(keys.size).toBe(1);
+  });
 });

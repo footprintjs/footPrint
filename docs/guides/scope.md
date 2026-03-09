@@ -147,6 +147,68 @@ class AuditRecorder implements Recorder {
 }
 ```
 
+### Redaction (PII Protection)
+
+When your pipeline handles sensitive data (passwords, API keys, credit card numbers, SSNs), you don't want those values leaking into recorder output — narratives, debug logs, or custom audit trails.
+
+Pass `shouldRedact = true` as the third argument to `setValue()`:
+
+```typescript
+scope.setValue('creditCard', '4111-1111-1111-1111', true);
+scope.setValue('apiKey', 'sk-secret-key-xyz', true);
+scope.setValue('publicName', 'Alice'); // not redacted
+```
+
+**What happens:**
+
+| Consumer | Sees |
+|----------|------|
+| Stage function (`getValue`) | Real value — runtime needs it |
+| NarrativeRecorder | `[REDACTED]` |
+| DebugRecorder | `[REDACTED]` |
+| MetricRecorder | Counts only (safe by default) |
+| Custom recorders | `[REDACTED]` |
+| EventLog (time-travel) | `REDACTED` |
+
+Redaction is **declare-once, applied everywhere**. Once a key is marked sensitive via `setValue(..., true)`, subsequent reads of that key also send `[REDACTED]` to recorders:
+
+```typescript
+// Write — recorders see [REDACTED]
+scope.setValue('password', 'super-secret', true);
+
+// Read — runtime gets 'super-secret', recorders see [REDACTED]
+const pwd = scope.getValue('password'); // → 'super-secret'
+```
+
+Recorder events include a `redacted: true` flag so recorders can distinguish redacted values from literal `"[REDACTED]"` strings:
+
+```typescript
+class ComplianceRecorder implements Recorder {
+  readonly id = 'compliance';
+  onWrite(event: WriteEvent) {
+    if (event.redacted) {
+      console.log(`PII write detected: ${event.key}`);
+    }
+  }
+}
+```
+
+`updateValue()` on a previously-redacted key stays redacted. `deleteValue()` clears the redaction status, so re-setting the same key without `shouldRedact` makes it visible again.
+
+**Cross-stage redaction:** When running via `FlowChartExecutor`, redacted keys are automatically shared across all stages. A key marked redacted in stage 1 stays redacted in stage 5's reads — no extra configuration needed.
+
+For custom scope factories, share redaction state across stages using `useSharedRedactedKeys()`:
+
+```typescript
+const sharedRedactedKeys = new Set<string>();
+const scopeFactory = (ctx: any, stageName: string) => {
+  const scope = new ScopeFacade(ctx, stageName);
+  scope.useSharedRedactedKeys(sharedRedactedKeys);
+  scope.attachRecorder(myRecorder);
+  return scope;
+};
+```
+
 ### Error Isolation
 
 If a recorder throws, the error is routed to `onError` hooks of other recorders, and the scope operation continues normally. Recorders can never break execution.

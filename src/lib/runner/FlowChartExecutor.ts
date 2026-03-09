@@ -93,6 +93,21 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.narrativeRecorder = undefined;
     }
 
+    // Share redacted keys across all scope instances in this pipeline run.
+    // This ensures that once a key is marked as redacted in one stage,
+    // subsequent stages' recorders also see it as redacted.
+    {
+      const sharedRedactedKeys = new Set<string>();
+      const prevFactory = scopeFactory;
+      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown) => {
+        const scope = prevFactory(ctx, stageName, readOnly);
+        if (scope && typeof (scope as any).useSharedRedactedKeys === 'function') {
+          (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
+        }
+        return scope;
+      }) as ScopeFactory<TScope>;
+    }
+
     const runtime = new ExecutionRuntime(fc.root.name, args.defaultValuesForContext, args.initialContext);
 
     return new FlowchartTraverser<TOut, TScope>({

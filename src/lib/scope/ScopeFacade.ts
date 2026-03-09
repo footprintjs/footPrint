@@ -25,12 +25,28 @@ export class ScopeFacade {
   protected readonly _readOnlyValues?: unknown;
 
   private _recorders: Recorder[] = [];
-  private _redactedKeys = new Set<string>();
+  private _redactedKeys: Set<string>;
 
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown) {
     this._stageContext = context;
     this._stageName = stageName;
     this._readOnlyValues = readOnlyValues;
+    this._redactedKeys = new Set<string>();
+  }
+
+  /**
+   * Share a redacted-keys set across multiple ScopeFacade instances.
+   * Call this to make redaction persist across stages in the same pipeline.
+   */
+  useSharedRedactedKeys(sharedSet: Set<string>): void {
+    this._redactedKeys = sharedSet;
+  }
+
+  /**
+   * Returns the current redacted-keys set (for sharing with other scopes).
+   */
+  getRedactedKeys(): Set<string> {
+    return this._redactedKeys;
   }
 
   // ── Recorder Management ──────────────────────────────────────────────────
@@ -145,13 +161,15 @@ export class ScopeFacade {
     const result = this._stageContext.updateObject([], key, value, description);
 
     if (this._recorders.length > 0) {
+      const isRedacted = this._redactedKeys.has(key);
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value,
+        value: isRedacted ? '[REDACTED]' : value,
         operation: 'update',
+        redacted: isRedacted || undefined,
       });
     }
 
@@ -160,6 +178,9 @@ export class ScopeFacade {
 
   deleteValue(key: string, description?: string) {
     const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
+
+    // Deleting a redacted key clears its redaction status
+    this._redactedKeys.delete(key);
 
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
