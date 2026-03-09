@@ -39,12 +39,10 @@ const assessRisk = async (scope: LoanScope) => {
 
 ### 2. Raw Scope (Low-level)
 
-Use `ScopeFacade` directly with string keys:
+Use `ScopeFacade` directly with string keys. When you pass no scope factory to `FlowChartExecutor`, this is what you get by default:
 
 ```typescript
-import { ScopeFacade, toScopeFactory } from 'footprintjs';
-
-const scopeFactory = toScopeFactory(ScopeFacade);
+import { ScopeFacade } from 'footprintjs';
 
 const myStage = (scope: ScopeFacade) => {
   scope.setValue('total', 79.98);              // overwrite
@@ -269,7 +267,7 @@ const policy: RedactionPolicy = {
   fields: { patient: ['ssn', 'dob', 'address.zip'] }, // field-level — supports dot-notation for nested paths
 };
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 executor.setRedactionPolicy(policy);
 await executor.run();
 ```

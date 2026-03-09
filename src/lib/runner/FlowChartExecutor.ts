@@ -3,7 +3,8 @@
  *
  * Wraps FlowchartTraverser. Pairs with FlowChartBuilder:
  *   const chart = flowChart('entry', entryFn).addFunction('process', processFn).build();
- *   const executor = new FlowChartExecutor(chart, scopeFactory);
+ *   const executor = new FlowChartExecutor(chart);          // uses default ScopeFacade
+ *   const executor = new FlowChartExecutor(chart, myFactory); // custom scope factory
  *   const result = await executor.run();
  */
 
@@ -25,8 +26,12 @@ import {
 } from '../engine/types';
 import type { ScopeProtectionMode } from '../scope/protection/types';
 import { NarrativeRecorder } from '../scope/recorders/NarrativeRecorder';
+import { ScopeFacade } from '../scope/ScopeFacade';
 import type { RedactionPolicy, RedactionReport } from '../scope/types';
 import { ExecutionRuntime } from './ExecutionRuntime';
+
+/** Default scope factory — creates a plain ScopeFacade for each stage. */
+const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly) => new ScopeFacade(ctx, stageName, readOnly);
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
@@ -51,7 +56,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   constructor(
     flowChart: FlowChart<TOut, TScope>,
-    scopeFactory: ScopeFactory<TScope>,
+    scopeFactory: ScopeFactory<TScope> = defaultScopeFactory as ScopeFactory<TScope>,
     defaultValuesForContext?: unknown,
     initialContext?: unknown,
     readOnlyContext?: unknown,
@@ -62,7 +67,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   ) {
     this.flowChartArgs = {
       flowChart,
-      scopeFactory,
+      scopeFactory: scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
       defaultValuesForContext,
       initialContext,
       readOnlyContext,

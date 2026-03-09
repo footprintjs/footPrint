@@ -26,7 +26,7 @@ npm install footprintjs
 ## Quick Start
 
 ```typescript
-import { flowChart, FlowChartExecutor, ScopeFacade, toScopeFactory } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
 const chart = flowChart('Greet', (scope) => {
     scope.setValue('name', 'Alice');
@@ -38,7 +38,7 @@ const chart = flowChart('Greet', (scope) => {
   .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart, toScopeFactory(ScopeFacade));
+const executor = new FlowChartExecutor(chart);
 const result = await executor.run();
 
 console.log(executor.getNarrative());
@@ -433,7 +433,7 @@ When a stage throws, the engine commits the trace *before* re-throwing &mdash; s
 | `setEnableNarrative()` | Enable runtime narrative generation |
 | `loopTo(stageId)` | Loop back to earlier stage |
 | `build()` | Compile to FlowChart |
-| `execute(scopeFactory)` | Build + run (convenience) |
+| `execute(scopeFactory?)` | Build + run (convenience) |
 | `toSpec()` | Export pure JSON (no functions) |
 | `toMermaid()` | Generate Mermaid diagram |
 

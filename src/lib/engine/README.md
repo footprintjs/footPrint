@@ -127,7 +127,7 @@ CombinedNarrativeBuilder     = MERGE both        → the full story
 import { FlowChartExecutor, NarrativeFlowRecorder } from 'footprintjs';
 
 // Default narrative (auto-attached when narrative enabled)
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
 executor.getFlowNarrative(); // plain-English sentences

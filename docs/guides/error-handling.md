@@ -19,7 +19,7 @@ FootPrint's error handling is designed around one principle: **the trace must ca
 When a stage throws, the engine calls `context.commit()` *before* re-throwing. This preserves everything up to the failure point:
 
 ```typescript
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 try {
   await executor.run();
 } catch (error) {

@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Global regex `lastIndex` safety — stateful patterns handled correctly
   - Policy is additive with existing manual `setValue(..., true)` approach
 - `RedactionPolicy` and `RedactionReport` types exported from `footprintjs`
+- **Optional `scopeFactory`** — `FlowChartExecutor` now defaults to `ScopeFacade` when no scope factory is provided
+  - Before: `new FlowChartExecutor(chart, (ctx, name) => new ScopeFacade(ctx, name))`
+  - After: `new FlowChartExecutor(chart)` — zero boilerplate for the common case
+  - Custom factories (with recorders, typed scopes, Zod validation) still work as before
 
 ## [0.5.0] - 2026-03-09
 

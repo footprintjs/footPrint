@@ -30,7 +30,7 @@ The FlowRecorder system mirrors the scope-level Recorder pattern:
 ```typescript
 import { FlowChartExecutor } from 'footprintjs';
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 executor.enableNarrative(); // auto-attaches NarrativeFlowRecorder
 await executor.run();
 
@@ -53,7 +53,7 @@ const metrics: FlowRecorder = {
   },
 };
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(metrics);
 await executor.run();
 ```
@@ -66,7 +66,7 @@ import {
   WindowedNarrativeFlowRecorder,
 } from 'footprintjs';
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
 await executor.run();
 

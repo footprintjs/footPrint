@@ -17,11 +17,11 @@ const chart = flowChart('validate', validateFn)
   .addFunction('process', processFn)
   .build();
 
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);
 const result = await executor.run();
 ```
 
-That's what this module provides. It takes the FlowChart (output of `builder/`) and a scope factory (from `scope/`), creates the runtime internally, and delegates to the engine. Build → Run. Two lines.
+That's what this module provides. It takes the FlowChart (output of `builder/`) and an optional scope factory (defaults to `ScopeFacade`), creates the runtime internally, and delegates to the engine. Build → Run. Two lines.
 
 Without this layer, every consumer would need to:
 1. Create a ExecutionRuntime with the right initial state
@@ -37,14 +37,15 @@ The runner absorbs all of that.
 
 ### FlowChartExecutor — "The Ignition Key"
 
-Takes a compiled FlowChart and a scope factory. Wires up the engine. Provides `run()` and post-execution introspection.
+Takes a compiled FlowChart and an optional scope factory (defaults to `ScopeFacade`). Wires up the engine. Provides `run()` and post-execution introspection.
 
 **Why it connects to the main goal:** The executor is where the trace starts. Before `run()`, the flowchart is a static graph. After `run()`, the engine has walked every node, recorded every decision, and produced both the result and the narrative. The executor's job is to make this transition trivial — one method call, full trace output.
 
 **Why it lives in runner/, not engine/:** The engine's boundary is `FlowchartTraverser` — the pure traversal algorithm. The executor is consumer convenience: runtime creation, option resolution, narrative toggling. Mixing convenience code with the traversal algorithm would blur the engine's clean boundary. Same reason `graphql()` (the convenience function) lives in `graphql/` root, not in `graphql/execution`.
 
 ```typescript
-const executor = new FlowChartExecutor(chart, scopeFactory);
+const executor = new FlowChartExecutor(chart);  // uses default ScopeFacade
+// or: new FlowChartExecutor(chart, customScopeFactory);
 
 // Optional: enable flow narrative capture
 executor.enableNarrative();
@@ -71,7 +72,7 @@ executor.getExtractorErrors();   // any errors during extraction
 ## How It Works
 
 ```
-1. Consumer calls new FlowChartExecutor(chart, scopeFactory, ...)
+1. Consumer calls new FlowChartExecutor(chart)  // or (chart, scopeFactory, ...)
    → stores constructor args for later recreation
 
 2. Consumer optionally calls executor.enableNarrative()
