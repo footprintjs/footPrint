@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-10
+
+### Added
+- **Structured error preservation** — errors flow through the narrative pipeline as structured objects, not flat strings
+  - `extractErrorInfo(error)` — extracts `StructuredErrorInfo` from any thrown value (InputValidationError, Error, non-Error)
+  - `formatErrorInfo(info)` — renders structured error to human-readable string at rendering boundaries
+  - `StructuredErrorInfo` type: `{ message, name?, issues?, code?, raw }`
+  - `FlowErrorEvent.structuredError` — carries full structured details to FlowRecorders
+  - `NarrativeFlowRecorder` enriches error sentences with field-level validation issues
+  - Hardened against adversarial inputs: throwing getters, null-prototype objects, Proxy errors
+  - Deep-clones issues array for mutation safety
+- `extractErrorInfo`, `formatErrorInfo`, `StructuredErrorInfo`, `FlowErrorEvent` exported from `footprintjs`
+- 37 new tests across 5 tiers: unit (9), scenario (6), property-based (5), boundary (6), security (11)
+
+### Changed
+- `IControlFlowNarrative.onError()` — `error` parameter is now **required** (was optional)
+- `FlowErrorEvent.structuredError` — field is now **required** (was optional)
+
+### Fixed
+- `SubflowExecutor` — added missing `narrativeGenerator.onError()` call in catch block (pre-existing omission)
+
 ## [0.7.0] - 2026-03-10
 
 ### Added
