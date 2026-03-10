@@ -251,6 +251,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           message: error.toString(),
         });
         context.addError('stageExecutionError', error.toString());
+        this.deps.narrativeGenerator.onError(node.name, error.toString(), error);
         throw error;
       }
       context.commit();

@@ -1,3 +1,4 @@
+import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import { ControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/ControlFlowNarrativeGenerator';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 
@@ -135,8 +136,9 @@ describe('NarrativeFlowRecorder', () => {
     });
 
     it('onError', () => {
-      legacy.onError('Process', 'timeout');
-      recorder.onError({ stageName: 'Process', message: 'timeout' });
+      const err = new Error('timeout');
+      legacy.onError('Process', 'timeout', err);
+      recorder.onError({ stageName: 'Process', message: 'timeout', structuredError: extractErrorInfo(err) });
       expect(recorder.getSentences()).toEqual(legacy.getSentences());
     });
 

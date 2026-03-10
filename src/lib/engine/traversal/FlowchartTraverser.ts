@@ -384,7 +384,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           undefined,
           { type: 'stageExecutionError', message: error.toString() },
         );
-        this.narrativeGenerator.onError(node.name, error.toString());
+        this.narrativeGenerator.onError(node.name, error.toString(), error);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         throw error;

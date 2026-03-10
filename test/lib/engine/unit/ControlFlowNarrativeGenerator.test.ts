@@ -129,7 +129,7 @@ describe('ControlFlowNarrativeGenerator', () => {
   });
 
   it('onError records error', () => {
-    gen.onError('Process', 'timeout');
+    gen.onError('Process', 'timeout', new Error('timeout'));
     const s = gen.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('timeout');
@@ -157,7 +157,7 @@ describe('NullControlFlowNarrativeGenerator', () => {
     gen.onSubflowExit('x');
     gen.onLoop('A', 1);
     gen.onBreak('a');
-    gen.onError('a', 'err');
+    gen.onError('a', 'err', new Error('err'));
     expect(gen.getSentences()).toEqual([]);
   });
 });

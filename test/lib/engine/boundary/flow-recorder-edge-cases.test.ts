@@ -5,6 +5,7 @@
  * empty recorders, rapid attach/detach, and unusual parameter values.
  */
 
+import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import { FlowRecorderDispatcher } from '../../../../src/lib/engine/narrative/FlowRecorderDispatcher';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 import { AdaptiveNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/AdaptiveNarrativeFlowRecorder';
@@ -246,7 +247,7 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
       recorder.onSubflowExit({ name: 'Sub' });
       recorder.onLoop({ target: 'Retry', iteration: 1 });
       recorder.onBreak({ stageName: 'Stop' });
-      recorder.onError({ stageName: 'Fail', message: 'boom' });
+      recorder.onError({ stageName: 'Fail', message: 'boom', structuredError: extractErrorInfo(new Error('boom')) });
       expect(recorder.getSentences()).toHaveLength(10);
     });
   });

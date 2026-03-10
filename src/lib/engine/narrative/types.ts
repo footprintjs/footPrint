@@ -36,8 +36,8 @@ export interface IControlFlowNarrative {
   /** Called when a stage triggers break (early termination). */
   onBreak(stageName: string): void;
 
-  /** Called when a stage throws an error. */
-  onError(stageName: string, errorMessage: string): void;
+  /** Called when a stage throws an error. Raw error is extracted into structured details. */
+  onError(stageName: string, errorMessage: string, error: unknown): void;
 
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
@@ -102,6 +102,8 @@ export interface FlowBreakEvent {
 export interface FlowErrorEvent {
   stageName: string;
   message: string;
+  /** Structured error details — preserves field-level issues, error codes, etc. */
+  structuredError: import('../errors/errorInfo').StructuredErrorInfo;
 }
 
 /**

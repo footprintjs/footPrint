@@ -56,6 +56,71 @@ An LLM reading this trace can immediately explain: *"The validation failed becau
 
 ---
 
+## Structured Error Preservation
+
+By default, errors flow through the trace system as structured objects — not flat strings. When a stage throws an `InputValidationError`, the field-level `.issues` are preserved all the way to FlowRecorders and the narrative output.
+
+### How It Works
+
+When a stage throws, the engine:
+1. Calls `extractErrorInfo(error)` to build a `StructuredErrorInfo`
+2. Attaches it to the `FlowErrorEvent` as `structuredError`
+3. Dispatches to all FlowRecorders with the full structured data
+
+```typescript
+import {
+  FlowChartExecutor,
+  type FlowRecorder,
+  type FlowErrorEvent,
+  InputValidationError,
+} from 'footprintjs';
+
+// A custom recorder that uses structured error details
+const errorObserver: FlowRecorder = {
+  id: 'error-observer',
+  onError(event: FlowErrorEvent) {
+    console.log(`Stage: ${event.stageName}`);
+    console.log(`Message: ${event.message}`);
+
+    // Access structured details — no string parsing needed
+    if (event.structuredError?.issues) {
+      for (const issue of event.structuredError.issues) {
+        console.log(`  Field: ${issue.path.join('.')} — ${issue.message}`);
+      }
+    }
+  },
+};
+
+const executor = new FlowChartExecutor(chart);
+executor.attachFlowRecorder(errorObserver);
+```
+
+### StructuredErrorInfo
+
+```typescript
+interface StructuredErrorInfo {
+  message: string;             // Human-readable error message
+  name?: string;               // Error class name (e.g. 'InputValidationError')
+  issues?: ValidationIssue[];  // Field-level validation issues
+  code?: string;               // Machine-readable code (e.g. 'INPUT_VALIDATION_ERROR', 'ENOENT')
+  raw: unknown;                // Original error object
+}
+```
+
+The `extractErrorInfo()` and `formatErrorInfo()` utilities are available as public API exports for use in custom recorders or error handling logic.
+
+### Narrative Enrichment
+
+When an `InputValidationError` is thrown, the default `NarrativeFlowRecorder` enriches the error sentence with field-level details:
+
+```
+An error occurred at Validate: Validation failed. Validation issues: email: Required; age: Must be positive.
+```
+
+Standard `Error` objects produce the same narrative as before — no regression.
+
+---
+
 ## Recorder Error Isolation
 
 Recorders observe scope operations. If a recorder throws, the error is caught and forwarded to `onError` hooks of other recorders. The scope operation continues normally. Recorders can never break execution.

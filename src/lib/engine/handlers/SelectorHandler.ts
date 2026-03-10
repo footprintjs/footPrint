@@ -49,7 +49,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
       });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
-      this.deps.narrativeGenerator.onError(node.name, error.toString());
+      this.deps.narrativeGenerator.onError(node.name, error.toString(), error);
       throw error;
     }
 

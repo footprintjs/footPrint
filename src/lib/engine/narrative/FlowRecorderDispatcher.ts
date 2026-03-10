@@ -10,6 +10,7 @@
  * When no recorders are attached, every method is a fast no-op (empty array check).
  */
 
+import { extractErrorInfo } from '../errors/errorInfo';
 import type { FlowRecorder, IControlFlowNarrative } from './types';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
@@ -145,9 +146,10 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onError(stageName: string, errorMessage: string): void {
+  onError(stageName: string, errorMessage: string, error: unknown): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, message: errorMessage };
+    const structuredError = extractErrorInfo(error);
+    const event = { stageName, message: errorMessage, structuredError };
     for (const r of this.recorders) {
       try {
         r.onError?.(event);

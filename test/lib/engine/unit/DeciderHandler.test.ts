@@ -228,6 +228,7 @@ describe('DeciderHandler', () => {
       expect(narrativeGenerator.onError).toHaveBeenCalledWith(
         'deciderStage',
         expect.stringContaining('Stage exploded'),
+        expect.any(Error),
       );
     });
   });

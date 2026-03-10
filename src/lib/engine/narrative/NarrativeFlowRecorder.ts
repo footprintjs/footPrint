@@ -94,7 +94,20 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onError(event: FlowErrorEvent): void {
-    this.sentences.push(`An error occurred at ${event.stageName}: ${event.message}.`);
+    let sentence = `An error occurred at ${event.stageName}: ${event.message}.`;
+
+    // Enrich with field-level issues when available
+    if (event.structuredError.issues && event.structuredError.issues.length > 0) {
+      const issueDetails = event.structuredError.issues
+        .map((issue) => {
+          const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+          return `${path}: ${issue.message}`;
+        })
+        .join('; ');
+      sentence += ` Validation issues: ${issueDetails}.`;
+    }
+
+    this.sentences.push(sentence);
   }
 
   /** Returns a defensive copy of accumulated sentences. */

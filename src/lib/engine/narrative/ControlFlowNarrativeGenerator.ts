@@ -79,7 +79,7 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     this.sentences.push(`Execution stopped at ${stageName}.`);
   }
 
-  onError(stageName: string, errorMessage: string): void {
+  onError(stageName: string, errorMessage: string, _error: unknown): void {
     this.sentences.push(`An error occurred at ${stageName}: ${errorMessage}.`);
   }
 

@@ -42,6 +42,10 @@ export type {
   FlowSubflowEvent,
 } from './narrative/types';
 
+// Structured error extraction
+export type { StructuredErrorInfo } from './errors/errorInfo';
+export { extractErrorInfo, formatErrorInfo } from './errors/errorInfo';
+
 // Built-in FlowRecorder strategies (tree-shakeable)
 export { AdaptiveNarrativeFlowRecorder } from './narrative/recorders/AdaptiveNarrativeFlowRecorder';
 export { MilestoneNarrativeFlowRecorder } from './narrative/recorders/MilestoneNarrativeFlowRecorder';

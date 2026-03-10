@@ -108,7 +108,7 @@ describe('FlowRecorderDispatcher', () => {
   it('fans out onError', () => {
     const calls: string[] = [];
     dispatcher.attach({ id: 'a', onError: (e) => calls.push(e.message) });
-    dispatcher.onError('Process', 'timeout');
+    dispatcher.onError('Process', 'timeout', new Error('timeout'));
     expect(calls).toEqual(['timeout']);
   });
 
@@ -175,7 +175,7 @@ describe('FlowRecorderDispatcher', () => {
     expect(() => dispatcher.onSubflowExit('a')).not.toThrow();
     expect(() => dispatcher.onLoop('a', 1)).not.toThrow();
     expect(() => dispatcher.onBreak('a')).not.toThrow();
-    expect(() => dispatcher.onError('a', 'msg')).not.toThrow();
+    expect(() => dispatcher.onError('a', 'msg', new Error('msg'))).not.toThrow();
   });
 
   // ── Fast path with no recorders ────────────────────────────────────────
@@ -191,7 +191,7 @@ describe('FlowRecorderDispatcher', () => {
       dispatcher.onSubflowExit('a');
       dispatcher.onLoop('a', 1);
       dispatcher.onBreak('a');
-      dispatcher.onError('a', 'msg');
+      dispatcher.onError('a', 'msg', new Error('msg'));
     }).not.toThrow();
     expect(dispatcher.getSentences()).toEqual([]);
   });
@@ -324,7 +324,7 @@ describe('FlowRecorderDispatcher', () => {
       },
     });
     dispatcher.attach({ id: 'good', onError: (e) => calls.push(e.message) });
-    dispatcher.onError('Process', 'timeout');
+    dispatcher.onError('Process', 'timeout', new Error('timeout'));
     expect(calls).toEqual(['timeout']);
   });
 });

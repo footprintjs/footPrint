@@ -107,7 +107,33 @@ All hooks are **optional**. Implement only the events you care about. The `id` f
 | `FlowSubflowEvent` | Entering/exiting a subflow | `name` |
 | `FlowLoopEvent` | Back-edge loop iteration | `target`, `iteration`, `description?` |
 | `FlowBreakEvent` | Break function called | `stageName` |
-| `FlowErrorEvent` | Stage threw an error | `stageName`, `message` |
+| `FlowErrorEvent` | Stage threw an error | `stageName`, `message`, `structuredError?` |
+
+### Structured Errors in FlowErrorEvent
+
+`FlowErrorEvent` carries an optional `structuredError` field that preserves the full error structure. For `InputValidationError`, this includes field-level `.issues`:
+
+```typescript
+const errorRecorder: FlowRecorder = {
+  id: 'error-handler',
+  onError(event: FlowErrorEvent) {
+    // event.message — always a string (backward-compatible)
+    // event.structuredError — StructuredErrorInfo with full details
+
+    if (event.structuredError?.issues) {
+      // InputValidationError: access field-level issues
+      for (const issue of event.structuredError.issues) {
+        console.log(`${issue.path.join('.')}: ${issue.message}`);
+      }
+    }
+
+    // event.structuredError.code — 'INPUT_VALIDATION_ERROR', 'ENOENT', etc.
+    // event.structuredError.raw  — original error object
+  },
+};
+```
+
+See [Error Handling — Structured Error Preservation](./error-handling.md#structured-error-preservation) for full details.
 
 ---
 
