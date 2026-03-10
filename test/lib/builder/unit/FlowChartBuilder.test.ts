@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import { flowChart, FlowChartBuilder, specToStageNode } from '../../../../src/lib/builder';
 
 const noop = async () => {};
@@ -146,7 +148,7 @@ describe('FlowChartBuilder', () => {
 
   describe('setLogger', () => {
     it('passes logger to FlowChart', () => {
-      const mockLogger = { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      const mockLogger = { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() };
       const chart = flowChart('a', noop).setLogger(mockLogger).build();
       expect(chart.logger).toBe(mockLogger);
     });
@@ -177,19 +179,19 @@ describe('FlowChartBuilder', () => {
 
   describe('stream handlers', () => {
     it('registers onStream handler', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       const builder = flowChart('a', noop).onStream(handler);
       expect(builder).toBeDefined(); // fluent returns this
     });
 
     it('registers onStreamStart handler', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       const builder = flowChart('a', noop).onStreamStart(handler);
       expect(builder).toBeDefined();
     });
 
     it('registers onStreamEnd handler', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       const builder = flowChart('a', noop).onStreamEnd(handler);
       expect(builder).toBeDefined();
     });

@@ -1,9 +1,10 @@
+import { vi } from 'vitest';
+
 /**
  * Scenario test: AbortSignal and timeout support.
  *
  * Tests cooperative cancellation via AbortSignal and timeoutMs.
  */
-
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { FlowChart, ILogger, StageFunction } from '../../../../src/lib/engine/types';
@@ -11,11 +12,11 @@ import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
 
 const silentLogger: ILogger = {
-  info: jest.fn(),
-  log: jest.fn(),
-  debug: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
 };
 
 function simpleScopeFactory(context: any, stageName: string) {

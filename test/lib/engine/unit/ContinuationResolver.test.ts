@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ContinuationResolver, DEFAULT_MAX_ITERATIONS } from '../../../../src/lib/engine/handlers/ContinuationResolver';
 import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
@@ -13,15 +15,15 @@ function makeDeps(root: StageNode): HandlerDeps {
     ScopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
-    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
   };
 }
 
 function makeContext(): any {
   return {
-    addLog: jest.fn(),
-    addFlowDebugMessage: jest.fn(),
-    createNext: jest.fn().mockReturnValue({ addLog: jest.fn(), addFlowDebugMessage: jest.fn(), createNext: jest.fn() }),
+    addLog: vi.fn(),
+    addFlowDebugMessage: vi.fn(),
+    createNext: vi.fn().mockReturnValue({ addLog: vi.fn(), addFlowDebugMessage: vi.fn(), createNext: vi.fn() }),
     stageName: 'test',
   };
 }
@@ -64,7 +66,7 @@ describe('ContinuationResolver', () => {
     it('calls onIterationUpdate callback', () => {
       const root: StageNode = { name: 'root', id: 'root' };
       const deps = makeDeps(root);
-      const onUpdate = jest.fn();
+      const onUpdate = vi.fn();
       const resolver = new ContinuationResolver(deps, new NodeResolver(deps), onUpdate);
 
       resolver.getAndIncrementIteration('nodeA');
@@ -103,7 +105,7 @@ describe('ContinuationResolver', () => {
       const resolver = new ContinuationResolver(deps, nodeResolver);
       const context = makeContext();
       const breakFlag = { shouldBreak: false };
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
 
       await resolver.resolve('target-id', root, context, breakFlag, 'path', executeNode);
 
@@ -115,7 +117,7 @@ describe('ContinuationResolver', () => {
       const deps = makeDeps(root);
       const resolver = new ContinuationResolver(deps, new NodeResolver(deps));
       const context = makeContext();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
 
       await expect(
         resolver.resolve('nonexistent', root, context, { shouldBreak: false }, 'path', executeNode),
@@ -123,12 +125,12 @@ describe('ContinuationResolver', () => {
     });
 
     it('executes direct node with fn', async () => {
-      const dynamicNode: StageNode = { name: 'dynamic', fn: jest.fn() };
+      const dynamicNode: StageNode = { name: 'dynamic', fn: vi.fn() };
       const root: StageNode = { name: 'root' };
       const deps = makeDeps(root);
       const resolver = new ContinuationResolver(deps, new NodeResolver(deps));
       const context = makeContext();
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
 
       await resolver.resolve(dynamicNode, root, context, { shouldBreak: false }, 'path', executeNode);
 
@@ -142,7 +144,7 @@ describe('ContinuationResolver', () => {
       const deps = makeDeps(root);
       const resolver = new ContinuationResolver(deps, new NodeResolver(deps));
       const context = makeContext();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
 
       await expect(
         resolver.resolve(dynamicNode, root, context, { shouldBreak: false }, 'path', executeNode),
@@ -156,7 +158,7 @@ describe('ContinuationResolver', () => {
       const deps = makeDeps(root);
       const resolver = new ContinuationResolver(deps, new NodeResolver(deps));
       const context = makeContext();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
 
       await expect(
         resolver.resolve(dynamicNode, root, context, { shouldBreak: false }, 'path', executeNode),

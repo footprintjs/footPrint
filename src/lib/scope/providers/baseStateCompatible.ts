@@ -7,6 +7,7 @@
  * API matches ScopeFacade's simplified signatures (no path arrays).
  */
 
+import { assertNotReadonly, createFrozenArgs } from '../protection/readonlyInput';
 import type { StageContextLike } from './types';
 
 /** @deprecated Use attachScopeMethods instead. */
@@ -29,9 +30,14 @@ export function attachScopeMethods<T extends object>(
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
   updateValue(key: string, value: unknown, description?: string): void;
   setObjectInRoot(key: string, value: unknown): void;
+  /** @deprecated Use getArgs() instead. */
   getReadOnlyValues(): unknown;
+  getArgs<T = Record<string, unknown>>(): T;
   getPipelineId(): string | undefined;
 } {
+  // Cache frozen args once — reused on every getArgs() call
+  const frozenArgs = createFrozenArgs(readOnly);
+
   const methods = {
     addDebugInfo: (k: string, v: unknown) => ctx.addLog?.(k, v),
     addDebugMessage: (v: unknown) => ctx.addLog?.('messages', [v]),
@@ -41,12 +47,18 @@ export function attachScopeMethods<T extends object>(
 
     getInitialValueFor: (k: string) => ctx.getFromGlobalContext?.(k),
     getValue: (key?: string) => ctx.getValue([], key),
-    setValue: (key: string, value: unknown, shouldRedact = false, description?: string) =>
-      (ctx as any).setObject([], key, value, shouldRedact, description),
-    updateValue: (key: string, value: unknown, description?: string) => ctx.updateObject([], key, value, description),
+    setValue: (key: string, value: unknown, shouldRedact = false, description?: string) => {
+      assertNotReadonly(readOnly, key, 'write');
+      return (ctx as any).setObject([], key, value, shouldRedact, description);
+    },
+    updateValue: (key: string, value: unknown, description?: string) => {
+      assertNotReadonly(readOnly, key, 'write');
+      return ctx.updateObject([], key, value, description);
+    },
     setObjectInRoot: (key: string, value: unknown) => ctx.setRoot?.(key, value),
 
     getReadOnlyValues: () => readOnly,
+    getArgs: <U = Record<string, unknown>>() => frozenArgs as U,
     getPipelineId: () => ctx.pipelineId ?? ctx.runId,
   };
 

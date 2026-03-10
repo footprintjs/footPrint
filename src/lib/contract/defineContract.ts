@@ -26,6 +26,13 @@ export function defineContract<TInput = unknown, TOutput = unknown>(
   const inputSchema = options.inputSchema ? normalizeSchema(options.inputSchema) : undefined;
   const outputSchema = options.outputSchema ? normalizeSchema(options.outputSchema) : undefined;
 
+  // Propagate original schema to chart for runtime validation (if chart doesn't have one).
+  // Contract schemas are normalized to JSON Schema for OpenAPI, but the chart needs the
+  // original Zod schema to call .safeParse() at runtime in FlowChartExecutor.run().
+  if (options.inputSchema && !chart.inputSchema) {
+    (chart as { inputSchema?: unknown }).inputSchema = options.inputSchema;
+  }
+
   const contract: FlowChartContract<TInput, TOutput> = {
     chart,
     inputSchema,

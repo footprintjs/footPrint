@@ -405,4 +405,31 @@ describe('ScopeFacade', () => {
     expect(keys.has('secret')).toBe(true);
     expect(keys.size).toBe(1);
   });
+
+  // ── getArgs tests ─────────────────────────────────────────────────────
+
+  it('getArgs returns readOnlyValues cast to the requested type', () => {
+    const ro = { name: 'Alice', age: 30 };
+    const scope = new ScopeFacade(makeCtx(), 'test', ro);
+    const args = scope.getArgs<{ name: string; age: number }>();
+    expect(args.name).toBe('Alice');
+    expect(args.age).toBe(30);
+  });
+
+  it('getArgs returns empty object when no readOnlyValues', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test');
+    expect(scope.getArgs()).toEqual({});
+  });
+
+  // ── Readonly enforcement tests ────────────────────────────────────────
+
+  it('setValue throws when key exists in readOnlyValues', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test', { locked: 'value' });
+    expect(() => scope.setValue('locked', 'new')).toThrow('Cannot write to readonly input key "locked"');
+  });
+
+  it('setValue allows keys not in readOnlyValues', () => {
+    const scope = new ScopeFacade(makeCtx(), 'test', { locked: 'value' });
+    expect(() => scope.setValue('other', 'fine')).not.toThrow();
+  });
 });

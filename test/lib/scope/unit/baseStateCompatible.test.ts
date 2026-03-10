@@ -1,15 +1,17 @@
+import { vi } from 'vitest';
+
 import { attachBaseStateCompat, attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 
 function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
   return {
-    getValue: jest.fn().mockReturnValue('mock-value'),
-    setObject: jest.fn(),
-    updateObject: jest.fn(),
-    addLog: jest.fn(),
-    addError: jest.fn(),
-    getFromGlobalContext: jest.fn().mockReturnValue('initial-val'),
-    setRoot: jest.fn(),
+    getValue: vi.fn().mockReturnValue('mock-value'),
+    setObject: vi.fn(),
+    updateObject: vi.fn(),
+    addLog: vi.fn(),
+    addError: vi.fn(),
+    getFromGlobalContext: vi.fn().mockReturnValue('initial-val'),
+    setRoot: vi.fn(),
     pipelineId: 'pipe-1',
     runId: 'run-1',
     ...overrides,
@@ -139,9 +141,9 @@ describe('attachScopeMethods', () => {
 
   it('works when optional ctx methods are undefined', () => {
     const ctx: StageContextLike = {
-      getValue: jest.fn(),
-      setObject: jest.fn(),
-      updateObject: jest.fn(),
+      getValue: vi.fn(),
+      setObject: vi.fn(),
+      updateObject: vi.fn(),
       // no addLog, addError, getFromGlobalContext, setRoot
     };
     const result = attachScopeMethods({}, ctx, 'stage1');

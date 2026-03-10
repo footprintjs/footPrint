@@ -146,6 +146,12 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Timeout in milliseconds. Creates an internal AbortController. */
   timeoutMs?: number;
+  /**
+   * Runtime input data for the pipeline.
+   * Becomes the readOnlyContext accessible via `scope.getArgs()`.
+   * Stages cannot overwrite these keys with `setValue()`.
+   */
+  input?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +275,8 @@ export type FlowChart<TOut = any, TScope = any> = {
   enableNarrative?: boolean;
   logger?: ILogger;
   buildTimeStructure?: SerializedPipelineStructure;
+  /** Input schema (Zod or JSON Schema) — used for runtime input validation. */
+  inputSchema?: unknown;
 };
 
 /** Alias for SerializedPipelineNode used as full structure */

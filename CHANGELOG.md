@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-10
+
+### Added
+- **Schema library** (`src/lib/schema/`) — unified schema detection and validation gateway
+  - `detectSchema(input)` — single function replaces 3 separate Zod detection strategies
+  - `SchemaKind` type: `'zod' | 'parseable' | 'json-schema' | 'none'`
+  - `validateAgainstSchema(schema, data)` — safe result-type validation for any schema kind
+  - `validateOrThrow(schema, data)` — convenience wrapper that throws on failure
+  - `InputValidationError` — structured error with `.issues: ValidationIssue[]` and `.cause`
+  - Lightweight JSON Schema validation (required fields + type checks, no ajv dependency)
+  - `extractIssuesFromZodError()` — extract structured issues from Zod or duck-typed errors
+- **Runtime input validation** in `FlowChartExecutor.run()`
+  - Validates `options.input` against `flowChart.inputSchema` before execution starts
+  - Contract-defined `inputSchema` auto-propagates to chart via `defineContract()`
+- **Readonly input protection** (`src/lib/scope/protection/readonlyInput.ts`)
+  - Stage inputs are frozen to prevent accidental mutation across stages
+- All schema types and functions exported from `footprintjs` public API
+
+### Changed
+- `isZodSchema()` in contract/schema.ts now delegates to `isZod()` from schema library (marked `@deprecated`)
+- `isZodNode()` in scope/state/zod delegates to `detectSchema()` from schema library (marked `@deprecated`)
+- Test suite migrated from `jest.fn()` to `vi.fn()` across 24+ test files (vitest compatibility)
+
 ## [0.6.0] - 2026-03-09
 
 ### Added

@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
@@ -11,7 +13,7 @@ function makeDeps(root: StageNode): HandlerDeps {
     ScopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
-    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
   };
 }
 

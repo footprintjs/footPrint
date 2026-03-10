@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 /**
  * Scenario test: Additional FlowchartTraverser coverage.
  *
@@ -10,18 +12,17 @@
  * - Lines 428-435: Phase 5 nextNodeSelector dispatch path
  * - Lines 541-576: autoRegisterSubflowDef internals (stageMap merge, nested subflows)
  */
-
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { ILogger, StageFunction, StreamHandlers } from '../../../../src/lib/engine/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(),
-  log: jest.fn(),
-  debug: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
 };
 
 function simpleScopeFactory(context: any) {
@@ -33,7 +34,7 @@ function simpleScopeFactory(context: any) {
 
 describe('Scenario: Traverser Coverage', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   // ─── Line 170: setRootObject ───

@@ -1,10 +1,11 @@
+import { vi } from 'vitest';
+
 /**
  * Scenario test: FlowRecorder integration with real traversal.
  *
  * Tests that FlowRecorders receive the correct events when attached
  * to a FlowchartTraverser via the flowRecorders option.
  */
-
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 import { SilentNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/SilentNarrativeFlowRecorder';
@@ -20,11 +21,11 @@ import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(),
-  log: jest.fn(),
-  debug: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
 };
 
 function simpleScopeFactory(context: any) {

@@ -1,12 +1,14 @@
+import { vi } from 'vitest';
+
 import { ExtractorRunner } from '../../../../src/lib/engine/handlers/ExtractorRunner';
 import type { ILogger } from '../../../../src/lib/engine/types';
 
 const mockLogger: ILogger = {
-  info: jest.fn(),
-  log: jest.fn(),
-  debug: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
 };
 
 function makeContext(): any {
@@ -30,7 +32,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('calls extractor and stores result', () => {
-    const extractor = jest.fn().mockReturnValue({ data: 42 });
+    const extractor = vi.fn().mockReturnValue({ data: 42 });
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, mockLogger);
 
     runner.callExtractor({ name: 'test' } as any, makeContext(), 'root.test');
@@ -40,7 +42,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('increments step counter (1-based)', () => {
-    const extractor = jest.fn().mockReturnValue(null);
+    const extractor = vi.fn().mockReturnValue(null);
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, mockLogger);
 
     runner.callExtractor({ name: 'a' } as any, makeContext(), 'a');
@@ -51,7 +53,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('enriches snapshots when enrichSnapshots is true', () => {
-    const extractor = jest.fn().mockReturnValue(null);
+    const extractor = vi.fn().mockReturnValue(null);
     const runtime = {
       globalStore: { getState: () => ({ key: 'value' }) },
       executionHistory: { list: () => [1, 2, 3] },
@@ -67,7 +69,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('includes errorInfo in enriched snapshots', () => {
-    const extractor = jest.fn().mockReturnValue(null);
+    const extractor = vi.fn().mockReturnValue(null);
     const runtime = {
       globalStore: { getState: () => ({}) },
       executionHistory: { list: () => [] },
@@ -84,7 +86,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('catches extractor errors and records them', () => {
-    const extractor = jest.fn().mockImplementation(() => {
+    const extractor = vi.fn().mockImplementation(() => {
       throw new Error('extractor failed');
     });
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, mockLogger);
@@ -98,7 +100,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('skips null/undefined results', () => {
-    const extractor = jest.fn().mockReturnValueOnce(null).mockReturnValueOnce(undefined).mockReturnValueOnce('valid');
+    const extractor = vi.fn().mockReturnValueOnce(null).mockReturnValueOnce(undefined).mockReturnValueOnce('valid');
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, mockLogger);
 
     runner.callExtractor({ name: 'a' } as any, makeContext(), 'a');
@@ -110,7 +112,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('includes flowMessages in debugInfo when non-empty', () => {
-    const extractor = jest.fn().mockReturnValue(null);
+    const extractor = vi.fn().mockReturnValue(null);
     const runtime = {
       globalStore: { getState: () => ({}) },
       executionHistory: { list: () => [] },
@@ -133,7 +135,7 @@ describe('ExtractorRunner', () => {
   });
 
   it('handles enrichment errors gracefully', () => {
-    const extractor = jest.fn().mockReturnValue('ok');
+    const extractor = vi.fn().mockReturnValue('ok');
     const runtime = {
       globalStore: {
         getState: () => {
@@ -143,11 +145,11 @@ describe('ExtractorRunner', () => {
       executionHistory: { list: () => [] },
     };
     const logger: ILogger = {
-      info: jest.fn(),
-      log: jest.fn(),
-      debug: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
+      info: vi.fn(),
+      log: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
     };
     const runner = new ExtractorRunner(extractor, true, runtime, logger);
 
@@ -164,15 +166,15 @@ describe('ExtractorRunner', () => {
   });
 
   it('records extractor error for non-Error thrown values', () => {
-    const extractor = jest.fn().mockImplementation(() => {
+    const extractor = vi.fn().mockImplementation(() => {
       throw 'string-error'; // eslint-disable-line no-throw-literal
     });
     const logger: ILogger = {
-      info: jest.fn(),
-      log: jest.fn(),
-      debug: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
+      info: vi.fn(),
+      log: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
     };
     const runner = new ExtractorRunner(extractor, false, { globalStore: { getState: () => ({}) } }, logger);
 
@@ -188,7 +190,7 @@ describe('ExtractorRunner', () => {
     const runtime = { globalStore: { getState: () => ({}) } };
 
     it('marks subflow root with subflowId and subflowName', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
 
       runner.callExtractor(
@@ -204,7 +206,7 @@ describe('ExtractorRunner', () => {
     });
 
     it('propagates currentSubflowId for non-root nodes', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
       runner.currentSubflowId = 'sf-2';
 
@@ -216,7 +218,7 @@ describe('ExtractorRunner', () => {
     });
 
     it('marks parallel child with currentForkId', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
       runner.currentForkId = 'fork-1';
 
@@ -228,7 +230,7 @@ describe('ExtractorRunner', () => {
     });
 
     it('includes streamId for streaming nodes', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
 
       runner.callExtractor(
@@ -243,13 +245,13 @@ describe('ExtractorRunner', () => {
     });
 
     it('marks isDynamic for nodes with children, fn, and no nextNodeSelector', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
 
       const dynamicNode = {
         name: 'dynamic',
         children: [{ name: 'c1' }],
-        fn: jest.fn(),
+        fn: vi.fn(),
         // no nextNodeSelector
       };
 
@@ -260,14 +262,14 @@ describe('ExtractorRunner', () => {
     });
 
     it('does not mark isDynamic when nextNodeSelector is present', () => {
-      const extractor = jest.fn().mockReturnValue(null);
+      const extractor = vi.fn().mockReturnValue(null);
       const runner = new ExtractorRunner(extractor, false, runtime, mockLogger);
 
       const deciderNode = {
         name: 'decider',
         children: [{ name: 'c1' }],
-        fn: jest.fn(),
-        nextNodeSelector: jest.fn(),
+        fn: vi.fn(),
+        nextNodeSelector: vi.fn(),
       };
 
       runner.callExtractor(deciderNode as any, makeContext(), 'decider');

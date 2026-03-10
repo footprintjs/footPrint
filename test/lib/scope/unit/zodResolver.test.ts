@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { z } from 'zod';
 
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
@@ -8,13 +9,13 @@ import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/stat
 
 function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
   return {
-    getValue: jest.fn().mockReturnValue(undefined),
-    setObject: jest.fn(),
-    updateObject: jest.fn(),
-    addLog: jest.fn(),
-    addError: jest.fn(),
-    getFromGlobalContext: jest.fn(),
-    setRoot: jest.fn(),
+    getValue: vi.fn().mockReturnValue(undefined),
+    setObject: vi.fn(),
+    updateObject: vi.fn(),
+    addLog: vi.fn(),
+    addError: vi.fn(),
+    getFromGlobalContext: vi.fn(),
+    setRoot: vi.fn(),
     pipelineId: 'pipe-1',
     runId: 'run-1',
     ...overrides,

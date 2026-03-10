@@ -1,10 +1,11 @@
+import { vi } from 'vitest';
+
 /**
  * Property test: Iteration limit prevents infinite loops.
  *
  * The ContinuationResolver must enforce a maximum iteration count
  * for any node, preventing runaway loops regardless of user code.
  */
-
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ContinuationResolver, DEFAULT_MAX_ITERATIONS } from '../../../../src/lib/engine/handlers/ContinuationResolver';
 import { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
@@ -19,7 +20,7 @@ function makeDeps(root: StageNode): HandlerDeps {
     ScopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
-    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
   };
 }
 

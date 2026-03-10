@@ -1,21 +1,22 @@
+import { vi } from 'vitest';
+
 /**
  * Scenario test: Linear chain execution through FlowchartTraverser.
  *
  * Tests the simplest execution pattern: A → B → C
  * Each stage reads from scope, writes to scope, and execution flows linearly.
  */
-
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 const silentLogger: ILogger = {
-  info: jest.fn(),
-  log: jest.fn(),
-  debug: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
@@ -130,7 +131,7 @@ describe('Scenario: Linear Chain', () => {
   });
 
   it('uses embedded fn when present on node', async () => {
-    const embedded = jest.fn().mockReturnValue('embedded-result');
+    const embedded = vi.fn().mockReturnValue('embedded-result');
 
     const root: StageNode = { name: 'A', id: 'A', fn: embedded };
     const runtime = new ExecutionRuntime('A');

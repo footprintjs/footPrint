@@ -2,30 +2,22 @@
  * contract/schema.ts — Schema normalization utilities.
  *
  * Converts Zod schemas or raw JSON Schema objects into a normalized
- * JsonSchema format. Zod detection uses duck-typing (checks for `_def`).
+ * JsonSchema format. Detection delegated to schema/detect.ts (single source of truth).
  *
  * Standalone: no dependency on Zod at import time.
  * Compatible with Zod v4 internals.
  */
 
+import { isZod } from '../schema/detect';
 import type { JsonSchema, SchemaInput } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zod Detection (duck-typing)
+// Zod Detection — delegates to unified schema/detect.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** @deprecated Use `isZod()` from `schema/detect` instead. Kept for backward compatibility. */
 export function isZodSchema(input: unknown): boolean {
-  if (!input || typeof input !== 'object') return false;
-  const obj = input as Record<string, unknown>;
-  // Zod v4: top-level schema has `def` with a `type` string
-  if (obj.def && typeof obj.def === 'object') {
-    return typeof (obj.def as Record<string, unknown>).type === 'string';
-  }
-  // Zod v3 fallback: `_def` with `type`
-  if (obj._def && typeof obj._def === 'object') {
-    return typeof (obj._def as Record<string, unknown>).type === 'string';
-  }
-  return false;
+  return isZod(input);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

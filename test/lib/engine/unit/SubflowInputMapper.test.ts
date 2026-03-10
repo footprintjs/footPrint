@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import {
   applyOutputMapping,
   extractParentScopeValues,
@@ -96,10 +98,10 @@ describe('SubflowInputMapper', () => {
 
 function makeContext(): any {
   return {
-    setGlobal: jest.fn(),
-    getGlobal: jest.fn().mockReturnValue(undefined),
-    setObject: jest.fn(),
-    mergeObject: jest.fn(),
-    appendToArray: jest.fn(),
+    setGlobal: vi.fn(),
+    getGlobal: vi.fn().mockReturnValue(undefined),
+    setObject: vi.fn(),
+    mergeObject: vi.fn(),
+    appendToArray: vi.fn(),
   };
 }

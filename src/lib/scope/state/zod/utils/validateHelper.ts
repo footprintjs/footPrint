@@ -1,17 +1,16 @@
 /**
  * Zod Validation Helpers — Cross-version compatible Zod utilities
+ *
+ * Detection delegated to schema/detect.ts (single source of truth).
  */
 
 import { type ZodRecord, type ZodTypeAny, z } from 'zod';
 
+import { detectSchema } from '../../../../schema/detect';
+
+/** @deprecated Use `detectSchema()` from `schema/detect` instead. Kept for backward compatibility. */
 export function isZodNode(x: unknown): x is ZodTypeAny {
-  return !!(
-    x &&
-    typeof x === 'object' &&
-    ((x as any)._def !== undefined ||
-      typeof (x as any).parse === 'function' ||
-      typeof (x as any).safeParse === 'function')
-  );
+  return detectSchema(x) !== 'none';
 }
 
 /** Peel wrappers; returns the underlying base Zod node (or null). */

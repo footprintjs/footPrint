@@ -88,3 +88,11 @@ export type {
 export { defineContract } from './lib/contract';
 export { normalizeSchema, zodToJsonSchema } from './lib/contract';
 export { generateOpenAPI } from './lib/contract';
+
+// ============================================================================
+// Schema — Unified detection, validation, and structured errors
+// ============================================================================
+
+export type { SchemaKind, ValidationIssue, ValidationResult } from './lib/schema';
+export { detectSchema, isValidatable, isZod } from './lib/schema';
+export { InputValidationError, validateAgainstSchema, validateOrThrow } from './lib/schema';

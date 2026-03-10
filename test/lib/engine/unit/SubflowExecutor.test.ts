@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import type { NodeResolver } from '../../../../src/lib/engine/handlers/NodeResolver';
 import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor';
@@ -9,11 +11,11 @@ import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 function makeLogger() {
   return {
-    info: jest.fn(),
-    log: jest.fn(),
-    debug: jest.fn(),
-    error: jest.fn(),
-    warn: jest.fn(),
+    info: vi.fn(),
+    log: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
   };
 }
 
@@ -33,31 +35,31 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
 
 function makeNodeResolver(overrides: Partial<NodeResolver> = {}): NodeResolver<any, any> {
   return {
-    findNodeById: jest.fn().mockReturnValue(undefined),
-    resolveSubflowReference: jest.fn().mockImplementation((n: StageNode) => n),
+    findNodeById: vi.fn().mockReturnValue(undefined),
+    resolveSubflowReference: vi.fn().mockImplementation((n: StageNode) => n),
     ...overrides,
   } as any;
 }
 
 function makeContext(): any {
   const ctx: any = {
-    addLog: jest.fn(),
-    addFlowDebugMessage: jest.fn(),
-    addError: jest.fn(),
-    commit: jest.fn(),
-    updateObject: jest.fn(),
+    addLog: vi.fn(),
+    addFlowDebugMessage: vi.fn(),
+    addError: vi.fn(),
+    commit: vi.fn(),
+    updateObject: vi.fn(),
     stageName: 'test-stage',
     branchId: '',
     parent: undefined,
-    getScope: jest.fn().mockReturnValue({}),
-    getStageId: jest.fn().mockReturnValue('test-stage-id'),
-    createChild: jest.fn(),
-    createNext: jest.fn(),
-    setObject: jest.fn(),
-    setGlobal: jest.fn(),
-    getGlobal: jest.fn(),
-    appendToArray: jest.fn(),
-    mergeObject: jest.fn(),
+    getScope: vi.fn().mockReturnValue({}),
+    getStageId: vi.fn().mockReturnValue('test-stage-id'),
+    createChild: vi.fn(),
+    createNext: vi.fn(),
+    setObject: vi.fn(),
+    setGlobal: vi.fn(),
+    getGlobal: vi.fn(),
+    appendToArray: vi.fn(),
+    mergeObject: vi.fn(),
   };
   ctx.createChild.mockImplementation((_runId: string, branchId: string, name: string) => {
     const child = makeContext();
@@ -80,16 +82,16 @@ function makeContext(): any {
 describe('SubflowExecutor', () => {
   let deps: HandlerDeps;
   let nodeResolver: ReturnType<typeof makeNodeResolver>;
-  let executeStage: jest.Mock;
-  let callExtractor: jest.Mock;
-  let getStageFn: jest.Mock;
+  let executeStage: vi.Mock;
+  let callExtractor: vi.Mock;
+  let getStageFn: vi.Mock;
 
   beforeEach(() => {
     deps = makeDeps();
     nodeResolver = makeNodeResolver();
-    executeStage = jest.fn();
-    callExtractor = jest.fn();
-    getStageFn = jest.fn().mockReturnValue(undefined);
+    executeStage = vi.fn();
+    callExtractor = vi.fn();
+    getStageFn = vi.fn().mockReturnValue(undefined);
   });
 
   function createExecutor() {
@@ -192,7 +194,7 @@ describe('SubflowExecutor', () => {
 
     it('applies outputMapper and writes back to parent scope (line 162-175)', async () => {
       const executor = createExecutor();
-      const stageFn = jest.fn().mockResolvedValue('subflow-output');
+      const stageFn = vi.fn().mockResolvedValue('subflow-output');
       getStageFn.mockReturnValue(stageFn);
 
       const node: StageNode = {
@@ -215,7 +217,7 @@ describe('SubflowExecutor', () => {
 
     it('uses parent context for output when parentContext has branchId (line 165-166)', async () => {
       const executor = createExecutor();
-      const stageFn = jest.fn().mockResolvedValue('branch-output');
+      const stageFn = vi.fn().mockResolvedValue('branch-output');
       getStageFn.mockReturnValue(stageFn);
 
       const parentOfBranch = makeContext();
@@ -244,7 +246,7 @@ describe('SubflowExecutor', () => {
 
     it('catches and logs outputMapper errors (lines 178-181)', async () => {
       const executor = createExecutor();
-      getStageFn.mockReturnValue(jest.fn().mockResolvedValue('ok'));
+      getStageFn.mockReturnValue(vi.fn().mockResolvedValue('ok'));
 
       const node: StageNode = {
         name: 'badOutput',
@@ -278,7 +280,7 @@ describe('SubflowExecutor', () => {
     it('catches stage execution error and re-throws after cleanup', async () => {
       const executor = createExecutor();
       const stageError = new Error('stage exploded');
-      getStageFn.mockReturnValue(jest.fn().mockRejectedValue(stageError));
+      getStageFn.mockReturnValue(vi.fn().mockRejectedValue(stageError));
 
       const node: StageNode = {
         name: 'errorSubflow',
@@ -371,7 +373,7 @@ describe('SubflowExecutor', () => {
     // ── Stage execution within subflow (lines 238-256) ──────────────
 
     it('executes stage function using subflow StageRunner', async () => {
-      const stageFn = jest.fn().mockResolvedValue('stage-result');
+      const stageFn = vi.fn().mockResolvedValue('stage-result');
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();
@@ -393,7 +395,7 @@ describe('SubflowExecutor', () => {
 
     it('handles stage execution error inside subflow with extractor call', async () => {
       const stageError = new Error('internal stage error');
-      const stageFn = jest.fn().mockRejectedValue(stageError);
+      const stageFn = vi.fn().mockRejectedValue(stageError);
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();
@@ -425,14 +427,14 @@ describe('SubflowExecutor', () => {
     // ── Break flag (line 258-259) ───────────────────────────────────
 
     it('returns early when break flag is set by stage function', async () => {
-      const stageFn = jest.fn().mockImplementation((_scope: any, breakFn: () => void) => {
+      const stageFn = vi.fn().mockImplementation((_scope: any, breakFn: () => void) => {
         breakFn();
         return 'break-result';
       });
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();
-      const nextNode: StageNode = { name: 'shouldNotRun', fn: jest.fn() };
+      const nextNode: StageNode = { name: 'shouldNotRun', fn: vi.fn() };
       const node: StageNode = {
         name: 'breakStage',
         subflowId: 'sf-break',
@@ -457,10 +459,10 @@ describe('SubflowExecutor', () => {
       const dynamicReturn: StageNode = {
         name: 'dynamic-node',
         children: [childA, childB],
-        nextNodeSelector: jest.fn().mockResolvedValue(['dyn-a']),
+        nextNodeSelector: vi.fn().mockResolvedValue(['dyn-a']),
       };
 
-      const stageFn = jest.fn().mockResolvedValue(dynamicReturn);
+      const stageFn = vi.fn().mockResolvedValue(dynamicReturn);
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'dynStage') return stageFn;
         return undefined;
@@ -488,7 +490,7 @@ describe('SubflowExecutor', () => {
         next: dynamicNext,
       };
 
-      const stageFn = jest.fn().mockResolvedValue(dynamicReturn);
+      const stageFn = vi.fn().mockResolvedValue(dynamicReturn);
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'dynNextStage') return stageFn;
         return undefined;
@@ -514,7 +516,7 @@ describe('SubflowExecutor', () => {
     // ── Children dispatch (lines 292-306) ──────────────────────────
 
     it('dispatches children via executeNodeChildrenInternal (lines 302-304)', async () => {
-      const childFn = jest.fn().mockResolvedValue('child-result');
+      const childFn = vi.fn().mockResolvedValue('child-result');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'child-1' || n.name === 'child-2') return childFn;
         return undefined;
@@ -541,13 +543,13 @@ describe('SubflowExecutor', () => {
     });
 
     it('dispatches children with selector (lines 297-301)', async () => {
-      const childFn = jest.fn().mockResolvedValue('selected-result');
+      const childFn = vi.fn().mockResolvedValue('selected-result');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'sel-child-1') return childFn;
         return undefined;
       });
 
-      const selector = jest.fn().mockResolvedValue(['sc1']);
+      const selector = vi.fn().mockResolvedValue(['sc1']);
 
       const executor = createExecutor();
       const node: StageNode = {
@@ -591,8 +593,8 @@ describe('SubflowExecutor', () => {
     // ── Linear next (lines 308-336) ─────────────────────────────────
 
     it('follows linear next chain (lines 308-336)', async () => {
-      const firstFn = jest.fn().mockResolvedValue('first-out');
-      const secondFn = jest.fn().mockResolvedValue('second-out');
+      const firstFn = vi.fn().mockResolvedValue('first-out');
+      const secondFn = vi.fn().mockResolvedValue('second-out');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'first') return firstFn;
         if (n.name === 'second') return secondFn;
@@ -617,8 +619,8 @@ describe('SubflowExecutor', () => {
     // ── Dynamic next resolution (lines 313-332) ─────────────────────
 
     it('resolves dynamic next node from subflow root (lines 315-318)', async () => {
-      const stageFn = jest.fn().mockResolvedValue('first');
-      const resolvedNextFn = jest.fn().mockResolvedValue('resolved-next-result');
+      const stageFn = vi.fn().mockResolvedValue('first');
+      const resolvedNextFn = vi.fn().mockResolvedValue('resolved-next-result');
       const resolvedNode: StageNode = { name: 'resolvedNext', id: 'target', fn: resolvedNextFn };
 
       getStageFn.mockImplementation((n: StageNode) => {
@@ -649,11 +651,11 @@ describe('SubflowExecutor', () => {
     });
 
     it('resolves dynamic next from main pipeline when not found in subflow (lines 319-321)', async () => {
-      const stageFn = jest.fn().mockResolvedValue('first');
+      const stageFn = vi.fn().mockResolvedValue('first');
       const mainPipelineNode: StageNode = {
         name: 'mainNode',
         id: 'main-target',
-        fn: jest.fn().mockResolvedValue('from-main'),
+        fn: vi.fn().mockResolvedValue('from-main'),
       };
 
       getStageFn.mockImplementation((n: StageNode) => {
@@ -685,7 +687,7 @@ describe('SubflowExecutor', () => {
     });
 
     it('logs when dynamic next node is not found anywhere (lines 327-331)', async () => {
-      const stageFn = jest.fn().mockResolvedValue('done');
+      const stageFn = vi.fn().mockResolvedValue('done');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'notFoundStage') return stageFn;
         return undefined;
@@ -719,8 +721,8 @@ describe('SubflowExecutor', () => {
     it('catches child execution error and returns isError: true (lines 363-367)', async () => {
       const childError = new Error('child-failed');
       getStageFn.mockImplementation((n: StageNode) => {
-        if (n.name === 'good-child') return jest.fn().mockResolvedValue('ok');
-        if (n.name === 'bad-child') return jest.fn().mockRejectedValue(childError);
+        if (n.name === 'good-child') return vi.fn().mockResolvedValue('ok');
+        if (n.name === 'bad-child') return vi.fn().mockRejectedValue(childError);
         return undefined;
       });
 
@@ -747,8 +749,8 @@ describe('SubflowExecutor', () => {
 
     it('handles all children succeeding', async () => {
       getStageFn.mockImplementation((n: StageNode) => {
-        if (n.name === 'ch-a') return jest.fn().mockResolvedValue('res-a');
-        if (n.name === 'ch-b') return jest.fn().mockResolvedValue('res-b');
+        if (n.name === 'ch-a') return vi.fn().mockResolvedValue('res-a');
+        if (n.name === 'ch-b') return vi.fn().mockResolvedValue('res-b');
         return undefined;
       });
 
@@ -778,13 +780,13 @@ describe('SubflowExecutor', () => {
 
   describe('executeSelectedChildrenInternal (via executeSubflow)', () => {
     it('executes selected children and skips others (lines 402, 412-415)', async () => {
-      const selectedFn = jest.fn().mockResolvedValue('selected-ok');
+      const selectedFn = vi.fn().mockResolvedValue('selected-ok');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'sel-a') return selectedFn;
         return undefined;
       });
 
-      const selector = jest.fn().mockResolvedValue(['sel-a-id']);
+      const selector = vi.fn().mockResolvedValue(['sel-a-id']);
 
       const executor = createExecutor();
       const node: StageNode = {
@@ -809,7 +811,7 @@ describe('SubflowExecutor', () => {
     });
 
     it('returns empty results when selector returns empty array (lines 397-400)', async () => {
-      const selector = jest.fn().mockResolvedValue([]);
+      const selector = vi.fn().mockResolvedValue([]);
 
       const executor = createExecutor();
       const node: StageNode = {
@@ -828,7 +830,7 @@ describe('SubflowExecutor', () => {
     });
 
     it('throws when selector returns unknown child IDs (lines 403-409)', async () => {
-      const selector = jest.fn().mockResolvedValue(['nonexistent']);
+      const selector = vi.fn().mockResolvedValue(['nonexistent']);
 
       const executor = createExecutor();
       const node: StageNode = {
@@ -847,13 +849,13 @@ describe('SubflowExecutor', () => {
     });
 
     it('wraps single string selector result as array (line 392)', async () => {
-      const childFn = jest.fn().mockResolvedValue('single-result');
+      const childFn = vi.fn().mockResolvedValue('single-result');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'single-child') return childFn;
         return undefined;
       });
 
-      const selector = jest.fn().mockResolvedValue('single-id');
+      const selector = vi.fn().mockResolvedValue('single-id');
 
       const executor = createExecutor();
       const node: StageNode = {
@@ -882,8 +884,8 @@ describe('SubflowExecutor', () => {
 
   describe('children with next continuation', () => {
     it('subflow strips next when children present — returns children results', async () => {
-      const childFn = jest.fn().mockResolvedValue('child-done');
-      const nextFn = jest.fn().mockResolvedValue('next-done');
+      const childFn = vi.fn().mockResolvedValue('child-done');
+      const nextFn = vi.fn().mockResolvedValue('next-done');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'child') return childFn;
         if (n.name === 'after-children') return nextFn;
@@ -910,8 +912,8 @@ describe('SubflowExecutor', () => {
     });
 
     it('subflow without children keeps next — follows linear continuation', async () => {
-      const stageFn = jest.fn().mockResolvedValue('stage-output');
-      const nextFn = jest.fn().mockResolvedValue('next-done');
+      const stageFn = vi.fn().mockResolvedValue('stage-output');
+      const nextFn = vi.fn().mockResolvedValue('next-done');
       getStageFn.mockImplementation((n: StageNode) => {
         if (n.name === 'entry') return stageFn;
         if (n.name === 'continuation') return nextFn;
@@ -950,7 +952,7 @@ describe('SubflowExecutor', () => {
       // after the subflow deps would be cleared. However,
       // currentSubflowDeps is always set during executeSubflow.
       // Instead, we test that the StageRunner path works (the normal path).
-      const stageFn = jest.fn().mockResolvedValue('runner-result');
+      const stageFn = vi.fn().mockResolvedValue('runner-result');
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();
@@ -974,7 +976,7 @@ describe('SubflowExecutor', () => {
 
   describe('getStagePath (via callExtractor args)', () => {
     it('includes branchPath prefix when provided', async () => {
-      const stageFn = jest.fn().mockResolvedValue('out');
+      const stageFn = vi.fn().mockResolvedValue('out');
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();
@@ -994,7 +996,7 @@ describe('SubflowExecutor', () => {
     });
 
     it('uses node.id when available', async () => {
-      const stageFn = jest.fn().mockResolvedValue('out');
+      const stageFn = vi.fn().mockResolvedValue('out');
       getStageFn.mockReturnValue(stageFn);
 
       const executor = createExecutor();

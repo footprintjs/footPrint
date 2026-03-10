@@ -19,6 +19,7 @@ import lodashHas from 'lodash.has';
 import lodashSet from 'lodash.set';
 
 import { StageContext } from '../memory/StageContext';
+import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput';
 import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types';
 
 export class ScopeFacade {
@@ -27,6 +28,9 @@ export class ScopeFacade {
   protected _stageContext: StageContext;
   protected _stageName: string;
   protected readonly _readOnlyValues?: unknown;
+
+  /** Cached deeply-frozen copy of readOnlyValues for getArgs(). Created once. */
+  private readonly _frozenArgs: Record<string, unknown>;
 
   private _recorders: Recorder[] = [];
   private _redactedKeys: Set<string>;
@@ -37,6 +41,7 @@ export class ScopeFacade {
     this._stageContext = context;
     this._stageName = stageName;
     this._readOnlyValues = readOnlyValues;
+    this._frozenArgs = createFrozenArgs(readOnlyValues);
     this._redactedKeys = new Set<string>();
   }
 
@@ -190,6 +195,8 @@ export class ScopeFacade {
   }
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+    assertNotReadonly(this._readOnlyValues, key, 'write');
+
     // Auto-redact if key matches policy (exact keys or patterns)
     const effectiveRedact = shouldRedact || this._isPolicyRedacted(key);
 
@@ -227,6 +234,8 @@ export class ScopeFacade {
   }
 
   updateValue(key: string, value: unknown, description?: string) {
+    assertNotReadonly(this._readOnlyValues, key, 'write');
+
     const result = this._stageContext.updateObject([], key, value, description);
 
     if (this._recorders.length > 0) {
@@ -257,6 +266,8 @@ export class ScopeFacade {
   }
 
   deleteValue(key: string, description?: string) {
+    assertNotReadonly(this._readOnlyValues, key, 'delete');
+
     const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
 
     // Deleting a redacted key clears its redaction status
@@ -290,8 +301,22 @@ export class ScopeFacade {
 
   // ── Read-only + misc ─────────────────────────────────────────────────────
 
+  /** @deprecated Use getArgs() instead. This returns the raw mutable reference. */
   getReadOnlyValues() {
     return this._readOnlyValues;
+  }
+
+  /**
+   * Returns the readonly input values passed to this pipeline, cast to `T`.
+   * The returned object is deeply frozen — any attempt to mutate it throws.
+   * Cached at construction time for zero-allocation repeated access.
+   *
+   * ```typescript
+   * const { applicantName, income } = scope.getArgs<{ applicantName: string; income: number }>();
+   * ```
+   */
+  getArgs<T = Record<string, unknown>>(): T {
+    return this._frozenArgs as T;
   }
 
   getPipelineId() {

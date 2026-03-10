@@ -29,6 +29,7 @@ import { NarrativeRecorder } from '../scope/recorders/NarrativeRecorder';
 import { ScopeFacade } from '../scope/ScopeFacade';
 import type { RedactionPolicy, RedactionReport } from '../scope/types';
 import { ExecutionRuntime } from './ExecutionRuntime';
+import { validateInput } from './validateInput';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly) => new ScopeFacade(ctx, stageName, readOnly);
@@ -79,7 +80,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.traverser = this.createTraverser();
   }
 
-  private createTraverser(signal?: AbortSignal): FlowchartTraverser<TOut, TScope> {
+  private createTraverser(signal?: AbortSignal, readOnlyContextOverride?: unknown): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
     const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
@@ -131,7 +132,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       stageMap: fc.stageMap,
       scopeFactory,
       executionRuntime: runtime,
-      readOnlyContext: args.readOnlyContext,
+      readOnlyContext: readOnlyContextOverride ?? args.readOnlyContext,
       throttlingErrorChecker: args.throttlingErrorChecker,
       streamHandlers: args.streamHandlers,
       extractor: fc.extractor,
@@ -246,7 +247,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
-    this.traverser = this.createTraverser(signal);
+    // Validate input against inputSchema if both are present
+    let validatedInput = options?.input;
+    if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
+      validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
+    }
+
+    this.traverser = this.createTraverser(signal, validatedInput);
     try {
       return await this.traverser.execute();
     } finally {

@@ -30,6 +30,7 @@ module.exports = {
       rules: {
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-explicit-any': 'off',
+        'no-proto': 'off',
       },
     },
   ],
@@ -45,7 +46,7 @@ module.exports = {
     'import/no-unresolved': [
       'error',
       {
-        ignore: ['^aws-lambda$'],
+        ignore: ['^aws-lambda$', '^vitest$'],
       },
     ],
     '@typescript-eslint/no-var-requires': 'off',

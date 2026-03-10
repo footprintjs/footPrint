@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { flowChart } from '../../../../src/lib/builder/FlowChartBuilder';
+import { defineContract } from '../../../../src/lib/contract';
 
 describe('Builder schema integration', () => {
   it('stores inputSchema and outputSchema on FlowChart', () => {
@@ -35,7 +36,7 @@ describe('Builder schema integration', () => {
   });
 
   it('works with defineContract using chart schemas', () => {
-    const { defineContract } = require('../../../../src/lib/contract');
+    // defineContract imported at top level
 
     const chart = flowChart('Process', () => {})
       .setInputSchema(z.object({ x: z.number() }))

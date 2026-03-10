@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import type {
   CallExtractorFn,
@@ -17,7 +19,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     ScopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
-    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
     ...overrides,
   };
 }
@@ -25,10 +27,10 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
 function makeContext(overrides: Record<string, any> = {}): any {
   return {
     stageName: 'testStage',
-    commit: jest.fn(),
-    addError: jest.fn(),
-    addFlowDebugMessage: jest.fn(),
-    createNext: jest.fn().mockReturnValue({ stageName: 'next' }),
+    commit: vi.fn(),
+    addError: vi.fn(),
+    addFlowDebugMessage: vi.fn(),
+    createNext: vi.fn().mockReturnValue({ stageName: 'next' }),
     debug: {
       logContext: {},
       errorContext: {},
@@ -154,7 +156,7 @@ describe('DeciderHandler', () => {
         return 'child-a';
       };
 
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
 
       const result = await handler.handleScopeBased(
         node,
@@ -180,7 +182,7 @@ describe('DeciderHandler', () => {
     it('commits, calls extractor, logs error, calls narrativeGenerator.onError, and rethrows', async () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
-        onError: jest.fn(),
+        onError: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -192,7 +194,7 @@ describe('DeciderHandler', () => {
       const failingRunStage: RunStageFn = async () => {
         throw stageError;
       };
-      const callExtractor = jest.fn();
+      const callExtractor = vi.fn();
 
       await expect(
         handler.handleScopeBased(
@@ -234,7 +236,7 @@ describe('DeciderHandler', () => {
     it('includes rationale in flow message when deciderRationale is set in debug logs', async () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
-        onDecision: jest.fn(),
+        onDecision: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -283,7 +285,7 @@ describe('DeciderHandler', () => {
     it('uses generic message when no rationale is set', async () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
-        onDecision: jest.fn(),
+        onDecision: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -315,7 +317,7 @@ describe('DeciderHandler', () => {
     it('passes node description to narrativeGenerator.onDecision', async () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
-        onDecision: jest.fn(),
+        onDecision: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);

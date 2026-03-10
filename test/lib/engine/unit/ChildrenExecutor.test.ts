@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ChildrenExecutor } from '../../../../src/lib/engine/handlers/ChildrenExecutor';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
@@ -11,32 +13,32 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     ScopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
-    logger: { info: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn() },
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
     ...overrides,
   };
 }
 
 function makeContext(): any {
   const ctx: any = {
-    addLog: jest.fn(),
-    addFlowDebugMessage: jest.fn(),
-    addError: jest.fn(),
-    commit: jest.fn(),
-    updateObject: jest.fn(),
+    addLog: vi.fn(),
+    addFlowDebugMessage: vi.fn(),
+    addError: vi.fn(),
+    commit: vi.fn(),
+    updateObject: vi.fn(),
     stageName: 'test-stage',
-    createChild: jest.fn(),
-    createNext: jest.fn(),
+    createChild: vi.fn(),
+    createNext: vi.fn(),
   };
   // createChild returns a context-like object
   ctx.createChild.mockImplementation(() => ({
-    addLog: jest.fn(),
-    addFlowDebugMessage: jest.fn(),
-    addError: jest.fn(),
-    commit: jest.fn(),
-    updateObject: jest.fn(),
+    addLog: vi.fn(),
+    addFlowDebugMessage: vi.fn(),
+    addError: vi.fn(),
+    commit: vi.fn(),
+    updateObject: vi.fn(),
     stageName: 'child-stage',
-    createChild: jest.fn(),
-    createNext: jest.fn(),
+    createChild: vi.fn(),
+    createNext: vi.fn(),
   }));
   return ctx;
 }
@@ -45,7 +47,7 @@ describe('ChildrenExecutor', () => {
   describe('executeNodeChildren', () => {
     it('returns empty results for a node with no children', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
       const executor = new ChildrenExecutor(deps, executeNode);
       const node: StageNode = { name: 'parent' };
       const context = makeContext();
@@ -58,7 +60,7 @@ describe('ChildrenExecutor', () => {
 
     it('returns empty results for a node with empty children array', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
       const executor = new ChildrenExecutor(deps, executeNode);
       const node: StageNode = { name: 'parent', children: [] };
       const context = makeContext();
@@ -71,7 +73,7 @@ describe('ChildrenExecutor', () => {
 
     it('executes all children in parallel and aggregates results', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn().mockResolvedValueOnce('result-A').mockResolvedValueOnce('result-B');
+      const executeNode = vi.fn().mockResolvedValueOnce('result-A').mockResolvedValueOnce('result-B');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const childA: StageNode = { name: 'childA', id: 'a' };
@@ -91,7 +93,7 @@ describe('ChildrenExecutor', () => {
     it('catches child errors and marks them with isError: true', async () => {
       const deps = makeDeps();
       const error = new Error('child failed');
-      const executeNode = jest.fn().mockResolvedValueOnce('ok').mockRejectedValueOnce(error);
+      const executeNode = vi.fn().mockResolvedValueOnce('ok').mockRejectedValueOnce(error);
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const childA: StageNode = { name: 'childA', id: 'a' };
@@ -111,7 +113,7 @@ describe('ChildrenExecutor', () => {
 
     it('commits child context on success', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'c1' };
@@ -126,7 +128,7 @@ describe('ChildrenExecutor', () => {
 
     it('commits child context on error', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn().mockRejectedValue(new Error('boom'));
+      const executeNode = vi.fn().mockRejectedValue(new Error('boom'));
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'c1' };
@@ -141,20 +143,20 @@ describe('ChildrenExecutor', () => {
 
     it('calls narrativeGenerator.onFork with child display names', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const childA: StageNode = { name: 'Child A', id: 'a' };
@@ -169,20 +171,20 @@ describe('ChildrenExecutor', () => {
 
     it('uses node.name when displayName is not set for narrative', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const node: StageNode = { name: 'parent', children: [{ name: 'c1', id: '1' }] };
@@ -194,10 +196,10 @@ describe('ChildrenExecutor', () => {
     });
 
     it('checks throttling error and updates monitor when throttlingErrorChecker returns true', async () => {
-      const throttlingErrorChecker = jest.fn().mockReturnValue(true);
+      const throttlingErrorChecker = vi.fn().mockReturnValue(true);
       const deps = makeDeps({ throttlingErrorChecker });
       const error = new Error('rate limited');
-      const executeNode = jest.fn().mockRejectedValue(error);
+      const executeNode = vi.fn().mockRejectedValue(error);
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'c1' };
@@ -212,9 +214,9 @@ describe('ChildrenExecutor', () => {
     });
 
     it('does not update monitor when throttlingErrorChecker returns false', async () => {
-      const throttlingErrorChecker = jest.fn().mockReturnValue(false);
+      const throttlingErrorChecker = vi.fn().mockReturnValue(false);
       const deps = makeDeps({ throttlingErrorChecker });
-      const executeNode = jest.fn().mockRejectedValue(new Error('not throttled'));
+      const executeNode = vi.fn().mockRejectedValue(new Error('not throttled'));
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'c1' };
@@ -231,7 +233,7 @@ describe('ChildrenExecutor', () => {
       it('does not set parentBreakFlag when only some children break', async () => {
         const deps = makeDeps();
         // Simulate: first child sets break, second does not
-        const executeNode = jest.fn().mockImplementation((_node, _ctx, breakFlag) => {
+        const executeNode = vi.fn().mockImplementation((_node, _ctx, breakFlag) => {
           if (_node.name === 'childA') breakFlag.shouldBreak = true;
           return Promise.resolve('ok');
         });
@@ -250,7 +252,7 @@ describe('ChildrenExecutor', () => {
 
       it('sets parentBreakFlag when ALL children break', async () => {
         const deps = makeDeps();
-        const executeNode = jest.fn().mockImplementation((_node, _ctx, breakFlag) => {
+        const executeNode = vi.fn().mockImplementation((_node, _ctx, breakFlag) => {
           breakFlag.shouldBreak = true;
           return Promise.resolve('ok');
         });
@@ -269,7 +271,7 @@ describe('ChildrenExecutor', () => {
 
       it('propagates break on error path too', async () => {
         const deps = makeDeps();
-        const executeNode = jest.fn().mockImplementation((_node, _ctx, breakFlag) => {
+        const executeNode = vi.fn().mockImplementation((_node, _ctx, breakFlag) => {
           breakFlag.shouldBreak = true;
           return Promise.reject(new Error('fail'));
         });
@@ -288,7 +290,7 @@ describe('ChildrenExecutor', () => {
 
     it('uses branchPath when provided', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'c1' };
@@ -308,7 +310,7 @@ describe('ChildrenExecutor', () => {
 
     it('uses child.id as branchPath when branchPath not provided', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn().mockResolvedValue('ok');
+      const executeNode = vi.fn().mockResolvedValue('ok');
       const executor = new ChildrenExecutor(deps, executeNode);
 
       const child: StageNode = { name: 'child', id: 'my-child-id' };
@@ -329,11 +331,11 @@ describe('ChildrenExecutor', () => {
   describe('executeSelectedChildren', () => {
     it('returns empty when selector returns empty array', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue([]);
+      const selector = vi.fn().mockResolvedValue([]);
       const children: StageNode[] = [{ name: 'a', id: 'a' }];
 
       const results = await executor.executeSelectedChildren(selector, children, 'input', context, 'branch');
@@ -345,24 +347,24 @@ describe('ChildrenExecutor', () => {
 
     it('executes only selected children', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['b']);
+      const selector = vi.fn().mockResolvedValue(['b']);
       const children: StageNode[] = [
         { name: 'childA', id: 'a' },
         { name: 'childB', id: 'b' },
@@ -377,24 +379,24 @@ describe('ChildrenExecutor', () => {
 
     it('wraps single string selector result in array', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue('a');
+      const selector = vi.fn().mockResolvedValue('a');
       const children: StageNode[] = [{ name: 'childA', id: 'a' }];
 
       await executor.executeSelectedChildren(selector, children, 'input', context, 'branch');
@@ -405,11 +407,11 @@ describe('ChildrenExecutor', () => {
 
     it('throws when selector returns unknown child IDs', async () => {
       const deps = makeDeps();
-      const executeNode = jest.fn();
+      const executeNode = vi.fn();
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['nonexistent']);
+      const selector = vi.fn().mockResolvedValue(['nonexistent']);
       const children: StageNode[] = [{ name: 'childA', id: 'a' }];
 
       await expect(executor.executeSelectedChildren(selector, children, 'input', context, 'branch')).rejects.toThrow(
@@ -421,24 +423,24 @@ describe('ChildrenExecutor', () => {
 
     it('logs skipped child IDs', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['a']);
+      const selector = vi.fn().mockResolvedValue(['a']);
       const children: StageNode[] = [
         { name: 'childA', id: 'a' },
         { name: 'childB', id: 'b' },
@@ -451,24 +453,24 @@ describe('ChildrenExecutor', () => {
 
     it('calls narrativeGenerator.onSelected with selected display names', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['a']);
+      const selector = vi.fn().mockResolvedValue(['a']);
       const children: StageNode[] = [
         { name: 'Alpha', id: 'a' },
         { name: 'childB', id: 'b' },
@@ -481,24 +483,24 @@ describe('ChildrenExecutor', () => {
 
     it('adds flow debug message with selected info', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['a', 'b']);
+      const selector = vi.fn().mockResolvedValue(['a', 'b']);
       const children: StageNode[] = [
         { name: 'childA', id: 'a' },
         { name: 'childB', id: 'b' },
@@ -515,24 +517,24 @@ describe('ChildrenExecutor', () => {
 
     it('logs selectorPattern as multi-choice', async () => {
       const narrativeGenerator = {
-        onFork: jest.fn(),
-        onStageExecuted: jest.fn(),
-        onNext: jest.fn(),
-        onDecision: jest.fn(),
-        onSelected: jest.fn(),
-        onSubflowEntry: jest.fn(),
-        onSubflowExit: jest.fn(),
-        onLoop: jest.fn(),
-        onBreak: jest.fn(),
-        onError: jest.fn(),
-        getSentences: jest.fn().mockReturnValue([]),
+        onFork: vi.fn(),
+        onStageExecuted: vi.fn(),
+        onNext: vi.fn(),
+        onDecision: vi.fn(),
+        onSelected: vi.fn(),
+        onSubflowEntry: vi.fn(),
+        onSubflowExit: vi.fn(),
+        onLoop: vi.fn(),
+        onBreak: vi.fn(),
+        onError: vi.fn(),
+        getSentences: vi.fn().mockReturnValue([]),
       };
       const deps = makeDeps({ narrativeGenerator });
-      const executeNode = jest.fn().mockResolvedValue('result');
+      const executeNode = vi.fn().mockResolvedValue('result');
       const executor = new ChildrenExecutor(deps, executeNode);
       const context = makeContext();
 
-      const selector = jest.fn().mockResolvedValue(['a']);
+      const selector = vi.fn().mockResolvedValue(['a']);
       const children: StageNode[] = [{ name: 'childA', id: 'a' }];
 
       await executor.executeSelectedChildren(selector, children, 'input', context, 'branch');
