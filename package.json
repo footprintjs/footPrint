@@ -1,6 +1,6 @@
 {
   "name": "footprintjs",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Turn your whiteboard flowchart into running code — with automatic causal traces for LLM reasoning",
   "license": "MIT",
   "author": "Sanjay Krishna Anbalagan",
