@@ -253,6 +253,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
     branchPath?: string,
   ): Promise<any> {
+    // Attach builder metadata to context for snapshot enrichment
+    if (node.description) context.description = node.description;
+    if (node.isSubflowRoot && node.subflowId) context.subflowId = node.subflowId;
+
     // ─── Phase 0: CLASSIFY — subflow detection ───
     if (node.isSubflowRoot && node.subflowId) {
       const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
@@ -623,7 +627,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
 
     // First-write-wins
-    if (!subflowsDict[subflowId]) {
+    const isNewRegistration = !subflowsDict[subflowId];
+    if (isNewRegistration) {
       subflowsDict[subflowId] = {
         root: subflowDef.root as StageNode<TOut, TScope>,
         ...(subflowDef.buildTimeStructure ? { buildTimeStructure: subflowDef.buildTimeStructure } : {}),
@@ -653,6 +658,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         mountNodeId,
         subflowId,
         subflowDef.root?.subflowName || subflowDef.root?.name,
+        subflowDef.buildTimeStructure,
+      );
+    }
+
+    // Notify FlowRecorders only on first registration (matches first-write-wins)
+    if (isNewRegistration) {
+      const subflowName = subflowDef.root?.subflowName || subflowDef.root?.name || subflowId;
+      this.narrativeGenerator.onSubflowRegistered(
+        subflowId,
+        subflowName,
+        subflowDef.root?.description,
         subflowDef.buildTimeStructure,
       );
     }

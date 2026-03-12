@@ -40,6 +40,7 @@ export type {
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
+  FlowSubflowRegisteredEvent,
 } from './narrative/types';
 
 // Structured error extraction
@@ -48,6 +49,8 @@ export { extractErrorInfo, formatErrorInfo } from './errors/errorInfo';
 
 // Built-in FlowRecorder strategies (tree-shakeable)
 export { AdaptiveNarrativeFlowRecorder } from './narrative/recorders/AdaptiveNarrativeFlowRecorder';
+export type { ManifestEntry } from './narrative/recorders/ManifestFlowRecorder';
+export { ManifestFlowRecorder } from './narrative/recorders/ManifestFlowRecorder';
 export { MilestoneNarrativeFlowRecorder } from './narrative/recorders/MilestoneNarrativeFlowRecorder';
 export { ProgressiveNarrativeFlowRecorder } from './narrative/recorders/ProgressiveNarrativeFlowRecorder';
 export { RLENarrativeFlowRecorder } from './narrative/recorders/RLENarrativeFlowRecorder';

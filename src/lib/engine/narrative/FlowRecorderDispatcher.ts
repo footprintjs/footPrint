@@ -98,9 +98,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSubflowEntry(subflowName: string): void {
+  onSubflowEntry(subflowName: string, subflowId?: string, description?: string): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName };
+    const event = { name: subflowName, subflowId, description };
     for (const r of this.recorders) {
       try {
         r.onSubflowEntry?.(event);
@@ -110,12 +110,24 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSubflowExit(subflowName: string): void {
+  onSubflowExit(subflowName: string, subflowId?: string): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName };
+    const event = { name: subflowName, subflowId };
     for (const r of this.recorders) {
       try {
         r.onSubflowExit?.(event);
+      } catch {
+        /* swallow */
+      }
+    }
+  }
+
+  onSubflowRegistered(subflowId: string, name: string, description?: string, specStructure?: unknown): void {
+    if (this.recorders.length === 0) return;
+    const event = { subflowId, name, description, specStructure };
+    for (const r of this.recorders) {
+      try {
+        r.onSubflowRegistered?.(event);
       } catch {
         /* swallow */
       }

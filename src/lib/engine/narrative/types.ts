@@ -25,10 +25,13 @@ export interface IControlFlowNarrative {
   onSelected(parentStage: string, selectedNames: string[], totalCount: number): void;
 
   /** Called when entering a subflow (nested context boundary). */
-  onSubflowEntry(subflowName: string): void;
+  onSubflowEntry(subflowName: string, subflowId?: string, description?: string): void;
 
   /** Called when exiting a subflow. */
-  onSubflowExit(subflowName: string): void;
+  onSubflowExit(subflowName: string, subflowId?: string): void;
+
+  /** Called when a dynamic subflow is registered during traversal. */
+  onSubflowRegistered(subflowId: string, name: string, description?: string, specStructure?: unknown): void;
 
   /** Called on loop iteration (back-edge traversal). */
   onLoop(targetStage: string, iteration: number, description?: string): void;
@@ -84,6 +87,22 @@ export interface FlowSelectedEvent {
 /** Event passed to FlowRecorder.onSubflow. */
 export interface FlowSubflowEvent {
   name: string;
+  /** Subflow identifier — use this to look up the full spec via the manifest. */
+  subflowId?: string;
+  /** Build-time description of what this subflow does. */
+  description?: string;
+}
+
+/** Event passed to FlowRecorder.onSubflowRegistered (dynamic subflow attachment). */
+export interface FlowSubflowRegisteredEvent {
+  /** Subflow identifier. */
+  subflowId: string;
+  /** Human-readable name. */
+  name: string;
+  /** Build-time description. */
+  description?: string;
+  /** Full spec structure (when available from buildTimeStructure). */
+  specStructure?: unknown;
 }
 
 /** Event passed to FlowRecorder.onLoop. */
@@ -133,6 +152,8 @@ export interface FlowRecorder {
   onSelected?(event: FlowSelectedEvent): void;
   onSubflowEntry?(event: FlowSubflowEvent): void;
   onSubflowExit?(event: FlowSubflowEvent): void;
+  /** Called when a dynamic subflow is registered during traversal. */
+  onSubflowRegistered?(event: FlowSubflowRegisteredEvent): void;
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;

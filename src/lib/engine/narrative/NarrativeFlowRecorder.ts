@@ -74,7 +74,11 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
-    this.sentences.push(`Entering the ${event.name} subflow.`);
+    if (event.description) {
+      this.sentences.push(`Entering the ${event.name} subflow: ${event.description}.`);
+    } else {
+      this.sentences.push(`Entering the ${event.name} subflow.`);
+    }
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {

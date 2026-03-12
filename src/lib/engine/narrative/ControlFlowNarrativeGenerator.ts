@@ -59,12 +59,20 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     this.sentences.push(`${selectedNames.length} of ${totalCount} paths were selected: ${names}.`);
   }
 
-  onSubflowEntry(subflowName: string): void {
-    this.sentences.push(`Entering the ${subflowName} subflow.`);
+  onSubflowEntry(subflowName: string, _subflowId?: string, description?: string): void {
+    if (description) {
+      this.sentences.push(`Entering the ${subflowName} subflow: ${description}.`);
+    } else {
+      this.sentences.push(`Entering the ${subflowName} subflow.`);
+    }
   }
 
-  onSubflowExit(subflowName: string): void {
+  onSubflowExit(subflowName: string, _subflowId?: string): void {
     this.sentences.push(`Exiting the ${subflowName} subflow.`);
+  }
+
+  onSubflowRegistered(_subflowId: string, _name: string, _description?: string, _specStructure?: unknown): void {
+    // No narrative output for registration events
   }
 
   onLoop(targetStage: string, iteration: number, description?: string): void {

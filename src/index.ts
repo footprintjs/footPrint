@@ -55,7 +55,13 @@ export type { CombinedNarrativeEntry } from './lib/engine';
 export { CombinedNarrativeBuilder } from './lib/engine';
 
 // FlowRecorder — Pluggable observer for control flow events (mirrors scope Recorder)
-export type { FlowErrorEvent, FlowLoopEvent, FlowRecorder } from './lib/engine';
+export type {
+  FlowErrorEvent,
+  FlowLoopEvent,
+  FlowRecorder,
+  FlowSubflowEvent,
+  FlowSubflowRegisteredEvent,
+} from './lib/engine';
 export { NarrativeFlowRecorder } from './lib/engine';
 
 // Structured error extraction — preserves field-level details through the pipeline
@@ -63,6 +69,8 @@ export type { StructuredErrorInfo } from './lib/engine';
 export { extractErrorInfo, formatErrorInfo } from './lib/engine';
 
 // Built-in FlowRecorder strategies (tree-shakeable — import only what you use)
+export type { ManifestEntry } from './lib/engine';
+export { ManifestFlowRecorder } from './lib/engine';
 export { AdaptiveNarrativeFlowRecorder } from './lib/engine';
 export { MilestoneNarrativeFlowRecorder } from './lib/engine';
 export { ProgressiveNarrativeFlowRecorder } from './lib/engine';

@@ -82,7 +82,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Entering ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowEntry(subflowName);
+    this.deps.narrativeGenerator.onSubflowEntry(subflowName, subflowId, node.description);
 
     parentContext.addLog('isSubflowContainer', true);
     parentContext.addLog('subflowId', subflowId);
@@ -205,7 +205,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowExit(subflowName);
+    this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId);
 
     parentContext.commit();
 
