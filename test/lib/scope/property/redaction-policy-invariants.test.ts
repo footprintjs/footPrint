@@ -4,6 +4,10 @@ import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { WriteEvent } from '../../../../src/lib/scope/types';
 
+// Exclude __proto__, constructor, prototype — these are JS prototype-chain keys
+// that cannot be safely used as plain object property names.
+const safeKey = fc.string({ minLength: 1 }).filter((s) => !['__proto__', 'constructor', 'prototype'].includes(s));
+
 function makeCtx(runId = 'p1', stageName = 's1') {
   const mem = new SharedMemory();
   const log = new EventLog();
@@ -13,7 +17,7 @@ function makeCtx(runId = 'p1', stageName = 's1') {
 describe('RedactionPolicy — property-based invariants', () => {
   it('policy.keys: matched keys never leak to any recorder', () => {
     fc.assert(
-      fc.property(fc.string({ minLength: 1 }), fc.string(), (key, value) => {
+      fc.property(safeKey, fc.string(), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
         scope.attachRecorder({ id: 'r1', onWrite: (e) => writes.push(e) });
@@ -30,7 +34,7 @@ describe('RedactionPolicy — property-based invariants', () => {
 
   it('policy.patterns: matched keys never leak to any recorder', () => {
     fc.assert(
-      fc.property(fc.string({ minLength: 1 }), fc.string(), (key, value) => {
+      fc.property(safeKey, fc.string(), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
         scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
@@ -49,7 +53,7 @@ describe('RedactionPolicy — property-based invariants', () => {
   it('non-matching keys are never redacted by policy', () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1 }).filter((s) => s !== 'ssn'),
+        safeKey.filter((s) => s !== 'ssn'),
         fc.string(),
         (key, value) => {
           const scope = new ScopeFacade(makeCtx(), 'test');
@@ -68,7 +72,7 @@ describe('RedactionPolicy — property-based invariants', () => {
 
   it('runtime always returns real value regardless of policy', () => {
     fc.assert(
-      fc.property(fc.string({ minLength: 1 }), fc.string(), (key, value) => {
+      fc.property(safeKey, fc.string(), (key, value) => {
         const ctx = makeCtx();
         const scope = new ScopeFacade(ctx, 'test');
         scope.useRedactionPolicy({ keys: [key], patterns: [/./] });
@@ -102,7 +106,7 @@ describe('RedactionPolicy — property-based invariants', () => {
 
   it('getRedactionReport only contains key names, field names, and pattern sources', () => {
     fc.assert(
-      fc.property(fc.string({ minLength: 1 }), (key) => {
+      fc.property(safeKey, (key) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const secretValue = `SECRET_${Math.random()}_VALUE`;
         scope.useRedactionPolicy({ keys: [key] });
