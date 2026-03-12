@@ -57,6 +57,10 @@ export interface FlowMessage {
 export type StageSnapshot = {
   id: string;
   name?: string;
+  /** Human-readable description of what this stage does (from builder). */
+  description?: string;
+  /** Subflow identifier — present when this stage is a subflow entry point. */
+  subflowId?: string;
   isDecider?: boolean;
   isFork?: boolean;
   logs: Record<string, unknown>;

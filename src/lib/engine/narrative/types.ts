@@ -157,4 +157,6 @@ export interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  /** Called before each run to reset per-run state. Implement for stateful recorders. */
+  clear?(): void;
 }

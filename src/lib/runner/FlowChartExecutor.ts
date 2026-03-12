@@ -10,6 +10,8 @@
 
 import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder';
 import { CombinedNarrativeBuilder } from '../engine/narrative/CombinedNarrativeBuilder';
+import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder';
+import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder';
 import type { FlowRecorder } from '../engine/narrative/types';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser';
 import {
@@ -253,6 +255,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
     }
 
+    // Clear stateful recorders before re-run to prevent cross-run accumulation
+    for (const r of this.flowRecorders) {
+      r.clear?.();
+    }
+
     this.traverser = this.createTraverser(signal, validatedInput);
     try {
       return await this.traverser.execute();
@@ -301,5 +308,27 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   getExtractorErrors(): ExtractorError[] {
     return this.traverser.getExtractorErrors();
+  }
+
+  /**
+   * Returns the subflow manifest from an attached ManifestFlowRecorder.
+   * Returns empty array if no ManifestFlowRecorder is attached.
+   */
+  getSubflowManifest(): ManifestEntry[] {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getManifest() ?? [];
+  }
+
+  /**
+   * Returns the full spec for a dynamically-registered subflow.
+   * Requires an attached ManifestFlowRecorder that observed the registration.
+   */
+  getSubflowSpec(subflowId: string): unknown | undefined {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getSpec(subflowId);
   }
 }

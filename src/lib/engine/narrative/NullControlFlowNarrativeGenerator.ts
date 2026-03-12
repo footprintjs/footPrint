@@ -17,6 +17,7 @@ export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative 
   onSelected(): void {}
   onSubflowEntry(): void {}
   onSubflowExit(): void {}
+  onSubflowRegistered(): void {}
   onLoop(): void {}
   onBreak(): void {}
   onError(): void {}

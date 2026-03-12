@@ -52,6 +52,48 @@ Four test tiers across all libraries:
 
 Total: 900+ tests across 85+ suites.
 
+## Core Principle: Collect During Traversal
+
+All data in footprintjs — narrative, metrics, manifest, identity — is collected as a **side effect of the single traversal pass**. There is no post-processing step, no second tree walk, no separate analysis phase.
+
+Three observation systems fire during traversal:
+
+```
+                    Traversal (single pass)
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+   FlowRecorder      TraversalExtractor   StageContext
+   (narrative,        (per-stage data)    (execution tree)
+    manifest,
+    metrics)
+
+   Recorder builds       Extractor captures    Context accumulates
+   manifest as          full snapshots         the linked list of
+   side effect of       with node metadata     execution state
+   observing events
+```
+
+### FlowRecorder (lightweight event stream)
+
+Pluggable observers attached via `executor.attachFlowRecorder(r)`. Receive high-level events: `onStageExecuted`, `onDecision`, `onSubflowEntry`, `onError`, etc. Each event carries just enough data for the recorder to do its job (stage name, description, decision rationale). Multiple recorders can be attached; each is error-isolated.
+
+Best for: narrative generation, metrics collection, manifest building, audit trails.
+
+### TraversalExtractor (per-stage snapshot extraction)
+
+Single extractor function called after each stage executes. Receives a `StageSnapshot` containing the full `StageNode`, `StageContext`, `RuntimeStructureMetadata` (subflowId, isSubflowRoot, etc.), stage output, and optionally the full scope state.
+
+Best for: detailed per-stage data extraction, custom analytics, schema validation.
+
+### StageContext (execution tree accumulation)
+
+Internal. Not pluggable. Each stage creates a `StageContext` linked to parent via `createNext()`/`createChild()`. Accumulates logs, errors, metrics, evals. After execution, `getSnapshot()` produces the tree for `RuntimeSnapshot.executionTree`.
+
+### Design Rule
+
+When proposing new features, always ask: *"Can this be collected during the existing traversal pass using FlowRecorder or TraversalExtractor?"* If yes, use those hooks. If a new event type is needed, add it to the existing dispatcher — do not create a post-processing step.
+
 ## Shared Observer Pattern
 
 Two libraries independently implement the same observer pattern:

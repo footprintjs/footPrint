@@ -25,6 +25,10 @@ export class StageContext {
   public branchId?: string;
   public isDecider: boolean;
   public isFork: boolean;
+  /** Human-readable description from builder (set by traverser before execution). */
+  public description?: string;
+  /** Subflow identifier (set by traverser when this is a subflow entry point). */
+  public subflowId?: string;
 
   public parent?: StageContext;
   public next?: StageContext;
@@ -281,6 +285,12 @@ export class StageContext {
       metrics: this.debug.metricContext,
       evals: this.debug.evalContext,
     };
+    if (this.description) {
+      snapshot.description = this.description;
+    }
+    if (this.subflowId) {
+      snapshot.subflowId = this.subflowId;
+    }
     if (this.debug.flowMessages.length > 0) {
       snapshot.flowMessages = this.debug.flowMessages;
     }
