@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-12
+
+### Added
+- **ManifestFlowRecorder** — lightweight subflow catalog built during traversal
+  - Builds a tree of subflow IDs, names, and descriptions as a side effect of execution
+  - `getManifest()` returns the tree (defensive copy); `getSpec(subflowId)` returns full specs on demand
+  - First-write-wins semantics for spec registration; `clear()` resets between runs
+  - Suitable for LLM navigation: include manifest in snapshot, pull specs only when needed
+- **Subflow event enrichment** — `FlowSubflowEvent` widened with `subflowId` and `description`
+  - `onSubflowEntry` / `onSubflowExit` now carry subflow identifier and builder description
+  - New `onSubflowRegistered` hook fires when dynamic subflows are attached at runtime
+  - `FlowSubflowRegisteredEvent` carries subflowId, name, description, and specStructure
+- **StageSnapshot enrichment** — `description` and `subflowId` fields on `StageSnapshot`
+  - Builder descriptions propagate through `StageContext.getSnapshot()` into execution tree
+  - Subflow entry points carry their `subflowId` for downstream consumers
+- **FlowRecorder.clear()** — optional lifecycle hook for stateful recorders
+  - `FlowChartExecutor.run()` calls `clear()` on all recorders before each run
+  - Prevents cross-run accumulation without `instanceof` checks
+- `executor.getSubflowManifest()` and `executor.getSubflowSpec(id)` convenience methods
+- `ManifestFlowRecorder`, `ManifestEntry`, `FlowSubflowEvent`, `FlowSubflowRegisteredEvent` exported from `footprintjs`
+- Core design principle documented: all data collection is a side effect of traversal
+- 41 new tests across 5 tiers: unit (15), scenario (7), property (4), boundary (9), security (3)
+
+### Changed
+- `IControlFlowNarrative.onSubflowEntry()` / `onSubflowExit()` signatures widened (backward-compatible)
+- `ControlFlowNarrativeGenerator` includes description in subflow entry sentences when available
+- `NarrativeFlowRecorder` includes description in subflow entry sentences when available
+
 ## [0.8.0] - 2026-03-10
 
 ### Added
