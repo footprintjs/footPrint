@@ -25,6 +25,8 @@ import type {
 export class NarrativeFlowRecorder implements FlowRecorder {
   readonly id: string;
   private sentences: string[] = [];
+  /** Parallel array: the actual stage name that produced each sentence. */
+  private stageNames: (string | undefined)[] = [];
   private isFirstStage = true;
 
   constructor(id?: string) {
@@ -38,6 +40,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
       } else {
         this.sentences.push(`The process began with ${event.stageName}.`);
       }
+      this.stageNames.push(event.stageName);
       this.isFirstStage = false;
     }
   }
@@ -48,6 +51,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     } else {
       this.sentences.push(`Next, it moved on to ${event.to}.`);
     }
+    this.stageNames.push(event.to);
   }
 
   onDecision(event: FlowDecisionEvent): void {
@@ -61,16 +65,19 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     } else {
       this.sentences.push(`A decision was made, and the path taken was ${branchName}.`);
     }
+    this.stageNames.push(event.decider);
   }
 
   onFork(event: FlowForkEvent): void {
     const names = event.children.join(', ');
     this.sentences.push(`${event.children.length} paths were executed in parallel: ${names}.`);
+    this.stageNames.push(undefined);
   }
 
   onSelected(event: FlowSelectedEvent): void {
     const names = event.selected.join(', ');
     this.sentences.push(`${event.selected.length} of ${event.total} paths were selected: ${names}.`);
+    this.stageNames.push(undefined);
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
@@ -79,10 +86,12 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     } else {
       this.sentences.push(`Entering the ${event.name} subflow.`);
     }
+    this.stageNames.push(event.name);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
     this.sentences.push(`Exiting the ${event.name} subflow.`);
+    this.stageNames.push(event.name);
   }
 
   onLoop(event: FlowLoopEvent): void {
@@ -91,10 +100,12 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     } else {
       this.sentences.push(`On pass ${event.iteration} through ${event.target}.`);
     }
+    this.stageNames.push(event.target);
   }
 
   onBreak(event: FlowBreakEvent): void {
     this.sentences.push(`Execution stopped at ${event.stageName}.`);
+    this.stageNames.push(event.stageName);
   }
 
   onError(event: FlowErrorEvent): void {
@@ -112,6 +123,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     }
 
     this.sentences.push(sentence);
+    this.stageNames.push(event.stageName);
   }
 
   /** Returns a defensive copy of accumulated sentences. */
@@ -119,9 +131,22 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     return [...this.sentences];
   }
 
+  /**
+   * Returns a parallel array of stage names corresponding to each sentence.
+   * Used by CombinedNarrativeBuilder to match flow sentences to data-level stage operations.
+   *
+   * @deprecated Since 0.9.x — Only needed by the deprecated {@link CombinedNarrativeBuilder}.
+   * The default executor path now uses {@link CombinedNarrativeRecorder} which tracks stage
+   * names inline. Will be removed in v1.0.
+   */
+  getSentenceStageNames(): (string | undefined)[] {
+    return [...this.stageNames];
+  }
+
   /** Clears accumulated sentences. Useful for reuse across runs. */
   clear(): void {
     this.sentences = [];
+    this.stageNames = [];
     this.isFirstStage = true;
   }
 }

@@ -9,7 +9,8 @@
  */
 
 import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder';
-import { CombinedNarrativeBuilder } from '../engine/narrative/CombinedNarrativeBuilder';
+import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder';
+import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder';
 import type { FlowRecorder } from '../engine/narrative/types';
@@ -27,7 +28,6 @@ import {
   defaultLogger,
 } from '../engine/types';
 import type { ScopeProtectionMode } from '../scope/protection/types';
-import { NarrativeRecorder } from '../scope/recorders/NarrativeRecorder';
 import { ScopeFacade } from '../scope/ScopeFacade';
 import type { RedactionPolicy, RedactionReport } from '../scope/types';
 import { ExecutionRuntime } from './ExecutionRuntime';
@@ -39,7 +39,7 @@ const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly) => new Scop
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
   private narrativeEnabled = false;
-  private narrativeRecorder: NarrativeRecorder | undefined;
+  private combinedRecorder: CombinedNarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
   private redactionPolicy: RedactionPolicy | undefined;
   private sharedRedactedKeys = new Set<string>();
@@ -87,12 +87,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const fc = args.flowChart;
     const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
 
-    // When narrative is enabled, create a recorder and wrap the scope factory
-    // to auto-attach it to every scope that supports attachRecorder().
+    // When narrative is enabled, create a CombinedNarrativeRecorder that implements
+    // BOTH FlowRecorder (control flow) and Recorder (scope data). It builds the
+    // combined narrative inline during traversal — no post-processing merge needed.
     let scopeFactory = args.scopeFactory;
     if (narrativeFlag) {
-      this.narrativeRecorder = new NarrativeRecorder();
-      const recorder = this.narrativeRecorder;
+      this.combinedRecorder = new CombinedNarrativeRecorder();
+      const recorder = this.combinedRecorder;
       const originalFactory = args.scopeFactory;
       scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown) => {
         const scope = originalFactory(ctx, stageName, readOnly);
@@ -102,7 +103,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         return scope;
       }) as ScopeFactory<TScope>;
     } else {
-      this.narrativeRecorder = undefined;
+      this.combinedRecorder = undefined;
     }
 
     // Share redacted keys across all scope instances in this pipeline run.
@@ -145,7 +146,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       buildTimeStructure: fc.buildTimeStructure,
       logger: fc.logger ?? defaultLogger,
       signal,
-      flowRecorders: this.flowRecorders.length > 0 ? this.flowRecorders : undefined,
+      flowRecorders: this.buildFlowRecordersList(),
     });
   }
 
@@ -208,11 +209,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * returns flow-only narrative sentences.
    */
   getNarrative(): string[] {
-    const flowSentences = this.traverser.getNarrative();
-    if (this.narrativeRecorder && this.narrativeRecorder.getStageData().size > 0) {
-      return new CombinedNarrativeBuilder().build(flowSentences, this.narrativeRecorder);
+    // Combined recorder builds the narrative inline during traversal — just read it
+    if (this.combinedRecorder) {
+      return this.combinedRecorder.getNarrative();
     }
-    return flowSentences;
+    return this.traverser.getNarrative();
   }
 
   /**
@@ -220,11 +221,28 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Each entry has a type (stage, step, condition, fork, etc.), text, and depth.
    */
   getNarrativeEntries(): CombinedNarrativeEntry[] {
-    const flowSentences = this.traverser.getNarrative();
-    if (this.narrativeRecorder) {
-      return new CombinedNarrativeBuilder().buildEntries(flowSentences, this.narrativeRecorder);
+    if (this.combinedRecorder) {
+      return this.combinedRecorder.getEntries();
     }
+    const flowSentences = this.traverser.getNarrative();
     return flowSentences.map((text) => ({ type: 'stage' as const, text, depth: 0 }));
+  }
+
+  /**
+   * Returns the combined FlowRecorders list. When narrative is enabled, includes:
+   * - CombinedNarrativeRecorder (builds merged flow+data narrative inline)
+   * - NarrativeFlowRecorder (keeps flow-only sentences for getFlowNarrative())
+   * Plus any user-attached recorders.
+   */
+  private buildFlowRecordersList(): FlowRecorder[] | undefined {
+    const recorders: FlowRecorder[] = [];
+    if (this.combinedRecorder) {
+      recorders.push(this.combinedRecorder);
+      // Keep the default NarrativeFlowRecorder so getFlowNarrative() still works
+      recorders.push(new NarrativeFlowRecorder());
+    }
+    recorders.push(...this.flowRecorders);
+    return recorders.length > 0 ? recorders : undefined;
   }
 
   /**

@@ -4,6 +4,11 @@
  * Bridges the gap between flow-level narrative (NarrativeGenerator) and data-level
  * detail. Produces structured per-stage data and text sentences that can be merged
  * with NarrativeGenerator output for the full picture: what happened AND what was produced.
+ *
+ * @deprecated Since 0.9.x — Superseded by {@link CombinedNarrativeRecorder} which implements
+ * both FlowRecorder and Recorder interfaces, building the combined narrative inline during
+ * traversal. This class is retained for backward compatibility with consumers that attach
+ * NarrativeRecorder directly. Will be removed in v1.0.
  */
 
 import type { ReadEvent, Recorder, WriteEvent } from '../types';

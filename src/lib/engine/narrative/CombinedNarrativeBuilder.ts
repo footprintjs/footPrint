@@ -8,6 +8,11 @@
  *   Stage 1: "Receive Application"
  *     Step 1: Write applicantName = 'Bob'
  *   [Condition]: risk tier is high → chose "Reject Application"
+ *
+ * @deprecated Since 0.9.x — Superseded by {@link CombinedNarrativeRecorder} which builds the
+ * combined narrative inline during traversal (no post-processing). This class is retained for
+ * backward compatibility with consumers that use CombinedNarrativeBuilder directly.
+ * Will be removed in v1.0.
  */
 
 import type { NarrativeRecorder, StageNarrativeData } from '../../scope/recorders/NarrativeRecorder';
@@ -45,14 +50,29 @@ export class CombinedNarrativeBuilder {
     };
   }
 
-  buildEntries(flowSentences: string[], recorder: NarrativeRecorder): CombinedNarrativeEntry[] {
+  /**
+   * @param flowSentences  Sentences from the flow recorder (NarrativeFlowRecorder.getSentences()).
+   * @param recorder       Data-level recorder with per-stage read/write operations.
+   * @param sentenceStageNames  Optional parallel array of actual stage names for each sentence
+   *                            (from NarrativeFlowRecorder.getSentenceStageNames()). When provided,
+   *                            enables direct lookup instead of fragile regex-based matching.
+   * @deprecated Use {@link CombinedNarrativeRecorder} instead, which builds entries inline during traversal.
+   */
+  buildEntries(
+    flowSentences: string[],
+    recorder: NarrativeRecorder,
+    sentenceStageNames?: (string | undefined)[],
+  ): CombinedNarrativeEntry[] {
     const entries: CombinedNarrativeEntry[] = [];
     const stageData = recorder.getStageData();
     const usedStages = new Set<string>();
     let stageCounter = 0;
 
-    for (const sentence of flowSentences) {
+    for (let i = 0; i < flowSentences.length; i++) {
+      const sentence = flowSentences[i];
       const parsed = this.parseSentence(sentence);
+      // Prefer the actual stage name from the recorder over regex-parsed description text
+      const resolvedStageName = sentenceStageNames?.[i] ?? parsed.stageName;
 
       if (parsed.type === 'stage') {
         stageCounter++;
@@ -60,8 +80,18 @@ export class CombinedNarrativeBuilder {
           type: 'stage',
           text: `Stage ${stageCounter}: ${sentence}`,
           depth: 0,
-          stageName: parsed.stageName,
+          stageName: resolvedStageName,
         });
+        if (resolvedStageName) {
+          const data = this.findStageData(resolvedStageName, stageData);
+          if (data) {
+            usedStages.add(data.stageName);
+            this.addStepEntries(entries, data);
+          }
+        }
+      } else if (parsed.type === 'condition') {
+        entries.push({ type: 'condition', text: `[Condition]: ${sentence}`, depth: 0, stageName: resolvedStageName });
+        // For conditions, also look up the chosen branch's data
         if (parsed.stageName) {
           const data = this.findStageData(parsed.stageName, stageData);
           if (data) {
@@ -69,13 +99,15 @@ export class CombinedNarrativeBuilder {
             this.addStepEntries(entries, data);
           }
         }
-      } else if (parsed.type === 'condition') {
-        entries.push({ type: 'condition', text: `[Condition]: ${sentence}`, depth: 0 });
-        if (parsed.stageName) {
-          const data = this.findStageData(parsed.stageName, stageData);
+        // Also mark the decider stage itself as used (the resolvedStageName)
+        if (resolvedStageName) {
+          const data = this.findStageData(resolvedStageName, stageData);
           if (data) {
             usedStages.add(data.stageName);
-            this.addStepEntries(entries, data);
+            // Only add step entries if the chosen branch didn't already cover it
+            if (!parsed.stageName || parsed.stageName !== resolvedStageName) {
+              this.addStepEntries(entries, data);
+            }
           }
         }
       } else if (parsed.type === 'fork') {
@@ -103,8 +135,8 @@ export class CombinedNarrativeBuilder {
     return entries;
   }
 
-  build(flowSentences: string[], recorder: NarrativeRecorder): string[] {
-    return this.buildEntries(flowSentences, recorder).map((entry) => {
+  build(flowSentences: string[], recorder: NarrativeRecorder, sentenceStageNames?: (string | undefined)[]): string[] {
+    return this.buildEntries(flowSentences, recorder, sentenceStageNames).map((entry) => {
       const indent = this.options.indent.repeat(entry.depth);
       return `${indent}${entry.text}`;
     });
@@ -154,11 +186,11 @@ export class CombinedNarrativeBuilder {
   private parseSentence(sentence: string): { type: string; stageName?: string } {
     if (sentence.startsWith('The process began')) {
       const match = sentence.match(/The process began(?:: (.+)| with (.+))\./);
-      return { type: 'stage', stageName: match?.[2]?.trim() };
+      return { type: 'stage', stageName: (match?.[1] ?? match?.[2])?.trim() };
     }
     if (sentence.startsWith('Next')) {
       const match = sentence.match(/Next(?:,? it moved on to (.+)| step: (.+))\./);
-      return { type: 'stage', stageName: match?.[1]?.trim() };
+      return { type: 'stage', stageName: (match?.[1] ?? match?.[2])?.trim() };
     }
     if (sentence.includes('decision was made') || sentence.includes('it chose') || sentence.includes('so it chose')) {
       const match = sentence.match(/chose (.+)\./);
