@@ -84,16 +84,14 @@ export class DeciderList<TOut = any, TScope = any> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
 
-    const node: StageNode<TOut, TScope> = { name: name ?? id };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name: name ?? id, id };
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this.b._addToMap(name, fn);
     }
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, type: 'stage' };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
     spec = this.b._applyExtractorToNode(spec);
 
@@ -260,16 +258,14 @@ export class SelectorFnList<TOut = any, TScope = any> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
 
-    const node: StageNode<TOut, TScope> = { name: name ?? id };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name: name ?? id, id };
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
       this.b._addToMap(name, fn);
     }
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, type: 'stage' };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
     spec = this.b._applyExtractorToNode(spec);
 
@@ -470,19 +466,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Linear Chaining ──
 
-  start(name: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string, description?: string): this {
+  start(name: string, fn: PipelineStageFunction<TOut, TScope>, id: string, description?: string): this {
     if (this._root) fail('root already defined; create a new builder');
 
-    const node: StageNode<TOut, TScope> = { name };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    if (fn) {
-      node.fn = fn;
-      this._addToMap(name, fn);
-    }
+    this._addToMap(name, fn);
 
-    let spec: SerializedPipelineStructure = { name, type: 'stage' };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -495,20 +486,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
-  addFunction(name: string, fn?: PipelineStageFunction<TOut, TScope>, id?: string, description?: string): this {
+  addFunction(name: string, fn: PipelineStageFunction<TOut, TScope>, id: string, description?: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
 
-    const node: StageNode<TOut, TScope> = { name };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    if (fn) {
-      node.fn = fn;
-      this._addToMap(name, fn);
-    }
+    this._addToMap(name, fn);
 
-    let spec: SerializedPipelineStructure = { name, type: 'stage' };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -523,9 +509,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addStreamingFunction(
     name: string,
+    fn: PipelineStageFunction<TOut, TScope>,
+    id: string,
     streamId?: string,
-    fn?: PipelineStageFunction<TOut, TScope>,
-    id?: string,
     description?: string,
   ): this {
     const cur = this._needCursor();
@@ -533,23 +519,21 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = {
       name,
+      id,
+      fn,
       isStreaming: true,
       streamId: streamId ?? name,
     };
-    if (id) node.id = id;
     if (description) node.description = description;
-    if (fn) {
-      node.fn = fn;
-      this._addToMap(name, fn);
-    }
+    this._addToMap(name, fn);
 
     let spec: SerializedPipelineStructure = {
       name,
+      id,
       type: 'streaming',
       isStreaming: true,
       streamId: streamId ?? name,
     };
-    if (id) spec.id = id;
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -567,7 +551,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addDeciderFunction(
     name: string,
     fn: PipelineStageFunction<TOut, TScope>,
-    id?: string,
+    id: string,
     description?: string,
   ): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
@@ -575,14 +559,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
 
-    const node: StageNode<TOut, TScope> = { name };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    node.fn = fn;
     this._addToMap(name, fn);
 
-    let spec: SerializedPipelineStructure = { name, type: 'stage', hasDecider: true };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -608,7 +589,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addSelectorFunction(
     name: string,
     fn: PipelineStageFunction<TOut, TScope>,
-    id?: string,
+    id: string,
     description?: string,
   ): SelectorFnList<TOut, TScope> {
     const cur = this._needCursor();
@@ -617,14 +598,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.selectorFn) fail(`selector already defined at '${cur.name}'`);
     if (cur.deciderFn) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
 
-    const node: StageNode<TOut, TScope> = { name };
-    if (id) node.id = id;
+    const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    node.fn = fn;
     this._addToMap(name, fn);
 
-    let spec: SerializedPipelineStructure = { name, type: 'stage', hasSelector: true };
-    if (id) spec.id = id;
+    let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -663,8 +641,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         fail(`duplicate child id '${id}' under '${cur.name}'`);
       }
 
-      const node: StageNode<TOut, TScope> = { name: name ?? id };
-      if (id) node.id = id;
+      const node: StageNode<TOut, TScope> = { name: name ?? id, id };
       if (fn) {
         node.fn = fn;
         this._addToMap(name, fn);
@@ -672,11 +649,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
       let spec: SerializedPipelineStructure = {
         name: name ?? id,
+        id,
         type: 'stage',
         isParallelChild: true,
         parallelGroupId: forkId,
       };
-      if (id) spec.id = id;
       spec = this._applyExtractorToNode(spec);
 
       cur.children = cur.children || [];
@@ -991,8 +968,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
 export function flowChart<TOut = any, TScope = any>(
   name: string,
-  fn?: PipelineStageFunction<TOut, TScope>,
-  id?: string,
+  fn: PipelineStageFunction<TOut, TScope>,
+  id: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
 ): FlowChartBuilder<TOut, TScope> {
@@ -1006,7 +983,7 @@ export function flowChart<TOut = any, TScope = any>(
 export function specToStageNode(spec: FlowChartSpec): StageNode<any, any> {
   const inflate = (s: FlowChartSpec): StageNode<any, any> => ({
     name: s.name,
-    id: s.id,
+    id: s.id ?? s.name,
     children: s.children?.length ? s.children.map(inflate) : undefined,
     next: s.next ? inflate(s.next) : undefined,
   });

@@ -3,11 +3,11 @@ import { flowChart } from '../../../../src/lib/builder';
 const noop = async () => {};
 
 describe('Scenario: subflow mounting', () => {
-  const buildSubflow = () => flowChart('sub-start', noop).addFunction('sub-end', noop).build();
+  const buildSubflow = () => flowChart('sub-start', noop, 'sub-start').addFunction('sub-end', noop, 'sub-end').build();
 
   it('mounts subflow as parallel child via addSubFlowChart', () => {
     const sub = buildSubflow();
-    const chart = flowChart('main', noop).addSubFlowChart('child1', sub, 'ChildFlow').build();
+    const chart = flowChart('main', noop, 'main').addSubFlowChart('child1', sub, 'ChildFlow').build();
 
     expect(chart.root.children).toHaveLength(1);
     expect(chart.root.children![0].isSubflowRoot).toBe(true);
@@ -17,7 +17,7 @@ describe('Scenario: subflow mounting', () => {
 
   it('mounts subflow as next via addSubFlowChartNext', () => {
     const sub = buildSubflow();
-    const chart = flowChart('main', noop).addSubFlowChartNext('child1', sub, 'ChildFlow').build();
+    const chart = flowChart('main', noop, 'main').addSubFlowChartNext('child1', sub, 'ChildFlow').build();
 
     expect(chart.root.next!.isSubflowRoot).toBe(true);
     expect(chart.root.next!.subflowId).toBe('child1');
@@ -25,7 +25,7 @@ describe('Scenario: subflow mounting', () => {
 
   it('prefixes subflow stage names with subflow id', () => {
     const sub = buildSubflow();
-    const chart = flowChart('main', noop).addSubFlowChart('sf', sub).build();
+    const chart = flowChart('main', noop, 'main').addSubFlowChart('sf', sub).build();
 
     expect(chart.stageMap.has('sf/sub-start')).toBe(true);
     expect(chart.stageMap.has('sf/sub-end')).toBe(true);
@@ -33,7 +33,7 @@ describe('Scenario: subflow mounting', () => {
 
   it('records subflow definitions', () => {
     const sub = buildSubflow();
-    const chart = flowChart('main', noop).addSubFlowChart('sf', sub).build();
+    const chart = flowChart('main', noop, 'main').addSubFlowChart('sf', sub).build();
 
     expect(chart.subflows).toBeDefined();
     expect(chart.subflows!.sf).toBeDefined();
@@ -42,7 +42,7 @@ describe('Scenario: subflow mounting', () => {
 
   it('spec includes subflowStructure', () => {
     const sub = buildSubflow();
-    const spec = flowChart('main', noop).addSubFlowChart('sf', sub, 'Sub').toSpec();
+    const spec = flowChart('main', noop, 'main').addSubFlowChart('sf', sub, 'Sub').toSpec();
 
     expect(spec.children![0].subflowStructure).toBeDefined();
     expect(spec.children![0].subflowStructure!.name).toBe('sub-start');
@@ -51,14 +51,14 @@ describe('Scenario: subflow mounting', () => {
   it('throws on duplicate subflow child id', () => {
     const sub = buildSubflow();
     expect(() => {
-      flowChart('main', noop).addSubFlowChart('sf', sub).addSubFlowChart('sf', sub);
+      flowChart('main', noop, 'main').addSubFlowChart('sf', sub).addSubFlowChart('sf', sub);
     }).toThrow('duplicate child id');
   });
 
   it('nested subflows get doubly prefixed', () => {
-    const inner = flowChart('inner', noop).build();
-    const outer = flowChart('outer', noop).addSubFlowChart('inn', inner).build();
-    const top = flowChart('top', noop).addSubFlowChart('out', outer).build();
+    const inner = flowChart('inner', noop, 'inner').build();
+    const outer = flowChart('outer', noop, 'outer').addSubFlowChart('inn', inner).build();
+    const top = flowChart('top', noop, 'top').addSubFlowChart('out', outer).build();
 
     expect(top.stageMap.has('out/outer')).toBe(true);
     expect(top.subflows!.out).toBeDefined();
@@ -67,7 +67,7 @@ describe('Scenario: subflow mounting', () => {
   it('subflow mount options are preserved', () => {
     const sub = buildSubflow();
     const opts = { isolateScope: true };
-    const chart = flowChart('main', noop).addSubFlowChart('sf', sub, 'Sub', opts).build();
+    const chart = flowChart('main', noop, 'main').addSubFlowChart('sf', sub, 'Sub', opts).build();
 
     expect(chart.root.children![0].subflowMountOptions).toEqual(opts);
   });

@@ -17,37 +17,37 @@ describe('Boundary: error conditions', () => {
 
   it('double start throws', () => {
     expect(() => {
-      new FlowChartBuilder().start('a', noop).start('b', noop);
+      new FlowChartBuilder().start('a', noop, 'a').start('b', noop, 'b');
     }).toThrow('root already defined');
   });
 
   it('addFunction without start throws', () => {
     expect(() => {
-      new FlowChartBuilder().addFunction('a', noop);
+      new FlowChartBuilder().addFunction('a', noop, 'a');
     }).toThrow('cursor undefined');
   });
 
   it('double loopTo throws', () => {
     expect(() => {
-      flowChart('a', noop).addFunction('b', noop).loopTo('a').loopTo('a');
+      flowChart('a', noop, 'a').addFunction('b', noop, 'b').loopTo('a').loopTo('a');
     }).toThrow();
   });
 
   it('parallel child without id throws', () => {
     expect(() => {
-      flowChart('a', noop).addListOfFunction([{ id: '', name: 'X', fn: noop }]);
+      flowChart('a', noop, 'a').addListOfFunction([{ id: '', name: 'X', fn: noop }]);
     }).toThrow('child id required');
   });
 
   it('empty decider branches throws', () => {
     expect(() => {
-      flowChart('a', noop).addDeciderFunction('d', noop).end();
+      flowChart('a', noop, 'a').addDeciderFunction('d', noop, 'd').end();
     }).toThrow('at least one branch');
   });
 
   it('empty selector branches throws', () => {
     expect(() => {
-      flowChart('a', noop).addSelectorFunction('pick', noop).end();
+      flowChart('a', noop, 'a').addSelectorFunction('pick', noop, 'pick').end();
     }).toThrow('at least one branch');
   });
 
@@ -55,7 +55,7 @@ describe('Boundary: error conditions', () => {
     const badExtractor = () => {
       throw new Error('extractor boom');
     };
-    const builder = flowChart('a', noop, undefined, badExtractor).addFunction('b', noop);
+    const builder = flowChart('a', noop, 'a', badExtractor).addFunction('b', noop, 'b');
 
     // Should not throw during build
     const chart = builder.build();

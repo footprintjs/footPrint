@@ -15,7 +15,7 @@ describe('Property: stage names unique', () => {
           const fn2 = async () => {};
 
           expect(() => {
-            flowChart(name, fn1).addFunction(name, fn2);
+            flowChart(name, fn1, name).addFunction(name, fn2, name);
           }).toThrow('stageMap collision');
         },
       ),
@@ -31,7 +31,7 @@ describe('Property: stage names unique', () => {
           const fn = async () => {};
 
           expect(() => {
-            flowChart(name, fn).addFunction(name, fn);
+            flowChart(name, fn, name).addFunction(name, fn, name);
           }).not.toThrow();
         },
       ),
@@ -42,10 +42,10 @@ describe('Property: stage names unique', () => {
   it('all names in tree are reachable from root', () => {
     fc.assert(
       fc.property(fc.integer({ min: 2, max: 15 }), (count) => {
-        let builder = flowChart('s0', noop);
+        let builder = flowChart('s0', noop, 's0');
         const expectedNames = new Set(['s0']);
         for (let i = 1; i < count; i++) {
-          builder = builder.addFunction(`s${i}`, noop);
+          builder = builder.addFunction(`s${i}`, noop, `s${i}`);
           expectedNames.add(`s${i}`);
         }
         const chart = builder.build();

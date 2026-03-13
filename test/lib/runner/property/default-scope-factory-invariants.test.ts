@@ -13,12 +13,20 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
   it('every stage receives a scope with setValue/getValue (with or without factory)', async () => {
     const methods: string[][] = [];
 
-    const chart = flowChart('A', (scope: ScopeFacade) => {
-      methods.push(Object.getOwnPropertyNames(Object.getPrototypeOf(scope)));
-    })
-      .addFunction('B', (scope: ScopeFacade) => {
+    const chart = flowChart(
+      'A',
+      (scope: ScopeFacade) => {
         methods.push(Object.getOwnPropertyNames(Object.getPrototypeOf(scope)));
-      })
+      },
+      'a',
+    )
+      .addFunction(
+        'B',
+        (scope: ScopeFacade) => {
+          methods.push(Object.getOwnPropertyNames(Object.getPrototypeOf(scope)));
+        },
+        'b',
+      )
       .build();
 
     // Without factory
@@ -32,10 +40,14 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
 
   it('multiple runs with default factory produce independent state', async () => {
     let runCount = 0;
-    const chart = flowChart('counter', (scope: ScopeFacade) => {
-      runCount++;
-      scope.setValue('run', runCount);
-    }).build();
+    const chart = flowChart(
+      'counter',
+      (scope: ScopeFacade) => {
+        runCount++;
+        scope.setValue('run', runCount);
+      },
+      'counter',
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
 
@@ -49,11 +61,15 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
   });
 
   it('default factory scope tracks writes for narrative recording', async () => {
-    const chart = flowChart('write', (scope: ScopeFacade) => {
-      scope.setValue('a', 1);
-      scope.setValue('b', 2);
-      scope.setValue('c', 3);
-    })
+    const chart = flowChart(
+      'write',
+      (scope: ScopeFacade) => {
+        scope.setValue('a', 1);
+        scope.setValue('b', 2);
+        scope.setValue('c', 3);
+      },
+      'write',
+    )
       .setEnableNarrative()
       .build();
 
@@ -68,13 +84,21 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
 
   it('default factory and explicit factory both support updateValue', async () => {
     const buildChart = () =>
-      flowChart('init', (scope: ScopeFacade) => {
-        scope.setValue('config', { a: 1, b: 2 });
-      })
-        .addFunction('merge', (scope: ScopeFacade) => {
-          scope.updateValue('config', { b: 99, c: 3 });
-          return scope.getValue('config');
-        })
+      flowChart(
+        'init',
+        (scope: ScopeFacade) => {
+          scope.setValue('config', { a: 1, b: 2 });
+        },
+        'init',
+      )
+        .addFunction(
+          'merge',
+          (scope: ScopeFacade) => {
+            scope.updateValue('config', { b: 99, c: 3 });
+            return scope.getValue('config');
+          },
+          'merge',
+        )
         .build();
 
     // Default

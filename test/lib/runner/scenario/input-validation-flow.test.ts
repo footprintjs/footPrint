@@ -9,10 +9,14 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   it('valid input passes schema validation and is accessible via getArgs()', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs<{ name: string; amount: number }>();
-      scope.setValue('result', 'ok');
-    })
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs<{ name: string; amount: number }>();
+        scope.setValue('result', 'ok');
+      },
+      'entry',
+    )
       .setInputSchema(z.object({ name: z.string(), amount: z.number() }))
       .build();
 
@@ -25,9 +29,13 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   it('invalid input throws before pipeline execution starts', async () => {
     let stageExecuted = false;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      stageExecuted = true;
-    })
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        stageExecuted = true;
+      },
+      'entry',
+    )
       .setInputSchema(z.object({ name: z.string(), amount: z.number() }))
       .build();
 
@@ -43,9 +51,13 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   it('transformed input is passed to scope after validation', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs();
-    })
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs();
+      },
+      'entry',
+    )
       .setInputSchema(z.object({ name: z.string().transform((s) => s.toUpperCase()) }))
       .build();
 
@@ -58,9 +70,13 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   it('no inputSchema — input passes through without validation', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs();
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs();
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
     await executor.run({ input: { anything: 'goes' } });
@@ -69,9 +85,13 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   });
 
   it('no input — skips validation even with inputSchema', async () => {
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      scope.setValue('result', 'done');
-    })
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        scope.setValue('result', 'done');
+      },
+      'entry',
+    )
       .setInputSchema(z.object({ name: z.string() }))
       .build();
 
@@ -85,9 +105,13 @@ describe('Scenario: runtime input validation via inputSchema', () => {
   it('extra fields are stripped when using Zod strict()', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs();
-    })
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs();
+      },
+      'entry',
+    )
       .setInputSchema(z.object({ name: z.string() }).strict())
       .build();
 

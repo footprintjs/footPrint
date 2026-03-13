@@ -5,9 +5,9 @@ const noop = async () => {};
 
 describe('Boundary: large graph', () => {
   it('handles 200-stage linear chain', () => {
-    let builder: FlowChartBuilder = flowChart('s0', noop);
+    let builder: FlowChartBuilder = flowChart('s0', noop, 's0');
     for (let i = 1; i < 200; i++) {
-      builder = builder.addFunction(`s${i}`, noop);
+      builder = builder.addFunction(`s${i}`, noop, `s${i}`);
     }
     const chart = builder.build();
 
@@ -30,14 +30,14 @@ describe('Boundary: large graph', () => {
       fn: noop,
     }));
 
-    const chart = flowChart('hub', noop).addListOfFunction(children).build();
+    const chart = flowChart('hub', noop, 'hub').addListOfFunction(children).build();
 
     expect(chart.root.children).toHaveLength(100);
     expect(chart.stageMap.size).toBe(101); // hub + 100 children
   });
 
   it('handles decider with 50 branches', () => {
-    let decider = flowChart('input', noop).addDeciderFunction('decide', noop);
+    let decider = flowChart('input', noop, 'input').addDeciderFunction('decide', noop, 'decide');
 
     for (let i = 0; i < 50; i++) {
       decider = decider.addFunctionBranch(`b${i}`, `Branch${i}`, noop);
@@ -49,9 +49,9 @@ describe('Boundary: large graph', () => {
   });
 
   it('spec serializes correctly for large chain', () => {
-    let builder: FlowChartBuilder = flowChart('s0', noop);
+    let builder: FlowChartBuilder = flowChart('s0', noop, 's0');
     for (let i = 1; i < 50; i++) {
-      builder = builder.addFunction(`s${i}`, noop);
+      builder = builder.addFunction(`s${i}`, noop, `s${i}`);
     }
     const spec = builder.toSpec();
 
@@ -66,9 +66,9 @@ describe('Boundary: large graph', () => {
   });
 
   it('mermaid output works for large chain', () => {
-    let builder: FlowChartBuilder = flowChart('s0', noop);
+    let builder: FlowChartBuilder = flowChart('s0', noop, 's0');
     for (let i = 1; i < 30; i++) {
-      builder = builder.addFunction(`s${i}`, noop);
+      builder = builder.addFunction(`s${i}`, noop, `s${i}`);
     }
     const mermaid = builder.toMermaid();
 
@@ -78,9 +78,9 @@ describe('Boundary: large graph', () => {
   });
 
   it('handles 10 mounted subflows', () => {
-    const sub = flowChart('subStep', noop).build();
+    const sub = flowChart('subStep', noop, 'sub-step').build();
 
-    let builder = flowChart('main', noop);
+    let builder = flowChart('main', noop, 'main');
     for (let i = 0; i < 10; i++) {
       builder = builder.addSubFlowChart(`sf${i}`, sub, `Sub${i}`);
     }

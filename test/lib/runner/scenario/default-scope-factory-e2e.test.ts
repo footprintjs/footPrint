@@ -11,12 +11,20 @@ import { NarrativeRecorder, ScopeFacade } from '../../../../src/lib/scope';
 
 describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('narrative works with default scopeFactory', async () => {
-    const chart = flowChart('init', (scope: ScopeFacade) => {
-      scope.setValue('status', 'started');
-    })
-      .addFunction('finish', (scope: ScopeFacade) => {
-        scope.setValue('status', 'done');
-      })
+    const chart = flowChart(
+      'init',
+      (scope: ScopeFacade) => {
+        scope.setValue('status', 'started');
+      },
+      'init',
+    )
+      .addFunction(
+        'finish',
+        (scope: ScopeFacade) => {
+          scope.setValue('status', 'done');
+        },
+        'finish',
+      )
       .setEnableNarrative()
       .build();
 
@@ -32,15 +40,23 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
 
   it('default factory produces same results as explicit ScopeFacade factory', async () => {
     const buildChart = () =>
-      flowChart('write', (scope: ScopeFacade) => {
-        scope.setValue('name', 'Alice');
-        scope.setValue('score', 95);
-      })
-        .addFunction('read', (scope: ScopeFacade) => {
-          const name = scope.getValue('name');
-          const score = scope.getValue('score');
-          return `${name}:${score}`;
-        })
+      flowChart(
+        'write',
+        (scope: ScopeFacade) => {
+          scope.setValue('name', 'Alice');
+          scope.setValue('score', 95);
+        },
+        'write',
+      )
+        .addFunction(
+          'read',
+          (scope: ScopeFacade) => {
+            const name = scope.getValue('name');
+            const score = scope.getValue('score');
+            return `${name}:${score}`;
+          },
+          'read',
+        )
         .setEnableNarrative()
         .build();
 
@@ -60,10 +76,14 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   });
 
   it('redaction policy works with default scopeFactory', async () => {
-    const chart = flowChart('ingest', (scope: ScopeFacade) => {
-      scope.setValue('ssn', '123-45-6789');
-      scope.setValue('name', 'Bob');
-    }).build();
+    const chart = flowChart(
+      'ingest',
+      (scope: ScopeFacade) => {
+        scope.setValue('ssn', '123-45-6789');
+        scope.setValue('name', 'Bob');
+      },
+      'ingest',
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
     executor.setRedactionPolicy({ keys: ['ssn'] });
@@ -74,9 +94,13 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   });
 
   it('snapshot captures state with default scopeFactory', async () => {
-    const chart = flowChart('init', (scope: ScopeFacade) => {
-      scope.setValue('counter', 42);
-    }).build();
+    const chart = flowChart(
+      'init',
+      (scope: ScopeFacade) => {
+        scope.setValue('counter', 42);
+      },
+      'init',
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
     await executor.run();
@@ -93,9 +117,13 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
       return scope;
     };
 
-    const chart = flowChart('A', (scope: ScopeFacade) => {
-      scope.setValue('x', 1);
-    }).build();
+    const chart = flowChart(
+      'A',
+      (scope: ScopeFacade) => {
+        scope.setValue('x', 1);
+      },
+      'a',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, customFactory);
     await executor.run();
@@ -104,12 +132,20 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   });
 
   it('decider branching works with default scopeFactory', async () => {
-    const chart = flowChart('check', (scope: ScopeFacade) => {
-      scope.setValue('tier', 'premium');
-    })
-      .addDeciderFunction('route', (scope: ScopeFacade) => {
-        return scope.getValue('tier') === 'premium' ? 'fast' : 'slow';
-      })
+    const chart = flowChart(
+      'check',
+      (scope: ScopeFacade) => {
+        scope.setValue('tier', 'premium');
+      },
+      'check',
+    )
+      .addDeciderFunction(
+        'route',
+        (scope: ScopeFacade) => {
+          return scope.getValue('tier') === 'premium' ? 'fast' : 'slow';
+        },
+        'route',
+      )
       .addFunctionBranch('fast', 'FastPath', (scope: ScopeFacade) => {
         scope.setValue('result', 'express');
       })

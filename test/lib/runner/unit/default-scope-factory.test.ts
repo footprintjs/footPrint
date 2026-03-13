@@ -11,7 +11,7 @@ import { ScopeFacade } from '../../../../src/lib/scope';
 
 describe('FlowChartExecutor — default scopeFactory (unit)', () => {
   it('executes without scopeFactory argument', async () => {
-    const chart = flowChart('A', () => 'done').build();
+    const chart = flowChart('A', () => 'done', 'a').build();
     const executor = new FlowChartExecutor(chart);
     const result = await executor.run();
     expect(result).toBe('done');
@@ -19,9 +19,13 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
 
   it('provides ScopeFacade instances to stage functions', async () => {
     let receivedScope: unknown;
-    const chart = flowChart('check', (scope: ScopeFacade) => {
-      receivedScope = scope;
-    }).build();
+    const chart = flowChart(
+      'check',
+      (scope: ScopeFacade) => {
+        receivedScope = scope;
+      },
+      'check',
+    ).build();
 
     await new FlowChartExecutor(chart).run();
 
@@ -29,12 +33,20 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
   });
 
   it('setValue / getValue work with the default factory', async () => {
-    const chart = flowChart('write', (scope: ScopeFacade) => {
-      scope.setValue('x', 42);
-    })
-      .addFunction('read', (scope: ScopeFacade) => {
-        return scope.getValue('x');
-      })
+    const chart = flowChart(
+      'write',
+      (scope: ScopeFacade) => {
+        scope.setValue('x', 42);
+      },
+      'write',
+    )
+      .addFunction(
+        'read',
+        (scope: ScopeFacade) => {
+          return scope.getValue('x');
+        },
+        'read',
+      )
       .build();
 
     const result = await new FlowChartExecutor(chart).run();
@@ -42,12 +54,20 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
   });
 
   it('handles explicit undefined as scopeFactory (falls back to default)', async () => {
-    const chart = flowChart('A', (scope: ScopeFacade) => {
-      scope.setValue('key', 'value');
-    })
-      .addFunction('B', (scope: ScopeFacade) => {
-        return scope.getValue('key');
-      })
+    const chart = flowChart(
+      'A',
+      (scope: ScopeFacade) => {
+        scope.setValue('key', 'value');
+      },
+      'a',
+    )
+      .addFunction(
+        'B',
+        (scope: ScopeFacade) => {
+          return scope.getValue('key');
+        },
+        'b',
+      )
       .build();
 
     const executor = new FlowChartExecutor(chart, undefined);
@@ -57,10 +77,15 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
 
   it('explicit undefined scopeFactory still allows positional params after it', async () => {
     const tokens: string[] = [];
-    const chart = flowChart('entry', () => {})
-      .addStreamingFunction('stream', 'test', async (_s: any, _b: any, emit: any) => {
-        emit('tok');
-      })
+    const chart = flowChart('entry', () => {}, 'entry')
+      .addStreamingFunction(
+        'stream',
+        async (_s: any, _b: any, emit: any) => {
+          emit('tok');
+        },
+        'stream',
+        'test',
+      )
       .build();
 
     const executor = new FlowChartExecutor(

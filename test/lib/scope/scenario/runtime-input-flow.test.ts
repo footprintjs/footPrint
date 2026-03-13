@@ -7,10 +7,14 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   it('input passed to run() is accessible via scope.getArgs()', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs<{ name: string; amount: number }>();
-      scope.setValue('result', `processed ${capturedArgs.name}`);
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs<{ name: string; amount: number }>();
+        scope.setValue('result', `processed ${capturedArgs.name}`);
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
     await executor.run({ input: { name: 'Alice', amount: 5000 } });
@@ -21,13 +25,17 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   it('input keys are protected from setValue overwrites', async () => {
     let error: Error | null = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      try {
-        scope.setValue('name', 'hacked');
-      } catch (e) {
-        error = e as Error;
-      }
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        try {
+          scope.setValue('name', 'hacked');
+        } catch (e) {
+          error = e as Error;
+        }
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
     await executor.run({ input: { name: 'Alice' } });
@@ -37,10 +45,14 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   });
 
   it('stages can write to non-input keys alongside readonly input', async () => {
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      const { name } = scope.getArgs<{ name: string }>();
-      scope.setValue('greeting', `Hello, ${name}`);
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        const { name } = scope.getArgs<{ name: string }>();
+        scope.setValue('greeting', `Hello, ${name}`);
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
     await executor.run({ input: { name: 'Alice' } });
@@ -52,14 +64,22 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   it('multi-stage pipeline shares input across all stages', async () => {
     const capturedByStage: Record<string, any> = {};
 
-    const chart = flowChart('stage1', async (scope: ScopeFacade) => {
-      capturedByStage.stage1 = scope.getArgs<any>();
-      scope.setValue('step1Done', true);
-    })
-      .addFunction('stage2', async (scope: ScopeFacade) => {
-        capturedByStage.stage2 = scope.getArgs<any>();
-        scope.setValue('step2Done', true);
-      })
+    const chart = flowChart(
+      'stage1',
+      async (scope: ScopeFacade) => {
+        capturedByStage.stage1 = scope.getArgs<any>();
+        scope.setValue('step1Done', true);
+      },
+      'stage1',
+    )
+      .addFunction(
+        'stage2',
+        async (scope: ScopeFacade) => {
+          capturedByStage.stage2 = scope.getArgs<any>();
+          scope.setValue('step2Done', true);
+        },
+        'stage2',
+      )
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -70,9 +90,13 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   });
 
   it('run without input works normally (backward compatible)', async () => {
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      scope.setValue('result', 'done');
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        scope.setValue('result', 'done');
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
     await executor.run();
@@ -84,9 +108,13 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   it('input overrides constructor readOnlyContext', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs<any>();
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs<any>();
+      },
+      'entry',
+    ).build();
 
     // Constructor has readOnlyContext as 5th param
     const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, {
@@ -102,9 +130,13 @@ describe('Scenario: runtime input flow via run({ input })', () => {
   it('re-run without input reverts to constructor readOnlyContext', async () => {
     let capturedArgs: any = null;
 
-    const chart = flowChart('entry', async (scope: ScopeFacade) => {
-      capturedArgs = scope.getArgs<any>();
-    }).build();
+    const chart = flowChart(
+      'entry',
+      async (scope: ScopeFacade) => {
+        capturedArgs = scope.getArgs<any>();
+      },
+      'entry',
+    ).build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, { original: 'from-constructor' });
 

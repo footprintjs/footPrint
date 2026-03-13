@@ -4,8 +4,8 @@ const noop = async () => {};
 
 describe('DeciderList (addDeciderFunction)', () => {
   it('creates decider node with branches', () => {
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addFunctionBranch('a', 'BranchA', noop)
       .addFunctionBranch('b', 'BranchB', noop)
       .end()
@@ -20,8 +20,8 @@ describe('DeciderList (addDeciderFunction)', () => {
   });
 
   it('sets spec type to decider after end()', () => {
-    const spec = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const spec = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addFunctionBranch('a', 'A', noop)
       .end()
       .toSpec();
@@ -33,8 +33,8 @@ describe('DeciderList (addDeciderFunction)', () => {
 
   it('registers branch fns in stageMap', () => {
     const branchFn = async () => {};
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addFunctionBranch('a', 'BranchA', branchFn)
       .end()
       .build();
@@ -44,8 +44,8 @@ describe('DeciderList (addDeciderFunction)', () => {
 
   it('throws on duplicate branch id', () => {
     expect(() => {
-      flowChart('entry', noop)
-        .addDeciderFunction('Router', async () => 'a')
+      flowChart('entry', noop, 'entry')
+        .addDeciderFunction('Router', async () => 'a', 'router')
         .addFunctionBranch('a', 'A', noop)
         .addFunctionBranch('a', 'A2', noop);
     }).toThrow('duplicate decider branch');
@@ -53,15 +53,15 @@ describe('DeciderList (addDeciderFunction)', () => {
 
   it('throws if end() called with no branches', () => {
     expect(() => {
-      flowChart('entry', noop)
-        .addDeciderFunction('Router', async () => 'a')
+      flowChart('entry', noop, 'entry')
+        .addDeciderFunction('Router', async () => 'a', 'router')
         .end();
     }).toThrow('requires at least one branch');
   });
 
   it('setDefault adds default alias', () => {
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addFunctionBranch('a', 'A', noop)
       .addFunctionBranch('b', 'B', noop)
       .setDefault('b')
@@ -75,8 +75,8 @@ describe('DeciderList (addDeciderFunction)', () => {
   });
 
   it('addBranchList adds multiple branches', () => {
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addBranchList([
         { id: 'a', name: 'A', fn: noop },
         { id: 'b', name: 'B', fn: noop },
@@ -90,19 +90,19 @@ describe('DeciderList (addDeciderFunction)', () => {
   });
 
   it('continues building after end()', () => {
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'a')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'a', 'router')
       .addFunctionBranch('a', 'A', noop)
       .end()
-      .addFunction('cleanup', noop)
+      .addFunction('cleanup', noop, 'cleanup')
       .build();
 
     expect(chart.root.next!.next?.name).toBe('cleanup');
   });
 
   it('includes branch descriptions', () => {
-    const chart = flowChart('entry', noop)
-      .addDeciderFunction('Router', async () => 'fast', undefined, 'routes traffic')
+    const chart = flowChart('entry', noop, 'entry')
+      .addDeciderFunction('Router', async () => 'fast', 'router', 'routes traffic')
       .addFunctionBranch('fast', 'FastPath', noop, 'handles express requests')
       .addFunctionBranch('slow', 'SlowPath', noop, 'handles standard requests')
       .end()

@@ -3,9 +3,9 @@ import { defineContract } from '../../../../src/lib/contract/defineContract';
 
 describe('OpenAPI generation', () => {
   it('generates spec with descriptions from chart.description', () => {
-    const chart = flowChart('ProcessLoan', () => {}, undefined, 'Receive application')
-      .addFunction('Assess', () => {}, undefined, 'Assess risk')
-      .addDeciderFunction('Decide', () => 'approved')
+    const chart = flowChart('ProcessLoan', () => {}, 'process-loan', undefined, 'Receive application')
+      .addFunction('Assess', () => {}, 'assess', 'Assess risk')
+      .addDeciderFunction('Decide', () => 'approved', 'decide')
       .addFunctionBranch('approved', 'Approve', () => {})
       .addFunctionBranch('rejected', 'Reject', () => {})
       .end()
@@ -64,7 +64,7 @@ describe('OpenAPI generation', () => {
   });
 
   it('generates spec without schemas', () => {
-    const chart = flowChart('Simple', () => {}).build();
+    const chart = flowChart('Simple', () => {}, 'simple').build();
     const contract = defineContract(chart, {});
     const spec = contract.toOpenAPI();
 
@@ -74,8 +74,8 @@ describe('OpenAPI generation', () => {
   });
 
   it('includes decider branches in description', () => {
-    const chart = flowChart('Router', () => {})
-      .addDeciderFunction('Route', () => 'a', undefined, 'Route the request')
+    const chart = flowChart('Router', () => {}, 'router')
+      .addDeciderFunction('Route', () => 'a', 'route', 'Route the request')
       .addFunctionBranch('a', 'HandleA', () => {})
       .addFunctionBranch('b', 'HandleB', () => {})
       .end()
@@ -88,12 +88,12 @@ describe('OpenAPI generation', () => {
   });
 
   it('includes parallel children in description', () => {
-    const chart = flowChart('Fetch', () => {})
+    const chart = flowChart('Fetch', () => {}, 'fetch')
       .addListOfFunction([
         { id: 'a', name: 'ParseHTML', fn: () => {} },
         { id: 'b', name: 'ParseCSS', fn: () => {} },
       ])
-      .addFunction('Merge', () => {})
+      .addFunction('Merge', () => {}, 'merge')
       .build();
 
     const contract = defineContract(chart, {});

@@ -4,8 +4,8 @@ import { flowChart } from '../../../../src/lib/builder/FlowChartBuilder';
 import { defineContract } from '../../../../src/lib/contract/defineContract';
 
 describe('defineContract', () => {
-  const chart = flowChart('Greet', () => {}, undefined, 'Receive the greeting')
-    .addFunction('Respond', () => {}, undefined, 'Send a response')
+  const chart = flowChart('Greet', () => {}, 'greet', undefined, 'Receive the greeting')
+    .addFunction('Respond', () => {}, 'respond', 'Send a response')
     .build();
 
   it('creates a contract with Zod schemas', () => {

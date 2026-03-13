@@ -5,12 +5,12 @@ const noop = async () => {};
 describe('Scenario: decider branching', () => {
   it('builds input → decider → {approve, reject} → output', () => {
     const deciderFn = async () => {};
-    const chart = flowChart('input', noop)
-      .addDeciderFunction('decide', deciderFn)
+    const chart = flowChart('input', noop, 'input')
+      .addDeciderFunction('decide', deciderFn, 'decide')
       .addFunctionBranch('approve', 'Approve', noop)
       .addFunctionBranch('reject', 'Reject', noop)
       .end()
-      .addFunction('output', noop)
+      .addFunction('output', noop, 'output')
       .build();
 
     const decider = chart.root.next!;
@@ -23,8 +23,8 @@ describe('Scenario: decider branching', () => {
   });
 
   it('spec has hasDecider and branch types', () => {
-    const spec = flowChart('input', noop)
-      .addDeciderFunction('decide', noop)
+    const spec = flowChart('input', noop, 'input')
+      .addDeciderFunction('decide', noop, 'decide')
       .addFunctionBranch('a', 'A', noop)
       .addFunctionBranch('b', 'B', noop)
       .end()
@@ -37,8 +37,8 @@ describe('Scenario: decider branching', () => {
   });
 
   it('default branch adds a "default" alias child', () => {
-    const chart = flowChart('input', noop)
-      .addDeciderFunction('decide', noop)
+    const chart = flowChart('input', noop, 'input')
+      .addDeciderFunction('decide', noop, 'decide')
       .addFunctionBranch('yes', 'Yes', noop)
       .addFunctionBranch('no', 'No', noop)
       .setDefault('yes')
@@ -53,19 +53,19 @@ describe('Scenario: decider branching', () => {
 
   it('decider and selector are mutually exclusive', () => {
     expect(() => {
-      flowChart('input', noop)
-        .addDeciderFunction('decide', noop)
+      flowChart('input', noop, 'input')
+        .addDeciderFunction('decide', noop, 'decide')
         .addFunctionBranch('a', 'A', noop)
         .end()
-        .addSelectorFunction('pick', noop);
+        .addSelectorFunction('pick', noop, 'pick');
     }).toThrow('mutually exclusive');
   });
 
   it('stageMap contains decider + branch fns', () => {
     const decideFn = async () => {};
     const approveFn = async () => {};
-    const chart = flowChart('input', noop)
-      .addDeciderFunction('decide', decideFn)
+    const chart = flowChart('input', noop, 'input')
+      .addDeciderFunction('decide', decideFn, 'decide')
       .addFunctionBranch('a', 'Approve', approveFn)
       .end()
       .build();

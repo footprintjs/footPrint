@@ -7,7 +7,7 @@ const noop = async () => {};
 describe('FlowChartBuilder', () => {
   describe('start', () => {
     it('creates root node with name', () => {
-      const chart = new FlowChartBuilder().start('root', noop).build();
+      const chart = new FlowChartBuilder().start('root', noop, 'root').build();
       expect(chart.root.name).toBe('root');
     });
 
@@ -20,60 +20,61 @@ describe('FlowChartBuilder', () => {
 
     it('registers fn in stageMap', () => {
       const fn = async () => {};
-      const chart = new FlowChartBuilder().start('root', fn).build();
+      const chart = new FlowChartBuilder().start('root', fn, 'root').build();
       expect(chart.stageMap.get('root')).toBe(fn);
     });
 
     it('throws if start called twice', () => {
       expect(() => {
-        new FlowChartBuilder().start('a', noop).start('b', noop);
+        new FlowChartBuilder().start('a', noop, 'a').start('b', noop, 'b');
       }).toThrow('root already defined');
     });
 
-    it('works without fn', () => {
-      const chart = new FlowChartBuilder().start('root').build();
+    it('fn is registered when provided', () => {
+      const fn = async () => {};
+      const chart = new FlowChartBuilder().start('root', fn, 'root').build();
       expect(chart.root.name).toBe('root');
-      expect(chart.root.fn).toBeUndefined();
-      expect(chart.stageMap.size).toBe(0);
+      expect(chart.stageMap.size).toBe(1);
+      expect(chart.stageMap.get('root')).toBe(fn);
     });
   });
 
   describe('addFunction', () => {
     it('chains a next node', () => {
-      const chart = flowChart('a', noop).addFunction('b', noop).build();
+      const chart = flowChart('a', noop, 'a').addFunction('b', noop, 'b').build();
       expect(chart.root.next?.name).toBe('b');
     });
 
     it('chains multiple nodes', () => {
-      const chart = flowChart('a', noop).addFunction('b', noop).addFunction('c', noop).build();
+      const chart = flowChart('a', noop, 'a').addFunction('b', noop, 'b').addFunction('c', noop, 'c').build();
       expect(chart.root.next?.next?.name).toBe('c');
     });
 
     it('registers all fns in stageMap', () => {
       const fn1 = async () => {};
       const fn2 = async () => {};
-      const chart = flowChart('a', fn1).addFunction('b', fn2).build();
+      const chart = flowChart('a', fn1, 'a').addFunction('b', fn2, 'b').build();
       expect(chart.stageMap.get('a')).toBe(fn1);
       expect(chart.stageMap.get('b')).toBe(fn2);
     });
 
     it('throws if cursor not initialised', () => {
       expect(() => {
-        new FlowChartBuilder().addFunction('b', noop);
+        new FlowChartBuilder().addFunction('b', noop, 'b');
       }).toThrow('cursor undefined');
     });
   });
 
   describe('addStreamingFunction', () => {
     it('creates streaming node with streamId', () => {
-      const chart = flowChart('a', noop).addStreamingFunction('stream', 'my-stream', noop).build();
+      const chart = flowChart('a', noop, 'a').addStreamingFunction('stream', noop, 'stream', 'my-stream').build();
       const node = chart.root.next!;
       expect(node.isStreaming).toBe(true);
       expect(node.streamId).toBe('my-stream');
     });
 
     it('defaults streamId to name', () => {
-      const chart = flowChart('a', noop).addStreamingFunction('stream', undefined, noop).build();
+      const chart = flowChart('a', noop, 'a').addStreamingFunction('stream', noop, 'stream').build();
       expect(chart.root.next!.streamId).toBe('stream');
     });
   });
@@ -81,8 +82,8 @@ describe('FlowChartBuilder', () => {
   describe('stageMap collision', () => {
     it('throws on conflicting fn for same name', () => {
       expect(() => {
-        flowChart('a', async () => 1)
-          .addFunction('a', async () => 2)
+        flowChart('a', async () => 1, 'a')
+          .addFunction('a', async () => 2, 'a')
           .build();
       }).toThrow('stageMap collision');
     });
@@ -90,7 +91,7 @@ describe('FlowChartBuilder', () => {
     it('allows same fn reference for same name', () => {
       const fn = async () => {};
       expect(() => {
-        flowChart('a', fn).addFunction('a', fn).build();
+        flowChart('a', fn, 'a').addFunction('a', fn, 'a').build();
       }).not.toThrow();
     });
   });
@@ -101,20 +102,20 @@ describe('FlowChartBuilder', () => {
     });
 
     it('returns buildTimeStructure as rootSpec', () => {
-      const chart = flowChart('a', noop).addFunction('b', noop).build();
+      const chart = flowChart('a', noop, 'a').addFunction('b', noop, 'b').build();
       expect(chart.buildTimeStructure.name).toBe('a');
       expect(chart.buildTimeStructure.next?.name).toBe('b');
     });
 
     it('builds description from stage names', () => {
-      const chart = flowChart('Entry', noop).addFunction('Process', noop).build();
+      const chart = flowChart('Entry', noop, 'entry').addFunction('Process', noop, 'process').build();
       expect(chart.description).toContain('Entry');
       expect(chart.description).toContain('Process');
     });
 
     it('includes descriptions in description string', () => {
-      const chart = flowChart('entry', noop, undefined, undefined, 'start here')
-        .addFunction('end', noop, undefined, 'finish here')
+      const chart = flowChart('entry', noop, 'entry', undefined, 'start here')
+        .addFunction('end', noop, 'end', 'finish here')
         .build();
       expect(chart.description).toContain('start here');
       expect(chart.description).toContain('finish here');
@@ -123,7 +124,7 @@ describe('FlowChartBuilder', () => {
 
   describe('toSpec', () => {
     it('returns SerializedPipelineStructure', () => {
-      const spec = flowChart('a', noop).addFunction('b', noop).toSpec();
+      const spec = flowChart('a', noop, 'a').addFunction('b', noop, 'b').toSpec();
       expect(spec.name).toBe('a');
       expect(spec.type).toBe('stage');
       expect(spec.next?.name).toBe('b');
@@ -132,7 +133,7 @@ describe('FlowChartBuilder', () => {
 
   describe('toMermaid', () => {
     it('generates mermaid diagram', () => {
-      const mermaid = flowChart('a', noop).addFunction('b', noop).toMermaid();
+      const mermaid = flowChart('a', noop, 'a').addFunction('b', noop, 'b').toMermaid();
       expect(mermaid).toContain('flowchart TD');
       expect(mermaid).toContain('a["a"]');
       expect(mermaid).toContain('a --> b');
@@ -141,7 +142,7 @@ describe('FlowChartBuilder', () => {
 
   describe('setEnableNarrative', () => {
     it('sets enableNarrative on FlowChart', () => {
-      const chart = flowChart('a', noop).setEnableNarrative().build();
+      const chart = flowChart('a', noop, 'a').setEnableNarrative().build();
       expect(chart.enableNarrative).toBe(true);
     });
   });
@@ -149,7 +150,7 @@ describe('FlowChartBuilder', () => {
   describe('setLogger', () => {
     it('passes logger to FlowChart', () => {
       const mockLogger = { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() };
-      const chart = flowChart('a', noop).setLogger(mockLogger).build();
+      const chart = flowChart('a', noop, 'a').setLogger(mockLogger).build();
       expect(chart.logger).toBe(mockLogger);
     });
   });
@@ -180,19 +181,19 @@ describe('FlowChartBuilder', () => {
   describe('stream handlers', () => {
     it('registers onStream handler', () => {
       const handler = vi.fn();
-      const builder = flowChart('a', noop).onStream(handler);
+      const builder = flowChart('a', noop, 'a').onStream(handler);
       expect(builder).toBeDefined(); // fluent returns this
     });
 
     it('registers onStreamStart handler', () => {
       const handler = vi.fn();
-      const builder = flowChart('a', noop).onStreamStart(handler);
+      const builder = flowChart('a', noop, 'a').onStreamStart(handler);
       expect(builder).toBeDefined();
     });
 
     it('registers onStreamEnd handler', () => {
       const handler = vi.fn();
-      const builder = flowChart('a', noop).onStreamEnd(handler);
+      const builder = flowChart('a', noop, 'a').onStreamEnd(handler);
       expect(builder).toBeDefined();
     });
   });
@@ -200,13 +201,13 @@ describe('FlowChartBuilder', () => {
   describe('extractors', () => {
     it('passes traversal extractor to FlowChart', () => {
       const ext = () => null;
-      const chart = flowChart('a', noop).addTraversalExtractor(ext).build();
+      const chart = flowChart('a', noop, 'a').addTraversalExtractor(ext).build();
       expect(chart.extractor).toBe(ext);
     });
 
     it('build-time extractor transforms nodes', () => {
       const extractor = (node: any) => ({ ...node, custom: true });
-      const chart = new FlowChartBuilder(extractor).start('a', noop).addFunction('b', noop).build();
+      const chart = new FlowChartBuilder(extractor).start('a', noop, 'a').addFunction('b', noop, 'b').build();
       expect((chart.buildTimeStructure as any).custom).toBe(true);
       expect((chart.buildTimeStructure.next as any).custom).toBe(true);
     });
@@ -215,7 +216,7 @@ describe('FlowChartBuilder', () => {
       const extractor = () => {
         throw new Error('boom');
       };
-      const builder = new FlowChartBuilder(extractor).start('a', noop);
+      const builder = new FlowChartBuilder(extractor).start('a', noop, 'a');
       const errors = builder.getBuildTimeExtractorErrors();
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toBe('boom');
@@ -225,13 +226,13 @@ describe('FlowChartBuilder', () => {
 
 describe('flowChart factory', () => {
   it('creates builder with start already called', () => {
-    const chart = flowChart('entry', noop).build();
+    const chart = flowChart('entry', noop, 'entry').build();
     expect(chart.root.name).toBe('entry');
   });
 
   it('passes buildTimeExtractor', () => {
     const ext = (n: any) => ({ ...n, tagged: true });
-    const chart = flowChart('a', noop, undefined, ext).build();
+    const chart = flowChart('a', noop, 'a', ext).build();
     expect((chart.buildTimeStructure as any).tagged).toBe(true);
   });
 });

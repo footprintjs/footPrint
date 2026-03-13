@@ -18,9 +18,9 @@ describe('Property: build produces valid tree', () => {
           const unique = [...new Set(names)];
           if (unique.length === 0) return;
 
-          let builder = flowChart(unique[0], noop);
+          let builder = flowChart(unique[0], noop, unique[0]);
           for (let i = 1; i < unique.length; i++) {
-            builder = builder.addFunction(unique[i], noop);
+            builder = builder.addFunction(unique[i], noop, unique[i]);
           }
           const chart = builder.build();
 
@@ -49,9 +49,9 @@ describe('Property: build produces valid tree', () => {
           const unique = [...new Set(names)];
           if (unique.length === 0) return;
 
-          let builder = flowChart(unique[0], noop);
+          let builder = flowChart(unique[0], noop, unique[0]);
           for (let i = 1; i < unique.length; i++) {
-            builder = builder.addFunction(unique[i], noop);
+            builder = builder.addFunction(unique[i], noop, unique[i]);
           }
           const chart = builder.build();
 
@@ -65,9 +65,9 @@ describe('Property: build produces valid tree', () => {
   it('spec chain length matches node chain length', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 20 }), (chainLen) => {
-        let builder = flowChart('s0', noop);
+        let builder = flowChart('s0', noop, 's0');
         for (let i = 1; i < chainLen; i++) {
-          builder = builder.addFunction(`s${i}`, noop);
+          builder = builder.addFunction(`s${i}`, noop, `s${i}`);
         }
 
         const chart = builder.build();

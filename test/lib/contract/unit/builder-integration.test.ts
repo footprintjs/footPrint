@@ -8,7 +8,7 @@ describe('Builder schema integration', () => {
     const inputSchema = z.object({ name: z.string() });
     const outputSchema = z.object({ greeting: z.string() });
 
-    const chart = flowChart('Greet', () => {})
+    const chart = flowChart('Greet', () => {}, 'greet')
       .setInputSchema(inputSchema)
       .setOutputSchema(outputSchema)
       .build();
@@ -20,7 +20,7 @@ describe('Builder schema integration', () => {
   it('stores outputMapper on FlowChart', () => {
     const mapper = (scope: Record<string, unknown>) => ({ result: scope.x });
 
-    const chart = flowChart('Compute', () => {})
+    const chart = flowChart('Compute', () => {}, 'compute')
       .setOutputMapper(mapper)
       .build();
 
@@ -28,7 +28,7 @@ describe('Builder schema integration', () => {
   });
 
   it('FlowChart without schemas has undefined fields', () => {
-    const chart = flowChart('Plain', () => {}).build();
+    const chart = flowChart('Plain', () => {}, 'plain').build();
 
     expect(chart.inputSchema).toBeUndefined();
     expect(chart.outputSchema).toBeUndefined();
@@ -38,7 +38,7 @@ describe('Builder schema integration', () => {
   it('works with defineContract using chart schemas', () => {
     // defineContract imported at top level
 
-    const chart = flowChart('Process', () => {})
+    const chart = flowChart('Process', () => {}, 'process')
       .setInputSchema(z.object({ x: z.number() }))
       .setOutputSchema(z.object({ y: z.number() }))
       .setOutputMapper((scope) => ({ y: scope.x }))

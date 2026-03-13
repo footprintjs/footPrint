@@ -14,12 +14,12 @@ const noop = async () => {};
 describe('Scenario: Subflow manifest collection', () => {
   it('collects manifest entries for build-time subflows', async () => {
     const subChart = new FlowChartBuilder()
-      .start('SubEntry', noop, undefined, 'Subflow entry point')
-      .addFunction('SubProcess', noop, undefined, 'Process inside subflow')
+      .start('SubEntry', noop, 'sub-entry', 'Subflow entry point')
+      .addFunction('SubProcess', noop, 'sub-process', 'Process inside subflow')
       .build();
 
     const chart = new FlowChartBuilder()
-      .start('Main', noop, undefined, 'Main entry')
+      .start('Main', noop, 'main', 'Main entry')
       .addSubFlowChartNext('sf-sub', subChart, 'MySubflow')
       .build();
 
@@ -37,16 +37,16 @@ describe('Scenario: Subflow manifest collection', () => {
   });
 
   it('collects nested manifest for subflow within decider branch', async () => {
-    const innerSub = new FlowChartBuilder().start('InnerEntry', noop, undefined, 'Inner subflow start').build();
+    const innerSub = new FlowChartBuilder().start('InnerEntry', noop, 'inner-entry', 'Inner subflow start').build();
 
     const outerSub = new FlowChartBuilder()
-      .start('OuterEntry', noop, undefined, 'Outer subflow start')
+      .start('OuterEntry', noop, 'outer-entry', 'Outer subflow start')
       .addSubFlowChartNext('sf-inner', innerSub, 'InnerFlow')
       .build();
 
     const chart = new FlowChartBuilder()
-      .start('Root', noop, undefined, 'Root stage')
-      .addDeciderFunction('Router', async () => 'go', undefined, 'Route to subflow')
+      .start('Root', noop, 'root', 'Root stage')
+      .addDeciderFunction('Router', async () => 'go', 'router', 'Route to subflow')
       .addSubFlowChartBranch('go', outerSub, 'OuterFlow')
       .end()
       .build();
@@ -73,8 +73,8 @@ describe('Scenario: Subflow manifest collection', () => {
 
   it('StageSnapshot includes description from builder', async () => {
     const chart = new FlowChartBuilder()
-      .start('Receive', noop, undefined, 'Receive and validate input')
-      .addFunction('Process', noop, undefined, 'Process the data')
+      .start('Receive', noop, 'receive', 'Receive and validate input')
+      .addFunction('Process', noop, 'process', 'Process the data')
       .build();
 
     const executor = new FlowChartExecutor(chart);
@@ -88,10 +88,10 @@ describe('Scenario: Subflow manifest collection', () => {
   });
 
   it('StageSnapshot includes subflowId for subflow entry points', async () => {
-    const subChart = new FlowChartBuilder().start('SubStage', noop, undefined, 'Subflow stage').build();
+    const subChart = new FlowChartBuilder().start('SubStage', noop, 'sub-stage', 'Subflow stage').build();
 
     const chart = new FlowChartBuilder()
-      .start('Main', noop)
+      .start('Main', noop, 'main')
       .addSubFlowChartNext('sf-test', subChart, 'TestSub')
       .build();
 
@@ -105,9 +105,12 @@ describe('Scenario: Subflow manifest collection', () => {
   });
 
   it('executor convenience methods work with ManifestFlowRecorder', async () => {
-    const subChart = new FlowChartBuilder().start('Sub', noop).build();
+    const subChart = new FlowChartBuilder().start('Sub', noop, 'sub').build();
 
-    const chart = new FlowChartBuilder().start('Main', noop).addSubFlowChartNext('sf-1', subChart, 'SubA').build();
+    const chart = new FlowChartBuilder()
+      .start('Main', noop, 'main')
+      .addSubFlowChartNext('sf-1', subChart, 'SubA')
+      .build();
 
     const executor = new FlowChartExecutor(chart);
     const manifest = new ManifestFlowRecorder();
@@ -121,7 +124,7 @@ describe('Scenario: Subflow manifest collection', () => {
   });
 
   it('returns empty manifest when no ManifestFlowRecorder attached', async () => {
-    const chart = new FlowChartBuilder().start('Main', noop).build();
+    const chart = new FlowChartBuilder().start('Main', noop, 'main').build();
 
     const executor = new FlowChartExecutor(chart);
     await executor.run();

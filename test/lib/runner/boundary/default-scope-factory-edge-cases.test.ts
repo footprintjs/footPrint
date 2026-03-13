@@ -11,25 +11,37 @@ import { ScopeFacade } from '../../../../src/lib/scope';
 
 describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
   it('works with a single-stage chart', async () => {
-    const chart = flowChart('only', (scope: ScopeFacade) => {
-      scope.setValue('result', 'solo');
-      return scope.getValue('result');
-    }).build();
+    const chart = flowChart(
+      'only',
+      (scope: ScopeFacade) => {
+        scope.setValue('result', 'solo');
+        return scope.getValue('result');
+      },
+      'only',
+    ).build();
 
     const result = await new FlowChartExecutor(chart).run();
     expect(result).toBe('solo');
   });
 
   it('works with a deeply chained chart (10 stages)', async () => {
-    let builder = flowChart('stage0', (scope: ScopeFacade) => {
-      scope.setValue('count', 1);
-    });
+    let builder = flowChart(
+      'stage0',
+      (scope: ScopeFacade) => {
+        scope.setValue('count', 1);
+      },
+      'stage0',
+    );
 
     for (let i = 1; i < 10; i++) {
-      builder = builder.addFunction(`stage${i}`, (scope: ScopeFacade) => {
-        const count = (scope.getValue('count') as number) + 1;
-        scope.setValue('count', count);
-      });
+      builder = builder.addFunction(
+        `stage${i}`,
+        (scope: ScopeFacade) => {
+          const count = (scope.getValue('count') as number) + 1;
+          scope.setValue('count', count);
+        },
+        `stage${i}`,
+      );
     }
 
     const chart = builder.build();
@@ -41,9 +53,13 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
 
   it('works with fork pattern and default factory', async () => {
     const results: string[] = [];
-    const chart = flowChart('root', (scope: ScopeFacade) => {
-      scope.setValue('started', true);
-    })
+    const chart = flowChart(
+      'root',
+      (scope: ScopeFacade) => {
+        scope.setValue('started', true);
+      },
+      'root',
+    )
       .addListOfFunction([
         {
           id: 'c1',
@@ -69,13 +85,21 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
   });
 
   it('error in stage still commits state with default factory', async () => {
-    const chart = flowChart('setup', (scope: ScopeFacade) => {
-      scope.setValue('before', true);
-    })
-      .addFunction('boom', (scope: ScopeFacade) => {
-        scope.setValue('partial', 'written');
-        throw new Error('stage error');
-      })
+    const chart = flowChart(
+      'setup',
+      (scope: ScopeFacade) => {
+        scope.setValue('before', true);
+      },
+      'setup',
+    )
+      .addFunction(
+        'boom',
+        (scope: ScopeFacade) => {
+          scope.setValue('partial', 'written');
+          throw new Error('stage error');
+        },
+        'boom',
+      )
       .build();
 
     const executor = new FlowChartExecutor(chart);
@@ -88,14 +112,22 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
 
   it('breakFn works with default factory', async () => {
     const stages: string[] = [];
-    const chart = flowChart('A', (scope: ScopeFacade, breakFn: () => void) => {
-      stages.push('A');
-      scope.setValue('stopped', true);
-      breakFn();
-    })
-      .addFunction('B', () => {
-        stages.push('B');
-      })
+    const chart = flowChart(
+      'A',
+      (scope: ScopeFacade, breakFn: () => void) => {
+        stages.push('A');
+        scope.setValue('stopped', true);
+        breakFn();
+      },
+      'a',
+    )
+      .addFunction(
+        'B',
+        () => {
+          stages.push('B');
+        },
+        'b',
+      )
       .build();
 
     await new FlowChartExecutor(chart).run();
@@ -104,9 +136,13 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
   });
 
   it('defaultValuesForContext passed alongside default factory', async () => {
-    const chart = flowChart('read', (scope: ScopeFacade) => {
-      return scope.getValue('preset');
-    }).build();
+    const chart = flowChart(
+      'read',
+      (scope: ScopeFacade) => {
+        return scope.getValue('preset');
+      },
+      'read',
+    ).build();
 
     const executor = new FlowChartExecutor(
       chart,
@@ -120,9 +156,13 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
 
   it('enrichSnapshots works with default factory', async () => {
     let capturedSnapshot: any;
-    const chart = flowChart('write', (scope: ScopeFacade) => {
-      scope.setValue('x', 100);
-    })
+    const chart = flowChart(
+      'write',
+      (scope: ScopeFacade) => {
+        scope.setValue('x', 100);
+      },
+      'write',
+    )
       .addTraversalExtractor((snapshot: any) => {
         capturedSnapshot = snapshot;
         return snapshot.node.name;

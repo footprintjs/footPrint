@@ -75,8 +75,8 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
 export type StageNode<TOut = any, TScope = any> = {
   /** Human-readable stage name; also used as the stageMap key. */
   name: string;
-  /** Optional stable id (required by decider/fork aggregation). */
-  id?: string;
+  /** Stable identifier for visualization matching and branch aggregation. */
+  id: string;
   /** Human-readable description of what this stage does. */
   description?: string;
 

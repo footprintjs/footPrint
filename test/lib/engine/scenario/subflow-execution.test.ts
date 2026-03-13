@@ -24,18 +24,30 @@ describe('Scenario: Subflow Execution', () => {
   it('executes a subflow via decider branch', async () => {
     const order: string[] = [];
 
-    const subChart = flowChart('sub-entry', (scope: any) => {
-      order.push('sub-entry');
-      return 'sub-result';
-    }).build();
+    const subChart = flowChart(
+      'sub-entry',
+      (scope: any) => {
+        order.push('sub-entry');
+        return 'sub-result';
+      },
+      'sub-entry',
+    ).build();
 
-    const chart = flowChart('start', (scope: any) => {
-      order.push('start');
-    })
-      .addDeciderFunction('router', async () => {
-        order.push('router');
-        return 'sub';
-      })
+    const chart = flowChart(
+      'start',
+      (scope: any) => {
+        order.push('start');
+      },
+      'start',
+    )
+      .addDeciderFunction(
+        'router',
+        async () => {
+          order.push('router');
+          return 'sub';
+        },
+        'router',
+      )
       .addSubFlowChartBranch('sub', subChart, 'SubFlow')
       .addFunctionBranch('other', 'other', () => {
         order.push('other');
@@ -58,15 +70,23 @@ describe('Scenario: Subflow Execution', () => {
   it('subflow has isolated state from parent', async () => {
     const scopeFactory = makeScopeFactory();
 
-    const subChart = flowChart('sub-write', (scope: any) => {
-      scope.setValue('subOnly', 'from-sub');
-      return 'sub-done';
-    }).build();
+    const subChart = flowChart(
+      'sub-write',
+      (scope: any) => {
+        scope.setValue('subOnly', 'from-sub');
+        return 'sub-done';
+      },
+      'sub-write',
+    ).build();
 
-    const chart = flowChart('parent-write', (scope: any) => {
-      scope.setValue('parentData', 'hello');
-    })
-      .addDeciderFunction('route', async () => 'sub')
+    const chart = flowChart(
+      'parent-write',
+      (scope: any) => {
+        scope.setValue('parentData', 'hello');
+      },
+      'parent-write',
+    )
+      .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'SubFlow', {
         // inputMapper receives getScope() result — plain Record<string, unknown>
         inputMapper: (parentScope: any) => ({
@@ -89,15 +109,23 @@ describe('Scenario: Subflow Execution', () => {
   it('subflow with output mapping writes results back to parent', async () => {
     const scopeFactory = makeScopeFactory();
 
-    const subChart = flowChart('compute', (scope: any) => {
-      scope.setValue('result', 42);
-      return 42;
-    }).build();
+    const subChart = flowChart(
+      'compute',
+      (scope: any) => {
+        scope.setValue('result', 42);
+        return 42;
+      },
+      'compute',
+    ).build();
 
-    const chart = flowChart('init', (scope: any) => {
-      scope.setValue('x', 10);
-    })
-      .addDeciderFunction('route', async () => 'sub')
+    const chart = flowChart(
+      'init',
+      (scope: any) => {
+        scope.setValue('x', 10);
+      },
+      'init',
+    )
+      .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'Compute', {
         // outputMapper receives (subflowOutput, parentScope) — 2 args
         outputMapper: (output: any, _parentScope: any) => {
@@ -105,9 +133,13 @@ describe('Scenario: Subflow Execution', () => {
         },
       })
       .end()
-      .addFunction('verify', (scope: any) => {
-        return scope.getValue('computeResult');
-      })
+      .addFunction(
+        'verify',
+        (scope: any) => {
+          return scope.getValue('computeResult');
+        },
+        'verify',
+      )
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -117,12 +149,16 @@ describe('Scenario: Subflow Execution', () => {
   });
 
   it('subflow errors propagate to parent', async () => {
-    const subChart = flowChart('boom', () => {
-      throw new Error('subflow-error');
-    }).build();
+    const subChart = flowChart(
+      'boom',
+      () => {
+        throw new Error('subflow-error');
+      },
+      'boom',
+    ).build();
 
-    const chart = flowChart('start', () => {})
-      .addDeciderFunction('route', async () => 'sub')
+    const chart = flowChart('start', () => {}, 'start')
+      .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'Boom')
       .end()
       .build();
@@ -132,10 +168,10 @@ describe('Scenario: Subflow Execution', () => {
   });
 
   it('subflow narrative captures entry and exit', async () => {
-    const subChart = flowChart('sub-stage', () => {}).build();
+    const subChart = flowChart('sub-stage', () => {}, 'sub-stage').build();
 
-    const chart = flowChart('start', () => {})
-      .addDeciderFunction('route', async () => 'sub')
+    const chart = flowChart('start', () => {}, 'start')
+      .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'MySubFlow')
       .end()
       .setEnableNarrative()
@@ -149,10 +185,10 @@ describe('Scenario: Subflow Execution', () => {
   });
 
   it('subflow result is stored with correct structure', async () => {
-    const subChart = flowChart('inner', () => 'inner-done').build();
+    const subChart = flowChart('inner', () => 'inner-done', 'inner').build();
 
-    const chart = flowChart('outer', () => {})
-      .addDeciderFunction('decide', async () => 'sf')
+    const chart = flowChart('outer', () => {}, 'outer')
+      .addDeciderFunction('decide', async () => 'sf', 'decide')
       .addSubFlowChartBranch('sf', subChart, 'TestSubflow')
       .end()
       .build();

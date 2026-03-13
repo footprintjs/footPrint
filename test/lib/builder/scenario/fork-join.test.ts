@@ -4,7 +4,7 @@ const noop = async () => {};
 
 describe('Scenario: fork (parallel children)', () => {
   it('adds parallel children under a fork node', () => {
-    const chart = flowChart('start', noop)
+    const chart = flowChart('start', noop, 'start')
       .addListOfFunction([
         { id: 'p1', name: 'Worker1', fn: noop },
         { id: 'p2', name: 'Worker2', fn: noop },
@@ -19,7 +19,7 @@ describe('Scenario: fork (parallel children)', () => {
   });
 
   it('spec marks type as fork with parallelGroupId', () => {
-    const spec = flowChart('hub', noop)
+    const spec = flowChart('hub', noop, 'hub')
       .addListOfFunction([
         { id: 'a', name: 'A', fn: noop },
         { id: 'b', name: 'B', fn: noop },
@@ -35,7 +35,7 @@ describe('Scenario: fork (parallel children)', () => {
   it('registers all children in stageMap', () => {
     const fn1 = async () => {};
     const fn2 = async () => {};
-    const chart = flowChart('hub', noop)
+    const chart = flowChart('hub', noop, 'hub')
       .addListOfFunction([
         { id: 'a', name: 'A', fn: fn1 },
         { id: 'b', name: 'B', fn: fn2 },
@@ -48,7 +48,7 @@ describe('Scenario: fork (parallel children)', () => {
 
   it('throws on duplicate child id', () => {
     expect(() => {
-      flowChart('hub', noop).addListOfFunction([
+      flowChart('hub', noop, 'hub').addListOfFunction([
         { id: 'dup', name: 'A', fn: noop },
         { id: 'dup', name: 'B', fn: noop },
       ]);
@@ -56,9 +56,9 @@ describe('Scenario: fork (parallel children)', () => {
   });
 
   it('can chain after fork', () => {
-    const chart = flowChart('start', noop)
+    const chart = flowChart('start', noop, 'start')
       .addListOfFunction([{ id: 'p1', name: 'W1', fn: noop }])
-      .addFunction('finish', noop)
+      .addFunction('finish', noop, 'finish')
       .build();
 
     expect(chart.root.next!.name).toBe('finish');
