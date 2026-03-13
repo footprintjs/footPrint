@@ -63,6 +63,8 @@ export type StageSnapshot = {
   subflowId?: string;
   isDecider?: boolean;
   isFork?: boolean;
+  /** User-level writes made by this stage (pre-namespace keys → values). */
+  stageWrites?: Record<string, unknown>;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;
   metrics: Record<string, unknown>;

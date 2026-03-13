@@ -80,11 +80,14 @@ describe('StageContext', () => {
       expect(log.list()[0].stage).toBe('stage1');
     });
 
-    it('logs writeTrace to diagnostics', () => {
+    it('tracks stageWrites in snapshot (not in diagnostic logs)', () => {
       const { ctx } = createCtx();
       ctx.setObject([], 'x', 1);
       ctx.commit();
-      expect(ctx.debug.logContext.writeTrace).toBeDefined();
+      const snap = ctx.getSnapshot();
+      expect(snap.stageWrites).toEqual({ x: 1 });
+      // writeTrace should no longer leak into diagnostic logs
+      expect(ctx.debug.logContext.writeTrace).toBeUndefined();
     });
   });
 

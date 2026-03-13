@@ -36,6 +36,9 @@ export class StageContext {
 
   public debug: DiagnosticCollector = new DiagnosticCollector();
 
+  /** Tracks user-level writes (pre-namespace) for the memory view. */
+  private _stageWrites: Record<string, unknown> = {};
+
   constructor(
     runId: string,
     name: string,
@@ -90,6 +93,9 @@ export class StageContext {
 
   setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
     this.patch(path, key, value, shouldRedact ?? false);
+    // Track user-level write (pre-namespace) for memory view
+    const userKey = path.length > 0 ? [...path, key].join('.') : key;
+    this._stageWrites[userKey] = shouldRedact ? '[REDACTED]' : structuredClone(value);
     if (description) {
       const tagged = description.startsWith('[') ? description : `[WRITE] ${description}`;
       this.debug.addLog('message', tagged);
@@ -98,6 +104,9 @@ export class StageContext {
 
   updateObject(path: string[], key: string, value: unknown, description?: string) {
     this.merge(path, key, value);
+    // Track user-level write (pre-namespace) for memory view
+    const userKey = path.length > 0 ? [...path, key].join('.') : key;
+    this._stageWrites[userKey] = structuredClone(value);
     if (description) {
       this.debug.addLog('message', description);
     }
@@ -190,8 +199,6 @@ export class StageContext {
       overwrite: redactedOverwrite,
       updates: redactedUpdates,
     });
-
-    this.debug.addLog('writeTrace', commitBundle.trace);
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -285,6 +292,9 @@ export class StageContext {
       metrics: this.debug.metricContext,
       evals: this.debug.evalContext,
     };
+    if (Object.keys(this._stageWrites).length > 0) {
+      snapshot.stageWrites = this._stageWrites;
+    }
     if (this.description) {
       snapshot.description = this.description;
     }
