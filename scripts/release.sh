@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Release script — keeps package.json, git tag, npm, and GitHub releases in sync.
+# Release script — keeps package.json, git tag, and GitHub releases in sync.
+# npm publish is handled by GitHub Actions (with provenance).
+#
+# Flow:
+#   1. Local: build + test → version bump → CHANGELOG check → commit + tag + push
+#   2. GitHub release created → triggers .github/workflows/publish.yml
+#   3. CI: npm publish --provenance --access public (green tick on npm)
 #
 # Prerequisites:
-#   - npm login (only sanjay1909 can publish)
 #   - gh auth login (for GitHub release creation)
+#   - NPM_TOKEN secret configured in GitHub repo settings
 #
 # Usage:
 #   npm run release:patch   # 0.4.0 → 0.4.1
@@ -61,23 +67,22 @@ git tag "v$VERSION"
 git push
 git push --tags
 
-# 8. Publish to npm
-npm publish
-
-# 9. Create GitHub release (with notes from CHANGELOG)
+# 8. Create GitHub release (triggers CI → npm publish with provenance)
 if command -v gh &> /dev/null; then
-  echo "==> Creating GitHub release..."
+  echo "==> Creating GitHub release (CI will publish to npm with provenance)..."
   gh release create "v$VERSION" \
     --title "v$VERSION" \
     --notes "$NOTES" \
     --latest
   echo "    release: https://github.com/footprintjs/footPrint/releases/tag/v$VERSION"
+  echo "    CI will publish to npm shortly — check Actions tab for status."
 else
   echo "Warning: gh CLI not found. Skipping GitHub release creation."
   echo "Run manually: gh release create v$VERSION --title v$VERSION --latest"
+  echo "Note: npm publish will happen automatically when the GitHub release is created."
 fi
 
 echo ""
 echo "==> Released v$VERSION"
-echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION"
+echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
