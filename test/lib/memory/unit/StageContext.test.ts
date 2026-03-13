@@ -89,6 +89,35 @@ describe('StageContext', () => {
       // writeTrace should no longer leak into diagnostic logs
       expect(ctx.debug.logContext.writeTrace).toBeUndefined();
     });
+
+    it('tracks stageReads in snapshot', () => {
+      const { ctx } = createCtx();
+      ctx.setObject([], 'x', 42);
+      ctx.getValue([], 'x');
+      const snap = ctx.getSnapshot();
+      expect(snap.stageReads).toEqual({ x: 42 });
+    });
+
+    it('stageReads captures value at read time', () => {
+      const { ctx, mem } = createCtx();
+      // Pre-populate shared memory
+      ctx.setObject([], 'score', 100);
+      ctx.commit();
+
+      // New context reads the committed value
+      const ctx2 = new StageContext('p1', 'stage2', mem, '', undefined);
+      ctx2.getValue([], 'score');
+      const snap = ctx2.getSnapshot();
+      expect(snap.stageReads).toEqual({ score: 100 });
+    });
+
+    it('omits stageReads from snapshot when empty', () => {
+      const { ctx } = createCtx();
+      ctx.setObject([], 'x', 1);
+      ctx.commit();
+      const snap = ctx.getSnapshot();
+      expect(snap.stageReads).toBeUndefined();
+    });
   });
 
   describe('tree navigation', () => {

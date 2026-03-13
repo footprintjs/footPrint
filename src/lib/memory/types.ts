@@ -65,6 +65,8 @@ export type StageSnapshot = {
   isFork?: boolean;
   /** User-level writes made by this stage (pre-namespace keys → values). */
   stageWrites?: Record<string, unknown>;
+  /** User-level reads made by this stage (pre-namespace keys → values at read time). */
+  stageReads?: Record<string, unknown>;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;
   metrics: Record<string, unknown>;

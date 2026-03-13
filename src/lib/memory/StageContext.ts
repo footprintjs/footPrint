@@ -39,6 +39,9 @@ export class StageContext {
   /** Tracks user-level writes (pre-namespace) for the memory view. */
   private _stageWrites: Record<string, unknown> = {};
 
+  /** Tracks user-level reads (pre-namespace) for the memory view. */
+  private _stageReads: Record<string, unknown> = {};
+
   constructor(
     runId: string,
     name: string,
@@ -148,6 +151,11 @@ export class StageContext {
     const buf = this.getTransactionBuffer();
     const fromPatch = buf.get(this.withNamespace(path, key as string));
     const value = typeof fromPatch !== 'undefined' ? fromPatch : this.sharedMemory.getValue(this.runId, path, key);
+    // Track user-level read (pre-namespace) for memory view
+    if (key !== undefined) {
+      const userKey = path.length > 0 ? [...path, key].join('.') : key;
+      this._stageReads[userKey] = value !== undefined ? structuredClone(value) : undefined;
+    }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
     }
@@ -294,6 +302,9 @@ export class StageContext {
     };
     if (Object.keys(this._stageWrites).length > 0) {
       snapshot.stageWrites = this._stageWrites;
+    }
+    if (Object.keys(this._stageReads).length > 0) {
+      snapshot.stageReads = this._stageReads;
     }
     if (this.description) {
       snapshot.description = this.description;
