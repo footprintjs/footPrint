@@ -119,9 +119,9 @@ describe('SubflowExecutor', () => {
 
       expect(result).toBeUndefined();
       expect(resultsMap.has('sf-1')).toBe(true);
-      expect(context.addLog).toHaveBeenCalledWith('subflowId', 'sf-1');
-      expect(context.addLog).toHaveBeenCalledWith('subflowName', 'My Subflow');
-      expect(context.addLog).toHaveBeenCalledWith('isSubflowContainer', true);
+      const sfResult = resultsMap.get('sf-1')!;
+      expect(sfResult.subflowId).toBe('sf-1');
+      expect(sfResult.subflowName).toBe('My Subflow');
       expect(context.commit).toHaveBeenCalled();
     });
 
@@ -137,7 +137,8 @@ describe('SubflowExecutor', () => {
 
       await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-      expect(context.addLog).toHaveBeenCalledWith('subflowName', 'fallbackName');
+      const sfResult = resultsMap.get('sf-2')!;
+      expect(sfResult.subflowName).toBe('fallbackName');
     });
 
     // ── Input mapping (lines 95-107) ────────────────────────────────────
@@ -158,8 +159,8 @@ describe('SubflowExecutor', () => {
 
       await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-      expect(context.addLog).toHaveBeenCalledWith('mappedInput', { greeting: 'world' });
-      expect(context.addLog).toHaveBeenCalledWith('subflowReadOnlyContext', { greeting: 'world' });
+      // Input mapping is captured in the subflow result's tree context, not in parent logs
+      expect(resultsMap.has('sf-input')).toBe(true);
     });
 
     it('throws and logs error when inputMapper throws (lines 102-106)', async () => {
@@ -211,8 +212,8 @@ describe('SubflowExecutor', () => {
 
       await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-      expect(context.addLog).toHaveBeenCalledWith('mappedOutput', { result: 'subflow-output' });
-      expect(context.addLog).toHaveBeenCalledWith('outputMappingTarget', '(root)');
+      // Output mapping commits to parent scope — no longer logged to parent context
+      expect(context.commit).toHaveBeenCalled();
     });
 
     it('uses parent context for output when parentContext has branchId (line 165-166)', async () => {

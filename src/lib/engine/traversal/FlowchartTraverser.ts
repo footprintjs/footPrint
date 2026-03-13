@@ -572,11 +572,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private captureDynamicChildrenResult(node: StageNode<TOut, TScope>, context: StageContext): void {
     const parentStageId = context.getStageId();
 
-    context.addLog('isSubflowContainer', true);
-    context.addLog('subflowId', node.id || node.name);
-    context.addLog('subflowName', node.name);
-    context.addLog('hasSubflowData', true);
-
     const childStructure: any = {
       id: `${node.id || node.name}-children`,
       name: 'Dynamic Children',

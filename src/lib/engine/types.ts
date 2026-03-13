@@ -110,7 +110,12 @@ export interface IExecutionRuntime {
   globalStore: { getState(): Record<string, unknown> };
   rootStageContext: StageContext;
   executionHistory: { list(): unknown[] };
-  getSnapshot(): { sharedState: Record<string, unknown>; executionTree: unknown; commitLog: unknown[] };
+  getSnapshot(): {
+    sharedState: Record<string, unknown>;
+    executionTree: unknown;
+    commitLog: unknown[];
+    subflowResults?: Record<string, unknown>;
+  };
   setRootObject(path: string[], key: string, value: unknown): void;
   getPipelines(): string[];
 }

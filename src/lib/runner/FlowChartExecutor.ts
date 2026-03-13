@@ -271,7 +271,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   // ─── Introspection ───
 
   getSnapshot() {
-    return this.traverser.getSnapshot();
+    const snapshot = this.traverser.getSnapshot();
+    const sfResults = this.traverser.getSubflowResults();
+    if (sfResults.size > 0) {
+      snapshot.subflowResults = Object.fromEntries(sfResults);
+    }
+    return snapshot;
   }
 
   getRuntime() {

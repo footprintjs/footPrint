@@ -84,10 +84,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     });
     this.deps.narrativeGenerator.onSubflowEntry(subflowName, subflowId, node.description);
 
-    parentContext.addLog('isSubflowContainer', true);
-    parentContext.addLog('subflowId', subflowId);
-    parentContext.addLog('subflowName', subflowName);
-
     // ─── Input Mapping ───
     const mountOptions = node.subflowMountOptions;
     let mappedInput: Record<string, unknown> = {};
@@ -97,7 +93,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         const parentScope = parentContext.getScope();
         mappedInput = getInitialScopeValues(parentScope, mountOptions);
         if (Object.keys(mappedInput).length > 0) {
-          parentContext.addLog('mappedInput', mappedInput);
+          // mappedInput is captured in SubflowResult.treeContext for debugging
         }
       } catch (error: any) {
         parentContext.addError('inputMapperError', error.toString());
@@ -128,7 +124,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     // Create subflow HandlerDeps
     const subflowDeps = createSubflowHandlerDeps(this.deps, nestedRuntime, mappedInput);
-    parentContext.addLog('subflowReadOnlyContext', mappedInput);
 
     const subflowBreakFlag = { shouldBreak: false };
 
@@ -170,11 +165,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         const parentScope = outputContext.getScope();
         const mappedOutput = applyOutputMapping(subflowOutput, parentScope, outputContext, mountOptions);
 
-        if (mappedOutput && Object.keys(mappedOutput).length > 0) {
-          parentContext.addLog('mappedOutput', mappedOutput);
-          parentContext.addLog('outputMappingTarget', outputContext.branchId || '(root)');
-        }
-
         outputContext.commit();
       } catch (error: any) {
         parentContext.addError('outputMapperError', error.toString());
@@ -198,8 +188,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       subflowResult.pipelineStructure = (subflowDef as any).buildTimeStructure;
     }
 
-    parentContext.addLog('subflowResult', subflowResult);
-    parentContext.addLog('hasSubflowData', true);
     subflowResultsMap.set(subflowId, subflowResult);
 
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {

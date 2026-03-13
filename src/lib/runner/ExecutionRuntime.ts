@@ -27,6 +27,8 @@ export type RuntimeSnapshot = {
   sharedState: Record<string, unknown>;
   executionTree: StageSnapshot;
   commitLog: CommitBundle[];
+  /** Per-subflow execution results (keyed by subflowId). */
+  subflowResults?: Record<string, unknown>;
 };
 
 export class ExecutionRuntime {
