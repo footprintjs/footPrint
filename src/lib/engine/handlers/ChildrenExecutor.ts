@@ -151,7 +151,11 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
     this.deps.narrativeGenerator.onSelected(context.stageName || 'selector', selectedDisplayNames, children.length);
 
-    const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };
+    const tempNode: StageNode<TOut, TScope> = {
+      name: 'selector-temp',
+      id: 'selector-temp',
+      children: selectedChildren,
+    };
     return await this.executeNodeChildren(tempNode, context, undefined, branchPath);
   }
 }

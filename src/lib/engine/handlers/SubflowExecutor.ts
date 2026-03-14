@@ -260,7 +260,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           context.addLog('dynamicChildCount', dynamicNode.children.length);
           context.addLog(
             'dynamicChildIds',
-            dynamicNode.children.map((c) => c.id || c.name),
+            dynamicNode.children.map((c) => c.id),
           );
 
           if (typeof dynamicNode.nextNodeSelector === 'function') {
@@ -272,7 +272,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         if (dynamicNode.next) {
           node.next = dynamicNode.next;
           context.addLog('hasDynamicNext', true);
-          const loopTargetId = dynamicNode.next.id || dynamicNode.next.name;
+          const loopTargetId = dynamicNode.next.id;
           if (loopTargetId) {
             context.addLog('loopTarget', loopTargetId);
           }
@@ -337,7 +337,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
   }
 
   private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string, contextStageName?: string): string {
-    const baseName = node.id ?? node.name;
+    const baseName = node.id;
     const nodeId = contextStageName && contextStageName !== node.name ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;
@@ -414,7 +414,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       context.addLog('skippedChildIds', skippedIds);
     }
 
-    const tempNode: StageNode<TOut, TScope> = { name: 'selector-temp', children: selectedChildren };
+    const tempNode: StageNode<TOut, TScope> = {
+      name: 'selector-temp',
+      id: 'selector-temp',
+      children: selectedChildren,
+    };
     return await this.executeNodeChildrenInternal(tempNode, context, branchPath, breakFlag);
   }
 }

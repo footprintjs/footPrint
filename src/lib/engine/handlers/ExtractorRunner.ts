@@ -111,10 +111,10 @@ export class ExtractorRunner<TOut = any, TScope = any> {
 
   /**
    * Generate the stage path for extractor results.
-   * Uses node.id (preferred) or node.name, combined with branchPath.
+   * Uses node.id combined with branchPath.
    */
   getStagePath(node: StageNode, branchPath?: string, contextStageName?: string): string {
-    const baseName = node.id ?? node.name;
+    const baseName = node.id;
     const nodeId = contextStageName && contextStageName !== node.name ? contextStageName : baseName;
     if (!branchPath) return nodeId;
     return `${branchPath}.${nodeId}`;

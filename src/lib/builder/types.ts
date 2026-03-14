@@ -1,123 +1,47 @@
 /**
  * builder/types.ts — All types used by the builder library.
  *
- * Zero deps on old code. Only imports from lib/memory (Phase 1).
- * Types that originated in executor/Pipeline.ts and executor/types.ts
- * are defined locally here for the new library.
+ * Shared types (StageNode, StageFunction, etc.) are imported from the engine.
+ * Builder-specific types (FlowChartSpec, FlowChart, SerializedPipelineStructure)
+ * are defined locally — they carry builder-only fields (description, outputMapper, etc.).
+ *
+ * NOTE: All engine imports are `import type` — zero runtime dependency.
+ * The builder remains standalone at runtime.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Logger (copied from utils/logger.ts to avoid old-code dep)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface ILogger {
-  info(message?: any, ...optionalParams: any[]): void;
-  log(message?: any, ...optionalParams: any[]): void;
-  debug(message?: any, ...optionalParams: any[]): void;
-  error(message?: any, ...optionalParams: any[]): void;
-  warn(message?: any, ...optionalParams: any[]): void;
-}
+import type { StageNode } from '../engine/graph/StageNode';
+import type { ILogger, StageFunction } from '../engine/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scope Protection (copied from scope/protection/types.ts)
+// Re-exports from engine (canonical definitions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type { StageNode } from '../engine/graph/StageNode';
+export type {
+  ILogger,
+  StageFunction,
+  StreamCallback,
+  StreamHandlers,
+  StreamLifecycleHandler,
+  StreamTokenHandler,
+  SubflowMountOptions,
+} from '../engine/types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backward-compatible aliases
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** @deprecated Use StageFunction instead. */
+export type PipelineStageFunction<TOut = any, TScope = any> = StageFunction<TOut, TScope>;
+
+/** Relaxed-generic alias for builder ergonomics. */
+export type StageFn = StageFunction<any, any>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scope Protection
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ScopeProtectionMode = 'error' | 'warn' | 'off';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage Function
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Callback for streaming stages to emit tokens incrementally. */
-export type StreamCallback = (token: string) => void;
-
-/**
- * The function signature for stage handlers.
- *
- * TOut   – return type produced by the stage
- * TScope – the scope object passed to the stage
- */
-export type PipelineStageFunction<TOut = any, TScope = any> = (
-  scope: TScope,
-  breakPipeline: () => void,
-  streamCallback?: StreamCallback,
-) => Promise<TOut> | TOut;
-
-/** Relaxed-generic alias for builder ergonomics. */
-export type StageFn = PipelineStageFunction<any, any>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Streaming
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type StreamTokenHandler = (streamId: string, token: string) => void;
-export type StreamLifecycleHandler = (streamId: string, fullText?: string) => void;
-
-export interface StreamHandlers {
-  onToken?: StreamTokenHandler;
-  onStart?: StreamLifecycleHandler;
-  onEnd?: StreamLifecycleHandler;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Subflow Mount Options
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
-  inputMapper?: (parentScope: TParentScope) => TSubflowInput;
-  outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// StageNode — the runtime graph node
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type StageNode<TOut = any, TScope = any> = {
-  /** Human-readable stage name; also used as the stageMap key. */
-  name: string;
-  /** Stable identifier for visualization matching and branch aggregation. */
-  id: string;
-  /** Human-readable description of what this stage does. */
-  description?: string;
-
-  // ── Continuations ──
-  /** Linear continuation. */
-  next?: StageNode<TOut, TScope>;
-  /** Parallel children (fork). */
-  children?: StageNode<TOut, TScope>[];
-
-  // ── Deciders & Selectors ──
-  /** When true, fn IS the decider — returns a branch ID string. */
-  deciderFn?: boolean;
-  /** When true, fn IS the selector — returns branch ID(s). */
-  selectorFn?: boolean;
-
-  // ── Stage function ──
-  fn?: PipelineStageFunction<TOut, TScope>;
-
-  // ── Streaming ──
-  isStreaming?: boolean;
-  streamId?: string;
-
-  // ── Subflow ──
-  isSubflowRoot?: boolean;
-  subflowId?: string;
-  subflowName?: string;
-  $ref?: string;
-  mountId?: string;
-  subflowMountOptions?: SubflowMountOptions;
-
-  /** When true, parallel children use fail-fast semantics (reject on first error). */
-  failFast?: boolean;
-
-  /** Inline subflow definition for dynamic subflow attachment. */
-  subflowDef?: {
-    root: StageNode;
-    stageMap?: Map<string, PipelineStageFunction<TOut, TScope>>;
-    buildTimeStructure?: unknown;
-    subflows?: Record<string, { root: StageNode }>;
-  };
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Serialized Pipeline Structure (JSON-safe, for visualization)
@@ -189,7 +113,7 @@ export type TraversalExtractor<TResult = unknown> = (snapshot: unknown) => TResu
 
 export type FlowChart<TOut = any, TScope = any> = {
   root: StageNode<TOut, TScope>;
-  stageMap: Map<string, PipelineStageFunction<TOut, TScope>>;
+  stageMap: Map<string, StageFunction<TOut, TScope>>;
   extractor?: TraversalExtractor;
   subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
   buildTimeStructure: SerializedPipelineStructure;
@@ -212,7 +136,7 @@ export type FlowChart<TOut = any, TScope = any> = {
 export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   id: string;
   name: string;
-  fn?: PipelineStageFunction<TOut, TScope>;
+  fn?: StageFunction<TOut, TScope>;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

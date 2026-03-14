@@ -81,12 +81,12 @@ export class RuntimeStructureManager {
 
     if (node.deciderFn) {
       structure.hasDecider = true;
-      structure.branchIds = node.children?.map((c) => c.id ?? c.name);
+      structure.branchIds = node.children?.map((c) => c.id);
     }
 
     if (node.nextNodeSelector) {
       structure.hasSelector = true;
-      structure.branchIds = node.children?.map((c) => c.id ?? c.name);
+      structure.branchIds = node.children?.map((c) => c.id);
     }
 
     if (node.children?.length) {

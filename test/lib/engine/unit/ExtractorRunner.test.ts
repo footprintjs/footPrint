@@ -287,8 +287,8 @@ describe('ExtractorRunner', () => {
       expect(runner.getStagePath({ name: 'test', id: 'test-id' } as any)).toBe('test-id');
     });
 
-    it('falls back to node name when no id', () => {
-      expect(runner.getStagePath({ name: 'test' } as any)).toBe('test');
+    it('uses node id for stage path', () => {
+      expect(runner.getStagePath({ name: 'test', id: 'test' } as any)).toBe('test');
     });
 
     it('combines branchPath with node id', () => {
@@ -304,7 +304,7 @@ describe('ExtractorRunner', () => {
     });
 
     it('returns baseName without branchPath when contextStageName matches node name', () => {
-      expect(runner.getStagePath({ name: 'stage1' } as any, undefined, 'stage1')).toBe('stage1');
+      expect(runner.getStagePath({ name: 'stage1', id: 'stage1' } as any, undefined, 'stage1')).toBe('stage1');
     });
   });
 });

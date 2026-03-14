@@ -25,6 +25,7 @@ export type {
   SerializedPipelineStructure,
   SimplifiedParallelSpec,
   StageFn,
+  StageFunction,
   StageNode,
   StreamCallback,
   StreamHandlers,

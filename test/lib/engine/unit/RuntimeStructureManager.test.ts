@@ -170,7 +170,10 @@ describe('RuntimeStructureManager', () => {
       name: 'selectorNode',
       id: 'sel-1',
       nextNodeSelector: () => ['x'],
-      children: [{ name: 'optA', id: 'oa' }, { name: 'optB' }],
+      children: [
+        { name: 'optA', id: 'oa' },
+        { name: 'optB', id: 'optB' },
+      ],
     };
     const result = mgr.stageNodeToStructure(node);
     expect(result.hasSelector).toBe(true);

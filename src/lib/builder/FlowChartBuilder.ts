@@ -395,6 +395,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _stepCounter = 0;
   private _stageDescriptions = new Map<string, string>();
   private _stageStepMap = new Map<string, number>();
+  private _knownStageIds = new Set<string>();
   private _inputSchema?: unknown;
   private _outputSchema?: unknown;
   private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
@@ -481,6 +482,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._rootSpec = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+    this._knownStageIds.add(id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -502,6 +504,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+    this._knownStageIds.add(id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -541,6 +544,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+    this._knownStageIds.add(id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -571,6 +575,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+    this._knownStageIds.add(id);
 
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
@@ -630,7 +635,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[], options?: { failFast?: boolean }): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
-    const forkId = cur.id ?? cur.name;
+    const forkId = cur.id;
 
     curSpec.type = 'fork';
     if (options?.failFast) cur.failFast = true;
@@ -685,7 +690,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
 
     const subflowName = mountName || id;
-    const forkId = cur.id ?? cur.name;
+    const forkId = cur.id;
     const prefixedRoot = this._prefixNodeTree(subflow.root, id);
 
     if (!this._subflowDefs.has(id)) {
@@ -788,7 +793,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (curSpec.loopTarget) fail(`loopTo already defined at '${cur.name}'`);
     if (cur.next) fail(`cannot set loopTo when next is already defined at '${cur.name}'`);
 
-    cur.next = { name: stageId, id: stageId };
+    if (!this._knownStageIds.has(stageId)) {
+      fail(`loopTo('${stageId}') target not found — did you pass a stage name instead of id?`);
+    }
+
+    cur.next = { name: stageId, id: stageId, isLoopRef: true };
     curSpec.loopTarget = stageId;
     curSpec.next = { name: stageId, id: stageId, type: 'stage' };
 
@@ -877,15 +886,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const root = this._root ?? fail('empty tree; call start() first');
 
     const walk = (n: StageNode<TOut, TScope>) => {
-      const nid = idOf(n.id ?? n.name);
+      const nid = idOf(n.id);
       lines.push(`${nid}["${n.name}"]`);
       for (const c of n.children || []) {
-        const cid = idOf(c.id ?? c.name);
+        const cid = idOf(c.id);
         lines.push(`${nid} --> ${cid}`);
         walk(c);
       }
       if (n.next) {
-        const mid = idOf(n.next.id ?? n.next.name);
+        const mid = idOf(n.next.id);
         lines.push(`${nid} --> ${mid}`);
         walk(n.next);
       }

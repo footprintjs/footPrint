@@ -33,8 +33,8 @@ export type Selector = (nodeArgs: any) => string | string[] | Promise<string | s
 export type StageNode<TOut = any, TScope = any> = {
   /** Human-readable stage name; also used as the stageMap key */
   name: string;
-  /** Optional stable id (required by decider/fork aggregation) */
-  id?: string;
+  /** Stable identifier for visualization matching and branch aggregation. */
+  id: string;
   /** Description of what this stage does. Used for narrative and tool descriptions. */
   description?: string;
 
@@ -82,6 +82,9 @@ export type StageNode<TOut = any, TScope = any> = {
   subflowMountOptions?: SubflowMountOptions;
   /** When true, parallel children use fail-fast semantics (reject on first error) */
   failFast?: boolean;
+
+  /** True if this node is a back-edge reference created by loopTo() */
+  isLoopRef?: boolean;
 
   /** Inline subflow definition for dynamic subflow attachment */
   subflowDef?: {

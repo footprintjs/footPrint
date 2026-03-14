@@ -325,7 +325,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
     if (isScopeBasedSelector) {
       const previousForkId = this.extractorRunner.currentForkId;
-      this.extractorRunner.currentForkId = node.id ?? node.name;
+      this.extractorRunner.currentForkId = node.id;
 
       try {
         const selectorResult = await this.selectorHandler.handleScopeBased(
@@ -352,7 +352,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // ─── Phase 2b: DECIDER — scope-based single-choice conditional branch ───
     if (isDeciderNode) {
-      return this.deciderHandler.handleScopeBased(
+      const deciderResult = await this.deciderHandler.handleScopeBased(
         node,
         stageFunc!,
         context,
@@ -363,6 +363,34 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.extractorRunner.callExtractor.bind(this.extractorRunner),
         this.extractorRunner.getStagePath.bind(this.extractorRunner),
       );
+
+      // After branch execution, follow decider's own next (e.g., loopTo target)
+      if (hasNext && !breakFlag.shouldBreak) {
+        const nextNode = originalNext!;
+        const isLoopRef =
+          !this.getStageFn(nextNode) &&
+          !nextNode.children?.length &&
+          !nextNode.deciderFn &&
+          !nextNode.selectorFn &&
+          !nextNode.isSubflowRoot;
+
+        if (isLoopRef) {
+          return this.continuationResolver.resolve(
+            nextNode,
+            node,
+            context,
+            breakFlag,
+            branchPath,
+            this.executeNode.bind(this),
+          );
+        }
+
+        this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
+        const nextCtx = context.createNext(branchPath as string, nextNode.name);
+        return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
+      }
+
+      return deciderResult;
     }
 
     // ─── Abort check — cooperative cancellation ───
@@ -418,7 +446,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
           context.addLog('dynamicPattern', 'dynamicSubflow');
           context.addLog('dynamicSubflowId', dynamicNode.subflowId);
-          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id ?? node.name);
+          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
 
           node.isSubflowRoot = true;
           node.subflowId = dynamicNode.subflowId;
@@ -426,7 +454,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           node.subflowMountOptions = dynamicNode.subflowMountOptions;
 
           this.structureManager.updateDynamicSubflow(
-            node.id ?? node.name,
+            node.id,
             dynamicNode.subflowId!,
             dynamicNode.subflowName,
             dynamicNode.subflowDef?.buildTimeStructure,
@@ -439,9 +467,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         if (dynamicNode.children) {
           for (const child of dynamicNode.children) {
             if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
-              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id ?? child.name);
+              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id);
               this.structureManager.updateDynamicSubflow(
-                child.id ?? child.name,
+                child.id,
                 child.subflowId!,
                 child.subflowName,
                 child.subflowDef?.buildTimeStructure,
@@ -456,11 +484,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           context.addLog('dynamicChildCount', dynamicNode.children.length);
           context.addLog(
             'dynamicChildIds',
-            dynamicNode.children.map((c) => c.id || c.name),
+            dynamicNode.children.map((c) => c.id),
           );
 
           this.structureManager.updateDynamicChildren(
-            node.id ?? node.name,
+            node.id,
             dynamicNode.children,
             Boolean(dynamicNode.nextNodeSelector),
             Boolean(dynamicNode.deciderFn),
@@ -475,7 +503,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // Dynamic next (linear continuation)
         if (dynamicNode.next) {
           dynamicNext = dynamicNode.next;
-          this.structureManager.updateDynamicNext(node.id ?? node.name, dynamicNode.next);
+          this.structureManager.updateDynamicNext(node.id, dynamicNode.next);
           node.next = dynamicNode.next;
           context.addLog('hasDynamicNext', true);
         }
@@ -500,7 +528,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       if (node.nextNodeSelector) {
         const previousForkId = this.extractorRunner.currentForkId;
-        this.extractorRunner.currentForkId = node.id ?? node.name;
+        this.extractorRunner.currentForkId = node.id;
         try {
           nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
             node.nextNodeSelector,
@@ -521,7 +549,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         });
 
         const previousForkId = this.extractorRunner.currentForkId;
-        this.extractorRunner.currentForkId = node.id ?? node.name;
+        this.extractorRunner.currentForkId = node.id;
         try {
           nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(node, context, undefined, branchPath);
         } finally {
@@ -555,6 +583,23 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     if (hasNext) {
       const nextNode = originalNext!;
+
+      // Detect loop reference nodes created by loopTo() — marked with isLoopRef flag.
+      // Route through ContinuationResolver for proper ID resolution, iteration
+      // tracking, and narrative generation.
+      const isLoopReference = nextNode.isLoopRef;
+
+      if (isLoopReference) {
+        return this.continuationResolver.resolve(
+          nextNode,
+          node,
+          context,
+          breakFlag,
+          branchPath,
+          this.executeNode.bind(this),
+        );
+      }
+
       this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
       context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
         targetStage: nextNode.name,
@@ -573,11 +618,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const parentStageId = context.getStageId();
 
     const childStructure: any = {
-      id: `${node.id || node.name}-children`,
+      id: `${node.id}-children`,
       name: 'Dynamic Children',
       type: 'fork',
       children: node.children!.map((c) => ({
-        id: c.id || c.name,
+        id: c.id,
         name: c.name,
         type: 'stage',
       })),
@@ -597,8 +642,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
     }
 
-    this.subflowResults.set(node.id || node.name, {
-      subflowId: node.id || node.name,
+    this.subflowResults.set(node.id, {
+      subflowId: node.id,
       subflowName: node.name,
       treeContext: {
         globalContext: {},

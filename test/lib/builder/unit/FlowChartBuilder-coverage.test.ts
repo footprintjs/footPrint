@@ -293,12 +293,10 @@ describe('addSubFlowChartNext edge cases', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('loopTo with unknown target', () => {
-  it('uses stage id as fallback when target not in step map', () => {
-    // loopTo a stageId that was never registered (not added via start/addFunction)
-    const chart = flowChart('main', noop, 'main').addFunction('step', noop, 'step').loopTo('unknown-stage').build();
-
-    expect(chart.description).toContain('loops back to unknown-stage');
-    expect(chart.description).not.toContain('loops back to step');
+  it('throws when target stage id is not found', () => {
+    expect(() => {
+      flowChart('main', noop, 'main').addFunction('step', noop, 'step').loopTo('unknown-stage');
+    }).toThrow('target not found');
   });
 });
 
