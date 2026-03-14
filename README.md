@@ -537,6 +537,31 @@ src/lib/
 
 ---
 
+## AI Coding Tool Support
+
+FootPrint ships with built-in instructions for every major AI coding assistant. When you open this repo in any supported tool, it automatically understands the library's API, patterns, and anti-patterns &mdash; no manual context needed.
+
+| Tool | Instruction File | Format |
+|------|-----------------|--------|
+| **[Claude Code](https://claude.com/claude-code)** | `CLAUDE.md` + `.claude/skills/footprint/SKILL.md` | Project rules + interactive skill |
+| **[OpenAI Codex](https://openai.com/index/codex/)** | `AGENTS.md` | Agent instructions |
+| **[GitHub Copilot](https://github.com/features/copilot)** | `.github/copilot-instructions.md` | Custom instructions |
+| **[Cursor](https://cursor.com)** | `.cursor/rules/footprint.md` | Project rules |
+| **[Windsurf](https://windsurf.com)** | `.windsurfrules` | Project rules |
+| **[Cline](https://github.com/cline/cline)** | `.clinerules` | Project rules |
+| **[Kiro](https://kiro.dev)** | `.kiro/rules/footprint.md` | Project rules |
+
+Every file teaches the AI assistant:
+- The **Builder**, **Executor**, and **ScopeFacade** APIs
+- The **recorder system** (scope + flow, two observer layers)
+- The **core principle**: collect during traversal, never post-process
+- **Anti-patterns** to avoid (deprecated APIs, wrong state access patterns)
+- **Event ordering** that makes inline narrative collection work
+
+This means any AI coding tool can help you build flowchart pipelines correctly from day one.
+
+---
+
 ## License
 
 [MIT](./LICENSE) &copy; [Sanjay Krishna Anbalagan](https://github.com/sanjay1909)
