@@ -64,6 +64,7 @@ export function createSubflowHandlerDeps<TOut = any, TScope = any>(
     scopeProtectionMode: parentDeps.scopeProtectionMode,
     executionRuntime: subflowRuntime,
     readOnlyContext: mappedInput,
+    executionEnv: parentDeps.executionEnv, // inherited — like process.env
     narrativeGenerator: parentDeps.narrativeGenerator,
     logger: parentDeps.logger,
   };

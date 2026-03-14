@@ -83,7 +83,7 @@ export { WindowedNarrativeFlowRecorder } from './lib/engine';
 // Memory — ScopeFactory type (needed for FlowChartExecutor constructor)
 // ============================================================================
 
-export type { RunOptions } from './lib/engine';
+export type { ExecutionEnv, RunOptions } from './lib/engine';
 export type { ScopeFactory } from './lib/memory';
 
 // ============================================================================

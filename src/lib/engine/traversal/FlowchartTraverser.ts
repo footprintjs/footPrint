@@ -57,6 +57,8 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   scopeFactory: ScopeFactory<TScope>;
   executionRuntime: IExecutionRuntime;
   readOnlyContext?: unknown;
+  /** Execution environment — propagates to subflows automatically. */
+  executionEnv?: import('../../engine/types').ExecutionEnv;
   throttlingErrorChecker?: (error: unknown) => boolean;
   streamHandlers?: StreamHandlers;
   extractor?: TraversalExtractor;
@@ -169,6 +171,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       streamHandlers: opts.streamHandlers,
       scopeProtectionMode: opts.scopeProtectionMode ?? 'error',
       readOnlyContext: opts.readOnlyContext,
+      executionEnv: opts.executionEnv,
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
       signal: opts.signal,

@@ -18,6 +18,7 @@ import lodashGet from 'lodash.get';
 import lodashHas from 'lodash.has';
 import lodashSet from 'lodash.set';
 
+import type { ExecutionEnv } from '../engine/types';
 import { StageContext } from '../memory/StageContext';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput';
 import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types';
@@ -32,16 +33,20 @@ export class ScopeFacade {
   /** Cached deeply-frozen copy of readOnlyValues for getArgs(). Created once. */
   private readonly _frozenArgs: Record<string, unknown>;
 
+  /** Execution environment — read-only, inherited from parent executor. */
+  private readonly _executionEnv: Readonly<ExecutionEnv>;
+
   private _recorders: Recorder[] = [];
   private _redactedKeys: Set<string>;
   private _redactionPolicy: RedactionPolicy | undefined;
   private _redactedFieldsByKey: Map<string, Set<string>> = new Map();
 
-  constructor(context: StageContext, stageName: string, readOnlyValues?: unknown) {
+  constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, executionEnv?: ExecutionEnv) {
     this._stageContext = context;
     this._stageName = stageName;
     this._readOnlyValues = readOnlyValues;
     this._frozenArgs = createFrozenArgs(readOnlyValues);
+    this._executionEnv = Object.freeze({ ...executionEnv });
     this._redactedKeys = new Set<string>();
   }
 
@@ -317,6 +322,21 @@ export class ScopeFacade {
    */
   getArgs<T = Record<string, unknown>>(): T {
     return this._frozenArgs as T;
+  }
+
+  /**
+   * Returns the execution environment — read-only infrastructure values
+   * that propagate through nested executors (like `process.env` for flowcharts).
+   *
+   * Contains: signal (abort), timeoutMs, traceId.
+   * Frozen at construction time. Inherited by subflows automatically.
+   *
+   * ```typescript
+   * const { signal, traceId } = scope.getEnv();
+   * ```
+   */
+  getEnv(): Readonly<ExecutionEnv> {
+    return this._executionEnv;
   }
 
   getPipelineId() {

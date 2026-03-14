@@ -64,16 +64,25 @@ scope.setValue('key', value)        // tracked write
 scope.updateValue('key', partial)  // deep merge
 scope.deleteValue('key')           // tracked delete
 scope.getArgs<T>()                 // frozen readonly input (NOT tracked)
+scope.getEnv()                     // frozen execution environment (NOT tracked)
 scope.attachRecorder(recorder)     // plug observer
 ```
 
-**IMPORTANT:** `getValue`/`setValue` are tracked. `getArgs()` is NOT tracked and returns frozen input.
+**Three access tiers:**
+- `getValue`/`setValue` — mutable shared state, tracked in narrative
+- `getArgs()` — frozen business input from `run({ input })`, NOT tracked
+- `getEnv()` — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId? }`. Auto-inherited by subflows. Closed type — not extensible.
 
 ### Executor
 
 ```typescript
 const executor = new FlowChartExecutor(chart);
-await executor.run({ input: data, timeoutMs: 5000, signal: abortSignal });
+await executor.run({
+  input: data,
+  timeoutMs: 5000,
+  signal: abortSignal,
+  env: { traceId: 'req-123', signal: abortSignal, timeoutMs: 5000 },
+});
 
 executor.getNarrative()         // combined flow + data narrative
 executor.getNarrativeEntries()  // structured entries with type/depth/stageName
@@ -114,6 +123,7 @@ Both use `{ id, hooks } → dispatcher → error isolation → attach/detach`. I
 - Never use deprecated `CombinedNarrativeBuilder` — use `CombinedNarrativeRecorder`
 - Don't extract shared base for Recorder/FlowRecorder — two instances = coincidence
 - Don't use `getArgs()` for tracked data — use `getValue()`/`setValue()`
+- Don't put infrastructure data (signal, traceId) in `getArgs()` — use `getEnv()` via `run({ env })`
 - Don't manually create `CombinedNarrativeRecorder` — `setEnableNarrative()` handles it
 
 ## Build & Test

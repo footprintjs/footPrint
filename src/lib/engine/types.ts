@@ -60,6 +60,7 @@ export type ScopeFactory<TScope = any> = (
   context: StageContext,
   stageName: string,
   readOnlyContext?: unknown,
+  executionEnv?: ExecutionEnv,
 ) => TScope;
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,31 @@ export interface IExecutionRuntime {
 }
 
 // ---------------------------------------------------------------------------
+// Execution Environment — read-only, propagates through nested executors
+// ---------------------------------------------------------------------------
+
+/**
+ * ExecutionEnv — infrastructure values that propagate through nested executors.
+ *
+ * Like `process.env` for flowcharts: read-only, inherited by child executors,
+ * infrastructure-only (not business logic).
+ *
+ * Litmus test: Created external to the flowchart + passed in for execution = env.
+ * Business config for a specific flowchart = args (getArgs()).
+ *
+ * Intentionally a closed type — not extensible to prevent coupling between
+ * parent and child flowcharts.
+ */
+export interface ExecutionEnv {
+  /** AbortSignal for cooperative cancellation across nested executors. */
+  readonly signal?: AbortSignal;
+  /** Timeout budget in milliseconds. */
+  readonly timeoutMs?: number;
+  /** Trace identifier for distributed tracing / observability. */
+  readonly traceId?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Handler Dependencies (DI bag) — was PipelineContext
 // ---------------------------------------------------------------------------
 
@@ -140,6 +166,8 @@ export interface HandlerDeps<TOut = any, TScope = any> {
   streamHandlers?: StreamHandlers;
   scopeProtectionMode: ScopeProtectionMode;
   readOnlyContext?: unknown;
+  /** Execution environment — propagates to subflows automatically. */
+  executionEnv?: ExecutionEnv;
   narrativeGenerator: IControlFlowNarrative;
   logger: ILogger;
   signal?: AbortSignal;
@@ -157,6 +185,12 @@ export interface RunOptions {
    * Stages cannot overwrite these keys with `setValue()`.
    */
   input?: Record<string, unknown>;
+  /**
+   * Execution environment — read-only infrastructure values that propagate
+   * through nested executors (like `process.env` for flowcharts).
+   * Accessible via `scope.getEnv()`. Inherited by subflows automatically.
+   */
+  env?: ExecutionEnv;
 }
 
 // ---------------------------------------------------------------------------

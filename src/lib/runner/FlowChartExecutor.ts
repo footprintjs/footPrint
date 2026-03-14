@@ -34,7 +34,8 @@ import { ExecutionRuntime } from './ExecutionRuntime';
 import { validateInput } from './validateInput';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
-const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly) => new ScopeFacade(ctx, stageName, readOnly);
+const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
+  new ScopeFacade(ctx, stageName, readOnly, env);
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
@@ -82,7 +83,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.traverser = this.createTraverser();
   }
 
-  private createTraverser(signal?: AbortSignal, readOnlyContextOverride?: unknown): FlowchartTraverser<TOut, TScope> {
+  private createTraverser(
+    signal?: AbortSignal,
+    readOnlyContextOverride?: unknown,
+    env?: import('../engine/types').ExecutionEnv,
+  ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
     const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
@@ -95,8 +100,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.combinedRecorder = new CombinedNarrativeRecorder();
       const recorder = this.combinedRecorder;
       const originalFactory = args.scopeFactory;
-      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown) => {
-        const scope = originalFactory(ctx, stageName, readOnly);
+      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
+        const scope = originalFactory(ctx, stageName, readOnly, envArg);
         if (scope && typeof (scope as any).attachRecorder === 'function') {
           (scope as any).attachRecorder(recorder);
         }
@@ -116,8 +121,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const sharedRedactedKeys = this.sharedRedactedKeys;
       const policy = this.redactionPolicy;
       const prevFactory = scopeFactory;
-      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown) => {
-        const scope = prevFactory(ctx, stageName, readOnly);
+      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
+        const scope = prevFactory(ctx, stageName, readOnly, envArg);
         if (scope && typeof (scope as any).useSharedRedactedKeys === 'function') {
           (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
         }
@@ -146,6 +151,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       buildTimeStructure: fc.buildTimeStructure,
       logger: fc.logger ?? defaultLogger,
       signal,
+      executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
     });
   }
@@ -278,7 +284,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       r.clear?.();
     }
 
-    this.traverser = this.createTraverser(signal, validatedInput);
+    this.traverser = this.createTraverser(signal, validatedInput, options?.env);
     try {
       return await this.traverser.execute();
     } finally {
