@@ -49,7 +49,10 @@
     "dist/**/*",
     "!dist/test",
     "!dist/types/test",
-    "!dist/esm/types/test"
+    "!dist/esm/types/test",
+    "ai-instructions/**/*",
+    "CLAUDE.md",
+    "AGENTS.md"
   ],
   "main": "dist/index.js",
   "module": "dist/esm/index.js",
@@ -71,6 +74,9 @@
       "eslint --fix",
       "prettier --config .prettierrc.js --write"
     ]
+  },
+  "bin": {
+    "footprintjs-setup": "ai-instructions/setup.sh"
   },
   "sideEffects": false,
   "dependencies": {

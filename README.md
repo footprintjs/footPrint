@@ -539,17 +539,40 @@ src/lib/
 
 ## AI Coding Tool Support
 
-FootPrint ships with built-in instructions for every major AI coding assistant. When you open this repo in any supported tool, it automatically understands the library's API, patterns, and anti-patterns &mdash; no manual context needed.
+FootPrint ships with built-in instructions for every major AI coding assistant. Your AI tool understands the library's API, patterns, and anti-patterns out of the box.
 
-| Tool | Instruction File | Format |
-|------|-----------------|--------|
-| **[Claude Code](https://claude.com/claude-code)** | `CLAUDE.md` + `.claude/skills/footprint/SKILL.md` | Project rules + interactive skill |
+### Quick setup
+
+```bash
+# After installing footprintjs, run:
+npx footprintjs-setup
+```
+
+This interactive installer copies the right instruction files for your tool(s):
+
+| Tool | What gets installed | Format |
+|------|-------------------|--------|
+| **[Claude Code](https://claude.com/claude-code)** | `.claude/skills/footprint/SKILL.md` + `CLAUDE.md` | Interactive skill + project rules |
 | **[OpenAI Codex](https://openai.com/index/codex/)** | `AGENTS.md` | Agent instructions |
 | **[GitHub Copilot](https://github.com/features/copilot)** | `.github/copilot-instructions.md` | Custom instructions |
 | **[Cursor](https://cursor.com)** | `.cursor/rules/footprint.md` | Project rules |
 | **[Windsurf](https://windsurf.com)** | `.windsurfrules` | Project rules |
 | **[Cline](https://github.com/cline/cline)** | `.clinerules` | Project rules |
 | **[Kiro](https://kiro.dev)** | `.kiro/rules/footprint.md` | Project rules |
+
+Or install manually:
+
+```bash
+# Claude Code skill
+mkdir -p .claude/skills/footprint
+cp node_modules/footprintjs/ai-instructions/claude-code/SKILL.md .claude/skills/footprint/
+
+# Cursor rules
+mkdir -p .cursor/rules
+cp node_modules/footprintjs/ai-instructions/cursor/footprint.md .cursor/rules/
+
+# Any other tool — files are in node_modules/footprintjs/ai-instructions/
+```
 
 Every file teaches the AI assistant:
 - The **Builder**, **Executor**, and **ScopeFacade** APIs
