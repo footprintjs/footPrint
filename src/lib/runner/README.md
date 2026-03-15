@@ -106,6 +106,46 @@ The executor is a thin delegation layer. Every introspection method forwards to 
 
 ---
 
+## ComposableRunner — Subflow Composition Interface
+
+An interface for runners that expose their internal flowChart for subflow mounting. Any runner implementing `ComposableRunner` can be mounted in a parent flowChart via `addSubFlowChart()`, enabling full UI drill-down into nested execution.
+
+```typescript
+import type { ComposableRunner } from 'footprint';
+
+class MyAgent implements ComposableRunner<string, AgentResult> {
+  toFlowChart() { return this.chart; }
+  async run(input) { /* ... */ }
+}
+
+// Mount in a parent chart — UI can drill into MyAgent's internal stages
+flowChart('Seed', seedFn, 'seed')
+  .addSubFlowChart('sf-agent', agent.toFlowChart(), 'Agent')
+  .build();
+```
+
+## getSubtreeSnapshot — Snapshot Navigation
+
+Navigate the execution snapshot tree by subflow path. Useful for LLM drill-down: instead of dumping the full trace, fetch only the relevant subtree.
+
+```typescript
+import { getSubtreeSnapshot } from 'footprint';
+
+const snapshot = executor.getSnapshot();
+
+// Drill into a specific subflow
+const payment = getSubtreeSnapshot(snapshot, 'sf-payment');
+// payment.executionTree → the payment subflow's execution tree
+// payment.sharedState   → the payment subflow's scope state
+
+// Nested drill-down (payment → validation)
+const validation = getSubtreeSnapshot(snapshot, 'sf-payment/sf-validation');
+```
+
+Subflow paths use slash-separated subflow IDs, matching how footprintjs stores nested subflow results internally. Returns `undefined` if the path is not found.
+
+---
+
 ## Dependency Graph
 
 ```

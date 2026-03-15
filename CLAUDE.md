@@ -92,6 +92,31 @@ executor.attachFlowRecorder(r)  // plug flow observer
 executor.setRedactionPolicy({}) // PII protection
 ```
 
+### ComposableRunner & Snapshot Navigation
+
+```typescript
+import type { ComposableRunner } from 'footprintjs';
+import { getSubtreeSnapshot } from 'footprintjs';
+
+// Interface for runners that expose their internal flowChart
+interface ComposableRunner<TIn, TOut> {
+  toFlowChart(): FlowChart;
+  run(input: TIn, options?: RunOptions): Promise<TOut>;
+}
+
+// Drill into subflow subtrees by path
+const subtree = getSubtreeSnapshot(snapshot, 'sf-payment');
+const nested = getSubtreeSnapshot(snapshot, 'sf-outer/sf-inner');
+// Returns { subflowId, executionTree, sharedState, narrativeEntries } or undefined
+
+// Pass narrative entries for scoped narrative
+const subtreeWithNarrative = getSubtreeSnapshot(snapshot, 'sf-payment', executor.getNarrativeEntries());
+
+// Discover available drill-down targets
+import { listSubflowPaths } from 'footprintjs';
+listSubflowPaths(snapshot); // ['sf-payment', 'sf-outer/sf-inner']
+```
+
 ## Two Observer Systems
 
 Both use `{ id, hooks } → dispatcher → error isolation → attach/detach`. Intentionally NOT unified.

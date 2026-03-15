@@ -22,6 +22,14 @@ export { flowChart, FlowChartBuilder } from './lib/builder';
 
 export { FlowChartExecutor } from './lib/runner';
 
+// ComposableRunner — interface for runners that expose their internal flowChart
+// for subflow composition (enables UI drill-down into nested runners)
+export type { ComposableRunner } from './lib/runner';
+
+// Snapshot navigation — drill into subflow subtrees by path
+export type { SubtreeSnapshot } from './lib/runner';
+export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner';
+
 // ============================================================================
 // Scope — Per-stage facades and recorders
 // ============================================================================
