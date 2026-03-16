@@ -244,8 +244,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
       context.commit();
       this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description);
 
       if (breakFlag.shouldBreak) {
+        this.deps.narrativeGenerator.onBreak(node.name);
         return stageOutput;
       }
 
@@ -329,6 +331,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       }
 
+      this.deps.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
       const nextCtx = context.createNext('', nextNode.name);
       return await this.executeSubflowInternal(nextNode, nextCtx, breakFlag, branchPath);
     }

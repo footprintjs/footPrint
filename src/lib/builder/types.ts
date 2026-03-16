@@ -51,6 +51,8 @@ export interface SerializedPipelineStructure {
   name: string;
   id?: string;
   type: 'stage' | 'decider' | 'fork' | 'streaming';
+  /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
+  icon?: string;
   description?: string;
   children?: SerializedPipelineStructure[];
   next?: SerializedPipelineStructure;
@@ -76,6 +78,8 @@ export interface SerializedPipelineStructure {
 export interface FlowChartSpec {
   name: string;
   id?: string;
+  /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
+  icon?: string;
   description?: string;
   children?: FlowChartSpec[];
   next?: FlowChartSpec;
