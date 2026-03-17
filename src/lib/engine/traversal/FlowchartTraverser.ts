@@ -449,21 +449,43 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
           context.addLog('dynamicPattern', 'dynamicSubflow');
           context.addLog('dynamicSubflowId', dynamicNode.subflowId);
-          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
 
-          node.isSubflowRoot = true;
-          node.subflowId = dynamicNode.subflowId;
-          node.subflowName = dynamicNode.subflowName;
-          node.subflowMountOptions = dynamicNode.subflowMountOptions;
+          // Structural-only subflow: has buildTimeStructure but no executable root.
+          // Used for pre-executed subflows (e.g., inner flows that already ran).
+          // Annotates the node for visualization without re-executing.
+          if (!dynamicNode.subflowDef.root) {
+            context.addLog('dynamicPattern', 'structuralSubflow');
+            node.isSubflowRoot = true;
+            node.subflowId = dynamicNode.subflowId;
+            node.subflowName = dynamicNode.subflowName;
+            node.description = dynamicNode.description ?? node.description;
 
-          this.structureManager.updateDynamicSubflow(
-            node.id,
-            dynamicNode.subflowId!,
-            dynamicNode.subflowName,
-            dynamicNode.subflowDef?.buildTimeStructure,
-          );
+            this.structureManager.updateDynamicSubflow(
+              node.id,
+              dynamicNode.subflowId!,
+              dynamicNode.subflowName,
+              dynamicNode.subflowDef.buildTimeStructure,
+            );
 
-          return await this.executeNode(node, context, breakFlag, branchPath);
+            // Fall through to Phase 5 (continuation) — no subflow execution needed
+          } else {
+            // Full dynamic subflow: register + execute
+            this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
+
+            node.isSubflowRoot = true;
+            node.subflowId = dynamicNode.subflowId;
+            node.subflowName = dynamicNode.subflowName;
+            node.subflowMountOptions = dynamicNode.subflowMountOptions;
+
+            this.structureManager.updateDynamicSubflow(
+              node.id,
+              dynamicNode.subflowId!,
+              dynamicNode.subflowName,
+              dynamicNode.subflowDef?.buildTimeStructure,
+            );
+
+            return await this.executeNode(node, context, breakFlag, branchPath);
+          }
         }
 
         // Check children for subflowDef
@@ -671,7 +693,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // First-write-wins
     const isNewRegistration = !subflowsDict[subflowId];
-    if (isNewRegistration) {
+    if (isNewRegistration && subflowDef.root) {
       subflowsDict[subflowId] = {
         root: subflowDef.root as StageNode<TOut, TScope>,
         ...(subflowDef.buildTimeStructure ? { buildTimeStructure: subflowDef.buildTimeStructure } : {}),

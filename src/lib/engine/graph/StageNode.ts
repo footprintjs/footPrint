@@ -86,9 +86,12 @@ export type StageNode<TOut = any, TScope = any> = {
   /** True if this node is a back-edge reference created by loopTo() */
   isLoopRef?: boolean;
 
-  /** Inline subflow definition for dynamic subflow attachment */
+  /** Inline subflow definition for dynamic subflow attachment.
+   *  When `root` is omitted, the subflow is structural-only:
+   *  the engine attaches `buildTimeStructure` for visualization
+   *  without executing any subflow stages (pre-executed subflow pattern). */
   subflowDef?: {
-    root: StageNode;
+    root?: StageNode;
     stageMap?: Map<string, StageFunction<TOut, TScope>>;
     buildTimeStructure?: unknown;
     subflows?: Record<string, { root: StageNode }>;
@@ -103,7 +106,10 @@ export type StageNode<TOut = any, TScope = any> = {
  * Detects if a stage output is a StageNode for dynamic continuation.
  *
  * Uses duck-typing: must have `name` (string) AND at least one continuation
- * property (non-empty children, next, or nextNodeSelector).
+ * property (non-empty children, next, nextNodeSelector, or isSubflowRoot).
+ *
+ * `isSubflowRoot` counts as continuation because subflow execution (or
+ * structural annotation for pre-executed subflows) is a form of continuation.
  *
  * Safely handles proxy objects (e.g., Zod scope) that may throw on property access.
  */
@@ -117,7 +123,8 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
     const hasContinuation =
       (Array.isArray(obj.children) && obj.children.length > 0) ||
       obj.next !== undefined ||
-      typeof obj.nextNodeSelector === 'function';
+      typeof obj.nextNodeSelector === 'function' ||
+      obj.isSubflowRoot === true;
 
     return hasContinuation;
   } catch {

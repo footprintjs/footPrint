@@ -154,7 +154,10 @@ export class RuntimeStructureManager {
     }
 
     if (subflowBuildTimeStructure) {
-      mountStructure.subflowStructure = subflowBuildTimeStructure as SerializedPipelineStructure;
+      // Deep-copy to prevent external mutation of the stored structure
+      mountStructure.subflowStructure = JSON.parse(
+        JSON.stringify(subflowBuildTimeStructure),
+      ) as SerializedPipelineStructure;
       this.buildNodeMap(mountStructure.subflowStructure);
     }
   }

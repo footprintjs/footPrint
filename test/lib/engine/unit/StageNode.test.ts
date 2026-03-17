@@ -51,4 +51,19 @@ describe('isStageNodeReturn', () => {
     // deciderFn is a boolean flag, not a continuation property
     expect(isStageNodeReturn({ name: 'stage1', deciderFn: true })).toBe(false);
   });
+
+  it('returns true for node with isSubflowRoot (structural subflow)', () => {
+    expect(
+      isStageNodeReturn({
+        name: 'HANDLER',
+        isSubflowRoot: true,
+        subflowId: 'create-grade',
+        subflowDef: { buildTimeStructure: { name: 'root' } },
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false for isSubflowRoot=false without other continuation', () => {
+    expect(isStageNodeReturn({ name: 'stage1', isSubflowRoot: false })).toBe(false);
+  });
 });
