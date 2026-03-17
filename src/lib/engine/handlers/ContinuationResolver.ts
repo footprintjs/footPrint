@@ -97,7 +97,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
 
     this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
 
-    const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
+    const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
   }
 
@@ -116,7 +116,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
       targetStage: dynamicNode.name,
     });
 
-    const nextStageContext = context.createNext(branchPath as string, dynamicNode.name);
+    const nextStageContext = context.createNext(branchPath as string, dynamicNode.name, dynamicNode.id);
     return executeNode(dynamicNode, nextStageContext, breakFlag, branchPath);
   }
 
@@ -155,7 +155,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
 
     this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
 
-    const nextStageContext = context.createNext(branchPath as string, iteratedStageName);
+    const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
   }
 

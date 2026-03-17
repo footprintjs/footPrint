@@ -20,7 +20,7 @@ function makeLogger() {
 }
 
 function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
-  const runtime = new ExecutionRuntime('test-root');
+  const runtime = new ExecutionRuntime('test-root', 'test-root');
   return {
     stageMap: new Map(),
     root: { name: 'root' },

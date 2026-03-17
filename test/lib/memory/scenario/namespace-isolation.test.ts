@@ -7,8 +7,8 @@ describe('Scenario: namespace isolation between runs', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
 
-    const p1 = new StageContext('run-A', 'stage1', mem, '', log);
-    const p2 = new StageContext('run-B', 'stage1', mem, '', log);
+    const p1 = new StageContext('run-A', 'stage1', 'stage1', mem, '', log);
+    const p2 = new StageContext('run-B', 'stage1', 'stage1', mem, '', log);
 
     p1.setObject([], 'result', 'A-result');
     p1.commit();
@@ -24,11 +24,11 @@ describe('Scenario: namespace isolation between runs', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
 
-    const p1 = new StageContext('p1', 's1', mem, '', log);
+    const p1 = new StageContext('p1', 's1', 's1', mem, '', log);
     p1.setObject([], 'secret', 'p1-only');
     p1.commit();
 
-    const p2 = new StageContext('p2', 's1', mem, '', log);
+    const p2 = new StageContext('p2', 's1', 's1', mem, '', log);
     expect(p2.getValue([], 'secret')).toBeUndefined();
   });
 
@@ -36,8 +36,8 @@ describe('Scenario: namespace isolation between runs', () => {
     const mem = new SharedMemory({ sharedConfig: 'enabled' });
     const log = new EventLog(mem.getState());
 
-    const p1 = new StageContext('p1', 's1', mem, '', log);
-    const p2 = new StageContext('p2', 's1', mem, '', log);
+    const p1 = new StageContext('p1', 's1', 's1', mem, '', log);
+    const p2 = new StageContext('p2', 's1', 's1', mem, '', log);
 
     expect(p1.getGlobal('sharedConfig')).toBe('enabled');
     expect(p2.getGlobal('sharedConfig')).toBe('enabled');
@@ -47,11 +47,11 @@ describe('Scenario: namespace isolation between runs', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
 
-    const p1 = new StageContext('p1', 's1', mem, '', log);
+    const p1 = new StageContext('p1', 's1', 's1', mem, '', log);
     p1.setGlobal('announcement', 'hello');
     p1.commit();
 
-    const p2 = new StageContext('p2', 's1', mem, '', log);
+    const p2 = new StageContext('p2', 's1', 's1', mem, '', log);
     expect(p2.getFromGlobalContext('announcement')).toBe('hello');
   });
 
@@ -59,7 +59,7 @@ describe('Scenario: namespace isolation between runs', () => {
     const mem = new SharedMemory({ theme: 'light' });
     const log = new EventLog(mem.getState());
 
-    const ctx = new StageContext('p1', 's1', mem, '', log);
+    const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
     ctx.setObject([], 'theme', 'dark');
     ctx.commit();
 

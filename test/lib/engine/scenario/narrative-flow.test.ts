@@ -35,7 +35,7 @@ describe('Scenario: Narrative Flow', () => {
     const nodeB: StageNode = { name: 'Step B', id: 'B' };
     const root: StageNode = { name: 'Step A', id: 'A', next: nodeB };
 
-    const runtime = new ExecutionRuntime('Step A');
+    const runtime = new ExecutionRuntime('Step A', 'Step A');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -60,7 +60,7 @@ describe('Scenario: Narrative Flow', () => {
     stageMap.set('A', () => 'a');
 
     const root: StageNode = { name: 'A', id: 'A' };
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('A', 'A');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -87,7 +87,7 @@ describe('Scenario: Narrative Flow', () => {
       children: [{ name: 'Approved', id: 'yes' }],
     };
 
-    const runtime = new ExecutionRuntime('Check Eligibility');
+    const runtime = new ExecutionRuntime('Check Eligibility', 'Check Eligibility');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -119,7 +119,7 @@ describe('Scenario: Narrative Flow', () => {
       ],
     };
 
-    const runtime = new ExecutionRuntime('dispatch');
+    const runtime = new ExecutionRuntime('dispatch', 'dispatch');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

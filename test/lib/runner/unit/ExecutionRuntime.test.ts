@@ -13,27 +13,27 @@ import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 describe('ExecutionRuntime', () => {
   it('constructor creates all three primitives', () => {
-    const runtime = new ExecutionRuntime('test');
+    const runtime = new ExecutionRuntime('test', 'test');
     expect(runtime.globalStore).toBeDefined();
     expect(runtime.rootStageContext).toBeDefined();
     expect(runtime.executionHistory).toBeDefined();
   });
 
   it('constructor applies defaultValues', () => {
-    const runtime = new ExecutionRuntime('test', { defaultKey: 'defaultVal' });
+    const runtime = new ExecutionRuntime('test', 'test', { defaultKey: 'defaultVal' });
     const state = runtime.globalStore.getState();
     expect(state.defaultKey).toBe('defaultVal');
   });
 
   it('constructor applies initialState', () => {
-    const runtime = new ExecutionRuntime('test', undefined, { initial: 'data' });
+    const runtime = new ExecutionRuntime('test', 'test', undefined, { initial: 'data' });
     const state = runtime.globalStore.getState();
     expect(state.initial).toBe('data');
   });
 
   describe('getSnapshot()', () => {
     it('returns sharedState, executionTree, commitLog', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const snapshot = runtime.getSnapshot();
 
       expect(snapshot).toHaveProperty('sharedState');
@@ -45,7 +45,7 @@ describe('ExecutionRuntime', () => {
     });
 
     it('sharedState reflects committed state', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       runtime.rootStageContext.setGlobal('x', 42);
       runtime.rootStageContext.commit();
 
@@ -54,7 +54,7 @@ describe('ExecutionRuntime', () => {
     });
 
     it('commitLog grows with each commit', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       runtime.rootStageContext.setGlobal('a', 1);
       runtime.rootStageContext.commit();
       runtime.rootStageContext.setGlobal('b', 2);
@@ -67,12 +67,12 @@ describe('ExecutionRuntime', () => {
 
   describe('getPipelines()', () => {
     it('returns empty array when no pipelines key', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       expect(runtime.getPipelines()).toEqual([]);
     });
 
     it('returns pipeline keys when pipelines state exists', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       runtime.rootStageContext.setObject(['pipelines'], 'branch-a', {});
       runtime.rootStageContext.setObject(['pipelines'], 'branch-b', {});
       runtime.rootStageContext.commit();
@@ -85,7 +85,7 @@ describe('ExecutionRuntime', () => {
 
   describe('setRootObject()', () => {
     it('sets nested objects on root context', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       runtime.setRootObject(['config'], 'debug', true);
       runtime.rootStageContext.commit();
 
@@ -96,7 +96,7 @@ describe('ExecutionRuntime', () => {
 
   describe('getFullNarrative()', () => {
     it('returns empty narrative for fresh runtime', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const narrative = runtime.getFullNarrative();
 
       expect(narrative.length).toBe(1); // root context
@@ -105,12 +105,12 @@ describe('ExecutionRuntime', () => {
     });
 
     it('walks next chain in context tree', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const root = runtime.rootStageContext;
 
       // Simulate execution: root → next1 → next2
-      const next1 = root.createNext('', 'stage1');
-      const next2 = next1.createNext('', 'stage2');
+      const next1 = root.createNext('', 'stage1', 'stage1');
+      const next2 = next1.createNext('', 'stage2', 'stage2');
 
       const narrative = runtime.getFullNarrative();
 
@@ -121,12 +121,12 @@ describe('ExecutionRuntime', () => {
     });
 
     it('walks children in context tree', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const root = runtime.rootStageContext;
 
       // Simulate fork: root → child-a, child-b
-      root.createChild('', 'a', 'child-a');
-      root.createChild('', 'b', 'child-b');
+      root.createChild('', 'a', 'child-a', 'child-a');
+      root.createChild('', 'b', 'child-b', 'child-b');
 
       const narrative = runtime.getFullNarrative();
 
@@ -138,12 +138,12 @@ describe('ExecutionRuntime', () => {
     });
 
     it('walks mixed tree (children + next)', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const root = runtime.rootStageContext;
 
       // root has children and next
-      root.createChild('', 'a', 'child-a');
-      const next = root.createNext('', 'next-stage');
+      root.createChild('', 'a', 'child-a', 'child-a');
+      const next = root.createNext('', 'next-stage', 'next-stage');
 
       const narrative = runtime.getFullNarrative();
       const names = narrative.map((n) => n.stageName);
@@ -154,7 +154,7 @@ describe('ExecutionRuntime', () => {
     });
 
     it('captures flow messages from context', () => {
-      const runtime = new ExecutionRuntime('root');
+      const runtime = new ExecutionRuntime('root', 'root');
       const root = runtime.rootStageContext;
 
       root.addFlowDebugMessage('next', 'Moving to Process stage', {

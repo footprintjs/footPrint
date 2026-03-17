@@ -11,7 +11,7 @@ const safeKey = fc.string({ minLength: 1 }).filter((s) => !['__proto__', 'constr
 function makeCtx(runId = 'p1', stageName = 's1') {
   const mem = new SharedMemory();
   const log = new EventLog();
-  return new StageContext(runId, stageName, mem, '', log);
+  return new StageContext(runId, stageName, stageName, mem, '', log);
 }
 
 describe('RedactionPolicy — property-based invariants', () => {

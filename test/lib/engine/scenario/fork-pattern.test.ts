@@ -48,7 +48,7 @@ describe('Scenario: Fork Pattern', () => {
     const childB: StageNode = { name: 'childB', id: 'childB' };
     const root: StageNode = { name: 'parent', id: 'parent', children: [childA, childB] };
 
-    const runtime = new ExecutionRuntime('parent');
+    const runtime = new ExecutionRuntime('parent', 'parent');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -83,7 +83,7 @@ describe('Scenario: Fork Pattern', () => {
     const childB: StageNode = { name: 'childB', id: 'childB' };
     const root: StageNode = { name: 'fork', id: 'fork', children: [childA, childB] };
 
-    const runtime = new ExecutionRuntime('fork');
+    const runtime = new ExecutionRuntime('fork', 'fork');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -110,7 +110,7 @@ describe('Scenario: Fork Pattern', () => {
     const bad: StageNode = { name: 'bad', id: 'bad' };
     const root: StageNode = { name: 'fork', id: 'fork', children: [good, bad] };
 
-    const runtime = new ExecutionRuntime('fork');
+    const runtime = new ExecutionRuntime('fork', 'fork');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

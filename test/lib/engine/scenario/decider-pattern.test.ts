@@ -54,7 +54,7 @@ describe('Scenario: Decider Pattern', () => {
       children: [approve, reject],
     };
 
-    const runtime = new ExecutionRuntime('decider');
+    const runtime = new ExecutionRuntime('decider', 'decider');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -86,7 +86,7 @@ describe('Scenario: Decider Pattern', () => {
       children: [fallback],
     };
 
-    const runtime = new ExecutionRuntime('decider');
+    const runtime = new ExecutionRuntime('decider', 'decider');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -112,7 +112,7 @@ describe('Scenario: Decider Pattern', () => {
       children: [{ name: 'approve', id: 'approve' }],
     };
 
-    const runtime = new ExecutionRuntime('decider');
+    const runtime = new ExecutionRuntime('decider', 'decider');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

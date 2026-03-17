@@ -3,7 +3,7 @@ import { __clearScopeResolversForTests, toScopeFactory } from '../../../../src/l
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
 }
 
 describe('Scenario: class scope vs factory scope', () => {
@@ -73,8 +73,8 @@ describe('Scenario: class scope vs factory scope', () => {
   it('multiple class scopes share same SharedMemory via StageContext', () => {
     const mem = new SharedMemory();
     const log = new EventLog();
-    const ctx1 = new StageContext('p1', 's1', mem, '', log);
-    const ctx2 = new StageContext('p1', 's2', mem, '', log);
+    const ctx1 = new StageContext('p1', 's1', 's1', mem, '', log);
+    const ctx2 = new StageContext('p1', 's2', 's2', mem, '', log);
 
     const scope1 = new ScopeFacade(ctx1, 's1');
     const scope2 = new ScopeFacade(ctx2, 's2');

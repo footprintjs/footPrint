@@ -80,7 +80,7 @@ describe('DeciderHandler', () => {
       );
 
       expect(context.commit).toHaveBeenCalled();
-      expect(context.createNext).toHaveBeenCalledWith('main', 'Child A');
+      expect(context.createNext).toHaveBeenCalledWith('main', 'Child A', 'child-a');
       expect(result).toBe('executed');
     });
 
@@ -106,7 +106,7 @@ describe('DeciderHandler', () => {
       );
 
       // Should resolve to default child
-      expect(context.createNext).toHaveBeenCalledWith('main', 'defaultChild');
+      expect(context.createNext).toHaveBeenCalledWith('main', 'defaultChild', 'default');
       // Flow message should mention "fell back to default"
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
         'branch',

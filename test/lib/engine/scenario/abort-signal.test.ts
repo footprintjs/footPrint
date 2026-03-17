@@ -35,7 +35,7 @@ describe('Scenario: AbortSignal', () => {
     const controller = new AbortController();
     controller.abort(new Error('cancelled'));
 
-    const runtime = new ExecutionRuntime('stage1');
+    const runtime = new ExecutionRuntime('stage1', 'stage1');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -66,7 +66,7 @@ describe('Scenario: AbortSignal', () => {
     const stage2: StageNode = { name: 'stage2' };
     const root: StageNode = { name: 'stage1', next: stage2 };
 
-    const runtime = new ExecutionRuntime('stage1');
+    const runtime = new ExecutionRuntime('stage1', 'stage1');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -91,7 +91,7 @@ describe('Scenario: AbortSignal', () => {
     });
 
     const root: StageNode = { name: 'slowStage' };
-    const runtime = new ExecutionRuntime('slowStage');
+    const runtime = new ExecutionRuntime('slowStage', 'slowStage');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

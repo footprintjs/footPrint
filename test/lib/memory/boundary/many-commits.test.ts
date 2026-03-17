@@ -6,10 +6,10 @@ describe('Boundary: many commits', () => {
   it('handles 200 sequential commits', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    let ctx = new StageContext('p1', 's0', mem, '', log);
+    let ctx = new StageContext('p1', 's0', 's0', mem, '', log);
 
     for (let i = 0; i < 200; i++) {
-      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`);
+      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
       if (i > 0) ctx = stage;
       stage.setObject([], 'counter', i);
       stage.commit();
@@ -22,10 +22,10 @@ describe('Boundary: many commits', () => {
   it('materialise at any step within 200 commits', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    let ctx = new StageContext('p1', 's0', mem, '', log);
+    let ctx = new StageContext('p1', 's0', 's0', mem, '', log);
 
     for (let i = 0; i < 200; i++) {
-      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`);
+      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
       if (i > 0) ctx = stage;
       stage.setObject([], 'step', i);
       stage.commit();
@@ -45,10 +45,10 @@ describe('Boundary: many commits', () => {
   it('accumulative merges across many commits', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    let ctx = new StageContext('p1', 's0', mem, '', log);
+    let ctx = new StageContext('p1', 's0', 's0', mem, '', log);
 
     for (let i = 0; i < 100; i++) {
-      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`);
+      const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
       if (i > 0) ctx = stage;
       stage.updateObject([], 'items', [`item${i}`]);
       stage.commit();

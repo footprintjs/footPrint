@@ -7,17 +7,17 @@ describe('Scenario: time-travel replay via EventLog', () => {
     const mem = new SharedMemory({ counter: 0 });
     const log = new EventLog(mem.getState());
 
-    const s1 = new StageContext('p1', 'init', mem, '', log);
+    const s1 = new StageContext('p1', 'init', 'init', mem, '', log);
     s1.setObject([], 'counter', 10);
     s1.setObject([], 'name', 'Alice');
     s1.commit();
 
-    const s2 = s1.createNext('p1', 'process');
+    const s2 = s1.createNext('p1', 'process', 'process');
     s2.setObject([], 'counter', 20);
     s2.setObject([], 'status', 'processing');
     s2.commit();
 
-    const s3 = s2.createNext('p1', 'finalize');
+    const s3 = s2.createNext('p1', 'finalize', 'finalize');
     s3.setObject([], 'counter', 30);
     s3.setObject([], 'status', 'done');
     s3.commit();

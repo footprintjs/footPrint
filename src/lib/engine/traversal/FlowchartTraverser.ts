@@ -284,7 +284,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
       if (node.next && shouldExecuteContinuation) {
-        const nextCtx = context.createNext(branchPath as string, node.next.name);
+        const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
         return await this.executeNode(node.next, nextCtx, breakFlag, branchPath);
       }
 
@@ -344,7 +344,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         );
 
         if (hasNext) {
-          const nextCtx = context.createNext(branchPath as string, node.next!.name);
+          const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
           return await this.executeNode(node.next!, nextCtx, breakFlag, branchPath);
         }
         return selectorResult;
@@ -389,7 +389,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         }
 
         this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
-        const nextCtx = context.createNext(branchPath as string, nextNode.name);
+        const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
         return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
       }
 
@@ -607,7 +607,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
         targetStage: nextNode.name,
       });
-      const nextCtx = context.createNext(branchPath as string, nextNode.name);
+      const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
       return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
     }
 

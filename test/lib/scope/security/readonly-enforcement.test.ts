@@ -3,7 +3,7 @@ import { attachScopeMethods } from '../../../../src/lib/scope/providers/baseStat
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
 }
 
 describe('Security: readonly enforcement', () => {
@@ -88,8 +88,8 @@ describe('Security: readonly enforcement', () => {
     const mem = new SharedMemory();
     const log = new EventLog();
 
-    const ctx1 = new StageContext('p1', 's1', mem, '', log);
-    const ctx2 = new StageContext('p1', 's2', mem, '', log);
+    const ctx1 = new StageContext('p1', 's1', 's1', mem, '', log);
+    const ctx2 = new StageContext('p1', 's2', 's2', mem, '', log);
 
     const scope1 = new ScopeFacade(ctx1, 's1', readOnly);
     const scope2 = new ScopeFacade(ctx2, 's2', readOnly);

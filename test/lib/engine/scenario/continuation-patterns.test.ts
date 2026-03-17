@@ -53,7 +53,7 @@ describe('Scenario: Continuation Patterns', () => {
 
     const root: StageNode = { name: 'start', id: 'start' };
 
-    const runtime = new ExecutionRuntime('start');
+    const runtime = new ExecutionRuntime('start', 'start');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -101,7 +101,7 @@ describe('Scenario: Continuation Patterns', () => {
 
     const root: StageNode = { name: 'producer', id: 'producer' };
 
-    const runtime = new ExecutionRuntime('producer');
+    const runtime = new ExecutionRuntime('producer', 'producer');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -139,7 +139,7 @@ describe('Scenario: Continuation Patterns', () => {
 
     const root: StageNode = { name: 'loop-entry', id: 'loop-entry' };
 
-    const runtime = new ExecutionRuntime('loop-entry');
+    const runtime = new ExecutionRuntime('loop-entry', 'loop-entry');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -173,7 +173,7 @@ describe('Scenario: Continuation Patterns', () => {
 
     const root: StageNode = { name: 'retry', id: 'retry' };
 
-    const runtime = new ExecutionRuntime('retry');
+    const runtime = new ExecutionRuntime('retry', 'retry');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -229,7 +229,7 @@ describe('Scenario: Continuation Patterns', () => {
     };
     const root: StageNode = { name: 'producer', id: 'producer', next: after };
 
-    const runtime = new ExecutionRuntime('producer');
+    const runtime = new ExecutionRuntime('producer', 'producer');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

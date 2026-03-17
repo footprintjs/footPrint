@@ -120,7 +120,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
 
     this.deps.narrativeGenerator.onDecision(node.name, chosen.name, rationale, node.description);
 
-    const nextStageContext = context.createNext(branchPath as string, chosen.name);
+    const nextStageContext = context.createNext(branchPath as string, chosen.name, chosen.id);
     return executeNode(chosen, nextStageContext, breakFlag, branchPath);
   }
 }

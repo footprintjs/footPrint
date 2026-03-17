@@ -2,7 +2,7 @@ import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
 }
 
 describe('Security: scope isolation', () => {
@@ -74,7 +74,7 @@ describe('Security: scope isolation', () => {
   it('readonly enforcement does not leak into shared memory writes', () => {
     const mem = new SharedMemory();
     const log = new EventLog();
-    const ctx = new StageContext('p1', 's1', mem, '', log);
+    const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
     const readOnly = { apiKey: 'secret' };
 
     const scope = new ScopeFacade(ctx, 's1', readOnly);

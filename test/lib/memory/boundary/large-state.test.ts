@@ -6,7 +6,7 @@ describe('Boundary: large state', () => {
   it('handles 1000 keys in a single commit', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const ctx = new StageContext('p1', 's1', mem, '', log);
+    const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
 
     for (let i = 0; i < 1000; i++) {
       ctx.setObject([], `key${i}`, `value${i}`);
@@ -21,7 +21,7 @@ describe('Boundary: large state', () => {
   it('handles a large object value (100KB+ serialised)', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const ctx = new StageContext('p1', 's1', mem, '', log);
+    const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
 
     const largeArray = Array.from({ length: 10000 }, (_, i) => ({
       id: i,
@@ -41,7 +41,7 @@ describe('Boundary: large state', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
 
-    const ctx = new StageContext('p1', 's1', mem, '', log);
+    const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
     const data: Record<string, number> = {};
     for (let i = 0; i < 500; i++) {
       data[`field${i}`] = i;

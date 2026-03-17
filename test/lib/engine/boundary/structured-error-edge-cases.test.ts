@@ -41,7 +41,7 @@ function createTraverser(
   stageMap: Map<string, StageFunction>,
   opts?: { flowRecorders?: FlowRecorder[] },
 ) {
-  const runtime = new ExecutionRuntime(root.name);
+  const runtime = new ExecutionRuntime(root.name, root.name);
   const traverser = new FlowchartTraverser({
     root,
     stageMap,

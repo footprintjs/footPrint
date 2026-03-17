@@ -13,7 +13,7 @@ import {
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx() {
-  return new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
+  return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
 }
 
 describe('Guards', () => {

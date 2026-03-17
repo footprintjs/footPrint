@@ -21,6 +21,8 @@ export class StageContext {
   private eventLog?: EventLog;
 
   public stageName = '';
+  /** Unique stage identifier from the builder (matches spec node id). */
+  public stageId: string;
   public runId: string;
   public branchId?: string;
   public isDecider: boolean;
@@ -45,6 +47,7 @@ export class StageContext {
   constructor(
     runId: string,
     name: string,
+    stageId: string,
     sharedMemory: SharedMemory,
     branchId?: string,
     eventLog?: EventLog,
@@ -52,6 +55,7 @@ export class StageContext {
   ) {
     this.runId = runId;
     this.stageName = name;
+    this.stageId = stageId;
     this.sharedMemory = sharedMemory;
     this.branchId = branchId;
     this.eventLog = eventLog;
@@ -211,26 +215,26 @@ export class StageContext {
 
   // ── Tree navigation ────────────────────────────────────────────────────
 
-  createNext(path: string, stageName: string, isDecider = false): StageContext {
+  createNext(path: string, stageName: string, stageId: string, isDecider = false): StageContext {
     if (!this.next) {
-      this.next = new StageContext(path, stageName, this.sharedMemory, '', this.eventLog, isDecider);
+      this.next = new StageContext(path, stageName, stageId, this.sharedMemory, '', this.eventLog, isDecider);
       this.next.parent = this;
     }
     return this.next;
   }
 
-  createChild(runId: string, branchId: string, stageName: string, isDecider = false): StageContext {
+  createChild(runId: string, branchId: string, stageName: string, stageId: string, isDecider = false): StageContext {
     if (!this.children) {
       this.children = [];
     }
-    const child = new StageContext(runId, stageName, this.sharedMemory, branchId, this.eventLog, isDecider);
+    const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
     child.parent = this;
     this.children.push(child);
     return child;
   }
 
-  createDecider(path: string, stageName: string): StageContext {
-    return this.createNext(path, stageName, true);
+  createDecider(path: string, stageName: string, stageId: string): StageContext {
+    return this.createNext(path, stageName, stageId, true);
   }
 
   setAsDecider(): StageContext {
@@ -291,7 +295,7 @@ export class StageContext {
 
   getSnapshot(): StageSnapshot {
     const snapshot: StageSnapshot = {
-      id: this.runId,
+      id: this.stageId,
       name: this.stageName,
       isDecider: this.isDecider,
       isFork: this.isFork,

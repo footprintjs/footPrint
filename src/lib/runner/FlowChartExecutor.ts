@@ -133,7 +133,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }) as ScopeFactory<TScope>;
     }
 
-    const runtime = new ExecutionRuntime(fc.root.name, args.defaultValuesForContext, args.initialContext);
+    const runtime = new ExecutionRuntime(fc.root.name, fc.root.id, args.defaultValuesForContext, args.initialContext);
 
     return new FlowchartTraverser<TOut, TScope>({
       root: fc.root,

@@ -98,7 +98,7 @@ describe('Security: Structured error data leakage', () => {
     });
 
     const root: StageNode = { name: 'fail', id: 'fail' };
-    const runtime = new ExecutionRuntime(root.name);
+    const runtime = new ExecutionRuntime(root.name, root.name);
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

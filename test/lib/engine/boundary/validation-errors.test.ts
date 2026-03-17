@@ -30,7 +30,7 @@ function makeTraverser(root: StageNode) {
     root,
     stageMap: new Map(),
     scopeFactory: simpleScopeFactory,
-    executionRuntime: new ExecutionRuntime(root.name),
+    executionRuntime: new ExecutionRuntime(root.name, root.name),
     scopeProtectionMode: 'off',
     logger: silentLogger,
   });
@@ -53,7 +53,7 @@ describe('Boundary: Validation Errors', () => {
       root,
       stageMap,
       scopeFactory: simpleScopeFactory,
-      executionRuntime: new ExecutionRuntime('decider'),
+      executionRuntime: new ExecutionRuntime('decider', 'decider'),
       scopeProtectionMode: 'off',
       logger: silentLogger,
     });
@@ -70,7 +70,7 @@ describe('Boundary: Validation Errors', () => {
       root,
       stageMap,
       scopeFactory: simpleScopeFactory,
-      executionRuntime: new ExecutionRuntime('selector'),
+      executionRuntime: new ExecutionRuntime('selector', 'selector'),
       scopeProtectionMode: 'off',
       logger: silentLogger,
     });
@@ -87,7 +87,7 @@ describe('Boundary: Validation Errors', () => {
       root,
       stageMap,
       scopeFactory: simpleScopeFactory,
-      executionRuntime: new ExecutionRuntime('leaf'),
+      executionRuntime: new ExecutionRuntime('leaf', 'leaf'),
       scopeProtectionMode: 'off',
       logger: silentLogger,
     });

@@ -3,7 +3,7 @@ import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { ReadEvent, WriteEvent } from '../../../../src/lib/scope/types';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
 }
 
 describe('Boundary: redaction edge cases', () => {

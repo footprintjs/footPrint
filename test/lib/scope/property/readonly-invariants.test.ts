@@ -4,7 +4,7 @@ import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx() {
-  return new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
+  return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
 }
 
 const safeKey = fc.string({ minLength: 1 }).filter((s) => !['__proto__', 'constructor', 'prototype'].includes(s));

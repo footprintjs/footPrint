@@ -36,10 +36,10 @@ export class ExecutionRuntime {
   public rootStageContext: StageContext;
   public executionHistory: EventLog;
 
-  constructor(rootName: string, defaultValues?: unknown, initialState?: unknown) {
+  constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
     this.executionHistory = new EventLog(initialState);
     this.globalStore = new SharedMemory(defaultValues, initialState);
-    this.rootStageContext = new StageContext('', rootName, this.globalStore, '', this.executionHistory);
+    this.rootStageContext = new StageContext('', rootName, rootId, this.globalStore, '', this.executionHistory);
   }
 
   getPipelines(): string[] {

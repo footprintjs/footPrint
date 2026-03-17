@@ -44,7 +44,7 @@ describe('Scenario: Traverser Coverage', () => {
     stageMap.set('root', () => 'done');
     const root: StageNode = { name: 'root', fn: () => 'done' };
 
-    const runtime = new ExecutionRuntime('root');
+    const runtime = new ExecutionRuntime('root', 'root');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -111,7 +111,7 @@ describe('Scenario: Traverser Coverage', () => {
       nextNodeSelector: (_input: any) => ['a', 'c'], // static selector picks a and c
     };
 
-    const runtime = new ExecutionRuntime('parent');
+    const runtime = new ExecutionRuntime('parent', 'parent');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -172,7 +172,7 @@ describe('Scenario: Traverser Coverage', () => {
 
     const root: StageNode = { name: 'producer', id: 'producer' };
 
-    const runtime = new ExecutionRuntime('producer');
+    const runtime = new ExecutionRuntime('producer', 'producer');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -225,7 +225,7 @@ describe('Scenario: Traverser Coverage', () => {
 
     const root: StageNode = { name: 'setup', id: 'setup' };
 
-    const runtime = new ExecutionRuntime('setup');
+    const runtime = new ExecutionRuntime('setup', 'setup');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -281,7 +281,7 @@ describe('Scenario: Traverser Coverage', () => {
 
     const root: StageNode = { name: 'producer', id: 'producer' };
 
-    const runtime = new ExecutionRuntime('producer');
+    const runtime = new ExecutionRuntime('producer', 'producer');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -362,7 +362,7 @@ describe('Scenario: Traverser Coverage', () => {
 
     const root: StageNode = { name: 'trigger', id: 'trigger' };
 
-    const runtime = new ExecutionRuntime('trigger');
+    const runtime = new ExecutionRuntime('trigger', 'trigger');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -420,7 +420,7 @@ describe('Scenario: Traverser Coverage', () => {
       'ref-sub': { root: subRoot },
     };
 
-    const runtime = new ExecutionRuntime('subflow-mount');
+    const runtime = new ExecutionRuntime('subflow-mount', 'subflow-mount');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -472,7 +472,7 @@ describe('Scenario: Traverser Coverage', () => {
       streamId: 'my-stream',
     };
 
-    const runtime = new ExecutionRuntime('stream-stage');
+    const runtime = new ExecutionRuntime('stream-stage', 'stream-stage');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -519,7 +519,7 @@ describe('Scenario: Traverser Coverage', () => {
       // no streamId — should default to node.name
     };
 
-    const runtime = new ExecutionRuntime('auto-id-stream');
+    const runtime = new ExecutionRuntime('auto-id-stream', 'auto-id-stream');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -565,7 +565,7 @@ describe('Scenario: Traverser Coverage', () => {
 
     const root: StageNode = { name: 'start', id: 'start' };
 
-    const runtime = new ExecutionRuntime('start');
+    const runtime = new ExecutionRuntime('start', 'start');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

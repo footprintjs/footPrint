@@ -103,8 +103,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     }
 
     // Create isolated runtime via dynamic construction (avoids circular import)
-    const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (name: string) => IExecutionRuntime;
-    const nestedRuntime = new ExecutionRuntimeClass(node.name);
+    const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (
+      name: string,
+      id: string,
+    ) => IExecutionRuntime;
+    const nestedRuntime = new ExecutionRuntimeClass(node.name, node.id);
     let nestedRootContext = nestedRuntime.rootStageContext;
 
     // Seed GlobalStore with input
@@ -115,6 +118,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRootContext = new StageContextClass(
         '',
         nestedRootContext.stageName,
+        nestedRootContext.stageId,
         nestedRuntime.globalStore,
         '',
         nestedRuntime.executionHistory,
@@ -332,7 +336,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
 
       this.deps.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
-      const nextCtx = context.createNext('', nextNode.name);
+      const nextCtx = context.createNext('', nextNode.name, nextNode.id);
       return await this.executeSubflowInternal(nextNode, nextCtx, breakFlag, branchPath);
     }
 
@@ -353,7 +357,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
   ): Promise<Record<string, NodeResultType>> {
     const childPromises: Promise<NodeResultType>[] = (node.children ?? []).map((child) => {
-      const childContext = context.createChild('', child.id as string, child.name);
+      const childContext = context.createChild('', child.id as string, child.name, child.id);
       const childBreakFlag = { shouldBreak: false };
 
       return this.executeSubflowInternal(child, childContext, childBreakFlag, branchPath)

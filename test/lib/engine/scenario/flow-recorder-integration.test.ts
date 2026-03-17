@@ -51,7 +51,7 @@ describe('Scenario: FlowRecorder Integration', () => {
       onNext: (e: FlowNextEvent) => events.push(`next:${e.from}->${e.to}`),
     };
 
-    const runtime = new ExecutionRuntime('Step A');
+    const runtime = new ExecutionRuntime('Step A', 'Step A');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -79,7 +79,7 @@ describe('Scenario: FlowRecorder Integration', () => {
     const recorder1Events: string[] = [];
     const recorder2Events: string[] = [];
 
-    const runtime = new ExecutionRuntime('Init');
+    const runtime = new ExecutionRuntime('Init', 'Init');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -109,7 +109,7 @@ describe('Scenario: FlowRecorder Integration', () => {
     const root: StageNode = { name: 'Step A', id: 'A', next: nodeB };
 
     // Run with default narrative (auto-attached NarrativeFlowRecorder)
-    const runtime1 = new ExecutionRuntime('Step A');
+    const runtime1 = new ExecutionRuntime('Step A', 'Step A');
     const traverser1 = new FlowchartTraverser({
       root,
       stageMap,
@@ -124,7 +124,7 @@ describe('Scenario: FlowRecorder Integration', () => {
 
     // Run with explicit NarrativeFlowRecorder
     const narrator = new NarrativeFlowRecorder();
-    const runtime2 = new ExecutionRuntime('Step A');
+    const runtime2 = new ExecutionRuntime('Step A', 'Step A');
     const traverser2 = new FlowchartTraverser({
       root,
       stageMap,
@@ -159,7 +159,7 @@ describe('Scenario: FlowRecorder Integration', () => {
       onDecision: (e) => decisions.push(e),
     };
 
-    const runtime = new ExecutionRuntime('Check');
+    const runtime = new ExecutionRuntime('Check', 'Check');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -197,7 +197,7 @@ describe('Scenario: FlowRecorder Integration', () => {
       onFork: (e) => forks.push(e),
     };
 
-    const runtime = new ExecutionRuntime('dispatch');
+    const runtime = new ExecutionRuntime('dispatch', 'dispatch');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -222,7 +222,7 @@ describe('Scenario: FlowRecorder Integration', () => {
     const root: StageNode = { name: 'Init', id: 'init' };
 
     const narrator = new NarrativeFlowRecorder('my-narrator');
-    const runtime = new ExecutionRuntime('Init');
+    const runtime = new ExecutionRuntime('Init', 'Init');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -246,7 +246,7 @@ describe('Scenario: FlowRecorder Integration', () => {
     const root: StageNode = { name: 'Init', id: 'init' };
 
     const silent = new SilentNarrativeFlowRecorder();
-    const runtime = new ExecutionRuntime('Init');
+    const runtime = new ExecutionRuntime('Init', 'Init');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

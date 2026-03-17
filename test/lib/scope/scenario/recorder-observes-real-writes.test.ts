@@ -5,7 +5,7 @@ import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/Narrative
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
 }
 
 describe('Scenario: recorder observes real writes', () => {

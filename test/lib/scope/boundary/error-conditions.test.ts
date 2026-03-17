@@ -42,14 +42,14 @@ describe('Boundary: error conditions', () => {
   });
 
   it('detaching non-existent recorder is a no-op', () => {
-    const ctx = new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
+    const ctx = new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
     const scope = new ScopeFacade(ctx, 'test');
     scope.detachRecorder('non-existent');
     expect(scope.getRecorders()).toHaveLength(0);
   });
 
   it('onError does not cause infinite recursion when onError throws', () => {
-    const ctx = new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
+    const ctx = new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
     const scope = new ScopeFacade(ctx, 'test');
 
     scope.attachRecorder({

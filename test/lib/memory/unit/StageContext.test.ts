@@ -5,7 +5,7 @@ import { StageContext } from '../../../../src/lib/memory/StageContext';
 function createCtx(runId = 'p1', stageName = 'stage1') {
   const mem = new SharedMemory();
   const log = new EventLog({});
-  const ctx = new StageContext(runId, stageName, mem, '', log);
+  const ctx = new StageContext(runId, stageName, stageName, mem, '', log);
   return { ctx, mem, log };
 }
 
@@ -105,7 +105,7 @@ describe('StageContext', () => {
       ctx.commit();
 
       // New context reads the committed value
-      const ctx2 = new StageContext('p1', 'stage2', mem, '', undefined);
+      const ctx2 = new StageContext('p1', 'stage2', 'stage2', mem, '', undefined);
       ctx2.getValue([], 'score');
       const snap = ctx2.getSnapshot();
       expect(snap.stageReads).toEqual({ score: 100 });
@@ -123,7 +123,7 @@ describe('StageContext', () => {
   describe('tree navigation', () => {
     it('createNext creates a linked successor', () => {
       const { ctx } = createCtx();
-      const next = ctx.createNext('p1', 'stage2');
+      const next = ctx.createNext('p1', 'stage2', 'stage2');
       expect(ctx.next).toBe(next);
       expect(next.parent).toBe(ctx);
       expect(next.stageName).toBe('stage2');
@@ -131,15 +131,15 @@ describe('StageContext', () => {
 
     it('createNext returns existing next if called twice', () => {
       const { ctx } = createCtx();
-      const n1 = ctx.createNext('p1', 'stage2');
-      const n2 = ctx.createNext('p1', 'stage2');
+      const n1 = ctx.createNext('p1', 'stage2', 'stage2');
+      const n2 = ctx.createNext('p1', 'stage2', 'stage2');
       expect(n1).toBe(n2);
     });
 
     it('createChild creates branch contexts', () => {
       const { ctx } = createCtx();
-      const c1 = ctx.createChild('p1', 'b1', 'branch1');
-      const c2 = ctx.createChild('p1', 'b2', 'branch2');
+      const c1 = ctx.createChild('p1', 'b1', 'branch1', 'branch1');
+      const c2 = ctx.createChild('p1', 'b2', 'branch2', 'branch2');
 
       expect(ctx.children).toHaveLength(2);
       expect(c1.parent).toBe(ctx);
@@ -189,12 +189,12 @@ describe('StageContext', () => {
     it('getSnapshot returns serialisable tree', () => {
       const { ctx } = createCtx();
       ctx.addLog('msg', 'test');
-      const next = ctx.createNext('p1', 'stage2');
+      const next = ctx.createNext('p1', 'stage2', 'stage2');
       next.addLog('msg', 'test2');
-      ctx.createChild('p1', 'b1', 'branch1');
+      ctx.createChild('p1', 'b1', 'branch1', 'branch1');
 
       const snap = ctx.getSnapshot();
-      expect(snap.id).toBe('p1');
+      expect(snap.id).toBe('stage1');
       expect(snap.name).toBe('stage1');
       expect(snap.next?.name).toBe('stage2');
       expect(snap.children).toHaveLength(1);
@@ -207,7 +207,7 @@ describe('StageContext', () => {
 
     it('getStageId returns stageName when no runId', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('', 'root', mem);
+      const ctx = new StageContext('', 'root', 'root', mem);
       expect(ctx.getStageId()).toBe('root');
     });
   });
@@ -215,19 +215,19 @@ describe('StageContext', () => {
   describe('global reads', () => {
     it('getGlobal reads from global scope', () => {
       const mem = new SharedMemory({ globalVal: 42 });
-      const ctx = new StageContext('p1', 's1', mem);
+      const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getGlobal('globalVal')).toBe(42);
     });
 
     it('getFromGlobalContext reads from global scope', () => {
       const mem = new SharedMemory({ globalVal: 42 });
-      const ctx = new StageContext('p1', 's1', mem);
+      const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getFromGlobalContext('globalVal')).toBe(42);
     });
 
     it('getScope returns full state', () => {
       const mem = new SharedMemory({ x: 1 });
-      const ctx = new StageContext('p1', 's1', mem);
+      const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getScope()).toHaveProperty('x', 1);
     });
   });
@@ -237,7 +237,7 @@ describe('StageContext', () => {
   describe('getSharedMemory', () => {
     it('returns the SharedMemory instance', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('p1', 's1', mem);
+      const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getSharedMemory()).toBe(mem);
     });
   });
@@ -372,7 +372,7 @@ describe('StageContext', () => {
   describe('createChild with isDecider', () => {
     it('creates a child context marked as decider', () => {
       const { ctx } = createCtx();
-      const child = ctx.createChild('p1', 'b1', 'branch1', true);
+      const child = ctx.createChild('p1', 'b1', 'branch1', 'branch1', true);
       expect(child.isDecider).toBe(true);
       expect(child.branchId).toBe('b1');
     });
@@ -381,7 +381,7 @@ describe('StageContext', () => {
   describe('namespace with empty runId', () => {
     it('skips runs prefix when runId is empty', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('', 'root', mem);
+      const ctx = new StageContext('', 'root', 'root', mem);
       ctx.setObject([], 'key', 'val');
       ctx.commit();
       // With empty runId, path should be just [key] not ['runs', '', key]

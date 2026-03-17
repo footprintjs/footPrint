@@ -5,7 +5,7 @@ import type { WriteEvent } from '../../../../src/lib/scope/types';
 function makeCtx(runId = 'p1', stageName = 's1') {
   const mem = new SharedMemory();
   const log = new EventLog();
-  return new StageContext(runId, stageName, mem, '', log);
+  return new StageContext(runId, stageName, stageName, mem, '', log);
 }
 
 describe('RedactionPolicy — boundary / edge cases', () => {

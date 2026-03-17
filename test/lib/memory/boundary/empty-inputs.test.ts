@@ -61,20 +61,20 @@ describe('Boundary: empty inputs', () => {
     it('commit with no writes does not crash', () => {
       const mem = new SharedMemory();
       const log = new EventLog(mem.getState());
-      const ctx = new StageContext('p1', 's1', mem, '', log);
+      const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
       ctx.commit(); // should not throw
       expect(log.list()).toHaveLength(1);
     });
 
     it('getValue on empty state returns undefined', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('p1', 's1', mem);
+      const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getValue([], 'missing')).toBeUndefined();
     });
 
     it('empty runId works (root-level writes)', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('', 'root', mem);
+      const ctx = new StageContext('', 'root', 'root', mem);
       ctx.setObject([], 'key', 'val');
       ctx.commit();
       expect(mem.getValue('', [], 'key')).toBe('val');

@@ -43,7 +43,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
     const childPromises: Promise<NodeResultType>[] = allChildren.map((child) => {
       const childBranchPath = branchPath || child.id;
-      const childContext = context.createChild(childBranchPath as string, child.id as string, child.name);
+      const childContext = context.createChild(childBranchPath as string, child.id as string, child.name, child.id);
       const childBreakFlag = { shouldBreak: false };
 
       const updateParentBreakFlag = () => {

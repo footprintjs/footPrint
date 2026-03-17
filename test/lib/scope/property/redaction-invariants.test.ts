@@ -5,7 +5,7 @@ import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { ReadEvent, Recorder, WriteEvent } from '../../../../src/lib/scope/types';
 
 function makeCtx() {
-  return new StageContext('p1', 's1', new SharedMemory(), '', new EventLog());
+  return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
 }
 
 describe('Property: redaction invariants', () => {

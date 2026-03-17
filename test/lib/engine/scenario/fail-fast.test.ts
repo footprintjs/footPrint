@@ -47,7 +47,7 @@ describe('Scenario: failFast on fork', () => {
     const childB: StageNode = { name: 'childB', id: 'childB' };
     const root: StageNode = { name: 'parent', children: [childA, childB] };
 
-    const runtime = new ExecutionRuntime('parent');
+    const runtime = new ExecutionRuntime('parent', 'parent');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -84,7 +84,7 @@ describe('Scenario: failFast on fork', () => {
     const childB: StageNode = { name: 'childB', id: 'childB' };
     const root: StageNode = { name: 'parent', children: [childA, childB], failFast: true };
 
-    const runtime = new ExecutionRuntime('parent');
+    const runtime = new ExecutionRuntime('parent', 'parent');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -107,7 +107,7 @@ describe('Scenario: failFast on fork', () => {
     const childB: StageNode = { name: 'childB', id: 'childB' };
     const root: StageNode = { name: 'parent', children: [childA, childB], failFast: true };
 
-    const runtime = new ExecutionRuntime('parent');
+    const runtime = new ExecutionRuntime('parent', 'parent');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

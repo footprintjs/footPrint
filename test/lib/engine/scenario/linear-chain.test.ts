@@ -51,7 +51,7 @@ describe('Scenario: Linear Chain', () => {
     const nodeB: StageNode = { name: 'B', id: 'B', next: nodeC };
     const root: StageNode = { name: 'A', id: 'A', next: nodeB };
 
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('A', 'A');
 
     const traverser = new FlowchartTraverser({
       root,
@@ -92,7 +92,7 @@ describe('Scenario: Linear Chain', () => {
     const nodeB: StageNode = { name: 'B', id: 'B', next: nodeC };
     const root: StageNode = { name: 'A', id: 'A', next: nodeB };
 
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('A', 'A');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -116,7 +116,7 @@ describe('Scenario: Linear Chain', () => {
     });
 
     const root: StageNode = { name: 'A', id: 'A' };
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('A', 'A');
 
     const traverser = new FlowchartTraverser({
       root,
@@ -134,7 +134,7 @@ describe('Scenario: Linear Chain', () => {
     const embedded = vi.fn().mockReturnValue('embedded-result');
 
     const root: StageNode = { name: 'A', id: 'A', fn: embedded };
-    const runtime = new ExecutionRuntime('A');
+    const runtime = new ExecutionRuntime('A', 'A');
 
     const traverser = new FlowchartTraverser({
       root,

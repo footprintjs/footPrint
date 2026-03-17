@@ -79,7 +79,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const selectorFn = () => ['email', 'push']; // skip sms
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -119,7 +119,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const selectorFn = () => 'b'; // single string coerced to array
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -148,7 +148,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const selectorFn = () => []; // select nothing
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -174,7 +174,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const selectorFn = () => ['nonexistent'];
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -198,7 +198,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const root = buildSelectorTree(selectorFn, children, stageMap);
     stageMap.set('A', () => {});
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -229,7 +229,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const children: StageNode[] = [{ name: 'A', id: 'a', fn: aFn }];
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -262,7 +262,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     const selectorFn = () => ['email'];
     const root = buildSelectorTree(selectorFn, children, stageMap);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,
@@ -317,7 +317,7 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     };
     stageMap.set('selector', selectorFn);
 
-    const runtime = new ExecutionRuntime('selector');
+    const runtime = new ExecutionRuntime('selector', 'selector');
     const traverser = new FlowchartTraverser({
       root,
       stageMap,

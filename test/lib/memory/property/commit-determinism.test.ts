@@ -20,10 +20,10 @@ describe('Property: commit determinism', () => {
           const run = () => {
             const mem = new SharedMemory();
             const log = new EventLog(mem.getState());
-            let ctx = new StageContext('p1', 'root', mem, '', log);
+            let ctx = new StageContext('p1', 'root', 'root', mem, '', log);
 
             for (let i = 0; i < writes.length; i++) {
-              const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`);
+              const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
               if (i > 0) ctx = stage;
               stage.setObject([], writes[i].key, writes[i].value);
               stage.commit();
@@ -47,10 +47,10 @@ describe('Property: commit determinism', () => {
         const k = Math.min(stepK, totalSteps - 1);
         const mem = new SharedMemory();
         const log = new EventLog(mem.getState());
-        let ctx = new StageContext('p1', 'root', mem, '', log);
+        let ctx = new StageContext('p1', 'root', 'root', mem, '', log);
 
         for (let i = 0; i < totalSteps; i++) {
-          const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`);
+          const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
           if (i > 0) ctx = stage;
           stage.setObject([], `key${i}`, i);
           stage.commit();
