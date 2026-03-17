@@ -7,11 +7,11 @@
  */
 
 // Classes
-export { DiagnosticCollector } from './DiagnosticCollector';
-export { EventLog } from './EventLog';
-export { SharedMemory } from './SharedMemory';
-export { StageContext } from './StageContext';
-export { TransactionBuffer } from './TransactionBuffer';
+export { DiagnosticCollector } from './DiagnosticCollector.js';
+export { EventLog } from './EventLog.js';
+export { SharedMemory } from './SharedMemory.js';
+export { StageContext } from './StageContext.js';
+export { TransactionBuffer } from './TransactionBuffer.js';
 
 // Types
 export type {
@@ -22,7 +22,7 @@ export type {
   ScopeFactory,
   StageSnapshot,
   TraceEntry,
-} from './types';
+} from './types.js';
 
 // Utilities
 export {
@@ -36,4 +36,4 @@ export {
   setNestedValue,
   updateNestedValue,
   updateValue,
-} from './utils';
+} from './utils.js';

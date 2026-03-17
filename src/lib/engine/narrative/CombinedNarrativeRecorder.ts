@@ -13,8 +13,8 @@
  * emit the stage entry + flush the buffered ops in one pass.
  */
 
-import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types';
-import type { CombinedNarrativeEntry } from './CombinedNarrativeBuilder';
+import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types.js';
+import type { CombinedNarrativeEntry } from './CombinedNarrativeBuilder.js';
 import type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -25,7 +25,7 @@ import type {
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
-} from './types';
+} from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

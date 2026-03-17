@@ -5,7 +5,7 @@
  * factory function, or ScopeFacade subclass.
  */
 
-import { ScopeFacade } from '../ScopeFacade';
+import { ScopeFacade } from '../ScopeFacade.js';
 
 type CallableFunction = (...args: unknown[]) => unknown;
 

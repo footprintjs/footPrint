@@ -5,13 +5,13 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
-import type { StageContext } from '../memory/StageContext';
-import type { ScopeProtectionMode } from '../scope/protection/types';
-import type { Decider, Selector, StageNode } from './graph/StageNode';
-import type { IControlFlowNarrative } from './narrative/types';
+import type { StageContext } from '../memory/StageContext.js';
+import type { ScopeProtectionMode } from '../scope/protection/types.js';
+import type { Decider, Selector, StageNode } from './graph/StageNode.js';
+import type { IControlFlowNarrative } from './narrative/types.js';
 
 // Re-export StageNode types for convenience
-export type { Decider, Selector, StageNode } from './graph/StageNode';
+export type { Decider, Selector, StageNode } from './graph/StageNode.js';
 
 // ---------------------------------------------------------------------------
 // Logger

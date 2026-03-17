@@ -2,7 +2,7 @@
  * Provider Factories — Wrap factory functions and class constructors as ScopeProviders
  */
 
-import type { ScopeFactory, ScopeProvider, StageContextLike } from './types';
+import type { ScopeFactory, ScopeProvider, StageContextLike } from './types.js';
 
 /** Wrap an existing factory function as a ScopeProvider */
 export function makeFactoryProvider<TScope>(factory: ScopeFactory<TScope>): ScopeProvider<TScope> {

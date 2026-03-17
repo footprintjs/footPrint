@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { FlowRecorder, FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../types';
+import type { FlowRecorder, FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../types.js';
 
 /** A single entry in the subflow manifest tree. */
 export interface ManifestEntry {

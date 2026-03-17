@@ -11,8 +11,8 @@
  * String-ification happens only at the final rendering boundary.
  */
 
-import type { ValidationIssue } from '../../schema/errors';
-import { InputValidationError } from '../../schema/errors';
+import type { ValidationIssue } from '../../schema/errors.js';
+import { InputValidationError } from '../../schema/errors.js';
 
 /** Structured representation of any error caught during stage execution. */
 export interface StructuredErrorInfo {

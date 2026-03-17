@@ -26,7 +26,7 @@ import type {
   StreamTokenHandler,
   SubflowMountOptions,
   TraversalExtractor,
-} from './types';
+} from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers

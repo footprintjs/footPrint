@@ -4,9 +4,9 @@
 
 import { z } from 'zod';
 
-import { attachScopeMethods } from '../../providers/baseStateCompatible';
-import type { ScopeFactory, StageContextLike, StrictMode } from '../../providers/types';
-import { createScopeProxyFromZod } from './scopeFactory';
+import { attachScopeMethods } from '../../providers/baseStateCompatible.js';
+import type { ScopeFactory, StageContextLike, StrictMode } from '../../providers/types.js';
+import { createScopeProxyFromZod } from './scopeFactory.js';
 
 export type DefineScopeOptions = {
   strict?: StrictMode;

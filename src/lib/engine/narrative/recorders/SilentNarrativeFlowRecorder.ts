@@ -12,8 +12,8 @@
  * ```
  */
 
-import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder';
-import type { FlowLoopEvent } from '../types';
+import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
+import type { FlowLoopEvent } from '../types.js';
 
 export class SilentNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private loopCounts: Map<string, number> = new Map();

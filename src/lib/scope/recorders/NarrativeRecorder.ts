@@ -11,7 +11,7 @@
  * NarrativeRecorder directly. Will be removed in v1.0.
  */
 
-import type { ReadEvent, Recorder, WriteEvent } from '../types';
+import type { ReadEvent, Recorder, WriteEvent } from '../types.js';
 
 export type NarrativeDetail = 'summary' | 'full';
 

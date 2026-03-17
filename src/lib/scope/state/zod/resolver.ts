@@ -4,10 +4,10 @@
 
 import { z } from 'zod';
 
-import { attachScopeMethods } from '../../providers/baseStateCompatible';
-import type { ProviderResolver, ScopeProvider, StageContextLike, StrictMode } from '../../providers/types';
-import { isScopeSchema } from './schema/builder';
-import { createScopeProxyFromZod } from './scopeFactory';
+import { attachScopeMethods } from '../../providers/baseStateCompatible.js';
+import type { ProviderResolver, ScopeProvider, StageContextLike, StrictMode } from '../../providers/types.js';
+import { isScopeSchema } from './schema/builder.js';
+import { createScopeProxyFromZod } from './scopeFactory.js';
 
 function makeZodProvider(schema: z.ZodObject<any>, strict: StrictMode = 'warn'): ScopeProvider<any> {
   return {

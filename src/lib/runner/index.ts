@@ -1,7 +1,7 @@
 /* istanbul ignore file */
-export type { ComposableRunner } from './ComposableRunner';
-export type { NarrativeEntry, RuntimeSnapshot } from './ExecutionRuntime';
-export { ExecutionRuntime } from './ExecutionRuntime';
-export { FlowChartExecutor } from './FlowChartExecutor';
-export type { SubtreeSnapshot } from './getSubtreeSnapshot';
-export { getSubtreeSnapshot, listSubflowPaths } from './getSubtreeSnapshot';
+export type { ComposableRunner } from './ComposableRunner.js';
+export type { NarrativeEntry, RuntimeSnapshot } from './ExecutionRuntime.js';
+export { ExecutionRuntime } from './ExecutionRuntime.js';
+export { FlowChartExecutor } from './FlowChartExecutor.js';
+export type { SubtreeSnapshot } from './getSubtreeSnapshot.js';
+export { getSubtreeSnapshot, listSubflowPaths } from './getSubtreeSnapshot.js';

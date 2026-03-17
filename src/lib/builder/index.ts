@@ -7,10 +7,10 @@
  */
 
 // Classes
-export { DeciderList, FlowChartBuilder, SelectorFnList } from './FlowChartBuilder';
+export { DeciderList, FlowChartBuilder, SelectorFnList } from './FlowChartBuilder.js';
 
 // Factory & utilities
-export { flowChart, specToStageNode } from './FlowChartBuilder';
+export { flowChart, specToStageNode } from './FlowChartBuilder.js';
 
 // Types
 export type {
@@ -34,4 +34,4 @@ export type {
   SubflowMountOptions,
   SubflowRef,
   TraversalExtractor,
-} from './types';
+} from './types.js';

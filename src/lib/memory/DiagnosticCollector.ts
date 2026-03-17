@@ -8,8 +8,8 @@
  * and timing info without affecting the compilation output.
  */
 
-import type { FlowMessage } from './types';
-import { setNestedValue, updateNestedValue } from './utils';
+import type { FlowMessage } from './types.js';
+import { setNestedValue, updateNestedValue } from './utils.js';
 
 export class DiagnosticCollector {
   public logContext: { [key: string]: any } = {};

@@ -5,8 +5,8 @@
  * materialise(stepIdx) reconstructs state at any point by replaying commits.
  */
 
-import type { CommitBundle, MemoryPatch } from './types';
-import { applySmartMerge } from './utils';
+import type { CommitBundle, MemoryPatch } from './types.js';
+import { applySmartMerge } from './utils.js';
 
 export class EventLog {
   /** Base snapshot BEFORE the first stage mutates anything. */

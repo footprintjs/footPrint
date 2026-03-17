@@ -6,7 +6,7 @@
  * (inputMapper/outputMapper) but at the top-level flowchart boundary.
  */
 
-import type { FlowChart } from '../builder/types';
+import type { FlowChart } from '../builder/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JSON Schema (subset of JSON Schema Draft 2020-12 / OpenAPI 3.1)

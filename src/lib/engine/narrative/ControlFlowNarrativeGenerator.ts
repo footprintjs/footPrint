@@ -11,7 +11,7 @@
  * CombinedNarrativeBuilder merges both into one story.
  */
 
-import type { IControlFlowNarrative } from './types';
+import type { IControlFlowNarrative } from './types.js';
 
 export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
   private sentences: string[] = [];

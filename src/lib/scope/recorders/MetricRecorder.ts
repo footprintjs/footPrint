@@ -4,7 +4,7 @@
  * Tracks read/write/commit counts per stage and measures stage execution duration.
  */
 
-import type { CommitEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types';
+import type { CommitEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
 
 export interface StageMetrics {
   stageName: string;

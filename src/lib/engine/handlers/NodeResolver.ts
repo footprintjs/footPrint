@@ -7,9 +7,9 @@
  * - Evaluate deciders to determine next node in branching scenarios
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { StageNode } from '../graph/StageNode';
-import type { HandlerDeps } from '../types';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps } from '../types.js';
 
 export class NodeResolver<TOut = any, TScope = any> {
   constructor(private deps: HandlerDeps<TOut, TScope>) {}

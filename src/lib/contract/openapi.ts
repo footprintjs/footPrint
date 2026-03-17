@@ -9,8 +9,8 @@
  * - chart.buildTimeStructure → operation metadata (branches, forks, etc.)
  */
 
-import type { FlowChart, SerializedPipelineStructure } from '../builder/types';
-import type { FlowChartContract, JsonSchema, OpenAPIOperation, OpenAPIOptions, OpenAPISpec } from './types';
+import type { FlowChart, SerializedPipelineStructure } from '../builder/types.js';
+import type { FlowChartContract, JsonSchema, OpenAPIOperation, OpenAPIOptions, OpenAPISpec } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers

@@ -8,13 +8,13 @@
  *   const result = await executor.run();
  */
 
-import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder';
-import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder';
-import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder';
-import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder';
-import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder';
-import type { FlowRecorder } from '../engine/narrative/types';
-import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser';
+import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder.js';
+import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
+import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder.js';
+import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
+import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
+import type { FlowRecorder } from '../engine/narrative/types.js';
+import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
   type ExtractorError,
   type FlowChart,
@@ -26,12 +26,12 @@ import {
   type SubflowResult,
   type TraversalResult,
   defaultLogger,
-} from '../engine/types';
-import type { ScopeProtectionMode } from '../scope/protection/types';
-import { ScopeFacade } from '../scope/ScopeFacade';
-import type { RedactionPolicy, RedactionReport } from '../scope/types';
-import { ExecutionRuntime } from './ExecutionRuntime';
-import { validateInput } from './validateInput';
+} from '../engine/types.js';
+import type { ScopeProtectionMode } from '../scope/protection/types.js';
+import { ScopeFacade } from '../scope/ScopeFacade.js';
+import type { RedactionPolicy, RedactionReport } from '../scope/types.js';
+import { ExecutionRuntime } from './ExecutionRuntime.js';
+import { validateInput } from './validateInput.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>

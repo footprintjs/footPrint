@@ -9,8 +9,8 @@
  * Returns a result type — callers decide whether to throw.
  */
 
-import { detectSchema } from './detect';
-import { type ValidationIssue, extractIssuesFromZodError, InputValidationError } from './errors';
+import { detectSchema } from './detect.js';
+import { type ValidationIssue, extractIssuesFromZodError, InputValidationError } from './errors.js';
 
 /** Successful validation result — may contain transformed data. */
 export type ValidationSuccess = { success: true; data: unknown };

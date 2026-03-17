@@ -11,8 +11,8 @@
 import _get from 'lodash.get';
 import _set from 'lodash.set';
 
-import type { MemoryPatch } from './types';
-import { deepSmartMerge, normalisePath } from './utils';
+import type { MemoryPatch } from './types.js';
+import { deepSmartMerge, normalisePath } from './utils.js';
 
 export class TransactionBuffer {
   private readonly baseSnapshot: any;

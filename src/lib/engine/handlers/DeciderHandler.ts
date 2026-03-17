@@ -5,9 +5,9 @@
  * Logs flow control decisions and narrative sentences.
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { StageNode } from '../graph/StageNode';
-import type { HandlerDeps, StageFunction } from '../types';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps, StageFunction } from '../types.js';
 
 /** Callback for running a stage with commit + extractor. Avoids circular dep with traverser. */
 export type RunStageFn<TOut = any, TScope = any> = (

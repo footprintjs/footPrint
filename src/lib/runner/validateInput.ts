@@ -5,7 +5,7 @@
  * This file exists to keep FlowChartExecutor's import clean and to cast the result type.
  */
 
-import { validateOrThrow } from '../schema';
+import { validateOrThrow } from '../schema/index.js';
 
 /**
  * Validates `input` against `schema`. Throws InputValidationError on failure.

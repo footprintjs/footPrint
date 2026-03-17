@@ -18,10 +18,10 @@ import lodashGet from 'lodash.get';
 import lodashHas from 'lodash.has';
 import lodashSet from 'lodash.set';
 
-import type { ExecutionEnv } from '../engine/types';
-import { StageContext } from '../memory/StageContext';
-import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput';
-import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types';
+import type { ExecutionEnv } from '../engine/types.js';
+import { StageContext } from '../memory/StageContext.js';
+import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
+import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types.js';
 
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');

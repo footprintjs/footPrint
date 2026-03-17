@@ -18,8 +18,8 @@
  * ```
  */
 
-import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder';
-import type { FlowLoopEvent } from '../types';
+import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
+import type { FlowLoopEvent } from '../types.js';
 
 export class SeparateNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private loopSentences: string[] = [];

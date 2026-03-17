@@ -10,10 +10,10 @@
  * - StageNode without fn → reference by ID (resolve via NodeResolver)
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { StageNode } from '../graph/StageNode';
-import type { HandlerDeps } from '../types';
-import type { NodeResolver } from './NodeResolver';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps } from '../types.js';
+import type { NodeResolver } from './NodeResolver.js';
 
 /** Callback for recursive node execution. Avoids circular dep with traverser. */
 export type ExecuteNodeFn<TOut = any, TScope = any> = (

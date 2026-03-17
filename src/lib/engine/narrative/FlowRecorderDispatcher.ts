@@ -10,8 +10,8 @@
  * When no recorders are attached, every method is a fast no-op (empty array check).
  */
 
-import { extractErrorInfo } from '../errors/errorInfo';
-import type { FlowRecorder, IControlFlowNarrative } from './types';
+import { extractErrorInfo } from '../errors/errorInfo.js';
+import type { FlowRecorder, IControlFlowNarrative } from './types.js';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];

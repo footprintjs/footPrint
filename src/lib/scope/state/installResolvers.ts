@@ -3,8 +3,8 @@
  * installResolvers — Auto-registers the Zod scope resolver
  */
 
-import { registerScopeResolver } from '../providers/resolve';
-import { ZodScopeResolver } from './zod';
+import { registerScopeResolver } from '../providers/resolve.js';
+import { ZodScopeResolver } from './zod/index.js';
 
 let installed = false;
 export function installDefaultResolvers() {

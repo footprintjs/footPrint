@@ -7,8 +7,8 @@
  * API matches ScopeFacade's simplified signatures (no path arrays).
  */
 
-import { assertNotReadonly, createFrozenArgs } from '../protection/readonlyInput';
-import type { StageContextLike } from './types';
+import { assertNotReadonly, createFrozenArgs } from '../protection/readonlyInput.js';
+import type { StageContextLike } from './types.js';
 
 /** @deprecated Use attachScopeMethods instead. */
 export const attachBaseStateCompat = attachScopeMethods;

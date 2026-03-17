@@ -5,7 +5,7 @@
  * and stage lifecycle events for troubleshooting.
  */
 
-import type { ErrorEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types';
+import type { ErrorEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
 
 export type DebugVerbosity = 'minimal' | 'verbose';
 

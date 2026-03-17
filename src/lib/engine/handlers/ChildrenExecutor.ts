@@ -8,9 +8,9 @@
  * - Aggregate results into { childId: { result, isError } }
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { Selector, StageNode } from '../graph/StageNode';
-import type { HandlerDeps, NodeResultType } from '../types';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { Selector, StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps, NodeResultType } from '../types.js';
 
 /** Callback for recursive node execution. Avoids circular dependency with traverser. */
 export type ExecuteNodeFn<TOut = any, TScope = any> = (

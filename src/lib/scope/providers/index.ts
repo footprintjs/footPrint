@@ -1,9 +1,9 @@
 /* istanbul ignore file */
-export { attachBaseStateCompat, attachScopeMethods } from './baseStateCompatible';
-export { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards';
-export { makeClassProvider, makeFactoryProvider } from './providers';
-export { __clearScopeResolversForTests, resolveScopeProvider } from './registry';
-export { registerScopeResolver, toScopeFactory } from './resolve';
+export { attachBaseStateCompat, attachScopeMethods } from './baseStateCompatible.js';
+export { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards.js';
+export { makeClassProvider, makeFactoryProvider } from './providers.js';
+export { __clearScopeResolversForTests, resolveScopeProvider } from './registry.js';
+export { registerScopeResolver, toScopeFactory } from './resolve.js';
 export type {
   ProviderResolver,
   ResolveOptions,
@@ -11,4 +11,4 @@ export type {
   ScopeProvider,
   StageContextLike,
   StrictMode,
-} from './types';
+} from './types.js';

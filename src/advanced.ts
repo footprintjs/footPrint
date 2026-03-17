@@ -19,12 +19,12 @@ export type {
   ScopeFactory,
   StageSnapshot,
   TraceEntry,
-} from './lib/memory';
-export { SharedMemory } from './lib/memory';
-export { StageContext } from './lib/memory';
-export { EventLog } from './lib/memory';
-export { TransactionBuffer } from './lib/memory';
-export { DiagnosticCollector } from './lib/memory';
+} from './lib/memory/index.js';
+export { SharedMemory } from './lib/memory/index.js';
+export { StageContext } from './lib/memory/index.js';
+export { EventLog } from './lib/memory/index.js';
+export { TransactionBuffer } from './lib/memory/index.js';
+export { DiagnosticCollector } from './lib/memory/index.js';
 export {
   applySmartMerge,
   deepSmartMerge,
@@ -35,7 +35,7 @@ export {
   setNestedValue,
   updateNestedValue,
   updateValue,
-} from './lib/memory';
+} from './lib/memory/index.js';
 
 // ============================================================================
 // Builder — Types and internals
@@ -58,15 +58,21 @@ export type {
   StreamTokenHandler,
   SubflowMountOptions,
   SubflowRef,
-} from './lib/builder';
-export { DeciderList, SelectorFnList, specToStageNode } from './lib/builder';
+} from './lib/builder/index.js';
+export { DeciderList, SelectorFnList, specToStageNode } from './lib/builder/index.js';
 
 // ============================================================================
 // Scope — Providers, protection, recorder options, and event types
 // ============================================================================
 
-export type { ProviderResolver, ResolveOptions, ScopeProvider, StageContextLike, StrictMode } from './lib/scope';
-export { createErrorMessage, createProtectedScope } from './lib/scope';
+export type {
+  ProviderResolver,
+  ResolveOptions,
+  ScopeProvider,
+  StageContextLike,
+  StrictMode,
+} from './lib/scope/index.js';
+export { createErrorMessage, createProtectedScope } from './lib/scope/index.js';
 export {
   attachBaseStateCompat,
   attachScopeMethods,
@@ -78,7 +84,7 @@ export {
   registerScopeResolver,
   resolveScopeProvider,
   toScopeFactory,
-} from './lib/scope';
+} from './lib/scope/index.js';
 
 // Recorder config/option types
 export type {
@@ -94,30 +100,30 @@ export type {
   StageEvent,
   StageMetrics,
   StageNarrativeData,
-} from './lib/scope';
+} from './lib/scope/index.js';
 
 // Zod internals
-export { createScopeProxyFromZod, defineScopeSchema, isScopeSchema, ZodScopeResolver } from './lib/scope';
+export { createScopeProxyFromZod, defineScopeSchema, isScopeSchema, ZodScopeResolver } from './lib/scope/index.js';
 
 // ============================================================================
 // Runner — Internals
 // ============================================================================
 
-export type { NarrativeEntry, RuntimeSnapshot } from './lib/runner';
-export { ExecutionRuntime } from './lib/runner';
+export type { NarrativeEntry, RuntimeSnapshot } from './lib/runner/index.js';
+export { ExecutionRuntime } from './lib/runner/index.js';
 
 // ============================================================================
 // Engine — DFS graph traversal internals
 // ============================================================================
 
-export type { TraverserOptions } from './lib/engine';
-export type { Decider } from './lib/engine';
-export { FlowchartTraverser } from './lib/engine';
-export { isStageNodeReturn } from './lib/engine';
+export type { TraverserOptions } from './lib/engine/index.js';
+export type { Decider } from './lib/engine/index.js';
+export { FlowchartTraverser } from './lib/engine/index.js';
+export { isStageNodeReturn } from './lib/engine/index.js';
 
 // Narrative internals
-export type { IControlFlowNarrative } from './lib/engine';
-export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './lib/engine';
+export type { IControlFlowNarrative } from './lib/engine/index.js';
+export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './lib/engine/index.js';
 export type {
   BranchResult,
   BranchResults,
@@ -133,12 +139,12 @@ export type {
   SubflowResult,
   TraversalExtractor,
   TraversalResult,
-} from './lib/engine';
-export { ControlFlowNarrativeGenerator } from './lib/engine';
-export { NullControlFlowNarrativeGenerator } from './lib/engine';
+} from './lib/engine/index.js';
+export { ControlFlowNarrativeGenerator } from './lib/engine/index.js';
+export { NullControlFlowNarrativeGenerator } from './lib/engine/index.js';
 
 // Handlers (testing / custom engines)
-export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './lib/engine';
+export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './lib/engine/index.js';
 export {
   applyOutputMapping,
   ChildrenExecutor,
@@ -156,4 +162,4 @@ export {
   SelectorHandler,
   StageRunner,
   SubflowExecutor,
-} from './lib/engine';
+} from './lib/engine/index.js';

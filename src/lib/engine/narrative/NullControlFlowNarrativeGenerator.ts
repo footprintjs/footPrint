@@ -6,7 +6,7 @@
  * getSentences() returns a bare [] literal to avoid even a single array allocation.
  */
 
-import type { IControlFlowNarrative } from './types';
+import type { IControlFlowNarrative } from './types.js';
 
 /* eslint-disable @typescript-eslint/no-empty-function */
 export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative {

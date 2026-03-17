@@ -8,12 +8,12 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
-import { DiagnosticCollector } from './DiagnosticCollector';
-import { EventLog } from './EventLog';
-import { SharedMemory } from './SharedMemory';
-import { TransactionBuffer } from './TransactionBuffer';
-import type { FlowControlType, FlowMessage, StageSnapshot } from './types';
-import { redactPatch } from './utils';
+import { DiagnosticCollector } from './DiagnosticCollector.js';
+import { EventLog } from './EventLog.js';
+import { SharedMemory } from './SharedMemory.js';
+import { TransactionBuffer } from './TransactionBuffer.js';
+import type { FlowControlType, FlowMessage, StageSnapshot } from './types.js';
+import { redactPatch } from './utils.js';
 
 export class StageContext {
   private sharedMemory: SharedMemory;

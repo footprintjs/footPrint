@@ -1,15 +1,15 @@
 /* istanbul ignore file */
-export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './CombinedNarrativeBuilder';
-export { CombinedNarrativeBuilder } from './CombinedNarrativeBuilder';
-export type { CombinedNarrativeRecorderOptions } from './CombinedNarrativeRecorder';
-export { CombinedNarrativeRecorder } from './CombinedNarrativeRecorder';
-export { ControlFlowNarrativeGenerator } from './ControlFlowNarrativeGenerator';
-export { NullControlFlowNarrativeGenerator } from './NullControlFlowNarrativeGenerator';
-export type { IControlFlowNarrative } from './types';
+export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './CombinedNarrativeBuilder.js';
+export { CombinedNarrativeBuilder } from './CombinedNarrativeBuilder.js';
+export type { CombinedNarrativeRecorderOptions } from './CombinedNarrativeRecorder.js';
+export { CombinedNarrativeRecorder } from './CombinedNarrativeRecorder.js';
+export { ControlFlowNarrativeGenerator } from './ControlFlowNarrativeGenerator.js';
+export { NullControlFlowNarrativeGenerator } from './NullControlFlowNarrativeGenerator.js';
+export type { IControlFlowNarrative } from './types.js';
 
 // FlowRecorder system
-export { FlowRecorderDispatcher } from './FlowRecorderDispatcher';
-export { NarrativeFlowRecorder } from './NarrativeFlowRecorder';
+export { FlowRecorderDispatcher } from './FlowRecorderDispatcher.js';
+export { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 export type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -21,13 +21,13 @@ export type {
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
-} from './types';
+} from './types.js';
 
 // Built-in FlowRecorder strategies (tree-shakeable — only imported code ships)
-export { AdaptiveNarrativeFlowRecorder } from './recorders/AdaptiveNarrativeFlowRecorder';
-export { MilestoneNarrativeFlowRecorder } from './recorders/MilestoneNarrativeFlowRecorder';
-export { ProgressiveNarrativeFlowRecorder } from './recorders/ProgressiveNarrativeFlowRecorder';
-export { RLENarrativeFlowRecorder } from './recorders/RLENarrativeFlowRecorder';
-export { SeparateNarrativeFlowRecorder } from './recorders/SeparateNarrativeFlowRecorder';
-export { SilentNarrativeFlowRecorder } from './recorders/SilentNarrativeFlowRecorder';
-export { WindowedNarrativeFlowRecorder } from './recorders/WindowedNarrativeFlowRecorder';
+export { AdaptiveNarrativeFlowRecorder } from './recorders/AdaptiveNarrativeFlowRecorder.js';
+export { MilestoneNarrativeFlowRecorder } from './recorders/MilestoneNarrativeFlowRecorder.js';
+export { ProgressiveNarrativeFlowRecorder } from './recorders/ProgressiveNarrativeFlowRecorder.js';
+export { RLENarrativeFlowRecorder } from './recorders/RLENarrativeFlowRecorder.js';
+export { SeparateNarrativeFlowRecorder } from './recorders/SeparateNarrativeFlowRecorder.js';
+export { SilentNarrativeFlowRecorder } from './recorders/SilentNarrativeFlowRecorder.js';
+export { WindowedNarrativeFlowRecorder } from './recorders/WindowedNarrativeFlowRecorder.js';

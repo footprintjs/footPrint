@@ -9,7 +9,7 @@ import _get from 'lodash.get';
 import _has from 'lodash.has';
 import _set from 'lodash.set';
 
-import type { MemoryPatch } from './types';
+import type { MemoryPatch } from './types.js';
 
 /** ASCII Unit-Separator — cannot appear in JS identifiers, invisible in logs. */
 export const DELIM = '\u001F';

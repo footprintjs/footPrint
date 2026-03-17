@@ -9,8 +9,8 @@
 
 import mergeWith from 'lodash.mergewith';
 
-import type { MemoryPatch } from './types';
-import { applySmartMerge, getNestedValue, getRunAndGlobalPaths, setNestedValue, updateNestedValue } from './utils';
+import type { MemoryPatch } from './types.js';
+import { applySmartMerge, getNestedValue, getRunAndGlobalPaths, setNestedValue, updateNestedValue } from './utils.js';
 
 export class SharedMemory {
   private context: { [key: string]: any } = {};

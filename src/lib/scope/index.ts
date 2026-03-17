@@ -7,7 +7,7 @@
  */
 
 // Core
-export { ScopeFacade } from './ScopeFacade';
+export { ScopeFacade } from './ScopeFacade.js';
 
 // Types
 export type {
@@ -20,24 +20,24 @@ export type {
   RedactionReport,
   StageEvent,
   WriteEvent,
-} from './types';
+} from './types.js';
 
 // Recorders
-export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './recorders/DebugRecorder';
-export { DebugRecorder } from './recorders/DebugRecorder';
-export type { AggregatedMetrics, StageMetrics } from './recorders/MetricRecorder';
-export { MetricRecorder } from './recorders/MetricRecorder';
+export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './recorders/DebugRecorder.js';
+export { DebugRecorder } from './recorders/DebugRecorder.js';
+export type { AggregatedMetrics, StageMetrics } from './recorders/MetricRecorder.js';
+export { MetricRecorder } from './recorders/MetricRecorder.js';
 export type {
   NarrativeDetail,
   NarrativeOperation,
   NarrativeRecorderOptions,
   StageNarrativeData,
-} from './recorders/NarrativeRecorder';
-export { NarrativeRecorder } from './recorders/NarrativeRecorder';
+} from './recorders/NarrativeRecorder.js';
+export { NarrativeRecorder } from './recorders/NarrativeRecorder.js';
 
 // Protection
-export type { ScopeProtectionMode, ScopeProtectionOptions } from './protection';
-export { createErrorMessage, createProtectedScope } from './protection';
+export type { ScopeProtectionMode, ScopeProtectionOptions } from './protection/index.js';
+export { createErrorMessage, createProtectedScope } from './protection/index.js';
 
 // Providers
 export type {
@@ -47,7 +47,7 @@ export type {
   ScopeProvider,
   StageContextLike,
   StrictMode,
-} from './providers';
+} from './providers/index.js';
 export {
   __clearScopeResolversForTests,
   attachBaseStateCompat,
@@ -60,11 +60,11 @@ export {
   registerScopeResolver,
   resolveScopeProvider,
   toScopeFactory,
-} from './providers';
+} from './providers/index.js';
 
 // State / Zod
-export type { DefineScopeOptions } from './state/zod/defineScopeFromZod';
-export { defineScopeFromZod } from './state/zod/defineScopeFromZod';
-export { ZodScopeResolver } from './state/zod/resolver';
-export { defineScopeSchema, isScopeSchema } from './state/zod/schema/builder';
-export { createScopeProxyFromZod } from './state/zod/scopeFactory';
+export type { DefineScopeOptions } from './state/zod/defineScopeFromZod.js';
+export { defineScopeFromZod } from './state/zod/defineScopeFromZod.js';
+export { ZodScopeResolver } from './state/zod/resolver.js';
+export { defineScopeSchema, isScopeSchema } from './state/zod/schema/builder.js';
+export { createScopeProxyFromZod } from './state/zod/scopeFactory.js';

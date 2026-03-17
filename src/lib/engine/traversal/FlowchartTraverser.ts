@@ -19,22 +19,22 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { ScopeProtectionMode } from '../../scope/protection/types';
-import { isStageNodeReturn } from '../graph/StageNode';
-import { ChildrenExecutor } from '../handlers/ChildrenExecutor';
-import { ContinuationResolver } from '../handlers/ContinuationResolver';
-import { DeciderHandler } from '../handlers/DeciderHandler';
-import { ExtractorRunner } from '../handlers/ExtractorRunner';
-import { NodeResolver } from '../handlers/NodeResolver';
-import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager';
-import { SelectorHandler } from '../handlers/SelectorHandler';
-import { StageRunner } from '../handlers/StageRunner';
-import { SubflowExecutor } from '../handlers/SubflowExecutor';
-import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher';
-import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder';
-import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator';
-import type { FlowRecorder, IControlFlowNarrative } from '../narrative/types';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { ScopeProtectionMode } from '../../scope/protection/types.js';
+import { isStageNodeReturn } from '../graph/StageNode.js';
+import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
+import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
+import { DeciderHandler } from '../handlers/DeciderHandler.js';
+import { ExtractorRunner } from '../handlers/ExtractorRunner.js';
+import { NodeResolver } from '../handlers/NodeResolver.js';
+import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
+import { SelectorHandler } from '../handlers/SelectorHandler.js';
+import { StageRunner } from '../handlers/StageRunner.js';
+import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
+import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
+import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
+import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
+import type { FlowRecorder, IControlFlowNarrative } from '../narrative/types.js';
 import type {
   ExtractorError,
   HandlerDeps,
@@ -49,7 +49,7 @@ import type {
   SubflowResult,
   TraversalExtractor,
   TraversalResult,
-} from '../types';
+} from '../types.js';
 
 export interface TraverserOptions<TOut = any, TScope = any> {
   root: StageNode<TOut, TScope>;

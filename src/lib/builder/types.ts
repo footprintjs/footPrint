@@ -9,14 +9,14 @@
  * The builder remains standalone at runtime.
  */
 
-import type { StageNode } from '../engine/graph/StageNode';
-import type { ILogger, StageFunction } from '../engine/types';
+import type { StageNode } from '../engine/graph/StageNode.js';
+import type { ILogger, StageFunction } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Re-exports from engine (canonical definitions)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { StageNode } from '../engine/graph/StageNode';
+export type { StageNode } from '../engine/graph/StageNode.js';
 export type {
   ILogger,
   StageFunction,
@@ -25,7 +25,7 @@ export type {
   StreamLifecycleHandler,
   StreamTokenHandler,
   SubflowMountOptions,
-} from '../engine/types';
+} from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Backward-compatible aliases

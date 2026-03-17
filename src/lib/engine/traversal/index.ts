@@ -1,3 +1,3 @@
 /* istanbul ignore file */
-export type { TraverserOptions } from './FlowchartTraverser';
-export { FlowchartTraverser } from './FlowchartTraverser';
+export type { TraverserOptions } from './FlowchartTraverser.js';
+export { FlowchartTraverser } from './FlowchartTraverser.js';

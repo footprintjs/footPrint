@@ -2,8 +2,8 @@
  * resolve.ts — Public API for converting scope inputs to ScopeFactory
  */
 
-import { resolveScopeProvider } from './registry';
-import type { ResolveOptions, ScopeFactory, ScopeProvider } from './types';
+import { resolveScopeProvider } from './registry.js';
+import type { ResolveOptions, ScopeFactory, ScopeProvider } from './types.js';
 
 /** Normalize a factory/class/schema-like input into a ScopeFactory the pipeline expects */
 export function toScopeFactory<TScope>(input: unknown, options?: ResolveOptions): ScopeFactory<TScope> {
@@ -11,5 +11,5 @@ export function toScopeFactory<TScope>(input: unknown, options?: ResolveOptions)
   return (ctx, stageName, ro) => provider.create(ctx, stageName, ro);
 }
 
-export { registerScopeResolver } from './registry';
-export type { ResolveOptions, ScopeProvider } from './types';
+export { registerScopeResolver } from './registry.js';
+export type { ResolveOptions, ScopeProvider } from './types.js';

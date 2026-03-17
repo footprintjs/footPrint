@@ -4,8 +4,8 @@
 
 import { type ZodTypeAny, z } from 'zod';
 
-import type { StageContextLike, StrictMode } from '../../providers/types';
-import { getRecordValueType, isZodNode, parseWithThis, unwrap } from './utils/validateHelper';
+import type { StageContextLike, StrictMode } from '../../providers/types.js';
+import { getRecordValueType, isZodNode, parseWithThis, unwrap } from './utils/validateHelper.js';
 
 function validateOnWrite(
   schema: ZodTypeAny,

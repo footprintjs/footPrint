@@ -11,13 +11,13 @@
  */
 
 // Factory
-export { defineContract } from './defineContract';
+export { defineContract } from './defineContract.js';
 
 // Schema utilities
-export { isZodSchema, normalizeSchema, zodToJsonSchema } from './schema';
+export { isZodSchema, normalizeSchema, zodToJsonSchema } from './schema.js';
 
 // OpenAPI generator
-export { generateOpenAPI } from './openapi';
+export { generateOpenAPI } from './openapi.js';
 
 // Types
 export type {
@@ -27,4 +27,4 @@ export type {
   OpenAPIOptions,
   OpenAPISpec,
   SchemaInput,
-} from './types';
+} from './types.js';

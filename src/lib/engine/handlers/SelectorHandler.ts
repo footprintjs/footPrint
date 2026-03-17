@@ -7,11 +7,11 @@
  * - Delegates parallel execution of selected children to ChildrenExecutor
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { StageNode } from '../graph/StageNode';
-import type { HandlerDeps, NodeResultType, StageFunction } from '../types';
-import type { ChildrenExecutor } from './ChildrenExecutor';
-import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './DeciderHandler';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
+import type { ChildrenExecutor } from './ChildrenExecutor.js';
+import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './DeciderHandler.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
   constructor(

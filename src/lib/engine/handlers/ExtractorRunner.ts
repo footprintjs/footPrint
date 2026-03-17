@@ -5,8 +5,8 @@
  * snapshot enrichment, error collection, and result storage.
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { StageNode } from '../graph/StageNode';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { StageNode } from '../graph/StageNode.js';
 import type {
   ExtractorError,
   IExecutionRuntime,
@@ -14,8 +14,8 @@ import type {
   RuntimeStructureMetadata,
   StageSnapshot,
   TraversalExtractor,
-} from '../types';
-import { computeNodeType } from './RuntimeStructureManager';
+} from '../types.js';
+import { computeNodeType } from './RuntimeStructureManager.js';
 
 export class ExtractorRunner<TOut = any, TScope = any> {
   private readonly extractor?: TraversalExtractor;

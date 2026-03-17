@@ -14,10 +14,10 @@
  *   const openapi = contract.toOpenAPI();
  */
 
-import type { FlowChart } from '../builder/types';
-import { generateOpenAPI } from './openapi';
-import { normalizeSchema } from './schema';
-import type { FlowChartContract, FlowChartContractOptions, OpenAPIOptions, OpenAPISpec } from './types';
+import type { FlowChart } from '../builder/types.js';
+import { generateOpenAPI } from './openapi.js';
+import { normalizeSchema } from './schema.js';
+import type { FlowChartContract, FlowChartContractOptions, OpenAPIOptions, OpenAPISpec } from './types.js';
 
 export function defineContract<TInput = unknown, TOutput = unknown>(
   chart: FlowChart,

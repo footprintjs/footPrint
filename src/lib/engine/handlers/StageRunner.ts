@@ -8,10 +8,10 @@
  * - Sync+async safety: only await real Promises (instanceof check)
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import { createProtectedScope } from '../../scope/protection/createProtectedScope';
-import type { StageNode } from '../graph/StageNode';
-import type { HandlerDeps, StageFunction, StreamCallback } from '../types';
+import type { StageContext } from '../../memory/StageContext.js';
+import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
+import type { StageNode } from '../graph/StageNode.js';
+import type { HandlerDeps, StageFunction, StreamCallback } from '../types.js';
 
 export class StageRunner<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}

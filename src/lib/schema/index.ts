@@ -7,9 +7,9 @@
  * - Structured validation errors with field-level details
  */
 
-export type { SchemaKind } from './detect';
-export { detectSchema, isValidatable, isZod } from './detect';
-export type { ValidationIssue } from './errors';
-export { extractIssuesFromZodError, InputValidationError } from './errors';
-export type { ValidationFailure, ValidationResult, ValidationSuccess } from './validate';
-export { validateAgainstSchema, validateOrThrow } from './validate';
+export type { SchemaKind } from './detect.js';
+export { detectSchema, isValidatable, isZod } from './detect.js';
+export type { ValidationIssue } from './errors.js';
+export { extractIssuesFromZodError, InputValidationError } from './errors.js';
+export type { ValidationFailure, ValidationResult, ValidationSuccess } from './validate.js';
+export { validateAgainstSchema, validateOrThrow } from './validate.js';

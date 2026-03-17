@@ -8,8 +8,8 @@
  * Compatible with Zod v4 internals.
  */
 
-import { isZod } from '../schema/detect';
-import type { JsonSchema, SchemaInput } from './types';
+import { isZod } from '../schema/detect.js';
+import type { JsonSchema, SchemaInput } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod Detection — delegates to unified schema/detect.ts

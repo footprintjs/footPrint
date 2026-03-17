@@ -14,8 +14,8 @@
  * | Neither present | Complete isolation (side effects only)    |
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
 
 /** Extract values from parent scope using inputMapper. */
 export function extractParentScopeValues<TParentScope, TSubflowInput>(

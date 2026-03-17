@@ -9,7 +9,7 @@
  * - Isolated sub-traversals via `isSubflowRoot` (subflow)
  */
 
-import type { StageFunction, SubflowMountOptions } from '../types';
+import type { StageFunction, SubflowMountOptions } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Decider + Selector

@@ -6,9 +6,9 @@
  * are checked last as fallback.
  */
 
-import { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards';
-import { makeClassProvider, makeFactoryProvider } from './providers';
-import type { ProviderResolver, ResolveOptions, ScopeProvider } from './types';
+import { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards.js';
+import { makeClassProvider, makeFactoryProvider } from './providers.js';
+import type { ProviderResolver, ResolveOptions, ScopeProvider } from './types.js';
 
 const resolvers: ProviderResolver[] = [];
 

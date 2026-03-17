@@ -12,18 +12,18 @@
  * the parent's executeNode continues with node.next after return.
  */
 
-import type { StageContext } from '../../memory/StageContext';
-import type { Selector, StageNode } from '../graph/StageNode';
-import { isStageNodeReturn } from '../graph/StageNode';
-import type { HandlerDeps, IExecutionRuntime, NodeResultType, StageFunction, SubflowResult } from '../types';
-import type { NodeResolver } from './NodeResolver';
-import { StageRunner } from './StageRunner';
+import type { StageContext } from '../../memory/StageContext.js';
+import type { Selector, StageNode } from '../graph/StageNode.js';
+import { isStageNodeReturn } from '../graph/StageNode.js';
+import type { HandlerDeps, IExecutionRuntime, NodeResultType, StageFunction, SubflowResult } from '../types.js';
+import type { NodeResolver } from './NodeResolver.js';
+import { StageRunner } from './StageRunner.js';
 import {
   applyOutputMapping,
   createSubflowHandlerDeps,
   getInitialScopeValues,
   seedSubflowGlobalStore,
-} from './SubflowInputMapper';
+} from './SubflowInputMapper.js';
 
 /** Callback for running a stage function. Avoids circular dep with traverser. */
 export type ExecuteStageFn<TOut = any, TScope = any> = (

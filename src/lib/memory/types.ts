@@ -85,4 +85,4 @@ export type ScopeFactory<TScope> = (core: StageContext, stageName: string, readO
 
 // The actual class lives in StageContext.ts; we just need the type here for
 // the ScopeFactory generic. TypeScript's import-type handles this:
-import type { StageContext } from './StageContext';
+import type { StageContext } from './StageContext.js';

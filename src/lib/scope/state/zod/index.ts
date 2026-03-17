@@ -1,6 +1,6 @@
 /* istanbul ignore file */
-export type { DefineScopeOptions } from './defineScopeFromZod';
-export { defineScopeFromZod } from './defineScopeFromZod';
-export { ZodScopeResolver } from './resolver';
-export { defineScopeSchema, isScopeSchema } from './schema/builder';
-export { createScopeProxyFromZod } from './scopeFactory';
+export type { DefineScopeOptions } from './defineScopeFromZod.js';
+export { defineScopeFromZod } from './defineScopeFromZod.js';
+export { ZodScopeResolver } from './resolver.js';
+export { defineScopeSchema, isScopeSchema } from './schema/builder.js';
+export { createScopeProxyFromZod } from './scopeFactory.js';

@@ -8,8 +8,8 @@
  * Deep-clones build-time structure at init, then maintains O(1) lookup map.
  */
 
-import type { StageNode } from '../graph/StageNode';
-import type { SerializedPipelineStructure } from '../types';
+import type { StageNode } from '../graph/StageNode.js';
+import type { SerializedPipelineStructure } from '../types.js';
 
 /**
  * Compute the node type from node properties.

@@ -5,7 +5,7 @@
  * clear error messages guiding developers to use setValue() instead.
  */
 
-import type { ScopeProtectionOptions } from './types';
+import type { ScopeProtectionOptions } from './types.js';
 
 export function createErrorMessage(propertyName: string, stageName: string): string {
   return `[Scope Access Error] Direct property assignment detected in stage "${stageName}".

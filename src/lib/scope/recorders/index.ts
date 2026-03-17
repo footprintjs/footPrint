@@ -1,13 +1,21 @@
 /* istanbul ignore file */
-export type { CommitEvent, ErrorEvent, ReadEvent, Recorder, RecorderContext, StageEvent, WriteEvent } from '../types';
-export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './DebugRecorder';
-export { DebugRecorder } from './DebugRecorder';
-export type { AggregatedMetrics, StageMetrics } from './MetricRecorder';
-export { MetricRecorder } from './MetricRecorder';
+export type {
+  CommitEvent,
+  ErrorEvent,
+  ReadEvent,
+  Recorder,
+  RecorderContext,
+  StageEvent,
+  WriteEvent,
+} from '../types.js';
+export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './DebugRecorder.js';
+export { DebugRecorder } from './DebugRecorder.js';
+export type { AggregatedMetrics, StageMetrics } from './MetricRecorder.js';
+export { MetricRecorder } from './MetricRecorder.js';
 export type {
   NarrativeDetail,
   NarrativeOperation,
   NarrativeRecorderOptions,
   StageNarrativeData,
-} from './NarrativeRecorder';
-export { NarrativeRecorder } from './NarrativeRecorder';
+} from './NarrativeRecorder.js';
+export { NarrativeRecorder } from './NarrativeRecorder.js';

@@ -14,8 +14,8 @@
  * ```
  */
 
-import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder';
-import type { FlowLoopEvent } from '../types';
+import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
+import type { FlowLoopEvent } from '../types.js';
 
 export class ProgressiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private readonly base: number;

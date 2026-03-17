@@ -6,7 +6,7 @@
 
 import { type ZodRecord, type ZodTypeAny, z } from 'zod';
 
-import { detectSchema } from '../../../../schema/detect';
+import { detectSchema } from '../../../../schema/detect.js';
 
 /** @deprecated Use `detectSchema()` from `schema/detect` instead. Kept for backward compatibility. */
 export function isZodNode(x: unknown): x is ZodTypeAny {

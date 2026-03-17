@@ -20,7 +20,7 @@ import type {
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
-} from './types';
+} from './types.js';
 
 export class NarrativeFlowRecorder implements FlowRecorder {
   readonly id: string;

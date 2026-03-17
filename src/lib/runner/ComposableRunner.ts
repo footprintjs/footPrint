@@ -18,7 +18,7 @@
  *     .build();
  */
 
-import type { FlowChart, RunOptions } from '../engine/types';
+import type { FlowChart, RunOptions } from '../engine/types.js';
 
 /**
  * A runner that can expose its internal flowChart for subflow composition.

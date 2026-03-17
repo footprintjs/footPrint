@@ -10,10 +10,10 @@
  * After execution, consumers query it for the full execution state.
  */
 
-import { EventLog } from '../memory/EventLog';
-import { SharedMemory } from '../memory/SharedMemory';
-import { StageContext } from '../memory/StageContext';
-import type { CommitBundle, FlowMessage, StageSnapshot } from '../memory/types';
+import { EventLog } from '../memory/EventLog.js';
+import { SharedMemory } from '../memory/SharedMemory.js';
+import { StageContext } from '../memory/StageContext.js';
+import type { CommitBundle, FlowMessage, StageSnapshot } from '../memory/types.js';
 
 export interface NarrativeEntry {
   stageId: string;

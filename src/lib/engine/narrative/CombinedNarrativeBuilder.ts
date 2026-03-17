@@ -15,7 +15,7 @@
  * Will be removed in v1.0.
  */
 
-import type { NarrativeRecorder, StageNarrativeData } from '../../scope/recorders/NarrativeRecorder';
+import type { NarrativeRecorder, StageNarrativeData } from '../../scope/recorders/NarrativeRecorder.js';
 
 // ---------------------------------------------------------------------------
 // Types
