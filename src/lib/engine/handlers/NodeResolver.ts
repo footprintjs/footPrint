@@ -68,13 +68,15 @@ export class NodeResolver<TOut = any, TScope = any> {
       return node;
     }
 
-    // Merge reference metadata with actual structure
+    // Merge reference metadata with actual structure.
+    // id comes from the inner root (the actual stage identity for trace matching),
+    // not the mount node (which is the subflow entry point in the parent).
     return {
       ...subflowDef.root,
       isSubflowRoot: node.isSubflowRoot,
       subflowId: node.subflowId,
       subflowName: node.subflowName,
-      id: node.id || subflowDef.root.id,
+      id: subflowDef.root.id || node.id,
       subflowMountOptions: node.subflowMountOptions || subflowDef.root.subflowMountOptions,
     };
   }
