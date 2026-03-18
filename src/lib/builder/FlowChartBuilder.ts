@@ -150,6 +150,47 @@ export class DeciderList<TOut = any, TScope = any> {
     return this;
   }
 
+  addLazySubFlowChartBranch(
+    id: string,
+    resolver: () => FlowChart<TOut, TScope>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): DeciderList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    const subflowName = mountName || id;
+
+    // Store resolver on the node — NO eager tree cloning
+    const node: StageNode<TOut, TScope> = {
+      name: subflowName,
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      subflowResolver: resolver as any,
+    };
+    if (options) node.subflowMountOptions = options;
+
+    // Spec stub — no subflowStructure (lazy)
+    const spec: SerializedPipelineStructure = {
+      name: subflowName,
+      type: 'stage',
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      isLazy: true,
+    };
+
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+
+    return this;
+  }
+
   addBranchList(
     branches: Array<{
       id: string;
@@ -320,6 +361,45 @@ export class SelectorFnList<TOut = any, TScope = any> {
 
     this.b._mergeStageMap(subflow.stageMap, id);
     this.b._mergeSubflows(subflow.subflows, id);
+
+    return this;
+  }
+
+  addLazySubFlowChartBranch(
+    id: string,
+    resolver: () => FlowChart<TOut, TScope>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): SelectorFnList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    const subflowName = mountName || id;
+
+    const node: StageNode<TOut, TScope> = {
+      name: subflowName,
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      subflowResolver: resolver as any,
+    };
+    if (options) node.subflowMountOptions = options;
+
+    const spec: SerializedPipelineStructure = {
+      name: subflowName,
+      type: 'stage',
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      isLazy: true,
+    };
+
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
 
     return this;
   }
@@ -728,6 +808,104 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._mergeStageMap(subflow.stageMap, id);
     this._mergeSubflows(subflow.subflows, id);
     this._appendSubflowDescription(id, subflowName, subflow);
+
+    return this;
+  }
+
+  addLazySubFlowChart(
+    id: string,
+    resolver: () => FlowChart<TOut, TScope>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    if (cur.children?.some((c) => c.id === id)) {
+      fail(`duplicate child id '${id}' under '${cur.name}'`);
+    }
+
+    const subflowName = mountName || id;
+    const forkId = cur.id;
+
+    const node: StageNode<TOut, TScope> = {
+      name: subflowName,
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      subflowResolver: resolver as any,
+    };
+    if (options) node.subflowMountOptions = options;
+
+    const spec: SerializedPipelineStructure = {
+      name: subflowName,
+      type: 'stage',
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      isParallelChild: true,
+      parallelGroupId: forkId,
+      isLazy: true,
+    };
+
+    curSpec.type = 'fork';
+    cur.children = cur.children || [];
+    cur.children.push(node);
+    curSpec.children = curSpec.children || [];
+    curSpec.children.push(spec);
+
+    this._stepCounter++;
+    this._stageStepMap.set(id, this._stepCounter);
+    this._descriptionParts.push(`${this._stepCounter}. [Lazy Sub-Execution: ${subflowName}]`);
+
+    return this;
+  }
+
+  addLazySubFlowChartNext(
+    id: string,
+    resolver: () => FlowChart<TOut, TScope>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    if (cur.next) {
+      fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
+    }
+
+    const subflowName = mountName || id;
+
+    const node: StageNode<TOut, TScope> = {
+      name: subflowName,
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      subflowResolver: resolver as any,
+    };
+    if (options) node.subflowMountOptions = options;
+
+    const spec: SerializedPipelineStructure = {
+      name: subflowName,
+      type: 'stage',
+      id,
+      isSubflowRoot: true,
+      subflowId: id,
+      subflowName,
+      isLazy: true,
+    };
+
+    cur.next = node;
+    curSpec.next = spec;
+    this._cursor = node;
+    this._cursorSpec = spec;
+
+    this._stepCounter++;
+    this._stageStepMap.set(id, this._stepCounter);
+    this._descriptionParts.push(`${this._stepCounter}. [Lazy Sub-Execution: ${subflowName}]`);
 
     return this;
   }

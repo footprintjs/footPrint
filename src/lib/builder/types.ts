@@ -69,6 +69,8 @@ export interface SerializedPipelineStructure {
   subflowName?: string;
   subflowStructure?: SerializedPipelineStructure;
   iterationCount?: number;
+  /** True when this subflow uses lazy resolution (deferred until execution). */
+  isLazy?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

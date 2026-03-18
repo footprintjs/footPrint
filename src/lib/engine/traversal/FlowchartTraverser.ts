@@ -77,7 +77,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly root: StageNode<TOut, TScope>;
   private stageMap: Map<string, StageFunction<TOut, TScope>>;
   private readonly executionRuntime: IExecutionRuntime;
-  private subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
+  private subflows: Record<string, { root: StageNode<TOut, TScope> }>;
   private readonly logger: ILogger;
   private readonly signal?: AbortSignal;
 
@@ -101,7 +101,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.root = opts.root;
     this.stageMap = opts.stageMap;
     this.executionRuntime = opts.executionRuntime;
-    this.subflows = opts.subflows;
+    // Always initialize as object so lazy resolution can mutate in place
+    this.subflows = opts.subflows ?? {};
     this.logger = opts.logger;
     this.signal = opts.signal;
 
@@ -259,6 +260,44 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Attach builder metadata to context for snapshot enrichment
     if (node.description) context.description = node.description;
     if (node.isSubflowRoot && node.subflowId) context.subflowId = node.subflowId;
+
+    // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
+    if (node.isSubflowRoot && node.subflowResolver && !this.subflows[node.subflowId!]) {
+      const resolved = node.subflowResolver();
+      const prefixedRoot = this.prefixNodeTree(resolved.root as StageNode<TOut, TScope>, node.subflowId!);
+
+      // Register the resolved subflow (same path as eager registration)
+      this.subflows[node.subflowId!] = { root: prefixedRoot };
+
+      // Merge stageMap entries
+      for (const [key, fn] of resolved.stageMap) {
+        const prefixedKey = `${node.subflowId}/${key}`;
+        if (!this.stageMap.has(prefixedKey)) {
+          this.stageMap.set(prefixedKey, fn as StageFunction<TOut, TScope>);
+        }
+      }
+
+      // Merge nested subflows
+      if (resolved.subflows) {
+        for (const [key, def] of Object.entries(resolved.subflows)) {
+          const prefixedKey = `${node.subflowId}/${key}`;
+          if (!this.subflows[prefixedKey]) {
+            this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
+          }
+        }
+      }
+
+      // Update runtime structure with the now-resolved spec
+      this.structureManager.updateDynamicSubflow(
+        node.id,
+        node.subflowId!,
+        node.subflowName,
+        resolved.buildTimeStructure,
+      );
+
+      // Clear resolver — resolved once
+      node.subflowResolver = undefined;
+    }
 
     // ─── Phase 0: CLASSIFY — subflow detection ───
     if (node.isSubflowRoot && node.subflowId) {
@@ -678,6 +717,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       parentStageId,
       pipelineStructure: childStructure,
     });
+  }
+
+  private prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
+    if (!node) return node;
+    const clone: StageNode<TOut, TScope> = { ...node };
+    clone.name = `${prefix}/${node.name}`;
+    if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
+    if (clone.next) clone.next = this.prefixNodeTree(clone.next, prefix);
+    if (clone.children) {
+      clone.children = clone.children.map((c) => this.prefixNodeTree(c, prefix));
+    }
+    return clone;
   }
 
   private autoRegisterSubflowDef(

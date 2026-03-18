@@ -96,6 +96,16 @@ export type StageNode<TOut = any, TScope = any> = {
     buildTimeStructure?: unknown;
     subflows?: Record<string, { root: StageNode }>;
   };
+
+  /** Lazy subflow resolver — called on first execution to obtain the FlowChart.
+   *  Used by `addLazySubFlowChartBranch()` to defer tree cloning until needed.
+   *  The resolver is called at most once per execution; the result replaces this field. */
+  subflowResolver?: () => {
+    root: StageNode;
+    stageMap: Map<string, StageFunction>;
+    buildTimeStructure?: unknown;
+    subflows?: Record<string, { root: StageNode }>;
+  };
 };
 
 // ---------------------------------------------------------------------------
