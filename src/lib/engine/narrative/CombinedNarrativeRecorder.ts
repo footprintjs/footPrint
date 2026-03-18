@@ -52,6 +52,8 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   private pendingOps = new Map<string, BufferedOp[]>();
   private stageCounter = 0;
   private isFirstStage = true;
+  /** Stack of subflow IDs — tracks nesting context during traversal. */
+  private subflowStack: string[] = [];
 
   private includeStepNumbers: boolean;
   private includeValues: boolean;
@@ -102,6 +104,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `Stage ${this.stageCounter}: ${text}`,
       depth: 0,
       stageName: event.stageName,
+      subflowId: this.currentSubflowId,
     });
     this.flushOps(event.stageName);
   }
@@ -123,6 +126,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `Stage ${this.stageCounter}: ${stageText}`,
       depth: 0,
       stageName: event.decider,
+      subflowId: this.currentSubflowId,
     });
     this.flushOps(event.decider);
 
@@ -143,6 +147,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `[Condition]: ${conditionText}`,
       depth: 0,
       stageName: event.decider,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -157,6 +162,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       type: 'fork',
       text: `[Parallel]: ${event.children.length} paths were executed in parallel: ${names}.`,
       depth: 0,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -166,6 +172,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       type: 'fork',
       text: `[Selected]: ${event.selected.length} of ${event.total} paths were selected: ${names}.`,
       depth: 0,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -173,14 +180,19 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const text = event.description
       ? `Entering the ${event.name} subflow: ${event.description}.`
       : `Entering the ${event.name} subflow.`;
-    this.entries.push({ type: 'subflow', text, depth: 0 });
+    this.entries.push({ type: 'subflow', text, depth: 0, subflowId: this.currentSubflowId });
+    // Push AFTER the entry marker so it tags the marker at parent level
+    this.subflowStack.push(event.subflowId ?? event.name);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
+    // Pop BEFORE the exit marker so it tags the marker at parent level
+    this.subflowStack.pop();
     this.entries.push({
       type: 'subflow',
       text: `Exiting the ${event.name} subflow.`,
       depth: 0,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -188,7 +200,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const text = event.description
       ? `On pass ${event.iteration}: ${event.description} again.`
       : `On pass ${event.iteration} through ${event.target}.`;
-    this.entries.push({ type: 'loop', text, depth: 0 });
+    this.entries.push({ type: 'loop', text, depth: 0, subflowId: this.currentSubflowId });
   }
 
   onBreak(event: FlowBreakEvent): void {
@@ -197,6 +209,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `Execution stopped at ${event.stageName}.`,
       depth: 0,
       stageName: event.stageName,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -225,6 +238,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `[Error]: ${text}`,
       depth: 0,
       stageName: flowEvent.stageName,
+      subflowId: this.currentSubflowId,
     });
   }
 
@@ -240,12 +254,32 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     return this.entries.map((entry) => `${indent.repeat(entry.depth)}${entry.text}`);
   }
 
+  /**
+   * Returns entries grouped by subflowId for structured access.
+   * Root-level entries have subflowId = undefined.
+   */
+  getEntriesBySubflow(): Record<string, CombinedNarrativeEntry[]> {
+    const result: Record<string, CombinedNarrativeEntry[]> = { '': [] };
+    for (const entry of this.entries) {
+      const key = entry.subflowId ?? '';
+      if (!result[key]) result[key] = [];
+      result[key].push(entry);
+    }
+    return result;
+  }
+
   /** Clears all state. Called automatically before each run. */
   clear(): void {
     this.entries = [];
     this.pendingOps.clear();
     this.stageCounter = 0;
     this.isFirstStage = true;
+    this.subflowStack = [];
+  }
+
+  /** Current subflowId from the stack, or undefined at root level. */
+  private get currentSubflowId(): string | undefined {
+    return this.subflowStack.length > 0 ? this.subflowStack[this.subflowStack.length - 1] : undefined;
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
@@ -290,6 +324,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
         depth: 1,
         stageName,
         stepNumber: op.stepNumber,
+        subflowId: this.currentSubflowId,
       });
     }
 
