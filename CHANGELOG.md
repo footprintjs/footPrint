@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-03-18
+
+### Added
+- **Lazy subflow resolution (`addLazySubFlowChartBranch`)** — Defers subflow tree cloning until first execution. Stores a factory function instead of eagerly expanding the subflow tree at build time. Enables the "graph-of-services" pattern at scale — 50+ service branches with zero build-time cost for unselected ones.
+  - `addLazySubFlowChartBranch()` on `DeciderList` and `SelectorFnList`
+  - `addLazySubFlowChart()` — lazy parallel child
+  - `addLazySubFlowChartNext()` — lazy linear next
+  - `StageNode.subflowResolver` — factory function, resolved at most once per execution
+  - `SerializedPipelineStructure.isLazy` — visualization hint (dashed border + cloud icon in UI)
+  - Engine Phase 0a: resolves lazy subflows before Phase 0 classify
+- **10 unit tests** covering decider, selector, linear, parallel, spec flags, and resolver idempotency.
+
 ## [0.14.4] - 2026-03-17
 
 ### Added
