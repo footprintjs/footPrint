@@ -31,6 +31,7 @@ function makeContext(overrides: Record<string, any> = {}): any {
     addError: vi.fn(),
     addFlowDebugMessage: vi.fn(),
     createNext: vi.fn().mockReturnValue({ stageName: 'next' }),
+    createChild: vi.fn().mockReturnValue({ stageName: 'branch' }),
     debug: {
       logContext: {},
       errorContext: {},
@@ -80,7 +81,7 @@ describe('DeciderHandler', () => {
       );
 
       expect(context.commit).toHaveBeenCalled();
-      expect(context.createNext).toHaveBeenCalledWith('main', 'Child A', 'child-a');
+      expect(context.createChild).toHaveBeenCalledWith('main', 'child-a', 'Child A', 'child-a');
       expect(result).toBe('executed');
     });
 
@@ -106,7 +107,7 @@ describe('DeciderHandler', () => {
       );
 
       // Should resolve to default child
-      expect(context.createNext).toHaveBeenCalledWith('main', 'defaultChild', 'default');
+      expect(context.createChild).toHaveBeenCalledWith('main', 'default', 'defaultChild', 'default');
       // Flow message should mention "fell back to default"
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
         'branch',
