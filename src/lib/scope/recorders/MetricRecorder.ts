@@ -89,6 +89,20 @@ export class MetricRecorder implements Recorder {
     return metrics ? { ...metrics } : undefined;
   }
 
+  toSnapshot(): { name: string; data: unknown } {
+    const metrics = this.getMetrics();
+    return {
+      name: 'Metrics',
+      data: {
+        totalDuration: metrics.totalDuration,
+        totalReads: metrics.totalReads,
+        totalWrites: metrics.totalWrites,
+        totalCommits: metrics.totalCommits,
+        stages: Object.fromEntries(metrics.stageMetrics),
+      },
+    };
+  }
+
   reset(): void {
     this.metrics.clear();
     this.stageStartTimes.clear();

@@ -23,12 +23,21 @@ export interface NarrativeEntry {
   timeIndex: number;
 }
 
+/** Snapshot of a single recorder's collected data. */
+export interface RecorderSnapshot {
+  id: string;
+  name: string;
+  data: unknown;
+}
+
 export type RuntimeSnapshot = {
   sharedState: Record<string, unknown>;
   executionTree: StageSnapshot;
   commitLog: CommitBundle[];
   /** Per-subflow execution results (keyed by subflowId). */
   subflowResults?: Record<string, unknown>;
+  /** Snapshot data from recorders that implement toSnapshot(). */
+  recorders?: RecorderSnapshot[];
 };
 
 export class ExecutionRuntime {

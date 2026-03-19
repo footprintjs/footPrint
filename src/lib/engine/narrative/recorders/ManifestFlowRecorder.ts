@@ -100,6 +100,10 @@ export class ManifestFlowRecorder implements FlowRecorder {
     return Array.from(this.specs.keys());
   }
 
+  toSnapshot(): { name: string; data: unknown } {
+    return { name: 'Manifest', data: this.getManifest() };
+  }
+
   /** Clears state for reuse. */
   clear(): void {
     this.stack = [];

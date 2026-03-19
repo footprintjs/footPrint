@@ -30,7 +30,7 @@ import {
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport } from '../scope/types.js';
-import { ExecutionRuntime } from './ExecutionRuntime.js';
+import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { validateInput } from './validateInput.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
@@ -294,12 +294,25 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   // ─── Introspection ───
 
-  getSnapshot() {
-    const snapshot = this.traverser.getSnapshot();
+  getSnapshot(): RuntimeSnapshot {
+    const snapshot = this.traverser.getSnapshot() as RuntimeSnapshot;
     const sfResults = this.traverser.getSubflowResults();
     if (sfResults.size > 0) {
       snapshot.subflowResults = Object.fromEntries(sfResults);
     }
+
+    // Collect snapshot data from recorders that implement toSnapshot()
+    const recorderSnapshots: RecorderSnapshot[] = [];
+    for (const r of this.flowRecorders) {
+      if (r.toSnapshot) {
+        const { name, data } = r.toSnapshot();
+        recorderSnapshots.push({ id: r.id, name, data });
+      }
+    }
+    if (recorderSnapshots.length > 0) {
+      snapshot.recorders = recorderSnapshots;
+    }
+
     return snapshot;
   }
 

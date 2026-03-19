@@ -50,8 +50,10 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   private entries: CombinedNarrativeEntry[] = [];
   private pendingOps = new Map<string, BufferedOp[]>();
-  private stageCounter = 0;
-  private isFirstStage = true;
+  /** Per-subflow stage counters. Key '' = root flow. */
+  private stageCounters = new Map<string, number>();
+  /** Per-subflow first-stage flags. Key '' = root flow. */
+  private firstStageFlags = new Map<string, boolean>();
 
   private includeStepNumbers: boolean;
   private includeValues: boolean;
@@ -87,20 +89,21 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
-    this.stageCounter++;
-    const text = this.isFirstStage
+    const sfKey = event.traversalContext?.subflowId ?? '';
+    const stageNum = this.incrementStageCounter(sfKey);
+    const isFirst = this.consumeFirstStageFlag(sfKey);
+    const text = isFirst
       ? event.description
         ? `The process began: ${event.description}.`
         : `The process began with ${event.stageName}.`
       : event.description
       ? `Next step: ${event.description}.`
       : `Next, it moved on to ${event.stageName}.`;
-    this.isFirstStage = false;
 
     const sfId = event.traversalContext?.subflowId;
     this.entries.push({
       type: 'stage',
-      text: `Stage ${this.stageCounter}: ${text}`,
+      text: `Stage ${stageNum}: ${text}`,
       depth: 0,
       stageName: event.stageName,
       subflowId: sfId,
@@ -110,24 +113,25 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   onDecision(event: FlowDecisionEvent): void {
     // Emit the decider stage entry (deciders don't fire onStageExecuted)
-    this.stageCounter++;
-    const stageText = this.isFirstStage
+    const sfKey = event.traversalContext?.subflowId ?? '';
+    const stageNum = this.incrementStageCounter(sfKey);
+    const isFirst = this.consumeFirstStageFlag(sfKey);
+    const stageText = isFirst
       ? event.description
         ? `The process began: ${event.description}.`
         : `The process began with ${event.decider}.`
       : event.description
       ? `Next step: ${event.description}.`
       : `Next, it moved on to ${event.decider}.`;
-    this.isFirstStage = false;
 
     this.entries.push({
       type: 'stage',
-      text: `Stage ${this.stageCounter}: ${stageText}`,
+      text: `Stage ${stageNum}: ${stageText}`,
       depth: 0,
       stageName: event.decider,
       subflowId: event.traversalContext?.subflowId,
     });
-    this.flushOps(event.decider);
+    this.flushOps(event.decider, event.traversalContext?.subflowId);
 
     // Emit the condition entry
     const branchName = event.chosen;
@@ -176,6 +180,11 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
+    // Reset stage counter for this subflow so stages start at "Stage 1" on re-entry
+    const sfKey = event.subflowId ?? '';
+    this.stageCounters.delete(sfKey);
+    this.firstStageFlags.delete(sfKey);
+
     const text = event.description
       ? `Entering the ${event.name} subflow: ${event.description}.`
       : `Entering the ${event.name} subflow.`;
@@ -267,11 +276,28 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   clear(): void {
     this.entries = [];
     this.pendingOps.clear();
-    this.stageCounter = 0;
-    this.isFirstStage = true;
+    this.stageCounters.clear();
+    this.firstStageFlags.clear();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
+
+  /** Increment and return the stage counter for a given subflow ('' = root). */
+  private incrementStageCounter(subflowKey: string): number {
+    const current = this.stageCounters.get(subflowKey) ?? 0;
+    const next = current + 1;
+    this.stageCounters.set(subflowKey, next);
+    return next;
+  }
+
+  /** Returns true if this is the first stage for the given subflow, consuming the flag. */
+  private consumeFirstStageFlag(subflowKey: string): boolean {
+    if (!this.firstStageFlags.has(subflowKey)) {
+      this.firstStageFlags.set(subflowKey, false);
+      return true;
+    }
+    return false;
+  }
 
   private bufferOp(stageName: string, op: Omit<BufferedOp, 'stepNumber'>): void {
     let ops = this.pendingOps.get(stageName);

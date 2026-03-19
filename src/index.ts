@@ -27,7 +27,7 @@ export { FlowChartExecutor } from './lib/runner/index.js';
 export type { ComposableRunner } from './lib/runner/index.js';
 
 // Snapshot navigation — drill into subflow subtrees by path
-export type { SubtreeSnapshot } from './lib/runner/index.js';
+export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/runner/index.js';
 export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
 // ============================================================================
@@ -64,9 +64,15 @@ export { CombinedNarrativeBuilder } from './lib/engine/index.js';
 
 // FlowRecorder — Pluggable observer for control flow events (mirrors scope Recorder)
 export type {
+  FlowBreakEvent,
+  FlowDecisionEvent,
   FlowErrorEvent,
+  FlowForkEvent,
   FlowLoopEvent,
+  FlowNextEvent,
   FlowRecorder,
+  FlowSelectedEvent,
+  FlowStageEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
   TraversalContext,

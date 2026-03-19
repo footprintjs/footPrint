@@ -116,6 +116,7 @@ export interface IExecutionRuntime {
     executionTree: unknown;
     commitLog: unknown[];
     subflowResults?: Record<string, unknown>;
+    recorders?: Array<{ id: string; name: string; data: unknown }>;
   };
   setRootObject(path: string[], key: string, value: unknown): void;
   getPipelines(): string[];
