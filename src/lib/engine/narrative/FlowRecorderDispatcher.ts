@@ -11,7 +11,7 @@
  */
 
 import { extractErrorInfo } from '../errors/errorInfo.js';
-import type { FlowRecorder, IControlFlowNarrative } from './types.js';
+import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];
@@ -38,9 +38,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
 
   // ── IControlFlowNarrative implementation ──────────────────────────────────
 
-  onStageExecuted(stageName: string, description?: string): void {
+  onStageExecuted(stageName: string, description?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, description };
+    const event = { stageName, description, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onStageExecuted?.(event);
@@ -50,9 +50,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onNext(fromStage: string, toStage: string, description?: string): void {
+  onNext(fromStage: string, toStage: string, description?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { from: fromStage, to: toStage, description };
+    const event = { from: fromStage, to: toStage, description, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onNext?.(event);
@@ -62,9 +62,21 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onDecision(deciderName: string, chosenBranch: string, rationale?: string, deciderDescription?: string): void {
+  onDecision(
+    deciderName: string,
+    chosenBranch: string,
+    rationale?: string,
+    deciderDescription?: string,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { decider: deciderName, chosen: chosenBranch, rationale, description: deciderDescription };
+    const event = {
+      decider: deciderName,
+      chosen: chosenBranch,
+      rationale,
+      description: deciderDescription,
+      traversalContext,
+    };
     for (const r of this.recorders) {
       try {
         r.onDecision?.(event);
@@ -74,9 +86,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onFork(parentStage: string, childNames: string[]): void {
+  onFork(parentStage: string, childNames: string[], traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { parent: parentStage, children: childNames };
+    const event = { parent: parentStage, children: childNames, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onFork?.(event);
@@ -86,9 +98,14 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSelected(parentStage: string, selectedNames: string[], totalCount: number): void {
+  onSelected(
+    parentStage: string,
+    selectedNames: string[],
+    totalCount: number,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { parent: parentStage, selected: selectedNames, total: totalCount };
+    const event = { parent: parentStage, selected: selectedNames, total: totalCount, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onSelected?.(event);
@@ -98,9 +115,14 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSubflowEntry(subflowName: string, subflowId?: string, description?: string): void {
+  onSubflowEntry(
+    subflowName: string,
+    subflowId?: string,
+    description?: string,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName, subflowId, description };
+    const event = { name: subflowName, subflowId, description, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onSubflowEntry?.(event);
@@ -110,9 +132,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSubflowExit(subflowName: string, subflowId?: string): void {
+  onSubflowExit(subflowName: string, subflowId?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName, subflowId };
+    const event = { name: subflowName, subflowId, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onSubflowExit?.(event);
@@ -134,9 +156,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onLoop(targetStage: string, iteration: number, description?: string): void {
+  onLoop(targetStage: string, iteration: number, description?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { target: targetStage, iteration, description };
+    const event = { target: targetStage, iteration, description, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onLoop?.(event);
@@ -146,9 +168,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onBreak(stageName: string): void {
+  onBreak(stageName: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName };
+    const event = { stageName, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onBreak?.(event);
@@ -158,10 +180,10 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onError(stageName: string, errorMessage: string, error: unknown): void {
+  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const structuredError = extractErrorInfo(error);
-    const event = { stageName, message: errorMessage, structuredError };
+    const event = { stageName, message: errorMessage, structuredError, traversalContext };
     for (const r of this.recorders) {
       try {
         r.onError?.(event);

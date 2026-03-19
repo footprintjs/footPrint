@@ -41,6 +41,7 @@ export type {
   FlowStageEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
+  TraversalContext,
 } from './narrative/types.js';
 
 // Structured error extraction

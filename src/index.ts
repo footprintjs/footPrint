@@ -69,6 +69,7 @@ export type {
   FlowRecorder,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
+  TraversalContext,
 } from './lib/engine/index.js';
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
 

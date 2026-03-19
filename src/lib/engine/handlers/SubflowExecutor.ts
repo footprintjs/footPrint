@@ -15,6 +15,7 @@
 import type { StageContext } from '../../memory/StageContext.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, IExecutionRuntime, NodeResultType, StageFunction, SubflowResult } from '../types.js';
 import type { NodeResolver } from './NodeResolver.js';
 import { StageRunner } from './StageRunner.js';
@@ -224,6 +225,16 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       return await this.executeSubflow(resolvedNode, context, breakFlag, branchPath, this.subflowResultsMap!);
     }
 
+    // Build traversal context for subflow stage events
+    const traversalContext: TraversalContext = {
+      stageId: node.id ?? context.stageId,
+      stageName: node.name,
+      parentStageId: context.parent?.stageId,
+      subflowId: branchPath || undefined,
+      subflowPath: branchPath || undefined,
+      depth: this.computeContextDepth(context),
+    };
+
     const stageFunc = this.getStageFn(node);
     const breakFn = () => (breakFlag.shouldBreak = true);
 
@@ -243,15 +254,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           message: error.toString(),
         });
         context.addError('stageExecutionError', error.toString());
-        this.deps.narrativeGenerator.onError(node.name, error.toString(), error);
+        this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
         throw error;
       }
       context.commit();
       this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
-      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description);
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext);
 
       if (breakFlag.shouldBreak) {
-        this.deps.narrativeGenerator.onBreak(node.name);
+        this.deps.narrativeGenerator.onBreak(node.name, traversalContext);
         return stageOutput;
       }
 
@@ -335,12 +346,22 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       }
 
-      this.deps.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
+      this.deps.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
       const nextCtx = context.createNext('', nextNode.name, nextNode.id);
       return await this.executeSubflowInternal(nextNode, nextCtx, breakFlag, branchPath);
     }
 
     return stageOutput;
+  }
+
+  private computeContextDepth(context: StageContext): number {
+    let depth = 0;
+    let current = context.parent;
+    while (current) {
+      depth++;
+      current = current.parent;
+    }
+    return depth;
   }
 
   private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string, contextStageName?: string): string {

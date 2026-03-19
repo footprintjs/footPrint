@@ -10,40 +10,87 @@
 
 export interface IControlFlowNarrative {
   /** Called when a stage executes. First stage uses distinct opening pattern. */
-  onStageExecuted(stageName: string, description?: string): void;
+  onStageExecuted(stageName: string, description?: string, traversalContext?: TraversalContext): void;
 
   /** Called on linear continuation from one stage to the next. */
-  onNext(fromStage: string, toStage: string, description?: string): void;
+  onNext(fromStage: string, toStage: string, description?: string, traversalContext?: TraversalContext): void;
 
   /** Called when a decider selects a branch. Most valuable for LLM context. */
-  onDecision(deciderName: string, chosenBranch: string, rationale?: string, deciderDescription?: string): void;
+  onDecision(
+    deciderName: string,
+    chosenBranch: string,
+    rationale?: string,
+    deciderDescription?: string,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /** Called when a fork executes all children in parallel. */
-  onFork(parentStage: string, childNames: string[]): void;
+  onFork(parentStage: string, childNames: string[], traversalContext?: TraversalContext): void;
 
   /** Called when a selector picks a subset of children. */
-  onSelected(parentStage: string, selectedNames: string[], totalCount: number): void;
+  onSelected(
+    parentStage: string,
+    selectedNames: string[],
+    totalCount: number,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /** Called when entering a subflow (nested context boundary). */
-  onSubflowEntry(subflowName: string, subflowId?: string, description?: string): void;
+  onSubflowEntry(
+    subflowName: string,
+    subflowId?: string,
+    description?: string,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /** Called when exiting a subflow. */
-  onSubflowExit(subflowName: string, subflowId?: string): void;
+  onSubflowExit(subflowName: string, subflowId?: string, traversalContext?: TraversalContext): void;
 
   /** Called when a dynamic subflow is registered during traversal. */
   onSubflowRegistered(subflowId: string, name: string, description?: string, specStructure?: unknown): void;
 
   /** Called on loop iteration (back-edge traversal). */
-  onLoop(targetStage: string, iteration: number, description?: string): void;
+  onLoop(targetStage: string, iteration: number, description?: string, traversalContext?: TraversalContext): void;
 
   /** Called when a stage triggers break (early termination). */
-  onBreak(stageName: string): void;
+  onBreak(stageName: string, traversalContext?: TraversalContext): void;
 
   /** Called when a stage throws an error. Raw error is extracted into structured details. */
-  onError(stageName: string, errorMessage: string, error: unknown): void;
+  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
 
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
+}
+
+// ============================================================================
+// TraversalContext — read-only execution context from the traverser.
+// ============================================================================
+
+/**
+ * Traversal context attached to every FlowRecorder event.
+ * Created by the traverser during DFS, passed to recorders as read-only data.
+ * Enables recorders to build trees, group by subflow, and correlate events
+ * without maintaining their own stacks or post-processing.
+ *
+ * Like OpenTelemetry's span context: stageId + parentStageId form a tree.
+ */
+export interface TraversalContext {
+  /** Stable stage identifier from the builder (matches spec node id). */
+  readonly stageId: string;
+  /** Human-readable stage name. */
+  readonly stageName: string;
+  /** Parent stage ID — walk up to reconstruct the tree. Undefined at root. */
+  readonly parentStageId?: string;
+  /** Subflow ID when inside a subflow. Undefined at root level. */
+  readonly subflowId?: string;
+  /** Full subflow path for nested subflows (e.g., "sf-outer/sf-inner"). */
+  readonly subflowPath?: string;
+  /** Nesting depth (0 = root, 1 = inside first subflow, etc.). */
+  readonly depth: number;
+  /** Loop iteration number when revisiting a node via loopTo. */
+  readonly loopIteration?: number;
+  /** Fork branch ID when inside a parallel or decider branch. */
+  readonly forkBranch?: string;
 }
 
 // ============================================================================
@@ -54,6 +101,8 @@ export interface IControlFlowNarrative {
 export interface FlowStageEvent {
   stageName: string;
   description?: string;
+  /** Traversal context from the engine — read-only, set by traverser. */
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onNext. */
@@ -61,6 +110,7 @@ export interface FlowNextEvent {
   from: string;
   to: string;
   description?: string;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onDecision. */
@@ -69,12 +119,14 @@ export interface FlowDecisionEvent {
   chosen: string;
   rationale?: string;
   description?: string;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onFork. */
 export interface FlowForkEvent {
   parent: string;
   children: string[];
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onSelected. */
@@ -82,6 +134,7 @@ export interface FlowSelectedEvent {
   parent: string;
   selected: string[];
   total: number;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onSubflow. */
@@ -91,6 +144,7 @@ export interface FlowSubflowEvent {
   subflowId?: string;
   /** Build-time description of what this subflow does. */
   description?: string;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onSubflowRegistered (dynamic subflow attachment). */
@@ -103,6 +157,7 @@ export interface FlowSubflowRegisteredEvent {
   description?: string;
   /** Full spec structure (when available from buildTimeStructure). */
   specStructure?: unknown;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onLoop. */
@@ -110,11 +165,13 @@ export interface FlowLoopEvent {
   target: string;
   iteration: number;
   description?: string;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onBreak. */
 export interface FlowBreakEvent {
   stageName: string;
+  traversalContext?: TraversalContext;
 }
 
 /** Event passed to FlowRecorder.onError. */
@@ -123,6 +180,7 @@ export interface FlowErrorEvent {
   message: string;
   /** Structured error details — preserves field-level issues, error codes, etc. */
   structuredError: import('../errors/errorInfo').StructuredErrorInfo;
+  traversalContext?: TraversalContext;
 }
 
 /**

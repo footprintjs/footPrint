@@ -34,7 +34,7 @@ import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
-import type { FlowRecorder, IControlFlowNarrative } from '../narrative/types.js';
+import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
 import type {
   ExtractorError,
   HandlerDeps,
@@ -261,6 +261,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (node.description) context.description = node.description;
     if (node.isSubflowRoot && node.subflowId) context.subflowId = node.subflowId;
 
+    // Build traversal context for recorder events — created once per stage, shared by all events
+    const traversalContext: TraversalContext = {
+      stageId: node.id ?? context.stageId,
+      stageName: node.name,
+      parentStageId: context.parent?.stageId,
+      subflowId: context.subflowId,
+      subflowPath: branchPath || undefined,
+      depth: this.computeContextDepth(context),
+    };
+
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
     if (node.isSubflowRoot && node.subflowResolver && !this.subflows[node.subflowId!]) {
       const resolved = node.subflowResolver();
@@ -427,7 +437,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           );
         }
 
-        this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
+        this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
         const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
         return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
       }
@@ -458,7 +468,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           undefined,
           { type: 'stageExecutionError', message: error.toString() },
         );
-        this.narrativeGenerator.onError(node.name, error.toString(), error);
+        this.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
         context.addError('stageExecutionError', error.toString());
         throw error;
@@ -470,10 +480,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.extractorRunner.getStagePath(node, branchPath, context.stageName),
         stageOutput,
       );
-      this.narrativeGenerator.onStageExecuted(node.name, node.description);
+      this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext);
 
       if (breakFlag.shouldBreak) {
-        this.narrativeGenerator.onBreak(node.name);
+        this.narrativeGenerator.onBreak(node.name, traversalContext);
         this.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
         return stageOutput;
       }
@@ -664,7 +674,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         );
       }
 
-      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description);
+      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
       context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
         targetStage: nextNode.name,
       });
@@ -717,6 +727,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       parentStageId,
       pipelineStructure: childStructure,
     });
+  }
+
+  private computeContextDepth(context: StageContext): number {
+    let depth = 0;
+    let current = context.parent;
+    while (current) {
+      depth++;
+      current = current.parent;
+    }
+    return depth;
   }
 
   private prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
