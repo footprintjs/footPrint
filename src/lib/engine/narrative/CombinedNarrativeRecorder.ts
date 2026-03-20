@@ -168,7 +168,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const names = event.children.join(', ');
     this.entries.push({
       type: 'fork',
-      text: `[Parallel]: ${event.children.length} paths were executed in parallel: ${names}.`,
+      text: `[Parallel]: Forking into ${event.children.length} parallel paths: ${names}.`,
       depth: 0,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
@@ -179,7 +179,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const names = event.selected.join(', ');
     this.entries.push({
       type: 'fork',
-      text: `[Selected]: ${event.selected.length} of ${event.total} paths were selected: ${names}.`,
+      text: `[Selected]: ${event.selected.length} of ${event.total} paths selected for execution: ${names}.`,
       depth: 0,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,

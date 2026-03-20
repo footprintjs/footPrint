@@ -70,7 +70,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
 
   onFork(event: FlowForkEvent): void {
     const names = event.children.join(', ');
-    this.sentences.push(`${event.children.length} paths were executed in parallel: ${names}.`);
+    this.sentences.push(`Forking into ${event.children.length} parallel paths: ${names}.`);
     this.stageNames.push(undefined);
   }
 

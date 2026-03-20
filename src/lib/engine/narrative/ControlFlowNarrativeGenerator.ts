@@ -51,7 +51,7 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
 
   onFork(parentStage: string, childNames: string[]): void {
     const names = childNames.join(', ');
-    this.sentences.push(`${childNames.length} paths were executed in parallel: ${names}.`);
+    this.sentences.push(`Forking into ${childNames.length} parallel paths: ${names}.`);
   }
 
   onSelected(parentStage: string, selectedNames: string[], totalCount: number): void {
