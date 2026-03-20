@@ -7,6 +7,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
 
 /** Callback for running a stage with commit + extractor. Avoids circular dep with traverser. */
@@ -59,6 +60,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     executeNode: ExecuteNodeFn<TOut, TScope>,
     callExtractor: CallExtractorFn<TOut, TScope>,
     getStagePath: GetStagePathFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
   ): Promise<any> {
     const breakFn = () => (breakFlag.shouldBreak = true);
 
@@ -74,7 +76,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
-      this.deps.narrativeGenerator.onError(node.name, error.toString(), error);
+      this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
       throw error;
     }
 
@@ -118,7 +120,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       rationale: rationale || `returned branchId: ${branchId}`,
     });
 
-    this.deps.narrativeGenerator.onDecision(node.name, chosen.name, rationale, node.description);
+    this.deps.narrativeGenerator.onDecision(node.name, chosen.name, rationale, node.description, traversalContext);
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
     return executeNode(chosen, branchContext, breakFlag, branchPath);

@@ -12,6 +12,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps } from '../types.js';
 import type { NodeResolver } from './NodeResolver.js';
 
@@ -57,16 +58,25 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
     branchPath: string | undefined,
     executeNode: ExecuteNodeFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
   ): Promise<any> {
     if (typeof dynamicNext === 'string') {
-      return this.handleStringReference(dynamicNext, node, context, breakFlag, branchPath, executeNode);
+      return this.handleStringReference(
+        dynamicNext,
+        node,
+        context,
+        breakFlag,
+        branchPath,
+        executeNode,
+        traversalContext,
+      );
     }
 
     if (dynamicNext.fn) {
       return this.handleDirectNode(dynamicNext, context, breakFlag, branchPath, executeNode);
     }
 
-    return this.handleNodeReference(dynamicNext, node, context, breakFlag, branchPath, executeNode);
+    return this.handleNodeReference(dynamicNext, node, context, breakFlag, branchPath, executeNode, traversalContext);
   }
 
   /** dynamicNext is a string ID → resolve from graph, track iteration. */
@@ -77,6 +87,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
     branchPath: string | undefined,
     executeNode: ExecuteNodeFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
   ): Promise<any> {
     const targetNode = this.nodeResolver.findNodeById(nodeId);
     if (!targetNode) {
@@ -95,7 +106,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
       iteration: iteration + 1,
     });
 
-    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
+    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description, traversalContext);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
@@ -128,6 +139,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
     branchPath: string | undefined,
     executeNode: ExecuteNodeFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
   ): Promise<any> {
     const nextNodeId = dynamicNode.id;
     if (!nextNodeId) {
@@ -153,7 +165,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
       iteration: iteration + 1,
     });
 
-    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description);
+    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description, traversalContext);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
     return executeNode(targetNode, nextStageContext, breakFlag, branchPath);

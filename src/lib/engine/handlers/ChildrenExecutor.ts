@@ -10,6 +10,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
 
 /** Callback for recursive node execution. Avoids circular dependency with traverser. */
@@ -32,6 +33,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     context: StageContext,
     parentBreakFlag?: { shouldBreak: boolean },
     branchPath?: string,
+    traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType>> {
     let breakCount = 0;
     const totalChildren = node.children?.length ?? 0;
@@ -39,7 +41,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
     // Narrative: capture the fan-out
     const childDisplayNames = allChildren.map((c) => c.name);
-    this.deps.narrativeGenerator.onFork(node.name, childDisplayNames);
+    this.deps.narrativeGenerator.onFork(node.name, childDisplayNames, traversalContext);
 
     const childPromises: Promise<NodeResultType>[] = allChildren.map((child) => {
       const childBranchPath = branchPath || child.id;
@@ -109,6 +111,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     input: any,
     context: StageContext,
     branchPath: string,
+    traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType>> {
     const selectorResult = await selector(input);
     const selectedIds = Array.isArray(selectorResult) ? selectorResult : [selectorResult];
@@ -149,13 +152,18 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
     // Narrative: capture the selection
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
-    this.deps.narrativeGenerator.onSelected(context.stageName || 'selector', selectedDisplayNames, children.length);
+    this.deps.narrativeGenerator.onSelected(
+      context.stageName || 'selector',
+      selectedDisplayNames,
+      children.length,
+      traversalContext,
+    );
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',
       id: 'selector-temp',
       children: selectedChildren,
     };
-    return await this.executeNodeChildren(tempNode, context, undefined, branchPath);
+    return await this.executeNodeChildren(tempNode, context, undefined, branchPath, traversalContext);
   }
 }

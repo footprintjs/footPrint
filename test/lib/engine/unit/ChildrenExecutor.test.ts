@@ -166,7 +166,7 @@ describe('ChildrenExecutor', () => {
 
       await executor.executeNodeChildren(node, context);
 
-      expect(narrativeGenerator.onFork).toHaveBeenCalledWith('Parent', ['Child A', 'childB']);
+      expect(narrativeGenerator.onFork).toHaveBeenCalledWith('Parent', ['Child A', 'childB'], undefined);
     });
 
     it('uses node.name when displayName is not set for narrative', async () => {
@@ -192,7 +192,7 @@ describe('ChildrenExecutor', () => {
 
       await executor.executeNodeChildren(node, context);
 
-      expect(narrativeGenerator.onFork).toHaveBeenCalledWith('parent', ['c1']);
+      expect(narrativeGenerator.onFork).toHaveBeenCalledWith('parent', ['c1'], undefined);
     });
 
     it('checks throttling error and updates monitor when throttlingErrorChecker returns true', async () => {
@@ -478,7 +478,7 @@ describe('ChildrenExecutor', () => {
 
       await executor.executeSelectedChildren(selector, children, 'input', context, 'branch');
 
-      expect(narrativeGenerator.onSelected).toHaveBeenCalledWith('test-stage', ['Alpha'], 2);
+      expect(narrativeGenerator.onSelected).toHaveBeenCalledWith('test-stage', ['Alpha'], 2, undefined);
     });
 
     it('adds flow debug message with selected info', async () => {

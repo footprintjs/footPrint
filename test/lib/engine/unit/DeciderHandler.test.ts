@@ -230,6 +230,7 @@ describe('DeciderHandler', () => {
         'deciderStage',
         expect.stringContaining('Stage exploded'),
         expect.any(Error),
+        undefined,
       );
     });
   });
@@ -280,6 +281,7 @@ describe('DeciderHandler', () => {
         'deciderStage',
         'Child A',
         'User is premium',
+        undefined,
         undefined,
       );
     });
@@ -346,6 +348,7 @@ describe('DeciderHandler', () => {
         'Child A',
         undefined,
         'Decides the route',
+        undefined,
       );
     });
   });

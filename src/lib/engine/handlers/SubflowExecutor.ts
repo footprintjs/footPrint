@@ -76,6 +76,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     breakFlag: { shouldBreak: boolean },
     branchPath: string | undefined,
     subflowResultsMap: Map<string, SubflowResult>,
+    parentTraversalContext?: TraversalContext,
   ): Promise<any> {
     const subflowId = node.subflowId!;
     const subflowName = node.subflowName ?? node.name;
@@ -83,7 +84,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Entering ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowEntry(subflowName, subflowId, node.description);
+    this.deps.narrativeGenerator.onSubflowEntry(subflowName, subflowId, node.description, parentTraversalContext);
 
     // ─── Input Mapping ───
     const mountOptions = node.subflowMountOptions;
@@ -198,7 +199,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId);
+    this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId, parentTraversalContext);
 
     parentContext.commit();
 

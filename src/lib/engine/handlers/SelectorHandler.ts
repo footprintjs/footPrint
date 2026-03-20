@@ -9,6 +9,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './DeciderHandler.js';
@@ -34,6 +35,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
     executeNode: ExecuteNodeFn<TOut, TScope>,
     callExtractor: CallExtractorFn<TOut, TScope>,
     getStagePath: GetStagePathFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType>> {
     const breakFn = () => (breakFlag.shouldBreak = true);
 
@@ -70,7 +72,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
         count: 0,
         targetStage: [],
       });
-      this.deps.narrativeGenerator.onSelected(node.name, [], (node.children ?? []).length);
+      this.deps.narrativeGenerator.onSelected(node.name, [], (node.children ?? []).length, traversalContext);
       return {};
     }
 
@@ -103,13 +105,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
     );
 
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
-    this.deps.narrativeGenerator.onSelected(node.name, selectedDisplayNames, children.length);
+    this.deps.narrativeGenerator.onSelected(node.name, selectedDisplayNames, children.length, traversalContext);
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',
       id: 'selector-temp',
       children: selectedChildren,
     };
-    return await this.childrenExecutor.executeNodeChildren(tempNode, context, undefined, branchPath);
+    return await this.childrenExecutor.executeNodeChildren(tempNode, context, undefined, branchPath, traversalContext);
   }
 }

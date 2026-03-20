@@ -323,6 +323,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           breakFlag,
           branchPath,
           this.subflowResults,
+          traversalContext,
         );
       } finally {
         this.extractorRunner.currentSubflowId = previousSubflowId;
@@ -390,6 +391,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           this.executeNode.bind(this),
           this.extractorRunner.callExtractor.bind(this.extractorRunner),
           this.extractorRunner.getStagePath.bind(this.extractorRunner),
+          traversalContext,
         );
 
         if (hasNext) {
@@ -414,6 +416,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.executeNode.bind(this),
         this.extractorRunner.callExtractor.bind(this.extractorRunner),
         this.extractorRunner.getStagePath.bind(this.extractorRunner),
+        traversalContext,
       );
 
       // After branch execution, follow decider's own next (e.g., loopTo target)
@@ -610,6 +613,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             stageOutput,
             context,
             branchPath as string,
+            traversalContext,
           );
         } finally {
           this.extractorRunner.currentForkId = previousForkId;
@@ -625,7 +629,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const previousForkId = this.extractorRunner.currentForkId;
         this.extractorRunner.currentForkId = node.id;
         try {
-          nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(node, context, undefined, branchPath);
+          nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
+            node,
+            context,
+            undefined,
+            branchPath,
+            traversalContext,
+          );
         } finally {
           this.extractorRunner.currentForkId = previousForkId;
         }
@@ -671,6 +681,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           breakFlag,
           branchPath,
           this.executeNode.bind(this),
+          traversalContext,
         );
       }
 
