@@ -26,6 +26,8 @@ export interface CombinedNarrativeEntry {
   text: string;
   depth: number;
   stageName?: string;
+  /** Stable stage identifier from the builder (matches spec node id). Use for UI sync. */
+  stageId?: string;
   stepNumber?: number;
   /** Subflow ID when this entry was generated inside a subflow. Undefined for root-level. */
   subflowId?: string;

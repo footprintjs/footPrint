@@ -101,14 +101,16 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       : `Next, it moved on to ${event.stageName}.`;
 
     const sfId = event.traversalContext?.subflowId;
+    const stageId = event.traversalContext?.stageId;
     this.entries.push({
       type: 'stage',
       text: `Stage ${stageNum}: ${text}`,
       depth: 0,
       stageName: event.stageName,
+      stageId,
       subflowId: sfId,
     });
-    this.flushOps(event.stageName, sfId);
+    this.flushOps(event.stageName, sfId, stageId);
   }
 
   onDecision(event: FlowDecisionEvent): void {
@@ -124,14 +126,16 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       ? `Next step: ${event.description}.`
       : `Next, it moved on to ${event.decider}.`;
 
+    const deciderStageId = event.traversalContext?.stageId;
     this.entries.push({
       type: 'stage',
       text: `Stage ${stageNum}: ${stageText}`,
       depth: 0,
       stageName: event.decider,
+      stageId: deciderStageId,
       subflowId: event.traversalContext?.subflowId,
     });
-    this.flushOps(event.decider, event.traversalContext?.subflowId);
+    this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageId);
 
     // Emit the condition entry
     const branchName = event.chosen;
@@ -150,6 +154,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `[Condition]: ${conditionText}`,
       depth: 0,
       stageName: event.decider,
+      stageId: deciderStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -165,6 +170,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       type: 'fork',
       text: `[Parallel]: ${event.children.length} paths were executed in parallel: ${names}.`,
       depth: 0,
+      stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -175,6 +181,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       type: 'fork',
       text: `[Selected]: ${event.selected.length} of ${event.total} paths were selected: ${names}.`,
       depth: 0,
+      stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -188,7 +195,13 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const text = event.description
       ? `Entering the ${event.name} subflow: ${event.description}.`
       : `Entering the ${event.name} subflow.`;
-    this.entries.push({ type: 'subflow', text, depth: 0, subflowId: event.traversalContext?.subflowId });
+    this.entries.push({
+      type: 'subflow',
+      text,
+      depth: 0,
+      stageId: event.traversalContext?.stageId,
+      subflowId: event.traversalContext?.subflowId,
+    });
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
@@ -196,6 +209,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       type: 'subflow',
       text: `Exiting the ${event.name} subflow.`,
       depth: 0,
+      stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -204,7 +218,13 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const text = event.description
       ? `On pass ${event.iteration}: ${event.description} again.`
       : `On pass ${event.iteration} through ${event.target}.`;
-    this.entries.push({ type: 'loop', text, depth: 0, subflowId: event.traversalContext?.subflowId });
+    this.entries.push({
+      type: 'loop',
+      text,
+      depth: 0,
+      stageId: event.traversalContext?.stageId,
+      subflowId: event.traversalContext?.subflowId,
+    });
   }
 
   onBreak(event: FlowBreakEvent): void {
@@ -213,6 +233,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `Execution stopped at ${event.stageName}.`,
       depth: 0,
       stageName: event.stageName,
+      stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -242,6 +263,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `[Error]: ${text}`,
       depth: 0,
       stageName: flowEvent.stageName,
+      stageId: flowEvent.traversalContext?.stageId,
       subflowId: flowEvent.traversalContext?.subflowId,
     });
   }
@@ -308,7 +330,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     ops.push({ ...op, stepNumber: ops.length + 1 });
   }
 
-  private flushOps(stageName: string, subflowId?: string): void {
+  private flushOps(stageName: string, subflowId?: string, stageId?: string): void {
     const ops = this.pendingOps.get(stageName);
     if (!ops || ops.length === 0) return;
 
@@ -338,6 +360,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
         text,
         depth: 1,
         stageName,
+        stageId,
         stepNumber: op.stepNumber,
         subflowId,
       });
