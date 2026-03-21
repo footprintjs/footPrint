@@ -29,7 +29,7 @@ import {
 } from '../engine/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
-import type { RedactionPolicy, RedactionReport } from '../scope/types.js';
+import type { Recorder, RedactionPolicy, RedactionReport } from '../scope/types.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { validateInput } from './validateInput.js';
 
@@ -42,6 +42,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private narrativeEnabled = false;
   private combinedRecorder: CombinedNarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
+  private scopeRecorders: Recorder[] = [];
   private redactionPolicy: RedactionPolicy | undefined;
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
@@ -109,6 +110,21 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }) as ScopeFactory<TScope>;
     } else {
       this.combinedRecorder = undefined;
+    }
+
+    // Attach user-provided scope recorders (from attachRecorder())
+    if (this.scopeRecorders.length > 0) {
+      const recorders = this.scopeRecorders;
+      const prevFactory = scopeFactory;
+      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
+        const scope = prevFactory(ctx, stageName, readOnly, envArg);
+        if (scope && typeof (scope as any).attachRecorder === 'function') {
+          for (const r of recorders) {
+            (scope as any).attachRecorder(r);
+          }
+        }
+        return scope;
+      }) as ScopeFactory<TScope>;
     }
 
     // Share redacted keys across all scope instances in this pipeline run.
@@ -182,6 +198,27 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       fieldRedactions,
       patterns: (this.redactionPolicy?.patterns ?? []).map((p) => p.source),
     };
+  }
+
+  // ─── Recorder Management ───
+
+  /**
+   * Attach a scope Recorder to observe data operations (reads, writes, commits).
+   * Automatically attached to every ScopeFacade created during traversal.
+   * Must be called before run().
+   */
+  attachRecorder(recorder: Recorder): void {
+    this.scopeRecorders.push(recorder);
+  }
+
+  /** Detach all scope Recorders with the given ID. */
+  detachRecorder(id: string): void {
+    this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== id);
+  }
+
+  /** Returns a defensive copy of attached scope Recorders. */
+  getRecorders(): Recorder[] {
+    return [...this.scopeRecorders];
   }
 
   // ─── FlowRecorder Management ───

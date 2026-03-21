@@ -84,10 +84,11 @@ await executor.run({
   env: { traceId: 'req-123', signal: abortSignal, timeoutMs: 5000 },
 });
 
+executor.attachRecorder(recorder) // plug scope observer (one-liner, no scopeFactory needed)
 executor.getNarrative()         // combined flow + data narrative
-executor.getNarrativeEntries()  // structured entries with type/depth/stageName
+executor.getNarrativeEntries()  // structured entries with type/depth/stageName/stageId
 executor.getFlowNarrative()     // flow-only (no data ops)
-executor.getSnapshot()          // full memory state
+executor.getSnapshot()          // full memory state (includes recorder snapshots)
 executor.attachFlowRecorder(r)  // plug flow observer
 executor.setRedactionPolicy({}) // PII protection
 ```
@@ -127,9 +128,13 @@ Both use `{ id, hooks } → dispatcher → error isolation → attach/detach`. I
 
 **FlowRecorder** (control flow — fires AFTER stage execution):
 - `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`
+- All events carry `traversalContext: TraversalContext` (stageId, stageName, parentStageId, subflowId, subflowPath, depth, loopIteration, forkBranch)
+- Optional `toSnapshot(): { name, data }` — expose collected data for inclusion in `getSnapshot().recorders`
 - Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
+- All event types exported: `FlowStageEvent`, `FlowNextEvent`, `FlowDecisionEvent`, `FlowForkEvent`, `FlowSelectedEvent`, `FlowSubflowEvent`, `FlowSubflowRegisteredEvent`, `FlowLoopEvent`, `FlowBreakEvent`, `FlowErrorEvent`, `TraversalContext`
 
 **CombinedNarrativeRecorder** implements BOTH interfaces. Auto-attached by `setEnableNarrative()`.
+- All `CombinedNarrativeEntry` objects carry `stageId?: string` for UI sync (matches spec node id).
 
 ## Event Ordering
 
