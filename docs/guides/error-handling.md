@@ -134,14 +134,11 @@ This is tested with up to 50 concurrent recorders (25 throwing + 25 normal) — 
 The `DebugRecorder` captures errors automatically and optionally captures mutations and reads:
 
 ```typescript
-import { DebugRecorder, ScopeFacade } from 'footprintjs';
+import { DebugRecorder, FlowChartExecutor } from 'footprintjs';
 
 const debug = new DebugRecorder({ verbosity: 'verbose' });
-const scopeFactory = (ctx: any, stageName: string) => {
-  const scope = new ScopeFacade(ctx, stageName);
-  scope.attachRecorder(debug);
-  return scope;
-};
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(debug);
 
 // After execution:
 const entries = debug.getEntries();

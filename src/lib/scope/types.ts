@@ -101,4 +101,8 @@ export interface Recorder {
   onError?(event: ErrorEvent): void;
   onStageStart?(event: StageEvent): void;
   onStageEnd?(event: StageEvent): void;
+  /** Reset state before each executor.run() — prevents cross-run accumulation. */
+  clear?(): void;
+  /** Expose collected data for inclusion in executor.getSnapshot().recorders. */
+  toSnapshot?(): { name: string; data: unknown };
 }

@@ -105,16 +105,11 @@ Writes go through `TransactionBuffer` — staged, then committed atomically when
 Recorders observe scope operations without modifying them. Attach multiple for different concerns:
 
 ```typescript
-import {
-  ScopeFacade, DebugRecorder, MetricRecorder,
-} from 'footprintjs';
+import { FlowChartExecutor, DebugRecorder, MetricRecorder } from 'footprintjs';
 
-const scopeFactory = (ctx: any, stageName: string) => {
-  const scope = new ScopeFacade(ctx, stageName);
-  scope.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
-  scope.attachRecorder(new MetricRecorder());
-  return scope;
-};
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+executor.attachRecorder(new MetricRecorder());
 ```
 
 ### Built-in Recorders
@@ -198,13 +193,9 @@ class ComplianceRecorder implements Recorder {
 For custom scope factories, share redaction state across stages using `useSharedRedactedKeys()`:
 
 ```typescript
-const sharedRedactedKeys = new Set<string>();
-const scopeFactory = (ctx: any, stageName: string) => {
-  const scope = new ScopeFacade(ctx, stageName);
-  scope.useSharedRedactedKeys(sharedRedactedKeys);
-  scope.attachRecorder(myRecorder);
-  return scope;
-};
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(myRecorder);
+executor.setRedactionPolicy({ keys: ['ssn', 'password'] });
 ```
 
 ### Error Isolation

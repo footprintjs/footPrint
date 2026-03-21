@@ -64,15 +64,14 @@ Recorders don't exist *on top of* the data layer. They exist *because of* it. Th
 **Error isolation:** If a recorder throws, the error is caught and forwarded to `onError` hooks of other recorders. Scope operations continue normally. Recorders can never break execution.
 
 ```typescript
-const metrics = new MetricRecorder('production');
-const narrative = new NarrativeRecorder({ detail: 'full' });
-scope.attachRecorder(metrics);
-scope.attachRecorder(narrative);
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(new MetricRecorder());
+executor.attachRecorder(new NarrativeRecorder({ detail: 'full' }));
 
-// ... execute pipeline ...
+await executor.run();
 
+const metrics = executor.getRecorders().find(r => r instanceof MetricRecorder);
 console.log(metrics.getMetrics().totalReads);
-const sentences = narrative.toSentences();
 ```
 
 **Custom recorder example:**
@@ -83,7 +82,7 @@ const auditRecorder: Recorder = {
   onWrite: (event) => auditLog.append(event.key, event.value),
   onError: (event) => alerting.fire(event.error),
 };
-scope.attachRecorder(auditRecorder);
+executor.attachRecorder(auditRecorder);
 ```
 
 ---

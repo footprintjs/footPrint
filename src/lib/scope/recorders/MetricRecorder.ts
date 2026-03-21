@@ -108,6 +108,10 @@ export class MetricRecorder implements Recorder {
     this.stageStartTimes.clear();
   }
 
+  clear(): void {
+    this.reset();
+  }
+
   private getOrCreateStageMetrics(stageName: string): StageMetrics {
     let stageMetrics = this.metrics.get(stageName);
     if (!stageMetrics) {

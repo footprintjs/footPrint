@@ -190,4 +190,66 @@ describe('FlowChartExecutor.attachRecorder()', () => {
 
     expect(executor.getRecorders()).toHaveLength(1); // original unchanged
   });
+
+  it('clears scope recorders between runs (no cross-run accumulation)', async () => {
+    const chart = buildSimpleChart();
+    const executor = new FlowChartExecutor(chart);
+    const metrics = new MetricRecorder();
+
+    executor.attachRecorder(metrics);
+
+    await executor.run();
+    const firstRunWrites = metrics.getMetrics().totalWrites;
+    expect(firstRunWrites).toBeGreaterThanOrEqual(2);
+
+    await executor.run();
+    const secondRunWrites = metrics.getMetrics().totalWrites;
+    // Should equal first run count, not double it
+    expect(secondRunWrites).toBe(firstRunWrites);
+  });
+
+  it('MetricRecorder.toSnapshot() appears in executor.getSnapshot().recorders', async () => {
+    const chart = buildSimpleChart();
+    const executor = new FlowChartExecutor(chart);
+    const metrics = new MetricRecorder();
+
+    executor.attachRecorder(metrics);
+    await executor.run();
+
+    const snapshot = executor.getSnapshot();
+    expect(snapshot.recorders).toBeDefined();
+    const metricSnapshot = snapshot.recorders!.find((r) => r.name === 'Metrics');
+    expect(metricSnapshot).toBeDefined();
+    expect((metricSnapshot!.data as any).totalWrites).toBeGreaterThanOrEqual(2);
+  });
+
+  it('scope recorders propagate into subflows', async () => {
+    const subflow = flowChart(
+      'SubStage',
+      (scope) => {
+        scope.setValue('subVal', 42);
+      },
+      'sub-stage',
+    ).build();
+
+    const chart = flowChart(
+      'Main',
+      (scope) => {
+        scope.setValue('x', 1);
+      },
+      'main',
+    )
+      .addSubFlowChartNext('sf-test', subflow, 'SubflowMount')
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    const metrics = new MetricRecorder();
+    executor.attachRecorder(metrics);
+
+    await executor.run();
+
+    const summary = metrics.getMetrics();
+    // Main writes x=1, subflow writes subVal=42
+    expect(summary.totalWrites).toBeGreaterThanOrEqual(2);
+  });
 });

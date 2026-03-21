@@ -320,6 +320,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     for (const r of this.flowRecorders) {
       r.clear?.();
     }
+    for (const r of this.scopeRecorders) {
+      r.clear?.();
+    }
 
     this.traverser = this.createTraverser(signal, validatedInput, options?.env);
     try {
@@ -340,6 +343,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     // Collect snapshot data from recorders that implement toSnapshot()
     const recorderSnapshots: RecorderSnapshot[] = [];
+    for (const r of this.scopeRecorders) {
+      if (r.toSnapshot) {
+        const { name, data } = r.toSnapshot();
+        recorderSnapshots.push({ id: r.id, name, data });
+      }
+    }
     for (const r of this.flowRecorders) {
       if (r.toSnapshot) {
         const { name, data } = r.toSnapshot();

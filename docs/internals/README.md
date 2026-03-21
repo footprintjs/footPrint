@@ -103,7 +103,7 @@ Two libraries independently implement the same observer pattern:
 | **Interface** | `Recorder` | `FlowRecorder` |
 | **Hooks** | `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd` | `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`, ... |
 | **Dispatch** | `ScopeFacade._invokeHook()` | `FlowRecorderDispatcher` |
-| **Attachment** | `scope.attachRecorder(r)` | `executor.attachFlowRecorder(r)` |
+| **Attachment** | `executor.attachRecorder(r)` | `executor.attachFlowRecorder(r)` |
 | **Error isolation** | try/catch per recorder | try/catch per recorder |
 | **Identity** | `readonly id: string` | `readonly id: string` |
 | **All hooks optional** | Yes | Yes |
