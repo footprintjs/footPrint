@@ -93,61 +93,75 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const fc = args.flowChart;
     const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
 
-    // When narrative is enabled, create a CombinedNarrativeRecorder that implements
-    // BOTH FlowRecorder (control flow) and Recorder (scope data). It builds the
-    // combined narrative inline during traversal — no post-processing merge needed.
-    let scopeFactory = args.scopeFactory;
+    // ── Composed scope factory ─────────────────────────────────────────
+    // Collect all scope modifiers (recorders, redaction) into a single list,
+    // then create ONE factory that applies them in a loop. Replaces the
+    // previous 4-deep closure nesting with a flat, debuggable composition.
+
     if (narrativeFlag) {
       this.combinedRecorder = new CombinedNarrativeRecorder();
-      const recorder = this.combinedRecorder;
-      const originalFactory = args.scopeFactory;
-      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
-        const scope = originalFactory(ctx, stageName, readOnly, envArg);
-        if (scope && typeof (scope as any).attachRecorder === 'function') {
-          (scope as any).attachRecorder(recorder);
-        }
-        return scope;
-      }) as ScopeFactory<TScope>;
     } else {
       this.combinedRecorder = undefined;
     }
 
-    // Attach user-provided scope recorders (from attachRecorder())
-    if (this.scopeRecorders.length > 0) {
-      const recorders = this.scopeRecorders;
-      const prevFactory = scopeFactory;
-      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
-        const scope = prevFactory(ctx, stageName, readOnly, envArg);
-        if (scope && typeof (scope as any).attachRecorder === 'function') {
-          for (const r of recorders) {
-            (scope as any).attachRecorder(r);
-          }
-        }
-        return scope;
-      }) as ScopeFactory<TScope>;
+    this.sharedRedactedKeys = new Set<string>();
+    this.sharedRedactedFieldsByKey = new Map<string, Set<string>>();
+
+    // Build modifier list — each modifier receives the scope after creation
+    type ScopeModifier = (scope: any) => void;
+    const modifiers: ScopeModifier[] = [];
+
+    // 1. Narrative recorder (if enabled)
+    if (this.combinedRecorder) {
+      const recorder = this.combinedRecorder;
+      modifiers.push((scope) => {
+        if (typeof scope.attachRecorder === 'function') scope.attachRecorder(recorder);
+      });
     }
 
-    // Share redacted keys across all scope instances in this pipeline run.
-    // This ensures that once a key is marked as redacted in one stage,
-    // subsequent stages' recorders also see it as redacted.
-    // Also injects the RedactionPolicy if one has been set.
-    {
-      this.sharedRedactedKeys = new Set<string>();
-      this.sharedRedactedFieldsByKey = new Map<string, Set<string>>();
-      const sharedRedactedKeys = this.sharedRedactedKeys;
-      const policy = this.redactionPolicy;
-      const prevFactory = scopeFactory;
-      scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
-        const scope = prevFactory(ctx, stageName, readOnly, envArg);
-        if (scope && typeof (scope as any).useSharedRedactedKeys === 'function') {
-          (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
+    // 2. User-provided scope recorders
+    if (this.scopeRecorders.length > 0) {
+      const recorders = this.scopeRecorders;
+      modifiers.push((scope) => {
+        if (typeof scope.attachRecorder === 'function') {
+          for (const r of recorders) scope.attachRecorder(r);
         }
-        if (policy && scope && typeof (scope as any).useRedactionPolicy === 'function') {
-          (scope as any).useRedactionPolicy(policy);
-        }
-        return scope;
-      }) as ScopeFactory<TScope>;
+      });
     }
+
+    // 3. Redaction policy (conditional — only when policy is set)
+    if (this.redactionPolicy) {
+      const policy = this.redactionPolicy;
+      modifiers.push((scope) => {
+        if (typeof scope.useRedactionPolicy === 'function') {
+          scope.useRedactionPolicy(policy);
+        }
+      });
+      // Pre-populate executor-level field redaction map from policy
+      // so getRedactionReport() includes field-level redactions.
+      if (policy.fields) {
+        for (const [key, fields] of Object.entries(policy.fields)) {
+          this.sharedRedactedFieldsByKey.set(key, new Set(fields));
+        }
+      }
+    }
+
+    // Compose: base factory + modifiers in a single pass.
+    // Shared redacted keys are ALWAYS wired up (unconditional — ensures cross-stage
+    // propagation even without a policy, because stages can call setValue(key, val, true)
+    // for per-call redaction). Optional modifiers (recorders, policy) are in the list.
+    const baseFactory = args.scopeFactory;
+    const sharedRedactedKeys = this.sharedRedactedKeys;
+    const scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
+      const scope = baseFactory(ctx, stageName, readOnly, envArg);
+      // Always wire shared redaction state
+      if (typeof (scope as any).useSharedRedactedKeys === 'function') {
+        (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
+      }
+      // Apply optional modifiers
+      for (const mod of modifiers) mod(scope);
+      return scope;
+    }) as ScopeFactory<TScope>;
 
     const runtime = new ExecutionRuntime(fc.root.name, fc.root.id, args.defaultValuesForContext, args.initialContext);
 
