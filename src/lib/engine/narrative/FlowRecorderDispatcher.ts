@@ -68,6 +68,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     rationale?: string,
     deciderDescription?: string,
     traversalContext?: TraversalContext,
+    evidence?: import('../../decide/types').DecisionEvidence,
   ): void {
     if (this.recorders.length === 0) return;
     const event = {
@@ -76,6 +77,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       rationale,
       description: deciderDescription,
       traversalContext,
+      evidence,
     };
     for (const r of this.recorders) {
       try {
@@ -103,9 +105,10 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     selectedNames: string[],
     totalCount: number,
     traversalContext?: TraversalContext,
+    evidence?: import('../../decide/types').SelectionEvidence,
   ): void {
     if (this.recorders.length === 0) return;
-    const event = { parent: parentStage, selected: selectedNames, total: totalCount, traversalContext };
+    const event = { parent: parentStage, selected: selectedNames, total: totalCount, traversalContext, evidence };
     for (const r of this.recorders) {
       try {
         r.onSelected?.(event);

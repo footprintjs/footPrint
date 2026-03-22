@@ -5,6 +5,8 @@
  * Logs flow control decisions and narrative sentences.
  */
 
+import type { DecisionEvidence } from '../../decide/types.js';
+import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -65,9 +67,16 @@ export class DeciderHandler<TOut = any, TScope = any> {
     const breakFn = () => (breakFlag.shouldBreak = true);
 
     let branchId: string;
+    let decisionEvidence: DecisionEvidence | undefined;
     try {
       const stageOutput = await runStage(node, stageFunc, context, breakFn);
-      branchId = String(stageOutput);
+      // Detect DecisionResult from decide() helper via Symbol brand
+      if (stageOutput && typeof stageOutput === 'object' && Reflect.has(stageOutput as object, DECISION_RESULT)) {
+        branchId = (stageOutput as any).branch;
+        decisionEvidence = (stageOutput as any).evidence;
+      } else {
+        branchId = String(stageOutput);
+      }
     } catch (error: any) {
       context.commit();
       callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
@@ -120,7 +129,14 @@ export class DeciderHandler<TOut = any, TScope = any> {
       rationale: rationale || `returned branchId: ${branchId}`,
     });
 
-    this.deps.narrativeGenerator.onDecision(node.name, chosen.name, rationale, node.description, traversalContext);
+    this.deps.narrativeGenerator.onDecision(
+      node.name,
+      chosen.name,
+      rationale,
+      node.description,
+      traversalContext,
+      decisionEvidence,
+    );
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
     return executeNode(chosen, branchContext, breakFlag, branchPath);

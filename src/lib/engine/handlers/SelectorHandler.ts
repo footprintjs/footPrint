@@ -7,6 +7,8 @@
  * - Delegates parallel execution of selected children to ChildrenExecutor
  */
 
+import type { SelectionEvidence } from '../../decide/types.js';
+import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -40,9 +42,21 @@ export class SelectorHandler<TOut = any, TScope = any> {
     const breakFn = () => (breakFlag.shouldBreak = true);
 
     let selectedIds: string[];
+    let selectionEvidence: SelectionEvidence | undefined;
     try {
       const stageOutput = await runStage(node, stageFunc, context, breakFn);
-      selectedIds = Array.isArray(stageOutput) ? stageOutput.map(String) : [String(stageOutput)];
+      // Detect SelectionResult from select() helper via Symbol brand
+      if (
+        stageOutput &&
+        typeof stageOutput === 'object' &&
+        Reflect.has(stageOutput as object, DECISION_RESULT) &&
+        Array.isArray((stageOutput as any).branches)
+      ) {
+        selectedIds = (stageOutput as any).branches;
+        selectionEvidence = (stageOutput as any).evidence;
+      } else {
+        selectedIds = Array.isArray(stageOutput) ? stageOutput.map(String) : [String(stageOutput)];
+      }
     } catch (error: any) {
       context.commit();
       callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
@@ -105,7 +119,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
     );
 
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
-    this.deps.narrativeGenerator.onSelected(node.name, selectedDisplayNames, children.length, traversalContext);
+    this.deps.narrativeGenerator.onSelected(
+      node.name,
+      selectedDisplayNames,
+      children.length,
+      traversalContext,
+      selectionEvidence,
+    );
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',

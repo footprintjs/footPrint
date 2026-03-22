@@ -283,6 +283,7 @@ describe('DeciderHandler', () => {
         'User is premium',
         undefined,
         undefined,
+        undefined, // evidence (not provided by raw string decider)
       );
     });
 
@@ -349,6 +350,7 @@ describe('DeciderHandler', () => {
         undefined,
         'Decides the route',
         undefined,
+        undefined, // evidence
       );
     });
   });

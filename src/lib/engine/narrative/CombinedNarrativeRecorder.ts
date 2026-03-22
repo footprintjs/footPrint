@@ -138,10 +138,30 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     });
     this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageId);
 
-    // Emit the condition entry
+    // Emit the condition entry — with evidence-aware rendering when available
     const branchName = event.chosen;
     let conditionText: string;
-    if (event.description && event.rationale) {
+    if (event.evidence) {
+      // Rich evidence from decide() helper
+      const matchedRule = event.evidence.rules.find((r) => r.matched);
+      if (matchedRule) {
+        const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
+        if (matchedRule.type === 'filter') {
+          const parts = matchedRule.conditions.map(
+            (c) =>
+              `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+          );
+          conditionText = `It evaluated Rule ${matchedRule.ruleIndex}${label}: ${parts.join(
+            ', ',
+          )}, and chose ${branchName}.`;
+        } else {
+          const parts = matchedRule.inputs.map((i) => `${i.key}=${i.valueSummary}`);
+          conditionText = `It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`;
+        }
+      } else {
+        conditionText = `No rules matched, fell back to default: ${branchName}.`;
+      }
+    } else if (event.description && event.rationale) {
       conditionText = `It ${event.description}: ${event.rationale}, so it chose ${branchName}.`;
     } else if (event.description) {
       conditionText = `It ${event.description} and chose ${branchName}.`;

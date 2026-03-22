@@ -22,6 +22,17 @@ export { createTypedScopeFactory, typedFlowChart } from './lib/builder/typedFlow
 export type { ScopeMethods, TypedScope } from './lib/reactive/index.js';
 export { createTypedScope } from './lib/reactive/index.js';
 
+// Decision reasoning capture
+export type {
+  DecideRule,
+  DecisionEvidence,
+  DecisionResult,
+  FilterOps,
+  SelectionResult,
+  WhereFilter,
+} from './lib/decide/index.js';
+export { decide, select } from './lib/decide/index.js';
+
 // ============================================================================
 // Runner — Execution convenience layer
 // ============================================================================

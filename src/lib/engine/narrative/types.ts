@@ -22,6 +22,7 @@ export interface IControlFlowNarrative {
     rationale?: string,
     deciderDescription?: string,
     traversalContext?: TraversalContext,
+    evidence?: import('../../decide/types.js').DecisionEvidence,
   ): void;
 
   /** Called when a fork executes all children in parallel. */
@@ -33,6 +34,7 @@ export interface IControlFlowNarrative {
     selectedNames: string[],
     totalCount: number,
     traversalContext?: TraversalContext,
+    evidence?: import('../../decide/types.js').SelectionEvidence,
   ): void;
 
   /** Called when entering a subflow (nested context boundary). */
@@ -120,6 +122,8 @@ export interface FlowDecisionEvent {
   rationale?: string;
   description?: string;
   traversalContext?: TraversalContext;
+  /** Structured decision evidence from decide() helper. */
+  evidence?: import('../../decide/types.js').DecisionEvidence;
 }
 
 /** Event passed to FlowRecorder.onFork. */
@@ -135,6 +139,8 @@ export interface FlowSelectedEvent {
   selected: string[];
   total: number;
   traversalContext?: TraversalContext;
+  /** Structured selection evidence from select() helper. */
+  evidence?: import('../../decide/types.js').SelectionEvidence;
 }
 
 /** Event passed to FlowRecorder.onSubflow. */
