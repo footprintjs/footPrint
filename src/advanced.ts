@@ -47,7 +47,6 @@ export type {
   ExecOptions,
   FlowChartSpec,
   ILogger,
-  PipelineStageFunction,
   ScopeProtectionMode,
   SerializedPipelineStructure,
   SimplifiedParallelSpec,
@@ -74,7 +73,6 @@ export type {
 } from './lib/scope/index.js';
 export { createErrorMessage, createProtectedScope } from './lib/scope/index.js';
 export {
-  attachBaseStateCompat,
   attachScopeMethods,
   isSubclassOfScopeFacade,
   looksLikeClassCtor,
@@ -111,6 +109,20 @@ export { createScopeProxyFromZod, defineScopeSchema, isScopeSchema, ZodScopeReso
 
 export type { NarrativeEntry, RuntimeSnapshot } from './lib/runner/index.js';
 export { ExecutionRuntime } from './lib/runner/index.js';
+
+// ============================================================================
+// Reactive — TypedScope internals (for custom proxy implementations)
+// ============================================================================
+
+export type { ReactiveOptions, ReactiveTarget } from './lib/reactive/index.js';
+export {
+  BREAK_SETTER,
+  buildNestedPatch,
+  createArrayProxy,
+  joinPath,
+  SCOPE_METHOD_NAMES,
+  shouldWrapWithProxy,
+} from './lib/reactive/index.js';
 
 // ============================================================================
 // Engine — DFS graph traversal internals

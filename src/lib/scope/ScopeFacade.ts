@@ -14,7 +14,6 @@
  * ```
  */
 
-import lodashGet from 'lodash.get';
 import lodashHas from 'lodash.has';
 import lodashSet from 'lodash.set';
 
@@ -164,6 +163,22 @@ export class ScopeFacade {
     this._stageContext.addEval(metricName, value);
   }
 
+  // ── Non-Tracking State Inspection (for TypedScope proxy internals) ──────
+
+  /** Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. */
+  getStateKeys(): string[] {
+    const snapshot = this._stageContext.getValue([], undefined);
+    if (!snapshot || typeof snapshot !== 'object') return [];
+    return Object.keys(snapshot as Record<string, unknown>);
+  }
+
+  /** Check key existence without firing onRead. Used by TypedScope has trap.
+   *  Contract: returns false for keys never set OR keys set to undefined.
+   *  This matches deleteValue() semantics (sets to undefined = deleted). */
+  hasKey(key: string): boolean {
+    return this._stageContext.getValue([], key) !== undefined;
+  }
+
   // ── State Access ─────────────────────────────────────────────────────────
 
   getInitialValueFor(key: string) {
@@ -305,11 +320,6 @@ export class ScopeFacade {
   }
 
   // ── Read-only + misc ─────────────────────────────────────────────────────
-
-  /** @deprecated Use getArgs() instead. This returns the raw mutable reference. */
-  getReadOnlyValues() {
-    return this._readOnlyValues;
-  }
 
   /**
    * Returns the readonly input values passed to this pipeline, cast to `T`.

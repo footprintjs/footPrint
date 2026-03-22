@@ -9,6 +9,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { BREAK_SETTER, IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps, StageFunction, StreamCallback } from '../types.js';
@@ -25,11 +26,16 @@ export class StageRunner<TOut = any, TScope = any> {
     // Create scope via ScopeFactory — each stage gets its own scope instance
     const rawScope = this.deps.ScopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
 
-    // Wrap scope with protection to intercept direct property assignments
-    const scope = createProtectedScope(rawScope as object, {
-      mode: this.deps.scopeProtectionMode,
-      stageName: node.name,
-    }) as TScope;
+    // Wrap scope with protection to intercept direct property assignments.
+    // Skip for TypedScope — it already has its own Proxy with proper set traps
+    // that delegate to setValue().
+    const isTypedScope = rawScope && (rawScope as any)[IS_TYPED_SCOPE] === true;
+    const scope = isTypedScope
+      ? rawScope
+      : (createProtectedScope(rawScope as object, {
+          mode: this.deps.scopeProtectionMode,
+          stageName: node.name,
+        }) as TScope);
 
     // Set up streaming callback if this is a streaming stage
     let streamCallback: StreamCallback | undefined;
@@ -42,6 +48,11 @@ export class StageRunner<TOut = any, TScope = any> {
         this.deps.streamHandlers?.onToken?.(streamId, token);
       };
       this.deps.streamHandlers?.onStart?.(streamId);
+    }
+
+    // Inject breakPipeline into TypedScope via BREAK_SETTER (if the scope supports it)
+    if (rawScope && typeof (rawScope as any)[BREAK_SETTER] === 'function') {
+      (rawScope as any)[BREAK_SETTER](breakFn);
     }
 
     // Notify recorders of stage start (if scope supports it)

@@ -13,8 +13,14 @@
 // Builder — Flowchart construction
 // ============================================================================
 
-export type { FlowChart, PipelineStageFunction as StageHandler, StreamHandlers } from './lib/builder/index.js';
+export type { FlowChart, StageFunction as StageHandler, StreamHandlers } from './lib/builder/index.js';
 export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
+
+// TypedScope — typed property access (no casts needed)
+export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
+export { createTypedScopeFactory, typedFlowChart } from './lib/builder/typedFlowChart.js';
+export type { ScopeMethods, TypedScope } from './lib/reactive/index.js';
+export { createTypedScope } from './lib/reactive/index.js';
 
 // ============================================================================
 // Runner — Execution convenience layer
@@ -39,7 +45,6 @@ export { ScopeFacade } from './lib/scope/index.js';
 // Recorders
 export { MetricRecorder } from './lib/scope/index.js';
 export { DebugRecorder } from './lib/scope/index.js';
-export { NarrativeRecorder } from './lib/scope/index.js';
 
 // Recorder interface and core event types (needed to implement custom Recorder)
 export type {
@@ -60,7 +65,6 @@ export { defineScopeFromZod } from './lib/scope/index.js';
 // ============================================================================
 
 export type { CombinedNarrativeEntry } from './lib/engine/index.js';
-export { CombinedNarrativeBuilder } from './lib/engine/index.js';
 
 // FlowRecorder — Pluggable observer for control flow events (mirrors scope Recorder)
 export type {
