@@ -19,6 +19,7 @@ import lodashSet from 'lodash.set';
 
 import type { ExecutionEnv } from '../engine/types.js';
 import { StageContext } from '../memory/StageContext.js';
+import { hasCircularReference, isDevMode } from './detectCircular.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
 import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types.js';
 
@@ -217,6 +218,21 @@ export class ScopeFacade {
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'write');
 
+    // Dev-mode: warn if the value contains circular references.
+    // Check AFTER assertNotReadonly — don't warn for writes that will be blocked.
+    // Circular values work (terminal proxy handles them) but can produce
+    // surprising behavior in narrative, JSON serialization, and snapshots.
+    if (isDevMode() && value !== null && typeof value === 'object') {
+      if (hasCircularReference(value)) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[footprint] Circular reference detected in setValue('${key}'). ` +
+            'Writes past the cycle depth will use terminal proxy tracking. ' +
+            'Consider flattening the data structure.',
+        );
+      }
+    }
+
     // Auto-redact if key matches policy (exact keys or patterns)
     const effectiveRedact = shouldRedact || this._isPolicyRedacted(key);
 
@@ -255,6 +271,17 @@ export class ScopeFacade {
 
   updateValue(key: string, value: unknown, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'write');
+
+    // Dev-mode: same circular check as setValue (merge targets can be circular too)
+    if (isDevMode() && value !== null && typeof value === 'object') {
+      if (hasCircularReference(value)) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[footprint] Circular reference detected in updateValue('${key}'). ` +
+            'Consider flattening the data structure.',
+        );
+      }
+    }
 
     const result = this._stageContext.updateObject([], key, value, description);
 

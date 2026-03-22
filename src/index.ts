@@ -42,6 +42,9 @@ export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
 export { ScopeFacade } from './lib/scope/index.js';
 
+// Dev-mode diagnostics
+export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
+
 // Recorders
 export { MetricRecorder } from './lib/scope/index.js';
 export { DebugRecorder } from './lib/scope/index.js';
