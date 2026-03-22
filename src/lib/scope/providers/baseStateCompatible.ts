@@ -10,9 +10,6 @@
 import { assertNotReadonly, createFrozenArgs } from '../protection/readonlyInput.js';
 import type { StageContextLike } from './types.js';
 
-/** @deprecated Use attachScopeMethods instead. */
-export const attachBaseStateCompat = attachScopeMethods;
-
 /** Attach ScopeFacade-compatible methods onto any target (e.g., a proxy scope). */
 export function attachScopeMethods<T extends object>(
   target: T,
@@ -30,8 +27,6 @@ export function attachScopeMethods<T extends object>(
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
   updateValue(key: string, value: unknown, description?: string): void;
   setObjectInRoot(key: string, value: unknown): void;
-  /** @deprecated Use getArgs() instead. */
-  getReadOnlyValues(): unknown;
   getArgs<T = Record<string, unknown>>(): T;
   getPipelineId(): string | undefined;
 } {
@@ -57,7 +52,6 @@ export function attachScopeMethods<T extends object>(
     },
     setObjectInRoot: (key: string, value: unknown) => ctx.setRoot?.(key, value),
 
-    getReadOnlyValues: () => readOnly,
     getArgs: <U = Record<string, unknown>>() => frozenArgs as U,
     getPipelineId: () => ctx.pipelineId ?? ctx.runId,
   };

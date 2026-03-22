@@ -70,23 +70,6 @@ describe('Property: readonly invariants', () => {
     );
   });
 
-  it('getArgs value matches getReadOnlyValues for non-null/undefined inputs', () => {
-    fc.assert(
-      fc.property(fc.dictionary(safeKey, fc.oneof(fc.string(), fc.integer(), fc.boolean())), (readOnly) => {
-        const scope = new ScopeFacade(makeCtx(), 'test', readOnly);
-        const args = scope.getArgs<Record<string, unknown>>();
-        const raw = scope.getReadOnlyValues() as Record<string, unknown>;
-
-        // Both should have the same keys and values
-        for (const key of Object.keys(readOnly)) {
-          if (args[key] !== raw[key]) return false;
-        }
-        return true;
-      }),
-      { numRuns: 50 },
-    );
-  });
-
   it('blocked setValue never emits a write event to recorders', () => {
     fc.assert(
       fc.property(safeKey, fc.oneof(fc.string(), fc.integer()), (key, value) => {

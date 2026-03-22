@@ -33,7 +33,6 @@ export type {
   NarrativeRecorderOptions,
   StageNarrativeData,
 } from './recorders/NarrativeRecorder.js';
-export { NarrativeRecorder } from './recorders/NarrativeRecorder.js';
 
 // Protection
 export type { ScopeProtectionMode, ScopeProtectionOptions } from './protection/index.js';
@@ -50,7 +49,6 @@ export type {
 } from './providers/index.js';
 export {
   __clearScopeResolversForTests,
-  attachBaseStateCompat,
   attachScopeMethods,
   isSubclassOfScopeFacade,
   looksLikeClassCtor,

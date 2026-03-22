@@ -40,16 +40,6 @@ describe('Boundary: readonly edge cases', () => {
     expect(scope3.getArgs()).toEqual({});
   });
 
-  it('getReadOnlyValues still returns raw value (backward compatibility)', () => {
-    const scope1 = new ScopeFacade(makeCtx(), 'test');
-    const scope2 = new ScopeFacade(makeCtx(), 'test', { key: 'value' });
-    const scope3 = new ScopeFacade(makeCtx(), 'test', null);
-
-    expect(scope1.getReadOnlyValues()).toBeUndefined();
-    expect(scope2.getReadOnlyValues()).toEqual({ key: 'value' });
-    expect(scope3.getReadOnlyValues()).toBeNull();
-  });
-
   it('readonly enforcement with redaction policy — both can coexist', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test', { apiKey: 'secret' });

@@ -57,7 +57,7 @@ describe('ZodScopeResolver', () => {
 
       // The scope should have proxy fields from the schema
       expect(scope).toBeDefined();
-      // It should also have compat methods from attachBaseStateCompat
+      // It should also have compat methods from attachScopeMethods
       expect(typeof scope.addDebugInfo).toBe('function');
       expect(typeof scope.getPipelineId).toBe('function');
     });
@@ -84,7 +84,7 @@ describe('ZodScopeResolver', () => {
       const ctx = makeCtx();
       const readOnly = { frozen: true };
       const scope = provider.create(ctx, 'testStage', readOnly);
-      expect(scope.getReadOnlyValues()).toBe(readOnly);
+      expect(scope.getArgs()).toEqual(readOnly);
     });
   });
 

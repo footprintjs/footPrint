@@ -28,11 +28,8 @@ export type {
 } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Backward-compatible aliases
+// Aliases
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** @deprecated Use StageFunction instead. */
-export type PipelineStageFunction<TOut = any, TScope = any> = StageFunction<TOut, TScope>;
 
 /** Relaxed-generic alias for builder ergonomics. */
 export type StageFn = StageFunction<any, any>;

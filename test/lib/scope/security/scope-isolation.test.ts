@@ -52,8 +52,8 @@ describe('Security: scope isolation', () => {
       /* frozen */
     }
 
-    expect((scope.getReadOnlyValues() as any).key).toBe('value');
-    expect((scope.getReadOnlyValues() as any).newProp).toBeUndefined();
+    expect((scope.getArgs() as any).key).toBe('value');
+    expect((scope.getArgs() as any).newProp).toBeUndefined();
   });
 
   it('scope instances from different pipelines have independent readonly values', () => {

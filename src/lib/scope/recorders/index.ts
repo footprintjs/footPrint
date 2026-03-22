@@ -18,4 +18,3 @@ export type {
   NarrativeRecorderOptions,
   StageNarrativeData,
 } from './NarrativeRecorder.js';
-export { NarrativeRecorder } from './NarrativeRecorder.js';

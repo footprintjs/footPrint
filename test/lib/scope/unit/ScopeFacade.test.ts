@@ -18,7 +18,7 @@ describe('ScopeFacade', () => {
     const ro = { foo: 'bar' };
     const scope = new ScopeFacade(ctx, 'myStage', ro);
     expect(scope.getPipelineId()).toBe('p1');
-    expect(scope.getReadOnlyValues()).toBe(ro);
+    expect(scope.getArgs()).toEqual(ro);
   });
 
   it('getValue reads from StageContext', () => {

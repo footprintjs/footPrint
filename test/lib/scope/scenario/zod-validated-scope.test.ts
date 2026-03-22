@@ -87,7 +87,7 @@ describe('Scenario: Zod-validated scope', () => {
 
     // Has BaseState-compatible methods
     expect(typeof scope.addDebugInfo).toBe('function');
-    expect(typeof scope.getReadOnlyValues).toBe('function');
+    expect(typeof scope.getArgs).toBe('function');
   });
 
   it('proxy handles nested objects', () => {

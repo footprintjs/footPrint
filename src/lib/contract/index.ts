@@ -14,7 +14,7 @@
 export { defineContract } from './defineContract.js';
 
 // Schema utilities
-export { isZodSchema, normalizeSchema, zodToJsonSchema } from './schema.js';
+export { normalizeSchema, zodToJsonSchema } from './schema.js';
 
 // OpenAPI generator
 export { generateOpenAPI } from './openapi.js';

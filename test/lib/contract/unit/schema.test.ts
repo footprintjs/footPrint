@@ -1,24 +1,6 @@
 import { z } from 'zod';
 
-import { isZodSchema, normalizeSchema, zodToJsonSchema } from '../../../../src/lib/contract/schema';
-
-describe('isZodSchema', () => {
-  it('detects Zod schemas', () => {
-    expect(isZodSchema(z.string())).toBe(true);
-    expect(isZodSchema(z.object({ name: z.string() }))).toBe(true);
-    expect(isZodSchema(z.number())).toBe(true);
-    expect(isZodSchema(z.array(z.string()))).toBe(true);
-  });
-
-  it('rejects non-Zod objects', () => {
-    expect(isZodSchema({ type: 'string' })).toBe(false);
-    expect(isZodSchema(null)).toBe(false);
-    expect(isZodSchema(42)).toBe(false);
-    expect(isZodSchema({})).toBe(false);
-    expect(isZodSchema({ def: 'not-an-object' })).toBe(false);
-    expect(isZodSchema({ def: { noType: true } })).toBe(false);
-  });
-});
+import { normalizeSchema, zodToJsonSchema } from '../../../../src/lib/contract/schema';
 
 describe('zodToJsonSchema', () => {
   it('converts string', () => {

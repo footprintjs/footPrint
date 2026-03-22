@@ -15,11 +15,6 @@ import type { JsonSchema, SchemaInput } from './types.js';
 // Zod Detection — delegates to unified schema/detect.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** @deprecated Use `isZod()` from `schema/detect` instead. Kept for backward compatibility. */
-export function isZodSchema(input: unknown): boolean {
-  return isZod(input);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod v4 → JSON Schema (minimal converter for common types)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,7 +198,7 @@ export function zodToJsonSchema(zodSchema: Record<string, unknown>): JsonSchema 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function normalizeSchema(input: SchemaInput): JsonSchema {
-  if (isZodSchema(input)) {
+  if (isZod(input)) {
     return zodToJsonSchema(input as Record<string, unknown>);
   }
   // Already a JSON Schema

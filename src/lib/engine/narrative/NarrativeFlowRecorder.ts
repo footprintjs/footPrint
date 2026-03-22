@@ -131,18 +131,6 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     return [...this.sentences];
   }
 
-  /**
-   * Returns a parallel array of stage names corresponding to each sentence.
-   * Used by CombinedNarrativeBuilder to match flow sentences to data-level stage operations.
-   *
-   * @deprecated Since 0.9.x — Only needed by the deprecated {@link CombinedNarrativeBuilder}.
-   * The default executor path now uses {@link CombinedNarrativeRecorder} which tracks stage
-   * names inline. Will be removed in v1.0.
-   */
-  getSentenceStageNames(): (string | undefined)[] {
-    return [...this.stageNames];
-  }
-
   /** Clears accumulated sentences. Useful for reuse across runs. */
   clear(): void {
     this.sentences = [];

@@ -20,7 +20,6 @@ export type {
   FlowChart,
   FlowChartSpec,
   ILogger,
-  PipelineStageFunction,
   ScopeProtectionMode,
   SerializedPipelineStructure,
   SimplifiedParallelSpec,

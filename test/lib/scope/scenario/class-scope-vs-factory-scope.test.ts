@@ -61,7 +61,7 @@ describe('Scenario: class scope vs factory scope', () => {
   it('class scope with readOnlyValues', () => {
     class ConfigScope extends ScopeFacade {
       get apiKey(): string {
-        return (this.getReadOnlyValues() as any)?.apiKey;
+        return (this.getArgs() as any)?.apiKey;
       }
     }
 

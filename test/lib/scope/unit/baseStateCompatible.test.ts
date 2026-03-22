@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 
-import { attachBaseStateCompat, attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
+import { attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
 import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
 
 function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
@@ -35,7 +35,7 @@ describe('attachScopeMethods', () => {
     expect(typeof result.setValue).toBe('function');
     expect(typeof result.updateValue).toBe('function');
     expect(typeof result.setObjectInRoot).toBe('function');
-    expect(typeof result.getReadOnlyValues).toBe('function');
+    expect(typeof result.getArgs).toBe('function');
     expect(typeof result.getPipelineId).toBe('function');
   });
 
@@ -116,17 +116,6 @@ describe('attachScopeMethods', () => {
     expect(ctx.setRoot).toHaveBeenCalledWith('rootKey', { data: 1 });
   });
 
-  it('getReadOnlyValues returns the readOnly argument', () => {
-    const readOnly = { frozen: true };
-    const result = attachScopeMethods({}, makeCtx(), 'stage1', readOnly);
-    expect(result.getReadOnlyValues()).toBe(readOnly);
-  });
-
-  it('getReadOnlyValues returns undefined when no readOnly given', () => {
-    const result = attachScopeMethods({}, makeCtx(), 'stage1');
-    expect(result.getReadOnlyValues()).toBeUndefined();
-  });
-
   it('getPipelineId returns pipelineId when available', () => {
     const ctx = makeCtx({ pipelineId: 'pipe-1', runId: 'run-1' });
     const result = attachScopeMethods({}, ctx, 'stage1');
@@ -156,11 +145,5 @@ describe('attachScopeMethods', () => {
     result.addEval('e', 1);
     expect(result.getInitialValueFor('k')).toBeUndefined();
     result.setObjectInRoot('k', 'v');
-  });
-});
-
-describe('attachBaseStateCompat (deprecated alias)', () => {
-  it('is the same function as attachScopeMethods', () => {
-    expect(attachBaseStateCompat).toBe(attachScopeMethods);
   });
 });

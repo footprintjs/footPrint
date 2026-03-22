@@ -1,6 +1,5 @@
 /* istanbul ignore file */
 export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './CombinedNarrativeBuilder.js';
-export { CombinedNarrativeBuilder } from './CombinedNarrativeBuilder.js';
 export type { CombinedNarrativeRecorderOptions } from './CombinedNarrativeRecorder.js';
 export { CombinedNarrativeRecorder } from './CombinedNarrativeRecorder.js';
 export { ControlFlowNarrativeGenerator } from './ControlFlowNarrativeGenerator.js';

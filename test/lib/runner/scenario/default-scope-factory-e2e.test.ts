@@ -7,7 +7,8 @@
 
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import { NarrativeRecorder, ScopeFacade } from '../../../../src/lib/scope';
+import { ScopeFacade } from '../../../../src/lib/scope';
+import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
 
 describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('narrative works with default scopeFactory', async () => {

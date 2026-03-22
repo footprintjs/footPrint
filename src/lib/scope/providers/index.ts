@@ -1,5 +1,5 @@
 /* istanbul ignore file */
-export { attachBaseStateCompat, attachScopeMethods } from './baseStateCompatible.js';
+export { attachScopeMethods } from './baseStateCompatible.js';
 export { isSubclassOfScopeFacade, looksLikeClassCtor, looksLikeFactory } from './guards.js';
 export { makeClassProvider, makeFactoryProvider } from './providers.js';
 export { __clearScopeResolversForTests, resolveScopeProvider } from './registry.js';

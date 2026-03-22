@@ -17,9 +17,9 @@ import type {
   FlowChart,
   FlowChartSpec,
   ILogger,
-  PipelineStageFunction,
   SerializedPipelineStructure,
   SimplifiedParallelSpec,
+  StageFunction,
   StageNode,
   StreamHandlers,
   StreamLifecycleHandler,
@@ -78,7 +78,7 @@ export class DeciderList<TOut = any, TScope = any> {
   addFunctionBranch(
     id: string,
     name: string,
-    fn?: PipelineStageFunction<TOut, TScope>,
+    fn?: StageFunction<TOut, TScope>,
     description?: string,
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
@@ -195,7 +195,7 @@ export class DeciderList<TOut = any, TScope = any> {
     branches: Array<{
       id: string;
       name: string;
-      fn?: PipelineStageFunction<TOut, TScope>;
+      fn?: StageFunction<TOut, TScope>;
     }>,
   ): DeciderList<TOut, TScope> {
     for (const { id, name, fn } of branches) {
@@ -293,7 +293,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
   addFunctionBranch(
     id: string,
     name: string,
-    fn?: PipelineStageFunction<TOut, TScope>,
+    fn?: StageFunction<TOut, TScope>,
     description?: string,
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
@@ -408,7 +408,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     branches: Array<{
       id: string;
       name: string;
-      fn?: PipelineStageFunction<TOut, TScope>;
+      fn?: StageFunction<TOut, TScope>;
     }>,
   ): SelectorFnList<TOut, TScope> {
     for (const { id, name, fn } of branches) {
@@ -463,7 +463,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _rootSpec?: SerializedPipelineStructure;
   private _cursor?: StageNode<TOut, TScope>;
   private _cursorSpec?: SerializedPipelineStructure;
-  private _stageMap = new Map<string, PipelineStageFunction<TOut, TScope>>();
+  private _stageMap = new Map<string, StageFunction<TOut, TScope>>();
   _subflowDefs = new Map<string, { root: StageNode<TOut, TScope> }>();
   private _streamHandlers: StreamHandlers = {};
   private _extractor?: TraversalExtractor;
@@ -547,7 +547,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Linear Chaining ──
 
-  start(name: string, fn: PipelineStageFunction<TOut, TScope>, id: string, description?: string): this {
+  start(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
     if (this._root) fail('root already defined; create a new builder');
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
@@ -568,7 +568,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
-  addFunction(name: string, fn: PipelineStageFunction<TOut, TScope>, id: string, description?: string): this {
+  addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
 
@@ -592,7 +592,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addStreamingFunction(
     name: string,
-    fn: PipelineStageFunction<TOut, TScope>,
+    fn: StageFunction<TOut, TScope>,
     id: string,
     streamId?: string,
     description?: string,
@@ -634,7 +634,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addDeciderFunction(
     name: string,
-    fn: PipelineStageFunction<TOut, TScope>,
+    fn: StageFunction<TOut, TScope>,
     id: string,
     description?: string,
   ): DeciderList<TOut, TScope> {
@@ -673,7 +673,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addSelectorFunction(
     name: string,
-    fn: PipelineStageFunction<TOut, TScope>,
+    fn: StageFunction<TOut, TScope>,
     id: string,
     description?: string,
   ): SelectorFnList<TOut, TScope> {
@@ -1104,7 +1104,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
   }
 
-  _addToMap(name: string, fn: PipelineStageFunction<TOut, TScope>) {
+  _addToMap(name: string, fn: StageFunction<TOut, TScope>) {
     if (this._stageMap.has(name)) {
       const existing = this._stageMap.get(name);
       if (existing !== fn) fail(`stageMap collision for '${name}'`);
@@ -1112,7 +1112,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageMap.set(name, fn);
   }
 
-  _mergeStageMap(other: Map<string, PipelineStageFunction<TOut, TScope>>, prefix?: string) {
+  _mergeStageMap(other: Map<string, StageFunction<TOut, TScope>>, prefix?: string) {
     for (const [k, v] of other) {
       const key = prefix ? `${prefix}/${k}` : k;
       if (this._stageMap.has(key)) {
@@ -1155,7 +1155,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
 export function flowChart<TOut = any, TScope = any>(
   name: string,
-  fn: PipelineStageFunction<TOut, TScope>,
+  fn: StageFunction<TOut, TScope>,
   id: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
