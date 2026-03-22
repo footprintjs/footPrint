@@ -72,9 +72,10 @@ function evaluateRule<S extends Record<string, unknown>>(
   redactedFn?: (key: string) => boolean,
 ): RuleEvidence {
   if (typeof rule.when === 'function') {
-    // FUNCTION PATH: temp recorder captures reads
-    const collector = new EvidenceCollector();
-    if (attachFn) attachFn(collector);
+    // FUNCTION PATH: temp recorder captures reads (lazy — skip if no recorder support)
+    const hasRecorderSupport = Boolean(attachFn);
+    const collector = hasRecorderSupport ? new EvidenceCollector() : undefined;
+    if (collector && attachFn) attachFn(collector);
 
     let matched: boolean;
     try {
@@ -82,7 +83,7 @@ function evaluateRule<S extends Record<string, unknown>>(
     } catch {
       matched = false;
     } finally {
-      if (detachFn) detachFn(collector.id);
+      if (collector && detachFn) detachFn(collector.id);
     }
 
     const evidence: FunctionRuleEvidence = {
@@ -90,7 +91,7 @@ function evaluateRule<S extends Record<string, unknown>>(
       ruleIndex: index,
       matched,
       label: rule.label,
-      inputs: collector.getInputs(),
+      inputs: collector?.getInputs() ?? [],
     };
     return evidence;
   } else {

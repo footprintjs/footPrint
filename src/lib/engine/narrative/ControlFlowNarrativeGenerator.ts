@@ -36,9 +36,32 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     }
   }
 
-  onDecision(deciderName: string, chosenBranch: string, rationale?: string, deciderDescription?: string): void {
+  onDecision(
+    deciderName: string,
+    chosenBranch: string,
+    rationale?: string,
+    deciderDescription?: string,
+    _traversalContext?: unknown,
+    evidence?: import('../../decide/types').DecisionEvidence,
+  ): void {
     const branchName = chosenBranch;
-    if (deciderDescription && rationale) {
+    if (evidence) {
+      const matchedRule = evidence.rules.find((r) => r.matched);
+      if (matchedRule) {
+        const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
+        if (matchedRule.type === 'filter') {
+          const parts = matchedRule.conditions.map(
+            (c) => `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)}`,
+          );
+          this.sentences.push(`It evaluated${label}: ${parts.join(', ')}, and chose ${branchName}.`);
+        } else {
+          const parts = matchedRule.inputs.map((i) => `${i.key}=${i.valueSummary}`);
+          this.sentences.push(`It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`);
+        }
+      } else {
+        this.sentences.push(`No rules matched, fell back to default: ${branchName}.`);
+      }
+    } else if (deciderDescription && rationale) {
       this.sentences.push(`It ${deciderDescription}: ${rationale}, so it chose ${branchName}.`);
     } else if (deciderDescription) {
       this.sentences.push(`It ${deciderDescription} and chose ${branchName}.`);
