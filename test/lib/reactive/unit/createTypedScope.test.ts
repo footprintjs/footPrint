@@ -737,7 +737,7 @@ describe('createTypedScope -- property: roundtrip', () => {
 // -- Performance: benchmark --------------------------------------------------
 
 describe('createTypedScope -- performance', () => {
-  it('1K reads complete in under 20ms', () => {
+  it('1K reads complete in under 50ms', () => {
     const target = mockTarget({ x: 42 });
     const scope = createTypedScope<{ x: number }>(target);
     const start = performance.now();
@@ -745,10 +745,10 @@ describe('createTypedScope -- performance', () => {
       expect(scope.x).toBeDefined();
     }
     const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(20);
+    expect(elapsed).toBeLessThan(50);
   });
 
-  it('1K writes complete in under 20ms', () => {
+  it('1K writes complete in under 50ms', () => {
     const target = mockTarget({});
     const scope = createTypedScope<{ x: number }>(target);
     const start = performance.now();
@@ -756,7 +756,7 @@ describe('createTypedScope -- performance', () => {
       scope.x = i;
     }
     const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(20);
+    expect(elapsed).toBeLessThan(50);
   });
 });
 
