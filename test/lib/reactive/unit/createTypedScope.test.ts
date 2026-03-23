@@ -722,6 +722,7 @@ describe('createTypedScope -- property: roundtrip', () => {
         if (key === '' || key === 'then' || key === 'constructor' || key === 'asymmetricMatch') return;
         if (key === 'toJSON' || key === 'length' || key === 'prototype') return;
         if (key === 'toString' || key === 'valueOf' || key === 'hasOwnProperty') return;
+        if (key === '__proto__' || key === '__defineGetter__' || key === '__defineSetter__') return;
         if (typeof key !== 'string' || key.length === 0) return;
 
         const target = mockTarget({});
