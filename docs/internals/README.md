@@ -124,3 +124,39 @@ A generic `ObserverDispatcher<T>` would save ~30 lines of duplication but add ty
 For details on each system:
 - Scope recorders: [docs/guides/scope.md](../guides/scope.md) → Recorders section
 - Flow recorders: [docs/guides/flow-recorders.md](../guides/flow-recorders.md)
+
+## New Libraries (v1.0)
+
+### reactive/ — TypedScope Deep Proxy
+
+Wraps ScopeFacade in a Proxy for typed property access (`scope.creditTier` instead of
+`scope.getValue('creditTier') as string`). All scope infrastructure methods are $-prefixed
+to prevent collision with state keys. See `src/lib/reactive/README.md`.
+
+### decide/ — Decision Evidence Capture
+
+`decide()` and `select()` helpers auto-capture evidence from decider/selector functions.
+Two `when` formats: function (auto-captures reads via temp recorder) and Prisma-style
+filter (captures operators + thresholds). See `src/lib/decide/README.md`.
+
+## Decision Evidence Patterns
+
+Three new patterns introduced with the decide/ library:
+
+### 1. Object-level Symbol Branding
+
+`DECISION_RESULT = Symbol('footprint:decide:result')` is embedded in `DecisionResult`
+and `SelectionResult` objects. Unlike class-level brands (`ScopeFacade.BRAND = Symbol.for(...)`)
+which use the global registry for cross-version detection, this is a private Symbol for
+discriminating result types at the engine boundary. The engine checks via `Reflect.has()`.
+
+### 2. Temporary Recorder (EvidenceCollector)
+
+A minimal Recorder attached for one `when()` call, detached in `finally`. Captures ReadEvent
+key + summarized value + redacted flag. The canonical example of single-lifecycle observation.
+
+### 3. Scope Accessor Adaptation
+
+Duck-typed accessor factories in `decide.ts` that bridge ScopeFacade and TypedScope without
+importing either. `getRedactedFn` uses `$toRaw()` to escape the Proxy since `getRedactedKeys()`
+is not in the $-method namespace or EXECUTOR_INTERNAL_METHODS.

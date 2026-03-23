@@ -13,13 +13,15 @@ src/lib/
 ├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer, EventLog)
 ├── schema/    → Validation abstraction (Zod optional, duck-typed detection)
 ├── builder/   → Fluent DSL (FlowChartBuilder, flowChart(), DeciderList, SelectorFnList)
-├── scope/     → Per-stage facades + recorders + providers (largest module)
+├── scope/     → Per-stage facades + recorders + providers
+├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
+├── decide/    → decide()/select() decision evidence capture (filter + function)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
 └── contract/  → I/O schema + OpenAPI generation
 ```
 
-Dependency DAG: `memory ← scope ← engine ← runner`, `schema ← engine`, `builder (standalone) → engine`, `contract ← schema`
+Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- engine`, `builder (standalone) -> engine`, `contract <- schema`, `decide -> scope`
 
 Two entry points:
 - `import { ... } from 'footprintjs'` — public API
@@ -27,12 +29,61 @@ Two entry points:
 
 ## Key API
 
+### TypedScope (Recommended)
+
+```typescript
+import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor } from 'footprintjs';
+
+interface LoanState {
+  creditTier: string;
+  amount: number;
+  customer: { name: string; address: { zip: string } };
+  tags: string[];
+  approved?: boolean;
+}
+
+const chart = typedFlowChart<LoanState>('Intake', async (scope) => {
+  scope.creditTier = 'A';                    // typed write
+  scope.amount = 50000;                       // typed write
+  scope.customer.address.zip = '90210';       // deep write (updateValue)
+  scope.tags.push('vip');                     // array copy-on-write
+  scope.approved = true;                      // optional field
+
+  // $-prefixed escape hatches
+  scope.$debug('checkpoint', { step: 1 });
+  scope.$metric('latency', 42);
+  const args = scope.$getArgs<{ requestId: string }>();
+  const env = scope.$getEnv();
+  scope.$break();                             // stop pipeline
+}, 'intake')
+  .setEnableNarrative()
+  .build();
+
+const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+await executor.run({ input: { requestId: 'req-123' } });
+```
+
+### decide() / select() — Decision Evidence Capture
+
+```typescript
+import { decide, select } from 'footprintjs';
+
+// Inside a decider function — auto-captures which values led to the decision
+.addDeciderFunction('ClassifyRisk', (scope) => {
+  return decide(scope, [
+    { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
+    { when: (s) => s.creditScore > 600, then: 'manual-review', label: 'Marginal' },
+  ], 'rejected');
+}, 'classify-risk')
+
+// Narrative: "It evaluated Rule 0 'Good credit': creditScore 750 gt 700, and chose approved."
+```
+
 ### Builder
 
 ```typescript
 import { flowChart, FlowChartBuilder } from 'footprintjs';
 
-// flowChart(name, fn, id, buildTimeExtractor?, description?)
 const chart = flowChart('Stage1', fn1, 'stage-1', undefined, 'Description')
   .addFunction('Stage2', fn2, 'stage-2', 'Description')
   .addDeciderFunction('Decide', deciderFn, 'decide', 'Route based on risk')
@@ -46,95 +97,60 @@ const chart = flowChart('Stage1', fn1, 'stage-1', undefined, 'Description')
 
 Methods: `start()`, `addFunction()`, `addStreamingFunction()`, `addDeciderFunction()`, `addSelectorFunction()`, `addListOfFunction()`, `addSubFlowChart()`, `addSubFlowChartNext()`, `loopTo()`, `setEnableNarrative()`, `setInputSchema()`, `setOutputSchema()`, `setOutputMapper()`, `build()`, `toSpec()`, `toMermaid()`
 
-### Stage Functions
+### ScopeFacade (Internal — use TypedScope for new code)
 
 ```typescript
-type PipelineStageFunction = (
-  scope: ScopeFacade,
-  breakPipeline: () => void,
-  streamCallback?: StreamCallback,
-) => Promise<void> | void;
-```
-
-### ScopeFacade
-
-```typescript
-scope.getValue('key')              // tracked read (appears in narrative)
+scope.getValue('key')              // tracked read
 scope.setValue('key', value)        // tracked write
-scope.updateValue('key', partial)  // deep merge
-scope.deleteValue('key')           // tracked delete
 scope.getArgs<T>()                 // frozen readonly input (NOT tracked)
 scope.getEnv()                     // frozen execution environment (NOT tracked)
-scope.attachRecorder(recorder)     // plug observer
 ```
 
 **Three access tiers:**
 - `getValue`/`setValue` — mutable shared state, tracked in narrative
 - `getArgs()` — frozen business input from `run({ input })`, NOT tracked
-- `getEnv()` — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId? }`. Auto-inherited by subflows. Closed type — not extensible.
+- `getEnv()` — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId? }`. Auto-inherited by subflows. Closed type.
 
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart);
-await executor.run({
-  input: data,
-  timeoutMs: 5000,
-  signal: abortSignal,
-  env: { traceId: 'req-123', signal: abortSignal, timeoutMs: 5000 },
-});
+const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+await executor.run({ input: data, env: { traceId: 'req-123' } });
 
-executor.attachRecorder(recorder) // plug scope observer (one-liner, no scopeFactory needed)
-executor.getNarrative()         // combined flow + data narrative
-executor.getNarrativeEntries()  // structured entries with type/depth/stageName/stageId
-executor.getFlowNarrative()     // flow-only (no data ops)
-executor.getSnapshot()          // full memory state (includes recorder snapshots)
-executor.attachFlowRecorder(r)  // plug flow observer
-executor.setRedactionPolicy({}) // PII protection
+executor.attachRecorder(recorder) // plug scope observer
+executor.getNarrative()           // combined flow + data narrative
+executor.getNarrativeEntries()    // structured entries with type/depth/stageName/stageId
+executor.getFlowNarrative()       // flow-only (no data ops)
+executor.getSnapshot()            // full memory state (includes recorder snapshots)
+executor.attachFlowRecorder(r)    // plug flow observer
+executor.setRedactionPolicy({})   // PII protection
 ```
 
 ### ComposableRunner & Snapshot Navigation
 
 ```typescript
 import type { ComposableRunner } from 'footprintjs';
-import { getSubtreeSnapshot } from 'footprintjs';
+import { getSubtreeSnapshot, listSubflowPaths } from 'footprintjs';
 
-// Interface for runners that expose their internal flowChart
-interface ComposableRunner<TIn, TOut> {
-  toFlowChart(): FlowChart;
-  run(input: TIn, options?: RunOptions): Promise<TOut>;
-}
-
-// Drill into subflow subtrees by path
 const subtree = getSubtreeSnapshot(snapshot, 'sf-payment');
-const nested = getSubtreeSnapshot(snapshot, 'sf-outer/sf-inner');
-// Returns { subflowId, executionTree, sharedState, narrativeEntries } or undefined
-
-// Pass narrative entries for scoped narrative
-const subtreeWithNarrative = getSubtreeSnapshot(snapshot, 'sf-payment', executor.getNarrativeEntries());
-
-// Discover available drill-down targets
-import { listSubflowPaths } from 'footprintjs';
 listSubflowPaths(snapshot); // ['sf-payment', 'sf-outer/sf-inner']
 ```
 
 ## Two Observer Systems
 
-Both use `{ id, hooks } → dispatcher → error isolation → attach/detach`. Intentionally NOT unified.
+Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Intentionally NOT unified.
 
 **Scope Recorder** (data ops — fires DURING stage execution):
 - `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`
-- Built-in: `NarrativeRecorder`, `MetricRecorder`, `DebugRecorder`
+- Built-in: `MetricRecorder`, `DebugRecorder`
 
 **FlowRecorder** (control flow — fires AFTER stage execution):
 - `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`
-- All events carry `traversalContext: TraversalContext` (stageId, stageName, parentStageId, subflowId, subflowPath, depth, loopIteration, forkBranch)
-- Optional `toSnapshot(): { name, data }` — expose collected data for inclusion in `getSnapshot().recorders`
+- All events carry `traversalContext: TraversalContext`
+- `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
 - Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
-- All event types exported: `FlowStageEvent`, `FlowNextEvent`, `FlowDecisionEvent`, `FlowForkEvent`, `FlowSelectedEvent`, `FlowSubflowEvent`, `FlowSubflowRegisteredEvent`, `FlowLoopEvent`, `FlowBreakEvent`, `FlowErrorEvent`, `TraversalContext`
 
 **CombinedNarrativeRecorder** implements BOTH interfaces. Auto-attached by `setEnableNarrative()`.
-- All `CombinedNarrativeEntry` objects carry `stageId?: string` for UI sync (matches spec node id).
 
 ## Event Ordering
 
@@ -150,10 +166,12 @@ Both use `{ id, hooks } → dispatcher → error isolation → attach/detach`. I
 ## Anti-Patterns
 
 - Never post-process the tree — use recorders
-- Never use deprecated `CombinedNarrativeBuilder` — use `CombinedNarrativeRecorder`
+- Don't use `getValue()`/`setValue()` in TypedScope stages — use typed property access
+- Don't use `$`-prefixed state keys (e.g., `$break`) — they collide with ScopeMethods
+- Don't use deprecated `CombinedNarrativeBuilder` — use `CombinedNarrativeRecorder`
 - Don't extract shared base for Recorder/FlowRecorder — two instances = coincidence
-- Don't use `getArgs()` for tracked data — use `getValue()`/`setValue()`
-- Don't put infrastructure data (signal, traceId) in `getArgs()` — use `getEnv()` via `run({ env })`
+- Don't use `getArgs()` for tracked data — use typed scope properties
+- Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
 - Don't manually create `CombinedNarrativeRecorder` — `setEnableNarrative()` handles it
 
 ## Build & Test
