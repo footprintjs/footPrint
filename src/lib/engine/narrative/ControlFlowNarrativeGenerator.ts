@@ -51,7 +51,8 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
         const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
         if (matchedRule.type === 'filter') {
           const parts = matchedRule.conditions.map(
-            (c) => `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)}`,
+            (c) =>
+              `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
           );
           this.sentences.push(`It evaluated${label}: ${parts.join(', ')}, and chose ${branchName}.`);
         } else {

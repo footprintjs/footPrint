@@ -197,10 +197,31 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onSelected(event: FlowSelectedEvent): void {
-    const names = event.selected.join(', ');
+    let text: string;
+    if (event.evidence) {
+      const matched = event.evidence.rules.filter((r) => r.matched);
+      const parts = matched.map((r) => {
+        const label = r.label ? ` "${r.label}"` : '';
+        if (r.type === 'filter') {
+          const conds = r.conditions
+            .map(
+              (c) =>
+                `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+            )
+            .join(', ');
+          return `${event.selected[matched.indexOf(r)] ?? 'unknown'}${label} (${conds})`;
+        }
+        const inputs = r.inputs.map((i) => `${i.key}=${i.valueSummary}`).join(', ');
+        return `${event.selected[matched.indexOf(r)] ?? 'unknown'}${label} (${inputs})`;
+      });
+      text = `[Selected]: ${event.selected.length} of ${event.total} paths selected: ${parts.join('; ')}.`;
+    } else {
+      const names = event.selected.join(', ');
+      text = `[Selected]: ${event.selected.length} of ${event.total} paths selected for execution: ${names}.`;
+    }
     this.entries.push({
       type: 'fork',
-      text: `[Selected]: ${event.selected.length} of ${event.total} paths selected for execution: ${names}.`,
+      text,
       depth: 0,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,

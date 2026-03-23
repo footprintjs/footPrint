@@ -23,18 +23,18 @@ const OPERATOR_HANDLERS: Record<string, OperatorFn> = {
   lt: (a, t) => (a as number) < (t as number),
   lte: (a, t) => (a as number) <= (t as number),
   in: (a, t) => {
-    const arr = t as unknown[];
-    if (arr.length > MAX_IN_ARRAY_SIZE) {
+    if (!Array.isArray(t)) return false;
+    if (t.length > MAX_IN_ARRAY_SIZE) {
       throw new Error(`in/notIn array exceeds maximum size of ${MAX_IN_ARRAY_SIZE}`);
     }
-    return arr.includes(a);
+    return t.includes(a);
   },
   notIn: (a, t) => {
-    const arr = t as unknown[];
-    if (arr.length > MAX_IN_ARRAY_SIZE) {
+    if (!Array.isArray(t)) return true; // not in a non-array = vacuously true
+    if (t.length > MAX_IN_ARRAY_SIZE) {
       throw new Error(`in/notIn array exceeds maximum size of ${MAX_IN_ARRAY_SIZE}`);
     }
-    return !arr.includes(a);
+    return !t.includes(a);
   },
 };
 
@@ -43,6 +43,7 @@ const OPERATOR_HANDLERS: Record<string, OperatorFn> = {
 const DENIED_KEYS = new Set([
   '__proto__',
   'constructor',
+  'prototype',
   'toString',
   'valueOf',
   'hasOwnProperty',
@@ -78,8 +79,11 @@ export function evaluateFilter<T extends Record<string, unknown>>(
   let allMatched = true;
 
   for (const [key, ops] of Object.entries(filter)) {
-    // Security: skip denied keys
-    if (DENIED_KEYS.has(key)) continue;
+    // Security: denied keys cause rule to fail (consistent with unknown operator behavior)
+    if (DENIED_KEYS.has(key)) {
+      allMatched = false;
+      continue;
+    }
     if (!ops || typeof ops !== 'object') continue;
 
     const actual = getValueFn(key);
@@ -109,6 +113,9 @@ export function evaluateFilter<T extends Record<string, unknown>>(
       if (!result) allMatched = false;
     }
   }
+
+  // Empty filter (no evaluable conditions) should NOT match — prevents vacuous truth
+  if (conditions.length === 0) return { matched: false, conditions };
 
   return { matched: allMatched, conditions };
 }

@@ -154,12 +154,6 @@ describe('evaluator -- unit: condition traces', () => {
 // -- Boundary: edge cases ----------------------------------------------------
 
 describe('evaluator -- boundary', () => {
-  it('empty filter matches everything', () => {
-    const { matched, conditions } = evaluateFilter(makeGetter({ x: 1 }), noRedaction, {});
-    expect(matched).toBe(true);
-    expect(conditions).toHaveLength(0);
-  });
-
   it('undefined key value', () => {
     const { matched, conditions } = evaluateFilter(makeGetter({}), noRedaction, { score: { gt: 700 } });
     expect(matched).toBe(false);
@@ -190,11 +184,17 @@ describe('evaluator -- security: prototype pollution', () => {
     expect(keys).not.toContain('constructor');
   });
 
-  it('skips toString key', () => {
+  it('toString key causes rule to fail (denied key)', () => {
     const filter = { toString: { eq: 'test' } } as any;
     const { matched, conditions } = evaluateFilter(makeGetter({}), noRedaction, filter);
     expect(conditions).toHaveLength(0);
-    expect(matched).toBe(true); // no conditions = vacuously true
+    expect(matched).toBe(false); // denied key = rule fails
+  });
+
+  it('empty filter does NOT match (prevents vacuous truth)', () => {
+    const { matched, conditions } = evaluateFilter(makeGetter({ x: 1 }), noRedaction, {});
+    expect(matched).toBe(false);
+    expect(conditions).toHaveLength(0);
   });
 });
 
