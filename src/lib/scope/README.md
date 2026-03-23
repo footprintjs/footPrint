@@ -2,6 +2,10 @@
 
 The data layer library. Depends on `memory/` (Phase 1). Zero dependencies on any other footprint library.
 
+> **For new code, use TypedScope<T> (from `reactive/`) instead of ScopeFacade directly.**
+> TypedScope wraps ScopeFacade in a Proxy for typed property access: `scope.creditTier`
+> instead of `scope.getValue('creditTier') as string`. See `src/lib/reactive/README.md`.
+
 ---
 
 ## Why This Exists
