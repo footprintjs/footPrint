@@ -16,6 +16,7 @@ import type {
   DecideRule,
   DecisionEvidence,
   DecisionResult,
+  FilterCondition,
   FilterRuleEvidence,
   FunctionRuleEvidence,
   RuleEvidence,
@@ -95,13 +96,13 @@ function evaluateRule<S extends Record<string, unknown>>(
     };
     return evidence;
   } else {
-    // FILTER PATH: evaluator captures conditions (guarded same as function path)
-    const gv = valueFn ?? (() => undefined);
-    const rf = redactedFn ?? (() => false);
+    // FILTER PATH: reads values directly via callbacks (no recorder); exceptions treated as non-match
+    const resolvedValueFn = valueFn ?? (() => undefined);
+    const resolvedRedactedFn = redactedFn ?? (() => false);
     let filterMatched = false;
-    let filterConditions: import('./types.js').FilterCondition[] = [];
+    let filterConditions: FilterCondition[] = [];
     try {
-      const result = evaluateFilter(gv, rf, rule.when as WhereFilter<S>);
+      const result = evaluateFilter(resolvedValueFn, resolvedRedactedFn, rule.when as WhereFilter<S>);
       filterMatched = result.matched;
       filterConditions = result.conditions;
     } catch {

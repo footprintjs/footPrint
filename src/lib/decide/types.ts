@@ -8,6 +8,7 @@
 
 // -- Filter Operators (Prisma naming, 8 operators) ---------------------------
 
+/** Multiple operators on the same key are ANDed (e.g., { gt: 5, lt: 10 } means 5 < value < 10). */
 export type FilterOps<V> = {
   /** Equal: value === threshold */
   eq?: V;
@@ -104,7 +105,9 @@ export interface FilterCondition {
 
 export interface DecisionEvidence {
   rules: RuleEvidence[];
+  /** The branch selected. Equals `default` when no rule matched. */
   chosen: string;
+  /** The fallback branch passed as defaultBranch. Always set. */
   default: string;
 }
 
