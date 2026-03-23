@@ -1,17 +1,21 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/index.ts", "src/advanced.ts"],
+  "entryPoints": ["src/index.ts"],
   "out": "api-docs",
   "name": "footprintjs",
-  "readme": "none",
+  "readme": "README.md",
   "excludePrivate": true,
+  "excludeProtected": true,
   "excludeInternal": true,
   "excludeExternals": true,
   "includeVersion": true,
   "categorizeByGroup": true,
   "searchInComments": true,
+  "hideGenerator": true,
+  "suppressCommentWarningsInDeclarationFiles": true,
   "navigationLinks": {
     "GitHub": "https://github.com/footprintjs/footPrint",
-    "npm": "https://www.npmjs.com/package/footprintjs"
+    "npm": "https://www.npmjs.com/package/footprintjs",
+    "Playground": "https://footprintjs.github.io/footprint-playground/"
   }
 }

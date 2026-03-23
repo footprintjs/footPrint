@@ -53,6 +53,7 @@ export class ScopeFacade {
   /**
    * Share a redacted-keys set across multiple ScopeFacade instances.
    * Call this to make redaction persist across stages in the same pipeline.
+   * @internal
    */
   useSharedRedactedKeys(sharedSet: Set<string>): void {
     this._redactedKeys = sharedSet;
@@ -60,6 +61,7 @@ export class ScopeFacade {
 
   /**
    * Returns the current redacted-keys set (for sharing with other scopes).
+   * @internal
    */
   getRedactedKeys(): Set<string> {
     return this._redactedKeys;
@@ -68,6 +70,7 @@ export class ScopeFacade {
   /**
    * Apply a declarative redaction policy. The policy is additive —
    * it works alongside manual `setValue(..., true)` calls.
+   * @internal
    */
   useRedactionPolicy(policy: RedactionPolicy): void {
     this._redactionPolicy = policy;
@@ -79,9 +82,7 @@ export class ScopeFacade {
     }
   }
 
-  /**
-   * Returns the current redaction policy (if any).
-   */
+  /** @internal */
   getRedactionPolicy(): RedactionPolicy | undefined {
     return this._redactionPolicy;
   }
@@ -116,6 +117,7 @@ export class ScopeFacade {
     return [...this._recorders];
   }
 
+  /** @internal */
   notifyStageStart(): void {
     this._invokeHook('onStageStart', {
       stageName: this._stageName,
@@ -124,6 +126,7 @@ export class ScopeFacade {
     });
   }
 
+  /** @internal */
   notifyStageEnd(duration?: number): void {
     this._invokeHook('onStageEnd', {
       stageName: this._stageName,
@@ -133,6 +136,7 @@ export class ScopeFacade {
     });
   }
 
+  /** @internal */
   notifyCommit(mutations: CommitEvent['mutations']): void {
     this._invokeHook('onCommit', {
       stageName: this._stageName,
@@ -334,14 +338,17 @@ export class ScopeFacade {
     return result;
   }
 
+  /** @internal */
   setGlobal(key: string, value: unknown, description?: string) {
     return this._stageContext.setGlobal?.(key, value, description);
   }
 
+  /** @internal */
   getGlobal(key: string) {
     return this._stageContext.getGlobal?.(key);
   }
 
+  /** @internal */
   setObjectInRoot(key: string, value: unknown) {
     return this._stageContext.setRoot?.(key, value);
   }
@@ -376,6 +383,7 @@ export class ScopeFacade {
     return this._executionEnv;
   }
 
+  /** @internal */
   getPipelineId() {
     return this._stageContext.runId;
   }

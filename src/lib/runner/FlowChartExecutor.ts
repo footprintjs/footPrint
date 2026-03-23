@@ -376,38 +376,47 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return snapshot;
   }
 
+  /** @internal */
   getRuntime() {
     return this.traverser.getRuntime();
   }
 
+  /** @internal */
   setRootObject(path: string[], key: string, value: unknown): void {
     this.traverser.setRootObject(path, key, value);
   }
 
+  /** @internal */
   getBranchIds() {
     return this.traverser.getBranchIds();
   }
 
+  /** @internal */
   getRuntimeRoot(): StageNode {
     return this.traverser.getRuntimeRoot();
   }
 
+  /** @internal */
   getRuntimeStructure(): SerializedPipelineStructure | undefined {
     return this.traverser.getRuntimeStructure();
   }
 
+  /** @internal */
   getSubflowResults(): Map<string, SubflowResult> {
     return this.traverser.getSubflowResults();
   }
 
+  /** @internal */
   getExtractedResults<TResult = unknown>(): Map<string, TResult> {
     return this.traverser.getExtractedResults<TResult>();
   }
 
+  /** @internal */
   getEnrichedResults<TResult = unknown>(): Map<string, TResult> {
     return this.traverser.getExtractedResults<TResult>();
   }
 
+  /** @internal */
   getExtractorErrors(): ExtractorError[] {
     return this.traverser.getExtractorErrors();
   }
