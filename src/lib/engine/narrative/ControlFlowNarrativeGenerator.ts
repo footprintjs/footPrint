@@ -11,6 +11,7 @@
  * CombinedNarrativeBuilder merges both into one story.
  */
 
+import type { DecisionEvidence } from '../../decide/types.js';
 import type { IControlFlowNarrative } from './types.js';
 
 export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
@@ -42,7 +43,7 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
     rationale?: string,
     deciderDescription?: string,
     _traversalContext?: unknown,
-    evidence?: import('../../decide/types').DecisionEvidence,
+    evidence?: DecisionEvidence,
   ): void {
     const branchName = chosenBranch;
     if (evidence) {

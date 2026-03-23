@@ -209,10 +209,10 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
                 `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
             )
             .join(', ');
-          return `${event.selected[matched.indexOf(r)] ?? 'unknown'}${label} (${conds})`;
+          return `${r.branch}${label} (${conds})`;
         }
         const inputs = r.inputs.map((i) => `${i.key}=${i.valueSummary}`).join(', ');
-        return `${event.selected[matched.indexOf(r)] ?? 'unknown'}${label} (${inputs})`;
+        return `${r.branch}${label} (${inputs})`;
       });
       text = `[Selected]: ${event.selected.length} of ${event.total} paths selected: ${parts.join('; ')}.`;
     } else {

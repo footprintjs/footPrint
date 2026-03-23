@@ -1,0 +1,17 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/advanced.ts"],
+  "out": "api-docs",
+  "name": "footprintjs",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "searchInComments": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/footprintjs/footPrint",
+    "npm": "https://www.npmjs.com/package/footprintjs"
+  }
+}

@@ -4,6 +4,14 @@
  * Captures FLOW events during traversal: decisions, forks, loops, subflows.
  * Complementary to scope/recorders/NarrativeRecorder which captures DATA events.
  *
+ * @module
+ */
+
+import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+
+/**
+ *
  * Uses Null Object pattern: NullControlFlowNarrativeGenerator satisfies this
  * interface with empty methods for zero-cost disabled path.
  */
@@ -22,7 +30,7 @@ export interface IControlFlowNarrative {
     rationale?: string,
     deciderDescription?: string,
     traversalContext?: TraversalContext,
-    evidence?: import('../../decide/types.js').DecisionEvidence,
+    evidence?: DecisionEvidence,
   ): void;
 
   /** Called when a fork executes all children in parallel. */
@@ -34,7 +42,7 @@ export interface IControlFlowNarrative {
     selectedNames: string[],
     totalCount: number,
     traversalContext?: TraversalContext,
-    evidence?: import('../../decide/types.js').SelectionEvidence,
+    evidence?: SelectionEvidence,
   ): void;
 
   /** Called when entering a subflow (nested context boundary). */
@@ -123,7 +131,7 @@ export interface FlowDecisionEvent {
   description?: string;
   traversalContext?: TraversalContext;
   /** Structured decision evidence from decide() helper. */
-  evidence?: import('../../decide/types.js').DecisionEvidence;
+  evidence?: DecisionEvidence;
 }
 
 /** Event passed to FlowRecorder.onFork. */
@@ -140,7 +148,7 @@ export interface FlowSelectedEvent {
   total: number;
   traversalContext?: TraversalContext;
   /** Structured selection evidence from select() helper. */
-  evidence?: import('../../decide/types.js').SelectionEvidence;
+  evidence?: SelectionEvidence;
 }
 
 /** Event passed to FlowRecorder.onSubflow. */
@@ -185,7 +193,7 @@ export interface FlowErrorEvent {
   stageName: string;
   message: string;
   /** Structured error details — preserves field-level issues, error codes, etc. */
-  structuredError: import('../errors/errorInfo').StructuredErrorInfo;
+  structuredError: StructuredErrorInfo;
   traversalContext?: TraversalContext;
 }
 

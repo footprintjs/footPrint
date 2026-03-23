@@ -30,22 +30,25 @@ import { DECISION_RESULT } from './types.js';
 
 function getAttachFn(scope: unknown): ((r: Recorder) => void) | undefined {
   const s = scope as Record<string, unknown>;
-  if (typeof s.attachRecorder === 'function') return s.attachRecorder.bind(s);
   if (typeof s.$attachRecorder === 'function') return s.$attachRecorder.bind(s);
+  if (typeof s.attachRecorder === 'function') return s.attachRecorder.bind(s);
   return undefined;
 }
 
 function getDetachFn(scope: unknown): ((id: string) => void) | undefined {
   const s = scope as Record<string, unknown>;
-  if (typeof s.detachRecorder === 'function') return s.detachRecorder.bind(s);
   if (typeof s.$detachRecorder === 'function') return s.$detachRecorder.bind(s);
+  if (typeof s.detachRecorder === 'function') return s.detachRecorder.bind(s);
   return undefined;
 }
 
 function getValueFn(scope: unknown): (key: string) => unknown {
   const s = scope as Record<string, unknown>;
-  if (typeof s.getValue === 'function') return s.getValue.bind(s);
+  // Check $getValue first: on TypedScope, accessing .getValue triggers a spurious
+  // onRead for key "getValue" via the Proxy get trap. $getValue routes through
+  // SCOPE_METHOD_NAMES and avoids the state-read path.
   if (typeof s.$getValue === 'function') return s.$getValue.bind(s);
+  if (typeof s.getValue === 'function') return s.getValue.bind(s);
   return () => undefined;
 }
 
@@ -90,6 +93,7 @@ function evaluateRule<S extends Record<string, unknown>>(
     const evidence: FunctionRuleEvidence = {
       type: 'function',
       ruleIndex: index,
+      branch: rule.then,
       matched,
       label: rule.label,
       inputs: collector?.getInputs() ?? [],
@@ -113,6 +117,7 @@ function evaluateRule<S extends Record<string, unknown>>(
     const evidence: FilterRuleEvidence = {
       type: 'filter',
       ruleIndex: index,
+      branch: rule.then,
       matched: filterMatched,
       label: rule.label,
       conditions: filterConditions,

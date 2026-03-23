@@ -30,5 +30,8 @@ Thumbs.db
 # Screenshots (Playwright testing artifacts)
 *.png
 
+# Generated API docs (TypeDoc)
+/api-docs
+
 # Claude Code
 .claude/

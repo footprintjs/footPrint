@@ -10,6 +10,7 @@
  * When no recorders are attached, every method is a fast no-op (empty array check).
  */
 
+import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
 
@@ -68,7 +69,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     rationale?: string,
     deciderDescription?: string,
     traversalContext?: TraversalContext,
-    evidence?: import('../../decide/types').DecisionEvidence,
+    evidence?: DecisionEvidence,
   ): void {
     if (this.recorders.length === 0) return;
     const event = {
@@ -105,7 +106,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     selectedNames: string[],
     totalCount: number,
     traversalContext?: TraversalContext,
-    evidence?: import('../../decide/types').SelectionEvidence,
+    evidence?: SelectionEvidence,
   ): void {
     if (this.recorders.length === 0) return;
     const event = { parent: parentStage, selected: selectedNames, total: totalCount, traversalContext, evidence };

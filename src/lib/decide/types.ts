@@ -72,6 +72,8 @@ export interface SelectionResult {
 export interface FunctionRuleEvidence {
   type: 'function';
   ruleIndex: number;
+  /** The branch ID this rule maps to. Self-describing — no index correlation needed. */
+  branch: string;
   matched: boolean;
   label?: string;
   inputs: ReadInput[];
@@ -80,6 +82,8 @@ export interface FunctionRuleEvidence {
 export interface FilterRuleEvidence {
   type: 'filter';
   ruleIndex: number;
+  /** The branch ID this rule maps to. Self-describing — no index correlation needed. */
+  branch: string;
   matched: boolean;
   label?: string;
   conditions: FilterCondition[];

@@ -43,7 +43,9 @@
     "lint:fix": "eslint '{src,test}/**/*.ts' --ext .ts --fix",
     "format:fix": "prettier --config .prettierrc.js --write '{src,test}/**/*.ts'",
     "format": "prettier --config .prettierrc.js --list-different '{src,test}/**/*.ts'",
-    "bench": "npx tsx bench/run.ts"
+    "bench": "npx tsx bench/run.ts",
+    "docs": "typedoc",
+    "docs:serve": "typedoc && npx serve docs"
   },
   "files": [
     "dist/**/*",
@@ -113,6 +115,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "prettier": "^2.8.1",
+    "typedoc": "^0.28.17",
     "typescript": "~5.4.5",
     "vitest": "^4.0.18"
   }

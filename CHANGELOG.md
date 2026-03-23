@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-03-22
+
+### Added
+- **`TypedScope<T>`** — Reactive proxy for typed property access. `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)`. Deep nested writes (`scope.customer.address.zip = '90210'`), array copy-on-write (`scope.tags.push('vip')`), and 17 `$`-prefixed escape hatches (`$getValue`, `$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, etc.). New `reactive/` internal package.
+- **`decide()` / `select()`** — Decision reasoning capture. Auto-captures WHY a decider chose a branch or a selector picked paths. Two `when` formats: function `(s) => s.creditScore > 700` (auto-captures reads via temp recorder) and Prisma-style filter `{ creditScore: { gt: 700 } }` (captures operators + thresholds). Evidence flows into narrative: "It evaluated creditScore 750 gt 700, and chose Approve." New `decide/` internal package.
+- **`typedFlowChart<T>()`** — Convenience builder that infers `TypedScope<T>` for all stage functions.
+- **`createTypedScopeFactory<T>()`** — Pairs with `typedFlowChart<T>()` for the executor.
+- **`FilterOps<V>`** — 8 Prisma-style operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`.
+- **`DecisionResult` / `SelectionResult`** — Symbol-branded results from `decide()` / `select()`. Engine detects them via `DECISION_RESULT` Symbol and extracts evidence automatically.
+- **API docs** — TypeDoc auto-generated and deployed to GitHub Pages on every release.
+- **Dev-mode circular reference detection** — `enableDevMode()` activates runtime detection of circular references in `setValue()` / `updateValue()`.
+
+### Changed
+- **`TypedScope<T>` is now the recommended API** — `getValue()` / `setValue()` still work via `ScopeFacade` but TypedScope eliminates the cast-hell DX problem. All samples and documentation updated.
+- **Evidence-aware narrative** — `CombinedNarrativeRecorder.onDecision()` and `onSelected()` render structured evidence when available. Filter evidence shows operators and thresholds with pass/fail markers. Function evidence shows which keys were read and their values.
+
+### Fixed
+- **Spurious "Read getValue" in narrative** — `decide()` accessor helpers now check `$getValue` before `getValue` to avoid triggering TypedScope's Proxy get trap.
+- **Inline `import()` types** — Converted all inline type imports in narrative types to explicit top-level imports for consistency.
+
 ## [0.18.1] - 2026-03-20
 
 ### Fixed
