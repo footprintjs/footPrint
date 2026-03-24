@@ -73,7 +73,7 @@ That answer came from the trace &mdash; not from the LLM's imagination.
 ## Quick Start
 
 ```typescript
-import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor, decide } from 'footprintjs';
+import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface State {
   user: { name: string; tier: string };
@@ -103,7 +103,7 @@ const chart = typedFlowChart<State>('FetchUser', async (scope) => {
   .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+const executor = new FlowChartExecutor(chart);
 await executor.run();
 
 console.log(executor.getNarrative());

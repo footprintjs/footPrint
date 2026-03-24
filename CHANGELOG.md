@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-24
+
+### Added
+- **`chart.run()`** — Execute a chart directly without creating a `FlowChartExecutor`. Returns `RunResult` with `state`, `output`, `narrative`.
+- **`chart.recorder(r).run()`** — d3-style chainable run configuration. Attach recorders and redaction per-run.
+- **`RunContext`** — Ephemeral run configuration returned by `chart.recorder()` and `chart.redact()`. Distinct type from `FlowChart`.
+- **`chart.toOpenAPI()`** — Generate OpenAPI 3.1 spec from chart metadata and contract. Cached.
+- **`chart.toMCPTool()`** — Generate MCP tool description from chart metadata. Cached.
+- **`.contract({ input, output, mapper })`** — Unified API replacing `setInputSchema()`, `setOutputSchema()`, `setOutputMapper()`.
+- **`footprintjs/recorders`** — Recorder factory functions: `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()`.
+- **Auto-embedded scopeFactory** — `typedFlowChart<T>()` embeds `createTypedScopeFactory<T>()` into the chart. `FlowChartExecutor` reads it automatically.
+
+### Changed
+- **`FlowChartExecutor` scopeFactory parameter is now optional** — reads `chart.scopeFactory` if not provided.
+- **`FlowChartBuilder.build()` returns `RunnableFlowChart`** — extends `FlowChart` with `.run()`, `.recorder()`, `.redact()`, `.toOpenAPI()`, `.toMCPTool()`.
+- **All samples updated** — no `createTypedScopeFactory` needed. `FlowChartExecutor(chart)` is enough.
+
 ## [1.0.1] - 2026-03-24
 
 ### Fixed
