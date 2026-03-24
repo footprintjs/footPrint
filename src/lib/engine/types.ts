@@ -317,6 +317,8 @@ export type FlowChart<TOut = any, TScope = any> = {
   buildTimeStructure?: SerializedPipelineStructure;
   /** Input schema (Zod or JSON Schema) — used for runtime input validation. */
   inputSchema?: unknown;
+  /** Scope factory — auto-embedded by flowChart<T>(). Executor reads this if no factory param. */
+  scopeFactory?: ScopeFactory<TScope>;
 };
 
 /** Alias for SerializedPipelineNode used as full structure */

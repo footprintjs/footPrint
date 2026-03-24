@@ -69,6 +69,11 @@
       "types": "./dist/types/advanced.d.ts",
       "import": "./dist/esm/advanced.js",
       "require": "./dist/advanced.js"
+    },
+    "./recorders": {
+      "types": "./dist/types/recorders.d.ts",
+      "import": "./dist/esm/recorders.js",
+      "require": "./dist/recorders.js"
     }
   },
   "lint-staged": {

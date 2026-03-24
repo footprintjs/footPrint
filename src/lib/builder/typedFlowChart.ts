@@ -49,10 +49,7 @@ export function typedFlowChart<T extends Record<string, unknown>>(
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
 ): FlowChartBuilder<any, TypedScope<T>> {
-  return new FlowChartBuilder<any, TypedScope<T>>(buildTimeExtractor).start(
-    name,
-    fn as unknown as StageFunction<any, TypedScope<T>>,
-    id,
-    description,
-  );
+  const builder = new FlowChartBuilder<any, TypedScope<T>>(buildTimeExtractor);
+  builder.setScopeFactory(createTypedScopeFactory<T>());
+  return builder.start(name, fn as unknown as StageFunction<any, TypedScope<T>>, id, description);
 }

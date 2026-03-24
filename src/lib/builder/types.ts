@@ -10,7 +10,7 @@
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
-import type { ILogger, StageFunction } from '../engine/types.js';
+import type { ILogger, ScopeFactory, StageFunction } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Re-exports from engine (canonical definitions)
@@ -124,12 +124,14 @@ export type FlowChart<TOut = any, TScope = any> = {
   logger?: ILogger;
   description: string;
   stageDescriptions: Map<string, string>;
-  /** Input schema (Zod or JSON Schema) — declared via setInputSchema(). */
+  /** Input schema (Zod or JSON Schema) — declared via setInputSchema() or .contract(). */
   inputSchema?: unknown;
-  /** Output schema (Zod or JSON Schema) — declared via setOutputSchema(). */
+  /** Output schema (Zod or JSON Schema) — declared via setOutputSchema() or .contract(). */
   outputSchema?: unknown;
   /** Output mapper — extracts response from final scope. */
   outputMapper?: (finalScope: Record<string, unknown>) => unknown;
+  /** Scope factory — auto-embedded by flowChart<T>(). Executor reads this if no factory param. */
+  scopeFactory?: ScopeFactory<TScope>;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

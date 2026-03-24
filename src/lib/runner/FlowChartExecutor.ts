@@ -61,7 +61,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   constructor(
     flowChart: FlowChart<TOut, TScope>,
-    scopeFactory: ScopeFactory<TScope> = defaultScopeFactory as ScopeFactory<TScope>,
+    scopeFactory?: ScopeFactory<TScope>,
     defaultValuesForContext?: unknown,
     initialContext?: unknown,
     readOnlyContext?: unknown,
@@ -72,7 +72,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   ) {
     this.flowChartArgs = {
       flowChart,
-      scopeFactory: scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
+      scopeFactory: scopeFactory ?? flowChart.scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
       defaultValuesForContext,
       initialContext,
       readOnlyContext,

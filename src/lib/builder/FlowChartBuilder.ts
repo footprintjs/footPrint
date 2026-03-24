@@ -12,6 +12,8 @@
  * it belongs in the runner layer (Phase 5).
  */
 
+import type { ScopeFactory } from '../engine/types.js';
+import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
 import type {
   BuildTimeExtractor,
   FlowChart,
@@ -479,6 +481,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _inputSchema?: unknown;
   private _outputSchema?: unknown;
   private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
+  private _scopeFactory?: ScopeFactory<TScope>;
 
   constructor(buildTimeExtractor?: BuildTimeExtractor<any>) {
     if (buildTimeExtractor) {
@@ -1024,7 +1027,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Output ──
 
-  build(): FlowChart<TOut, TScope> {
+  build(): RunnableFlowChart<TOut, TScope> {
     const root = this._root ?? fail('empty tree; call start() first');
     const rootSpec = this._rootSpec ?? fail('empty spec; call start() first');
 
@@ -1037,7 +1040,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const description =
       this._descriptionParts.length > 0 ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}` : '';
 
-    return {
+    const chart: FlowChart<TOut, TScope> = {
       root,
       stageMap: this._stageMap,
       extractor: this._extractor,
@@ -1050,7 +1053,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       ...(this._inputSchema ? { inputSchema: this._inputSchema } : {}),
       ...(this._outputSchema ? { outputSchema: this._outputSchema } : {}),
       ...(this._outputMapper ? { outputMapper: this._outputMapper } : {}),
+      ...(this._scopeFactory ? { scopeFactory: this._scopeFactory } : {}),
     };
+
+    return makeRunnable(chart);
+  }
+
+  /** Set the scope factory. Called internally by flowChart<T>() to embed TypedScope. */
+  setScopeFactory(factory: ScopeFactory<TScope>): this {
+    this._scopeFactory = factory;
+    return this;
   }
 
   toSpec<TResult = SerializedPipelineStructure>(): TResult {
