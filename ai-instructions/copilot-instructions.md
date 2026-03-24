@@ -1,10 +1,6 @@
 # footprint.js — Copilot Instructions
 
-This is the footprint.js library — the flowchart pattern for backend code.
-
-## What It Does
-
-Structures backend logic as a graph of named functions with transactional state. Every run auto-generates a causal trace of what happened and why. LLMs read the trace for grounded explanations — no hallucination.
+This is the footprint.js library — the flowchart pattern for backend code. Self-explainable systems that AI can reason about.
 
 ## Core Principle
 
@@ -16,8 +12,10 @@ Structures backend logic as a graph of named functions with transactional state.
 src/lib/
 ├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer)
 ├── schema/    → Validation (Zod optional, duck-typed)
-├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
+├── builder/   → Fluent DSL (FlowChartBuilder, flowChart(), typedFlowChart())
 ├── scope/     → Per-stage facades + recorders + providers
+├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
+├── decide/    → decide()/select() decision evidence capture
 ├── engine/    → DFS traversal + narrative + handlers
 ├── runner/    → FlowChartExecutor
 └── contract/  → I/O schema + OpenAPI
@@ -25,49 +23,82 @@ src/lib/
 
 Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
 
-## Key API
-
-### Builder Chain
+## Key API — TypedScope (Recommended)
 
 ```typescript
-flowChart(name, fn, id, extractor?, description?)
-  .addFunction(name, fn, id, description?)
-  .addDeciderFunction(name, fn, id, description?)
-    .addFunctionBranch(branchId, name, fn) / .setDefault(id) / .end()
-  .addSelectorFunction(name, fn, id, description?)
-  .addListOfFunction([...], { failFast? })
-  .addSubFlowChartNext(id, subflow, mount, { inputMapper?, outputMapper? })
-  .loopTo(stageId)
+import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor, decide } from 'footprintjs';
+
+interface State {
+  creditScore: number;
+  riskTier: string;
+  decision?: string;
+}
+
+const chart = typedFlowChart<State>('Intake', async (scope) => {
+  scope.creditScore = 750;          // typed write (no setValue needed)
+  scope.riskTier = 'low';           // typed write
+}, 'intake')
   .setEnableNarrative()
-  .setInputSchema(schema) / .setOutputSchema(schema) / .setOutputMapper(fn)
-  .build() / .toSpec() / .toMermaid()
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { riskTier: { eq: 'low' } }, then: 'approved', label: 'Low risk' },
+    ], 'rejected');
+  }, 'route', 'Route based on risk')
+    .addFunctionBranch('approved', 'Approve', async (scope) => {
+      scope.decision = 'Approved';
+    })
+    .addFunctionBranch('rejected', 'Reject', async (scope) => {
+      scope.decision = 'Rejected';
+    })
+    .setDefault('rejected')
+    .end()
+  .build();
+
+const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+await executor.run();
+executor.getNarrative();  // causal trace with decision evidence
 ```
 
-### Stage Functions
+### TypedScope $-methods (escape hatches)
 
 ```typescript
-(scope: ScopeFacade, breakPipeline: () => void, streamCallback?: StreamCallback) => void | Promise<void>
+scope.$getArgs<T>()        // frozen readonly input
+scope.$getEnv()            // execution environment (signal, timeoutMs, traceId)
+scope.$break()             // stop pipeline
+scope.$debug(key, value)   // debug info
+scope.$metric(name, value) // metrics
 ```
 
-### ScopeFacade
+### decide() / select()
 
 ```typescript
-scope.getValue('key')              // tracked read
-scope.setValue('key', value)        // tracked write
-scope.updateValue('key', partial)  // deep merge
-scope.deleteValue('key')           // tracked delete
-scope.getArgs<T>()                 // frozen readonly input (NOT tracked)
+// Filter syntax — captures operators + thresholds
+decide(scope, [
+  { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
+], 'rejected');
+
+// Function syntax — captures which keys were read
+decide(scope, [
+  { when: (s) => s.creditScore > 700, then: 'approved' },
+], 'rejected');
+
+// select() — all matching branches (not first-match)
+select(scope, [
+  { when: { glucose: { gt: 100 } }, then: 'diabetes' },
+  { when: { bmi: { gt: 30 } }, then: 'obesity' },
+]);
 ```
 
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart);
-await executor.run({ input, timeoutMs?, signal? });
+const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+await executor.run({ input, env: { traceId: 'req-123' } });
 executor.getNarrative()            // string[]
 executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
 executor.getSnapshot()             // memory state
-executor.attachFlowRecorder(r)     // plug observer
+executor.attachRecorder(recorder)  // scope observer
+executor.attachFlowRecorder(r)     // flow observer
 executor.setRedactionPolicy({ keys, patterns, fields })
 ```
 
@@ -75,12 +106,14 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 
 - **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
 - **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
-- 8 built-in FlowRecorder strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest)
-- `setEnableNarrative()` auto-attaches `CombinedNarrativeRecorder` (implements both)
+- 8 built-in FlowRecorder strategies
+- `setEnableNarrative()` auto-attaches `CombinedNarrativeRecorder`
 
 ## Rules
 
+- Use `typedFlowChart<T>()` + `createTypedScopeFactory<T>()` (not flowChart + ScopeFacade)
+- Use `decide()` / `select()` in decider/selector functions
+- Use typed property access (not getValue/setValue)
+- Use `$getArgs()` for input, `$getEnv()` for environment
 - Never post-process the tree — use recorders
-- `getValue()`/`setValue()` for tracked state; `getArgs()` for frozen readonly input
-- Don't use deprecated `CombinedNarrativeBuilder`
 - `setEnableNarrative()` is all you need for narrative setup

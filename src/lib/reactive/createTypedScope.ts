@@ -22,6 +22,24 @@ import { buildNestedPatch } from './pathBuilder.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
 
+// -- Proxy unwrapping --------------------------------------------------------
+// structuredClone in TransactionBuffer cannot clone Proxy objects.
+// When a user does `scope.backup = scope.customer`, the value is a Proxy.
+// Unwrap to a plain object before storing.
+
+function unwrapProxy(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  // Fast path: plain objects and arrays don't need unwrapping
+  try {
+    // JSON round-trip strips Proxies. Safe because state values must be JSON-serializable.
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    // Non-serializable (functions, symbols, etc.) — return as-is
+    return value;
+  }
+}
+
 // -- $-method routing --------------------------------------------------------
 
 type MethodRouter = (target: ReactiveTarget, opts: ReactiveState) => unknown;
@@ -129,7 +147,7 @@ function createTerminalProxy(
     set(raw, prop, value) {
       if (typeof prop !== 'string') return true;
       const childSegments = [...segments, prop];
-      const patch = buildNestedPatch(childSegments, value);
+      const patch = buildNestedPatch(childSegments, unwrapProxy(value));
       target.updateValue(rootKey, patch);
       state.childCache.delete(rootKey);
       return true;
@@ -179,7 +197,7 @@ function createNestedProxy(
             return lodashGet(current, childSegments.join('.')) ?? [];
           },
           (newArr) => {
-            const patch = buildNestedPatch(childSegments, newArr);
+            const patch = buildNestedPatch(childSegments, unwrapProxy(newArr));
             target.updateValue(rootKey, patch);
             state.childCache.delete(rootKey);
           },
@@ -203,7 +221,7 @@ function createNestedProxy(
       if (typeof prop !== 'string') return true;
 
       const childSegments = [...segments, prop];
-      const patch = buildNestedPatch(childSegments, value);
+      const patch = buildNestedPatch(childSegments, unwrapProxy(value));
       target.updateValue(rootKey, patch);
       state.childCache.delete(rootKey);
       return true;
@@ -285,7 +303,7 @@ export function createTypedScope<T extends Record<string, unknown>>(
         const arrProxy = createArrayProxy(
           () => (target.getValue(prop) as unknown[]) ?? [],
           (newArr) => {
-            target.setValue(prop, newArr);
+            target.setValue(prop, unwrapProxy(newArr));
             state.childCache.delete(prop);
           },
         );
@@ -316,7 +334,10 @@ export function createTypedScope<T extends Record<string, unknown>>(
           `Cannot set state key "${prop}" -- it conflicts with a reserved TypedScope method. Rename the state key to avoid $-prefixed names.`,
         );
       }
-      target.setValue(prop, value);
+      // Unwrap Proxy values before storing — structuredClone in TransactionBuffer
+      // cannot clone Proxy objects. This handles: scope.backup = scope.customer
+      const unwrapped = unwrapProxy(value);
+      target.setValue(prop, unwrapped);
       state.childCache.delete(prop); // invalidate cache
       return true;
     },

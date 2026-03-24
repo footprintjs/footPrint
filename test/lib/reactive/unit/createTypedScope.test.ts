@@ -795,3 +795,83 @@ describe('createTypedScope -- security', () => {
     }).toThrow('conflicts with a reserved TypedScope method');
   });
 });
+
+// -- Proxy unwrap (regression: structuredClone fails on Proxy objects) -------
+
+describe('createTypedScope -- proxy unwrap', () => {
+  it('assigning a proxy-wrapped value to another key does not throw', () => {
+    const target = mockTarget({ customer: { name: 'Alice', tier: 'premium' } });
+    const scope = createTypedScope<{
+      customer: { name: string; tier: string };
+      backup: { name: string; tier: string };
+    }>(target);
+
+    // scope.customer returns a Proxy -- assigning it to backup should unwrap
+    expect(() => {
+      scope.backup = scope.customer;
+    }).not.toThrow();
+
+    // The stored value should be a plain object, not a Proxy
+    const stored = target.state.backup;
+    expect(stored).toEqual({ name: 'Alice', tier: 'premium' });
+  });
+
+  it('nested proxy assignment unwraps for updateValue', () => {
+    const target = mockTarget({ profile: { address: { city: 'Portland', state: 'OR' } }, copy: {} });
+    const scope = createTypedScope<{
+      profile: { address: { city: string; state: string } };
+      copy: { address?: { city: string; state: string } };
+    }>(target);
+
+    // Read nested proxy, assign to another nested path
+    const address = scope.profile.address;
+    expect(() => {
+      scope.copy = { address };
+    }).not.toThrow();
+  });
+
+  it('array proxy values are unwrapped on commit', () => {
+    const target = mockTarget({ items: ['a', 'b', 'c'] });
+    const scope = createTypedScope<{ items: string[]; backup: string[] }>(target);
+
+    // Push to array -- the array proxy commits a new array value
+    scope.items.push('d');
+
+    // The stored value should be a plain array
+    const stored = target.state.items;
+    expect(Array.isArray(stored)).toBe(true);
+    expect(stored).toContain('d');
+  });
+
+  it('plain objects are not affected by unwrap', () => {
+    const target = mockTarget({});
+    const scope = createTypedScope<{ data: { x: number; y: string } }>(target);
+
+    scope.data = { x: 42, y: 'hello' };
+    expect(target.state.data).toEqual({ x: 42, y: 'hello' });
+  });
+
+  it('primitives pass through unwrap unchanged', () => {
+    const target = mockTarget({});
+    const scope = createTypedScope<{ count: number; name: string; active: boolean }>(target);
+
+    scope.count = 42;
+    scope.name = 'test';
+    scope.active = true;
+
+    expect(target.state.count).toBe(42);
+    expect(target.state.name).toBe('test');
+    expect(target.state.active).toBe(true);
+  });
+
+  it('null and undefined pass through unwrap unchanged', () => {
+    const target = mockTarget({});
+    const scope = createTypedScope<{ a: null; b: undefined }>(target);
+
+    scope.a = null;
+    scope.b = undefined;
+
+    expect(target.state.a).toBeNull();
+    expect(target.state.b).toBeUndefined();
+  });
+});
