@@ -1,12 +1,11 @@
 /**
- * FootPrint — Public API
+ * FootPrint — Public API (v2.0)
  *
- * Connected causal trace library for LLM pipelines.
- * Builds flowcharts, executes them via DFS traversal, and captures
- * every stage's context (state, decisions, errors) in an auditable trace.
+ * The flowchart pattern for backend code.
+ * Build → Describe → Run.
  *
- * For advanced/internal APIs (memory primitives, engine handlers, providers),
- * import from 'footprint/advanced'.
+ * For advanced/internal APIs, import from 'footprintjs/advanced'.
+ * For recorder factories, import from 'footprintjs/recorders'.
  */
 
 // ============================================================================
@@ -34,16 +33,22 @@ export type {
 export { decide, select } from './lib/decide/index.js';
 
 // ============================================================================
-// Runner — Execution convenience layer
+// Runner — v2 API: chart.recorder().run()
 // ============================================================================
 
+export type { RunResult } from './lib/runner/index.js';
 export { FlowChartExecutor } from './lib/runner/index.js';
+export { RunContext } from './lib/runner/index.js';
+export type {
+  OpenAPIOptions as ChartOpenAPIOptions,
+  MCPToolDescription,
+  RunnableFlowChart,
+} from './lib/runner/RunnableChart.js';
 
-// ComposableRunner — interface for runners that expose their internal flowChart
-// for subflow composition (enables UI drill-down into nested runners)
+// ComposableRunner — interface for subflow composition
 export type { ComposableRunner } from './lib/runner/index.js';
 
-// Snapshot navigation — drill into subflow subtrees by path
+// Snapshot navigation
 export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/runner/index.js';
 export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
@@ -56,11 +61,11 @@ export { ScopeFacade } from './lib/scope/index.js';
 // Dev-mode diagnostics
 export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
 
-// Recorders
+// Recorders (class exports — prefer factory functions from footprintjs/recorders)
 export { MetricRecorder } from './lib/scope/index.js';
 export { DebugRecorder } from './lib/scope/index.js';
 
-// Recorder interface and core event types (needed to implement custom Recorder)
+// Recorder interface and event types (for custom recorders)
 export type {
   CommitEvent,
   ErrorEvent,
@@ -75,12 +80,12 @@ export type {
 export { defineScopeFromZod } from './lib/scope/index.js';
 
 // ============================================================================
-// Engine — Narrative (commonly used)
+// Engine — Narrative types
 // ============================================================================
 
 export type { CombinedNarrativeEntry } from './lib/engine/index.js';
 
-// FlowRecorder — Pluggable observer for control flow events (mirrors scope Recorder)
+// FlowRecorder — Pluggable observer for control flow events
 export type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -97,11 +102,11 @@ export type {
 } from './lib/engine/index.js';
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
 
-// Structured error extraction — preserves field-level details through the pipeline
+// Structured errors
 export type { StructuredErrorInfo } from './lib/engine/index.js';
 export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
 
-// Built-in FlowRecorder strategies (tree-shakeable — import only what you use)
+// Built-in FlowRecorder strategies (prefer factory functions from footprintjs/recorders)
 export type { ManifestEntry } from './lib/engine/index.js';
 export { ManifestFlowRecorder } from './lib/engine/index.js';
 export { AdaptiveNarrativeFlowRecorder } from './lib/engine/index.js';
@@ -113,14 +118,14 @@ export { SilentNarrativeFlowRecorder } from './lib/engine/index.js';
 export { WindowedNarrativeFlowRecorder } from './lib/engine/index.js';
 
 // ============================================================================
-// Memory — ScopeFactory type (needed for FlowChartExecutor constructor)
+// Engine types
 // ============================================================================
 
 export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
 export type { ScopeFactory } from './lib/memory/index.js';
 
 // ============================================================================
-// Contract — I/O boundary, schemas, and OpenAPI generation
+// Contract — I/O boundary, schemas, OpenAPI
 // ============================================================================
 
 export type {
@@ -135,7 +140,7 @@ export { normalizeSchema, zodToJsonSchema } from './lib/contract/index.js';
 export { generateOpenAPI } from './lib/contract/index.js';
 
 // ============================================================================
-// Schema — Unified detection, validation, and structured errors
+// Schema — Validation
 // ============================================================================
 
 export type { SchemaKind, ValidationIssue, ValidationResult } from './lib/schema/index.js';
