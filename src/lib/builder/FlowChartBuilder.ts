@@ -548,6 +548,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  /**
+   * Declare the API contract — input validation, output shape, and output mapper.
+   * Replaces setInputSchema() + setOutputSchema() + setOutputMapper() in a single call.
+   *
+   * If a contract with input schema is declared, chart.run() validates input automatically.
+   * Contract data is used by chart.toOpenAPI() and chart.toMCPTool().
+   */
+  contract(opts: {
+    input?: unknown;
+    output?: unknown;
+    mapper?: (finalScope: Record<string, unknown>) => unknown;
+  }): this {
+    if (opts.input) this._inputSchema = opts.input;
+    if (opts.output) this._outputSchema = opts.output;
+    if (opts.mapper) this._outputMapper = opts.mapper;
+    return this;
+  }
+
   // ── Linear Chaining ──
 
   start(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {

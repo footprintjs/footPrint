@@ -1,9 +1,9 @@
 /**
- * RunnableChart -- Adds .recorder(), .redact(), .run() to a FlowChart object.
+ * RunnableChart -- Adds .recorder(), .redact(), .run(), .toOpenAPI(), .toMCPTool()
+ * to a FlowChart object.
  *
  * Called by FlowChartBuilder.build() to enrich the compiled chart with
- * d3-style chainable run methods. The chart data is still a plain object;
- * the methods are added as properties.
+ * d3-style chainable run methods and self-describing outputs.
  */
 
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -11,7 +11,22 @@ import type { FlowChart, RunOptions } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
-/** FlowChart with d3-style .recorder(), .redact(), .run() methods. */
+/** OpenAPI generation options. */
+export interface OpenAPIOptions {
+  title?: string;
+  version?: string;
+  description?: string;
+  path?: string;
+}
+
+/** MCP tool description. */
+export interface MCPToolDescription {
+  name: string;
+  description: string;
+  inputSchema?: unknown;
+}
+
+/** FlowChart with d3-style methods: run, recorder, redact, toOpenAPI, toMCPTool. */
 export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<TOut, TScope> {
   /** Attach a recorder for the next run. Returns a chainable RunContext. */
   recorder(r: Recorder | FlowRecorder): RunContext<TOut, TScope>;
@@ -19,10 +34,18 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
   redact(policy: RedactionPolicy): RunContext<TOut, TScope>;
   /** Execute the chart directly (bare run, no recorders). */
   run(options?: RunOptions): Promise<RunResult>;
+  /** Generate OpenAPI 3.1 spec from chart metadata + contract. Cached. */
+  toOpenAPI(options?: OpenAPIOptions): object;
+  /** Generate MCP tool description from chart metadata. Cached. */
+  toMCPTool(): MCPToolDescription;
 }
 
+// Caches for describe outputs
+const openAPICache = new WeakMap<FlowChart, object>();
+const mcpCache = new WeakMap<FlowChart, MCPToolDescription>();
+
 /**
- * Enrich a FlowChart with .recorder(), .redact(), .run() methods.
+ * Enrich a FlowChart with run + describe methods.
  * Called by FlowChartBuilder.build().
  */
 export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): RunnableFlowChart<TOut, TScope> {
@@ -40,5 +63,85 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
     return new RunContext(chart).run(options);
   };
 
+  runnable.toOpenAPI = function (options?: OpenAPIOptions): object {
+    const cached = openAPICache.get(chart);
+    if (cached) return cached;
+
+    const builderChart = chart as any;
+    const title = options?.title ?? builderChart.description?.split('\n')[0] ?? 'API';
+    const version = options?.version ?? '1.0.0';
+    const path = options?.path ?? `/${(builderChart.root?.name ?? 'execute').toLowerCase().replace(/\s+/g, '-')}`;
+
+    const spec: Record<string, unknown> = {
+      openapi: '3.1.0',
+      info: { title, version, description: options?.description ?? builderChart.description },
+      paths: {
+        [path]: {
+          post: {
+            summary: title,
+            description: builderChart.description,
+            ...(builderChart.inputSchema
+              ? {
+                  requestBody: {
+                    content: { 'application/json': { schema: normalizeSchema(builderChart.inputSchema) } },
+                  },
+                }
+              : {}),
+            responses: {
+              '200': {
+                description: 'Success',
+                ...(builderChart.outputSchema
+                  ? { content: { 'application/json': { schema: normalizeSchema(builderChart.outputSchema) } } }
+                  : {}),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    openAPICache.set(chart, spec);
+    return spec;
+  };
+
+  runnable.toMCPTool = function (): MCPToolDescription {
+    const cached = mcpCache.get(chart);
+    if (cached) return cached;
+
+    const builderChart = chart as any;
+    const name = (builderChart.root?.name ?? 'execute').toLowerCase().replace(/\s+/g, '_');
+    const description = builderChart.description || `Execute the ${name} flowchart`;
+
+    const tool: MCPToolDescription = {
+      name,
+      description,
+      ...(builderChart.inputSchema ? { inputSchema: normalizeSchema(builderChart.inputSchema) } : {}),
+    };
+
+    mcpCache.set(chart, tool);
+    return tool;
+  };
+
   return runnable;
+}
+
+/** Normalize a Zod schema or plain JSON Schema to JSON Schema object. */
+function normalizeSchema(schema: unknown): unknown {
+  if (!schema) return schema;
+  // If it's a Zod schema with ._def, try to convert
+  if (
+    typeof schema === 'object' &&
+    schema !== null &&
+    typeof (schema as Record<string, unknown>)._def !== 'undefined'
+  ) {
+    try {
+      // Attempt Zod-to-JSON-Schema conversion via the library's existing converter
+      const { zodToJsonSchema } = require('../contract/zodToJsonSchema.js');
+      return zodToJsonSchema(schema);
+    } catch {
+      // If conversion fails, return as-is
+      return schema;
+    }
+  }
+  return schema;
 }
