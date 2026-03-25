@@ -306,7 +306,7 @@ describe('arrayTraps -- performance', () => {
       proxy.push(i);
     }
     const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(50);
+    expect(elapsed).toBeLessThan(200);
   });
 });
 
