@@ -80,9 +80,9 @@ describe('API Contract: Removed from Main Export', () => {
     expect((mod as any).typedFlowChart).toBeUndefined();
   });
 
-  it('createTypedScopeFactory should NOT be exported', async () => {
+  it('createTypedScopeFactory IS exported (needed for custom builders)', async () => {
     const mod = await import('../../src/index');
-    expect((mod as any).createTypedScopeFactory).toBeUndefined();
+    expect(typeof mod.createTypedScopeFactory).toBe('function');
   });
 
   it('setEnableNarrative should NOT exist on builder', async () => {

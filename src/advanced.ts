@@ -59,6 +59,7 @@ export type {
   SubflowRef,
 } from './lib/builder/index.js';
 export { DeciderList, SelectorFnList, specToStageNode } from './lib/builder/index.js';
+export { createTypedScopeFactory, typedFlowChart } from './lib/builder/typedFlowChart.js';
 
 // ============================================================================
 // Scope — Providers, protection, recorder options, and event types

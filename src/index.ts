@@ -17,6 +17,7 @@ export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
 
 // TypedScope — typed property access (no casts needed)
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
+export { createTypedScopeFactory } from './lib/builder/typedFlowChart.js';
 export type { ScopeMethods, TypedScope } from './lib/reactive/index.js';
 
 // Decision reasoning capture
