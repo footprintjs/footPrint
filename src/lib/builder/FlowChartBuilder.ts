@@ -14,6 +14,7 @@
 
 import type { ScopeFactory } from '../engine/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import { createTypedScopeFactory } from './typedFlowChart.js';
 import type {
   BuildTimeExtractor,
   FlowChart,
@@ -520,31 +521,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Configuration ──
 
-  setEnableNarrative(): this {
-    this._enableNarrative = true;
-    return this;
-  }
-
   setLogger(logger: ILogger): this {
     this._logger = logger;
-    return this;
-  }
-
-  /** Declare the input schema (readOnlyContext shape). Accepts Zod schema or JSON Schema. */
-  setInputSchema(schema: unknown): this {
-    this._inputSchema = schema;
-    return this;
-  }
-
-  /** Declare the output schema (response shape). Accepts Zod schema or JSON Schema. */
-  setOutputSchema(schema: unknown): this {
-    this._outputSchema = schema;
-    return this;
-  }
-
-  /** Set the output mapper that extracts the response from final scope. */
-  setOutputMapper(mapper: (finalScope: Record<string, unknown>) => unknown): this {
-    this._outputMapper = mapper;
     return this;
   }
 
@@ -1190,7 +1168,10 @@ export function flowChart<TOut = any, TScope = any>(
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
 ): FlowChartBuilder<TOut, TScope> {
-  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn, id, description);
+  const builder = new FlowChartBuilder<TOut, TScope>(buildTimeExtractor);
+  // Auto-embed TypedScope factory — FlowChartExecutor reads chart.scopeFactory automatically
+  builder.setScopeFactory(createTypedScopeFactory() as unknown as ScopeFactory<TScope>);
+  return builder.start(name, fn, id, description);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

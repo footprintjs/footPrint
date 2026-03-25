@@ -17,9 +17,7 @@ export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
 
 // TypedScope — typed property access (no casts needed)
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
-export { createTypedScopeFactory, typedFlowChart } from './lib/builder/typedFlowChart.js';
 export type { ScopeMethods, TypedScope } from './lib/reactive/index.js';
-export { createTypedScope } from './lib/reactive/index.js';
 
 // Decision reasoning capture
 export type {
@@ -125,7 +123,7 @@ export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
 export type { ScopeFactory } from './lib/memory/index.js';
 
 // ============================================================================
-// Contract — I/O boundary, schemas, OpenAPI
+// Contract types (use .contract() on builder + chart.toOpenAPI() instead)
 // ============================================================================
 
 export type {
@@ -135,9 +133,6 @@ export type {
   OpenAPIOptions,
   OpenAPISpec,
 } from './lib/contract/index.js';
-export { defineContract } from './lib/contract/index.js';
-export { normalizeSchema, zodToJsonSchema } from './lib/contract/index.js';
-export { generateOpenAPI } from './lib/contract/index.js';
 
 // ============================================================================
 // Schema — Validation
