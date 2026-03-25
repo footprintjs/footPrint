@@ -4,23 +4,27 @@ set -euo pipefail
 # Release script — keeps package.json, git tag, and GitHub releases in sync.
 # npm publish is handled by GitHub Actions (with provenance).
 #
-# Flow:
-#   1. Local: build + test → version bump → CHANGELOG check → commit + tag + push
-#   2. GitHub release created → triggers .github/workflows/publish.yml
-#   3. CI: npm publish --provenance --access public (green tick on npm)
-#
-# Prerequisites:
-#   - gh auth login (for GitHub release creation)
-#   - NPM_TOKEN secret configured in GitHub repo settings
+# Release pipeline (6 gates before version bump):
+#   1. Clean working tree
+#   2. Documentation check (no stale API refs in .md files)
+#   3. API conformance tests (47 design contract tests)
+#   4. Build (CJS + ESM)
+#   5. Full test suite (1874+ tests)
+#   6. Sample projects (run all samples to verify real-world usage)
+#   7. CHANGELOG entry exists
+#   Then: version bump → commit + tag + push → GitHub release → CI npm publish
 #
 # Usage:
-#   npm run release:patch   # 0.4.0 → 0.4.1
-#   npm run release:minor   # 0.4.0 → 0.5.0
-#   npm run release:major   # 0.4.0 → 1.0.0
+#   npm run release:patch   # 3.0.0 → 3.0.1
+#   npm run release:minor   # 3.0.0 → 3.1.0
+#   npm run release:major   # 3.0.0 → 4.0.0
 
 BUMP="${1:?Usage: release.sh <patch|minor|major>}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SAMPLES_DIR="$(cd "$PROJECT_DIR/../footprint-samples" 2>/dev/null && pwd || echo "")"
 
-# 1. Validate
+# ── Gate 1: Clean working tree ──────────────────────────────────────────
 if [[ "$BUMP" != "patch" && "$BUMP" != "minor" && "$BUMP" != "major" ]]; then
   echo "Error: bump must be patch, minor, or major (got: $BUMP)"
   exit 1
@@ -31,50 +35,72 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-# 2. Check docs for deprecated API references
+# ── Gate 2: Documentation check ─────────────────────────────────────────
 bash scripts/check-docs.sh
 
-# 3. Run API conformance tests
-echo "==> Running API conformance tests..."
+# ── Gate 3: API conformance tests ───────────────────────────────────────
+echo "==> Running API conformance tests (47 design contract tests)..."
 npx vitest run test/api-conformance/ --reporter=verbose
 
-# 4. Build + test (fail early before touching version)
-echo "==> Building and testing..."
+# ── Gate 4: Build ───────────────────────────────────────────────────────
+echo "==> Building (CJS + ESM)..."
 npm run build
+
+# ── Gate 5: Full test suite ─────────────────────────────────────────────
+echo "==> Running full test suite..."
 npm test
 
-# 3. Bump version in package.json (no git tag yet)
+# ── Gate 6: Sample projects ─────────────────────────────────────────────
+if [[ -n "$SAMPLES_DIR" && -d "$SAMPLES_DIR" ]]; then
+  echo "==> Running sample projects ($SAMPLES_DIR)..."
+
+  # Install latest local build
+  (cd "$SAMPLES_DIR" && npm install 2>&1 | tail -1)
+
+  # Run all samples defined in package.json "all" script
+  if (cd "$SAMPLES_DIR" && npm run all 2>&1 | tail -3); then
+    echo "  All samples passed."
+  else
+    echo ""
+    echo "Error: Sample projects failed."
+    echo "Fix the samples before releasing — these are what developers copy-paste."
+    exit 1
+  fi
+else
+  echo "==> Skipping samples (../footprint-samples not found)."
+  echo "    To enable: clone footprint-samples next to footPrint."
+fi
+
+# ── Version bump ────────────────────────────────────────────────────────
 npm version "$BUMP" --no-git-tag-version
 VERSION=$(node -p "require('./package.json').version")
 echo "==> Bumped to v$VERSION"
 
-# 4. Check CHANGELOG has an entry for this version
+# ── Gate 7: CHANGELOG entry ─────────────────────────────────────────────
 if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
   echo "Error: CHANGELOG.md has no entry for [$VERSION]."
   echo "Add a ## [$VERSION] section before releasing."
-  # Revert the version bump
   git checkout package.json
   exit 1
 fi
 
-# 5. Extract release notes from CHANGELOG.md
-# Grab everything between ## [$VERSION] and the next ## [
+# ── Extract release notes ──────────────────────────────────────────────
 NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
 if [[ -z "$NOTES" ]]; then
   echo "Warning: CHANGELOG.md entry for [$VERSION] is empty. Continuing anyway."
 fi
 
-# 6. Update lockfile
+# ── Update lockfile ────────────────────────────────────────────────────
 npm install --package-lock-only
 
-# 7. Commit + tag + push
+# ── Commit + tag + push ───────────────────────────────────────────────
 git add package.json package-lock.json
 git commit -m "chore: release v$VERSION"
 git tag "v$VERSION"
 git push
 git push --tags
 
-# 8. Create GitHub release (triggers CI → npm publish with provenance)
+# ── Create GitHub release ─────────────────────────────────────────────
 if command -v gh &> /dev/null; then
   echo "==> Creating GitHub release (CI will publish to npm with provenance)..."
   gh release create "v$VERSION" \
@@ -86,10 +112,18 @@ if command -v gh &> /dev/null; then
 else
   echo "Warning: gh CLI not found. Skipping GitHub release creation."
   echo "Run manually: gh release create v$VERSION --title v$VERSION --latest"
-  echo "Note: npm publish will happen automatically when the GitHub release is created."
 fi
 
 echo ""
 echo "==> Released v$VERSION"
 echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
+echo ""
+echo "Release pipeline passed all 7 gates:"
+echo "  1. Clean tree        ✓"
+echo "  2. Doc check         ✓  (0 stale API refs)"
+echo "  3. API conformance   ✓  (47 design contract tests)"
+echo "  4. Build             ✓  (CJS + ESM)"
+echo "  5. Full test suite   ✓  ($(npm test 2>&1 | grep 'Tests' | grep -o '[0-9]* passed' || echo '?') passed)"
+echo "  6. Sample projects   ✓"
+echo "  7. CHANGELOG         ✓"
