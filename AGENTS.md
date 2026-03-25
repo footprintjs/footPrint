@@ -26,7 +26,7 @@ Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
 ## Key API — TypedScope (Recommended)
 
 ```typescript
-import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor, decide } from 'footprintjs';
+import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface State {
   creditScore: number;
@@ -54,7 +54,7 @@ const chart = typedFlowChart<State>('Intake', async (scope) => {
     .end()
   .build();
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+const executor = new FlowChartExecutor(chart<State>());
 await executor.run();
 executor.getNarrative();  // causal trace with decision evidence
 ```
@@ -92,7 +92,7 @@ select(scope, [
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+const executor = new FlowChartExecutor(chart<State>());
 await executor.run({ input, env: { traceId: 'req-123' } });
 executor.getNarrative()            // string[]
 executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
@@ -111,7 +111,7 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 
 ## Rules
 
-- Use `typedFlowChart<T>()` + `createTypedScopeFactory<T>()` (not flowChart + ScopeFacade)
+- Use `typedFlowChart<T>()` — scopeFactory is auto-embedded, no `createTypedScopeFactory` needed
 - Use `decide()` / `select()` in decider/selector functions
 - Use typed property access (not getValue/setValue)
 - Use `$getArgs()` for input, `$getEnv()` for environment

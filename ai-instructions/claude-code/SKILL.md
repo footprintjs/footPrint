@@ -18,7 +18,7 @@ npm install footprintjs
 ## Quick Start
 
 ```typescript
-import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor } from 'footprintjs';
+import { typedFlowChart, FlowChartExecutor } from 'footprintjs';
 
 interface OrderState {
   orderId: string;
@@ -37,7 +37,7 @@ const chart = typedFlowChart<OrderState>('ReceiveOrder', (scope) => {
   .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<OrderState>());
+const executor = new FlowChartExecutor(chart<OrderState>());
 await executor.run({ input: { orderId: 'ORD-123' } });
 
 console.log(executor.getNarrative());
@@ -255,7 +255,7 @@ const mermaid = builder.toMermaid(); // Mermaid diagram string
 ## FlowChartExecutor API
 
 ```typescript
-import { FlowChartExecutor, createTypedScopeFactory } from 'footprintjs';
+import { FlowChartExecutor } from 'footprintjs';
 
 interface AppState {
   applicantName: string;
@@ -264,7 +264,7 @@ interface AppState {
   decision?: string;
 }
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<AppState>());
+const executor = new FlowChartExecutor(chart<AppState>());
 
 // Run with input and optional execution environment
 const result = await executor.run({
@@ -488,7 +488,7 @@ Two entry points:
 ### Pipeline with decide() + narrative
 
 ```typescript
-import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor, decide } from 'footprintjs';
+import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface LoanState {
   applicantName: string;
@@ -527,7 +527,7 @@ const chart = typedFlowChart<LoanState>('Receive', (scope) => {
   .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+const executor = new FlowChartExecutor(chart<LoanState>());
 await executor.run({ input: { applicantName: 'Bob', income: 42000 } });
 const trace = executor.getNarrative();
 // Feed trace to LLM for grounded explanations
