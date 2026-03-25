@@ -27,10 +27,7 @@ const chart = flowChart('Start', startFn, 'start-id')
 | `addSubFlowChartNext(id, flow, mount, opts?)` | Mount subflow as linear next. Options: `{ inputMapper?, outputMapper? }` |
 | `addStreamingFunction(name, fn, id, streamId?, description?)` | Add streaming stage |
 | `addTraversalExtractor(fn)` | Register per-stage data extractor |
-| `setEnableNarrative()` | Enable runtime narrative generation |
-| `setInputSchema(schema)` | Set input validation schema (Zod or JSON Schema) |
-| `setOutputSchema(schema)` | Set output validation schema |
-| `setOutputMapper(fn)` | Set output mapping function |
+| `contract({ input?, output?, mapper? })` | Set I/O schemas and output mapper |
 | `loopTo(stageId)` | Loop back to earlier stage |
 | `build()` | Compile to `FlowChart` |
 | `execute(scopeFactory?)` | Build + run (convenience) |
@@ -112,20 +109,22 @@ type StageFn = (
 ## Contract API
 
 ```typescript
-import { defineContract, generateOpenAPI } from 'footprintjs';
+import { flowChart } from 'footprintjs';
 
-const contract = defineContract(chart, {
-  inputSchema: z.object({ name: z.string() }),
-  outputSchema: z.object({ result: z.string() }),
-});
+const chart = flowChart('Greet', greetFn)
+  .contract({
+    input: z.object({ name: z.string() }),
+    output: z.object({ result: z.string() }),
+  })
+  .build();
 
-const openapi = generateOpenAPI(contract, { version: '1.0.0' });
+const openapi = chart.toOpenAPI({ version: '1.0.0' });
 ```
 
 | Function | Description |
 |----------|-------------|
-| `defineContract(chart, options)` | Create a typed contract with I/O schemas |
-| `generateOpenAPI(contract, options)` | Generate OpenAPI 3.1 spec |
+| `.contract({ input?, output?, mapper? })` | Set I/O schemas on the builder |
+| `chart.toOpenAPI(options)` | Generate OpenAPI 3.1 spec |
 | `normalizeSchema(input)` | Convert Zod or raw JSON Schema to normalized form |
 | `zodToJsonSchema(zodSchema)` | Zod v3/v4 → JSON Schema converter |
 

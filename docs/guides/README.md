@@ -9,7 +9,7 @@ Comprehensive guides for using FootPrint — the flowchart pattern for self-expl
 | **[Execution Control](execution.md)** | `breakFn()`, cancellation via AbortSignal, timeout, fail-fast forks, loop control |
 | **[Error Handling](error-handling.md)** | Commit-on-error, DebugRecorder, error narrative, post-mortem snapshots |
 | **[Flow Recorders](flow-recorders.md)** | Pluggable observers for control flow narrative — 7 built-in loop strategies to control narrative size |
-| **[Contracts](contracts.md)** | `defineContract()`, OpenAPI 3.1 generation, Zod vs JSON Schema |
+| **[Contracts](contracts.md)** | `.contract()`, OpenAPI 3.1 generation, Zod vs JSON Schema |
 | **[API Reference](api-reference.md)** | Complete Builder, Executor, ScopeFacade, Contract method tables |
 | **[Performance](performance.md)** | Benchmarks — read/write throughput, pipeline latency, structuredClone costs |
 

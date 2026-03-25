@@ -31,7 +31,14 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-# 2. Build + test (fail early before touching version)
+# 2. Check docs for deprecated API references
+bash scripts/check-docs.sh
+
+# 3. Run API conformance tests
+echo "==> Running API conformance tests..."
+npx vitest run test/api-conformance/ --reporter=verbose
+
+# 4. Build + test (fail early before touching version)
 echo "==> Building and testing..."
 npm run build
 npm test

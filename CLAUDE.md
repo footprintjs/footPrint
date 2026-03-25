@@ -32,7 +32,7 @@ Two entry points:
 ### TypedScope (Recommended)
 
 ```typescript
-import { typedFlowChart, createTypedScopeFactory, FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
 interface LoanState {
   creditTier: string;
@@ -42,7 +42,7 @@ interface LoanState {
   approved?: boolean;
 }
 
-const chart = typedFlowChart<LoanState>('Intake', async (scope) => {
+const chart = flowChart<LoanState>('Intake', async (scope) => {
   scope.creditTier = 'A';                    // typed write
   scope.amount = 50000;                       // typed write
   scope.customer.address.zip = '90210';       // deep write (updateValue)
@@ -56,10 +56,9 @@ const chart = typedFlowChart<LoanState>('Intake', async (scope) => {
   const env = scope.$getEnv();
   scope.$break();                             // stop pipeline
 }, 'intake')
-  .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { requestId: 'req-123' } });
 ```
 
@@ -91,11 +90,10 @@ const chart = flowChart('Stage1', fn1, 'stage-1', undefined, 'Description')
     .addFunctionBranch('low', 'Approve', approveFn)
     .setDefault('high')
     .end()
-  .setEnableNarrative()
   .build();
 ```
 
-Methods: `start()`, `addFunction()`, `addStreamingFunction()`, `addDeciderFunction()`, `addSelectorFunction()`, `addListOfFunction()`, `addSubFlowChart()`, `addSubFlowChartNext()`, `loopTo()`, `setEnableNarrative()`, `setInputSchema()`, `setOutputSchema()`, `setOutputMapper()`, `build()`, `toSpec()`, `toMermaid()`
+Methods: `start()`, `addFunction()`, `addStreamingFunction()`, `addDeciderFunction()`, `addSelectorFunction()`, `addListOfFunction()`, `addSubFlowChart()`, `addSubFlowChartNext()`, `loopTo()`, `contract()`, `build()`, `toSpec()`, `toMermaid()`
 
 ### ScopeFacade (Internal — use TypedScope for new code)
 
@@ -114,7 +112,7 @@ scope.getEnv()                     // frozen execution environment (NOT tracked)
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart, createTypedScopeFactory<State>());
+const executor = new FlowChartExecutor(chart);
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
 executor.attachRecorder(recorder) // plug scope observer
@@ -150,7 +148,7 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
 - Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
 
-**CombinedNarrativeRecorder** implements BOTH interfaces. Auto-attached by `setEnableNarrative()`.
+**CombinedNarrativeRecorder** implements BOTH interfaces. Attached via `executor.recorder(narrative())` at runtime.
 
 ## Event Ordering
 
@@ -172,7 +170,7 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - Don't extract shared base for Recorder/FlowRecorder — two instances = coincidence
 - Don't use `getArgs()` for tracked data — use typed scope properties
 - Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
-- Don't manually create `CombinedNarrativeRecorder` — `setEnableNarrative()` handles it
+- Don't manually create `CombinedNarrativeRecorder` — `executor.recorder(narrative())` handles it
 
 ## Build & Test
 

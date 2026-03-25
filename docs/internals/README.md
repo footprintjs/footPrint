@@ -23,7 +23,7 @@ Each README follows a consistent pattern: *Why This Exists → The N Primitives 
 | **scope/** | ScopeFacade, Recorders, Protection, Providers, Zod Integration | [src/lib/scope/README.md](../../src/lib/scope/README.md) |
 | **engine/** | FlowchartTraverser, Handlers (10 specialists), FlowRecorder System | [src/lib/engine/README.md](../../src/lib/engine/README.md) |
 | **runner/** | FlowChartExecutor | [src/lib/runner/README.md](../../src/lib/runner/README.md) |
-| **contract/** | defineContract, schema normalization, OpenAPI generation | [src/lib/contract/](../../src/lib/contract/) |
+| **contract/** | .contract(), schema normalization, OpenAPI generation | [src/lib/contract/](../../src/lib/contract/) |
 
 ## Dependency Graph
 

@@ -18,7 +18,7 @@ npm install footprintjs
 ## Quick Start
 
 ```typescript
-import { typedFlowChart, FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
 interface OrderState {
   orderId: string;
@@ -26,7 +26,7 @@ interface OrderState {
   paymentStatus: string;
 }
 
-const chart = typedFlowChart<OrderState>('ReceiveOrder', (scope) => {
+const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
     scope.orderId = 'ORD-123';
     scope.amount = 49.99;
   }, 'receive-order', undefined, 'Receive and validate the incoming order')
@@ -34,10 +34,9 @@ const chart = typedFlowChart<OrderState>('ReceiveOrder', (scope) => {
     const amount = scope.amount;
     scope.paymentStatus = amount < 100 ? 'approved' : 'review';
   }, 'process-payment', 'Charge customer and record payment status')
-  .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart<OrderState>());
+const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { orderId: 'ORD-123' } });
 
 console.log(executor.getNarrative());
@@ -53,12 +52,12 @@ console.log(executor.getNarrative());
 
 ## FlowChartBuilder API
 
-Always chain from `typedFlowChart<T>()` (recommended) or `flowChart()`.
+Always chain from `flowChart<T>()` (recommended) or `flowChart()`.
 
 ### Linear Stages
 
 ```typescript
-import { typedFlowChart } from 'footprintjs';
+import { flowChart } from 'footprintjs';
 
 interface MyState {
   valueA: string;
@@ -66,7 +65,7 @@ interface MyState {
   valueC: boolean;
 }
 
-const chart = typedFlowChart<MyState>('StageA', fnA, 'stage-a', undefined, 'Description of A')
+const chart = flowChart<MyState>('StageA', fnA, 'stage-a', undefined, 'Description of A')
   .addFunction('StageB', fnB, 'stage-b', 'Description of B')
   .addFunction('StageC', fnC, 'stage-c', 'Description of C')
   .build();
@@ -81,7 +80,7 @@ const chart = typedFlowChart<MyState>('StageA', fnA, 'stage-a', undefined, 'Desc
 
 ### Stage Function Signature (TypedScope)
 
-With `typedFlowChart<T>()`, stage functions receive a `TypedScope<T>` proxy. All reads and writes use typed property access:
+With `flowChart<T>()`, stage functions receive a `TypedScope<T>` proxy. All reads and writes use typed property access:
 
 ```typescript
 interface LoanState {
@@ -133,7 +132,7 @@ interface RiskState {
   riskTier: string;
 }
 
-const chart = typedFlowChart<RiskState>('Intake', intakeFn, 'intake')
+const chart = flowChart<RiskState>('Intake', intakeFn, 'intake')
   .addDeciderFunction('AssessRisk', (scope) => {
     // decide() captures filter evidence automatically
     return decide(scope, [
@@ -168,7 +167,7 @@ interface CheckState {
   needsIdentity: boolean;
 }
 
-const chart = typedFlowChart<CheckState>('Intake', intakeFn, 'intake')
+const chart = flowChart<CheckState>('Intake', intakeFn, 'intake')
   .addSelectorFunction('SelectChecks', (scope) => {
     return select(scope, [
       { when: { needsCredit: { eq: true } }, then: 'credit-check', label: 'Credit required' },
@@ -196,7 +195,7 @@ builder.addListOfFunction([
 
 ```typescript
 // Build a reusable sub-pipeline
-const creditSubflow = typedFlowChart<CreditState>('PullReport', pullReportFn, 'pull-report')
+const creditSubflow = flowChart<CreditState>('PullReport', pullReportFn, 'pull-report')
   .addFunction('ScoreReport', scoreReportFn, 'score-report')
   .build();
 
@@ -233,13 +232,14 @@ builder
 
 ```typescript
 builder
-  .setEnableNarrative()              // enable narrative recording
-  .setInputSchema(zodSchema)         // validate input (Zod or JSON Schema)
-  .setOutputSchema(outputZodSchema)  // declare output shape
-  .setOutputMapper((state) => ({     // map final state to response
-    decision: state.decision,
-    reason: state.reason,
-  }));
+  .contract({                          // I/O schemas + output mapper
+    input: zodSchema,                  // validate input (Zod or JSON Schema)
+    output: outputZodSchema,           // declare output shape
+    mapper: (state) => ({              // map final state to response
+      decision: state.decision,
+      reason: state.reason,
+    }),
+  });
 ```
 
 ### Output
@@ -264,7 +264,7 @@ interface AppState {
   decision?: string;
 }
 
-const executor = new FlowChartExecutor(chart<AppState>());
+const executor = new FlowChartExecutor(chart);
 
 // Run with input and optional execution environment
 const result = await executor.run({
@@ -373,7 +373,7 @@ executor.attachFlowRecorder(myRecorder);
 
 This is what powers `getNarrative()` and `getNarrativeEntries()`. It implements BOTH `Recorder` (scope) and `FlowRecorder` (engine) interfaces. It buffers scope ops per-stage, then flushes when the flow event arrives — producing merged entries in a single pass.
 
-**You don't need to create this manually.** Calling `.setEnableNarrative()` on the builder auto-attaches it.
+**You don't need to create this manually.** Use `executor.recorder(narrative())` at runtime to attach it.
 
 ---
 
@@ -399,25 +399,28 @@ const report = executor.getRedactionReport();
 ## Contracts & OpenAPI
 
 ```typescript
-import { defineContract, generateOpenAPI } from 'footprintjs';
+import { flowChart } from 'footprintjs';
 import { z } from 'zod';
 
-const contract = defineContract(chart, {
-  inputSchema: z.object({
-    applicantName: z.string(),
-    income: z.number(),
-  }),
-  outputSchema: z.object({
-    decision: z.enum(['approved', 'rejected']),
-    reason: z.string(),
-  }),
-  outputMapper: (state) => ({
-    decision: state.decision,
-    reason: state.reason,
-  }),
-});
+const chart = flowChart('ProcessLoan', receiveFn)
+  .addFunction('Assess', assessFn)
+  .contract({
+    input: z.object({
+      applicantName: z.string(),
+      income: z.number(),
+    }),
+    output: z.object({
+      decision: z.enum(['approved', 'rejected']),
+      reason: z.string(),
+    }),
+    mapper: (state) => ({
+      decision: state.decision,
+      reason: state.reason,
+    }),
+  })
+  .build();
 
-const openApiSpec = generateOpenAPI(contract, {
+const openApiSpec = chart.toOpenAPI({
   title: 'Loan Underwriting API',
   version: '1.0.0',
 });
@@ -452,11 +455,11 @@ When a stage executes, events fire in this exact order:
 1. **Never post-process the tree.** Don't walk the spec after execution to collect data. Use recorders.
 2. **Don't use `getValue()`/`setValue()` in TypedScope stages.** Use typed property access (`scope.amount = 50000`). The old ScopeFacade API is internal only.
 3. **Don't use `$`-prefixed state keys** (e.g., `$break` as a property name) — they collide with TypedScope's `$`-prefixed escape hatches (`$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`).
-4. **Never use `CombinedNarrativeBuilder`** — it's deprecated. Use `CombinedNarrativeRecorder` (auto-attached by `setEnableNarrative()`).
+4. **Never use `CombinedNarrativeBuilder`** — it's deprecated. Use `CombinedNarrativeRecorder` (attached via `executor.recorder(narrative())`).
 5. **Don't extract a shared base class** for Recorder and FlowRecorder. They look similar but serve different layers. Two instances = coincidence.
 6. **Don't call `$getArgs()` for tracked data.** `$getArgs()` returns frozen readonly input. Use typed scope properties for state that should appear in the narrative.
 7. **Don't put infrastructure data in `$getArgs()`.** Use `$getEnv()` via `run({ env })` for signals, timeouts, and trace IDs.
-8. **Don't create scope recorders manually** unless building a custom recorder. `setEnableNarrative()` handles everything.
+8. **Don't create scope recorders manually** unless building a custom recorder. `executor.recorder(narrative())` handles everything.
 
 ---
 
@@ -466,13 +469,13 @@ When a stage executes, events fire in this exact order:
 src/lib/
 ├── memory/    → SharedMemory, StageContext, TransactionBuffer, EventLog (foundation)
 ├── schema/    → detectSchema, validate, InputValidationError (foundation)
-├── builder/   → FlowChartBuilder, flowChart(), typedFlowChart(), DeciderList, SelectorFnList (standalone)
+├── builder/   → FlowChartBuilder, flowChart(), DeciderList, SelectorFnList (standalone)
 ├── scope/     → ScopeFacade, recorders/, providers/, protection/ (depends: memory)
 ├── reactive/  → TypedScope<T> deep Proxy, typed property access, $-methods, cycle-safe (depends: scope)
 ├── decide/    → decide()/select() decision evidence capture, filter + function when formats (depends: scope)
 ├── engine/    → FlowchartTraverser, handlers/, narrative/ (depends: memory, scope, reactive, builder)
 ├── runner/    → FlowChartExecutor, ExecutionRuntime (depends: engine, scope, schema)
-└── contract/  → defineContract, generateOpenAPI (depends: schema)
+└── contract/  → I/O schema + OpenAPI generation (depends: schema)
 ```
 
 Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- engine`, `builder (standalone) -> engine`, `contract <- schema`, `decide -> scope`
@@ -488,7 +491,7 @@ Two entry points:
 ### Pipeline with decide() + narrative
 
 ```typescript
-import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
+import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface LoanState {
   applicantName: string;
@@ -499,7 +502,7 @@ interface LoanState {
   reason?: string;
 }
 
-const chart = typedFlowChart<LoanState>('Receive', (scope) => {
+const chart = flowChart<LoanState>('Receive', (scope) => {
     const args = scope.$getArgs<{ applicantName: string; income: number }>();
     scope.applicantName = args.applicantName;
     scope.income = args.income;
@@ -524,10 +527,9 @@ const chart = typedFlowChart<LoanState>('Receive', (scope) => {
     })
     .setDefault('reject')
     .end()
-  .setEnableNarrative()
   .build();
 
-const executor = new FlowChartExecutor(chart<LoanState>());
+const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { applicantName: 'Bob', income: 42000 } });
 const trace = executor.getNarrative();
 // Feed trace to LLM for grounded explanations
@@ -547,11 +549,11 @@ interface MainState {
   creditScore?: number;
 }
 
-const subflow = typedFlowChart<SubState>('SubStart', subStartFn, 'sub-start')
+const subflow = flowChart<SubState>('SubStart', subStartFn, 'sub-start')
   .addFunction('SubProcess', subProcessFn, 'sub-process')
   .build();
 
-const main = typedFlowChart<MainState>('Main', mainFn, 'main')
+const main = flowChart<MainState>('Main', mainFn, 'main')
   .addSubFlowChartNext('my-subflow', subflow, 'SubflowMount', {
     inputMapper: (scope) => ({ ssn: scope.ssn }),
     outputMapper: (subOut) => ({ creditScore: subOut.score }),

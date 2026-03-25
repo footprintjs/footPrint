@@ -12,7 +12,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 src/lib/
 ├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer)
 ├── schema/    → Validation (Zod optional, duck-typed)
-├── builder/   → Fluent DSL (FlowChartBuilder, flowChart(), typedFlowChart())
+├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
 ├── decide/    → decide()/select() decision evidence capture
@@ -26,7 +26,7 @@ Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
 ## Key API — TypedScope (Recommended)
 
 ```typescript
-import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
+import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface State {
   creditScore: number;
@@ -34,11 +34,10 @@ interface State {
   decision?: string;
 }
 
-const chart = typedFlowChart<State>('Intake', async (scope) => {
+const chart = flowChart<State>('Intake', async (scope) => {
   scope.creditScore = 750;          // typed write (no setValue needed)
   scope.riskTier = 'low';           // typed write
 }, 'intake')
-  .setEnableNarrative()
   .addDeciderFunction('Route', (scope) => {
     return decide(scope, [
       { when: { riskTier: { eq: 'low' } }, then: 'approved', label: 'Low risk' },
@@ -54,7 +53,7 @@ const chart = typedFlowChart<State>('Intake', async (scope) => {
     .end()
   .build();
 
-const executor = new FlowChartExecutor(chart<State>());
+const executor = new FlowChartExecutor(chart);
 await executor.run();
 executor.getNarrative();  // causal trace with decision evidence
 ```
@@ -92,7 +91,7 @@ select(scope, [
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart<State>());
+const executor = new FlowChartExecutor(chart);
 await executor.run({ input, env: { traceId: 'req-123' } });
 executor.getNarrative()            // string[]
 executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
@@ -107,13 +106,13 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 - **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
 - **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
 - 8 built-in FlowRecorder strategies
-- `setEnableNarrative()` auto-attaches `CombinedNarrativeRecorder`
+- Narrative via `executor.recorder(narrative())` at runtime
 
 ## Rules
 
-- Use `typedFlowChart<T>()` — scopeFactory is auto-embedded, no `createTypedScopeFactory` needed
+- Use `flowChart<T>()` — scopeFactory is auto-embedded
 - Use `decide()` / `select()` in decider/selector functions
 - Use typed property access (not getValue/setValue)
 - Use `$getArgs()` for input, `$getEnv()` for environment
 - Never post-process the tree — use recorders
-- `setEnableNarrative()` is all you need for narrative setup
+- Use `.recorder(narrative())` at runtime for narrative setup

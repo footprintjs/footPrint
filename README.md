@@ -73,7 +73,7 @@ That answer came from the trace &mdash; not from the LLM's imagination.
 ## Quick Start
 
 ```typescript
-import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
+import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface State {
   user: { name: string; tier: string };
@@ -81,7 +81,7 @@ interface State {
   lane: string;
 }
 
-const chart = typedFlowChart<State>('FetchUser', async (scope) => {
+const chart = flowChart<State>('FetchUser', async (scope) => {
     scope.user = { name: 'Alice', tier: 'premium' };
   }, 'fetch-user')
   .addFunction('ApplyDiscount', async (scope) => {
@@ -100,7 +100,6 @@ const chart = typedFlowChart<State>('FetchUser', async (scope) => {
     })
     .setDefault('standard')
     .end()
-  .setEnableNarrative()
   .build();
 
 const executor = new FlowChartExecutor(chart);

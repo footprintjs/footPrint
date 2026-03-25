@@ -120,7 +120,7 @@ executor.attachRecorder(new MetricRecorder());
 | `MetricRecorder` | Timing + read/write/commit counts per stage | Ops / monitoring |
 | `DebugRecorder` | Errors (always) + mutations + reads (verbose mode) | Developer |
 
-> **Note:** `NarrativeRecorder` is attached automatically when narrative is enabled via `setEnableNarrative()` or `executor.enableNarrative()`. You only need to attach it manually if you need custom options.
+> **Note:** `NarrativeRecorder` is attached automatically when narrative is enabled via `executor.recorder(narrative())`. You only need to attach it manually if you need custom options.
 
 ### Custom Recorders
 

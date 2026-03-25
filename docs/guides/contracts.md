@@ -7,7 +7,7 @@ Define I/O schemas on your flowchart and auto-generate OpenAPI 3.1 specs. Schema
 ## Defining a Contract
 
 ```typescript
-import { flowChart, defineContract } from 'footprintjs';
+import { flowChart } from 'footprintjs';
 import { z } from 'zod';
 
 const chart = flowChart('ProcessLoan', receiveFn)
@@ -16,38 +16,36 @@ const chart = flowChart('ProcessLoan', receiveFn)
     .addFunctionBranch('approved', 'Approve', approveFn)
     .addFunctionBranch('rejected', 'Reject', rejectFn)
     .end()
+  .contract({
+    input: z.object({
+      applicantName: z.string(),
+      creditScore: z.number(),
+    }),
+    output: z.object({
+      decision: z.enum(['approved', 'rejected']),
+      reason: z.string(),
+    }),
+    mapper: (scope) => ({
+      decision: scope.decision as string,
+      reason: scope.reason as string,
+    }),
+  })
   .build();
-
-const contract = defineContract(chart, {
-  inputSchema: z.object({
-    applicantName: z.string(),
-    creditScore: z.number(),
-  }),
-  outputSchema: z.object({
-    decision: z.enum(['approved', 'rejected']),
-    reason: z.string(),
-  }),
-  outputMapper: (scope) => ({
-    decision: scope.decision as string,
-    reason: scope.reason as string,
-  }),
-});
 ```
 
-### What `defineContract` gives you
+### What `.contract()` gives you
 
-- **`contract.chart`** — The original FlowChart
-- **`contract.inputSchema`** — Normalized JSON Schema (Zod auto-converted)
-- **`contract.outputSchema`** — Normalized JSON Schema
-- **`contract.outputMapper`** — Function to extract output from scope
-- **`contract.toOpenAPI(options?)`** — Generate OpenAPI 3.1 spec
+- **`chart.inputSchema`** — Normalized JSON Schema (Zod auto-converted)
+- **`chart.outputSchema`** — Normalized JSON Schema
+- **`chart.outputMapper`** — Function to extract output from scope
+- **`chart.toOpenAPI(options?)`** — Generate OpenAPI 3.1 spec
 
 ---
 
 ## OpenAPI Generation
 
 ```typescript
-const spec = contract.toOpenAPI({ version: '1.0.0', basePath: '/api' });
+const spec = chart.toOpenAPI({ version: '1.0.0', basePath: '/api' });
 ```
 
 Produces a complete OpenAPI 3.1 spec:
@@ -102,19 +100,21 @@ The description auto-walks the flowchart's `buildTimeStructure` to include:
 
 ---
 
-## Builder-Level Schemas
+## Builder-Level Contract
 
-Schemas can also be set at build time instead of via `defineContract`:
+Set all I/O schemas in a single `.contract()` call on the builder:
 
 ```typescript
 const chart = flowChart('Greet', greetFn)
-  .setInputSchema(z.object({ name: z.string() }))
-  .setOutputSchema(z.object({ greeting: z.string() }))
-  .setOutputMapper((scope) => ({ greeting: scope.message as string }))
+  .contract({
+    input: z.object({ name: z.string() }),
+    output: z.object({ greeting: z.string() }),
+    mapper: (scope) => ({ greeting: scope.message as string }),
+  })
   .build();
 
 // chart.inputSchema, chart.outputSchema, chart.outputMapper are set
-const contract = defineContract(chart, {});  // picks up from chart
+// chart.toOpenAPI({ version: '1.0.0' }) generates OpenAPI spec
 ```
 
 ---
@@ -124,13 +124,15 @@ const contract = defineContract(chart, {});  // picks up from chart
 ### Zod (optional peer dependency)
 
 ```typescript
-const contract = defineContract(chart, {
-  inputSchema: z.object({
-    applicantName: z.string(),
-    creditScore: z.number().describe('FICO score'),
-    email: z.string().optional(),
-  }),
-});
+const chart = flowChart('Process', processFn)
+  .contract({
+    input: z.object({
+      applicantName: z.string(),
+      creditScore: z.number().describe('FICO score'),
+      email: z.string().optional(),
+    }),
+  })
+  .build();
 ```
 
 Supported Zod types: `string`, `number`, `boolean`, `literal`, `enum`, `array`, `object` (with required/optional fields), `nullable`, `union`, `record`, `any`, `default`, `describe`, `transform` (unwraps to input schema).
@@ -138,16 +140,18 @@ Supported Zod types: `string`, `number`, `boolean`, `literal`, `enum`, `array`, 
 ### Raw JSON Schema
 
 ```typescript
-const contract = defineContract(chart, {
-  inputSchema: {
-    type: 'object',
-    properties: {
-      applicantName: { type: 'string' },
-      creditScore: { type: 'number', description: 'FICO score' },
+const chart = flowChart('Process', processFn)
+  .contract({
+    input: {
+      type: 'object',
+      properties: {
+        applicantName: { type: 'string' },
+        creditScore: { type: 'number', description: 'FICO score' },
+      },
+      required: ['applicantName', 'creditScore'],
     },
-    required: ['applicantName', 'creditScore'],
-  },
-});
+  })
+  .build();
 ```
 
 ### Detection
