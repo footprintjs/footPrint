@@ -14,61 +14,82 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('narrative works with default scopeFactory', async () => {
     const chart = flowChart(
       'init',
-      (scope: ScopeFacade) => {
-        scope.setValue('status', 'started');
+      (scope: any) => {
+        scope.status = 'started';
       },
       'init',
     )
       .addFunction(
         'finish',
-        (scope: ScopeFacade) => {
-          scope.setValue('status', 'done');
+        (scope: any) => {
+          scope.status = 'done';
         },
         'finish',
       )
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
     expect(narrative.length).toBeGreaterThan(0);
-    // Default ScopeFacade supports attachRecorder, so combined narrative includes writes
+    // Default scopeFactory supports attachRecorder, so combined narrative includes writes
     expect(narrative.some((s) => s.includes('Write'))).toBe(true);
     expect(narrative.some((s) => s.includes('status'))).toBe(true);
   });
 
   it('default factory produces same results as explicit ScopeFacade factory', async () => {
-    const buildChart = () =>
-      flowChart(
-        'write',
-        (scope: ScopeFacade) => {
-          scope.setValue('name', 'Alice');
-          scope.setValue('score', 95);
+    // Build chart for TypedScope (default factory via flowChart())
+    const typedChart = flowChart(
+      'write',
+      (scope: any) => {
+        scope.name = 'Alice';
+        scope.score = 95;
+      },
+      'write',
+    )
+      .addFunction(
+        'read',
+        (scope: any) => {
+          const name = scope.name;
+          const score = scope.score;
+          return `${name}:${score}`;
         },
-        'write',
+        'read',
       )
-        .addFunction(
-          'read',
-          (scope: ScopeFacade) => {
-            const name = scope.getValue('name');
-            const score = scope.getValue('score');
-            return `${name}:${score}`;
-          },
-          'read',
-        )
-        .setEnableNarrative()
-        .build();
+      .build();
 
-    // Without scopeFactory (default)
-    const exec1 = new FlowChartExecutor(buildChart());
+    // Build chart for ScopeFacade (explicit factory — uses setValue/getValue)
+    const facadeChart = flowChart(
+      'write',
+      (scope: any) => {
+        scope.setValue('name', 'Alice');
+        scope.setValue('score', 95);
+      },
+      'write',
+    )
+      .addFunction(
+        'read',
+        (scope: any) => {
+          const name = scope.getValue('name');
+          const score = scope.getValue('score');
+          return `${name}:${score}`;
+        },
+        'read',
+      )
+      .build();
+
+    // Without scopeFactory (default — TypedScope)
+    const exec1 = new FlowChartExecutor(typedChart);
+    exec1.enableNarrative();
     const result1 = await exec1.run();
     const narrative1 = exec1.getNarrative();
 
-    // With explicit scopeFactory
+    // With explicit scopeFactory (ScopeFacade)
     const explicitFactory = (ctx: any, stageName: string) => new ScopeFacade(ctx, stageName);
-    const exec2 = new FlowChartExecutor(buildChart(), explicitFactory);
+    const exec2 = new FlowChartExecutor(facadeChart, explicitFactory);
+    exec2.enableNarrative();
     const result2 = await exec2.run();
     const narrative2 = exec2.getNarrative();
 
@@ -79,9 +100,9 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('redaction policy works with default scopeFactory', async () => {
     const chart = flowChart(
       'ingest',
-      (scope: ScopeFacade) => {
-        scope.setValue('ssn', '123-45-6789');
-        scope.setValue('name', 'Bob');
+      (scope: any) => {
+        scope.ssn = '123-45-6789';
+        scope.name = 'Bob';
       },
       'ingest',
     ).build();
@@ -97,8 +118,8 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('snapshot captures state with default scopeFactory', async () => {
     const chart = flowChart(
       'init',
-      (scope: ScopeFacade) => {
-        scope.setValue('counter', 42);
+      (scope: any) => {
+        scope.counter = 42;
       },
       'init',
     ).build();
@@ -120,7 +141,7 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
 
     const chart = flowChart(
       'A',
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         scope.setValue('x', 1);
       },
       'a',
@@ -135,23 +156,23 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('decider branching works with default scopeFactory', async () => {
     const chart = flowChart(
       'check',
-      (scope: ScopeFacade) => {
-        scope.setValue('tier', 'premium');
+      (scope: any) => {
+        scope.tier = 'premium';
       },
       'check',
     )
       .addDeciderFunction(
         'route',
-        (scope: ScopeFacade) => {
-          return scope.getValue('tier') === 'premium' ? 'fast' : 'slow';
+        (scope: any) => {
+          return scope.tier === 'premium' ? 'fast' : 'slow';
         },
         'route',
       )
-      .addFunctionBranch('fast', 'FastPath', (scope: ScopeFacade) => {
-        scope.setValue('result', 'express');
+      .addFunctionBranch('fast', 'FastPath', (scope: any) => {
+        scope.result = 'express';
       })
-      .addFunctionBranch('slow', 'SlowPath', (scope: ScopeFacade) => {
-        scope.setValue('result', 'standard');
+      .addFunctionBranch('slow', 'SlowPath', (scope: any) => {
+        scope.result = 'standard';
       })
       .end()
       .build();

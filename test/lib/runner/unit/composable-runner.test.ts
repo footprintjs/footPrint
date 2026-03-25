@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ComposableRunner, FlowChart as FlowChartType, ScopeFacade, SubtreeSnapshot } from '../../../../src';
+import type { ComposableRunner, FlowChart as FlowChartType, SubtreeSnapshot } from '../../../../src';
 import { flowChart, FlowChartBuilder, FlowChartExecutor, getSubtreeSnapshot, listSubflowPaths } from '../../../../src';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -9,10 +9,10 @@ import { flowChart, FlowChartBuilder, FlowChartExecutor, getSubtreeSnapshot, lis
 class TestRunner implements ComposableRunner<string, string> {
   private chart: FlowChartType;
 
-  constructor(name: string, stageLogic: (scope: ScopeFacade) => void) {
+  constructor(name: string, stageLogic: (scope: any) => void) {
     this.chart = flowChart(
       name,
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         stageLogic(scope);
       },
       `${name.toLowerCase()}-id`,
@@ -38,7 +38,7 @@ class TestRunner implements ComposableRunner<string, string> {
 describe('ComposableRunner', () => {
   it('is implementable and toFlowChart returns a valid FlowChart', () => {
     const runner = new TestRunner('Greet', (scope) => {
-      scope.setValue('result', 'hello');
+      scope.result = 'hello';
     });
 
     const chart = runner.toFlowChart();
@@ -50,7 +50,7 @@ describe('ComposableRunner', () => {
 
   it('run executes the flowChart and returns a result', async () => {
     const runner = new TestRunner('Echo', (scope) => {
-      scope.setValue('result', 'echoed');
+      scope.result = 'echoed';
     });
 
     const result = await runner.run('test input');
@@ -59,21 +59,21 @@ describe('ComposableRunner', () => {
 
   it('can be mounted as a subflow in a parent flowChart', async () => {
     const childRunner = new TestRunner('ChildWork', (scope) => {
-      scope.setValue('childDone', true);
+      scope.childDone = true;
     });
 
     const parentChart = flowChart(
       'ParentSeed',
-      (scope: ScopeFacade) => {
-        scope.setValue('parentStarted', true);
+      (scope: any) => {
+        scope.parentStarted = true;
       },
       'parent-seed',
     )
       .addSubFlowChartNext('sf-child', childRunner.toFlowChart(), 'ChildRunner')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(parentChart);
+    executor.enableNarrative();
     await executor.run();
 
     const snapshot = executor.getSnapshot();
@@ -90,12 +90,12 @@ describe('ComposableRunner', () => {
 describe('getSubtreeSnapshot', () => {
   /** Build and execute a chart with subflows, return the snapshot. */
   async function buildSnapshotWithSubflows() {
-    const paymentStage = (scope: ScopeFacade) => {
+    const paymentStage = (scope: any) => {
       scope.setValue('paid', true);
       scope.setValue('amount', 99.99);
     };
 
-    const shippingStage = (scope: ScopeFacade) => {
+    const shippingStage = (scope: any) => {
       scope.setValue('shipped', true);
     };
 
@@ -106,10 +106,9 @@ describe('getSubtreeSnapshot', () => {
     const shippingSubflow = new FlowChartBuilder().start('ShipOrder', shippingStage, 'ship-order', 'Dispatch').build();
 
     const chart = new FlowChartBuilder()
-      .setEnableNarrative()
       .start(
         'ReceiveOrder',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('orderId', 'ORD-1');
         },
         'receive-order',
@@ -120,6 +119,7 @@ describe('getSubtreeSnapshot', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
     return executor.getSnapshot();
   }
@@ -175,7 +175,7 @@ describe('getSubtreeSnapshot', () => {
     const innerSubflow = new FlowChartBuilder()
       .start(
         'InnerWork',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('innerDone', true);
         },
         'inner-work',
@@ -185,7 +185,7 @@ describe('getSubtreeSnapshot', () => {
     const outerSubflow = new FlowChartBuilder()
       .start(
         'OuterSetup',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('outerSetup', true);
         },
         'outer-setup',
@@ -194,10 +194,9 @@ describe('getSubtreeSnapshot', () => {
       .build();
 
     const rootChart = new FlowChartBuilder()
-      .setEnableNarrative()
       .start(
         'Root',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('rootDone', true);
         },
         'root',
@@ -206,6 +205,7 @@ describe('getSubtreeSnapshot', () => {
       .build();
 
     const executor = new FlowChartExecutor(rootChart);
+    executor.enableNarrative();
     await executor.run();
     const snapshot = executor.getSnapshot();
 
@@ -223,30 +223,30 @@ describe('getSubtreeSnapshot', () => {
   it('full integration: ComposableRunner mounted as subflow with drill-down', async () => {
     // Create a composable runner
     const processor = new TestRunner('Process', (scope) => {
-      scope.setValue('processed', true);
-      scope.setValue('score', 0.95);
+      scope.processed = true;
+      scope.score = 0.95;
     });
 
     // Mount it in a parent chart
     const parentChart = flowChart(
       'Intake',
-      (scope: ScopeFacade) => {
-        scope.setValue('received', true);
+      (scope: any) => {
+        scope.received = true;
       },
       'intake',
     )
       .addSubFlowChartNext('sf-processor', processor.toFlowChart(), 'Processor')
       .addFunction(
         'Finalize',
-        (scope: ScopeFacade) => {
-          scope.setValue('done', true);
+        (scope: any) => {
+          scope.done = true;
         },
         'finalize',
       )
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(parentChart);
+    executor.enableNarrative();
     await executor.run();
 
     const snapshot = executor.getSnapshot();
@@ -272,21 +272,21 @@ describe('getSubtreeSnapshot', () => {
 
   it('returns scoped narrative entries when provided', async () => {
     const childRunner = new TestRunner('ChildWork', (scope) => {
-      scope.setValue('childDone', true);
+      scope.childDone = true;
     });
 
     const parentChart = flowChart(
       'ParentSeed',
-      (scope: ScopeFacade) => {
-        scope.setValue('parentStarted', true);
+      (scope: any) => {
+        scope.parentStarted = true;
       },
       'parent-seed',
     )
       .addSubFlowChartNext('sf-child', childRunner.toFlowChart(), 'ChildRunner')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(parentChart);
+    executor.enableNarrative();
     await executor.run();
 
     const snapshot = executor.getSnapshot();
@@ -316,7 +316,7 @@ describe('listSubflowPaths', () => {
     const subflow1 = new FlowChartBuilder()
       .start(
         'Work1',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('done1', true);
         },
         'work-1',
@@ -326,7 +326,7 @@ describe('listSubflowPaths', () => {
     const subflow2 = new FlowChartBuilder()
       .start(
         'Work2',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('done2', true);
         },
         'work-2',
@@ -334,10 +334,9 @@ describe('listSubflowPaths', () => {
       .build();
 
     const chart = new FlowChartBuilder()
-      .setEnableNarrative()
       .start(
         'Root',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('root', true);
         },
         'root',
@@ -347,6 +346,7 @@ describe('listSubflowPaths', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
     const snapshot = executor.getSnapshot();
 
@@ -359,8 +359,8 @@ describe('listSubflowPaths', () => {
   it('returns empty array when no subflows exist', async () => {
     const chart = flowChart(
       'Simple',
-      (scope: ScopeFacade) => {
-        scope.setValue('done', true);
+      (scope: any) => {
+        scope.done = true;
       },
       'simple',
     ).build();
@@ -377,7 +377,7 @@ describe('listSubflowPaths', () => {
     const inner = new FlowChartBuilder()
       .start(
         'Inner',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('inner', true);
         },
         'inner',
@@ -387,7 +387,7 @@ describe('listSubflowPaths', () => {
     const outer = new FlowChartBuilder()
       .start(
         'Outer',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('outer', true);
         },
         'outer',
@@ -396,10 +396,9 @@ describe('listSubflowPaths', () => {
       .build();
 
     const root = new FlowChartBuilder()
-      .setEnableNarrative()
       .start(
         'Root',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           scope.setValue('root', true);
         },
         'root',
@@ -408,6 +407,7 @@ describe('listSubflowPaths', () => {
       .build();
 
     const executor = new FlowChartExecutor(root);
+    executor.enableNarrative();
     await executor.run();
     const snapshot = executor.getSnapshot();
 

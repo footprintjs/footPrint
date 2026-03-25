@@ -17,7 +17,7 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       },
       'entry',
     )
-      .setInputSchema(z.object({ name: z.string(), amount: z.number() }))
+      .contract({ input: z.object({ name: z.string(), amount: z.number() }) })
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -36,7 +36,7 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       },
       'entry',
     )
-      .setInputSchema(z.object({ name: z.string(), amount: z.number() }))
+      .contract({ input: z.object({ name: z.string(), amount: z.number() }) })
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -58,7 +58,7 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       },
       'entry',
     )
-      .setInputSchema(z.object({ name: z.string().transform((s) => s.toUpperCase()) }))
+      .contract({ input: z.object({ name: z.string().transform((s) => s.toUpperCase()) }) })
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -92,7 +92,7 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       },
       'entry',
     )
-      .setInputSchema(z.object({ name: z.string() }))
+      .contract({ input: z.object({ name: z.string() }) })
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);
@@ -112,7 +112,7 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       },
       'entry',
     )
-      .setInputSchema(z.object({ name: z.string() }).strict())
+      .contract({ input: z.object({ name: z.string() }).strict() })
       .build();
 
     const executor = new FlowChartExecutor(chart, scopeFactory);

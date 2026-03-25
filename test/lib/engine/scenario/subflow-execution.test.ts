@@ -174,10 +174,10 @@ describe('Scenario: Subflow Execution', () => {
       .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'MySubFlow')
       .end()
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();

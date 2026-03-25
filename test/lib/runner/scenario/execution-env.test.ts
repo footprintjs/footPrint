@@ -1,14 +1,14 @@
 import type { ExecutionEnv } from '../../../../src';
-import { flowChart, FlowChartExecutor, ScopeFacade } from '../../../../src';
+import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('ExecutionEnv propagation', () => {
-  it('stages can read env via scope.getEnv()', async () => {
+  it('stages can read env via scope.$getEnv()', async () => {
     let capturedEnv: ExecutionEnv | undefined;
 
     const chart = flowChart(
       'ReadEnv',
-      (scope: ScopeFacade) => {
-        capturedEnv = scope.getEnv();
+      (scope: any) => {
+        capturedEnv = scope.$getEnv();
       },
       'read-env',
     ).build();
@@ -29,22 +29,22 @@ describe('ExecutionEnv propagation', () => {
 
     const chart = flowChart(
       'Stage1',
-      (scope: ScopeFacade) => {
-        captured.push(scope.getEnv());
+      (scope: any) => {
+        captured.push(scope.$getEnv());
       },
       'stage-1',
     )
       .addFunction(
         'Stage2',
-        (scope: ScopeFacade) => {
-          captured.push(scope.getEnv());
+        (scope: any) => {
+          captured.push(scope.$getEnv());
         },
         'stage-2',
       )
       .addFunction(
         'Stage3',
-        (scope: ScopeFacade) => {
-          captured.push(scope.getEnv());
+        (scope: any) => {
+          captured.push(scope.$getEnv());
         },
         'stage-3',
       )
@@ -64,8 +64,8 @@ describe('ExecutionEnv propagation', () => {
 
     const chart = flowChart(
       'NoEnv',
-      (scope: ScopeFacade) => {
-        capturedEnv = scope.getEnv();
+      (scope: any) => {
+        capturedEnv = scope.$getEnv();
       },
       'no-env',
     ).build();
@@ -84,8 +84,8 @@ describe('ExecutionEnv propagation', () => {
 
     const chart = flowChart(
       'MutateEnv',
-      (scope: ScopeFacade) => {
-        const env = scope.getEnv();
+      (scope: any) => {
+        const env = scope.$getEnv();
         try {
           (env as any).traceId = 'hacked';
         } catch {
@@ -106,15 +106,15 @@ describe('ExecutionEnv propagation', () => {
 
     const subChart = flowChart(
       'SubStage',
-      (scope: ScopeFacade) => {
-        subflowEnv = scope.getEnv();
+      (scope: any) => {
+        subflowEnv = scope.$getEnv();
       },
       'sub-stage',
     ).build();
 
     const chart = flowChart(
       'Parent',
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         // parent stage — env should be available here too
       },
       'parent',
@@ -136,9 +136,9 @@ describe('ExecutionEnv propagation', () => {
 
     const chart = flowChart(
       'Both',
-      (scope: ScopeFacade) => {
-        capturedArgs = scope.getArgs();
-        capturedEnv = scope.getEnv();
+      (scope: any) => {
+        capturedArgs = scope.$getArgs();
+        capturedEnv = scope.$getEnv();
       },
       'both',
     ).build();

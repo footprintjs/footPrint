@@ -7,7 +7,6 @@
  * - Leak state between independent loop runs
  * - Escape the flowchart boundary via crafted stage ids
  */
-import type { ScopeFacade } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('Security: loopTo isolation', () => {
@@ -18,12 +17,12 @@ describe('Security: loopTo isolation', () => {
 
     const chart = flowChart(
       'Tricky',
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         count++;
         // Try to reset any loop-related state
-        scope.setValue('loopCount', 0);
-        scope.setValue('iteration', 0);
-        scope.setValue('__iteration', 0);
+        scope.loopCount = 0;
+        scope.iteration = 0;
+        scope.__iteration = 0;
       },
       'tricky',
     )
@@ -39,10 +38,10 @@ describe('Security: loopTo isolation', () => {
   it('loop does not leak state between separate executor runs', async () => {
     const chart = flowChart(
       'Accumulate',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
-        if (n >= 3) breakPipeline();
+      (scope: any) => {
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
+        if (n >= 3) scope.$break();
       },
       'accumulate',
     )
@@ -68,12 +67,12 @@ describe('Security: loopTo isolation', () => {
 
     const chart = flowChart(
       'Body',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
+      (scope: any) => {
         loopBodyRuns++;
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
         if (n >= 3) {
-          breakPipeline();
+          scope.$break();
           // Code after break still runs in THIS function call,
           // but the loop will not re-execute after this stage returns.
         }
@@ -113,15 +112,15 @@ describe('Security: loopTo isolation', () => {
 
     const chart = flowChart(
       'ReadOnly',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const args = scope.getArgs<typeof inputData>();
+      (scope: any) => {
+        const args = scope.$getArgs<typeof inputData>();
         // Verify input is still original on every iteration
         if (args.secret !== 'original') {
           throw new Error('Input was mutated!');
         }
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
-        if (n >= 5) breakPipeline();
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
+        if (n >= 5) scope.$break();
       },
       'read-only',
     )

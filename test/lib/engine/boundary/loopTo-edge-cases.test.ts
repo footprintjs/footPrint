@@ -8,7 +8,6 @@
  * - Timeout during loop
  * - loopTo builder validation
  */
-import type { ScopeFacade } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('Boundary: loopTo edge cases', () => {
@@ -17,9 +16,9 @@ describe('Boundary: loopTo edge cases', () => {
 
     const chart = flowChart(
       'Once',
-      (_scope: ScopeFacade, breakPipeline: () => void) => {
+      (scope: any) => {
         execCount++;
-        breakPipeline();
+        scope.$break();
       },
       'once',
     )
@@ -114,10 +113,10 @@ describe('Boundary: loopTo edge cases', () => {
 
     const chart = flowChart(
       'Counter',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
-        if (n >= targetIterations) breakPipeline();
+      (scope: any) => {
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
+        if (n >= targetIterations) scope.$break();
       },
       'counter',
     )

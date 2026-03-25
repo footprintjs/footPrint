@@ -8,7 +8,6 @@
  * with no fn. The engine tried to execute it directly and threw:
  *   "Node 'X' must define: embedded fn OR a stageMap entry OR have children/decider"
  */
-import type { ScopeFacade } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('Scenario: loopTo runtime execution', () => {
@@ -17,30 +16,30 @@ describe('Scenario: loopTo runtime execution', () => {
 
     const chart = flowChart(
       'StepA',
-      (scope: ScopeFacade) => {
-        const count = (scope.getValue('count') as number) ?? 0;
-        scope.setValue('count', count + 1);
+      (scope: any) => {
+        const count = (scope.count as number) ?? 0;
+        scope.count = count + 1;
         order.push(`a-${count}`);
       },
       'step-a',
     )
       .addFunction(
         'StepB',
-        (scope: ScopeFacade, breakPipeline: () => void) => {
-          const count = scope.getValue('count') as number;
+        (scope: any) => {
+          const count = scope.count as number;
           order.push(`b-${count}`);
           if (count >= 3) {
-            scope.setValue('result', 'done');
-            breakPipeline();
+            scope.result = 'done';
+            scope.$break();
           }
         },
         'step-b',
       )
       .loopTo('step-a')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run({ input: {} });
 
     expect(order).toEqual(['a-0', 'b-1', 'a-1', 'b-2', 'a-2', 'b-3']);
@@ -54,28 +53,28 @@ describe('Scenario: loopTo runtime execution', () => {
 
     const chart = flowChart(
       'Init',
-      (scope: ScopeFacade) => {
-        scope.setValue('count', 0);
+      (scope: any) => {
+        scope.count = 0;
         order.push('init');
       },
       'init',
     )
       .addFunction(
         'Process',
-        (scope: ScopeFacade) => {
-          const count = (scope.getValue('count') as number) ?? 0;
-          scope.setValue('count', count + 1);
+        (scope: any) => {
+          const count = (scope.count as number) ?? 0;
+          scope.count = count + 1;
           order.push(`process-${count}`);
         },
         'process',
       )
       .addFunction(
         'Check',
-        (scope: ScopeFacade, breakPipeline: () => void) => {
-          const count = scope.getValue('count') as number;
+        (scope: any) => {
+          const count = scope.count as number;
           order.push(`check-${count}`);
           if (count >= 2) {
-            breakPipeline();
+            scope.$break();
           }
         },
         'check',
@@ -93,24 +92,24 @@ describe('Scenario: loopTo runtime execution', () => {
   it('loopTo generates loop narrative entries', async () => {
     const chart = flowChart(
       'Counter',
-      (scope: ScopeFacade) => {
-        const n = (scope.getValue('n') as number) ?? 0;
-        scope.setValue('n', n + 1);
+      (scope: any) => {
+        const n = (scope.n as number) ?? 0;
+        scope.n = n + 1;
       },
       'counter',
     )
       .addFunction(
         'Gate',
-        (scope: ScopeFacade, breakPipeline: () => void) => {
-          if ((scope.getValue('n') as number) >= 2) breakPipeline();
+        (scope: any) => {
+          if ((scope.n as number) >= 2) scope.$break();
         },
         'gate',
       )
       .loopTo('counter')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run({ input: {} });
 
     const narrative = executor.getNarrative();
@@ -125,17 +124,17 @@ describe('Scenario: loopTo runtime execution', () => {
 
     const chart = flowChart(
       'Fetch',
-      (scope: ScopeFacade) => {
-        const attempt = (scope.getValue('attempt') as number) ?? 0;
-        scope.setValue('attempt', attempt + 1);
+      (scope: any) => {
+        const attempt = (scope.attempt as number) ?? 0;
+        scope.attempt = attempt + 1;
         order.push(`fetch-${attempt}`);
       },
       'fetch',
     )
       .addDeciderFunction(
         'Decide',
-        (scope: ScopeFacade) => {
-          const attempt = scope.getValue('attempt') as number;
+        (scope: any) => {
+          const attempt = scope.attempt as number;
           return attempt >= 3 ? 'done' : 'retry';
         },
         'decide',
@@ -143,10 +142,10 @@ describe('Scenario: loopTo runtime execution', () => {
       .addFunctionBranch('retry', 'Retry', () => {
         order.push('retry');
       })
-      .addFunctionBranch('done', 'Done', (scope: ScopeFacade, breakPipeline: () => void) => {
-        scope.setValue('result', 'finished');
+      .addFunctionBranch('done', 'Done', (scope: any) => {
+        scope.result = 'finished';
         order.push('done');
-        breakPipeline(); // Stop the loop when done
+        scope.$break(); // Stop the loop when done
       })
       .setDefault('done')
       .end()
@@ -169,10 +168,10 @@ describe('Scenario: loopTo runtime execution', () => {
 
     const chart = flowChart(
       'Work',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
+      (scope: any) => {
         iterations++;
         if (iterations >= 5) {
-          breakPipeline();
+          scope.$break();
         }
       },
       'work',
@@ -189,13 +188,13 @@ describe('Scenario: loopTo runtime execution', () => {
   it('snapshot state persists across loop iterations', async () => {
     const chart = flowChart(
       'Accumulate',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const items = (scope.getValue('items') as string[]) ?? [];
+      (scope: any) => {
+        const items = (scope.items as string[]) ?? [];
         items.push(`item-${items.length}`);
-        scope.setValue('items', items);
+        scope.items = items;
 
         if (items.length >= 4) {
-          breakPipeline();
+          scope.$break();
         }
       },
       'accumulate',

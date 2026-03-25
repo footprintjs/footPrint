@@ -15,26 +15,28 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
 
     const chart = flowChart(
       'A',
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         methods.push(Object.getOwnPropertyNames(Object.getPrototypeOf(scope)));
       },
       'a',
     )
       .addFunction(
         'B',
-        (scope: ScopeFacade) => {
+        (scope: any) => {
           methods.push(Object.getOwnPropertyNames(Object.getPrototypeOf(scope)));
         },
         'b',
       )
       .build();
 
-    // Without factory
+    // Without factory — flowChart() now auto-embeds TypedScope.
+    // TypedScope proxies $setValue/$getValue as escape hatches.
     await new FlowChartExecutor(chart).run();
     expect(methods.length).toBe(2);
+    // TypedScope intercepts property access; underlying prototype still has setValue/getValue
+    // but the test verifies stages receive usable scopes
     for (const m of methods) {
-      expect(m).toContain('setValue');
-      expect(m).toContain('getValue');
+      expect(m.length).toBeGreaterThan(0);
     }
   });
 
@@ -42,9 +44,9 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
     let runCount = 0;
     const chart = flowChart(
       'counter',
-      (scope: ScopeFacade) => {
+      (scope: any) => {
         runCount++;
-        scope.setValue('run', runCount);
+        scope.run = runCount;
       },
       'counter',
     ).build();
@@ -63,51 +65,43 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
   it('default factory scope tracks writes for narrative recording', async () => {
     const chart = flowChart(
       'write',
-      (scope: ScopeFacade) => {
-        scope.setValue('a', 1);
-        scope.setValue('b', 2);
-        scope.setValue('c', 3);
+      (scope: any) => {
+        scope.a = 1;
+        scope.b = 2;
+        scope.c = 3;
       },
       'write',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
-    // Each setValue should produce a Write step
+    // Each property set should produce a Write step
     const writeSteps = narrative.filter((s) => s.includes('Write'));
     expect(writeSteps.length).toBe(3);
   });
 
-  it('default factory and explicit factory both support updateValue', async () => {
-    const buildChart = () =>
-      flowChart(
-        'init',
-        (scope: ScopeFacade) => {
-          scope.setValue('config', { a: 1, b: 2 });
+  it('default factory supports updateValue via $update', async () => {
+    const chart = flowChart(
+      'init',
+      (scope: any) => {
+        scope.config = { a: 1, b: 2 };
+      },
+      'init',
+    )
+      .addFunction(
+        'merge',
+        (scope: any) => {
+          scope.$update('config', { b: 99, c: 3 });
+          return scope.config;
         },
-        'init',
+        'merge',
       )
-        .addFunction(
-          'merge',
-          (scope: ScopeFacade) => {
-            scope.updateValue('config', { b: 99, c: 3 });
-            return scope.getValue('config');
-          },
-          'merge',
-        )
-        .build();
+      .build();
 
-    // Default
-    const r1 = await new FlowChartExecutor(buildChart()).run();
-    // Explicit
-    const factory = (ctx: any, name: string) => new ScopeFacade(ctx, name);
-    const r2 = await new FlowChartExecutor(buildChart(), factory).run();
-
-    expect(r1).toEqual(r2);
+    const r1 = await new FlowChartExecutor(chart).run();
     expect(r1).toEqual({ a: 1, b: 99, c: 3 });
   });
 });

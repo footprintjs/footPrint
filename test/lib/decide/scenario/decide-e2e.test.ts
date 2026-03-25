@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createTypedScopeFactory, decide, FlowChartExecutor, select, typedFlowChart } from '../../../../src/index';
+import { decide, FlowChartExecutor, select } from '../../../../src/index';
+import { createTypedScopeFactory, typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
 
 // ── State types ──────────────────────────────────────────────────────────
 
@@ -37,7 +38,6 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       },
       'load-app',
     )
-      .setEnableNarrative()
       .addDeciderFunction(
         'ClassifyRisk',
         (scope) => {
@@ -75,6 +75,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -103,7 +104,6 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       },
       'load-app',
     )
-      .setEnableNarrative()
       .addDeciderFunction(
         'ClassifyRisk',
         (scope) => {
@@ -141,6 +141,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -167,7 +168,6 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       },
       'load-app',
     )
-      .setEnableNarrative()
       .addDeciderFunction(
         'ClassifyRisk',
         (scope) => {
@@ -204,6 +204,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -227,7 +228,6 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       },
       'load-vitals',
     )
-      .setEnableNarrative()
       .addSelectorFunction(
         'Triage',
         (scope) => {
@@ -253,6 +253,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<ScreeningState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -285,7 +286,6 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       },
       'load-app',
     )
-      .setEnableNarrative()
       .addDeciderFunction(
         'ClassifyRisk',
         (scope) => {
@@ -313,6 +313,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();

@@ -51,7 +51,6 @@ describe('Recorder snapshots in getSnapshot()', () => {
 
     const chart = flowChart('Outer', () => {}, 'outer')
       .addSubFlowChartNext('sf-test', subChart, 'TestSub')
-      .setEnableNarrative()
       .build();
 
     const manifest = new ManifestFlowRecorder();

@@ -133,7 +133,7 @@ describe('.contract() — Scenario', () => {
     expect(result.state.amount).toBe(50);
   });
 
-  it('old setInputSchema still works alongside contract', () => {
+  it('contract sets both input and output when chained', () => {
     const chart = typedFlowChart<State>(
       'Start',
       async (scope) => {
@@ -141,7 +141,7 @@ describe('.contract() — Scenario', () => {
       },
       'start',
     )
-      .setInputSchema({ old: true })
+      .contract({ input: { old: true } })
       .contract({ output: { new: true } })
       .build();
 

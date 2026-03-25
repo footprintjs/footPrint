@@ -64,7 +64,7 @@ describe('TypedScope integration -- basic typed access', () => {
 // -- Scenario: narrative fires correctly -------------------------------------
 
 describe('TypedScope integration -- narrative', () => {
-  it('setEnableNarrative() produces narrative with typed access', async () => {
+  it('enableNarrative() produces narrative with typed access', async () => {
     const chart = typedFlowChart<SimpleState>(
       'Init',
       (scope) => {
@@ -79,10 +79,10 @@ describe('TypedScope integration -- narrative', () => {
         },
         'double',
       )
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -337,13 +337,13 @@ describe('TypedScope integration -- enumeration', () => {
 // -- Scenario: existing tests still pass (non-breaking) ----------------------
 
 describe('TypedScope integration -- non-breaking', () => {
-  it('plain ScopeFacade still works (no TypedScope)', async () => {
+  it('plain flowChart still works with typed property access', async () => {
     const { flowChart } = await import('../../../../src/lib/builder');
 
     const chart = flowChart(
       'Old',
       (scope: any) => {
-        scope.setValue('legacy', true);
+        scope.legacy = true;
       },
       'old',
     ).build();

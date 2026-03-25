@@ -9,8 +9,7 @@ describe('Builder schema integration', () => {
     const outputSchema = z.object({ greeting: z.string() });
 
     const chart = flowChart('Greet', () => {}, 'greet')
-      .setInputSchema(inputSchema)
-      .setOutputSchema(outputSchema)
+      .contract({ input: inputSchema, output: outputSchema })
       .build();
 
     expect(chart.inputSchema).toBe(inputSchema);
@@ -21,7 +20,7 @@ describe('Builder schema integration', () => {
     const mapper = (scope: Record<string, unknown>) => ({ result: scope.x });
 
     const chart = flowChart('Compute', () => {}, 'compute')
-      .setOutputMapper(mapper)
+      .contract({ mapper })
       .build();
 
     expect(chart.outputMapper).toBe(mapper);
@@ -39,9 +38,11 @@ describe('Builder schema integration', () => {
     // defineContract imported at top level
 
     const chart = flowChart('Process', () => {}, 'process')
-      .setInputSchema(z.object({ x: z.number() }))
-      .setOutputSchema(z.object({ y: z.number() }))
-      .setOutputMapper((scope) => ({ y: scope.x }))
+      .contract({
+        input: z.object({ x: z.number() }),
+        output: z.object({ y: z.number() }),
+        mapper: (scope) => ({ y: scope.x }),
+      })
       .build();
 
     // Can create contract using the schemas stored on the chart

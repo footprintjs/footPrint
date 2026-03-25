@@ -1,13 +1,13 @@
 /**
  * Unit tests for the default scopeFactory behavior.
  *
- * Verifies that FlowChartExecutor creates a working ScopeFacade
- * when no scopeFactory is provided.
+ * Verifies that FlowChartExecutor creates a working scope
+ * when no scopeFactory is provided. Since flowChart() now auto-embeds
+ * TypedScope, tests use typed property access instead of setValue/getValue.
  */
 
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import { ScopeFacade } from '../../../../src/lib/scope';
 
 describe('FlowChartExecutor — default scopeFactory (unit)', () => {
   it('executes without scopeFactory argument', async () => {
@@ -17,33 +17,34 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
     expect(result).toBe('done');
   });
 
-  it('provides ScopeFacade instances to stage functions', async () => {
-    let receivedScope: unknown;
+  it('provides usable scope instances to stage functions', async () => {
+    let scopeWorks = false;
     const chart = flowChart(
       'check',
-      (scope: ScopeFacade) => {
-        receivedScope = scope;
+      (scope: any) => {
+        scope.test = 42;
+        scopeWorks = scope.test === 42;
       },
       'check',
     ).build();
 
     await new FlowChartExecutor(chart).run();
 
-    expect(receivedScope).toBeInstanceOf(ScopeFacade);
+    expect(scopeWorks).toBe(true);
   });
 
-  it('setValue / getValue work with the default factory', async () => {
+  it('typed property access works with the default factory', async () => {
     const chart = flowChart(
       'write',
-      (scope: ScopeFacade) => {
-        scope.setValue('x', 42);
+      (scope: any) => {
+        scope.x = 42;
       },
       'write',
     )
       .addFunction(
         'read',
-        (scope: ScopeFacade) => {
-          return scope.getValue('x');
+        (scope: any) => {
+          return scope.x;
         },
         'read',
       )
@@ -56,15 +57,15 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
   it('handles explicit undefined as scopeFactory (falls back to default)', async () => {
     const chart = flowChart(
       'A',
-      (scope: ScopeFacade) => {
-        scope.setValue('key', 'value');
+      (scope: any) => {
+        scope.key = 'value';
       },
       'a',
     )
       .addFunction(
         'B',
-        (scope: ScopeFacade) => {
-          return scope.getValue('key');
+        (scope: any) => {
+          return scope.key;
         },
         'b',
       )

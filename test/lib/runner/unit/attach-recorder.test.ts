@@ -15,16 +15,16 @@ import type { Recorder } from '../../../../src/lib/scope/types';
 function buildSimpleChart() {
   return flowChart(
     'Seed',
-    (scope) => {
-      scope.setValue('x', 1);
+    (scope: any) => {
+      scope.x = 1;
     },
     'seed',
   )
     .addFunction(
       'Process',
-      (scope) => {
-        const x = scope.getValue('x') as number;
-        scope.setValue('y', x + 1);
+      (scope: any) => {
+        const x = scope.x as number;
+        scope.y = x + 1;
       },
       'process',
     )
@@ -98,18 +98,17 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     expect(debug.getEntries().length).toBeGreaterThan(0);
   });
 
-  it('works alongside setEnableNarrative()', async () => {
+  it('works alongside enableNarrative()', async () => {
     const chart = flowChart(
       'Seed',
-      (scope) => {
-        scope.setValue('x', 1);
+      (scope: any) => {
+        scope.x = 1;
       },
       'seed',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     const metrics = new MetricRecorder();
     executor.attachRecorder(metrics);
 
@@ -146,9 +145,9 @@ describe('FlowChartExecutor.attachRecorder()', () => {
   it('works alongside redaction policy', async () => {
     const chart = flowChart(
       'Seed',
-      (scope) => {
-        scope.setValue('ssn', '123-45-6789');
-        scope.setValue('name', 'Alice');
+      (scope: any) => {
+        scope.ssn = '123-45-6789';
+        scope.name = 'Alice';
       },
       'seed',
     ).build();
@@ -226,16 +225,16 @@ describe('FlowChartExecutor.attachRecorder()', () => {
   it('scope recorders propagate into subflows', async () => {
     const subflow = flowChart(
       'SubStage',
-      (scope) => {
-        scope.setValue('subVal', 42);
+      (scope: any) => {
+        scope.subVal = 42;
       },
       'sub-stage',
     ).build();
 
     const chart = flowChart(
       'Main',
-      (scope) => {
-        scope.setValue('x', 1);
+      (scope: any) => {
+        scope.x = 1;
       },
       'main',
     )

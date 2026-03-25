@@ -212,10 +212,10 @@ describe('Property: structural subflow — no subflow entry/exit in narrative', 
             'handler',
           )
           .addFunction('END', () => {}, 'end')
-          .setEnableNarrative()
           .build();
 
         const executor = new FlowChartExecutor(customChart);
+        executor.enableNarrative();
         await executor.run();
 
         const narrative = executor.getNarrative();
@@ -255,10 +255,10 @@ describe('Property: structural subflow — no subflow entry/exit in narrative', 
             'Handle with structural subflow',
           )
           .addFunction('END', () => {}, 'end', 'Finish the process')
-          .setEnableNarrative()
           .build();
 
         const executor = new FlowChartExecutor(chart);
+        executor.enableNarrative();
         await executor.run();
 
         const narrative = executor.getNarrative();

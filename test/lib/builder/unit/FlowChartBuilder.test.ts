@@ -140,13 +140,6 @@ describe('FlowChartBuilder', () => {
     });
   });
 
-  describe('setEnableNarrative', () => {
-    it('sets enableNarrative on FlowChart', () => {
-      const chart = flowChart('a', noop, 'a').setEnableNarrative().build();
-      expect(chart.enableNarrative).toBe(true);
-    });
-  });
-
   describe('setLogger', () => {
     it('passes logger to FlowChart', () => {
       const mockLogger = { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() };

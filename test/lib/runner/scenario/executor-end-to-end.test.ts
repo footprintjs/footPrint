@@ -355,13 +355,13 @@ describe('FlowChartExecutor — end-to-end', () => {
     expect(narrative[0]).toContain('validate');
   });
 
-  it('build-time enableNarrative flag works without runtime call', async () => {
+  it('runtime enableNarrative works', async () => {
     const chart = flowChart('A', () => {}, 'a')
       .addFunction('B', () => {}, 'b')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -371,10 +371,10 @@ describe('FlowChartExecutor — end-to-end', () => {
   it('getNarrative() returns flow-only for plain scopes', async () => {
     const chart = flowChart('validate', () => {}, 'validate')
       .addFunction('process', () => {}, 'process')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -571,7 +571,6 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
         },
         'read',
       )
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(
@@ -584,6 +583,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       undefined,
       'off',
     );
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -602,9 +602,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
         scope.name = 'Bob';
       },
       'write',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     const executor = new FlowChartExecutor(
       chart,
@@ -616,6 +614,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       undefined,
       'off',
     );
+    executor.enableNarrative();
     await executor.run();
 
     const flow = executor.getFlowNarrative();
@@ -632,9 +631,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
         scope.name = 'Charlie';
       },
       'init',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     const executor = new FlowChartExecutor(
       chart,
@@ -646,6 +643,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       undefined,
       'off',
     );
+    executor.enableNarrative();
     await executor.run();
 
     const entries = executor.getNarrativeEntries();

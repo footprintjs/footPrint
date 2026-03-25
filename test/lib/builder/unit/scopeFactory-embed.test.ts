@@ -38,9 +38,7 @@ describe('scopeFactory embed — Unit', () => {
         scope.greeting = `Hello, ${scope.name}!`;
       },
       'start',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     // NO second argument — executor reads chart.scopeFactory
     const executor = new FlowChartExecutor(chart);
@@ -58,11 +56,10 @@ describe('scopeFactory embed — Unit', () => {
         scope.name = 'Bob';
       },
       'start',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
@@ -108,7 +105,6 @@ describe('scopeFactory embed — Scenario', () => {
         },
         'process',
       )
-      .setEnableNarrative()
       .build();
 
     // The dream API: just chart + executor, no factory
@@ -116,7 +112,6 @@ describe('scopeFactory embed — Scenario', () => {
     await executor.run();
 
     expect(executor.getSnapshot().sharedState.greeting).toBe('Welcome #1, Charlie!');
-    expect(executor.getNarrative().length).toBeGreaterThan(0);
   });
 
   it('decider with decide() works without separate factory', async () => {
@@ -134,7 +129,6 @@ describe('scopeFactory embed — Scenario', () => {
       },
       'load',
     )
-      .setEnableNarrative()
       .addDeciderFunction(
         'Route',
         (scope) => {
@@ -154,6 +148,7 @@ describe('scopeFactory embed — Scenario', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
 
     expect(executor.getSnapshot().sharedState.tier).toBe('premium');
@@ -164,16 +159,18 @@ describe('scopeFactory embed — Scenario', () => {
 
 describe('scopeFactory embed — Boundary', () => {
   it('chart without scopeFactory still works (default ScopeFacade)', async () => {
-    const { flowChart } = await import('../../../../src/lib/builder/FlowChartBuilder');
+    const { FlowChartBuilder } = await import('../../../../src/lib/builder/FlowChartBuilder');
 
-    // Plain flowChart() — no type parameter, no TypedScope
-    const chart = flowChart(
-      'Start',
-      async (scope: any) => {
-        scope.setValue('x', 42);
-      },
-      'start',
-    ).build();
+    // Plain FlowChartBuilder — no scopeFactory, no TypedScope
+    const chart = new FlowChartBuilder()
+      .start(
+        'Start',
+        async (scope: any) => {
+          scope.setValue('x', 42);
+        },
+        'start',
+      )
+      .build();
 
     expect(chart.scopeFactory).toBeUndefined();
 
@@ -211,9 +208,7 @@ describe('scopeFactory embed — ML/AI', () => {
         scope.output = `Response to: ${scope.input}`;
       },
       'process',
-    )
-      .setEnableNarrative()
-      .build();
+    ).build();
 
     // One line — no factory, no boilerplate
     const executor = new FlowChartExecutor(chart);

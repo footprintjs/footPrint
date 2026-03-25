@@ -25,9 +25,7 @@ function buildChart() {
       scope.secret = 'SSN-123';
     },
     'start',
-  )
-    .setEnableNarrative()
-    .build();
+  ).build();
 }
 
 // -- Unit ------------------------------------------------------------------
@@ -118,7 +116,7 @@ describe('RunContext — Unit', () => {
       },
       'start',
     )
-      .setOutputMapper((state) => ({ msg: state.greeting }))
+      .contract({ mapper: (state) => ({ msg: state.greeting }) })
       .build();
 
     const result = await chart.run();

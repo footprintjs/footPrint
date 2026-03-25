@@ -4,7 +4,6 @@
  * Verifies that loops built with loopTo() maintain key invariants
  * regardless of iteration count, loop target position, or break timing.
  */
-import type { ScopeFacade } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('Property: loopTo invariants', () => {
@@ -12,10 +11,10 @@ describe('Property: loopTo invariants', () => {
     for (const maxIter of [1, 2, 5, 10]) {
       const chart = flowChart(
         'Body',
-        (scope: ScopeFacade, breakPipeline: () => void) => {
-          const n = ((scope.getValue('n') as number) ?? 0) + 1;
-          scope.setValue('n', n);
-          if (n >= maxIter) breakPipeline();
+        (scope: any) => {
+          const n = ((scope.n as number) ?? 0) + 1;
+          scope.n = n;
+          if (n >= maxIter) scope.$break();
         },
         'body',
       )
@@ -35,11 +34,11 @@ describe('Property: loopTo invariants', () => {
 
     const chart = flowChart(
       'A',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
+      (scope: any) => {
         order.push('A');
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
-        if (n >= 2) breakPipeline();
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
+        if (n >= 2) scope.$break();
       },
       'a',
     )
@@ -70,11 +69,11 @@ describe('Property: loopTo invariants', () => {
   it('scope state is monotonically accumulated across iterations', async () => {
     const chart = flowChart(
       'Append',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const log = (scope.getValue('log') as string[]) ?? [];
+      (scope: any) => {
+        const log = (scope.log as string[]) ?? [];
         log.push(`iter-${log.length}`);
-        scope.setValue('log', log);
-        if (log.length >= 5) breakPipeline();
+        scope.log = log;
+        if (log.length >= 5) scope.$break();
       },
       'append',
     )
@@ -113,9 +112,9 @@ describe('Property: loopTo invariants', () => {
       )
       .addFunction(
         'Check',
-        (_scope: ScopeFacade, breakPipeline: () => void) => {
+        (scope: any) => {
           counts.check++;
-          if (counts.check >= 3) breakPipeline();
+          if (counts.check >= 3) scope.$break();
         },
         'check',
       )
@@ -133,18 +132,18 @@ describe('Property: loopTo invariants', () => {
   it('narrative entries grow with each iteration', async () => {
     const chart = flowChart(
       'Step',
-      (scope: ScopeFacade, breakPipeline: () => void) => {
-        const n = ((scope.getValue('n') as number) ?? 0) + 1;
-        scope.setValue('n', n);
-        if (n >= 3) breakPipeline();
+      (scope: any) => {
+        const n = ((scope.n as number) ?? 0) + 1;
+        scope.n = n;
+        if (n >= 3) scope.$break();
       },
       'step',
     )
       .loopTo('step')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run({ input: {} });
 
     const narrative = executor.getNarrative();

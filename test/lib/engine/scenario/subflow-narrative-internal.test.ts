@@ -16,7 +16,6 @@ import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor, getSubtreeSnapshot } from '../../../../src/lib/runner';
-import type { ScopeFacade } from '../../../../src/lib/scope';
 
 const noopScope = () => ({});
 
@@ -28,10 +27,10 @@ describe('Scenario: Subflow internal narrative events', () => {
 
     const chart = flowChart('Parent', () => {}, 'parent')
       .addSubFlowChartNext('sf-test', subChart, 'TestSubflow')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const entries = executor.getNarrativeEntries();
@@ -65,17 +64,15 @@ describe('Scenario: Subflow internal narrative events', () => {
 
     const chart = flowChart('Root', () => {}, 'root')
       .addSubFlowChartNext('sf-linear', subChart, 'LinearSubflow')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const narrative = executor.getNarrative();
 
     // The narrative should mention transitions between subflow stages
-    // onNext produces "Proceeding to ..." or similar flow sentences
-    // With 3 stages in a chain, there should be at least 2 "next" transitions
     const entries = executor.getNarrativeEntries();
 
     // Count stage entries from subflow (Step1, Step2, Step3)
@@ -117,10 +114,10 @@ describe('Scenario: Subflow internal narrative events', () => {
 
     const chart = flowChart('Start', () => {}, 'start')
       .addSubFlowChartNext('sf-break', subChart, 'BreakSubflow')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     // AfterBreak should NOT have executed
@@ -141,10 +138,10 @@ describe('Scenario: Subflow internal narrative events', () => {
     const chart = flowChart('Outer', () => {}, 'outer')
       .addSubFlowChartNext('sf-check', subChart, 'CheckSubflow')
       .addFunction('Final', () => {}, 'final')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart, noopScope);
+    executor.enableNarrative();
     await executor.run();
 
     const entries = executor.getNarrativeEntries();
@@ -168,8 +165,8 @@ describe('Scenario: Subflow internal narrative events', () => {
   it('end-to-end: getSubtreeSnapshot with narrative entries contains subflow internal stages', async () => {
     const subChart = flowChart(
       'Validate',
-      (scope: ScopeFacade) => {
-        scope.setValue('valid', true);
+      (scope: any) => {
+        scope.valid = true;
       },
       'validate',
       undefined,
@@ -177,8 +174,8 @@ describe('Scenario: Subflow internal narrative events', () => {
     )
       .addFunction(
         'Transform',
-        (scope: ScopeFacade) => {
-          scope.setValue('transformed', true);
+        (scope: any) => {
+          scope.transformed = true;
         },
         'transform',
         'Transforms the data',
@@ -187,16 +184,16 @@ describe('Scenario: Subflow internal narrative events', () => {
 
     const chart = flowChart(
       'Ingest',
-      (scope: ScopeFacade) => {
-        scope.setValue('ingested', true);
+      (scope: any) => {
+        scope.ingested = true;
       },
       'ingest',
     )
       .addSubFlowChartNext('sf-process', subChart, 'ProcessSubflow')
-      .setEnableNarrative()
       .build();
 
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run();
 
     const snapshot = executor.getSnapshot();
