@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-03-25
+
+### Breaking
+- **Removed `typedFlowChart()`** from public API — use `flowChart<T>()` instead. Auto-embeds TypedScope factory.
+- **Removed `createTypedScopeFactory()`** from public API — auto-embedded by `flowChart<T>()`.
+- **Removed `setEnableNarrative()`** from builder — use `.recorder(narrative())` at runtime.
+- **Removed `setInputSchema()` / `setOutputSchema()` / `setOutputMapper()`** from builder — use `.contract({ input, output, mapper })`.
+- **Removed `generateOpenAPI()` / `defineContract()`** from public API — use `chart.toOpenAPI()` and `.contract()` on builder.
+- **`flowChart()` now auto-embeds TypedScope factory** — stage functions receive TypedScope, use typed property access (`scope.name = 'Alice'`).
+
+### Added
+- **API Conformance Tests** — 47 tests verify every v2 design decision. Run `npx vitest run test/api-conformance/` before every release.
+
 ## [2.0.0] - 2026-03-24
 
 ### Added
