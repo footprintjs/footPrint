@@ -59,7 +59,7 @@ describe('Scenario: Request wrapper with structural subflow', () => {
       .start(
         'REQUEST_START',
         (scope: any) => {
-          scope.setValue('requestId', 'req-001');
+          scope.requestId = 'req-001';
         },
         'request-start',
         'Accept and record the incoming request',
@@ -67,7 +67,7 @@ describe('Scenario: Request wrapper with structural subflow', () => {
       .addFunction(
         'HANDLER',
         (scope: any) => {
-          scope.setValue('handlerRan', true);
+          scope.handlerRan = true;
           return makeStructuralSubflowDescriptor('create-grade-flow', 'Create Grade Flow', innerStructure);
         },
         'handler',
@@ -76,7 +76,7 @@ describe('Scenario: Request wrapper with structural subflow', () => {
       .addFunction(
         'RESPONSE',
         (scope: any) => {
-          scope.setValue('responseBuilt', true);
+          scope.responseBuilt = true;
           return { status: 200, body: 'ok' };
         },
         'response',
@@ -154,7 +154,13 @@ describe('Scenario: Multiple requests reuse same flow', () => {
   it('each execution produces an independent runtime structure annotation', async () => {
     function buildChart(subflowId: string, structure: unknown) {
       return new FlowChartBuilder()
-        .start('START', (scope: any) => scope.setValue('run', subflowId), 'start')
+        .start(
+          'START',
+          (scope: any) => {
+            scope.run = subflowId;
+          },
+          'start',
+        )
         .addFunction('HANDLER', () => makeStructuralSubflowDescriptor(subflowId, subflowId, structure), 'handler')
         .addFunction('DONE', () => 'done', 'done')
         .build();
@@ -190,7 +196,13 @@ describe('Scenario: Multiple requests reuse same flow', () => {
     // built from its own chart to guarantee isolation.
     function buildFreshChart() {
       return new FlowChartBuilder()
-        .start('START', (scope: any) => scope.setValue('data', 'initial'), 'start')
+        .start(
+          'START',
+          (scope: any) => {
+            scope.data = 'initial';
+          },
+          'start',
+        )
         .addFunction(
           'HANDLER',
           () =>
@@ -200,7 +212,13 @@ describe('Scenario: Multiple requests reuse same flow', () => {
             }),
           'handler',
         )
-        .addFunction('DONE', (scope: any) => scope.setValue('done', true), 'done')
+        .addFunction(
+          'DONE',
+          (scope: any) => {
+            scope.done = true;
+          },
+          'done',
+        )
         .build();
     }
 
@@ -230,13 +248,19 @@ describe('Scenario: Structural subflow with scope data', () => {
     const computedResult = { gradeId: 'grade-42', score: 95 };
 
     const chart = new FlowChartBuilder()
-      .start('START', (scope: any) => scope.setValue('phase', 'start'), 'start')
+      .start(
+        'START',
+        (scope: any) => {
+          scope.phase = 'start';
+        },
+        'start',
+      )
       .addFunction(
         'HANDLER',
         (scope: any) => {
           // Simulates: subflow already ran externally; we have its result
-          scope.setValue('gradeResult', computedResult);
-          scope.setValue('phase', 'handled');
+          scope.gradeResult = computedResult;
+          scope.phase = 'handled';
 
           return makeStructuralSubflowDescriptor('grade-creation-flow', 'Grade Creation', {
             name: 'Validate Input',
@@ -255,8 +279,8 @@ describe('Scenario: Structural subflow with scope data', () => {
       .addFunction(
         'RESPONSE',
         (scope: any) => {
-          scope.setValue('phase', 'responded');
-          return scope.getValue('gradeResult');
+          scope.phase = 'responded';
+          return scope.gradeResult;
         },
         'response',
       )
@@ -288,7 +312,7 @@ describe('Scenario: Structural subflow with scope data', () => {
         'INIT',
         (scope: any) => {
           sideEffects.push('init');
-          scope.setValue('token', 'abc-123');
+          scope.token = 'abc-123';
         },
         'init',
       )
@@ -296,7 +320,7 @@ describe('Scenario: Structural subflow with scope data', () => {
         'HANDLER',
         (scope: any) => {
           sideEffects.push('handler');
-          scope.setValue('token', scope.getValue('token') + '-processed');
+          scope.token = scope.token + '-processed';
           return makeStructuralSubflowDescriptor('sf', 'SF', { name: 'x', id: 'x' });
         },
         'handler',
@@ -305,7 +329,7 @@ describe('Scenario: Structural subflow with scope data', () => {
         'VERIFY',
         (scope: any) => {
           sideEffects.push('verify');
-          return scope.getValue('token');
+          return scope.token;
         },
         'verify',
       )

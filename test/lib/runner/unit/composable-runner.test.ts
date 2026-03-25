@@ -91,12 +91,12 @@ describe('getSubtreeSnapshot', () => {
   /** Build and execute a chart with subflows, return the snapshot. */
   async function buildSnapshotWithSubflows() {
     const paymentStage = (scope: any) => {
-      scope.setValue('paid', true);
-      scope.setValue('amount', 99.99);
+      scope.paid = true;
+      scope.amount = 99.99;
     };
 
     const shippingStage = (scope: any) => {
-      scope.setValue('shipped', true);
+      scope.shipped = true;
     };
 
     const paymentSubflow = new FlowChartBuilder()
@@ -109,7 +109,7 @@ describe('getSubtreeSnapshot', () => {
       .start(
         'ReceiveOrder',
         (scope: any) => {
-          scope.setValue('orderId', 'ORD-1');
+          scope.orderId = 'ORD-1';
         },
         'receive-order',
         'Ingest order',
@@ -176,7 +176,7 @@ describe('getSubtreeSnapshot', () => {
       .start(
         'InnerWork',
         (scope: any) => {
-          scope.setValue('innerDone', true);
+          scope.innerDone = true;
         },
         'inner-work',
       )
@@ -186,7 +186,7 @@ describe('getSubtreeSnapshot', () => {
       .start(
         'OuterSetup',
         (scope: any) => {
-          scope.setValue('outerSetup', true);
+          scope.outerSetup = true;
         },
         'outer-setup',
       )
@@ -197,7 +197,7 @@ describe('getSubtreeSnapshot', () => {
       .start(
         'Root',
         (scope: any) => {
-          scope.setValue('rootDone', true);
+          scope.rootDone = true;
         },
         'root',
       )
@@ -317,7 +317,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Work1',
         (scope: any) => {
-          scope.setValue('done1', true);
+          scope.done1 = true;
         },
         'work-1',
       )
@@ -327,7 +327,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Work2',
         (scope: any) => {
-          scope.setValue('done2', true);
+          scope.done2 = true;
         },
         'work-2',
       )
@@ -337,7 +337,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Root',
         (scope: any) => {
-          scope.setValue('root', true);
+          scope.root = true;
         },
         'root',
       )
@@ -378,7 +378,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Inner',
         (scope: any) => {
-          scope.setValue('inner', true);
+          scope.inner = true;
         },
         'inner',
       )
@@ -388,7 +388,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Outer',
         (scope: any) => {
-          scope.setValue('outer', true);
+          scope.outer = true;
         },
         'outer',
       )
@@ -399,7 +399,7 @@ describe('listSubflowPaths', () => {
       .start(
         'Root',
         (scope: any) => {
-          scope.setValue('root', true);
+          scope.root = true;
         },
         'root',
       )

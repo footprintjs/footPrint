@@ -81,7 +81,7 @@ describe('Unit: structural subflow — flow continuation mechanics', () => {
       .start(
         'REQUEST_START',
         (scope: any) => {
-          scope.setValue('started', true);
+          scope.started = true;
         },
         'request-start',
         'Initialise the request',
@@ -89,7 +89,7 @@ describe('Unit: structural subflow — flow continuation mechanics', () => {
       .addFunction(
         'HANDLER',
         (scope: any) => {
-          scope.setValue('handled', true);
+          scope.handled = true;
           // Return a structural-only subflow descriptor — no root
           return {
             name: 'HANDLER',
@@ -107,7 +107,7 @@ describe('Unit: structural subflow — flow continuation mechanics', () => {
         'RESPONSE',
         (scope: any) => {
           afterHook?.();
-          scope.setValue('responded', true);
+          scope.responded = true;
           return 'done';
         },
         'response',

@@ -123,14 +123,14 @@ describe('Security: scope isolation between executions', () => {
         .start(
           'START',
           (scope: any) => {
-            scope.setValue('executionSecret', 'exec-1-secret');
+            scope.executionSecret = 'exec-1-secret';
           },
           'start',
         )
         .addFunction(
           'HANDLER',
           (scope: any) => {
-            scope.setValue('handlerData', 'exec-1-handler');
+            scope.handlerData = 'exec-1-handler';
             return {
               name: 'HANDLER',
               id: 'handler',
@@ -144,7 +144,7 @@ describe('Security: scope isolation between executions', () => {
         .addFunction(
           'END',
           (scope: any) => {
-            return scope.getValue('executionSecret');
+            return scope.executionSecret;
           },
           'end',
         )
@@ -175,7 +175,7 @@ describe('Security: scope isolation between executions', () => {
           'START',
           (scope: any) => {
             runCount++;
-            scope.setValue('runCount', runCount);
+            scope.runCount = runCount;
           },
           'start',
         )

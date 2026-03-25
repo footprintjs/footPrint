@@ -158,21 +158,21 @@ describe('scopeFactory embed — Scenario', () => {
 });
 
 describe('scopeFactory embed — Boundary', () => {
-  it('chart without scopeFactory still works (default ScopeFacade)', async () => {
+  it('plain FlowChartBuilder auto-embeds scopeFactory (TypedScope)', async () => {
     const { FlowChartBuilder } = await import('../../../../src/lib/builder/FlowChartBuilder');
 
-    // Plain FlowChartBuilder — no scopeFactory, no TypedScope
+    // Plain FlowChartBuilder now auto-embeds TypedScope factory
     const chart = new FlowChartBuilder()
       .start(
         'Start',
         async (scope: any) => {
-          scope.setValue('x', 42);
+          scope.x = 42;
         },
         'start',
       )
       .build();
 
-    expect(chart.scopeFactory).toBeUndefined();
+    expect(chart.scopeFactory).toBeDefined();
 
     const executor = new FlowChartExecutor(chart);
     await executor.run();

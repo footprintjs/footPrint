@@ -1049,13 +1049,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       ...(this._inputSchema ? { inputSchema: this._inputSchema } : {}),
       ...(this._outputSchema ? { outputSchema: this._outputSchema } : {}),
       ...(this._outputMapper ? { outputMapper: this._outputMapper } : {}),
-      ...(this._scopeFactory ? { scopeFactory: this._scopeFactory } : {}),
+      // Auto-embed TypedScope factory if none was explicitly set.
+      // This means ANY way of creating a FlowChartBuilder (flowChart(), new FlowChartBuilder(),
+      // or any subclass) automatically gets TypedScope — no manual setScopeFactory needed.
+      scopeFactory: this._scopeFactory ?? (createTypedScopeFactory() as unknown as ScopeFactory<TScope>),
     };
 
     return makeRunnable(chart);
   }
 
-  /** Set the scope factory. Called internally by flowChart<T>() to embed TypedScope. */
+  /** Override the scope factory. Rarely needed — auto-embeds TypedScope by default. */
   setScopeFactory(factory: ScopeFactory<TScope>): this {
     this._scopeFactory = factory;
     return this;
@@ -1168,10 +1171,7 @@ export function flowChart<TOut = any, TScope = any>(
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
 ): FlowChartBuilder<TOut, TScope> {
-  const builder = new FlowChartBuilder<TOut, TScope>(buildTimeExtractor);
-  // Auto-embed TypedScope factory — FlowChartExecutor reads chart.scopeFactory automatically
-  builder.setScopeFactory(createTypedScopeFactory() as unknown as ScopeFactory<TScope>);
-  return builder.start(name, fn, id, description);
+  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn, id, description);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
