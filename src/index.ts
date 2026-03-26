@@ -34,6 +34,9 @@ export { decide, select } from './lib/decide/index.js';
 // Runner — v2 API: chart.recorder().run()
 // ============================================================================
 
+// narrative() — core recorder factory, exported here for the common case:
+//   import { flowChart, decide, narrative } from 'footprintjs';
+//   const result = await chart.recorder(narrative()).run();
 export type { RunResult } from './lib/runner/index.js';
 export { FlowChartExecutor } from './lib/runner/index.js';
 export { RunContext } from './lib/runner/index.js';
@@ -42,6 +45,7 @@ export type {
   MCPToolDescription,
   RunnableFlowChart,
 } from './lib/runner/RunnableChart.js';
+export { narrative } from './recorders.js';
 
 // ComposableRunner — interface for subflow composition
 export type { ComposableRunner } from './lib/runner/index.js';

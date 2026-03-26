@@ -73,14 +73,16 @@ That answer came from the trace &mdash; not from the LLM's imagination.
 ## Quick Start
 
 ```typescript
-import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
+import { flowChart, decide, narrative } from 'footprintjs';
 
+// 1. Define your state
 interface State {
   user: { name: string; tier: string };
   discount: number;
   lane: string;
 }
 
+// 2. Build the flowchart
 const chart = flowChart<State>('FetchUser', async (scope) => {
     scope.user = { name: 'Alice', tier: 'premium' };
   }, 'fetch-user')
@@ -102,20 +104,23 @@ const chart = flowChart<State>('FetchUser', async (scope) => {
     .end()
   .build();
 
-const executor = new FlowChartExecutor(chart);
-await executor.run();
+// 3. Run — state + self-generated trace included
+const result = await chart.recorder(narrative()).run();
 
-console.log(executor.getNarrative());
-// Stage 1: The process began with FetchUser.
-//   Step 1: Write user = {name, tier}
-// Stage 2: Next, it moved on to ApplyDiscount.
-//   Step 1: Read user = {name, tier}
-//   Step 2: Write discount = 0.2
-// Stage 3: Next step: Route by discount tier.
-//   Step 1: Read discount = 0.2
-// [Condition]: It evaluated "High discount": discount 0.2 gt 0.1 ✓, and chose VIPCheckout.
-// Stage 4: Next, it moved on to VIPCheckout.
-//   Step 1: Write lane = "VIP express"
+console.log(result.state.lane);     // "VIP express"
+console.log(result.narrative);
+// [
+//   "Stage 1: The process began with FetchUser.",
+//   "  Step 1: Write user = {name, tier}",
+//   "Stage 2: Next, it moved on to ApplyDiscount.",
+//   "  Step 1: Read user = {name, tier}",
+//   "  Step 2: Write discount = 0.2",
+//   "Stage 3: Next step: Route by discount tier.",
+//   "  Step 1: Read discount = 0.2",
+//   "[Condition]: It evaluated Rule 0 \"High discount\": discount 0.2 gt 0.1 ✓, and chose VIPCheckout.",
+//   "Stage 4: Next, it moved on to VIPCheckout.",
+//   "  Step 1: Write lane = \"VIP express\"",
+// ]
 ```
 
 > **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
