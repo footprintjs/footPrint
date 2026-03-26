@@ -4,13 +4,14 @@ set -euo pipefail
 # Release script — keeps package.json, git tag, and GitHub releases in sync.
 # npm publish is handled by GitHub Actions (with provenance).
 #
-# Release pipeline (6 gates before version bump):
+# Release pipeline (7 gates before version bump):
 #   1. Clean working tree
 #   2. Documentation check (no stale API refs in .md files)
 #   3. API conformance tests (47 design contract tests)
 #   4. Build (CJS + ESM)
 #   5. Full test suite (1874+ tests)
-#   6. Sample projects (run all samples to verify real-world usage)
+#   6a. Sample integration tests (snapshot assertions — narrative output)
+#   6b. Sample projects (run all samples to verify real-world usage)
 #   7. CHANGELOG entry exists
 #   Then: version bump → commit + tag + push → GitHub release → CI npm publish
 #
@@ -56,6 +57,17 @@ if [[ -n "$SAMPLES_DIR" && -d "$SAMPLES_DIR" ]]; then
 
   # Install latest local build
   (cd "$SAMPLES_DIR" && npm install 2>&1 | tail -1)
+
+  # Run integration snapshot tests (verifies narrative output against golden snapshots)
+  echo "==> Running sample integration tests (snapshot assertions)..."
+  if (cd "$SAMPLES_DIR" && npm test 2>&1 | tail -5); then
+    echo "  Sample integration tests passed."
+  else
+    echo ""
+    echo "Error: Sample integration tests failed."
+    echo "Run 'npm run test:update' in footprint-samples to update snapshots if intentional."
+    exit 1
+  fi
 
   # Run all samples defined in package.json "all" script
   if (cd "$SAMPLES_DIR" && npm run all 2>&1 | tail -3); then
@@ -120,10 +132,11 @@ echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published b
 echo "    changelog: CHANGELOG.md"
 echo ""
 echo "Release pipeline passed all 7 gates:"
-echo "  1. Clean tree        ✓"
-echo "  2. Doc check         ✓  (0 stale API refs)"
-echo "  3. API conformance   ✓  (47 design contract tests)"
-echo "  4. Build             ✓  (CJS + ESM)"
-echo "  5. Full test suite   ✓  ($(npm test 2>&1 | grep 'Tests' | grep -o '[0-9]* passed' || echo '?') passed)"
-echo "  6. Sample projects   ✓"
-echo "  7. CHANGELOG         ✓"
+echo "  1. Clean tree               ✓"
+echo "  2. Doc check                ✓  (0 stale API refs)"
+echo "  3. API conformance          ✓  (47 design contract tests)"
+echo "  4. Build                    ✓  (CJS + ESM)"
+echo "  5. Full test suite          ✓"
+echo "  6a. Sample integration      ✓  (snapshot assertions)"
+echo "  6b. Sample projects         ✓  (all runnable samples)"
+echo "  7. CHANGELOG                ✓"

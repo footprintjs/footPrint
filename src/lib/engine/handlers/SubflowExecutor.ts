@@ -169,7 +169,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
 
         const parentScope = outputContext.getScope();
-        const mappedOutput = applyOutputMapping(subflowOutput, parentScope, outputContext, mountOptions);
+        // For TypedScope subflows, stage functions return void — fall back to the subflow's
+        // shared state so outputMapper can access scope values written during the subflow.
+        const effectiveOutput = subflowOutput ?? subflowTreeContext.sharedState;
+        const mappedOutput = applyOutputMapping(effectiveOutput, parentScope, outputContext, mountOptions);
 
         outputContext.commit();
       } catch (error: any) {
