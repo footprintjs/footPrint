@@ -1,0 +1,64 @@
+---
+interface Props {
+  code: string;
+}
+const { code } = Astro.props;
+const uid = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+---
+
+<div class="mermaid-wrap" data-uid={uid} data-code={code}>
+  <div id={uid} class="mermaid-output"></div>
+</div>
+
+<script is:inline>
+(function () {
+  function init() {
+    var wraps = document.querySelectorAll('.mermaid-wrap');
+    if (!wraps.length) return;
+
+    var script = document.createElement('script');
+    script.type = 'module';
+    // SVG from mermaid.render() is developer-authored content (hardcoded in MDX),
+    // not user input. DOMParser is used to parse it as XML for safe DOM insertion.
+    script.textContent = [
+      'import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";',
+      'mermaid.initialize({ startOnLoad: false, theme: "neutral", fontFamily: "inherit" });',
+      'var wraps = document.querySelectorAll(".mermaid-wrap");',
+      'for (var w of wraps) {',
+      '  var uid = w.dataset.uid;',
+      '  var code = w.dataset.code;',
+      '  var out = document.getElementById(uid);',
+      '  if (!out || !code) continue;',
+      '  (function(el) {',
+      '    mermaid.render(el.id + "-svg", code).then(function(r) {',
+      '      var parser = new DOMParser();',
+      '      var doc = parser.parseFromString(r.svg, "image/svg+xml");',
+      '      el.appendChild(doc.documentElement.cloneNode(true));',
+      '    }).catch(console.error);',
+      '  })(out);',
+      '}',
+    ].join('\n');
+    document.head.appendChild(script);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+<style>
+  .mermaid-wrap {
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .mermaid-output {
+    min-height: 120px;
+  }
+  .mermaid-output svg {
+    max-width: 100%;
+    height: auto;
+  }
+</style>
