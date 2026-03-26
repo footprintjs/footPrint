@@ -1,0 +1,77 @@
+---
+title: Quick Start
+description: Build, run, and observe your first footprintjs pipeline in under 5 minutes.
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Get a self-documenting pipeline running in 3 steps.
+
+## Install
+
+<Tabs>
+  <TabItem label="npm">
+    ```sh
+    npm install footprintjs
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```sh
+    pnpm add footprintjs
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```sh
+    yarn add footprintjs
+    ```
+  </TabItem>
+</Tabs>
+
+<Steps>
+
+1. **Define your state**
+
+   ```ts
+   interface OrderState {
+     orderId: string;
+     total: number;
+     status?: string;
+   }
+   ```
+
+2. **Build your flowchart**
+
+   ```ts
+   import { flowChart } from 'footprintjs';
+
+   const chart = flowChart<OrderState>('ValidateOrder', async (scope) => {
+     scope.status = scope.total > 0 ? 'valid' : 'invalid';
+   }, 'validate')
+     .addFunction('ProcessPayment', async (scope) => {
+       scope.status = 'paid';
+     }, 'process')
+     .build();
+   ```
+
+3. **Run and observe**
+
+   ```ts
+   import { narrative } from 'footprintjs';
+
+   const rec = narrative();
+   await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 49.99 } });
+
+   console.log(rec.lines().join('\n'));
+   // Stage 1: The process began with ValidateOrder.
+   //   Step 1: Write status = "valid"
+   // Stage 2: Next, it moved on to ProcessPayment.
+   //   Step 1: Write status = "paid"
+   ```
+
+</Steps>
+
+## Next steps
+
+- [Key Concepts](/footPrint/getting-started/key-concepts/) — understand scope, recorders, and the observer pattern
+- [Building a flowchart](/footPrint/guides/building/) — all builder methods explained
+- [Interactive Playground](https://footprintjs.github.io/footprint-playground/) — run examples live

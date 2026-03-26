@@ -1,0 +1,58 @@
+---
+title: Key Concepts
+description: The three ideas that make footprintjs work — flowchart pattern, TypedScope, and recorders.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## The flowchart pattern
+
+A footprintjs pipeline is a **directed graph of stages**. Each stage is an async function that reads and writes to a shared typed scope. Stages are connected sequentially, or via branching (`addDeciderFunction`) or parallel fan-out (`addSelectorFunction`).
+
+```
+Intake → ClassifyRisk ──► approved → Approve
+                      └──► rejected → Reject
+```
+
+The graph is built once (`.build()`), then executed many times (`.run()`). The graph structure is immutable; only the scope state changes per run.
+
+## TypedScope — typed shared state
+
+`TypedScope<T>` is a deep Proxy over your state interface. It tracks every read and write, enabling recorders to observe exactly what happened and when.
+
+```ts
+interface LoanState {
+  creditScore: number;
+  customer: { name: string; zip: string };
+  tags: string[];
+}
+
+// Inside a stage:
+scope.creditScore = 750;              // typed write
+scope.customer.zip = '90210';         // deep write
+scope.tags.push('vip');               // array copy-on-write
+const score = scope.creditScore;      // tracked read
+```
+
+<Aside type="caution">
+  Don't use `getValue()`/`setValue()` in TypedScope stages — use direct property access. `$`-prefixed methods (`$break`, `$debug`, `$metric`) are escape hatches for side effects.
+</Aside>
+
+## Two observer systems
+
+footprintjs has two separate observer channels that fire at different times:
+
+| Channel | Interface | Fires when |
+|---|---|---|
+| **Scope recorder** | `Recorder` | During stage execution (reads, writes, commits) |
+| **Flow recorder** | `FlowRecorder` | After stage execution (decisions, forks, loops) |
+
+`narrative()` implements **both** interfaces and merges them into a single timeline. You attach it via `.recorder(narrative())`.
+
+## Collect during traversal
+
+<Aside type="tip">
+  **Core principle:** All data collection — narrative, metrics, manifest — happens as side effects of the single execution pass. Never post-process or walk the graph again.
+</Aside>
+
+This is why recorders exist: not as a debugging afterthought, but as the primary way to observe pipeline behavior in production.

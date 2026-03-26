@@ -1,0 +1,45 @@
+/* footprintjs — Starlight theme overrides
+ *
+ * Brand accent: footprint orange (#e86c1a) matches playground header.
+ * Keeps Starlight's accessible contrast ratios.
+ */
+
+:root {
+  --sl-color-accent-low: #3d1a00;
+  --sl-color-accent: #e86c1a;
+  --sl-color-accent-high: #ffb380;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eceef2;
+  --sl-color-gray-2: #c0c2c7;
+  --sl-color-gray-3: #888b96;
+  --sl-color-gray-4: #545861;
+  --sl-color-gray-5: #353841;
+  --sl-color-gray-6: #24272f;
+  --sl-color-black: #17181c;
+}
+
+/* Light mode accent */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fff0e6;
+  --sl-color-accent: #b84e00;
+  --sl-color-accent-high: #5c2600;
+}
+
+/* Sidebar: make category labels bolder */
+.sidebar-content summary span {
+  font-weight: 600;
+}
+
+/* Code blocks: slightly warmer background */
+.expressive-code .frame {
+  border-color: var(--sl-color-gray-5);
+}
+
+/* Hero badge pill */
+.hero .badge {
+  background: var(--sl-color-accent);
+  color: var(--sl-color-white);
+  font-size: 0.75rem;
+  border-radius: 9999px;
+  padding: 0.2rem 0.6rem;
+}

@@ -1,0 +1,65 @@
+---
+title: Why footprintjs?
+description: What problem footprintjs solves, and how it compares to writing plain async functions.
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+## The problem with opaque pipelines
+
+Backend systems — loan processors, order workflows, ML pipelines — are increasingly complex chains of async operations. When they fail or behave unexpectedly, answering "why did it take that branch?" requires digging through logs, adding trace points, and often re-running with debug flags.
+
+footprintjs makes pipelines **self-documenting by construction**. The narrative isn't written after the fact — it's a side effect of execution.
+
+## What you get for free
+
+<CardGrid>
+  <Card title="Decision evidence">
+    When `decide()` routes to a branch, the narrative includes the exact
+    values, operators, and thresholds that triggered it — without writing
+    a single log statement.
+  </Card>
+  <Card title="AI-readable structure">
+    `chart.toSpec()` returns the full graph structure as JSON. LLMs can
+    traverse it, ask "what happens if X fails?", and get accurate answers
+    because the graph is the source of truth.
+  </Card>
+  <Card title="OpenAPI & MCP built-in">
+    `chart.toOpenAPI()` and `chart.toMCPTool()` describe the chart as an
+    API endpoint or AI tool — no separate schema maintenance.
+  </Card>
+  <Card title="Time-travel debugging">
+    `getSubtreeSnapshot()` returns the full memory state at any subflow
+    depth. Replay any branch from any point.
+  </Card>
+</CardGrid>
+
+## vs. plain async functions
+
+```ts
+// Before: opaque, no structure, manual logging
+async function processLoan(input: LoanInput) {
+  const score = await getCreditScore(input.id);
+  if (score > 700) {
+    await approveLoan(input.id);          // WHY was this taken?
+  } else {
+    await rejectLoan(input.id);
+  }
+}
+
+// After: structured, self-documenting
+const chart = flowChart<LoanState>('Score', async (scope) => {
+  scope.creditScore = await getCreditScore(scope.$getArgs().id);
+}, 'score')
+  .addDeciderFunction('Route', (scope) =>
+    decide(scope, [
+      { when: { creditScore: { gt: 700 } }, then: 'approved', label: 'Good credit' }
+    ], 'rejected')
+  , 'route')
+  // ...branches
+  .build();
+```
+
+<Aside>
+  footprintjs doesn't replace your business logic — it gives it structure that systems and humans can reason about.
+</Aside>
