@@ -237,8 +237,9 @@ export class ScopeFacade {
       }
     }
 
-    // Auto-redact if key matches policy (exact keys or patterns)
-    const effectiveRedact = shouldRedact || this._isPolicyRedacted(key);
+    // Auto-redact if key matches policy (exact keys or patterns), or if the key was
+    // previously marked redacted (e.g. carried over from a subflow via outputMapper).
+    const effectiveRedact = shouldRedact || this._isPolicyRedacted(key) || this._redactedKeys.has(key);
 
     const result = this._stageContext.setObject([], key, value, effectiveRedact, description);
 

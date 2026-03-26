@@ -184,4 +184,49 @@ describe('Boundary: redaction edge cases', () => {
     expect(readEvents[1].value).toBe('[REDACTED]');
     expect(readEvents[1].redacted).toBe(true);
   });
+
+  it('setValue inherits dynamic redaction — key marked redacted once stays redacted on subsequent writes', () => {
+    // Simulates a key being marked redacted in a subflow, then written to the parent
+    // scope via outputMapper without an explicit shouldRedact flag.
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'test');
+    const writeEvents: WriteEvent[] = [];
+    scope.attachRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
+
+    // Simulate subflow marking the key as redacted (adds to _redactedKeys)
+    scope.setValue('cardNumber', '4111111111111111', true);
+    // Simulate outputMapper writing the value to parent scope — no shouldRedact flag
+    scope.setValue('cardNumber', '4111111111111111');
+
+    expect(writeEvents).toHaveLength(2);
+    expect(writeEvents[0].value).toBe('[REDACTED]');
+    expect(writeEvents[0].redacted).toBe(true);
+    // Second write should ALSO be redacted because _redactedKeys already has 'cardNumber'
+    expect(writeEvents[1].value).toBe('[REDACTED]');
+    expect(writeEvents[1].redacted).toBe(true);
+  });
+
+  it('setValue with shared redactedKeys set propagates redaction across two scope instances', () => {
+    // Simulates the parent/subflow sharing the same _redactedKeys Set (via useSharedRedactedKeys)
+    const ctx1 = makeCtx('p1', 's1');
+    const ctx2 = makeCtx('p1', 's2');
+    const subflowScope = new ScopeFacade(ctx1, 'subflow');
+    const parentScope = new ScopeFacade(ctx2, 'parent');
+
+    // Wire shared set (as FlowChartExecutor does via scopeFactory)
+    const sharedKeys = subflowScope.getRedactedKeys();
+    parentScope.useSharedRedactedKeys(sharedKeys);
+
+    const writeEvents: WriteEvent[] = [];
+    parentScope.attachRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
+
+    // Subflow marks 'ssn' as redacted
+    subflowScope.setValue('ssn', '123-45-6789', true);
+    // Parent writes 'ssn' via outputMapper — no shouldRedact flag
+    parentScope.setValue('ssn', '123-45-6789');
+
+    expect(writeEvents).toHaveLength(1);
+    expect(writeEvents[0].value).toBe('[REDACTED]');
+    expect(writeEvents[0].redacted).toBe(true);
+  });
 });

@@ -173,8 +173,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // of the subflow's shared state so outputMapper can access all scope values written
         // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.
         // NOTE: the full scope is passed (not just declared outputs) — outputMapper must
-        // explicitly select what to propagate to the parent. Redaction of subflow PII keys
-        // is the caller's responsibility until the full redaction layer is implemented.
+        // explicitly select what to propagate to the parent.
+        // Redaction: the subflow shares the parent's _redactedKeys Set (via the same ScopeFactory),
+        // so any key marked redacted in the subflow is already visible in the parent's scope.
+        // ScopeFacade.setValue checks _redactedKeys.has(key), so writes via outputMapper
+        // automatically inherit the subflow's dynamic redaction state.
         const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
         const mappedOutput = applyOutputMapping(effectiveOutput, parentScope, outputContext, mountOptions);
 
