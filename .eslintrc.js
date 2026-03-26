@@ -49,7 +49,7 @@ module.exports = {
         ignore: ['^aws-lambda$', '^vitest$'],
       },
     ],
-    '@typescript-eslint/no-var-requires': 'off',
+    '@typescript-eslint/no-var-requires': 'error',
     "@typescript-eslint/ban-ts-comment": "off",
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.13] - 2026-03-26
+
+### Added
+- **`@typescript-eslint/no-var-requires` lint rule enabled** — was explicitly disabled (`'off'`), allowing `require()` calls in TypeScript source. Now set to `'error'`. Catches any future ESM/CJS incompatibility at `git commit` time (pre-commit hook runs ESLint). The `require()` that broke `.toOpenAPI()` in ESM (fixed in v3.0.12) would have been caught at commit time with this rule active.
+- **Type structural compatibility test suite** (`test/api-conformance/type-structural-compat.test.ts`) — 5 `expectTypeOf` assertions that run on every `npm test` and in the release pipeline (Gate 3):
+  - `RunnableFlowChart` is assignable to `FlowChart` (the v3.0.9 regression)
+  - `RunnableFlowChart.buildTimeStructure` is required, not optional
+  - `SubflowExecutor.RunStageFn` equals `handlers/types.RunStageFn` (same-shape-different-name duplicate class)
+  - All four handler callback types resolve (non-never) from their canonical source
+  - Public `ScopeFactory` accepts a 4-param implementation with `executionEnv` (catches if export reverts to 3-param memory version)
+
 ## [3.0.12] - 2026-03-26
 
 ### Fixed
