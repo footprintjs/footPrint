@@ -140,6 +140,46 @@ describe('Scenario: redaction across recorders', () => {
     expect(metrics.getMetrics().totalReads).toBe(1);
   });
 
+  it('TypedScope top-level write on a previously-redacted key stays redacted (scope.prop = val path)', () => {
+    // TypedScope top-level set → target.setValue(prop, unwrapped) — fix must apply here too
+    const ctx = makeCtx();
+    const scope = new ScopeFacade(ctx, 'Payment');
+    const narrative = new NarrativeRecorder({ id: 'n1' });
+    scope.attachRecorder(narrative);
+
+    // Mark cardNumber redacted via per-call flag (e.g. via $setValue escape hatch)
+    scope.setValue('cardNumber', '4111-1111-1111-1111', true);
+    // Then write again without shouldRedact — simulates TypedScope `scope.cardNumber = val`
+    scope.setValue('cardNumber', '4111-1111-1111-1111');
+
+    const sentences = narrative.toFlatSentences();
+    expect(sentences.some((s) => s.includes('4111-1111-1111-1111'))).toBe(false);
+    expect(sentences.filter((s) => s.includes('[REDACTED]'))).toHaveLength(2);
+  });
+
+  it('cross-scope outputMapper write: key marked redacted in subflow scope stays redacted when written to parent scope', () => {
+    // Simulates: subflow marks cardNumber redacted → sharedKeys → outputMapper writes to parent
+    const sharedSet = new Set<string>();
+    const narrative = new NarrativeRecorder({ id: 'n1' });
+
+    // Subflow scope: marks cardNumber as redacted
+    const subflowCtx = makeCtx('p1', 'ChargeCard');
+    const subflowScope = new ScopeFacade(subflowCtx, 'ChargeCard');
+    subflowScope.useSharedRedactedKeys(sharedSet);
+    subflowScope.setValue('cardNumber', '4111-1111-1111-1111', true); // subflow marks PII
+
+    // Parent scope: outputMapper writes cardNumber — no shouldRedact flag
+    const parentCtx = makeCtx('p1', 'ConfirmOrder');
+    const parentScope = new ScopeFacade(parentCtx, 'ConfirmOrder');
+    parentScope.useSharedRedactedKeys(sharedSet); // same shared set — as FlowChartExecutor wires
+    parentScope.attachRecorder(narrative);
+    parentScope.setValue('cardNumber', '4111-1111-1111-1111'); // outputMapper call — no flag
+
+    const sentences = narrative.toFlatSentences();
+    expect(sentences.some((s) => s.includes('4111-1111-1111-1111'))).toBe(false);
+    expect(sentences.some((s) => s.includes('[REDACTED]'))).toBe(true);
+  });
+
   it('updateValue on a previously-redacted key stays redacted in recorders', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Rotate');

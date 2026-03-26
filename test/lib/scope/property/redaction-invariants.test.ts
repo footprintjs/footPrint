@@ -134,6 +134,30 @@ describe('Property: redaction invariants', () => {
     );
   });
 
+  it('once a key is in _redactedKeys, every subsequent setValue without shouldRedact still fires redacted', () => {
+    fc.assert(
+      fc.property(
+        fc.string().filter((s) => s.length > 0 && s !== '__proto__' && s !== 'constructor' && s !== 'prototype'),
+        fc.array(fc.oneof(fc.string(), fc.integer(), fc.boolean()), { minLength: 1, maxLength: 5 }),
+        (key, values) => {
+          const scope = new ScopeFacade(makeCtx(), 'test');
+          const events: WriteEvent[] = [];
+          scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+
+          // First write: mark redacted
+          scope.setValue(key, values[0], true);
+          // All subsequent writes without shouldRedact must still be redacted
+          for (let i = 1; i < values.length; i++) {
+            scope.setValue(key, values[i]); // no shouldRedact
+          }
+
+          return events.every((e) => e.value === '[REDACTED]' && e.redacted === true);
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
+
   it('deleteValue followed by non-redacted setValue removes redaction', () => {
     fc.assert(
       fc.property(
