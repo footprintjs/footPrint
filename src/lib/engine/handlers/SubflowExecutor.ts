@@ -169,9 +169,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
 
         const parentScope = outputContext.getScope();
-        // For TypedScope subflows, stage functions return void — fall back to the subflow's
-        // shared state so outputMapper can access scope values written during the subflow.
-        const effectiveOutput = subflowOutput ?? subflowTreeContext.sharedState;
+        // For TypedScope subflows, stage functions return void — fall back to a shallow clone
+        // of the subflow's shared state so outputMapper can access all scope values written
+        // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.
+        // NOTE: the full scope is passed (not just declared outputs) — outputMapper must
+        // explicitly select what to propagate to the parent. Redaction of subflow PII keys
+        // is the caller's responsibility until the full redaction layer is implemented.
+        const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
         const mappedOutput = applyOutputMapping(effectiveOutput, parentScope, outputContext, mountOptions);
 
         outputContext.commit();
