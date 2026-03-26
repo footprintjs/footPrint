@@ -6,6 +6,7 @@
  * d3-style chainable run methods and self-describing outputs.
  */
 
+import { zodToJsonSchema } from '../contract/schema.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowChart, RunOptions, SerializedPipelineStructure } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
@@ -140,18 +141,16 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
 /** Normalize a Zod schema or plain JSON Schema to JSON Schema object. */
 function normalizeSchema(schema: unknown): unknown {
   if (!schema) return schema;
-  // If it's a Zod schema with ._def, try to convert
+  // If it's a Zod schema with ._def, convert to JSON Schema
   if (
     typeof schema === 'object' &&
     schema !== null &&
     typeof (schema as Record<string, unknown>)._def !== 'undefined'
   ) {
     try {
-      // Attempt Zod-to-JSON-Schema conversion via the library's existing converter
-      const { zodToJsonSchema } = require('../contract/zodToJsonSchema.js');
-      return zodToJsonSchema(schema);
+      return zodToJsonSchema(schema as Record<string, unknown>);
     } catch {
-      // If conversion fails, return as-is
+      // If conversion fails (e.g. unsupported Zod type), return as-is
       return schema;
     }
   }
