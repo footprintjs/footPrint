@@ -1,8 +1,10 @@
 name: Deploy Docs
 
 on:
-  release:
-    types: [published]
+  # Re-enable release trigger after Task 3 (guide pages) is merged.
+  # Until then, deploy manually via workflow_dispatch to avoid stub pages going live.
+  # release:
+  #   types: [published]
   workflow_dispatch:
 
 permissions:
@@ -32,7 +34,12 @@ jobs:
 
       # 2. Install docs-site deps and build Starlight
       - name: Install docs-site dependencies
-        run: npm ci
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - run: npm ci
         working-directory: docs-site
 
       - name: Build Starlight site

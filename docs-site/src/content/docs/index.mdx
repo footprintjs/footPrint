@@ -45,41 +45,41 @@ import { Card, CardGrid, LinkButton } from '@astrojs/starlight/components';
 import { flowChart, decide, narrative } from 'footprintjs';
 
 // 1. Define your state
-interface LoanState {
-  creditScore: number;
-  dti: number;
-  decision?: string;
+interface OrderState {
+  orderId: string;
+  total: number;
+  tier?: string;
+  status?: string;
 }
 
 // 2. Build your flowchart
-const chart = flowChart<LoanState>('Intake', async (scope) => {
-  scope.creditScore = 750;
-  scope.dti = 0.38;
-}, 'intake')
-  .addDeciderFunction('ClassifyRisk', (scope) => {
+const chart = flowChart<OrderState>('Validate', async (scope) => {
+  scope.tier = scope.total > 100 ? 'premium' : 'standard';
+}, 'validate')
+  .addDeciderFunction('Route', (scope) => {
     return decide(scope, [
-      { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
-    ], 'rejected');
-  }, 'classify-risk')
-  .addFunctionBranch('approved', 'Approve', async (scope) => {
-    scope.decision = 'Approved';
+      { when: { tier: { eq: 'premium' } }, then: 'express', label: 'Premium order' },
+    ], 'standard');
+  }, 'route')
+  .addFunctionBranch('express', 'ExpressShip', async (scope) => {
+    scope.status = 'express-shipping';
   })
-  .addFunctionBranch('rejected', 'Reject', async (scope) => {
-    scope.decision = 'Rejected';
+  .addFunctionBranch('standard', 'StandardShip', async (scope) => {
+    scope.status = 'standard-shipping';
   })
-  .setDefault('rejected')
+  .setDefault('standard')
   .end()
   .build();
 
 // 3. Run and observe
 const rec = narrative();
-await chart.recorder(rec).run();
+await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 149 } });
 
 console.log(rec.lines().join('\n'));
-// Stage 1: The process began with Intake.
-// Stage 2: Next, it moved on to ClassifyRisk.
-// [Condition]: It evaluated Rule 0 "Good credit": creditScore 750 gt 700 ✓, and chose approved.
-// Stage 3: Next, it moved on to Approve.
+// Stage 1: The process began with Validate.
+// Stage 2: Next, it moved on to Route.
+// [Condition]: It evaluated Rule 0 "Premium order": tier "premium" eq "premium" ✓, and chose express.
+// Stage 3: Next, it moved on to ExpressShip.
 ```
 
 <div style="display: flex; gap: 1rem; margin-top: 2rem;">

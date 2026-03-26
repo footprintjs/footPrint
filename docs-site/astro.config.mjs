@@ -2,8 +2,9 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  // GitHub Pages deploys to footprintjs.github.io/footPrint/
-  // TypeDoc API reference lives at footprintjs.github.io/footPrint/api/
+  // Must match GitHub repository name. Update base + site if repo is renamed
+  // or moved to a custom domain (e.g. base: '/', site: 'https://footprintjs.dev').
+  site: 'https://footprintjs.github.io',
   base: '/footPrint',
   integrations: [
     starlight({
@@ -14,6 +15,16 @@ export default defineConfig({
         { icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/footprintjs' },
       ],
       customCss: ['./src/styles/custom.css'],
+      head: [
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
+        },
+        {
+          tag: 'meta',
+          attrs: { name: 'twitter:card', content: 'summary_large_image' },
+        },
+      ],
       sidebar: [
         {
           label: 'Getting Started',
