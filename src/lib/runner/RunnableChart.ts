@@ -7,7 +7,7 @@
  */
 
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { FlowChart, RunOptions } from '../engine/types.js';
+import type { FlowChart, RunOptions, SerializedPipelineStructure } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
@@ -29,6 +29,8 @@ export interface MCPToolDescription {
 /** FlowChart with d3-style methods: run, recorder, redact, toOpenAPI, toMCPTool. */
 export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<TOut, TScope> {
   // ── Builder metadata (set by FlowChartBuilder.build()) ──────────────────
+  /** Always set by build() — narrows the optional field from FlowChart to required. */
+  buildTimeStructure: SerializedPipelineStructure;
   /** Human-readable numbered step list. Empty string when no descriptions were provided. */
   description: string;
   /** Per-stage descriptions, keyed by stage name. */

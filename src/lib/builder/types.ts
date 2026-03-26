@@ -10,7 +10,7 @@
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
-import type { ILogger, ScopeFactory, StageFunction } from '../engine/types.js';
+import type { ILogger, ScopeFactory, StageFunction, TraversalExtractor } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Re-exports from engine (canonical definitions)
@@ -105,10 +105,11 @@ export type BuildTimeNodeMetadata = FlowChartSpec;
 export type BuildTimeExtractor<TResult = FlowChartSpec> = (metadata: BuildTimeNodeMetadata) => TResult;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Traversal Extractor (runtime)
+// Traversal Extractor (runtime) — canonical definition lives in engine/types.
+// Re-exported here so callers don't need two import paths.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TraversalExtractor<TResult = unknown> = (snapshot: unknown) => TResult | undefined | null;
+export type { TraversalExtractor } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FlowChart — compiled output of build()
