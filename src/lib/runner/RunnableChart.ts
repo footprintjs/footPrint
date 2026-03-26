@@ -28,6 +28,16 @@ export interface MCPToolDescription {
 
 /** FlowChart with d3-style methods: run, recorder, redact, toOpenAPI, toMCPTool. */
 export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<TOut, TScope> {
+  // ── Builder metadata (set by FlowChartBuilder.build()) ──────────────────
+  /** Human-readable numbered step list. Empty string when no descriptions were provided. */
+  description: string;
+  /** Per-stage descriptions, keyed by stage name. */
+  stageDescriptions: Map<string, string>;
+  /** Output schema (Zod or JSON Schema) — declared via .contract(). */
+  outputSchema?: unknown;
+  /** Output mapper — extracts response from final scope. Declared via .contract(). */
+  outputMapper?: (finalScope: Record<string, unknown>) => unknown;
+  // ── Runtime methods ──────────────────────────────────────────────────────
   /** Attach a recorder for the next run. Returns a chainable RunContext. */
   recorder(r: Recorder | FlowRecorder): RunContext<TOut, TScope>;
   /** Set redaction policy for the next run. Returns a chainable RunContext. */
