@@ -1,4 +1,21 @@
 /**
+ * footprintjs/recorders — Factory functions for built-in recorders.
+ *
+ * Prefer these factory functions over constructing recorder classes directly.
+ * Each factory returns the recorder instance enriched with short convenience methods.
+ *
+ * ```ts
+ * import { narrative, metrics, debug, manifest } from 'footprintjs/recorders';
+ *
+ * const result = await chart
+ *   .recorder(narrative())
+ *   .recorder(metrics())
+ *   .run();
+ * ```
+ *
+ * @module recorders
+ */
+/**
  * footprintjs/recorders -- Factory functions for built-in recorders.
  *
  * Import: import { narrative, metrics, debug, manifest } from 'footprintjs/recorders';

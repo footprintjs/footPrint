@@ -1,4 +1,17 @@
 /**
+ * footprintjs/advanced — Low-level internals for custom execution engines and testing.
+ *
+ * Most users never need this. Use `footprintjs` (main) instead.
+ * This entry point exposes `SharedMemory`, `StageContext`, `FlowchartTraverser`,
+ * and other primitives that power the engine.
+ *
+ * ```ts
+ * import { SharedMemory, StageContext } from 'footprintjs/advanced';
+ * ```
+ *
+ * @module advanced
+ */
+/**
  * FootPrint — Advanced / Internal API
  *
  * These exports are for advanced use cases, testing, and building

@@ -1,69 +1,79 @@
 /**
- * FootPrint — Public API (v2.0)
+ * FootPrint — Public API (v3)
  *
  * The flowchart pattern for backend code.
- * Build → Describe → Run.
+ * Build → Run → Observe.
  *
- * For advanced/internal APIs, import from 'footprintjs/advanced'.
- * For recorder factories, import from 'footprintjs/recorders'.
+ * **Three import paths:**
+ * ```ts
+ * import { flowChart, decide, narrative } from 'footprintjs';           // main — start here
+ * import { metrics, debug, manifest }     from 'footprintjs/recorders'; // recorder factories
+ * import { SharedMemory, StageContext }   from 'footprintjs/advanced';  // internals
+ * ```
+ *
+ * @module
  */
 
 // ============================================================================
-// Builder — Flowchart construction
+// Quick Start — Everything you need for 90% of use cases
 // ============================================================================
 
+/** @category Quick Start */
 export type { FlowChart, StageFunction as StageHandler, StreamHandlers } from './lib/builder/index.js';
+
+/** @category Quick Start */
 export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
 
-// TypedScope — typed property access (no casts needed)
+/** @category Quick Start */
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
+
+/** @category Quick Start */
 export type { ScopeMethods, TypedScope } from './lib/reactive/index.js';
 
-// Decision reasoning capture
+/** @category Quick Start */
+export { narrative } from './recorders.js';
+
+// ============================================================================
+// Decision Branching — decide() / select() with evidence capture
+// ============================================================================
+
+/** @category Decision Branching */
 export type {
   DecideRule,
   DecisionEvidence,
   DecisionResult,
   FilterOps,
+  RuleEvidence,
+  SelectionEvidence,
   SelectionResult,
+  WhenClause,
   WhereFilter,
 } from './lib/decide/index.js';
+
+/** @category Decision Branching */
 export { decide, select } from './lib/decide/index.js';
 
 // ============================================================================
-// Runner — v2 API: chart.recorder().run()
+// Run — Execute charts and collect results
 // ============================================================================
 
-// narrative() — core recorder factory, exported here for the common case:
-//   import { flowChart, decide, narrative } from 'footprintjs';
-//   const result = await chart.recorder(narrative()).run();
+/** @category Run */
 export type { RunResult } from './lib/runner/index.js';
+
+/** @category Run */
 export { FlowChartExecutor } from './lib/runner/index.js';
+
+/** @category Run */
 export { RunContext } from './lib/runner/index.js';
+
+/** @category Run */
 export type { ChartOpenAPIOptions, MCPToolDescription, RunnableFlowChart } from './lib/runner/RunnableChart.js';
-export { narrative } from './recorders.js';
-
-// ComposableRunner — interface for subflow composition
-export type { ComposableRunner } from './lib/runner/index.js';
-
-// Snapshot navigation
-export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/runner/index.js';
-export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
 // ============================================================================
-// Scope — Per-stage facades and recorders
+// Observe — Data (scope recorders, fire during stage execution)
 // ============================================================================
 
-export { ScopeFacade } from './lib/scope/index.js';
-
-// Dev-mode diagnostics
-export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
-
-// Recorders (class exports — prefer factory functions from footprintjs/recorders)
-export { MetricRecorder } from './lib/scope/index.js';
-export { DebugRecorder } from './lib/scope/index.js';
-
-// Recorder interface and event types (for custom recorders)
+/** @category Observe — Data */
 export type {
   CommitEvent,
   ErrorEvent,
@@ -74,16 +84,17 @@ export type {
   WriteEvent,
 } from './lib/scope/index.js';
 
-// Zod-based scope definitions
-export { defineScopeFromZod } from './lib/scope/index.js';
+/** @category Observe — Data */
+export { MetricRecorder } from './lib/scope/index.js';
+
+/** @category Observe — Data */
+export { DebugRecorder } from './lib/scope/index.js';
 
 // ============================================================================
-// Engine — Narrative types
+// Observe — Flow (FlowRecorder, fires after stage execution)
 // ============================================================================
 
-export type { CombinedNarrativeEntry } from './lib/engine/index.js';
-
-// FlowRecorder — Pluggable observer for control flow events
+/** @category Observe — Flow */
 export type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -98,34 +109,45 @@ export type {
   FlowSubflowRegisteredEvent,
   TraversalContext,
 } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
+export type { CombinedNarrativeEntry } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
 
-// Structured errors
-export type { StructuredErrorInfo } from './lib/engine/index.js';
-export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
-
-// Built-in FlowRecorder strategies (prefer factory functions from footprintjs/recorders)
+/** @category Observe — Flow */
 export type { ManifestEntry } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { ManifestFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { AdaptiveNarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { MilestoneNarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { ProgressiveNarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { RLENarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { SeparateNarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { SilentNarrativeFlowRecorder } from './lib/engine/index.js';
+
+/** @category Observe — Flow */
 export { WindowedNarrativeFlowRecorder } from './lib/engine/index.js';
 
 // ============================================================================
-// Engine types
+// Self-Describing — .contract(), toOpenAPI(), toMCPTool()
 // ============================================================================
 
-export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
-export type { ScopeFactory } from './lib/engine/index.js';
-
-// ============================================================================
-// Contract types (use .contract() on builder + chart.toOpenAPI() instead)
-// ============================================================================
-
+/** @category Self-Describing */
 export type {
   FlowChartContract,
   FlowChartContractOptions,
@@ -135,9 +157,60 @@ export type {
 } from './lib/contract/index.js';
 
 // ============================================================================
-// Schema — Validation
+// Snapshot & Composition — Subflow navigation and ComposableRunner
 // ============================================================================
 
+/** @category Snapshot & Composition */
+export type { ComposableRunner } from './lib/runner/index.js';
+
+/** @category Snapshot & Composition */
+export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/runner/index.js';
+
+/** @category Snapshot & Composition */
+export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
+
+// ============================================================================
+// Configuration — Types passed to FlowChartExecutor and run()
+// ============================================================================
+
+/** @category Configuration */
+export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
+
+/** @category Configuration */
+export type { ScopeFactory } from './lib/engine/index.js';
+
+// ============================================================================
+// Contract & Validation
+// ============================================================================
+
+/** @category Contract & Validation */
 export type { SchemaKind, ValidationIssue, ValidationResult } from './lib/schema/index.js';
+
+/** @category Contract & Validation */
 export { detectSchema, isValidatable, isZod } from './lib/schema/index.js';
+
+/** @category Contract & Validation */
 export { InputValidationError, validateAgainstSchema, validateOrThrow } from './lib/schema/index.js';
+
+// ============================================================================
+// Error Utilities
+// ============================================================================
+
+/** @category Error Utilities */
+export type { StructuredErrorInfo } from './lib/engine/index.js';
+
+/** @category Error Utilities */
+export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
+
+// ============================================================================
+// Dev Tools — Mode flags and Zod scope utilities
+// ============================================================================
+
+/** @category Dev Tools */
+export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
+
+/** @category Dev Tools */
+export { defineScopeFromZod } from './lib/scope/index.js';
+
+/** @category Dev Tools */
+export { ScopeFacade } from './lib/scope/index.js';
