@@ -6,6 +6,7 @@
  */
 
 import type { StageContext } from '../memory/StageContext.js';
+import type { FlowControlType, FlowMessage } from '../memory/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { Decider, Selector, StageNode } from './graph/StageNode.js';
 import type { IControlFlowNarrative } from './narrative/types.js';
@@ -195,20 +196,10 @@ export interface RunOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Flow Control Narrative
+// Flow Control Narrative — canonical definitions live in memory/types.ts
 // ---------------------------------------------------------------------------
 
-export type FlowControlType = 'next' | 'branch' | 'children' | 'selected' | 'subflow' | 'loop';
-
-export interface FlowMessage {
-  type: FlowControlType;
-  description: string;
-  targetStage?: string | string[];
-  rationale?: string;
-  count?: number;
-  iteration?: number;
-  timestamp?: number;
-}
+export type { FlowControlType, FlowMessage };
 
 // ---------------------------------------------------------------------------
 // Traversal Extractor

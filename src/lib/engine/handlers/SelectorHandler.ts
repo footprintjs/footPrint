@@ -14,7 +14,7 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
-import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './DeciderHandler.js';
+import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
   constructor(

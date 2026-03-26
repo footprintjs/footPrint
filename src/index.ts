@@ -40,11 +40,7 @@ export { decide, select } from './lib/decide/index.js';
 export type { RunResult } from './lib/runner/index.js';
 export { FlowChartExecutor } from './lib/runner/index.js';
 export { RunContext } from './lib/runner/index.js';
-export type {
-  OpenAPIOptions as ChartOpenAPIOptions,
-  MCPToolDescription,
-  RunnableFlowChart,
-} from './lib/runner/RunnableChart.js';
+export type { ChartOpenAPIOptions, MCPToolDescription, RunnableFlowChart } from './lib/runner/RunnableChart.js';
 export { narrative } from './recorders.js';
 
 // ComposableRunner — interface for subflow composition
@@ -124,7 +120,7 @@ export { WindowedNarrativeFlowRecorder } from './lib/engine/index.js';
 // ============================================================================
 
 export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
-export type { ScopeFactory } from './lib/memory/index.js';
+export type { ScopeFactory } from './lib/engine/index.js';
 
 // ============================================================================
 // Contract types (use .contract() on builder + chart.toOpenAPI() instead)

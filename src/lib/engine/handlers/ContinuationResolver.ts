@@ -15,14 +15,7 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps } from '../types.js';
 import type { NodeResolver } from './NodeResolver.js';
-
-/** Callback for recursive node execution. Avoids circular dep with traverser. */
-export type ExecuteNodeFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  breakFlag: { shouldBreak: boolean },
-  branchPath?: string,
-) => Promise<any>;
+import type { ExecuteNodeFn } from './types.js';
 
 export const DEFAULT_MAX_ITERATIONS = 1000;
 

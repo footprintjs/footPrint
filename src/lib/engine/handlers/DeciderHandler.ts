@@ -11,38 +11,9 @@ import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
+import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
 
-/** Callback for running a stage with commit + extractor. Avoids circular dep with traverser. */
-export type RunStageFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  stageFunc: StageFunction<TOut, TScope>,
-  context: StageContext,
-  breakFn: () => void,
-) => Promise<TOut>;
-
-/** Callback for recursive node execution. Avoids circular dep with traverser. */
-export type ExecuteNodeFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  breakFlag: { shouldBreak: boolean },
-  branchPath?: string,
-) => Promise<any>;
-
-/** Callback for calling the extractor after stage execution. */
-export type CallExtractorFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  stagePath: string,
-  stageOutput?: unknown,
-  errorInfo?: { type: string; message: string },
-) => void;
-
-/** Callback for computing the stage path for extractor. */
-export type GetStagePathFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  branchPath?: string,
-  contextStageName?: string,
-) => string;
+export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn };
 
 export class DeciderHandler<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}

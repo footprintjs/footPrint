@@ -25,6 +25,7 @@ import {
   getInitialScopeValues,
   seedSubflowGlobalStore,
 } from './SubflowInputMapper.js';
+import type { CallExtractorFn } from './types.js';
 
 /** Callback for running a stage function. Avoids circular dep with traverser. */
 export type ExecuteStageFn<TOut = any, TScope = any> = (
@@ -34,14 +35,7 @@ export type ExecuteStageFn<TOut = any, TScope = any> = (
   breakFn: () => void,
 ) => Promise<TOut>;
 
-/** Callback for calling the traversal extractor. */
-export type CallExtractorFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  stagePath: string,
-  stageOutput?: unknown,
-  errorInfo?: { type: string; message: string },
-) => void;
+export type { CallExtractorFn } from './types.js';
 
 /** Callback for getting a stage function from the stage map. */
 export type GetStageFnFn<TOut = any, TScope = any> = (

@@ -11,6 +11,7 @@
 
 import type { StageNode } from '../engine/graph/StageNode.js';
 import type { ILogger, ScopeFactory, StageFunction, TraversalExtractor } from '../engine/types.js';
+import type { ScopeProtectionMode } from '../scope/protection/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Re-exports from engine (canonical definitions)
@@ -35,10 +36,10 @@ export type {
 export type StageFn = StageFunction<any, any>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scope Protection
+// Scope Protection — canonical definition in scope/protection/types.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ScopeProtectionMode = 'error' | 'warn' | 'off';
+export type { ScopeProtectionMode };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Serialized Pipeline Structure (JSON-safe, for visualization)

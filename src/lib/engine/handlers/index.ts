@@ -9,12 +9,13 @@ export { StageRunner } from './StageRunner.js';
 // Node resolution and subflow reference handling
 export { NodeResolver } from './NodeResolver.js';
 
+// Handler callback types (canonical — avoids circular dep with traverser)
+export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
+
 // Parallel children execution
-export type { ExecuteNodeFn } from './ChildrenExecutor.js';
 export { ChildrenExecutor } from './ChildrenExecutor.js';
 
 // Single-choice conditional branching
-export type { CallExtractorFn, GetStagePathFn, RunStageFn } from './DeciderHandler.js';
 export { DeciderHandler } from './DeciderHandler.js';
 
 // Multi-choice filtered fan-out

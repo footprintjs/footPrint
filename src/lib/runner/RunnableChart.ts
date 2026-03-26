@@ -12,7 +12,7 @@ import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
 /** OpenAPI generation options. */
-export interface OpenAPIOptions {
+export interface ChartOpenAPIOptions {
   title?: string;
   version?: string;
   description?: string;
@@ -47,7 +47,7 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
   /** Execute the chart directly (bare run, no recorders). */
   run(options?: RunOptions): Promise<RunResult>;
   /** Generate OpenAPI 3.1 spec from chart metadata + contract. Cached. */
-  toOpenAPI(options?: OpenAPIOptions): object;
+  toOpenAPI(options?: ChartOpenAPIOptions): object;
   /** Generate MCP tool description from chart metadata. Cached. */
   toMCPTool(): MCPToolDescription;
 }
@@ -75,7 +75,7 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
     return new RunContext(chart).run(options);
   };
 
-  runnable.toOpenAPI = function (options?: OpenAPIOptions): object {
+  runnable.toOpenAPI = function (options?: ChartOpenAPIOptions): object {
     const cached = openAPICache.get(chart);
     if (cached) return cached;
 

@@ -4,9 +4,10 @@ set -euo pipefail
 # Release script — keeps package.json, git tag, and GitHub releases in sync.
 # npm publish is handled by GitHub Actions (with provenance).
 #
-# Release pipeline (7 gates before version bump):
+# Release pipeline (8 gates before version bump):
 #   1. Clean working tree
 #   2. Documentation check (no stale API refs in .md files)
+#   2.5 Duplicate type check (no same type name defined in two files)
 #   3. API conformance tests (47 design contract tests)
 #   4. Build (CJS + ESM)
 #   5. Full test suite (1874+ tests)
@@ -38,6 +39,10 @@ fi
 
 # ── Gate 2: Documentation check ─────────────────────────────────────────
 bash scripts/check-docs.sh
+
+# ── Gate 2.5: Duplicate type check ──────────────────────────────────────
+echo "==> Checking for duplicate type definitions..."
+node scripts/check-dup-types.mjs
 
 # ── Gate 3: API conformance tests ───────────────────────────────────────
 echo "==> Running API conformance tests (47 design contract tests)..."
@@ -131,9 +136,10 @@ echo "==> Released v$VERSION"
 echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
 echo ""
-echo "Release pipeline passed all 7 gates:"
+echo "Release pipeline passed all 8 gates:"
 echo "  1. Clean tree               ✓"
 echo "  2. Doc check                ✓  (0 stale API refs)"
+echo "  2.5 Dup type check          ✓  (no duplicate exported type names)"
 echo "  3. API conformance          ✓  (47 design contract tests)"
 echo "  4. Build                    ✓  (CJS + ESM)"
 echo "  5. Full test suite          ✓"

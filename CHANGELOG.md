@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.11] - 2026-03-26
+
+### Fixed
+- **Eliminated 5 duplicate type definitions across the codebase** — each was a structural mismatch risk (same class of bug as v3.0.10's `TraversalExtractor`):
+  - `ScopeProtectionMode`: deleted redefinition from `builder/types.ts`; now imports canonical from `scope/protection/types.ts`
+  - `FlowControlType` + `FlowMessage`: deleted duplicate definitions from `engine/types.ts`; now re-exported from `memory/types.ts` (their canonical home)
+  - `ExecuteNodeFn`, `CallExtractorFn`, `RunStageFn`, `GetStagePathFn`: consolidated from 3 separate handler files into a single `engine/handlers/types.ts`; `SelectorHandler` now imports from there instead of `DeciderHandler`
+  - `OpenAPIOptions` in `runner/RunnableChart.ts`: renamed to `ChartOpenAPIOptions` (matching the public export alias that was already in `index.ts`) to avoid collision with `contract/types.ts`'s `OpenAPIOptions`
+  - `ScopeFactory` public export: `index.ts` now exports the 4-param version from `engine/types.ts` (includes `executionEnv`) instead of the 3-param version from `memory/types.ts`. Non-breaking — 3-param implementations remain assignable.
+- **Duplicate type detector added** (`scripts/check-dup-types.mjs` / `npm run check:dup-types`): scans `src/` for exported type/interface names defined in more than one file; fails the release pipeline if any new duplicates are introduced. Allowlisted entries include a documented explanation of why consolidation is not currently possible.
+
 ## [3.0.10] - 2026-03-26
 
 ### Fixed

@@ -12,14 +12,9 @@ import type { StageContext } from '../../memory/StageContext.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
+import type { ExecuteNodeFn } from './types.js';
 
-/** Callback for recursive node execution. Avoids circular dependency with traverser. */
-export type ExecuteNodeFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  breakFlag: { shouldBreak: boolean },
-  branchPath?: string,
-) => Promise<any>;
+export type { ExecuteNodeFn };
 
 export class ChildrenExecutor<TOut = any, TScope = any> {
   constructor(private deps: HandlerDeps<TOut, TScope>, private executeNode: ExecuteNodeFn<TOut, TScope>) {}
