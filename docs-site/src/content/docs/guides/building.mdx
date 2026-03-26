@@ -3,6 +3,214 @@ title: Building a flowchart
 description: All builder methods — addFunction, addDeciderFunction, addSelectorFunction, addSubFlowChart, loopTo, contract.
 ---
 
-*Full content coming in Task 3.*
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-See [Quick Start](/footPrint/getting-started/quick-start/) for a working example.
+A footprintjs flowchart is a **directed graph of stages** built once, executed many times. This guide covers every builder method.
+
+## Starting a flowchart
+
+`flowChart<State>(name, fn, id?, inputSchema?, description?)` creates the root stage and returns a builder.
+
+```ts
+import { flowChart } from 'footprintjs';
+
+interface OrderState {
+  orderId: string;
+  amount: number;
+  status?: string;
+}
+
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.status = 'received';
+}, 'receive-order', undefined, 'Ingest order and validate input')
+  .build();
+```
+
+## Adding sequential stages
+
+`.addFunction(name, fn, id?, description?)` appends a stage that runs after the previous one.
+
+```ts
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.status = 'received';
+}, 'receive-order')
+  .addFunction('ValidateOrder', async (scope) => {
+    scope.status = scope.amount > 0 ? 'valid' : 'invalid';
+  }, 'validate', 'Check order integrity')
+  .addFunction('ProcessPayment', async (scope) => {
+    scope.status = 'paid';
+  }, 'process-payment')
+  .build();
+```
+
+## Branching with deciders
+
+`.addDeciderFunction(name, fn, id?, description?)` adds a stage whose return value selects the next branch.
+
+The decider function can return a plain string **or** a `DecisionResult` from `decide()` (which also captures evidence).
+
+<Tabs>
+  <TabItem label="With decide()">
+    ```ts
+    import { flowChart, decide } from 'footprintjs';
+
+    const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+      scope.amount = 149.99;
+    }, 'receive-order')
+      .addDeciderFunction('RouteOrder', (scope) => {
+        return decide(scope, [
+          { when: { amount: { gt: 100 } }, then: 'large', label: 'Large order' },
+        ], 'small');
+      }, 'route-order', 'Route by order size')
+        .addFunctionBranch('large', 'ExpressShip', async (scope) => {
+          scope.status = 'express-shipping';
+        }, 'Express fulfillment')
+        .addFunctionBranch('small', 'StandardShip', async (scope) => {
+          scope.status = 'standard-shipping';
+        })
+        .setDefault('small')
+        .end()
+      .build();
+    ```
+  </TabItem>
+  <TabItem label="Plain string">
+    ```ts
+    .addDeciderFunction('RouteOrder', (scope) => {
+      // Return a plain branch ID — no evidence capture
+      return scope.amount > 100 ? 'large' : 'small';
+    }, 'route-order')
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside>
+  `.setDefault('branchId')` sets which branch runs when the decider returns an unknown ID. `.end()` closes the decider block and returns to the outer builder.
+</Aside>
+
+## Parallel fan-out with selectors
+
+`.addSelectorFunction(name, fn, id?, description?)` adds a stage that selects **multiple** branches and runs them in parallel.
+
+```ts
+import { flowChart, select } from 'footprintjs';
+
+interface ScreeningState {
+  glucose: number;
+  systolicBP: number;
+  bmi: number;
+  results: string[];
+}
+
+const chart = flowChart<ScreeningState>('LoadVitals', async (scope) => {
+  scope.glucose = 128;
+  scope.systolicBP = 148;
+  scope.bmi = 25;
+  scope.results = [];
+}, 'load-vitals')
+  .addSelectorFunction('Triage', (scope) => {
+    return select(scope, [
+      { when: { glucose: { gt: 100 } }, then: 'diabetes', label: 'Elevated glucose' },
+      { when: { systolicBP: { gt: 140 } }, then: 'hypertension', label: 'High BP' },
+      { when: { bmi: { gt: 30 } }, then: 'obesity', label: 'High BMI' },
+    ]);
+  }, 'triage', 'Select screenings based on vitals')
+    .addFunctionBranch('diabetes', 'DiabetesScreen', async (scope) => {
+      scope.results = [...scope.results, 'glucose: ' + scope.glucose];
+    })
+    .addFunctionBranch('hypertension', 'BPCheck', async (scope) => {
+      scope.results = [...scope.results, 'BP: ' + scope.systolicBP];
+    })
+    .addFunctionBranch('obesity', 'BMIAssess', async (scope) => {
+      scope.results = [...scope.results, 'BMI: ' + scope.bmi];
+    })
+    .end()
+  .build();
+```
+
+Selected branches run in parallel. Branches that don't match are skipped entirely.
+
+## Subflows
+
+`.addSubFlowChartNext(id, chart, name, options?)` mounts another flowchart as a subflow that runs in sequence.
+
+```ts
+import { FlowChartBuilder } from 'footprintjs';
+
+// Build the subflow separately
+const paymentSubflow = new FlowChartBuilder()
+  .start('ValidateCard', async (scope) => {
+    (scope as any).cardValid = (scope as any).cardLast4?.length === 4;
+  }, 'validate-card')
+  .addFunction('ChargeCard', async (scope) => {
+    (scope as any).txnId = 'TXN-' + Date.now();
+  }, 'charge-card')
+  .build();
+
+// Mount it in the parent
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.orderId = 'ORD-100';
+  scope.amount = 249.99;
+}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
+    inputMapper: (s: any) => ({ amount: s.amount, cardLast4: '1234' }),
+  })
+  .addFunction('ShipOrder', async (scope) => {
+    scope.status = 'shipped';
+  }, 'ship-order')
+  .build();
+```
+
+## Loops
+
+`.loopTo(targetStageName)` creates a back-edge to any earlier stage. The loop exits when a stage calls `scope.$break()`.
+
+```ts
+flowChart<{ counter: number; target: number }>('Init', async (scope) => {
+  scope.counter = 0;
+  scope.target = 5;
+}, 'init')
+  .addFunction('Increment', async (scope) => {
+    scope.counter += 1;
+    if (scope.counter >= scope.target) scope.$break();
+  }, 'increment')
+  .loopTo('Increment')
+  .build();
+```
+
+## Streaming stages
+
+`.addStreamingFunction(name, fn, id?)` adds a stage that receives a streaming response.
+
+```ts
+.addStreamingFunction('StreamAnswer', async (scope, handlers) => {
+  for await (const chunk of callLLM(scope.$getArgs())) {
+    handlers.onChunk(chunk);
+  }
+  handlers.onComplete('done');
+}, 'stream-answer')
+```
+
+## Contract
+
+`.contract(options)` attaches input/output schemas for validation and API generation. See [Self-describing APIs](/footPrint/guides/self-describing/) for the full guide.
+
+```ts
+import { z } from 'zod';
+
+const chart = flowChart<OrderState>(...)
+  .contract({
+    input: z.object({ orderId: z.string(), amount: z.number() }),
+    mapper: (scope) => ({ status: scope.status }),
+  })
+  .build();
+```
+
+## Try it live
+
+Run and modify these examples directly in the browser:
+
+- [Linear Pipeline](https://footprintjs.github.io/footprint-playground/samples/linear) — sequential stages
+- [Decider (Conditional)](https://footprintjs.github.io/footprint-playground/samples/decider) — addDeciderFunction
+- [Selector](https://footprintjs.github.io/footprint-playground/samples/selector) — addSelectorFunction, parallel branches
+- [Subflow](https://footprintjs.github.io/footprint-playground/samples/subflow) — nested flowchart
+- [Loops](https://footprintjs.github.io/footprint-playground/samples/loops) — loopTo + $break()

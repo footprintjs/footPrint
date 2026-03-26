@@ -3,4 +3,234 @@ title: Observing with recorders
 description: narrative(), metrics(), debug() — attaching observers to flowchart runs.
 ---
 
-*Full content coming in Task 3.*
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide assumes you know how to build a flowchart — see [Building a flowchart](/footPrint/guides/building/) first. It also uses `FlowChartExecutor`, introduced in [Quick Start](/footPrint/getting-started/quick-start/).
+
+footprintjs has two observer layers: **Scope recorders** fire on data operations (reads, writes, commits) *during* stage execution. **Flow recorders** fire on control-flow events (decisions, loops, forks) *after* each stage completes.
+
+Both attach to the executor and run in error-isolated dispatch — one failing recorder never stops the pipeline.
+
+## Built-in: narrative()
+
+`executor.enableNarrative()` attaches a `CombinedNarrativeRecorder` that observes both layers and produces a merged human-readable trace:
+
+```ts
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+interface TempState {
+  temperature: number;
+  unit: string;
+  temperatureF?: number;
+  status?: string;
+}
+
+const chart = flowChart<TempState>('Ingest', async (scope) => {
+  scope.temperature = 38.5;
+  scope.unit = 'celsius';
+}, 'ingest')
+  .addFunction('Convert', async (scope) => {
+    if (scope.unit === 'celsius') {
+      scope.temperatureF = scope.temperature * 1.8 + 32;
+    }
+  }, 'convert')
+  .addFunction('Classify', async (scope) => {
+    scope.status = scope.temperatureF! > 100.4 ? 'fever' : 'normal';
+  }, 'classify')
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run();
+
+executor.getNarrative().forEach((line) => console.log(line));
+// Stage 1: The process began with Ingest.
+//   [Set] temperature = 38.5
+//   [Set] unit = celsius
+// Stage 2: Next, it moved on to Convert.
+//   [Read] unit -> celsius
+//   [Set] temperatureF = 101.3
+// Stage 3: Next, it moved on to Classify.
+//   [Read] temperatureF -> 101.3
+//   [Set] status = fever
+```
+
+## Built-in: MetricRecorder
+
+`MetricRecorder` tracks per-stage read/write counts and latency:
+
+```ts
+import { FlowChartExecutor, MetricRecorder } from 'footprintjs';
+
+const metrics = new MetricRecorder();
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(metrics);
+await executor.run();
+
+const result = metrics.getMetrics();
+for (const [stage, m] of result.stageMetrics) {
+  console.log(`${stage}: ${m.totalDuration}ms  reads:${m.readCount} writes:${m.writeCount}`);
+}
+console.log(`Total: ${result.totalDuration}ms`);
+```
+
+## Built-in: DebugRecorder
+
+`DebugRecorder` captures a structured log of all ops for debugging:
+
+```ts
+import { FlowChartExecutor, DebugRecorder } from 'footprintjs';
+
+const debug = new DebugRecorder({ verbosity: 'verbose' });
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(debug);
+await executor.run();
+
+const entries = debug.getEntries();
+const errors = entries.filter(e => e.type === 'error');
+const writes = entries.filter(e => e.type === 'write');
+console.log(`${writes.length} writes, ${errors.length} errors`);
+```
+
+## Custom scope recorder
+
+Implement `Recorder` to build audit logs, compliance trails, or custom telemetry. All hooks are optional:
+
+```ts
+import { flowChart, FlowChartExecutor, type Recorder, type ReadEvent, type WriteEvent, type CommitEvent } from 'footprintjs';
+
+class AuditRecorder implements Recorder {
+  readonly id = 'audit';
+  private log: string[] = [];
+
+  onWrite(event: WriteEvent): void {
+    this.log.push(`[WRITE] ${event.stageName}: ${event.key} = ${JSON.stringify(event.value)}`);
+  }
+
+  onRead(event: ReadEvent): void {
+    this.log.push(`[READ]  ${event.stageName}: ${event.key} -> ${JSON.stringify(event.value)}`);
+  }
+
+  onCommit(event: CommitEvent): void {
+    this.log.push(`[COMMIT] ${event.stageName}: ${event.mutations.length} mutation(s)`);
+  }
+
+  getLog(): string[] { return this.log; }
+}
+
+const auditRecorder = new AuditRecorder();
+const executor = new FlowChartExecutor(chart);
+executor.attachRecorder(auditRecorder);
+await executor.run();
+
+auditRecorder.getLog().forEach((line) => console.log(line));
+```
+
+### Recorder hooks
+
+| Hook | Fires when |
+|------|-----------|
+| `onRead(event)` | A scope property is read |
+| `onWrite(event)` | A scope property is written (pre-commit) |
+| `onCommit(event)` | A stage's transaction is flushed |
+| `onStageStart(event)` | A stage begins |
+| `onStageEnd(event)` | A stage completes |
+| `onError(event)` | A stage throws |
+
+## Custom flow recorder
+
+Implement `FlowRecorder` to observe control-flow events — decisions, loops, forks. All hooks are optional:
+
+```ts
+import { FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+
+const metrics: FlowRecorder = {
+  id: 'metrics',
+  onStageExecuted: (event) => {
+    console.log(`stage: ${event.stageName}`);
+  },
+  onDecision: (event) => {
+    console.log(`decision: ${event.stageName} -> ${event.chosen}`);
+    // event.evidence is set when decide() was used
+  },
+  onLoop: (event) => {
+    console.log(`loop ${event.iteration} -> ${event.target}`);
+  },
+  onBreak: (event) => {
+    console.log(`break at ${event.stageName}`);
+  },
+};
+
+executor.attachFlowRecorder(metrics);
+```
+
+### FlowRecorder hooks
+
+| Hook | Fires when |
+|------|-----------|
+| `onStageExecuted(event)` | Any stage finishes |
+| `onNext(event)` | Sequential stage transition |
+| `onDecision(event)` | A decider chooses a branch |
+| `onFork(event)` | A fork/join (addListOfFunction) executes |
+| `onSelected(event)` | A selector picks branches |
+| `onLoop(event)` | A loop iteration completes |
+| `onBreak(event)` | `scope.$break()` is called |
+| `onSubflowEntry(event)` | Execution enters a subflow |
+| `onSubflowExit(event)` | Execution exits a subflow |
+| `onError(event)` | A stage throws |
+
+## Narrative strategies for loops
+
+When a pipeline loops many times, the default narrative can grow large. footprintjs ships 6 loop-aware strategies:
+
+```ts
+import {
+  NarrativeFlowRecorder,
+  WindowedNarrativeFlowRecorder,
+  SilentNarrativeFlowRecorder,
+  AdaptiveNarrativeFlowRecorder,
+  SeparateNarrativeFlowRecorder,
+} from 'footprintjs';
+
+// WindowedNarrativeFlowRecorder(first, last) — keeps first 3 + last 2 iterations
+executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
+
+// SilentNarrativeFlowRecorder — summary only, no per-iteration sentences
+executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
+
+// AdaptiveNarrativeFlowRecorder(full, every) — full for first 3, then every 5th
+executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(3, 5));
+
+// SeparateNarrativeFlowRecorder — main narrative + separate loop detail channel
+const separate = new SeparateNarrativeFlowRecorder();
+executor.attachFlowRecorder(separate);
+await executor.run();
+console.log(separate.getLoopSentences()); // loop detail
+console.log(Object.fromEntries(separate.getLoopCounts()));
+```
+
+## Multiple recorders
+
+Attach as many recorders as needed — they all run in the same execution:
+
+```ts
+executor.attachRecorder(auditRecorder);
+executor.attachRecorder(new MetricRecorder());
+executor.attachFlowRecorder(new NarrativeFlowRecorder());
+executor.attachFlowRecorder(metricsFlowRecorder);
+await executor.run();
+```
+
+<Aside>
+  Recorders fire in attachment order. A recorder that throws is caught and isolated — it does not affect other recorders or pipeline execution.
+</Aside>
+
+## Try it live
+
+See recorders and narrative strategies in action in the browser:
+
+- [Auto-Narrative](https://footprintjs.github.io/footprint-playground/samples/narrative) — zero-setup causal trace
+- [Scope Recorders](https://footprintjs.github.io/footprint-playground/samples/recorders) — custom audit recorder
+- [Metrics](https://footprintjs.github.io/footprint-playground/samples/metrics) — per-stage latency
+- [Flow Recorders](https://footprintjs.github.io/footprint-playground/samples/flow-recorders) — strategy comparison
+- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 6 loop strategies side by side

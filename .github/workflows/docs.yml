@@ -1,10 +1,8 @@
 name: Deploy Docs
 
 on:
-  # Re-enable release trigger after Task 3 (guide pages) is merged.
-  # Until then, deploy manually via workflow_dispatch to avoid stub pages going live.
-  # release:
-  #   types: [published]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:

@@ -1,6 +1,210 @@
 ---
 title: Subflows & composition
-description: addSubFlowChart, ComposableRunner, getSubtreeSnapshot — composing nested pipelines.
+description: Mount flowcharts as subflows, drill into snapshots, and catalog structure with ManifestFlowRecorder.
 ---
 
-*Full content coming in Task 3.*
+import { Aside } from '@astrojs/starlight/components';
+
+A **subflow** is a full flowchart mounted inside a parent. Its stages appear in the parent's narrative and snapshot, and can be drilled into independently.
+
+This is how teams scale with footprintjs: build a library of reusable pipelines (payment processing, inventory checks, risk scoring), own them separately, version them independently, and compose them into parent workflows. The parent sees the full execution tree including every subflow's internal stages — no black boxes.
+
+## Mounting a subflow
+
+`.addSubFlowChartNext(id, chart, name, options?)` mounts a flowchart sequentially. The `id` is used for snapshot navigation.
+
+```ts
+import { flowChart, FlowChartBuilder, FlowChartExecutor } from 'footprintjs';
+
+// Build the subflow
+const paymentSubflow = new FlowChartBuilder()
+  .start('ValidateCard', async (scope: any) => {
+    scope.cardValid = scope.cardLast4?.length === 4;
+  }, 'validate-card', 'Verify card details')
+  .addFunction('ChargeCard', async (scope: any) => {
+    scope.txnId = 'TXN-' + Date.now();
+  }, 'charge-card', 'Process the charge')
+  .build();
+
+interface OrderState {
+  orderId: string;
+  amount: number;
+  cardLast4: string;
+  shipped?: boolean;
+}
+
+// Mount it in the parent
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.orderId = 'ORD-100';
+  scope.amount = 249.99;
+  scope.cardLast4 = '1234';
+}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
+    inputMapper: (s: any) => ({ amount: s.amount, cardLast4: s.cardLast4 }),
+  })
+  .addFunction('ShipOrder', async (scope) => {
+    scope.shipped = true;
+  }, 'ship-order')
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run();
+```
+
+The `inputMapper` option lets you pass a subset of parent state into the subflow. If omitted, the full parent state is passed.
+
+## Mounting multiple subflows
+
+Mount as many subflows as needed. They run sequentially:
+
+```ts
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.orderId = 'ORD-100';
+  scope.amount = 249.99;
+  scope.cardLast4 = '1234';
+}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
+    inputMapper: (s: any) => ({ amount: s.amount, cardLast4: s.cardLast4 }),
+  })
+  .addSubFlowChartNext('sf-inventory', inventorySubflow, 'Inventory')
+  .addFunction('ShipOrder', async (scope) => { scope.shipped = true; }, 'ship-order')
+  .build();
+```
+
+## Snapshot drill-down
+
+After execution, `getSubtreeSnapshot(snapshot, subflowId)` extracts the full execution tree for any subflow:
+
+```ts
+import { FlowChartExecutor, getSubtreeSnapshot } from 'footprintjs';
+
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+
+const snapshot = executor.getSnapshot();
+const paymentSubtree = getSubtreeSnapshot(snapshot, 'sf-payment');
+
+if (paymentSubtree) {
+  console.log(`Subflow ID: ${paymentSubtree.subflowId}`);
+  console.log(`Root stage: ${paymentSubtree.executionTree.name}`);
+}
+```
+
+`listSubflowPaths(snapshot)` returns all mounted subflow IDs at any nesting depth:
+
+```ts
+import { listSubflowPaths } from 'footprintjs';
+
+const paths = listSubflowPaths(snapshot);
+// ['sf-payment', 'sf-inventory']
+// Nested subflows: ['sf-outer/sf-inner']
+```
+
+## ManifestFlowRecorder
+
+`ManifestFlowRecorder` builds a lightweight tree catalog of all subflows as a side effect of traversal — no post-processing. An LLM receiving a snapshot can read the manifest to understand structure, then pull full specs on demand.
+
+```ts
+import { FlowChartExecutor, ManifestFlowRecorder, type ManifestEntry } from 'footprintjs';
+
+const executor = new FlowChartExecutor(chart);
+const manifest = new ManifestFlowRecorder();
+executor.attachFlowRecorder(manifest);
+
+await executor.run();
+
+function printManifest(entries: ManifestEntry[], indent = 0) {
+  for (const entry of entries) {
+    const pad = '  '.repeat(indent);
+    const desc = entry.description ? ` -- ${entry.description}` : '';
+    console.log(`${pad}[${entry.subflowId}] ${entry.name}${desc}`);
+    if (entry.children.length > 0) printManifest(entry.children, indent + 1);
+  }
+}
+
+printManifest(manifest.getManifest());
+// [sf-payment] Payment -- Process payment
+// [sf-inventory] Inventory -- Reserve stock
+```
+
+## ComposableRunner pattern
+
+When a service owns its own internal flowchart, implement `ComposableRunner` so a parent can mount it as a subflow:
+
+```ts
+import {
+  FlowChartBuilder,
+  FlowChartExecutor,
+  getSubtreeSnapshot,
+  type ComposableRunner,
+  type FlowChart,
+  type RunOptions,
+  type TypedScope,
+} from 'footprintjs';
+
+interface PaymentState {
+  amount: number;
+  cardValid?: boolean;
+  txnId?: string;
+}
+
+class PaymentProcessor implements ComposableRunner<{ amount: number }, { txnId: string }> {
+  private chart: FlowChart;
+
+  constructor() {
+    this.chart = new FlowChartBuilder<any, TypedScope<PaymentState>>()
+      .start('ValidateCard', (scope) => {
+        scope.cardValid = scope.amount > 0 && scope.amount < 10_000;
+      }, 'validate-card', 'Verify card details and limits')
+      .addFunction('ChargeCard', (scope) => {
+        scope.txnId = `TXN-${Date.now()}`;
+      }, 'charge-card', 'Process the charge')
+      .build();
+  }
+
+  toFlowChart(): FlowChart { return this.chart; }
+
+  async run(input: { amount: number }, options?: RunOptions): Promise<{ txnId: string }> {
+    const executor = new FlowChartExecutor(this.chart);
+    await executor.run({ input, ...options });
+    const snap = executor.getSnapshot();
+    return { txnId: (snap?.sharedState?.txnId as string) ?? 'unknown' };
+  }
+}
+```
+
+Mount it in a parent flowchart using `toFlowChart()`:
+
+```ts
+import { flowChart } from 'footprintjs';
+
+const payment = new PaymentProcessor();
+
+const orderChart = flowChart<{ orderId: string; amount: number }>('ReceiveOrder', (scope) => {
+  scope.orderId = 'ORD-42';
+  scope.amount = 149.99;
+}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment.toFlowChart(), 'Payment', {
+    inputMapper: (s: any) => ({ amount: s.amount }),
+  })
+  .build();
+
+const executor = new FlowChartExecutor(orderChart);
+await executor.run();
+
+// Drill into the payment subtree
+const snapshot = executor.getSnapshot();
+const paymentSubtree = getSubtreeSnapshot(snapshot, 'sf-payment');
+// paymentSubtree.executionTree has ValidateCard + ChargeCard stages
+```
+
+<Aside>
+  `ComposableRunner` is an interface — implement it on any class that wraps a flowchart internally. The parent only needs `toFlowChart()` to mount it and `getSubtreeSnapshot()` to drill in.
+</Aside>
+
+## Try it live
+
+- [Subflow](https://footprintjs.github.io/footprint-playground/samples/subflow) — nested payment flowchart
+- [Structural Subflow](https://footprintjs.github.io/footprint-playground/samples/structural-subflow) — attach pre-built subflow structure for visualization
+- [Lazy Subflow](https://footprintjs.github.io/footprint-playground/samples/lazy-subflow) — graph-of-services with conditional resolution

@@ -3,4 +3,192 @@ title: Self-describing APIs
 description: toOpenAPI(), toMCPTool(), .contract() — charts that document themselves.
 ---
 
-*Full content coming in Task 3.*
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+A footprintjs chart knows its own structure. Call `.toOpenAPI()` to get an OpenAPI 3.1 spec, or `.toMCPTool()` to get an MCP tool description — no separate docs to write or maintain.
+
+## Declaring a contract
+
+Use `.contract()` on the builder (before `.build()`) to attach input/output schemas and an output mapper:
+
+```ts
+import { flowChart, decide } from 'footprintjs';
+import { z } from 'zod';
+
+interface OrderState {
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+  shippingMethod?: string;
+  status?: string;
+}
+
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.$log('Order received');
+}, 'receive-order')
+  .addFunction('CalculateTotal', async (scope) => {
+    const { quantity, unitPrice } = scope.$getArgs<{ quantity: number; unitPrice: number }>();
+    scope.subtotal = quantity * unitPrice;
+    scope.tax = Math.round(scope.subtotal * 0.08 * 100) / 100;
+    scope.total = scope.subtotal + scope.tax;
+  }, 'calculate-total')
+  .addDeciderFunction('ClassifyOrder', (scope) => {
+    return decide(scope, [
+      { when: { total: { gt: 100 } }, then: 'large', label: 'Large order' },
+    ], 'small');
+  }, 'classify-order', 'Route by order size')
+    .addFunctionBranch('large', 'ProcessLargeOrder', async (scope) => {
+      scope.shippingMethod = 'express';
+      scope.status = 'approved -- express shipping';
+    })
+    .addFunctionBranch('small', 'ProcessSmallOrder', async (scope) => {
+      scope.shippingMethod = 'standard';
+      scope.status = 'approved -- standard shipping';
+    })
+    .setDefault('small')
+    .end()
+  .contract({
+    input: z.object({
+      item: z.string().describe('Product name'),
+      quantity: z.number().describe('Number of units'),
+      unitPrice: z.number().describe('Price per unit in USD'),
+    }),
+    output: z.object({
+      total: z.number().describe('Order total including tax'),
+      shippingMethod: z.enum(['standard', 'express']),
+      status: z.string(),
+    }),
+    mapper: (scope) => ({
+      total: scope.total,
+      shippingMethod: scope.shippingMethod,
+      status: scope.status,
+    }),
+  })
+  .build();
+```
+
+<Aside>
+  When an `input` schema is declared, `chart.run()` validates input automatically before execution and throws `InputValidationError` on failure.
+</Aside>
+
+## Generating OpenAPI
+
+Call `chart.toOpenAPI()` on the compiled chart. The result is cached:
+
+```ts
+const spec = chart.toOpenAPI({
+  title: 'Order Processing API',
+  version: '1.0.0',
+  path: '/orders/process',
+});
+
+console.log(JSON.stringify(spec, null, 2));
+// {
+//   "openapi": "3.1.0",
+//   "info": { "title": "Order Processing API", "version": "1.0.0" },
+//   "paths": {
+//     "/orders/process": {
+//       "post": {
+//         "requestBody": { "content": { "application/json": { "schema": { ... } } } },
+//         "responses": { "200": { "content": { "application/json": { "schema": { ... } } } } }
+//       }
+//     }
+//   }
+// }
+```
+
+`toOpenAPI()` options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `title` | Chart description | API title |
+| `version` | `'1.0.0'` | API version string |
+| `description` | Chart description | API description |
+| `path` | `'/<root-stage-name>'` | HTTP path |
+
+## Generating an MCP tool description
+
+`chart.toMCPTool()` returns an MCP-compatible tool definition that can be registered with any MCP server:
+
+```ts
+const tool = chart.toMCPTool();
+
+console.log(tool);
+// {
+//   name: 'receiveorder',
+//   description: '1. ReceiveOrder\n2. CalculateTotal\n3. ClassifyOrder ...',
+//   inputSchema: { type: 'object', properties: { item: ..., quantity: ..., unitPrice: ... } }
+// }
+```
+
+The `name` is derived from the root stage name (lowercased, spaces replaced with underscores). The `description` is the numbered step list generated from stage descriptions you provide in the builder.
+
+## defineContract (explicit approach)
+
+For cases where you want to separate schema definitions from the builder, use `defineContract()`.
+
+**Note on property names:** The builder's `.contract()` method uses `input`/`output`/`mapper` (short form). `defineContract()` uses the longer `inputSchema`/`outputSchema`/`outputMapper` for clarity at the call site. Both produce the same result.
+
+```ts
+import { defineContract } from 'footprintjs';
+import { z } from 'zod';
+
+const contract = defineContract(chart, {
+  inputSchema: z.object({
+    item: z.string().describe('Product name'),
+    quantity: z.number().describe('Number of units'),
+    unitPrice: z.number().describe('Price per unit in USD'),
+  }),
+  outputSchema: z.object({
+    total: z.number(),
+    shippingMethod: z.enum(['standard', 'express']),
+    status: z.string(),
+  }),
+  outputMapper: (scope) => ({
+    total: scope.total as number,
+    shippingMethod: scope.shippingMethod as string,
+    status: scope.status as string,
+  }),
+});
+
+// Generate OpenAPI from the contract
+const spec = contract.toOpenAPI({ title: 'Order API', version: '2.0.0' });
+
+// Execute and extract typed output
+const executor = new FlowChartExecutor(chart);
+await executor.run({ input: { item: 'Widget', quantity: 3, unitPrice: 29.99 } });
+
+const snapshot = executor.getSnapshot();
+const output = contract.outputMapper?.(snapshot.sharedState ?? {});
+```
+
+## JSON Schema (without Zod)
+
+Both `.contract()` and `defineContract()` accept plain JSON Schema objects if you don't use Zod:
+
+```ts
+.contract({
+  input: {
+    type: 'object',
+    properties: {
+      quantity: { type: 'number', description: 'Number of units' },
+      unitPrice: { type: 'number', description: 'Price per unit' },
+    },
+    required: ['quantity', 'unitPrice'],
+  },
+  output: {
+    type: 'object',
+    properties: {
+      total: { type: 'number' },
+      status: { type: 'string' },
+    },
+  },
+  mapper: (scope) => ({ total: scope.total, status: scope.status }),
+})
+```
+
+## Try it live
+
+Run this example in the browser:
+
+- [Contract & OpenAPI](https://footprintjs.github.io/footprint-playground/samples/contract-openapi) — Zod schemas, OpenAPI generation, and mapped output
