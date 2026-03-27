@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.14] - 2026-03-27
+
+### Fixed
+- **`RunnableFlowChart` extends `builder.FlowChart` instead of `engine.FlowChart`** — `runner/RunnableChart.ts` was importing `FlowChart` from `engine/types.js`, whose `buildTimeStructure` is optional and wider (9-member `type` union). This made `RunnableFlowChart` unassignable to `builder.FlowChart` (which has a required, narrower `buildTimeStructure`), causing a type error when passing the result of `.build()` to `addSubFlowChartBranch` / `addSubFlowChartNext`. Fixed by importing `FlowChart` from `builder/types.js` — which already carries `buildTimeStructure` (required), `description`, `stageDescriptions`, `inputSchema`, `outputSchema`, and `outputMapper`, making the redundant field re-declarations in `RunnableFlowChart` unnecessary. `runner → builder → engine` has no circular dependency.
+- **Docs: `recording.mdx` narrative output corrected** — example output comments showed the old `[Set]`/`[Read]` format (e.g. `[Set] temperature = 38.5`). Updated to match the current `CombinedNarrativeRecorder` output: `Step N: Write key = value` / `Step N: Read key = value` with quoted strings for string values.
+- **Docs: `self-describing.mdx` `defineContract` section removed** — `defineContract` is deliberately not exported from the public API (enforced by conformance test — "use `.contract()`"). The section documented an unreachable import. Replaced with a corrected JSON Schema section referencing only `.contract()`.
+
 ## [3.0.13] - 2026-03-26
 
 ### Added

@@ -123,48 +123,9 @@ console.log(tool);
 
 The `name` is derived from the root stage name (lowercased, spaces replaced with underscores). The `description` is the numbered step list generated from stage descriptions you provide in the builder.
 
-## defineContract (explicit approach)
-
-For cases where you want to separate schema definitions from the builder, use `defineContract()`.
-
-**Note on property names:** The builder's `.contract()` method uses `input`/`output`/`mapper` (short form). `defineContract()` uses the longer `inputSchema`/`outputSchema`/`outputMapper` for clarity at the call site. Both produce the same result.
-
-```ts
-import { defineContract } from 'footprintjs';
-import { z } from 'zod';
-
-const contract = defineContract(chart, {
-  inputSchema: z.object({
-    item: z.string().describe('Product name'),
-    quantity: z.number().describe('Number of units'),
-    unitPrice: z.number().describe('Price per unit in USD'),
-  }),
-  outputSchema: z.object({
-    total: z.number(),
-    shippingMethod: z.enum(['standard', 'express']),
-    status: z.string(),
-  }),
-  outputMapper: (scope) => ({
-    total: scope.total as number,
-    shippingMethod: scope.shippingMethod as string,
-    status: scope.status as string,
-  }),
-});
-
-// Generate OpenAPI from the contract
-const spec = contract.toOpenAPI({ title: 'Order API', version: '2.0.0' });
-
-// Execute and extract typed output
-const executor = new FlowChartExecutor(chart);
-await executor.run({ input: { item: 'Widget', quantity: 3, unitPrice: 29.99 } });
-
-const snapshot = executor.getSnapshot();
-const output = contract.outputMapper?.(snapshot.sharedState ?? {});
-```
-
 ## JSON Schema (without Zod)
 
-Both `.contract()` and `defineContract()` accept plain JSON Schema objects if you don't use Zod:
+`.contract()` also accepts plain JSON Schema objects if you don't use Zod:
 
 ```ts
 .contract({

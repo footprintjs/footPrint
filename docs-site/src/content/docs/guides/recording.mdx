@@ -5,7 +5,7 @@ description: narrative(), metrics(), debug() — attaching observers to flowchar
 
 import { Aside } from '@astrojs/starlight/components';
 
-This guide assumes you know how to build a flowchart — see [Building a flowchart](/footPrint/guides/building/) first. It also uses `FlowChartExecutor`, introduced in [Quick Start](/footPrint/getting-started/quick-start/).
+This guide assumes you know how to build a flowchart — see [Building a flowchart](/footPrint/guides/building/) first.
 
 footprintjs has two observer layers: **Scope recorders** fire on data operations (reads, writes, commits) *during* stage execution. **Flow recorders** fire on control-flow events (decisions, loops, forks) *after* each stage completes.
 
@@ -45,14 +45,15 @@ await executor.run();
 
 executor.getNarrative().forEach((line) => console.log(line));
 // Stage 1: The process began with Ingest.
-//   [Set] temperature = 38.5
-//   [Set] unit = celsius
+//   Step 1: Write temperature = 38.5
+//   Step 2: Write unit = "celsius"
 // Stage 2: Next, it moved on to Convert.
-//   [Read] unit -> celsius
-//   [Set] temperatureF = 101.3
+//   Step 1: Read unit = "celsius"
+//   Step 2: Read temperature = 38.5
+//   Step 3: Write temperatureF = 101.3
 // Stage 3: Next, it moved on to Classify.
-//   [Read] temperatureF -> 101.3
-//   [Set] status = fever
+//   Step 1: Read temperatureF = 101.3
+//   Step 2: Write status = "fever"
 ```
 
 ## Built-in: MetricRecorder

@@ -6,9 +6,10 @@
  * d3-style chainable run methods and self-describing outputs.
  */
 
+import type { FlowChart } from '../builder/types.js';
 import { zodToJsonSchema } from '../contract/schema.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { FlowChart, RunOptions, SerializedPipelineStructure } from '../engine/types.js';
+import type { RunOptions } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
@@ -27,20 +28,14 @@ export interface MCPToolDescription {
   inputSchema?: unknown;
 }
 
-/** FlowChart with d3-style methods: run, recorder, redact, toOpenAPI, toMCPTool. */
+/**
+ * FlowChart enriched with d3-style run methods and self-describing outputs.
+ *
+ * Extends builder.FlowChart (which already carries buildTimeStructure, description,
+ * stageDescriptions, inputSchema, outputSchema, outputMapper) and adds the runtime
+ * methods attached by makeRunnable().
+ */
 export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<TOut, TScope> {
-  // ── Builder metadata (set by FlowChartBuilder.build()) ──────────────────
-  /** Always set by build() — narrows the optional field from FlowChart to required. */
-  buildTimeStructure: SerializedPipelineStructure;
-  /** Human-readable numbered step list. Empty string when no descriptions were provided. */
-  description: string;
-  /** Per-stage descriptions, keyed by stage name. */
-  stageDescriptions: Map<string, string>;
-  /** Output schema (Zod or JSON Schema) — declared via .contract(). */
-  outputSchema?: unknown;
-  /** Output mapper — extracts response from final scope. Declared via .contract(). */
-  outputMapper?: (finalScope: Record<string, unknown>) => unknown;
-  // ── Runtime methods ──────────────────────────────────────────────────────
   /** Attach a recorder for the next run. Returns a chainable RunContext. */
   recorder(r: Recorder | FlowRecorder): RunContext<TOut, TScope>;
   /** Set redaction policy for the next run. Returns a chainable RunContext. */
