@@ -3,7 +3,7 @@ title: Building a flowchart
 description: All builder methods — addFunction, addDeciderFunction, addSelectorFunction, addSubFlowChart, loopTo, contract.
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
 A footprintjs flowchart is a **directed graph of stages** built once, executed many times. This guide covers every builder method.
 
@@ -49,39 +49,38 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 
 The decider function can return a plain string **or** a `DecisionResult` from `decide()` (which also captures evidence).
 
-<Tabs>
-  <TabItem label="With decide()">
-    ```ts
-    import { flowChart, decide } from 'footprintjs';
+**With `decide()` — captures evidence automatically:**
 
-    const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
-      scope.amount = 149.99;
-    }, 'receive-order')
-      .addDeciderFunction('RouteOrder', (scope) => {
-        return decide(scope, [
-          { when: { amount: { gt: 100 } }, then: 'large', label: 'Large order' },
-        ], 'small');
-      }, 'route-order', 'Route by order size')
-        .addFunctionBranch('large', 'ExpressShip', async (scope) => {
-          scope.status = 'express-shipping';
-        }, 'Express fulfillment')
-        .addFunctionBranch('small', 'StandardShip', async (scope) => {
-          scope.status = 'standard-shipping';
-        })
-        .setDefault('small')
-        .end()
-      .build();
-    ```
-  </TabItem>
-  <TabItem label="Plain string">
-    ```ts
-    .addDeciderFunction('RouteOrder', (scope) => {
-      // Return a plain branch ID — no evidence capture
-      return scope.amount > 100 ? 'large' : 'small';
-    }, 'route-order')
-    ```
-  </TabItem>
-</Tabs>
+```ts
+import { flowChart, decide } from 'footprintjs';
+
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.amount = 149.99;
+}, 'receive-order')
+  .addDeciderFunction('RouteOrder', (scope) => {
+    return decide(scope, [
+      { when: { amount: { gt: 100 } }, then: 'large', label: 'Large order' },
+    ], 'small');
+  }, 'route-order', 'Route by order size')
+    .addFunctionBranch('large', 'ExpressShip', async (scope) => {
+      scope.status = 'express-shipping';
+    }, 'Express fulfillment')
+    .addFunctionBranch('small', 'StandardShip', async (scope) => {
+      scope.status = 'standard-shipping';
+    })
+    .setDefault('small')
+    .end()
+  .build();
+```
+
+**Plain string — no evidence capture:**
+
+```ts
+.addDeciderFunction('RouteOrder', (scope) => {
+  // Return a plain branch ID — no evidence capture
+  return scope.amount > 100 ? 'large' : 'small';
+}, 'route-order')
+```
 
 <Aside>
   `.setDefault('branchId')` sets which branch runs when the decider returns an unknown ID. `.end()` closes the decider block and returns to the outer builder.

@@ -6,6 +6,11 @@ export default defineConfig({
   // or moved to a custom domain (e.g. base: '/', site: 'https://footprintjs.dev').
   site: 'https://footprintjs.github.io',
   base: '/footPrint',
+  redirects: {
+    '/api/modules/main':      '/footPrint/api/modules/index.html',
+    '/api/modules/recorders': '/footPrint/api/modules/recorders.html',
+    '/api/modules/advanced':  '/footPrint/api/modules/advanced.html',
+  },
   integrations: [
     starlight({
       title: 'footprintjs',
@@ -49,15 +54,15 @@ export default defineConfig({
           items: [
             {
               label: 'footprintjs (main)',
-              link: '/footPrint/api/modules/index.html',
+              link: '/api/modules/main',
             },
             {
               label: 'footprintjs/recorders',
-              link: '/footPrint/api/modules/recorders.html',
+              link: '/api/modules/recorders',
             },
             {
               label: 'footprintjs/advanced',
-              link: '/footPrint/api/modules/advanced.html',
+              link: '/api/modules/advanced',
             },
           ],
         },

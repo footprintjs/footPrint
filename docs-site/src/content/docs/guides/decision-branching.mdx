@@ -3,7 +3,7 @@ title: Decision branching
 description: decide() and select() — single-match and multi-match branching with evidence capture.
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
 `decide()` and `select()` turn opaque branch IDs into captured evidence. The narrative goes from *"chose approved"* to *"creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓ → approved."*
 
@@ -71,28 +71,25 @@ Stage 4: Next, it moved on to Approve.
 
 Each rule's `when` field accepts either a **filter object** or a **function**.
 
-<Tabs>
-  <TabItem label="Filter (recommended)">
-    ```ts
-    {
-      when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } },
-      then: 'approved',
-      label: 'Good credit',
-    }
-    ```
-    Captures the key name, operator, threshold, actual value, and pass/fail for every condition. Narrative: *"creditScore 750 gt 700 ✓"*.
-  </TabItem>
-  <TabItem label="Function">
-    ```ts
-    {
-      when: (s) => s.creditScore > 700 && s.dti < 0.43,
-      then: 'approved',
-      label: 'Full qualification',
-    }
-    ```
-    Captures which keys were **read** via a temporary recorder. Narrative: *"examined creditScore (750), dti (0.38)"*. Use when you need arbitrary logic that a filter can't express.
-  </TabItem>
-</Tabs>
+**Filter object (recommended)** — captures key, operator, threshold, actual value, and pass/fail for every condition. Narrative: *"creditScore 750 gt 700 ✓"*.
+
+```ts
+{
+  when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } },
+  then: 'approved',
+  label: 'Good credit',
+}
+```
+
+**Function** — captures which keys were **read** via a temporary recorder. Narrative: *"examined creditScore (750), dti (0.38)"*. Use when you need arbitrary logic that a filter can't express.
+
+```ts
+{
+  when: (s) => s.creditScore > 700 && s.dti < 0.43,
+  then: 'approved',
+  label: 'Full qualification',
+}
+```
 
 ## Filter operators
 

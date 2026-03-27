@@ -1,0 +1,35 @@
+---
+// Generates the home-page pipeline diagram programmatically from the actual
+// chart shown in the "3-step pattern" code example. toMermaid() runs at
+// build time — the diagram is always in sync with the code below it.
+import { flowChart, decide } from 'footprintjs';
+import Mermaid from './Mermaid.astro';
+
+interface OrderState {
+  orderId: string;
+  total: number;
+  tier?: string;
+  status?: string;
+}
+
+const builder = flowChart<OrderState>('Validate', async (scope) => {
+  scope.tier = scope.total > 100 ? 'premium' : 'standard';
+}, 'validate')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { tier: { eq: 'premium' } }, then: 'express', label: 'Premium order' },
+    ], 'standard');
+  }, 'route')
+    .addFunctionBranch('express', 'ExpressShip', async (scope) => {
+      scope.status = 'express-shipping';
+    })
+    .addFunctionBranch('standard', 'StandardShip', async (scope) => {
+      scope.status = 'standard-shipping';
+    })
+    .setDefault('standard')
+    .end();
+
+const mermaidCode = builder.toMermaid();
+---
+
+<Mermaid code={mermaidCode} />

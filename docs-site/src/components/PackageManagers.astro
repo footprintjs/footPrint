@@ -1,0 +1,176 @@
+---
+interface Props {
+  pkg: string;
+}
+const { pkg } = Astro.props;
+const uid = `pm-${Math.random().toString(36).slice(2, 8)}`;
+
+const managers = [
+  { label: 'npm',  cmd: `npm install ${pkg}` },
+  { label: 'pnpm', cmd: `pnpm add ${pkg}` },
+  { label: 'yarn', cmd: `yarn add ${pkg}` },
+];
+---
+
+<div class="pm-tabs" id={uid}>
+  <div class="pm-bar" role="tablist">
+    {managers.map((m, i) => (
+      <button
+        role="tab"
+        class={`pm-tab${i === 0 ? ' active' : ''}`}
+        data-target={`${uid}-${m.label}`}
+        aria-selected={i === 0 ? 'true' : 'false'}
+      >
+        {m.label}
+      </button>
+    ))}
+  </div>
+  {managers.map((m, i) => (
+    <div
+      id={`${uid}-${m.label}`}
+      class={`pm-panel${i === 0 ? ' active' : ''}`}
+      role="tabpanel"
+    >
+      <pre class="pm-code"><code>{m.cmd}</code></pre>
+      <button class="pm-copy" data-code={m.cmd} aria-label="Copy">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        <span class="pm-copy-label">Copy</span>
+      </button>
+    </div>
+  ))}
+</div>
+
+<script is:inline>
+(function () {
+  document.addEventListener('click', function (e) {
+    var tab = e.target.closest('.pm-tab');
+    var copyBtn = e.target.closest('.pm-copy');
+
+    if (tab) {
+      var bar = tab.closest('.pm-bar');
+      var container = bar.parentElement;
+      bar.querySelectorAll('.pm-tab').forEach(function (t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      container.querySelectorAll('.pm-panel').forEach(function (p) {
+        p.classList.remove('active');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      var panel = document.getElementById(tab.dataset.target);
+      if (panel) panel.classList.add('active');
+    }
+
+    if (copyBtn) {
+      var code = copyBtn.dataset.code;
+      if (!code) return;
+      navigator.clipboard.writeText(code).then(function () {
+        var label = copyBtn.querySelector('.pm-copy-label');
+        if (label) {
+          label.textContent = 'Copied!';
+          setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+        }
+      });
+    }
+  });
+})();
+</script>
+
+<style>
+  .pm-tabs {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 1rem 0;
+    font-family: var(--sl-font-mono, monospace);
+  }
+
+  .pm-bar {
+    display: flex;
+    background: var(--sl-color-gray-6);
+    border-bottom: 1px solid var(--sl-color-gray-5);
+    gap: 0;
+  }
+
+  .pm-tab {
+    padding: 0.45rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-2);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .pm-tab:last-child {
+    border-right: none;
+  }
+
+  .pm-tab:hover {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-5);
+  }
+
+  .pm-tab.active {
+    color: var(--sl-color-accent-high);
+    background: var(--sl-color-gray-5);
+  }
+
+  .pm-panel {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--sl-color-black);
+    gap: 0.5rem;
+  }
+
+  .pm-panel.active {
+    display: flex;
+  }
+
+  .pm-code {
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-1);
+    white-space: pre;
+    flex: 1;
+  }
+
+  .pm-code code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  .pm-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--sl-color-gray-5);
+    border: 1px solid var(--sl-color-gray-4);
+    border-radius: 4px;
+    color: var(--sl-color-gray-2);
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
+    font-family: var(--sl-font);
+  }
+
+  .pm-copy:hover {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-4);
+  }
+</style>

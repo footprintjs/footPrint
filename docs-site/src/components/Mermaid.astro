@@ -12,32 +12,61 @@ const uid = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
 
 <script is:inline>
 (function () {
-  function init() {
+  // Starlight sets data-theme="light" or data-theme="dark" on <html>.
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+
+  var mermaidModule = null;
+
+  function renderAll() {
+    if (!mermaidModule) return;
+    var theme = getMermaidTheme();
+    mermaidModule.initialize({ startOnLoad: false, theme: theme, fontFamily: 'inherit' });
+
     var wraps = document.querySelectorAll('.mermaid-wrap');
-    if (!wraps.length) return;
+    for (var w of wraps) {
+      var uid = w.dataset.uid;
+      var code = w.dataset.code;
+      var out = document.getElementById(uid);
+      if (!out || !code) continue;
+      // Clear previous render before re-rendering on theme change
+      out.textContent = '';
+      (function (el, c, id) {
+        // SVG from mermaid.render() is developer-authored content, not user input.
+        // DOMParser parses it as XML for safe DOM insertion.
+        mermaidModule.render(id + '-svg', c).then(function (r) {
+          var parser = new DOMParser();
+          var doc = parser.parseFromString(r.svg, 'image/svg+xml');
+          el.appendChild(doc.documentElement.cloneNode(true));
+        }).catch(console.error);
+      })(out, code, uid);
+    }
+  }
+
+  function init() {
+    if (!document.querySelector('.mermaid-wrap')) return;
 
     var script = document.createElement('script');
     script.type = 'module';
-    // SVG from mermaid.render() is developer-authored content (hardcoded in MDX),
-    // not user input. DOMParser is used to parse it as XML for safe DOM insertion.
-    script.textContent = [
-      'import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";',
-      'mermaid.initialize({ startOnLoad: false, theme: "neutral", fontFamily: "inherit" });',
-      'var wraps = document.querySelectorAll(".mermaid-wrap");',
-      'for (var w of wraps) {',
-      '  var uid = w.dataset.uid;',
-      '  var code = w.dataset.code;',
-      '  var out = document.getElementById(uid);',
-      '  if (!out || !code) continue;',
-      '  (function(el) {',
-      '    mermaid.render(el.id + "-svg", code).then(function(r) {',
-      '      var parser = new DOMParser();',
-      '      var doc = parser.parseFromString(r.svg, "image/svg+xml");',
-      '      el.appendChild(doc.documentElement.cloneNode(true));',
-      '    }).catch(console.error);',
-      '  })(out);',
-      '}',
-    ].join('\n');
+    script.textContent =
+      'import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";' +
+      'window.__mermaidLoaded(mermaid);';
+    window.__mermaidLoaded = function (m) {
+      mermaidModule = m;
+      renderAll();
+
+      // Re-render when Starlight toggles light/dark (watches data-theme attribute)
+      var observer = new MutationObserver(function (mutations) {
+        for (var mut of mutations) {
+          if (mut.attributeName === 'data-theme') {
+            renderAll();
+            break;
+          }
+        }
+      });
+      observer.observe(document.documentElement, { attributes: true });
+    };
     document.head.appendChild(script);
   }
 

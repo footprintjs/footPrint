@@ -11,5 +11,8 @@
   "dependencies": {
     "@astrojs/starlight": "^0.38.2",
     "astro": "^6.1.0"
+  },
+  "devDependencies": {
+    "footprintjs": "^3.0.13"
   }
 }
