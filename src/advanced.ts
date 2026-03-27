@@ -85,7 +85,7 @@ export type {
   StageContextLike,
   StrictMode,
 } from './lib/scope/index.js';
-export { createErrorMessage, createProtectedScope } from './lib/scope/index.js';
+export { createErrorMessage, createProtectedScope, ScopeFacade } from './lib/scope/index.js';
 export {
   attachScopeMethods,
   isSubclassOfScopeFacade,

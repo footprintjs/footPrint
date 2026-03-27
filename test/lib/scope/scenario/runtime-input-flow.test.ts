@@ -1,5 +1,6 @@
 import type { ScopeFactory } from '../../../../src';
-import { flowChart, FlowChartExecutor, ScopeFacade } from '../../../../src';
+import { flowChart, FlowChartExecutor } from '../../../../src';
+import { ScopeFacade } from '../../../../src/lib/scope';
 
 describe('Scenario: runtime input flow via run({ input })', () => {
   const scopeFactory: ScopeFactory = (ctx, stageName, readOnly) => new ScopeFacade(ctx, stageName, readOnly);

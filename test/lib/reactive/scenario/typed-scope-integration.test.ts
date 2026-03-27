@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createTypedScopeFactory, typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
 import type { TypedScope } from '../../../../src/lib/reactive/types';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 import { MetricRecorder } from '../../../../src/lib/scope';
@@ -51,7 +51,7 @@ describe('TypedScope integration -- basic typed access', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     const snapshot = executor.getSnapshot();
@@ -81,7 +81,7 @@ describe('TypedScope integration -- narrative', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 
@@ -116,7 +116,7 @@ describe('TypedScope integration -- recorders', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
     executor.attachRecorder(metrics);
     await executor.run();
@@ -155,7 +155,7 @@ describe('TypedScope integration -- nested writes', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     const state = executor.getSnapshot().sharedState;
@@ -190,7 +190,7 @@ describe('TypedScope integration -- array mutations', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     const state = executor.getSnapshot().sharedState;
@@ -214,7 +214,7 @@ describe('TypedScope integration -- $-methods', () => {
       'check',
     ).build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run({ input: { requestId: 'req-123' } });
 
     expect(capturedArgs.requestId).toBe('req-123');
@@ -231,7 +231,7 @@ describe('TypedScope integration -- $-methods', () => {
       'debug',
     ).build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
     // If it doesn't throw, $debug delegation works
     expect(executor.getSnapshot().sharedState.x).toBe(1);
@@ -260,7 +260,7 @@ describe('TypedScope integration -- $-methods', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     expect(capturedZip).toBe('90210');
@@ -293,7 +293,7 @@ describe('TypedScope integration -- $break', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     expect(stagesRun).toEqual(['First']);
@@ -324,7 +324,7 @@ describe('TypedScope integration -- enumeration', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<SimpleState>());
+    const executor = new FlowChartExecutor(chart);
     await executor.run();
 
     expect(capturedKeys).toContain('x');

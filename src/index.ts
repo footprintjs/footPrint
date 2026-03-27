@@ -211,6 +211,3 @@ export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
 
 /** @category Dev Tools */
 export { defineScopeFromZod } from './lib/scope/index.js';
-
-/** @category Dev Tools */
-export { ScopeFacade } from './lib/scope/index.js';

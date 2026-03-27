@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { decide, FlowChartExecutor, select } from '../../../../src/index';
-import { createTypedScopeFactory, typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
 
 // ── State types ──────────────────────────────────────────────────────────
 
@@ -74,7 +74,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .end()
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 
@@ -140,7 +140,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .end()
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 
@@ -203,7 +203,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .end()
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 
@@ -252,7 +252,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .end()
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<ScreeningState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 
@@ -312,7 +312,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
       .end()
       .build();
 
-    const executor = new FlowChartExecutor(chart, createTypedScopeFactory<LoanState>());
+    const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     await executor.run();
 

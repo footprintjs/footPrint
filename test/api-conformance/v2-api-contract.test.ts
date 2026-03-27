@@ -63,11 +63,6 @@ describe('API Contract: Public Exports', () => {
     const mod = await import('../../src/index');
     expect(typeof mod.DebugRecorder).toBe('function');
   });
-
-  it('ScopeFacade is exported', async () => {
-    const mod = await import('../../src/index');
-    expect(typeof mod.ScopeFacade).toBe('function');
-  });
 });
 
 // ============================================================================
@@ -75,6 +70,11 @@ describe('API Contract: Public Exports', () => {
 // ============================================================================
 
 describe('API Contract: Removed from Main Export', () => {
+  it('ScopeFacade should NOT be exported from main (use Recorder instead — see footprintjs/advanced)', async () => {
+    const mod = await import('../../src/index');
+    expect((mod as any).ScopeFacade).toBeUndefined();
+  });
+
   it('typedFlowChart should NOT be exported (use flowChart<T> instead)', async () => {
     const mod = await import('../../src/index');
     expect((mod as any).typedFlowChart).toBeUndefined();
