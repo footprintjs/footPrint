@@ -60,8 +60,8 @@ npm test
 if [[ -n "$SAMPLES_DIR" && -d "$SAMPLES_DIR" ]]; then
   echo "==> Running sample projects ($SAMPLES_DIR)..."
 
-  # Install latest local build
-  (cd "$SAMPLES_DIR" && npm install 2>&1 | tail -1)
+  # Install latest local build (--legacy-peer-deps: LLM SDK devDeps have zod v3/v4 peer conflicts)
+  (cd "$SAMPLES_DIR" && npm install --legacy-peer-deps 2>&1 | tail -1)
 
   # Run integration snapshot tests (verifies narrative output against golden snapshots)
   echo "==> Running sample integration tests (snapshot assertions)..."
