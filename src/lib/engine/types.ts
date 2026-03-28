@@ -54,7 +54,7 @@ export type StageFunction<TOut = any, TScope = any> = (
   scope: TScope,
   breakPipeline: () => void,
   streamCallback?: StreamCallback,
-) => Promise<TOut> | TOut;
+) => Promise<TOut | void> | TOut | void;
 
 /** Factory that creates a scope instance for each stage. */
 export type ScopeFactory<TScope = any> = (
@@ -186,7 +186,7 @@ export interface RunOptions {
    * Becomes the readOnlyContext accessible via `scope.getArgs()`.
    * Stages cannot overwrite these keys with `setValue()`.
    */
-  input?: Record<string, unknown>;
+  input?: unknown;
   /**
    * Execution environment — read-only infrastructure values that propagate
    * through nested executors (like `process.env` for flowcharts).

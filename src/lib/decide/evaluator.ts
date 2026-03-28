@@ -70,7 +70,7 @@ const MAX_VALUE_LEN = 80;
  * @param filter - The WhereFilter to evaluate
  * @returns { matched, conditions } — matched = all conditions passed
  */
-export function evaluateFilter<T extends Record<string, unknown>>(
+export function evaluateFilter<T extends object>(
   getValueFn: (key: string) => unknown,
   isRedactedFn: (key: string) => boolean,
   filter: WhereFilter<T>,

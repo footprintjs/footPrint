@@ -87,7 +87,7 @@ export interface ScopeMethods {
 // The consumer-facing type. T is the user's state interface.
 // Property access is typed; $-methods provide escape hatches.
 
-export type TypedScope<T extends Record<string, unknown> = Record<string, unknown>> = T & ScopeMethods;
+export type TypedScope<T extends object = Record<string, unknown>> = T & ScopeMethods;
 
 // -- ReactiveOptions ---------------------------------------------------------
 // Configuration passed to createTypedScope.

@@ -238,10 +238,7 @@ function createNestedProxy(
  * @param options - Optional configuration (breakPipeline injection)
  * @returns A Proxy with typed property access and $-prefixed methods
  */
-export function createTypedScope<T extends Record<string, unknown>>(
-  target: ReactiveTarget,
-  options?: ReactiveOptions,
-): TypedScope<T> {
+export function createTypedScope<T extends object>(target: ReactiveTarget, options?: ReactiveOptions): TypedScope<T> {
   const state: ReactiveState = {
     breakFn: options?.breakPipeline,
     childCache: new Map(),

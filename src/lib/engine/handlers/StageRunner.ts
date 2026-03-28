@@ -68,12 +68,12 @@ export class StageRunner<TOut = any, TScope = any> {
     if (output instanceof Promise) {
       // Race against AbortSignal if provided
       if (this.deps.signal) {
-        result = await raceAbort(output, this.deps.signal);
+        result = (await raceAbort(output, this.deps.signal)) as TOut;
       } else {
-        result = await output;
+        result = (await output) as TOut;
       }
     } else {
-      result = output;
+      result = output as TOut;
     }
 
     // Notify recorders of stage end (if scope supports it)

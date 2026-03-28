@@ -30,17 +30,15 @@ export type FilterOps<V> = {
 
 // -- WhereFilter (flat keys only, no nested v1) ------------------------------
 
-export type WhereFilter<T extends Record<string, unknown> = Record<string, unknown>> = {
+export type WhereFilter<T extends object = Record<string, unknown>> = {
   [K in keyof T]?: FilterOps<T[K]>;
 };
 
 // -- Rule Definition ---------------------------------------------------------
 
-export type WhenClause<T extends Record<string, unknown> = Record<string, unknown>> =
-  | ((s: T) => boolean)
-  | WhereFilter<T>;
+export type WhenClause<T extends object = Record<string, unknown>> = ((s: T) => boolean) | WhereFilter<T>;
 
-export interface DecideRule<T extends Record<string, unknown> = Record<string, unknown>> {
+export interface DecideRule<T extends object = Record<string, unknown>> {
   when: WhenClause<T>;
   then: string;
   /** Human-readable rule name for narrative: "Good credit" */

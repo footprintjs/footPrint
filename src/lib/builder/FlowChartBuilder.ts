@@ -13,8 +13,9 @@
  */
 
 import type { ScopeFactory } from '../engine/types.js';
+import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
-import { createTypedScopeFactory } from './typedFlowChart.js';
+import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';
 import type {
   BuildTimeExtractor,
   FlowChart,
@@ -109,7 +110,7 @@ export class DeciderList<TOut = any, TScope = any> {
 
   addSubFlowChartBranch(
     id: string,
-    subflow: FlowChart<TOut, TScope>,
+    subflow: FlowChart<any, any>,
     mountName?: string,
     options?: SubflowMountOptions,
   ): DeciderList<TOut, TScope> {
@@ -155,7 +156,7 @@ export class DeciderList<TOut = any, TScope = any> {
 
   addLazySubFlowChartBranch(
     id: string,
-    resolver: () => FlowChart<TOut, TScope>,
+    resolver: () => FlowChart<any, any>,
     mountName?: string,
     options?: SubflowMountOptions,
   ): DeciderList<TOut, TScope> {
@@ -324,7 +325,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
 
   addSubFlowChartBranch(
     id: string,
-    subflow: FlowChart<TOut, TScope>,
+    subflow: FlowChart<any, any>,
     mountName?: string,
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
@@ -370,7 +371,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
 
   addLazySubFlowChartBranch(
     id: string,
-    resolver: () => FlowChart<TOut, TScope>,
+    resolver: () => FlowChart<any, any>,
     mountName?: string,
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
@@ -502,7 +503,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
   }
 
-  private _appendSubflowDescription(id: string, name: string, subflow: FlowChart<TOut, TScope>): void {
+  private _appendSubflowDescription(id: string, name: string, subflow: FlowChart<any, any>): void {
     this._stepCounter++;
     this._stageStepMap.set(id, this._stepCounter);
     if (subflow.description) {
@@ -633,7 +634,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addDeciderFunction(
     name: string,
-    fn: StageFunction<TOut, TScope>,
+    fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
   ): DeciderList<TOut, TScope> {
@@ -672,7 +673,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addSelectorFunction(
     name: string,
-    fn: StageFunction<TOut, TScope>,
+    fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
   ): SelectorFnList<TOut, TScope> {
@@ -755,12 +756,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Subflow Mounting ──
 
-  addSubFlowChart(
-    id: string,
-    subflow: FlowChart<TOut, TScope>,
-    mountName?: string,
-    options?: SubflowMountOptions,
-  ): this {
+  addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
 
@@ -911,7 +907,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addSubFlowChartNext(
     id: string,
-    subflow: FlowChart<TOut, TScope>,
+    subflow: FlowChart<any, any>,
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
@@ -1163,6 +1159,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Factory Function
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Overload 1: typed state — flowChart<LoanState>(...) → scope: TypedScope<LoanState>
+export function flowChart<TState extends object>(
+  name: string,
+  fn: TypedStageFunction<TState>,
+  id: string,
+  buildTimeExtractor?: BuildTimeExtractor<any>,
+  description?: string,
+): FlowChartBuilder<any, TypedScope<TState>>;
+
+// Overload 2: fully explicit generics (advanced / ScopeFacade usage)
+export function flowChart<TOut = any, TScope = any>(
+  name: string,
+  fn: StageFunction<TOut, TScope>,
+  id: string,
+  buildTimeExtractor?: BuildTimeExtractor<any>,
+  description?: string,
+): FlowChartBuilder<TOut, TScope>;
 
 export function flowChart<TOut = any, TScope = any>(
   name: string,

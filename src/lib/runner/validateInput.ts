@@ -11,6 +11,6 @@ import { validateOrThrow } from '../schema/index.js';
  * Validates `input` against `schema`. Throws InputValidationError on failure.
  * Returns the (possibly transformed) input on success.
  */
-export function validateInput(schema: unknown, input: Record<string, unknown>): Record<string, unknown> {
-  return validateOrThrow(schema, input) as Record<string, unknown>;
+export function validateInput(schema: unknown, input: unknown): unknown {
+  return validateOrThrow(schema, input);
 }

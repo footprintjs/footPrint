@@ -66,7 +66,7 @@ function getRedactedFn(scope: unknown): (key: string) => boolean {
 
 // -- evaluate a single rule --------------------------------------------------
 
-function evaluateRule<S extends Record<string, unknown>>(
+function evaluateRule<S extends object>(
   scope: S,
   rule: DecideRule<S>,
   index: number,
@@ -135,11 +135,7 @@ function evaluateRule<S extends Record<string, unknown>>(
  * @param rules - Array of DecideRule (function or filter when clauses)
  * @param defaultBranch - Branch ID if no rule matches
  */
-export function decide<S extends Record<string, unknown>>(
-  scope: S,
-  rules: DecideRule<S>[],
-  defaultBranch: string,
-): DecisionResult {
+export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defaultBranch: string): DecisionResult {
   const attachFn = getAttachFn(scope);
   const detachFn = getDetachFn(scope);
   const valueFn = getValueFn(scope);
@@ -178,7 +174,7 @@ export function decide<S extends Record<string, unknown>>(
  * @param scope - TypedScope or ScopeFacade
  * @param rules - Array of DecideRule (function or filter when clauses)
  */
-export function select<S extends Record<string, unknown>>(scope: S, rules: DecideRule<S>[]): SelectionResult {
+export function select<S extends object>(scope: S, rules: DecideRule<S>[]): SelectionResult {
   const attachFn = getAttachFn(scope);
   const detachFn = getDetachFn(scope);
   const valueFn = getValueFn(scope);

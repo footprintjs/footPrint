@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.16] - 2026-03-27
+
+### Fixed
+- **`flowChart<T>()` typed overload** — calling `flowChart<LoanState>(name, fn, id)` now infers `scope: TypedScope<LoanState>` in the stage function, instead of `scope: any`. Added two overloads: single-type-param for TypedScope usage, explicit-generics for advanced/ScopeFacade usage.
+- **`StageFunction` return type widened to `TOut | void`** — stage functions that return nothing (i.e., `async (scope) => { scope.x = 1 }`) no longer produce a TypeScript error. `StageRunner` uses a cast internally to maintain `TOut` through the pipeline.
+- **`T extends object` replaces `T extends Record<string, unknown>`** — interfaces without index signatures (e.g. `interface OrderState { total: number }`) can now be passed to `flowChart<T>()`, `decide()`, `select()`, `TypedScope<T>`, and `createTypedScope()`. Changed across `reactive/`, `decide/`, and `builder/`.
+- **`RunOptions.input` widened to `unknown`** — `run({ input })` now accepts any value (including plain class instances), not just `Record<string, unknown>`. `validateInput` signature updated accordingly.
+- **`addSubFlowChartBranch`/`addSubFlowChartNext`/`addSubFlowChartBranch`/`addLazySubFlowChartBranch` accept `FlowChart<any, any>`** — subflows have independent state types; parent and child no longer need to share the same `TOut`/`TScope`.
+- **`addDeciderFunction`/`addSelectorFunction` `fn` param changed to `StageFunction<any, TScope>`** — decider functions return `DecisionResult` or branch IDs, not `TOut`; this resolves the overload mismatch when using `decide()`.
+
 ## [3.0.15] - 2026-03-27
 
 ### Changed

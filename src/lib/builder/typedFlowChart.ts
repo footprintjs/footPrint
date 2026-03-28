@@ -19,7 +19,7 @@ import type { BuildTimeExtractor } from './types.js';
  * Clean stage function type for TypedScope users.
  * No breakPipeline parameter — use scope.$break() instead.
  */
-export type TypedStageFunction<T extends Record<string, unknown>> = (scope: TypedScope<T>) => Promise<void> | void;
+export type TypedStageFunction<T extends object> = (scope: TypedScope<T>) => Promise<void> | void;
 
 /**
  * Creates a ScopeFactory that produces TypedScope<T> instances.
@@ -27,7 +27,7 @@ export type TypedStageFunction<T extends Record<string, unknown>> = (scope: Type
  * Pass to FlowChartExecutor as the second argument:
  *   new FlowChartExecutor(chart, createTypedScopeFactory<MyState>())
  */
-export function createTypedScopeFactory<T extends Record<string, unknown>>(): ScopeFactory<TypedScope<T>> {
+export function createTypedScopeFactory<T extends object>(): ScopeFactory<TypedScope<T>> {
   return ((ctx: any, stageName: string, readOnly?: unknown, env?: any) => {
     const facade = new ScopeFacade(ctx, stageName, readOnly, env);
     return createTypedScope<T>(facade);
@@ -42,7 +42,7 @@ export function createTypedScopeFactory<T extends Record<string, unknown>>(): Sc
  *     .addFunction('Process', processFn, 'process')
  *     .build();
  */
-export function typedFlowChart<T extends Record<string, unknown>>(
+export function typedFlowChart<T extends object>(
   name: string,
   fn: TypedStageFunction<T>,
   id: string,
