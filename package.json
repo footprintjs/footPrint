@@ -1,30 +1,38 @@
 {
   "name": "footprintjs",
   "version": "3.0.17",
-  "description": "Turn your whiteboard flowchart into running code — with automatic causal traces for LLM reasoning",
+  "description": "Explainable backend flows — automatic causal traces, decision evidence, and MCP tool generation for AI agents",
   "license": "MIT",
   "author": "Sanjay Krishna Anbalagan",
   "repository": {
     "type": "git",
     "url": "https://github.com/footprintjs/footPrint.git"
   },
-  "homepage": "https://github.com/footprintjs/footPrint",
+  "homepage": "https://footprintjs.github.io/footPrint/",
   "bugs": {
     "url": "https://github.com/footprintjs/footPrint/issues"
   },
   "keywords": [
-    "footprint",
+    "explainability",
+    "xai",
+    "ai-agent",
+    "mcp",
+    "decision-engine",
+    "rule-engine",
+    "audit-trail",
+    "causal-trace",
     "flowchart",
     "pipeline",
     "workflow",
     "llm",
-    "causal-trace",
+    "openapi",
     "narrative",
-    "state-management",
     "observability",
+    "tracing",
+    "state-management",
     "time-travel-debugging",
-    "scope",
-    "typescript"
+    "typescript",
+    "footprint"
   ],
   "engines": {
     "node": ">=20"

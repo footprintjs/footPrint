@@ -1,0 +1,58 @@
+name: Feature Request
+description: Propose a new feature or improvement
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. The best feature requests explain the problem first, not just the solution — it helps us find the right design.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the specific situation where the current library falls short.
+        Example: "When I have 50+ stages in a loop, the narrative has 50 identical lines and I can't see the signal."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: |
+        What would you like to see? If you have a specific API in mind, sketch it out.
+      render: typescript
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds have you tried? Why don't they work for your case?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      multiple: true
+      options:
+        - Builder API
+        - TypedScope / reactive proxy
+        - decide() / select()
+        - Executor / run options
+        - Recorders / narrative
+        - FlowRecorder strategies
+        - Schema / contract
+        - Self-describing (toOpenAPI, toMCPTool)
+        - Subflows / composition
+        - Types / TypeScript ergonomics
+        - Performance
+        - Documentation
+        - Other
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, prior art, or any other context that would help.

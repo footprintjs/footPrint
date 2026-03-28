@@ -1,0 +1,94 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out as much as you can — a minimal reproduction is worth a thousand descriptions.
+
+        **Security vulnerability?** Please use [private vulnerability reporting](https://github.com/footprintjs/footPrint/security/advisories/new) instead of filing a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: footprintjs version
+      placeholder: "e.g. 3.0.17"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "e.g. 20.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: typescript-version
+    attributes:
+      label: TypeScript version (if applicable)
+      placeholder: "e.g. 5.4.2"
+
+  - type: dropdown
+    id: module-format
+    attributes:
+      label: Module format
+      options:
+        - ESM (import/export)
+        - CommonJS (require)
+        - Both / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you expect vs. what did you get?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        Paste a self-contained code snippet that demonstrates the bug.
+        The smaller the better — if you can reproduce it with a 10-line flowchart, please do.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error output / stack trace
+      description: Paste the full error message and stack trace if one was thrown.
+      render: shell
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area is affected?
+      multiple: true
+      options:
+        - Builder (flowChart, addFunction, addDeciderFunction, …)
+        - TypedScope / reactive proxy
+        - decide() / select() / filter operators
+        - Executor (FlowChartExecutor, run())
+        - Recorders (narrative, metrics, debug)
+        - FlowRecorder strategies
+        - Schema validation (.contract(), Zod, JSON Schema)
+        - Self-describing (toOpenAPI, toMCPTool)
+        - Subflows
+        - Streaming
+        - Types / TypeScript inference
+        - Other
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant — environment, framework, related issues.
