@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.17] - 2026-03-27
+
+### Fixed
+- **`toMCPTool()` — MCP spec compliance** (3 fixes):
+  - **`name` now uses `root.id`** (explicit machine-readable id) instead of lowercasing `root.name`. `flowChart('ProcessOrder', fn, 'process-order')` now emits `name: 'process-order'` instead of `'processorder'`.
+  - **`name` is sanitized** to the MCP allowlist `[A-Za-z0-9_\-.]`. Any disallowed character is replaced with `_`. Leading/trailing underscores are trimmed.
+  - **`inputSchema` is always present** (required by the MCP spec). Previously it was omitted when no `.contract()` was set. Now defaults to `{ type: 'object', properties: {}, additionalProperties: false }` (the MCP-recommended form for no-parameter tools).
+- **`toOpenAPI()` — path now uses slugified `root.id`** instead of slugifying `root.name`. For `flowChart('ProcessOrder', fn, 'process-order')`, the path is now `/process-order` instead of `/processorder`.
+- **`toOpenAPI()` — parameterized calls are no longer incorrectly cached**. Previously, calling `chart.toOpenAPI({ title: 'A' })` then `chart.toOpenAPI({ title: 'B' })` silently returned the first call's result. Now only no-options calls are cached; calls with options always recompute.
+- **`MCPToolDescription.inputSchema` type changed from `unknown` to `JsonSchema`** (source-level breaking change — see migration below). This correctly models that `inputSchema` is always a JSON Schema object. Runtime behavior is unchanged for JS users.
+- **`toMCPTool()` / `toOpenAPI()` now use `normalizeSchema` from `contract/schema.ts`** instead of a local duplicate with weaker typing.
+
+#### Migration — `MCPToolDescription.inputSchema`
+If you construct a `MCPToolDescription` literal manually (rare — most users call `.toMCPTool()` which constructs it), you must now include `inputSchema`. Add `inputSchema: { type: 'object', properties: {} }` for tools with no parameters.
+
 ## [3.0.16] - 2026-03-27
 
 ### Fixed
