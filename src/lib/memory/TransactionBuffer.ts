@@ -8,9 +8,7 @@
  * - Records operation trace for deterministic replay
  */
 
-import _get from 'lodash.get';
-import _set from 'lodash.set';
-
+import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
 import type { MemoryPatch } from './types.js';
 import { deepSmartMerge, normalisePath } from './utils.js';
 

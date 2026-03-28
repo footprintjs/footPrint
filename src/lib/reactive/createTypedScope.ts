@@ -14,8 +14,7 @@
  *   updateValue() with a partial object built from the accumulated path.
  */
 
-import lodashGet from 'lodash.get';
-
+import { nativeGet as lodashGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { createArrayProxy } from './arrayTraps.js';
 import { buildNestedPatch } from './pathBuilder.js';

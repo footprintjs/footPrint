@@ -1,6 +1,6 @@
 /* istanbul ignore file */
 /**
- * memory/ — Foundation library (zero external deps beyond lodash)
+ * memory/ — Foundation library (zero external deps)
  *
  * Transactional state management with namespace isolation,
  * atomic commits, and event-sourced time-travel.

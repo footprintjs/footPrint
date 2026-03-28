@@ -2,13 +2,10 @@
  * utils.ts — Helper functions for nested object manipulation
  *
  * Provides consistent path traversal and value manipulation for the memory system.
- * Zero external dependencies beyond lodash helpers.
+ * Zero external dependencies.
  */
 
-import _get from 'lodash.get';
-import _has from 'lodash.has';
-import _set from 'lodash.set';
-
+import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
 import type { MemoryPatch } from './types.js';
 
 /** ASCII Unit-Separator — cannot appear in JS identifiers, invisible in logs. */

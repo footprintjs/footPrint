@@ -14,10 +14,8 @@
  * ```
  */
 
-import lodashHas from 'lodash.has';
-import lodashSet from 'lodash.set';
-
 import type { ExecutionEnv } from '../engine/types.js';
+import { nativeHas as lodashHas, nativeSet as lodashSet } from '../memory/pathOps.js';
 import { StageContext } from '../memory/StageContext.js';
 import { hasCircularReference, isDevMode } from './detectCircular.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
@@ -416,8 +414,8 @@ export class ScopeFacade {
   private _scrubFields(obj: Record<string, unknown>, fields: Set<string>): Record<string, unknown> {
     const copy = structuredClone(obj);
     for (const field of fields) {
-      if (field.includes('.')) {
-        // Dot-notation path → deep scrub
+      if (field.includes('.') && !Object.prototype.hasOwnProperty.call(copy, field)) {
+        // Dot-notation path → deep scrub (only if not a literal flat key)
         if (lodashHas(copy, field)) {
           lodashSet(copy, field, '[REDACTED]');
         }

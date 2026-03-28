@@ -61,7 +61,6 @@
     "!dist/test",
     "!dist/types/test",
     "!dist/esm/types/test",
-    "ai-instructions/**/*",
     "CLAUDE.md",
     "AGENTS.md"
   ],
@@ -91,16 +90,8 @@
       "prettier --config .prettierrc.js --write"
     ]
   },
-  "bin": {
-    "footprintjs-setup": "ai-instructions/setup.sh"
-  },
   "sideEffects": false,
-  "dependencies": {
-    "lodash.get": "^4.4.2",
-    "lodash.has": "^4.5.2",
-    "lodash.mergewith": "^4.6.2",
-    "lodash.set": "^4.3.2"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "zod": "^3.0.0 || ^4.0.0"
   },
@@ -110,10 +101,6 @@
     }
   },
   "devDependencies": {
-    "@types/lodash.get": "^4.4.9",
-    "@types/lodash.has": "^4.5.9",
-    "@types/lodash.mergewith": "^4.6.9",
-    "@types/lodash.set": "^4.3.9",
     "@typescript-eslint/eslint-plugin": "^5.61.0",
     "@typescript-eslint/parser": "^5.61.0",
     "concurrently": "^8.0.1",

@@ -7,8 +7,7 @@
  * - Accepts commit bundles from TransactionBuffer
  */
 
-import mergeWith from 'lodash.mergewith';
-
+import { mergeContextWins } from './pathOps.js';
 import type { MemoryPatch } from './types.js';
 import { applySmartMerge, getNestedValue, getRunAndGlobalPaths, setNestedValue, updateNestedValue } from './utils.js';
 
@@ -18,9 +17,7 @@ export class SharedMemory {
 
   constructor(defaultValues?: unknown, initialContext?: unknown) {
     this._defaultValues = defaultValues;
-    this.context = mergeWith(initialContext || {}, defaultValues || {}, (objValue: unknown) => {
-      return typeof objValue === 'undefined' ? undefined : objValue;
-    });
+    this.context = mergeContextWins(initialContext || {}, defaultValues || {});
   }
 
   /** Gets a clone of the default values. */
