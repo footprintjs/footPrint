@@ -17,6 +17,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`StageContext.getFromRoot()` method** (`memory/StageContext.ts`) — deprecated alias for `getRoot()`. Use `ctx.getRoot(key)` directly.
 - **`StageContext.getFromGlobalContext()` method** (`memory/StageContext.ts`) — deprecated alias for `getGlobal()`. Use `ctx.getGlobal(key)` directly.
 - **`FlowChartExecutor` positional params 3–9** (`runner/FlowChartExecutor.ts`) — the 9-positional-parameter constructor form is removed. Pass an options object instead: `new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true, ... })`. The 2-param form `new FlowChartExecutor(chart, scopeFactory)` is retained.
+- **`ControlFlowNarrativeGenerator`** (`engine/narrative/ControlFlowNarrativeGenerator.ts`) — dead code; never instantiated at runtime (replaced by `NarrativeFlowRecorder` + `FlowRecorderDispatcher` in v0.9.x). Removed along with its test file.
+- **`FlowChartExecutor.getEnrichedResults()`** — duplicate alias for `getExtractedResults()`. Use `getExtractedResults()` directly.
+
+### Changed
+
+- **`SerializedPipelineStructure.id` and `FlowChartSpec.id` are now required** (`builder/types.ts`) — both fields were `id?: string` but every builder-produced node always set them. Making them required closes the gap between the type and the runtime guarantee.
+- **stageMap keyed by `id` not `name`** (`builder/FlowChartBuilder.ts`) — the internal stage function map previously used the human-readable stage name as the key, causing collisions when two stages had the same display name but different IDs. The map now uses the stable `id`.
+- **`HandlerDeps.ScopeFactory` renamed to `scopeFactory`** (`engine/handlers/types.ts`) — the field was PascalCase while all other `HandlerDeps` fields are camelCase. Renamed for consistency.
+- **`computeNodeType` returns `'subflow'` for `isSubflowRoot` nodes** (`engine/handlers/RuntimeStructureManager.ts`) — subflow entry points were previously classified as `'stage'`. The `SerializedPipelineStructure.type` union now includes `'subflow'`.
+- **`CombinedNarrativeRecorder.onSelected` emits `type: 'selector'`** (`engine/narrative/CombinedNarrativeRecorder.ts`) — was incorrectly emitting `type: 'fork'`, making selective fan-out indistinguishable from full parallel fork. `CombinedNarrativeEntry.type` union now includes `'selector'`.
+- **`NarrativeFlowRecorder.onStageExecuted` emits for every stage** (`engine/narrative/NarrativeFlowRecorder.ts`) — previously only emitted a sentence for the first stage and silently dropped all subsequent `onStageExecuted` calls. Now consistent with `CombinedNarrativeRecorder`.
+- **`addSelectorFunction` tracks `id` in `_knownStageIds`** (`builder/FlowChartBuilder.ts`) — `loopTo()` can now target a selector stage by ID, matching the existing behavior of `addDeciderFunction`.
+- **`buildNodeMap` depth guard applies at all call sites** (`engine/handlers/RuntimeStructureManager.ts`) — the `MAX_NODE_MAP_DEPTH` guard was only applied during `init()`; it now applies in `updateDynamicChildren`, `updateDynamicSubflow`, and `updateDynamicNext` as well.
+- **`toMermaid()` exposed on `RunnableFlowChart`** (`runner/RunnableChart.ts`) — was only accessible on `FlowChartBuilder` (before `.build()` was called). Now callable on the built chart.
+
+### Fixed
+
+- **`extractScopedNarrative` no longer post-walks narrative text** (`runner/getSubtreeSnapshot.ts`) — previously scanned the full narrative array for `"entering"`/`"exiting"` string markers to reconstruct subflow scope. Now filters by `entry.subflowId` field which is set during traversal. Eliminates post-process text search.
+- **`NodeResolver.findNodeById` uses pre-built O(1) map** (`engine/handlers/NodeResolver.ts`) — replaced a full DFS walk (called on every loop iteration) with a `Map<string, StageNode>` built at traversal start, reducing `loopTo` resolution from O(n×depth) to O(1).
+- **`SelectorHandler.onError` now passes `traversalContext`** (`engine/handlers/SelectorHandler.ts`) — was the only `onError` call site missing the context argument, breaking recorder correlation for selector errors.
+- **`FlowRecorderDispatcher` swallowed recorder errors now emit dev-mode `console.warn`** (`engine/narrative/FlowRecorderDispatcher.ts`) — silent swallow violated the project's own "silent skips must have dev-mode warning" rule.
+- **`FlowRecorderDispatcher.getSentences()` no longer duck-types** (`engine/narrative/FlowRecorderDispatcher.ts`) — replaced `as unknown as Record<string, unknown>` cast with a typed `NarrativeFlowRecorder` lookup.
+- **`addFunctionBranch` validates `fn` at build time** (`builder/FlowChartBuilder.ts`) — branches without a function now throw at `end()` rather than failing silently at runtime when the branch is chosen.
+- **`RuntimeStructureManager` deep-clone wrapped in try/catch** (`engine/handlers/RuntimeStructureManager.ts`) — `JSON.parse(JSON.stringify(...))` threw unhandled `TypeError` for cyclic structures; now produces a clear error message.
 
 ## [3.1.0]
 
