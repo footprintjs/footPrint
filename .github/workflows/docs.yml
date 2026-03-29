@@ -1,6 +1,12 @@
 name: Deploy Docs
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - 'src/**'
+      - 'typedoc.json'
   release:
     types: [published]
   workflow_dispatch:
