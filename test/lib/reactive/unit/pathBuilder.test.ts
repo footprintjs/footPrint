@@ -4,8 +4,11 @@
  * Covers: unit, boundary, property (fast-check), performance, security.
  */
 import fc from 'fast-check';
-import _get from 'lodash.get';
 import { describe, expect, it } from 'vitest';
+
+function getByPath(obj: unknown, path: string): unknown {
+  return path.split('.').reduce((acc, key) => (acc as Record<string, unknown>)?.[key], obj);
+}
 
 import { buildNestedPatch, joinPath } from '../../../../src/lib/reactive/pathBuilder';
 
@@ -76,7 +79,7 @@ describe('pathBuilder -- boundary: edge cases', () => {
   it('10-deep nesting', () => {
     const segments = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
     const result = buildNestedPatch(segments, 42);
-    expect(_get(result, segments.join('.'))).toBe(42);
+    expect(getByPath(result, segments.join('.'))).toBe(42);
   });
 
   it('numeric string keys', () => {
@@ -118,7 +121,7 @@ describe('pathBuilder -- property: roundtrip', () => {
         fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null)),
         (segments, value) => {
           const patch = buildNestedPatch(segments, value);
-          const retrieved = _get(patch, segments.join('.'));
+          const retrieved = getByPath(patch, segments.join('.'));
           expect(retrieved).toEqual(value);
         },
       ),
