@@ -10,9 +10,9 @@
   <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg?style=flat" alt="npm version"></a>
   <a href="https://github.com/footprintjs/footPrint/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg" alt="Downloads"></a>
-  <a href="https://footprintjs.github.io/footprint-demo/"><img src="https://img.shields.io/badge/Live_Demo-View_App-10b981?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTggNXYxNGwxMS03eiIvPjwvc3ZnPg==" alt="Live Demo"></a>
-  <a href="https://footprintjs.github.io/footprint-playground/"><img src="https://img.shields.io/badge/Playground-Try_it-6366f1?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTggNXYxNGwxMS03eiIvPjwvc3ZnPg==" alt="Interactive Playground"></a>
-  <a href="https://footprintjs.github.io/footPrint/"><img src="https://img.shields.io/badge/API_Docs-TypeDoc-3178c6?style=flat&logo=typescript&logoColor=white" alt="API Docs"></a>
+  <a href="https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool"><img src="https://img.shields.io/badge/Try_with_LLM-Live_Demo-7c6cf0?style=flat" alt="Try with LLM"></a>
+  <a href="https://footprintjs.github.io/footprint-playground/"><img src="https://img.shields.io/badge/Playground-37%2B_samples-6366f1?style=flat" alt="Interactive Playground"></a>
+  <a href="https://footprintjs.github.io/footPrint/"><img src="https://img.shields.io/badge/Docs-footprintjs-3178c6?style=flat&logo=typescript&logoColor=white" alt="Docs"></a>
 </p>
 
 <br>
@@ -125,7 +125,25 @@ console.log(result.narrative);
 
 > **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
 >
-> **[Browse 25+ examples](https://github.com/footprintjs/footPrint-samples)** &mdash; patterns, recorders, and a full loan underwriting demo
+> **[Browse 37+ examples](https://footprintjs.github.io/footprint-playground/)** &mdash; patterns, recorders, subflows, integrations, and a full loan underwriting demo
+
+---
+
+## Try With Your LLM
+
+Expose any flowchart as an MCP tool in one line &mdash; the description, input schema, and step list are auto-generated from the graph.
+
+```typescript
+const tool = chart.toMCPTool();
+// { name: 'assesscredit', description: '1. AssessCredit\n2. ...', inputSchema: { ... } }
+
+// Register with any MCP server or pass directly to the Anthropic SDK:
+const anthropicTool = { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
+```
+
+The LLM calls the tool, gets back the decision and causal trace, and explains the result to the user &mdash; all from the same graph that runs in production.
+
+> **[Live demo: Claude calls a credit-decision flowchart as an MCP tool](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool)** &mdash; enter your API key, watch the tool call happen, see the trace.
 
 ---
 
@@ -137,12 +155,12 @@ console.log(result.narrative);
 | **Decision Evidence** | `decide()` / `select()` auto-capture WHY a branch was chosen &mdash; operators, thresholds, pass/fail |
 | **TypedScope&lt;T&gt;** | Typed property access &mdash; `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)` |
 | **Auto Narrative** | Build-time descriptions for tool selection, runtime traces for explanation |
-| **7 Patterns** | Linear, parallel fork, conditional, multi-select, subflow, streaming, loops &mdash; [guide](docs/guides/patterns.md) |
-| **Transactional State** | Atomic commits, safe merges, time-travel replay &mdash; [guide](docs/guides/scope.md) |
-| **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail &mdash; [guide](docs/guides/scope.md#redaction-pii-protection) |
-| **Flow Recorders** | 8 narrative strategies for loop compression &mdash; [guide](docs/guides/flow-recorders.md) |
-| **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 generation &mdash; [guide](docs/guides/contracts.md) |
-| **Cancellation** | AbortSignal, timeout, early termination via `breakFn()` &mdash; [guide](docs/guides/execution.md) |
+| **7 Patterns** | Linear, parallel fork, conditional, multi-select, subflow, streaming, loops |
+| **Transactional State** | Atomic commits, safe merges, time-travel replay |
+| **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
+| **Flow Recorders** | 8 narrative strategies for loop compression |
+| **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 + MCP tool generation |
+| **Cancellation** | AbortSignal, timeout, early termination via `scope.$break()` |
 
 ---
 
@@ -151,7 +169,8 @@ console.log(result.narrative);
 FootPrint ships with built-in instructions for every major AI coding assistant. Your AI tool understands the API, patterns, and anti-patterns out of the box.
 
 ```bash
-npx footprintjs-setup
+# Download and run the setup script from GitHub
+npx degit footprintjs/footPrint/ai-instructions footprint-ai && bash footprint-ai/setup.sh && rm -rf footprint-ai
 ```
 
 | Tool | What gets installed |
@@ -170,10 +189,10 @@ npx footprintjs-setup
 
 | Resource | Link |
 |----------|------|
-| **Guides** | [Patterns](docs/guides/patterns.md) &middot; [Scope](docs/guides/scope.md) &middot; [Execution](docs/guides/execution.md) &middot; [Errors](docs/guides/error-handling.md) &middot; [Flow Recorders](docs/guides/flow-recorders.md) &middot; [Contracts](docs/guides/contracts.md) |
-| **Reference** | [API Docs](https://footprintjs.github.io/footPrint/) &middot; [API Reference](docs/guides/api-reference.md) &middot; [Performance Benchmarks](docs/guides/performance.md) |
-| **Architecture** | [Internals](docs/internals/) &mdash; six independent libraries, each with its own README |
-| **Try it** | [Interactive Playground](https://footprintjs.github.io/footprint-playground/) &middot; [Live Demo](https://footprintjs.github.io/footprint-demo/) &middot; [25+ Examples](https://github.com/footprintjs/footPrint-samples) |
+| **Getting Started** | [Quick Start](https://footprintjs.github.io/footPrint/getting-started/quick-start/) &middot; [Key Concepts](https://footprintjs.github.io/footPrint/getting-started/key-concepts/) &middot; [Why footprintjs?](https://footprintjs.github.io/footPrint/getting-started/why/) |
+| **Guides** | [Building](https://footprintjs.github.io/footPrint/guides/building/) &middot; [Decision branching](https://footprintjs.github.io/footPrint/guides/decision-branching/) &middot; [Recorders](https://footprintjs.github.io/footPrint/guides/recording/) &middot; [Subflows](https://footprintjs.github.io/footPrint/guides/subflows/) &middot; [Self-describing APIs](https://footprintjs.github.io/footPrint/guides/self-describing/) |
+| **API Reference** | [flowChart() / Builder](https://footprintjs.github.io/footPrint/api/flowchart/) &middot; [decide() / select()](https://footprintjs.github.io/footPrint/api/decide/) &middot; [FlowChartExecutor](https://footprintjs.github.io/footPrint/api/executor/) &middot; [Recorders](https://footprintjs.github.io/footPrint/api/recorders/) &middot; [Contract & Self-describing](https://footprintjs.github.io/footPrint/api/contract/) |
+| **Try it** | [Interactive Playground](https://footprintjs.github.io/footprint-playground/) &middot; [Try with your LLM](https://footprintjs.github.io/footprint-playground/try-with-ai) &middot; [Live Demo](https://footprintjs.github.io/footprint-demo/) |
 
 ---
 
