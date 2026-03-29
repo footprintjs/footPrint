@@ -9,6 +9,7 @@
  * - A filter:   { creditScore: { gt: 700 } } (captures reads + operators + thresholds)
  */
 
+import { isDevMode } from '../scope/detectCircular.js';
 import type { Recorder } from '../scope/types.js';
 import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';
@@ -82,10 +83,18 @@ function evaluateRule<S extends object>(
     if (collector && attachFn) attachFn(collector);
 
     let matched: boolean;
+    let matchError: string | undefined;
     try {
       matched = rule.when(scope);
-    } catch {
+    } catch (e) {
       matched = false;
+      // Capture the error for debugging — surface it in evidence instead of swallowing silently
+      matchError = e instanceof Error ? e.message : String(e);
+      if (isDevMode()) {
+        const label = rule.label ? ` ('${rule.label}')` : '';
+        // eslint-disable-next-line no-console
+        console.warn(`[footprint] decide() rule ${index}${label} threw during evaluation: ${matchError}`);
+      }
     } finally {
       if (collector && detachFn) detachFn(collector.id);
     }
@@ -96,7 +105,9 @@ function evaluateRule<S extends object>(
       branch: rule.then,
       matched,
       label: rule.label,
+      // Partial reads: if rule threw after some getValue() calls, collector holds reads up to the throw point
       inputs: collector?.getInputs() ?? [],
+      ...(matchError !== undefined && { matchError }),
     };
     return evidence;
   } else {
@@ -105,13 +116,21 @@ function evaluateRule<S extends object>(
     const resolvedRedactedFn = redactedFn ?? (() => false);
     let filterMatched = false;
     let filterConditions: FilterCondition[] = [];
+    let matchError: string | undefined;
     try {
       const result = evaluateFilter(resolvedValueFn, resolvedRedactedFn, rule.when as WhereFilter<S>);
       filterMatched = result.matched;
       filterConditions = result.conditions;
-    } catch {
+    } catch (e) {
       filterMatched = false;
       filterConditions = [];
+      // Capture the error for debugging — surface it in evidence instead of swallowing silently
+      matchError = e instanceof Error ? e.message : String(e);
+      if (isDevMode()) {
+        const label = rule.label ? ` ('${rule.label}')` : '';
+        // eslint-disable-next-line no-console
+        console.warn(`[footprint] decide() filter rule ${index}${label} threw during evaluation: ${matchError}`);
+      }
     }
 
     const evidence: FilterRuleEvidence = {
@@ -121,6 +140,7 @@ function evaluateRule<S extends object>(
       matched: filterMatched,
       label: rule.label,
       conditions: filterConditions,
+      ...(matchError !== undefined && { matchError }),
     };
     return evidence;
   }
@@ -134,6 +154,11 @@ function evaluateRule<S extends object>(
  * @param scope - TypedScope or ScopeFacade
  * @param rules - Array of DecideRule (function or filter when clauses)
  * @param defaultBranch - Branch ID if no rule matches
+ *
+ * **Error behavior:** If a `when` function throws during evaluation, the rule is
+ * treated as non-matching (`matched: false`) and the error message is captured in
+ * `matchError` on that rule's `RuleEvidence` entry. Execution continues with
+ * subsequent rules; errors do not propagate to the caller.
  */
 export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defaultBranch: string): DecisionResult {
   const attachFn = getAttachFn(scope);
@@ -173,6 +198,11 @@ export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defau
  *
  * @param scope - TypedScope or ScopeFacade
  * @param rules - Array of DecideRule (function or filter when clauses)
+ *
+ * **Error behavior:** If a `when` function throws during evaluation, the rule is
+ * treated as non-matching (`matched: false`) and the error message is captured in
+ * `matchError` on that rule's `RuleEvidence` entry. Evaluation continues with
+ * remaining rules; errors do not propagate to the caller.
  */
 export function select<S extends object>(scope: S, rules: DecideRule<S>[]): SelectionResult {
   const attachFn = getAttachFn(scope);

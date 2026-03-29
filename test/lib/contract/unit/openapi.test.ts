@@ -84,7 +84,7 @@ describe('OpenAPI generation', () => {
     const contract = defineContract(chart, {});
     const spec = contract.toOpenAPI();
 
-    expect(spec.info.description).toContain('Decides between');
+    expect(spec.info.description).toContain('(branches: a, b)');
   });
 
   it('includes parallel children in description', () => {

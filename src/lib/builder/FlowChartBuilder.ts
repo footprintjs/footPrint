@@ -237,7 +237,7 @@ export class DeciderList<TOut = any, TScope = any> {
       const deciderLabel = this.curNode.name;
       const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
       const mainLine = this.deciderDescription
-        ? `${this.reservedStepNumber}. ${deciderLabel} — ${this.deciderDescription}`
+        ? `${this.reservedStepNumber}. ${deciderLabel} — ${this.deciderDescription} (branches: ${branchIdList})`
         : `${this.reservedStepNumber}. ${deciderLabel} — Decides between: ${branchIdList}`;
       this.parentDescriptionParts.push(mainLine);
 
@@ -432,7 +432,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     this.curSpec.branchIds = children
       .map((c) => c.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    this.curSpec.type = 'decider';
+    this.curSpec.type = 'selector'; // was 'decider' — incorrect; selectors are distinct from deciders
     this.curSpec.hasSelector = true;
 
     if (this.reservedStepNumber > 0) {

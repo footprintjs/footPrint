@@ -2,14 +2,15 @@
  * contract/openapi.ts — OpenAPI 3.1 spec generator.
  *
  * Generates an OpenAPI spec from a FlowChartContract by combining:
- * - chart.description → operation description
- * - chart.stageDescriptions → step-by-step detail
+ * - chart.description → operation description (built incrementally during FlowChartBuilder.build())
  * - inputSchema → requestBody
  * - outputSchema → response
- * - chart.buildTimeStructure → operation metadata (branches, forks, etc.)
+ *
+ * chart.description is assembled by FlowChartBuilder as each stage is added —
+ * no post-processing walk of buildTimeStructure is needed or performed here.
  */
 
-import type { FlowChart, SerializedPipelineStructure } from '../builder/types.js';
+import type { FlowChart } from '../builder/types.js';
 import type { FlowChartContract, JsonSchema, OpenAPIOperation, OpenAPIOptions, OpenAPISpec } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,39 +24,15 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-function buildDescription(chart: FlowChart): string {
-  // Walk buildTimeStructure to produce a detailed step-by-step description
-  // that includes decider branches, parallel forks, etc.
-  const lines: string[] = [];
-  let step = 0;
-
-  const walk = (node: SerializedPipelineStructure) => {
-    step++;
-    const desc = node.description ? ` — ${node.description}` : '';
-
-    if (node.hasDecider && node.branchIds) {
-      lines.push(`${step}. ${node.name}${desc} — Decides between: ${node.branchIds.join(', ')}`);
-    } else if (node.children && node.children.length > 0 && !node.hasDecider) {
-      const childNames = node.children.map((c) => c.name).join(', ');
-      lines.push(`${step}. ${node.name}${desc} (parallel: ${childNames})`);
-    } else {
-      lines.push(`${step}. ${node.name}${desc}`);
-    }
-
-    if (node.children) {
-      for (const child of node.children) walk(child);
-    }
-    if (node.next) walk(node.next);
-  };
-
-  walk(chart.buildTimeStructure);
-  return `FlowChart: ${chart.root.name}\nSteps:\n${lines.join('\n')}`;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Generates an OpenAPI 3.1 spec from a FlowChartContract.
+ * Uses `chart.description` which FlowChartBuilder assembles at build time —
+ * no post-processing walk of buildTimeStructure is performed here.
+ */
 export function generateOpenAPI(contract: FlowChartContract, options?: OpenAPIOptions): OpenAPISpec {
   const { chart, inputSchema, outputSchema } = contract;
   const version = options?.version ?? '1.0.0';
@@ -66,7 +43,8 @@ export function generateOpenAPI(contract: FlowChartContract, options?: OpenAPIOp
   const operationId = slugify(rootName);
   const path = `${basePath === '/' ? '' : basePath}/${operationId}`;
 
-  const fullDescription = buildDescription(chart);
+  // Description was built incrementally during FlowChartBuilder.build() — read it directly.
+  const fullDescription = chart.description;
 
   // Build schemas for components
   const schemas: Record<string, JsonSchema> = {};

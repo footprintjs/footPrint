@@ -3,8 +3,14 @@
  *
  * Wraps FlowchartTraverser. Pairs with FlowChartBuilder:
  *   const chart = flowChart('entry', entryFn).addFunction('process', processFn).build();
- *   const executor = new FlowChartExecutor(chart);          // uses default ScopeFacade
- *   const executor = new FlowChartExecutor(chart, myFactory); // custom scope factory
+ *
+ *   // Recommended — options object form:
+ *   const executor = new FlowChartExecutor(chart);
+ *   const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
+ *
+ *   // Legacy — positional params 3-9 are deprecated; pass an options object instead:
+ *   const executor = new FlowChartExecutor(chart, myFactory); // still supported
+ *
  *   const result = await executor.run();
  */
 
@@ -27,6 +33,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
+import { isDevMode } from '../scope/detectCircular.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { Recorder, RedactionPolicy, RedactionReport } from '../scope/types.js';
@@ -36,6 +43,63 @@ import { validateInput } from './validateInput.js';
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
   new ScopeFacade(ctx, stageName, readOnly, env);
+
+/**
+ * Options object for `FlowChartExecutor` — preferred over positional params.
+ *
+ * ```typescript
+ * const ex = new FlowChartExecutor(chart, {
+ *   scopeFactory: myFactory,
+ *   enrichSnapshots: true,
+ * });
+ * ```
+ *
+ * **Sync note for maintainers:** Every field added here must also appear in the
+ * `flowChartArgs` private field type and in the constructor's options-resolution
+ * block (the `else if` branch that reads from `opts`). Missing any one of the
+ * three causes silent omission — the option is accepted but never applied.
+ *
+ * **TScope inference note:** When using the options-object form with a custom scope,
+ * TypeScript cannot infer `TScope` through the options object. Pass the type
+ * explicitly: `new FlowChartExecutor<TOut, MyScope>(chart, { scopeFactory })`.
+ */
+export interface FlowChartExecutorOptions<TScope = any> {
+  // ── Common options (most callers need only these) ────────────────────────
+
+  /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
+  scopeFactory?: ScopeFactory<TScope>;
+  /** Whether to enrich snapshots with scope state (enables `getSnapshot()`). */
+  enrichSnapshots?: boolean;
+
+  // ── Context options ──────────────────────────────────────────────────────
+
+  /**
+   * Default values pre-populated into the shared context before **each** stage
+   * (re-applied every stage, acting as baseline defaults).
+   */
+  defaultValuesForContext?: unknown;
+  /**
+   * Initial context values merged into the shared context **once** at startup
+   * (applied before the first stage, not repeated on subsequent stages).
+   * Distinct from `defaultValuesForContext`, which is re-applied every stage.
+   */
+  initialContext?: unknown;
+  /** Read-only input accessible via `scope.getArgs()` — never tracked or written. */
+  readOnlyContext?: unknown;
+
+  // ── Advanced / escape-hatch options (most callers do not need these) ─────
+
+  /**
+   * Custom error classifier for throttling detection. Return `true` if the
+   * error represents a rate-limit or backpressure condition (the executor will
+   * treat it differently from hard failures). Defaults to no throttling classification.
+   */
+  throttlingErrorChecker?: (error: unknown) => boolean;
+  /** Handlers for streaming stage lifecycle events (see `addStreamingFunction`). */
+  streamHandlers?: StreamHandlers;
+  /** Scope protection mode for TypedScope direct-assignment detection. */
+  scopeProtectionMode?: ScopeProtectionMode;
+}
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
@@ -47,6 +111,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
 
+  // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
+  // AND be assigned in the constructor's options-resolution block (the `else if` branch).
+  // Adding a field to only one of the three places causes silent omission.
   private readonly flowChartArgs: {
     flowChart: FlowChart<TOut, TScope>;
     scopeFactory: ScopeFactory<TScope>;
@@ -59,17 +126,76 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     enrichSnapshots?: boolean;
   };
 
+  /**
+   * Create a FlowChartExecutor.
+   *
+   * **Preferred form** (options object — avoids positional parameter confusion):
+   * ```typescript
+   * new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true })
+   * ```
+   *
+   * **Backward-compatible positional form** (params 3–9 deprecated — use options object):
+   * ```typescript
+   * new FlowChartExecutor(chart, scopeFactory)  // fine — 2 params
+   * new FlowChartExecutor(chart, factory, defaultValues, ...)  // deprecated: use options object
+   * ```
+   *
+   * @param flowChart - The compiled FlowChart returned by `flowChart(...).build()`
+   * @param factoryOrOptions - A `ScopeFactory<TScope>` (still supported — NOT deprecated) OR a
+   *   `FlowChartExecutorOptions<TScope>` options object (preferred for 3+ settings).
+   *   Passing `(chart, scopeFactory)` — the 2-param form — is fine and will not be removed.
+   *   Only params 3–9 are deprecated.
+   * @param defaultValuesForContext - @deprecated Pass via `options.defaultValuesForContext` instead.
+   * @param initialContext - @deprecated Pass via `options.initialContext` instead.
+   * @param readOnlyContext - @deprecated Pass via `options.readOnlyContext` instead.
+   * @param throttlingErrorChecker - @deprecated Pass via `options.throttlingErrorChecker` instead.
+   * @param streamHandlers - @deprecated Pass via `options.streamHandlers` instead.
+   * @param scopeProtectionMode - @deprecated Pass via `options.scopeProtectionMode` instead.
+   * @param enrichSnapshots - @deprecated Pass via `options.enrichSnapshots` instead.
+   */
   constructor(
     flowChart: FlowChart<TOut, TScope>,
-    scopeFactory?: ScopeFactory<TScope>,
+    factoryOrOptions?: ScopeFactory<TScope> | FlowChartExecutorOptions<TScope>,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     defaultValuesForContext?: unknown,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     initialContext?: unknown,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     readOnlyContext?: unknown,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     throttlingErrorChecker?: (error: unknown) => boolean,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     streamHandlers?: StreamHandlers,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     scopeProtectionMode?: ScopeProtectionMode,
+    /** @deprecated Use {@link FlowChartExecutorOptions} instead. */
     enrichSnapshots?: boolean,
   ) {
+    // Detect options-object form vs legacy positional-param form
+    let scopeFactory: ScopeFactory<TScope> | undefined;
+    if (typeof factoryOrOptions === 'function') {
+      // Legacy: new FlowChartExecutor(chart, scopeFactory, ...)
+      scopeFactory = factoryOrOptions;
+      // Dev-mode warning when 3+ positional params are used (deprecated form)
+      if (isDevMode() && defaultValuesForContext !== undefined) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[footprint] FlowChartExecutor: positional params 3–9 are deprecated. ' +
+            'Pass an options object instead: new FlowChartExecutor(chart, { scopeFactory, ... })',
+        );
+      }
+    } else if (factoryOrOptions !== undefined) {
+      // New: new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots, ... })
+      const opts = factoryOrOptions;
+      scopeFactory = opts.scopeFactory;
+      defaultValuesForContext = opts.defaultValuesForContext;
+      initialContext = opts.initialContext;
+      readOnlyContext = opts.readOnlyContext;
+      throttlingErrorChecker = opts.throttlingErrorChecker;
+      streamHandlers = opts.streamHandlers;
+      scopeProtectionMode = opts.scopeProtectionMode;
+      enrichSnapshots = opts.enrichSnapshots;
+    }
     this.flowChartArgs = {
       flowChart,
       scopeFactory: scopeFactory ?? flowChart.scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
@@ -88,6 +214,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     signal?: AbortSignal,
     readOnlyContextOverride?: unknown,
     env?: import('../engine/types').ExecutionEnv,
+    maxDepth?: number,
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
@@ -183,6 +310,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       signal,
       executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
+      ...(maxDepth !== undefined && { maxDepth }),
     });
   }
 
@@ -338,7 +466,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       r.clear?.();
     }
 
-    this.traverser = this.createTraverser(signal, validatedInput, options?.env);
+    this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
     try {
       return await this.traverser.execute();
     } finally {

@@ -159,7 +159,9 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
           conditionText = `It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`;
         }
       } else {
-        conditionText = `No rules matched, fell back to default: ${branchName}.`;
+        const erroredCount = event.evidence.rules.filter((r) => r.matchError !== undefined).length;
+        const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
+        conditionText = `No rules matched${errorNote}, fell back to default: ${branchName}.`;
       }
     } else if (event.description && event.rationale) {
       conditionText = `It ${event.description}: ${event.rationale}, so it chose ${branchName}.`;

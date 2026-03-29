@@ -166,6 +166,10 @@ export class StageContext {
     return value;
   }
 
+  /**
+   * @deprecated since v3.1.0 — use {@link getValue} instead. Will be removed in v4.0.0.
+   * This alias exists for backward compatibility only.
+   */
   get(path: string[], key?: string) {
     return this.getValue(path, key);
   }
@@ -178,12 +182,20 @@ export class StageContext {
     return this.sharedMemory.getValue('', [], key);
   }
 
+  /**
+   * @deprecated since v3.1.0 — use {@link getRoot} instead. Will be removed in v4.0.0.
+   * This alias exists for backward compatibility only.
+   */
   getFromRoot(key: string) {
-    return this.sharedMemory.getValue(this.runId, [], key);
+    return this.getRoot(key);
   }
 
+  /**
+   * @deprecated since v3.1.0 — use {@link getGlobal} instead. Will be removed in v4.0.0.
+   * This alias exists for backward compatibility only.
+   */
   getFromGlobalContext(key: string) {
-    return this.sharedMemory.getValue('', [], key);
+    return this.getGlobal(key);
   }
 
   getScope(): Record<string, unknown> {

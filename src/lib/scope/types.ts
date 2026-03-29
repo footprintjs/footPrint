@@ -62,7 +62,13 @@ export interface StageEvent extends RecorderContext {
 export interface RedactionPolicy {
   /** Exact key names to always redact (e.g. ['ssn', 'creditCard']). */
   keys?: string[];
-  /** Regex patterns — any key matching a pattern is auto-redacted. */
+  /**
+   * Regex patterns — any key matching a pattern is auto-redacted.
+   *
+   * Pattern matching is skipped for keys that exceed an internal length cap
+   * (designed to prevent ReDoS on pathological patterns). For very long key
+   * names, use `keys` (exact match) instead of patterns.
+   */
   patterns?: RegExp[];
   /** Field-level redaction within objects — key → array of fields to scrub.
    *  Supports dot-notation for nested paths (e.g. 'address.zip'). */

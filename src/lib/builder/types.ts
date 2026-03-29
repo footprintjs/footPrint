@@ -48,7 +48,7 @@ export type { ScopeProtectionMode };
 export interface SerializedPipelineStructure {
   name: string;
   id?: string;
-  type: 'stage' | 'decider' | 'fork' | 'streaming';
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;
@@ -65,6 +65,13 @@ export interface SerializedPipelineStructure {
   isSubflowRoot?: boolean;
   subflowId?: string;
   subflowName?: string;
+  /**
+   * Nested pipeline structure for a subflow node.
+   * WARNING: Any future walker that traverses this field recursively must apply its own
+   * depth guard (see MAX_WALK_DEPTH in contract/openapi.ts). The current `buildDescription`
+   * walk in openapi.ts does NOT traverse subflowStructure — if it ever does, the depth
+   * guard must cover both the `next` chain and this nested structure.
+   */
   subflowStructure?: SerializedPipelineStructure;
   iterationCount?: number;
   /** True when this subflow uses lazy resolution (deferred until execution). */
@@ -78,6 +85,8 @@ export interface SerializedPipelineStructure {
 export interface FlowChartSpec {
   name: string;
   id?: string;
+  /** Node type — matches `SerializedPipelineStructure.type` for visualization alignment. */
+  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;

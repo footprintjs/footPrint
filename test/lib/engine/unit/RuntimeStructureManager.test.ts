@@ -6,8 +6,8 @@ describe('computeNodeType', () => {
     expect(computeNodeType({ name: 'x', deciderFn: true } as any)).toBe('decider');
   });
 
-  it('returns "decider" for nodes with selectorFn', () => {
-    expect(computeNodeType({ name: 'x', selectorFn: true } as any)).toBe('decider');
+  it('returns "selector" for nodes with selectorFn', () => {
+    expect(computeNodeType({ name: 'x', selectorFn: true } as any)).toBe('selector');
   });
 
   it('returns "decider" for nodes with nextNodeSelector', () => {

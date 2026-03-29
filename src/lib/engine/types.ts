@@ -193,6 +193,13 @@ export interface RunOptions {
    * Accessible via `scope.getEnv()`. Inherited by subflows automatically.
    */
   env?: ExecutionEnv;
+  /**
+   * Override the maximum recursive `executeNode` depth for this run.
+   * Defaults to `FlowchartTraverser.MAX_EXECUTE_DEPTH` (500).
+   * Useful when deeply nested subflows or long chains need more headroom.
+   * Must be >= 1.
+   */
+  maxDepth?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +213,7 @@ export type { FlowControlType, FlowMessage };
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStructureMetadata {
-  type: 'stage' | 'decider' | 'fork' | 'streaming';
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
   subflowId?: string;
   isSubflowRoot?: boolean;
   subflowName?: string;
@@ -273,7 +280,7 @@ export type TraversalResult = BranchResults | string | Error;
 export interface SerializedPipelineNode {
   name: string;
   id?: string;
-  type?: 'stage' | 'decider' | 'fork' | 'streaming' | 'loop' | 'user' | 'tool' | 'function' | 'sequence';
+  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'loop' | 'user' | 'tool' | 'function' | 'sequence';
   description?: string;
   children?: SerializedPipelineNode[];
   next?: SerializedPipelineNode;

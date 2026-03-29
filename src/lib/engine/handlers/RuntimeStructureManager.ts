@@ -15,8 +15,13 @@ import type { SerializedPipelineStructure } from '../types.js';
  * Compute the node type from node properties.
  * Shared by RuntimeStructureManager (serialization) and ExtractorRunner (metadata).
  */
-export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'fork' | 'streaming' {
-  if (node.nextNodeSelector || node.deciderFn || node.selectorFn) return 'decider';
+export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' {
+  if (node.selectorFn) return 'selector';
+  // nextNodeSelector is an output-based routing function (not scope-based), grouped with
+  // deciderFn as 'decider' rather than 'selector'. The two branches differ in what they
+  // read (output vs scope) but both represent a conditional branch decision. Revisit in a
+  // future cleanup once the distinction is user-visible in the UI.
+  if (node.nextNodeSelector || node.deciderFn) return 'decider';
   if (node.isStreaming) return 'streaming';
 
   const hasDynamicChildren = Boolean(node.children?.length && !node.nextNodeSelector && node.fn);
@@ -41,21 +46,28 @@ export class RuntimeStructureManager {
     return this.runtimePipelineStructure;
   }
 
+  private static readonly MAX_NODE_MAP_DEPTH = 500;
+
   /** Recursively registers all nodes in the O(1) lookup map. */
-  private buildNodeMap(node: SerializedPipelineStructure): void {
+  private buildNodeMap(node: SerializedPipelineStructure, depth = 0): void {
+    if (depth > RuntimeStructureManager.MAX_NODE_MAP_DEPTH) {
+      // Guard against pathologically deep or cyclic structures injected into buildTimeStructure.
+      // Normal builder-produced charts are naturally bounded well below this limit.
+      return;
+    }
     const key = node.id ?? node.name;
     this.structureNodeMap.set(key, node);
 
     if (node.children) {
       for (const child of node.children) {
-        this.buildNodeMap(child);
+        this.buildNodeMap(child, depth + 1);
       }
     }
     if (node.next) {
-      this.buildNodeMap(node.next);
+      this.buildNodeMap(node.next, depth + 1);
     }
     if (node.subflowStructure) {
-      this.buildNodeMap(node.subflowStructure);
+      this.buildNodeMap(node.subflowStructure, depth + 1);
     }
   }
 
@@ -84,7 +96,7 @@ export class RuntimeStructureManager {
       structure.branchIds = node.children?.map((c) => c.id);
     }
 
-    if (node.nextNodeSelector) {
+    if (node.selectorFn || node.nextNodeSelector) {
       structure.hasSelector = true;
       structure.branchIds = node.children?.map((c) => c.id);
     }

@@ -10,7 +10,7 @@ function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
     updateObject: vi.fn(),
     addLog: vi.fn(),
     addError: vi.fn(),
-    getFromGlobalContext: vi.fn().mockReturnValue('initial-val'),
+    getGlobal: vi.fn().mockReturnValue('initial-val'),
     setRoot: vi.fn(),
     pipelineId: 'pipe-1',
     runId: 'run-1',
@@ -74,11 +74,11 @@ describe('attachScopeMethods', () => {
     expect(ctx.addLog).toHaveBeenCalledWith('eval:accuracy', 0.95);
   });
 
-  it('getInitialValueFor delegates to ctx.getFromGlobalContext', () => {
+  it('getInitialValueFor delegates to ctx.getGlobal', () => {
     const ctx = makeCtx();
     const result = attachScopeMethods({}, ctx, 'stage1');
     expect(result.getInitialValueFor('someKey')).toBe('initial-val');
-    expect(ctx.getFromGlobalContext).toHaveBeenCalledWith('someKey');
+    expect(ctx.getGlobal).toHaveBeenCalledWith('someKey');
   });
 
   it('getValue delegates to ctx.getValue with empty path', () => {
@@ -133,7 +133,7 @@ describe('attachScopeMethods', () => {
       getValue: vi.fn(),
       setObject: vi.fn(),
       updateObject: vi.fn(),
-      // no addLog, addError, getFromGlobalContext, setRoot
+      // no addLog, addError, getGlobal, setRoot
     };
     const result = attachScopeMethods({}, ctx, 'stage1');
 

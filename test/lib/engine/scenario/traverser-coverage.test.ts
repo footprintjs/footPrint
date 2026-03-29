@@ -370,7 +370,7 @@ describe('Scenario: Traverser Coverage', () => {
       executionRuntime: runtime,
       scopeProtectionMode: 'off',
       logger: silentLogger,
-      subflows: {}, // shared object ref so autoRegisterSubflowDef mutations are visible to deps
+      subflows: {},
     });
 
     await traverser.execute();
@@ -378,9 +378,11 @@ describe('Scenario: Traverser Coverage', () => {
     expect(order).toContain('trigger');
     expect(order).toContain('sub-root');
 
-    // Verify stageMap merge: 'sub-only-stage' should now be in stageMap
-    expect(stageMap.has('sub-only-stage')).toBe(true);
-    // 'shared-stage' should still be the original (parent wins)
+    // The traverser shallow-copies stageMap on construction so that lazy-resolution
+    // writes stay scoped to the traverser (concurrent-execution isolation).
+    // The original stageMap passed in must NOT be mutated by autoRegisterSubflowDef.
+    expect(stageMap.has('sub-only-stage')).toBe(false);
+    // Original shared-stage entry is still the original (unchanged)
     expect(stageMap.get('shared-stage')!({} as any, () => {}, undefined)).toBe('original');
   });
 

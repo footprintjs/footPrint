@@ -265,7 +265,7 @@ await executor.run();
 
 **Exact keys** — `setValue('ssn', ...)` auto-redacts without passing `true`.
 
-**Patterns** — `setValue('dbPassword', ...)` matches `/password/i` and auto-redacts.
+**Patterns** — `setValue('dbPassword', ...)` matches `/password/i` and auto-redacts. For very long key names, use `keys` (exact match) instead of patterns — pattern matching is skipped for unusually long keys as a guard against regex backtracking.
 
 **Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory but recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`. Supports dot-notation for nested paths: `fields: { patient: ['address.zip'] }` scrubs `patient.address.zip` while preserving all other nested properties.
 

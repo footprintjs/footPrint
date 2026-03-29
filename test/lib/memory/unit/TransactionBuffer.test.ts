@@ -80,4 +80,26 @@ describe('TransactionBuffer', () => {
     buf.merge(['items'], [3, 4, 5]);
     expect(buf.get(['items'])).toEqual([1, 2, 3, 4, 5]);
   });
+
+  it('empty-array merge clears the array in working copy (fix: was a silent no-op)', () => {
+    const buf = new TransactionBuffer({ tags: ['vip', 'premium'] });
+    buf.merge(['tags'], []);
+    // [] must clear, not no-op
+    expect(buf.get(['tags'])).toEqual([]);
+  });
+
+  it('empty-array merge reflects in commit updatePatch', () => {
+    const buf = new TransactionBuffer({ tags: ['vip'] });
+    buf.merge(['tags'], []);
+    const result = buf.commit();
+    // The updatePatch must carry [] so applySmartMerge can clear the field
+    expect((result.updates as any).tags).toEqual([]);
+  });
+
+  it('empty-array merge then non-empty merge: last write wins', () => {
+    const buf = new TransactionBuffer({ tags: ['a'] });
+    buf.merge(['tags'], []); // clear
+    buf.merge(['tags'], ['b']); // then set new items
+    expect(buf.get(['tags'])).toEqual(['b']);
+  });
 });

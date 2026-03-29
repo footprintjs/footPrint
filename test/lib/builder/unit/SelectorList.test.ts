@@ -24,7 +24,7 @@ describe('SelectorFnList (addSelectorFunction)', () => {
       .toSpec();
 
     expect(spec.next!.hasSelector).toBe(true);
-    expect(spec.next!.type).toBe('decider');
+    expect(spec.next!.type).toBe('selector');
   });
 
   it('sets branchIds in spec', () => {

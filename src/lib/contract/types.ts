@@ -50,7 +50,18 @@ export interface FlowChartContractOptions<_TInput = unknown, TOutput = unknown> 
 }
 
 export interface FlowChartContract<_TInput = unknown, TOutput = unknown> {
-  /** The compiled flowchart. */
+  /**
+   * Prototype-linked view of the original compiled FlowChart.
+   *
+   * Own properties (inputSchema, outputSchema, outputMapper) are shadowed here
+   * so that the contract's values take precedence over builder-set values.
+   * All other fields (root, stageMap, methods) are inherited via the prototype
+   * chain with zero copying. The original chart is never mutated.
+   *
+   * ⚠️ Do NOT use Object.keys(), spread ({...chart}), or JSON.stringify() on
+   * this object — it will only see own (shadowed) properties. Use named
+   * property access or chart.toSpec() instead.
+   */
   chart: FlowChart;
   /** JSON Schema for the input (normalized from Zod or raw). */
   inputSchema?: JsonSchema;
@@ -58,7 +69,7 @@ export interface FlowChartContract<_TInput = unknown, TOutput = unknown> {
   outputSchema?: JsonSchema;
   /** Maps the final scope state into the response shape. */
   outputMapper?: (finalScope: Record<string, unknown>) => TOutput;
-  /** Auto-generated OpenAPI spec. */
+  /** Auto-generated OpenAPI spec. Description is read from `chart.description` (pre-built at build time). */
   toOpenAPI(options?: OpenAPIOptions): OpenAPISpec;
 }
 

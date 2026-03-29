@@ -113,6 +113,8 @@ scope.getEnv()                     // frozen execution environment (NOT tracked)
 
 ```typescript
 const executor = new FlowChartExecutor(chart);
+// With options (preferred over positional params):
+const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
 executor.attachRecorder(recorder) // plug scope observer

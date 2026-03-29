@@ -219,7 +219,8 @@ describe('StageContext', () => {
       expect(ctx.getGlobal('globalVal')).toBe(42);
     });
 
-    it('getFromGlobalContext reads from global scope', () => {
+    it('getFromGlobalContext (deprecated) reads from global scope', () => {
+      // Tests the deprecated alias — kept to verify backward compatibility until removal.
       const mem = new SharedMemory({ globalVal: 42 });
       const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.getFromGlobalContext('globalVal')).toBe(42);

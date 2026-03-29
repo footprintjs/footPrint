@@ -75,6 +75,16 @@ export interface FunctionRuleEvidence {
   matched: boolean;
   label?: string;
   inputs: ReadInput[];
+  /**
+   * Error message if the `when` function threw during evaluation.
+   * Present only when an exception occurred; `matched` is `false` in that case.
+   * Surfaces the error for debugging rather than swallowing it silently.
+   *
+   * **Security note:** Error messages from user-provided `when` functions are captured
+   * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
+   * scope values in thrown error messages.
+   */
+  matchError?: string;
 }
 
 export interface FilterRuleEvidence {
@@ -85,6 +95,16 @@ export interface FilterRuleEvidence {
   matched: boolean;
   label?: string;
   conditions: FilterCondition[];
+  /**
+   * Error message if the filter evaluator threw during evaluation.
+   * Present only when an exception occurred; `matched` is `false` in that case.
+   * Surfaces the error for debugging rather than swallowing it silently.
+   *
+   * **Security note:** Error messages from user-provided `when` functions are captured
+   * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
+   * scope values in thrown error messages.
+   */
+  matchError?: string;
 }
 
 export type RuleEvidence = FunctionRuleEvidence | FilterRuleEvidence;

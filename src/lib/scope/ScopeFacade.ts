@@ -185,7 +185,7 @@ export class ScopeFacade {
   // ── State Access ─────────────────────────────────────────────────────────
 
   getInitialValueFor(key: string) {
-    return this._stageContext.getFromGlobalContext?.(key);
+    return this._stageContext.getGlobal?.(key);
   }
 
   getValue(key?: string) {
@@ -394,18 +394,49 @@ export class ScopeFacade {
     return this._redactedKeys.has(key);
   }
 
-  /** Checks if a key should be auto-redacted by the policy (exact keys + patterns). */
+  /**
+   * Checks if a key should be auto-redacted by the policy (exact keys + patterns).
+   *
+   * ReDoS guard: pattern testing is capped at MAX_PATTERN_KEY_LEN characters.
+   * Scope state keys are always short identifiers; any key exceeding the cap
+   * is almost certainly not a legitimate scope key, so skipping pattern matching
+   * for it does not risk leaking PII. Exact-key matching (Array.includes) is
+   * still applied regardless of length and is not vulnerable to ReDoS.
+   */
   private _isPolicyRedacted(key: string): boolean {
     if (!this._redactionPolicy) return false;
     if (this._redactionPolicy.keys?.includes(key)) return true;
     if (this._redactionPolicy.patterns) {
-      for (const p of this._redactionPolicy.patterns) {
-        p.lastIndex = 0; // Reset stateful global/sticky regexes
-        if (p.test(key)) return true;
+      if (key.length > ScopeFacade._MAX_PATTERN_KEY_LEN) {
+        // Dev-mode warning: pattern matching was silently skipped for this key.
+        // Use policy.keys for exact matching of long key names.
+        if (isDevMode()) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
+              'the pattern-matching length cap and was skipped. ' +
+              'Use policy.keys for exact matching of long key names.',
+          );
+        }
+      } else {
+        for (const p of this._redactionPolicy.patterns) {
+          p.lastIndex = 0; // Reset stateful global/sticky regexes
+          if (p.test(key)) return true;
+        }
       }
     }
     return false;
   }
+
+  /**
+   * Maximum key length (characters) that will be tested against regex redaction
+   * patterns. Keys longer than this are skipped for pattern matching to prevent
+   * ReDoS: a pathological regex tested against an unboundedly long key string
+   * can cause catastrophic backtracking.
+   *
+   * 256 characters comfortably exceeds any realistic scope-state key name.
+   */
+  private static readonly _MAX_PATTERN_KEY_LEN = 256;
 
   /**
    * Returns a deep-cloned copy with specified fields replaced by '[REDACTED]'.

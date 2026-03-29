@@ -61,7 +61,9 @@ export class ControlFlowNarrativeGenerator implements IControlFlowNarrative {
           this.sentences.push(`It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`);
         }
       } else {
-        this.sentences.push(`No rules matched, fell back to default: ${branchName}.`);
+        const erroredCount = evidence.rules.filter((r) => r.matchError !== undefined).length;
+        const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
+        this.sentences.push(`No rules matched${errorNote}, fell back to default: ${branchName}.`);
       }
     } else if (deciderDescription && rationale) {
       this.sentences.push(`It ${deciderDescription}: ${rationale}, so it chose ${branchName}.`);

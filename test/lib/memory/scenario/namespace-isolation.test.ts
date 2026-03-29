@@ -52,7 +52,7 @@ describe('Scenario: namespace isolation between runs', () => {
     p1.commit();
 
     const p2 = new StageContext('p2', 's1', 's1', mem, '', log);
-    expect(p2.getFromGlobalContext('announcement')).toBe('hello');
+    expect(p2.getGlobal('announcement')).toBe('hello');
   });
 
   it('run-specific value shadows global default', () => {

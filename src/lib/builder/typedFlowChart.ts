@@ -37,10 +37,21 @@ export function createTypedScopeFactory<T extends object>(): ScopeFactory<TypedS
 /**
  * Convenience builder for typed pipelines.
  *
- * Usage:
- *   const chart = typedFlowChart<LoanState>('Intake', intakeFn, 'intake')
- *     .addFunction('Process', processFn, 'process')
- *     .build();
+ * @deprecated Use {@link flowChart} instead. `flowChart<T>(name, fn, id)` is identical
+ * to `typedFlowChart<T>(name, fn, id)` and auto-embeds the TypedScope factory at build time.
+ * `typedFlowChart` will be removed in a future major version.
+ * No changes to executor construction are required — `build()` now embeds the scope factory automatically.
+ *
+ * Migration:
+ * ```typescript
+ * // Before:
+ * import { typedFlowChart } from 'footprintjs/advanced';
+ * const chart = typedFlowChart<LoanState>('Intake', fn, 'intake').build();
+ *
+ * // After:
+ * import { flowChart } from 'footprintjs';
+ * const chart = flowChart<LoanState>('Intake', fn, 'intake').build();
+ * ```
  */
 export function typedFlowChart<T extends object>(
   name: string,

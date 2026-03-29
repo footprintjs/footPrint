@@ -81,14 +81,27 @@ export function updateNestedValue<T>(
 
 /**
  * In-place value update with merge semantics.
- * - Arrays: concatenate
- * - Objects: shallow merge (spread)
+ * - Arrays (non-empty): concatenate onto existing
+ * - Arrays (empty):     direct replace — writing `[]` clears the field
+ * - Objects (non-empty): shallow merge (spread)
+ * - Objects (empty):    direct replace — writing `{}` clears the field
  * - Primitives: direct assignment
+ *
+ * Note on empty arrays: both `value && Array.isArray(value)` and
+ * `Array.isArray(value)` evaluate the same for arrays — `[]` is truthy in
+ * JavaScript, so the `&&` guard was never the issue. The actual bug was the
+ * concat path: `[...cur, ...[]]` silently returned `cur` unchanged when `value`
+ * was `[]`, making `updateValue(obj, 'tags', [])` a no-op instead of a clear.
+ * The fix is the explicit `value.length === 0` early-return branch.
  */
 export function updateValue(object: any, key: string | number, value: any): void {
-  if (value && Array.isArray(value)) {
-    const cur = object[key] as any;
-    object[key] = cur === undefined ? value : [...cur, ...value];
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      object[key] = value; // clear: [] replaces whatever was there
+    } else {
+      const cur = object[key] as any;
+      object[key] = cur === undefined ? value : [...cur, ...value];
+    }
   } else if (value && typeof value === 'object' && Object.keys(value).length) {
     const cur = object[key] as any;
     object[key] = cur === undefined ? value : { ...cur, ...value };
@@ -135,21 +148,25 @@ export function normalisePath(path: (string | number)[]): string {
 
 /**
  * Deep union merge helper.
- * - Arrays: union without duplicates (encounter order preserved)
+ * - Arrays (non-empty): union without duplicates (encounter order preserved)
+ * - Arrays (empty):     replace — src `[]` clears the destination array.
+ *   Rationale: writing `scope.tags = []` means "clear tags", not "append nothing".
+ *   Without this rule, an empty-array write silently becomes a no-op which is
+ *   impossible to distinguish from a bug.
  * - Objects: recursive merge
  * - Primitives: source wins
  */
 export function deepSmartMerge(dst: any, src: any): any {
   if (src === null || typeof src !== 'object') return src;
 
-  if (Array.isArray(src) && Array.isArray(dst)) {
-    return [...new Set([...dst, ...src])];
-  }
   if (Array.isArray(src)) {
+    if (src.length === 0) return []; // empty src = clear, not no-op
+    if (Array.isArray(dst)) return [...new Set([...dst, ...src])];
     return [...src];
   }
 
   const out: any = { ...(dst && typeof dst === 'object' ? dst : {}) };
+  // Object.keys() is own-enumerable-only by spec — no DENIED check needed here.
   for (const k of Object.keys(src)) {
     out[k] = deepSmartMerge(out[k], src[k]);
   }

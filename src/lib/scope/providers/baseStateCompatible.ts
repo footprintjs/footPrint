@@ -40,7 +40,7 @@ export function attachScopeMethods<T extends object>(
     addMetric: (name: string, v: unknown) => ctx.addLog?.(`metric:${name}`, v),
     addEval: (name: string, v: unknown) => ctx.addLog?.(`eval:${name}`, v),
 
-    getInitialValueFor: (k: string) => ctx.getFromGlobalContext?.(k),
+    getInitialValueFor: (k: string) => ctx.getGlobal?.(k),
     getValue: (key?: string) => ctx.getValue([], key),
     setValue: (key: string, value: unknown, shouldRedact = false, description?: string) => {
       assertNotReadonly(readOnly, key, 'write');

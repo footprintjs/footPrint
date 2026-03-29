@@ -14,7 +14,7 @@ function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
     updateObject: vi.fn(),
     addLog: vi.fn(),
     addError: vi.fn(),
-    getFromGlobalContext: vi.fn(),
+    getGlobal: vi.fn(),
     setRoot: vi.fn(),
     pipelineId: 'pipe-1',
     runId: 'run-1',
