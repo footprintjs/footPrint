@@ -861,7 +861,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };
     clone.name = `${prefix}/${node.name}`;
-    if (clone.id) clone.id = `${prefix}/${clone.id}`;
+    clone.id = `${prefix}/${clone.id}`;
     if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
     if (clone.next) clone.next = this.prefixNodeTree(clone.next, prefix);
     if (clone.children) {

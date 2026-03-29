@@ -70,7 +70,13 @@ export interface FlowChartExecutorOptions<TScope = any> {
 
   /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
   scopeFactory?: ScopeFactory<TScope>;
-  /** Whether to enrich snapshots with scope state (enables `getSnapshot()`). */
+  /**
+   * Attach a per-stage scope snapshot to each extractor result. When `true`, the
+   * extraction callback receives the full shared state at the point that stage
+   * committed — useful for debugging multi-stage state transitions. Defaults to
+   * `false` (no scope snapshot attached). Can also be set on the chart via
+   * `flowChart(...).enrichSnapshots(true)`.
+   */
   enrichSnapshots?: boolean;
 
   // ── Context options ──────────────────────────────────────────────────────

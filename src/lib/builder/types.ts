@@ -48,7 +48,7 @@ export type { ScopeProtectionMode };
 export interface SerializedPipelineStructure {
   name: string;
   id: string;
-  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' | 'loop';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;
@@ -76,6 +76,8 @@ export interface SerializedPipelineStructure {
   iterationCount?: number;
   /** True when this subflow uses lazy resolution (deferred until execution). */
   isLazy?: boolean;
+  /** True when this node is a back-edge reference created by loopTo() — not an executable stage. */
+  isLoopReference?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +88,7 @@ export interface FlowChartSpec {
   name: string;
   id: string;
   /** Node type — matches `SerializedPipelineStructure.type` for visualization alignment. */
-  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
+  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' | 'loop';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;
@@ -103,6 +105,8 @@ export interface FlowChartSpec {
   isSubflowRoot?: boolean;
   subflowId?: string;
   subflowName?: string;
+  /** True when this node is a back-edge reference created by loopTo() — not an executable stage. */
+  isLoopReference?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

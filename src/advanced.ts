@@ -116,7 +116,7 @@ export { createScopeProxyFromZod, defineScopeSchema, isScopeSchema, ZodScopeReso
 // Runner — Internals
 // ============================================================================
 
-export type { NarrativeEntry, RuntimeSnapshot } from './lib/runner/index.js';
+export type { RuntimeSnapshot } from './lib/runner/index.js';
 export { ExecutionRuntime } from './lib/runner/index.js';
 
 // ============================================================================

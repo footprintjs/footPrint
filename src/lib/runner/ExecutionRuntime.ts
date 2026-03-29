@@ -13,15 +13,7 @@
 import { EventLog } from '../memory/EventLog.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, FlowMessage, StageSnapshot } from '../memory/types.js';
-
-export interface NarrativeEntry {
-  stageId: string;
-  stageName: string;
-  stageMessages: string[];
-  flowMessage?: FlowMessage;
-  timeIndex: number;
-}
+import type { CommitBundle, StageSnapshot } from '../memory/types.js';
 
 /** Snapshot of a single recorder's collected data. */
 export interface RecorderSnapshot {
@@ -66,38 +58,5 @@ export class ExecutionRuntime {
       executionTree: this.rootStageContext.getSnapshot(),
       commitLog: this.executionHistory.list(),
     };
-  }
-
-  getFullNarrative(): NarrativeEntry[] {
-    const narrative: NarrativeEntry[] = [];
-    let timeIndex = 0;
-
-    this.walkContextTree(this.rootStageContext, (context) => {
-      const stageMessages = (context.debug.logContext.message as string[]) || [];
-      const flowMessages = context.debug.flowMessages;
-      const flowMessage = flowMessages.length > 0 ? flowMessages[0] : undefined;
-
-      narrative.push({
-        stageId: context.getStageId(),
-        stageName: context.stageName,
-        stageMessages,
-        flowMessage,
-        timeIndex: timeIndex++,
-      });
-    });
-
-    return narrative;
-  }
-
-  private walkContextTree(context: StageContext, visitor: (ctx: StageContext) => void): void {
-    visitor(context);
-    if (context.children) {
-      for (const child of context.children) {
-        this.walkContextTree(child, visitor);
-      }
-    }
-    if (context.next) {
-      this.walkContextTree(context.next, visitor);
-    }
   }
 }

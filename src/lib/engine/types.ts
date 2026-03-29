@@ -213,7 +213,7 @@ export type { FlowControlType, FlowMessage };
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStructureMetadata {
-  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' | 'loop';
   subflowId?: string;
   isSubflowRoot?: boolean;
   subflowName?: string;

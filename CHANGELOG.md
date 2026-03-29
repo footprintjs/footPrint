@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2]
+
+### Removed
+
+- **`ExecutionRuntime.getFullNarrative()`** (`runner/ExecutionRuntime.ts`) — dead method that post-processed the `StageContext` tree after traversal. Zero callers. Violates the "collect during traversal, never post-process" core principle. The `walkContextTree()` private helper is also removed. The `NarrativeEntry` interface (its return type) is removed from both `footprintjs/advanced` and `runner/index.ts` exports.
+- **`CombinedNarrativeBuilder.ts`** (`engine/narrative/CombinedNarrativeBuilder.ts`) — was a re-export shim pointing to `narrativeTypes.ts`. `narrative/index.ts` already exported from `narrativeTypes.ts` directly; the file was redundant.
+
+### Changed
+
+- **`loopTo()` spec stub now has `type: 'loop'` and `isLoopReference: true`** (`builder/FlowChartBuilder.ts`) — the back-edge reference node emitted by `loopTo()` previously had `type: 'stage'`, making it indistinguishable from real executable stages in visualization consumers. It now carries `type: 'loop'` and `isLoopReference: true`.
+- **`'loop'` added to node type unions** (`builder/types.ts`, `engine/types.ts`) — `SerializedPipelineStructure.type`, `FlowChartSpec.type`, `RuntimeStructureMetadata.type`, and `SerializedPipelineNode.type` all now include `'loop'`. `computeNodeType()` returns `'loop'` for nodes where `isLoopRef === true`.
+- **`pendingOps` keying comment corrected** (`engine/narrative/CombinedNarrativeRecorder.ts`) — previous comment claimed "name uniqueness prevents collision"; actual invariant is the event ordering contract (scope events for stage N are flushed before stage N+1's scope events begin).
+
+### Fixed
+
+- **`prefixNodeTree` unconditionally prefixes `node.id`** (`engine/traversal/FlowchartTraverser.ts`) — had a `if (clone.id)` guard that was dead code since `id` is required on `StageNode`. Removed to match the builder's invariant.
+- **`branchIds` no longer uses `?? c.name` fallback** (`engine/handlers/RuntimeStructureManager.ts`) — `stageNodeToStructure()` always sets `id: node.id` (no fallback), so the `?? c.name` in `updateDynamicChildren` was dead code. Removed.
+- **`stageNameToId` removed from `CombinedNarrativeRecorder`** (`engine/narrative/CombinedNarrativeRecorder.ts`) — `bufferOp` used `stageNameToId.get(stageName)` to look up a stageId, but scope events (`onRead`/`onWrite`) always fire before `onStageExecuted` (which populated the map). The lookup was always `undefined`. `bufferOp` and `flushOps` now key by `stageName` directly.
+- **`isLoopReference` added to `FlowChartSpec`** (`builder/types.ts`) — was present on `SerializedPipelineStructure` but missing from `FlowChartSpec`, causing the field to be absent from the type model for FE transport consumers.
+- **`getSubtreeSnapshot` dev-mode warning message corrected** (`runner/getSubtreeSnapshot.ts`) — the Strategy 2 fallback warning previously said "no ExtractorRunner is attached" as the only cause. Updated to mention both causes: missing ExtractorRunner or `enrichSnapshots` not enabled.
+- **`enrichSnapshots` JSDoc expanded** (`runner/FlowChartExecutor.ts`) — was a one-liner; now accurately describes what it does, when to use it, and how it relates to the chart-level `enrichSnapshots(true)` method.
+- **`isLoopRef` JSDoc cross-references `isLoopReference`** (`engine/graph/StageNode.ts`) — the runtime graph field (`isLoopRef`) and the serialization spec field (`isLoopReference`) use different names; a JSDoc comment now documents the intentional divergence.
+
 ## [4.0.1]
 
 ### Fixed

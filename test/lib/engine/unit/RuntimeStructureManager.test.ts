@@ -214,7 +214,10 @@ describe('RuntimeStructureManager', () => {
     const mgr = new RuntimeStructureManager();
     mgr.init({ name: 'root', id: 'root', type: 'stage' });
 
-    const children: StageNode[] = [{ name: 'd1', id: 'd1' }, { name: 'd2' }];
+    const children: StageNode[] = [
+      { name: 'd1', id: 'd1' },
+      { name: 'd2', id: 'd2' },
+    ];
     mgr.updateDynamicChildren('root', children, false, true);
 
     const result = mgr.getStructure()!;

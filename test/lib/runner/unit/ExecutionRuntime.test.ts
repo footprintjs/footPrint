@@ -4,7 +4,6 @@
  * Covers:
  * - Constructor wiring (SharedMemory, StageContext, EventLog)
  * - getSnapshot() field names (sharedState, executionTree, commitLog)
- * - getFullNarrative() with walkContextTree
  * - getPipelines()
  * - setRootObject()
  */
@@ -91,79 +90,6 @@ describe('ExecutionRuntime', () => {
 
       const snapshot = runtime.getSnapshot();
       expect((snapshot.sharedState.config as any)?.debug).toBe(true);
-    });
-  });
-
-  describe('getFullNarrative()', () => {
-    it('returns empty narrative for fresh runtime', () => {
-      const runtime = new ExecutionRuntime('root', 'root');
-      const narrative = runtime.getFullNarrative();
-
-      expect(narrative.length).toBe(1); // root context
-      expect(narrative[0].stageName).toBe('root');
-      expect(narrative[0].timeIndex).toBe(0);
-    });
-
-    it('walks next chain in context tree', () => {
-      const runtime = new ExecutionRuntime('root', 'root');
-      const root = runtime.rootStageContext;
-
-      // Simulate execution: root → next1 → next2
-      const next1 = root.createNext('', 'stage1', 'stage1');
-      const next2 = next1.createNext('', 'stage2', 'stage2');
-
-      const narrative = runtime.getFullNarrative();
-
-      expect(narrative.length).toBe(3);
-      expect(narrative[0].stageName).toBe('root');
-      expect(narrative[1].stageName).toBe('stage1');
-      expect(narrative[2].stageName).toBe('stage2');
-    });
-
-    it('walks children in context tree', () => {
-      const runtime = new ExecutionRuntime('root', 'root');
-      const root = runtime.rootStageContext;
-
-      // Simulate fork: root → child-a, child-b
-      root.createChild('', 'a', 'child-a', 'child-a');
-      root.createChild('', 'b', 'child-b', 'child-b');
-
-      const narrative = runtime.getFullNarrative();
-
-      expect(narrative.length).toBe(3);
-      const names = narrative.map((n) => n.stageName);
-      expect(names).toContain('root');
-      expect(names).toContain('child-a');
-      expect(names).toContain('child-b');
-    });
-
-    it('walks mixed tree (children + next)', () => {
-      const runtime = new ExecutionRuntime('root', 'root');
-      const root = runtime.rootStageContext;
-
-      // root has children and next
-      root.createChild('', 'a', 'child-a', 'child-a');
-      const next = root.createNext('', 'next-stage', 'next-stage');
-
-      const narrative = runtime.getFullNarrative();
-      const names = narrative.map((n) => n.stageName);
-
-      expect(names).toContain('root');
-      expect(names).toContain('child-a');
-      expect(names).toContain('next-stage');
-    });
-
-    it('captures flow messages from context', () => {
-      const runtime = new ExecutionRuntime('root', 'root');
-      const root = runtime.rootStageContext;
-
-      root.addFlowDebugMessage('next', 'Moving to Process stage', {
-        targetStage: 'process',
-      });
-
-      const narrative = runtime.getFullNarrative();
-      expect(narrative[0].flowMessage).toBeDefined();
-      expect(narrative[0].flowMessage!.type).toBe('next');
     });
   });
 });

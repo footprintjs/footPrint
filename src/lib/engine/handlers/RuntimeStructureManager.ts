@@ -16,7 +16,12 @@ import type { SerializedPipelineStructure } from '../types.js';
  * Compute the node type from node properties.
  * Shared by RuntimeStructureManager (serialization) and ExtractorRunner (metadata).
  */
-export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' {
+export function computeNodeType(
+  node: StageNode,
+): 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' | 'loop' {
+  // Loop back-edge nodes are spec stubs — they are not executable stages.
+  // (Runtime: StageNode.isLoopRef; Spec: SerializedPipelineStructure.isLoopReference)
+  if (node.isLoopRef) return 'loop';
   if (node.isSubflowRoot) return 'subflow';
   if (node.selectorFn) return 'selector';
   // nextNodeSelector is an output-based routing function (not scope-based), grouped with
@@ -150,12 +155,12 @@ export class RuntimeStructureManager {
 
     if (hasSelector) {
       parentStructure.hasSelector = true;
-      parentStructure.branchIds = childStructures.map((c) => c.id ?? c.name);
+      parentStructure.branchIds = childStructures.map((c) => c.id);
     }
 
     if (hasDecider) {
       parentStructure.hasDecider = true;
-      parentStructure.branchIds = childStructures.map((c) => c.id ?? c.name);
+      parentStructure.branchIds = childStructures.map((c) => c.id);
     }
   }
 

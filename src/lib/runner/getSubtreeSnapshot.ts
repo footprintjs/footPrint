@@ -23,6 +23,7 @@
 
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { StageSnapshot } from '../memory/types.js';
+import { isDevMode } from '../scope/detectCircular.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 
 /** The result of navigating to a subtree within a snapshot. */
@@ -77,9 +78,18 @@ export function getSubtreeSnapshot(
     };
   }
 
-  // Strategy 2: Find the node in the execution tree by subflowId
+  // Strategy 2: Find the node in the execution tree by subflowId.
+  // This path lacks sharedState (subflowResults was not populated).
+  // This typically means the executor ran without subflow result enrichment.
   const foundNode = findSubflowInTree(snapshot.executionTree, lastSegment);
   if (!foundNode) return undefined;
+
+  if (isDevMode()) {
+    console.warn(
+      `[footprint] getSubtreeSnapshot('${normalizedPath}'): subflowResults not populated — ` +
+        'sharedState will be undefined. Did you enable enrichSnapshots or attach an ExtractorRunner?',
+    );
+  }
 
   return {
     subflowId: lastSegment,

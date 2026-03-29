@@ -1002,7 +1002,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     cur.next = { name: stageId, id: stageId, isLoopRef: true };
     curSpec.loopTarget = stageId;
-    curSpec.next = { name: stageId, id: stageId, type: 'stage' };
+    curSpec.next = { name: stageId, id: stageId, type: 'loop', isLoopReference: true };
 
     const targetStep = this._stageStepMap.get(stageId);
     if (targetStep !== undefined) {

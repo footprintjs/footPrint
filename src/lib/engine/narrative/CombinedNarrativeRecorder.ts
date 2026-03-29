@@ -51,16 +51,14 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   private entries: CombinedNarrativeEntry[] = [];
   /**
-   * Pending scope ops keyed by stageId (stable identifier). Populated at buffer time
-   * using the stageName→stageId mapping; falls back to stageName when stageId is unknown.
-   * Keying by stageId prevents ops from merging when two stages share the same name.
+   * Pending scope ops keyed by stageName. Flushed in onStageExecuted/onDecision.
+   *
+   * Name collisions (two stages with the same name, different IDs) are prevented by
+   * the event ordering contract: scope events (onRead/onWrite) for stage N are always
+   * flushed by onStageExecuted for stage N before stage N+1's scope events begin.
+   * So the key is always uniquely bound to the currently-executing stage.
    */
   private pendingOps = new Map<string, BufferedOp[]>();
-  /**
-   * Maps stageName → stageId as we learn them from onStageExecuted/onDecision.
-   * Allows bufferOp() to use stageId as the key while scope events only carry stageName.
-   */
-  private stageNameToId = new Map<string, string>();
   /** Per-subflow stage counters. Key '' = root flow. */
   private stageCounters = new Map<string, number>();
   /** Per-subflow first-stage flags. Key '' = root flow. */
@@ -100,9 +98,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
-    // Register stageName → stageId mapping so bufferOp can use stageId as key.
     const stageId = event.traversalContext?.stageId;
-    if (stageId) this.stageNameToId.set(event.stageName, stageId);
 
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
@@ -128,9 +124,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onDecision(event: FlowDecisionEvent): void {
-    // Register stageName → stageId mapping so bufferOp can use stageId as key.
     const deciderStageIdEarly = event.traversalContext?.stageId;
-    if (deciderStageIdEarly) this.stageNameToId.set(event.decider, deciderStageIdEarly);
 
     // Emit the decider stage entry (deciders don't fire onStageExecuted)
     const sfKey = event.traversalContext?.subflowId ?? '';
@@ -358,7 +352,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   clear(): void {
     this.entries = [];
     this.pendingOps.clear();
-    this.stageNameToId.clear();
     this.stageCounters.clear();
     this.firstStageFlags.clear();
   }
@@ -383,23 +376,16 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   private bufferOp(stageName: string, op: Omit<BufferedOp, 'stepNumber'>): void {
-    // Use stageId as key when known (prevents merge when two stages share the same name).
-    // Falls back to stageName when we haven't yet seen the flow event for this stage.
-    const key = this.stageNameToId.get(stageName) ?? stageName;
-    let ops = this.pendingOps.get(key);
+    let ops = this.pendingOps.get(stageName);
     if (!ops) {
       ops = [];
-      this.pendingOps.set(key, ops);
+      this.pendingOps.set(stageName, ops);
     }
     ops.push({ ...op, stepNumber: ops.length + 1 });
   }
 
   private flushOps(stageName: string, subflowId?: string, stageId?: string): void {
-    // Resolve key: ops may have been buffered under stageId (if we saw the mapping first)
-    // or under stageName (if scope events fired before stageNameToId was populated).
-    // Try stageId first, then fall back to the stageName key.
-    const key = (stageId && this.pendingOps.has(stageId) ? stageId : undefined) ?? stageName;
-    const ops = this.pendingOps.get(key);
+    const ops = this.pendingOps.get(stageName);
     if (!ops || ops.length === 0) return;
 
     for (const op of ops) {
@@ -434,6 +420,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       });
     }
 
-    this.pendingOps.delete(key);
+    this.pendingOps.delete(stageName);
   }
 }

@@ -83,7 +83,11 @@ export type StageNode<TOut = any, TScope = any> = {
   /** When true, parallel children use fail-fast semantics (reject on first error) */
   failFast?: boolean;
 
-  /** True if this node is a back-edge reference created by loopTo() */
+  /**
+   * True if this node is a back-edge reference created by loopTo() — not an executable stage.
+   * Serialization equivalent: `SerializedPipelineStructure.isLoopReference` (different name
+   * to distinguish runtime graph field from the JSON-safe spec field).
+   */
   isLoopRef?: boolean;
 
   /** Inline subflow definition for dynamic subflow attachment.
