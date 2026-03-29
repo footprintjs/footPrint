@@ -137,8 +137,8 @@ describe('SelectorFnList.addSubFlowChartBranch', () => {
   it('throws on duplicate selector subflow branch id', () => {
     const sub = buildSubflow();
     expect(() => {
-      flowChart('entry', noop)
-        .addSelectorFunction('Pick', async () => 'sf' as any)
+      flowChart('entry', noop, 'entry')
+        .addSelectorFunction('Pick', async () => 'sf' as any, 'pick')
         .addSubFlowChartBranch('sf', sub)
         .addSubFlowChartBranch('sf', sub);
     }).toThrow('duplicate selector branch');
@@ -193,8 +193,8 @@ describe('SelectorFnList.addBranchList', () => {
       .end()
       .build();
 
-    expect(chart.stageMap.get('BranchA')).toBe(fnA);
-    expect(chart.stageMap.get('BranchB')).toBe(fnB);
+    expect(chart.stageMap.get('a')).toBe(fnA);
+    expect(chart.stageMap.get('b')).toBe(fnB);
   });
 });
 
@@ -371,8 +371,8 @@ describe('addListOfFunction', () => {
       ])
       .build();
 
-    expect(chart.stageMap.get('TaskA')).toBe(fnA);
-    expect(chart.stageMap.get('TaskB')).toBe(fnB);
+    expect(chart.stageMap.get('a')).toBe(fnA);
+    expect(chart.stageMap.get('b')).toBe(fnB);
   });
 
   it('throws on missing child id', () => {

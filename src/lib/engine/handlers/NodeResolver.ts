@@ -12,26 +12,44 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps } from '../types.js';
 
 export class NodeResolver<TOut = any, TScope = any> {
-  constructor(private deps: HandlerDeps<TOut, TScope>) {}
+  private readonly nodeIdMap: Map<string, StageNode<TOut, TScope>>;
+
+  constructor(private deps: HandlerDeps<TOut, TScope>, nodeIdMap?: Map<string, StageNode<TOut, TScope>>) {
+    this.nodeIdMap = nodeIdMap ?? new Map();
+  }
+
+  /**
+   * O(1) node lookup via pre-built ID map.
+   * Falls back to DFS from startNode (for dynamic nodes added at runtime
+   * or subflow-local lookups that use an explicit startNode).
+   */
+  findNodeById(nodeId: string, startNode?: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
+    // Fast path: O(1) map lookup (only valid for root-level graph, not subflow-local)
+    if (!startNode) {
+      const mapped = this.nodeIdMap.get(nodeId);
+      if (mapped) return mapped;
+    }
+
+    // Fallback: DFS from startNode (subflow-local or dynamic nodes not in the map)
+    return this._dfs(nodeId, startNode ?? this.deps.root);
+  }
 
   /**
    * DFS search for a node by ID.
-   * Checks: current → children (depth-first) → next (linear continuation).
+   * Used as fallback when the node is not in the pre-built map.
    */
-  findNodeById(nodeId: string, startNode?: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
-    const node = startNode ?? this.deps.root;
-
+  private _dfs(nodeId: string, node: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
     if (node.id === nodeId) return node;
 
     if (node.children) {
       for (const child of node.children) {
-        const found = this.findNodeById(nodeId, child);
+        const found = this._dfs(nodeId, child);
         if (found) return found;
       }
     }
 
     if (node.next) {
-      const found = this.findNodeById(nodeId, node.next);
+      const found = this._dfs(nodeId, node.next);
       if (found) return found;
     }
 

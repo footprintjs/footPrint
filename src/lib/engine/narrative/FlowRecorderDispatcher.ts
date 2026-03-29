@@ -11,7 +11,9 @@
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
+import { isDevMode } from '../../scope/detectCircular.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
+import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
@@ -45,8 +47,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onStageExecuted?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onStageExecuted: ${err}`);
       }
     }
   }
@@ -57,8 +60,8 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onNext?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onNext: ${err}`);
       }
     }
   }
@@ -83,8 +86,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onDecision?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onDecision: ${err}`);
       }
     }
   }
@@ -95,8 +99,8 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onFork?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onFork: ${err}`);
       }
     }
   }
@@ -113,8 +117,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onSelected?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSelected: ${err}`);
       }
     }
   }
@@ -130,8 +135,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onSubflowEntry?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowEntry: ${err}`);
       }
     }
   }
@@ -142,8 +148,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onSubflowExit?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowExit: ${err}`);
       }
     }
   }
@@ -154,8 +161,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onSubflowRegistered?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowRegistered: ${err}`);
       }
     }
   }
@@ -166,8 +174,8 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onLoop?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onLoop: ${err}`);
       }
     }
   }
@@ -178,8 +186,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onBreak?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onBreak: ${err}`);
       }
     }
   }
@@ -191,23 +200,20 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     for (const r of this.recorders) {
       try {
         r.onError?.(event);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onError: ${err}`);
       }
     }
   }
 
   /**
-   * Returns sentences from the first attached recorder that provides them.
-   * By convention, NarrativeFlowRecorder exposes getSentences().
+   * Returns sentences from an attached NarrativeFlowRecorder (looked up by ID).
+   * Callers that need sentences should attach a NarrativeFlowRecorder with id 'narrative'
+   * and retrieve it directly via getRecorderById() if they need typed access.
    */
   getSentences(): string[] {
-    for (const r of this.recorders) {
-      const candidate = r as unknown as Record<string, unknown>;
-      if (typeof candidate.getSentences === 'function') {
-        return (candidate.getSentences as () => string[])();
-      }
-    }
-    return [];
+    const narrative = this.getRecorderById<NarrativeFlowRecorder>('narrative');
+    return narrative?.getSentences() ?? [];
   }
 }

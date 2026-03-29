@@ -668,8 +668,8 @@ describe('FlowChartExecutor — setRootObject', () => {
   });
 });
 
-describe('FlowChartExecutor — getEnrichedResults', () => {
-  it('getEnrichedResults returns extractor results (covers line 135)', async () => {
+describe('FlowChartExecutor — getExtractedResults', () => {
+  it('getExtractedResults returns extractor results', async () => {
     const chart = flowChart(
       'A',
       () => {
@@ -692,11 +692,7 @@ describe('FlowChartExecutor — getEnrichedResults', () => {
     const executor = new FlowChartExecutor(chart, noopScope);
     await executor.run();
 
-    const enriched = executor.getEnrichedResults<{ name: string }>();
-    expect(enriched.size).toBeGreaterThan(0);
-
-    // getEnrichedResults should return the same map as getExtractedResults
     const extracted = executor.getExtractedResults<{ name: string }>();
-    expect(enriched.size).toBe(extracted.size);
+    expect(extracted.size).toBeGreaterThan(0);
   });
 });

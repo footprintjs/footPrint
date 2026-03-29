@@ -42,8 +42,8 @@ describe('Scenario: fork (parallel children)', () => {
       ])
       .build();
 
-    expect(chart.stageMap.get('A')).toBe(fn1);
-    expect(chart.stageMap.get('B')).toBe(fn2);
+    expect(chart.stageMap.get('a')).toBe(fn1);
+    expect(chart.stageMap.get('b')).toBe(fn2);
   });
 
   it('throws on duplicate child id', () => {

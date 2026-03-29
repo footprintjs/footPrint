@@ -15,7 +15,8 @@ import type { SerializedPipelineStructure } from '../types.js';
  * Compute the node type from node properties.
  * Shared by RuntimeStructureManager (serialization) and ExtractorRunner (metadata).
  */
-export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' {
+export function computeNodeType(node: StageNode): 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow' {
+  if (node.isSubflowRoot) return 'subflow';
   if (node.selectorFn) return 'selector';
   // nextNodeSelector is an output-based routing function (not scope-based), grouped with
   // deciderFn as 'decider' rather than 'selector'. The two branches differ in what they
@@ -37,7 +38,12 @@ export class RuntimeStructureManager {
   /** Initialize from build-time structure. Deep-clones via JSON round-trip. */
   init(buildTimeStructure?: SerializedPipelineStructure): void {
     if (!buildTimeStructure) return;
-    this.runtimePipelineStructure = JSON.parse(JSON.stringify(buildTimeStructure));
+    try {
+      this.runtimePipelineStructure = JSON.parse(JSON.stringify(buildTimeStructure));
+    } catch {
+      // Non-serializable build-time structure — skip runtime tracking gracefully.
+      return;
+    }
     this.buildNodeMap(this.runtimePipelineStructure!);
   }
 
@@ -167,10 +173,14 @@ export class RuntimeStructureManager {
 
     if (subflowBuildTimeStructure) {
       // Deep-copy to prevent external mutation of the stored structure
-      mountStructure.subflowStructure = JSON.parse(
-        JSON.stringify(subflowBuildTimeStructure),
-      ) as SerializedPipelineStructure;
-      this.buildNodeMap(mountStructure.subflowStructure);
+      try {
+        mountStructure.subflowStructure = JSON.parse(
+          JSON.stringify(subflowBuildTimeStructure),
+        ) as SerializedPipelineStructure;
+        this.buildNodeMap(mountStructure.subflowStructure);
+      } catch {
+        // Non-serializable subflow structure — skip subflow structure tracking gracefully.
+      }
     }
   }
 

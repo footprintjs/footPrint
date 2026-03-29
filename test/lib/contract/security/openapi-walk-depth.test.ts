@@ -30,11 +30,11 @@ function buildLinearChain(n: number): FlowChart {
 // Helper: replace buildTimeStructure with an injected deep linked list
 // (simulates a malformed or adversarially crafted structure)
 function injectDeepStructure(chart: FlowChart, depth: number): FlowChart {
-  let node: SerializedPipelineStructure = { name: `node-${depth}`, type: 'stage' };
+  let node: SerializedPipelineStructure = { name: `node-${depth}`, id: `node-${depth}`, type: 'stage' };
   for (let i = depth - 1; i >= 1; i--) {
-    node = { name: `node-${i}`, type: 'stage', next: node };
+    node = { name: `node-${i}`, id: `node-${i}`, type: 'stage', next: node };
   }
-  const root: SerializedPipelineStructure = { name: 'root', type: 'stage', next: node };
+  const root: SerializedPipelineStructure = { name: 'root', id: 'root', type: 'stage', next: node };
   return { ...chart, buildTimeStructure: root };
 }
 

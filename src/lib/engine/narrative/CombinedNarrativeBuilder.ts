@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 export interface CombinedNarrativeEntry {
-  type: 'stage' | 'step' | 'condition' | 'fork' | 'subflow' | 'loop' | 'break' | 'error';
+  type: 'stage' | 'step' | 'condition' | 'fork' | 'selector' | 'subflow' | 'loop' | 'break' | 'error';
   text: string;
   depth: number;
   stageName?: string;

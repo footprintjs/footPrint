@@ -24,7 +24,7 @@ export class StageRunner<TOut = any, TScope = any> {
     breakFn: () => void,
   ): Promise<TOut> {
     // Create scope via ScopeFactory — each stage gets its own scope instance
-    const rawScope = this.deps.ScopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
+    const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
 
     // Wrap scope with protection to intercept direct property assignments.
     // Skip for TypedScope — it already has its own Proxy with proper set traps

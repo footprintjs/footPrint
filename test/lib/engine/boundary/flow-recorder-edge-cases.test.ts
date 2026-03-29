@@ -216,14 +216,16 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
   // ── NarrativeFlowRecorder edge cases ─────────────────────────────────
 
   describe('NarrativeFlowRecorder edge cases', () => {
-    it('only first stage triggers "process began" sentence', () => {
+    it('every onStageExecuted call produces a sentence', () => {
       const recorder = new NarrativeFlowRecorder();
       recorder.onStageExecuted({ stageName: 'A' });
       recorder.onStageExecuted({ stageName: 'B' });
       recorder.onStageExecuted({ stageName: 'C' });
       const sentences = recorder.getSentences();
-      expect(sentences).toHaveLength(1);
+      expect(sentences).toHaveLength(3);
       expect(sentences[0]).toContain('A');
+      expect(sentences[1]).toContain('B');
+      expect(sentences[2]).toContain('C');
     });
 
     it('clear resets first-stage tracking', () => {

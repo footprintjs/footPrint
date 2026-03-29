@@ -25,7 +25,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     stageMap: new Map(),
     root: { name: 'root' },
     executionRuntime: runtime,
-    ScopeFactory: (ctx: any, name: string, readOnly?: unknown) => ({ ...(readOnly as any) }),
+    scopeFactory: (ctx: any, name: string, readOnly?: unknown) => ({ ...(readOnly as any) }),
     scopeProtectionMode: 'off' as any,
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
     logger: makeLogger(),

@@ -1,5 +1,4 @@
 import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
-import { ControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/ControlFlowNarrativeGenerator';
 import { FlowRecorderDispatcher } from '../../../../src/lib/engine/narrative/FlowRecorderDispatcher';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 import type { FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../../../../src/lib/engine/narrative/types';
@@ -70,27 +69,6 @@ describe('Subflow event enrichment', () => {
 
       dispatcher.onSubflowRegistered('sf', 'Flow');
       expect(calls).toEqual(['Flow']);
-    });
-  });
-
-  describe('ControlFlowNarrativeGenerator', () => {
-    it('includes description in subflow entry sentence', () => {
-      const gen = new ControlFlowNarrativeGenerator();
-      gen.onSubflowEntry('CreditCheck', 'sf-credit', 'Pull credit report');
-      const sentences = gen.getSentences();
-      expect(sentences[0]).toBe('Entering the CreditCheck subflow: Pull credit report.');
-    });
-
-    it('omits description when not provided', () => {
-      const gen = new ControlFlowNarrativeGenerator();
-      gen.onSubflowEntry('CreditCheck');
-      expect(gen.getSentences()[0]).toBe('Entering the CreditCheck subflow.');
-    });
-
-    it('onSubflowRegistered produces no narrative output', () => {
-      const gen = new ControlFlowNarrativeGenerator();
-      gen.onSubflowRegistered('sf', 'name', 'desc');
-      expect(gen.getSentences()).toEqual([]);
     });
   });
 

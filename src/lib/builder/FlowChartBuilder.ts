@@ -92,7 +92,7 @@ export class DeciderList<TOut = any, TScope = any> {
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
-      this.b._addToMap(name, fn);
+      this.b._addToMap(id, fn);
     }
 
     let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
@@ -219,6 +219,19 @@ export class DeciderList<TOut = any, TScope = any> {
       throw new Error(`[FlowChartBuilder] decider at '${this.curNode.name}' requires at least one branch`);
     }
 
+    // Validate that every branch with no embedded fn is resolvable from the stageMap
+    for (const child of children) {
+      if (!child.fn && child.id && !child.isSubflowRoot && !child.subflowResolver) {
+        const hasInMap = this.b._stageMapHas(child.id) || this.b._stageMapHas(child.name);
+        if (!hasInMap) {
+          throw new Error(
+            `[FlowChartBuilder] decider branch '${child.id}' under '${this.curNode.name}' has no function — ` +
+              `provide a fn argument to addFunctionBranch('${child.id}', ...)`,
+          );
+        }
+      }
+    }
+
     this.curNode.deciderFn = true;
 
     if (this.defaultId) {
@@ -307,7 +320,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
-      this.b._addToMap(name, fn);
+      this.b._addToMap(id, fn);
     }
 
     let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
@@ -425,6 +438,19 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const children = this.curNode.children;
     if (!children || children.length === 0) {
       throw new Error(`[FlowChartBuilder] selector at '${this.curNode.name}' requires at least one branch`);
+    }
+
+    // Validate that every branch with no embedded fn is resolvable from the stageMap
+    for (const child of children) {
+      if (!child.fn && child.id && !child.isSubflowRoot && !child.subflowResolver) {
+        const hasInMap = this.b._stageMapHas(child.id) || this.b._stageMapHas(child.name);
+        if (!hasInMap) {
+          throw new Error(
+            `[FlowChartBuilder] selector branch '${child.id}' under '${this.curNode.name}' has no function — ` +
+              `provide a fn argument to addFunctionBranch('${child.id}', ...)`,
+          );
+        }
+      }
     }
 
     this.curNode.selectorFn = true;
@@ -552,7 +578,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    this._addToMap(name, fn);
+    this._addToMap(id, fn);
 
     let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (description) spec.description = description;
@@ -574,7 +600,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    this._addToMap(name, fn);
+    this._addToMap(id, fn);
 
     let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (description) spec.description = description;
@@ -608,7 +634,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       streamId: streamId ?? name,
     };
     if (description) node.description = description;
-    this._addToMap(name, fn);
+    this._addToMap(id, fn);
 
     let spec: SerializedPipelineStructure = {
       name,
@@ -645,7 +671,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    this._addToMap(name, fn);
+    this._addToMap(id, fn);
 
     let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
@@ -685,7 +711,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
-    this._addToMap(name, fn);
+    this._addToMap(id, fn);
 
     let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
@@ -695,6 +721,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._cursorSpec = spec;
+    this._knownStageIds.add(id);
 
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
@@ -729,7 +756,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       const node: StageNode<TOut, TScope> = { name: name ?? id, id };
       if (fn) {
         node.fn = fn;
-        this._addToMap(name, fn);
+        this._addToMap(id, fn);
       }
 
       let spec: SerializedPipelineStructure = {
@@ -1111,12 +1138,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
   }
 
-  _addToMap(name: string, fn: StageFunction<TOut, TScope>) {
-    if (this._stageMap.has(name)) {
-      const existing = this._stageMap.get(name);
-      if (existing !== fn) fail(`stageMap collision for '${name}'`);
+  _stageMapHas(key: string): boolean {
+    return this._stageMap.has(key);
+  }
+
+  _addToMap(id: string, fn: StageFunction<TOut, TScope>) {
+    if (this._stageMap.has(id)) {
+      const existing = this._stageMap.get(id);
+      if (existing !== fn) fail(`stageMap collision for id '${id}'`);
     }
-    this._stageMap.set(name, fn);
+    this._stageMap.set(id, fn);
   }
 
   _mergeStageMap(other: Map<string, StageFunction<TOut, TScope>>, prefix?: string) {
@@ -1135,6 +1166,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };
     clone.name = `${prefix}/${node.name}`;
+    clone.id = `${prefix}/${node.id}`;
     if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
     if (clone.next) clone.next = this._prefixNodeTree(clone.next, prefix);
     if (clone.children) {

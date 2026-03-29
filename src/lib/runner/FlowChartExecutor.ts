@@ -1,17 +1,20 @@
 /**
  * FlowChartExecutor — Public API for executing a compiled FlowChart.
  *
- * Wraps FlowchartTraverser. Pairs with FlowChartBuilder:
+ * Wraps FlowchartTraverser. Build a chart with flowChart() and pass the result here:
+ *
  *   const chart = flowChart('entry', entryFn).addFunction('process', processFn).build();
  *
- *   // Recommended — options object form:
+ *   // No-options form (uses auto-detected TypedScope factory from the chart):
  *   const executor = new FlowChartExecutor(chart);
+ *
+ *   // Options-object form (preferred when you need to customize behavior):
  *   const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
  *
- *   // 2-param form also supported:
+ *   // 2-param form (accepts a ScopeFactory directly, for backward compatibility):
  *   const executor = new FlowChartExecutor(chart, myFactory);
  *
- *   const result = await executor.run();
+ *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
 import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder.js';
@@ -510,11 +513,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   /** @internal */
   getExtractedResults<TResult = unknown>(): Map<string, TResult> {
-    return this.traverser.getExtractedResults<TResult>();
-  }
-
-  /** @internal */
-  getEnrichedResults<TResult = unknown>(): Map<string, TResult> {
     return this.traverser.getExtractedResults<TResult>();
   }
 

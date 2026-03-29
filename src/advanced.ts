@@ -162,7 +162,6 @@ export type {
   TraversalExtractor,
   TraversalResult,
 } from './lib/engine/index.js';
-export { ControlFlowNarrativeGenerator } from './lib/engine/index.js';
 export { NullControlFlowNarrativeGenerator } from './lib/engine/index.js';
 
 // Handlers (testing / custom engines)

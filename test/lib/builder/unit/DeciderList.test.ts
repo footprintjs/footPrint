@@ -39,7 +39,7 @@ describe('DeciderList (addDeciderFunction)', () => {
       .end()
       .build();
 
-    expect(chart.stageMap.get('BranchA')).toBe(branchFn);
+    expect(chart.stageMap.get('a')).toBe(branchFn);
   });
 
   it('throws on duplicate branch id', () => {

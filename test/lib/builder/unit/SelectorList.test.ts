@@ -47,7 +47,7 @@ describe('SelectorFnList (addSelectorFunction)', () => {
       .end()
       .build();
 
-    expect(chart.stageMap.get('Pick')).toBe(selectorFn);
+    expect(chart.stageMap.get('pick')).toBe(selectorFn);
   });
 
   it('throws on duplicate branch id', () => {

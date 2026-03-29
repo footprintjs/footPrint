@@ -162,7 +162,7 @@ export interface HandlerDeps<TOut = any, TScope = any> {
   stageMap: Map<string, StageFunction<TOut, TScope>>;
   root: StageNode<TOut, TScope>;
   executionRuntime: IExecutionRuntime;
-  ScopeFactory: ScopeFactory<TScope>;
+  scopeFactory: ScopeFactory<TScope>;
   subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
   throttlingErrorChecker?: (error: unknown) => boolean;
   streamHandlers?: StreamHandlers;
@@ -213,7 +213,7 @@ export type { FlowControlType, FlowMessage };
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStructureMetadata {
-  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
   subflowId?: string;
   isSubflowRoot?: boolean;
   subflowName?: string;
@@ -280,7 +280,18 @@ export type TraversalResult = BranchResults | string | Error;
 export interface SerializedPipelineNode {
   name: string;
   id?: string;
-  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'loop' | 'user' | 'tool' | 'function' | 'sequence';
+  type?:
+    | 'stage'
+    | 'decider'
+    | 'selector'
+    | 'fork'
+    | 'streaming'
+    | 'subflow'
+    | 'loop'
+    | 'user'
+    | 'tool'
+    | 'function'
+    | 'sequence';
   description?: string;
   children?: SerializedPipelineNode[];
   next?: SerializedPipelineNode;

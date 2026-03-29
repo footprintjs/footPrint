@@ -47,8 +47,8 @@ export type { ScopeProtectionMode };
 
 export interface SerializedPipelineStructure {
   name: string;
-  id?: string;
-  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
+  id: string;
+  type: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;
@@ -84,9 +84,9 @@ export interface SerializedPipelineStructure {
 
 export interface FlowChartSpec {
   name: string;
-  id?: string;
+  id: string;
   /** Node type — matches `SerializedPipelineStructure.type` for visualization alignment. */
-  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming';
+  type?: 'stage' | 'decider' | 'selector' | 'fork' | 'streaming' | 'subflow';
   /** Semantic icon hint for visualization (e.g., "llm", "tool", "rag", "agent", "start") */
   icon?: string;
   description?: string;

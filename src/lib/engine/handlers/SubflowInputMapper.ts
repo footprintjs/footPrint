@@ -57,7 +57,7 @@ export function createSubflowHandlerDeps<TOut = any, TScope = any>(
   return {
     stageMap: parentDeps.stageMap,
     root: parentDeps.root,
-    ScopeFactory: parentDeps.ScopeFactory,
+    scopeFactory: parentDeps.scopeFactory,
     subflows: parentDeps.subflows,
     throttlingErrorChecker: parentDeps.throttlingErrorChecker,
     streamHandlers: parentDeps.streamHandlers,

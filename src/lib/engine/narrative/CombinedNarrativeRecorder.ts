@@ -222,7 +222,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text = `[Selected]: ${event.selected.length} of ${event.total} paths selected for execution: ${names}.`;
     }
     this.entries.push({
-      type: 'fork',
+      type: 'selector',
       text,
       depth: 0,
       stageId: event.traversalContext?.stageId,

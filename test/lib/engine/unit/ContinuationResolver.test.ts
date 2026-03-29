@@ -12,7 +12,7 @@ function makeDeps(root: StageNode): HandlerDeps {
     stageMap: new Map(),
     root,
     executionRuntime: {},
-    ScopeFactory: () => ({}),
+    scopeFactory: () => ({}),
     scopeProtectionMode: 'error',
     narrativeGenerator: new NullControlFlowNarrativeGenerator(),
     logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },

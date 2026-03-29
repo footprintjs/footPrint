@@ -71,6 +71,6 @@ describe('Scenario: decider branching', () => {
       .build();
 
     expect(chart.stageMap.get('decide')).toBe(decideFn);
-    expect(chart.stageMap.get('Approve')).toBe(approveFn);
+    expect(chart.stageMap.get('a')).toBe(approveFn);
   });
 });

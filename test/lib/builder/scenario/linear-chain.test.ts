@@ -26,9 +26,9 @@ describe('Scenario: linear chain', () => {
     const fnC = async () => {};
     const chart = flowChart('A', fnA, 'a').addFunction('B', fnB, 'b').addFunction('C', fnC, 'c').build();
 
-    expect(chart.stageMap.get('A')).toBe(fnA);
-    expect(chart.stageMap.get('B')).toBe(fnB);
-    expect(chart.stageMap.get('C')).toBe(fnC);
+    expect(chart.stageMap.get('a')).toBe(fnA);
+    expect(chart.stageMap.get('b')).toBe(fnB);
+    expect(chart.stageMap.get('c')).toBe(fnC);
     expect(chart.stageMap.size).toBe(3);
   });
 

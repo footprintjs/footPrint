@@ -73,9 +73,7 @@ export function getSubtreeSnapshot(
       executionTree:
         (treeCtx?.stageContexts as unknown as StageSnapshot) ?? findSubflowInTree(snapshot.executionTree, lastSegment),
       sharedState: treeCtx?.globalContext as Record<string, unknown> | undefined,
-      narrativeEntries: allNarrativeEntries
-        ? extractScopedNarrative(allNarrativeEntries, (sfResult.subflowName as string | undefined) ?? lastSegment)
-        : undefined,
+      narrativeEntries: allNarrativeEntries ? extractScopedNarrative(allNarrativeEntries, lastSegment) : undefined,
     };
   }
 
@@ -108,31 +106,19 @@ export function listSubflowPaths(snapshot: RuntimeSnapshot): string[] {
 
 /**
  * Extract narrative entries scoped to a specific subflow.
- * Finds entries between the subflow's entry and exit events.
+ * Filters by entry.subflowId field (set by CombinedNarrativeRecorder during traversal).
+ * Also includes the subflow entry/exit marker entries themselves.
  */
-function extractScopedNarrative(entries: CombinedNarrativeEntry[], subflowName: string): CombinedNarrativeEntry[] {
-  const scoped: CombinedNarrativeEntry[] = [];
-  let inside = false;
-
-  for (const entry of entries) {
-    if (entry.type === 'subflow' && entry.text.includes(subflowName)) {
-      if (entry.text.toLowerCase().includes('entering')) {
-        inside = true;
-        scoped.push(entry);
-        continue;
-      }
-      if (entry.text.toLowerCase().includes('exiting')) {
-        scoped.push(entry);
-        inside = false;
-        continue;
-      }
-    }
-    if (inside) {
-      scoped.push(entry);
-    }
-  }
-
-  return scoped;
+function extractScopedNarrative(entries: CombinedNarrativeEntry[], path: string): CombinedNarrativeEntry[] {
+  // The last segment of the path is the subflowId stored on entries
+  const subflowId = path.split('/').pop()!;
+  return entries.filter((entry) => {
+    // Include entries whose subflowId matches (events emitted while inside this subflow)
+    if (entry.subflowId === subflowId) return true;
+    // Also include the subflow entry/exit markers (they carry the parent subflowId or undefined)
+    if (entry.type === 'subflow' && entry.stageId === subflowId) return true;
+    return false;
+  });
 }
 
 /**

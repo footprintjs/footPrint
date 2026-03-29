@@ -27,22 +27,18 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   private sentences: string[] = [];
   /** Parallel array: the actual stage name that produced each sentence. */
   private stageNames: (string | undefined)[] = [];
-  private isFirstStage = true;
 
   constructor(id?: string) {
     this.id = id ?? 'narrative';
   }
 
   onStageExecuted(event: FlowStageEvent): void {
-    if (this.isFirstStage) {
-      if (event.description) {
-        this.sentences.push(`The process began: ${event.description}.`);
-      } else {
-        this.sentences.push(`The process began with ${event.stageName}.`);
-      }
-      this.stageNames.push(event.stageName);
-      this.isFirstStage = false;
+    if (event.description) {
+      this.sentences.push(`Next step: ${event.description}.`);
+    } else {
+      this.sentences.push(`Next, it moved on to ${event.stageName}.`);
     }
+    this.stageNames.push(event.stageName);
   }
 
   onNext(event: FlowNextEvent): void {
@@ -135,6 +131,5 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   clear(): void {
     this.sentences = [];
     this.stageNames = [];
-    this.isFirstStage = true;
   }
 }

@@ -10,7 +10,7 @@ import type { FlowChart } from '../builder/types.js';
 import { normalizeSchema } from '../contract/schema.js';
 import type { JsonSchema } from '../contract/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { RunOptions } from '../engine/types.js';
+import type { RunOptions, StageNode } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
@@ -52,6 +52,8 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
   toOpenAPI(options?: ChartOpenAPIOptions): object;
   /** Generate MCP tool description from chart metadata. Cached. */
   toMCPTool(): MCPToolDescription;
+  /** Generate a Mermaid flowchart diagram string from the chart's node graph. */
+  toMermaid(): string;
 }
 
 // Cache for no-options toOpenAPI() calls only — parameterized calls are not cached
@@ -122,6 +124,30 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
 
     if (!options) openAPICache.set(chart, spec);
     return spec;
+  };
+
+  runnable.toMermaid = function (): string {
+    const lines: string[] = ['flowchart TD'];
+    const idOf = (k: string) => (k || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
+    const visited = new Set<string>();
+    const walk = (n: StageNode) => {
+      const nid = idOf(n.id);
+      if (visited.has(nid)) return;
+      visited.add(nid);
+      lines.push(`${nid}["${n.name}"]`);
+      for (const c of n.children || []) {
+        const cid = idOf(c.id);
+        lines.push(`${nid} --> ${cid}`);
+        walk(c);
+      }
+      if (n.next) {
+        const mid = idOf(n.next.id);
+        lines.push(`${nid} --> ${mid}`);
+        walk(n.next);
+      }
+    };
+    walk(chart.root);
+    return lines.join('\n');
   };
 
   runnable.toMCPTool = function (): MCPToolDescription {

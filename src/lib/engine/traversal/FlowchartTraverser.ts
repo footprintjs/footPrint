@@ -171,8 +171,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     );
 
     // Narrative generator
-    // When narrative is enabled with FlowRecorders, use FlowRecorderDispatcher.
-    // When narrative is enabled without FlowRecorders, use legacy ControlFlowNarrativeGenerator.
+    // When narrative is enabled, use FlowRecorderDispatcher (with default NarrativeFlowRecorder or custom recorders).
     // When disabled, use NullControlFlowNarrativeGenerator (zero-cost).
     if (opts.narrativeEnabled) {
       const dispatcher = new FlowRecorderDispatcher();
@@ -195,8 +194,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Build shared deps bag
     const deps = this.createDeps(opts);
 
+    // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo())
+    const nodeIdMap = this.buildNodeIdMap(opts.root);
+
     // Initialize handler modules
-    this.nodeResolver = new NodeResolver(deps);
+    this.nodeResolver = new NodeResolver(deps, nodeIdMap);
     this.childrenExecutor = new ChildrenExecutor(deps, this.executeNode.bind(this));
     this.stageRunner = new StageRunner(deps);
     this.continuationResolver = new ContinuationResolver(deps, this.nodeResolver, (nodeId, count) =>
@@ -218,7 +220,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       stageMap: this.stageMap,
       root: this.root,
       executionRuntime: this.executionRuntime,
-      ScopeFactory: opts.scopeFactory,
+      scopeFactory: opts.scopeFactory,
       subflows: this.subflows,
       throttlingErrorChecker: opts.throttlingErrorChecker,
       streamHandlers: opts.streamHandlers,
@@ -285,8 +287,32 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   // ─────────────────────── Core Traversal ───────────────────────
 
+  /**
+   * Build an O(1) ID→node map from the root graph.
+   * Used by NodeResolver to avoid repeated DFS on every loopTo() call.
+   * Depth-guarded at MAX_EXECUTE_DEPTH to prevent infinite recursion on cyclic graphs.
+   */
+  private buildNodeIdMap(root: StageNode<TOut, TScope>): Map<string, StageNode<TOut, TScope>> {
+    const map = new Map<string, StageNode<TOut, TScope>>();
+    const visit = (node: StageNode<TOut, TScope>, depth: number): void => {
+      if (depth > FlowchartTraverser.MAX_EXECUTE_DEPTH) return;
+      if (map.has(node.id)) return; // already visited (avoids infinite loops on cyclic refs)
+      map.set(node.id, node);
+      if (node.children) {
+        for (const child of node.children) visit(child, depth + 1);
+      }
+      if (node.next) visit(node.next, depth + 1);
+    };
+    visit(root, 0);
+    return map;
+  }
+
   private getStageFn(node: StageNode<TOut, TScope>): StageFunction<TOut, TScope> | undefined {
     if (typeof node.fn === 'function') return node.fn as StageFunction<TOut, TScope>;
+    // Primary: look up by id (stable identifier, keyed by FlowChartBuilder)
+    const byId = this.stageMap.get(node.id);
+    if (byId !== undefined) return byId;
+    // Fallback: look up by name (supports hand-crafted stageMaps in tests and advanced use)
     return this.stageMap.get(node.name);
   }
 
@@ -495,12 +521,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // After branch execution, follow decider's own next (e.g., loopTo target)
         if (hasNext && !breakFlag.shouldBreak) {
           const nextNode = originalNext!;
+          // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
+          // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
           const isLoopRef =
-            !this.getStageFn(nextNode) &&
-            !nextNode.children?.length &&
-            !nextNode.deciderFn &&
-            !nextNode.selectorFn &&
-            !nextNode.isSubflowRoot;
+            nextNode.isLoopRef === true ||
+            (!this.getStageFn(nextNode) &&
+              !nextNode.children?.length &&
+              !nextNode.deciderFn &&
+              !nextNode.selectorFn &&
+              !nextNode.isSubflowRoot);
 
           if (isLoopRef) {
             return this.continuationResolver.resolve(
