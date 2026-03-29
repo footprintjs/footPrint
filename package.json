@@ -1,6 +1,6 @@
 {
   "name": "footprintjs",
-  "version": "3.0.19",
+  "version": "3.0.20",
   "description": "Explainable backend flows — automatic causal traces, decision evidence, and MCP tool generation for AI agents",
   "license": "MIT",
   "author": "Sanjay Krishna Anbalagan",
