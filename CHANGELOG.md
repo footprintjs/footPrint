@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0]
+
 ### Fixed
 - **Concurrent FlowChartExecutor runs no longer race on shared FlowChart** (`engine/FlowchartTraverser.ts`) — `stageMap` and `subflows` were shared references from the compiled `FlowChart` object. Lazy-resolution writes (prefixed entries added during execution) mutated the shared dict, causing a race condition when two executors ran the same `FlowChart` concurrently (normal server-side behaviour). Both are now shallow-copied in the `FlowchartTraverser` constructor so per-run mutations stay scoped to the individual traverser. Additionally, the old `node.subflowResolver = undefined` write-back to the shared `StageNode` graph created a secondary race: the first concurrent traverser to resolve a lazy subflow would clear the resolver on the shared node, so a second concurrent traverser could not re-resolve it. The fix replaces the write-back with a per-traverser `resolvedLazySubflows: Set<string>` — the shared node is never mutated.
 - **Empty-array write now clears field** (`memory/utils.ts`) — `updateValue(obj, key, [])` and `deepSmartMerge(dst, [])` previously produced a silent no-op (spreading `[]` onto an existing array left the field unchanged). Both now treat an empty array as a replacement ("clear"), consistent with how `{}` is handled. Practically: `scope.customer.tags = []` now clears `tags` instead of being silently ignored.
