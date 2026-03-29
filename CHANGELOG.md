@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1]
+
+### Fixed
+
+- **`prefixNodeTree` now prefixes `node.id`** (`engine/traversal/FlowchartTraverser.ts`) — subflow namespace isolation was prefixing `node.name` but not `node.id`, causing `id`-keyed stageMap lookups to miss prefixed entries. Both `name` and `id` are now prefixed, consistent with how `FlowChartBuilder` always sets them together.
+- **`SerializedPipelineNode.id` is now required** (`engine/types.ts`) — was `id?: string` while the builder always sets it; aligned with `builder/types.ts` which already required it.
+- **`ScopeFactory` exported from `engine/types` (4-param)** (`advanced.ts`) — was accidentally re-exporting the 3-param version from `memory/types`, missing the `executionEnv` parameter. Now exports the canonical 4-param version used by the traverser.
+- **`CombinedNarrativeRecorder.pendingOps` keyed by `stageId`** (`engine/narrative/CombinedNarrativeRecorder.ts`) — was keyed by stage name, which could collide when two stages shared a display name but had different IDs. Now keyed by the stable `stageId`.
+- **`RuntimeStructureManager` update methods emit dev-mode warn when node missing** (`engine/handlers/RuntimeStructureManager.ts`) — `updateDynamicChildren`, `updateDynamicSubflow`, and `updateDynamicNext` silently no-oped when called with an unregistered node ID. They now emit a `console.warn` in dev mode, matching the project's silent-skip warning rule.
+- **`specToStageNode` removes `id ?? name` fallback** (`builder/FlowChartBuilder.ts`) — now that `id` is required in both type definitions, the defensive `id: s.id ?? s.name` fallback was dead code hiding potential misconfiguration. Removed.
+- **`FlowChartExecutorOptions` exported from public API** (`src/index.ts`) — was accessible only as an import from the internal runner path.
+- **`CombinedNarrativeBuilder.ts` converted to re-export shim** (`engine/narrative/CombinedNarrativeBuilder.ts`) — types moved to `narrativeTypes.ts`; old file is now a thin re-export for any consumers that imported from the old path.
+
 ## [4.0.0]
 
 ### Removed
