@@ -1,14 +1,12 @@
 /**
- * Tests for the FlowChartExecutorOptions object API (P4-10).
+ * Tests for the FlowChartExecutorOptions object API.
  *
- * Fix: FlowChartExecutor had a 9-positional-parameter constructor which was
- * error-prone (easy to mix up order) and made optional advanced configuration
- * awkward. An options-object form is now supported:
+ * FlowChartExecutor accepts two forms:
+ *   new FlowChartExecutor(chart)
+ *   new FlowChartExecutor(chart, scopeFactory)
+ *   new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true, ... })
  *
- *   new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true })
- *
- * The legacy positional form is still accepted for backward compatibility but
- * parameters 3–9 are deprecated. The preferred form is the options object.
+ * The options-object form is preferred when passing more than a factory.
  */
 
 import { flowChart } from '../../../../src/index';

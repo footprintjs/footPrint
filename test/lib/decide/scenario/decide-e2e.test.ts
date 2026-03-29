@@ -1,7 +1,7 @@
 /**
  * Scenario test: decide()/select() end-to-end through full engine pipeline.
  *
- * Exercises: typedFlowChart → addDeciderFunction using decide() →
+ * Exercises: flowChart<T> → addDeciderFunction using decide() →
  * executor.run() → verify narrative contains evidence-based sentences.
  *
  * Also covers: select() with selector, function-when path, default fallback,
@@ -9,8 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { decide, FlowChartExecutor, select } from '../../../../src/index';
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { decide, flowChart, FlowChartExecutor, select } from '../../../../src/index';
 
 // ── State types ──────────────────────────────────────────────────────────
 
@@ -29,7 +28,7 @@ interface ScreeningState {
 
 describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
   it('decide() with filter rules produces evidence-aware narrative', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'LoadApp',
       async (scope) => {
         scope.creditScore = 750;
@@ -95,7 +94,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
   });
 
   it('decide() with function rules captures read keys in narrative', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'LoadApp',
       async (scope) => {
         scope.creditScore = 650;
@@ -159,7 +158,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
   });
 
   it('decide() falls back to default when no rules match', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'LoadApp',
       async (scope) => {
         scope.creditScore = 400;
@@ -219,7 +218,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
   });
 
   it('select() with filter rules picks correct branches and produces narrative', async () => {
-    const chart = typedFlowChart<ScreeningState>(
+    const chart = flowChart<ScreeningState>(
       'LoadVitals',
       async (scope) => {
         scope.glucose = 128;
@@ -277,7 +276,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
   });
 
   it('narrative does NOT contain spurious "Read getValue" entries', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'LoadApp',
       async (scope) => {
         scope.creditScore = 750;

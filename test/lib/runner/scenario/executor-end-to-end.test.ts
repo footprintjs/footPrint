@@ -319,18 +319,7 @@ describe('FlowChartExecutor — end-to-end', () => {
       })
       .build();
 
-    // Pass enrichSnapshots=true (9th constructor param)
-    const executor = new FlowChartExecutor(
-      chart,
-      scopeFactory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      true, // enrichSnapshots
-    );
+    const executor = new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true });
     await executor.run();
 
     expect(capturedSnapshot).toBeDefined();
@@ -476,10 +465,13 @@ describe('FlowChartExecutor — streaming', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(chart, noopScope, undefined, undefined, undefined, undefined, {
-      onToken: (id, token) => tokens.push(token),
-      onStart: (id) => startedStreams.push(id),
-      onEnd: (id) => endedStreams.push(id),
+    const executor = new FlowChartExecutor(chart, {
+      scopeFactory: noopScope,
+      streamHandlers: {
+        onToken: (id, token) => tokens.push(token),
+        onStart: (id) => startedStreams.push(id),
+        onEnd: (id) => endedStreams.push(id),
+      },
     });
 
     await executor.run();
@@ -540,16 +532,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
 
     // scopeProtectionMode 'off' — ScopeFacade uses setValue/getValue internally,
     // but the proxy intercepts the setter before ScopeFacade's own setter runs
-    const executor = new FlowChartExecutor(
-      chart,
-      scopeFactory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'off',
-    );
+    const executor = new FlowChartExecutor(chart, { scopeFactory, scopeProtectionMode: 'off' });
     const result = await executor.run();
 
     expect(result).toBe('Alice');
@@ -573,16 +556,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      scopeFactory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'off',
-    );
+    const executor = new FlowChartExecutor(chart, { scopeFactory, scopeProtectionMode: 'off' });
     executor.enableNarrative();
     await executor.run();
 
@@ -604,16 +578,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       'write',
     ).build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      scopeFactory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'off',
-    );
+    const executor = new FlowChartExecutor(chart, { scopeFactory, scopeProtectionMode: 'off' });
     executor.enableNarrative();
     await executor.run();
 
@@ -633,16 +598,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
       'init',
     ).build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      scopeFactory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'off',
-    );
+    const executor = new FlowChartExecutor(chart, { scopeFactory, scopeProtectionMode: 'off' });
     executor.enableNarrative();
     await executor.run();
 
@@ -668,14 +624,10 @@ describe('FlowChartExecutor — throttlingErrorChecker', () => {
       ])
       .build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      noopScope,
-      undefined,
-      undefined,
-      undefined,
-      (error: unknown) => error instanceof Error && error.message.includes('rate limited'),
-    );
+    const executor = new FlowChartExecutor(chart, {
+      scopeFactory: noopScope,
+      throttlingErrorChecker: (error: unknown) => error instanceof Error && error.message.includes('rate limited'),
+    });
 
     // Fork uses Promise.allSettled — one child errors but execution completes
     const result = await executor.run();
@@ -694,7 +646,7 @@ describe('FlowChartExecutor — throttlingErrorChecker', () => {
     ).build();
 
     const checker = (error: unknown) => error instanceof Error && error.message.includes('throttle');
-    const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, undefined, checker);
+    const executor = new FlowChartExecutor(chart, { scopeFactory, throttlingErrorChecker: checker });
 
     await executor.run();
 

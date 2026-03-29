@@ -117,9 +117,9 @@ describe('Scenario: runtime input flow via run({ input })', () => {
       'entry',
     ).build();
 
-    // Constructor has readOnlyContext as 5th param
-    const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, {
-      original: 'constructor-value',
+    const executor = new FlowChartExecutor(chart, {
+      scopeFactory,
+      readOnlyContext: { original: 'constructor-value' },
     });
 
     // run() input overrides constructor readOnlyContext
@@ -139,7 +139,7 @@ describe('Scenario: runtime input flow via run({ input })', () => {
       'entry',
     ).build();
 
-    const executor = new FlowChartExecutor(chart, scopeFactory, undefined, undefined, { original: 'from-constructor' });
+    const executor = new FlowChartExecutor(chart, { scopeFactory, readOnlyContext: { original: 'from-constructor' } });
 
     // First run with input override
     await executor.run({ input: { temp: 'override' } });

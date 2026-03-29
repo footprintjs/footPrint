@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { flowChart } from '../../../../src/lib/builder';
 import type { FlowRecorder } from '../../../../src/lib/engine/narrative/types';
 import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
@@ -17,7 +17,7 @@ interface TestState {
 }
 
 function buildChart() {
-  return typedFlowChart<TestState>(
+  return flowChart<TestState>(
     'Start',
     async (scope) => {
       scope.name = 'Alice';
@@ -39,7 +39,7 @@ describe('RunContext — Unit', () => {
   });
 
   it('chart.run() with input', async () => {
-    const chart = typedFlowChart<{ value: string }>(
+    const chart = flowChart<{ value: string }>(
       'Start',
       async (scope) => {
         const args = scope.$getArgs<{ msg: string }>();
@@ -108,7 +108,7 @@ describe('RunContext — Unit', () => {
   });
 
   it('result.output uses outputMapper when available', async () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'Bob';
@@ -153,7 +153,7 @@ describe('RunContext — Scenario', () => {
   });
 
   it('batch processing: each run gets fresh metrics', async () => {
-    const chart = typedFlowChart<{ x: number }>(
+    const chart = flowChart<{ x: number }>(
       'Process',
       async (scope) => {
         scope.x = Math.random();
@@ -180,7 +180,7 @@ describe('RunContext — Scenario', () => {
       score: number;
       decision?: string;
     }
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'Load',
       async (scope) => {
         scope.score = 750;
@@ -213,7 +213,7 @@ describe('RunContext — Scenario', () => {
 
 describe('RunContext — Boundary', () => {
   it('chart.run() with no stages beyond start', async () => {
-    const chart = typedFlowChart<{ x: number }>(
+    const chart = flowChart<{ x: number }>(
       'Only',
       async (scope) => {
         scope.x = 1;
@@ -274,7 +274,7 @@ describe('RunContext — Security', () => {
 
 describe('RunContext — ML/AI', () => {
   it('zero-boilerplate agent pipeline', async () => {
-    const chart = typedFlowChart<{ query: string; response: string }>(
+    const chart = flowChart<{ query: string; response: string }>(
       'Agent',
       async (scope) => {
         scope.query = 'What is 2+2?';

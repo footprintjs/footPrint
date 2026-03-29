@@ -15,12 +15,6 @@ export interface StageContextLike {
   addError?(key: string, val: unknown): void;
 
   getGlobal?(key: string): unknown;
-  /**
-   * @deprecated since v3.1.0 — use {@link getGlobal} instead. Will be removed in v4.0.0.
-   * Internal callers no longer invoke this method — implementors of `StageContextLike`
-   * must provide `getGlobal?` (not just `getFromGlobalContext?`) for `getInitialValueFor` to work.
-   */
-  getFromGlobalContext?(key: string): unknown;
   setRoot?(key: string, value: unknown): void;
   setGlobal?(key: string, value: unknown, description?: string): void;
 

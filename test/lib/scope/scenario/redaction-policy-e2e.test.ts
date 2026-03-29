@@ -1,7 +1,6 @@
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
-import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { RedactionPolicy } from '../../../../src/lib/scope/types';
 
@@ -17,42 +16,6 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     patterns: [/password|secret/i],
     fields: { patient: ['dob', 'ssn'] },
   };
-
-  it('NarrativeRecorder sees redacted values from policy.keys', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Intake');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-    scope.useRedactionPolicy(policy);
-
-    scope.setValue('ssn', '123-45-6789');
-    scope.setValue('name', 'Alice');
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Intake')!;
-
-    expect(lines.some((l) => l.includes('[REDACTED]'))).toBe(true);
-    expect(lines.some((l) => l.includes('123-45-6789'))).toBe(false);
-    expect(lines.some((l) => l.includes('Alice'))).toBe(true);
-  });
-
-  it('NarrativeRecorder sees redacted values from policy.patterns', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Auth');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-    scope.useRedactionPolicy(policy);
-
-    scope.setValue('dbPassword', 'p@ssw0rd');
-    scope.setValue('username', 'bob');
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Auth')!;
-
-    expect(lines.some((l) => l.includes('p@ssw0rd'))).toBe(false);
-    expect(lines.some((l) => l.includes('[REDACTED]'))).toBe(true);
-    expect(lines.some((l) => l.includes('bob'))).toBe(true);
-  });
 
   it('DebugRecorder sees redacted values from policy', () => {
     const ctx = makeCtx();
@@ -90,23 +53,6 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     expect(stageMetrics!.writeCount).toBe(2);
   });
 
-  it('field-level redaction: NarrativeRecorder never sees raw secret values', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Intake');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-    scope.useRedactionPolicy(policy);
-
-    scope.setValue('patient', { name: 'Bob', ssn: '999-99-9999', dob: '1985-03-15', bloodType: 'O+' });
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Intake')!;
-
-    // NarrativeRecorder summarizes objects by key names, so raw values should never leak
-    expect(lines.some((l) => l.includes('999-99-9999'))).toBe(false);
-    expect(lines.some((l) => l.includes('1985-03-15'))).toBe(false);
-  });
-
   it('field-level redaction works with DebugRecorder', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Intake');
@@ -128,7 +74,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     expect(val.bloodType).toBe('O+');
   });
 
-  it('cross-stage: policy redaction persists via shared keys', () => {
+  it('cross-stage: policy redaction persists via shared keys (DebugRecorder)', () => {
     const sharedSet = new Set<string>();
     const ctx1 = makeCtx('p1', 'stage1');
     const scope1 = new ScopeFacade(ctx1, 'stage1');
@@ -146,15 +92,13 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     const scope2 = new ScopeFacade(ctx2, 'stage2');
     scope2.useSharedRedactedKeys(sharedSet);
 
-    const narrative = new NarrativeRecorder({ id: 'n2' });
-    scope2.attachRecorder(narrative);
+    const debug = new DebugRecorder({ id: 'd2', verbosity: 'verbose' });
+    scope2.attachRecorder(debug);
     const val = scope2.getValue('ssn');
 
     expect(val).toBe('123-45-6789'); // runtime gets real value
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('stage2')!;
-    expect(lines.some((l) => l.includes('[REDACTED]'))).toBe(true);
-    expect(lines.some((l) => l.includes('123-45-6789'))).toBe(false);
+    const readEntry = debug.getEntries().find((e) => e.type === 'read' && (e.data as any).key === 'ssn');
+    expect((readEntry!.data as any).value).toBe('[REDACTED]');
   });
 
   it('runtime always returns real values despite policy', () => {
@@ -171,8 +115,6 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     expect(patient.ssn).toBe('999');
     expect(patient.dob).toBe('1990-01-01');
   });
-
-  // ── Dot-notation (nested field) with real recorders ─────────────────
 
   it('dot-notation: DebugRecorder sees nested fields scrubbed', () => {
     const ctx = makeCtx();
@@ -200,28 +142,6 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     expect(val.address.zip).toBe('[REDACTED]');
     expect(val.insurance.provider).toBe('Aetna');
     expect(val.insurance.memberId).toBe('[REDACTED]');
-  });
-
-  it('dot-notation: NarrativeRecorder never sees raw nested values', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Intake');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-    scope.useRedactionPolicy({
-      fields: { patient: ['address.zip'] },
-    });
-
-    scope.setValue('patient', {
-      name: 'Alice',
-      address: { street: '123 Main', zip: '90210' },
-    });
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Intake')!;
-
-    // NarrativeRecorder summarizes objects by key names, not values
-    // Verify raw zip never leaks
-    expect(lines.some((l) => l.includes('90210'))).toBe(false);
   });
 
   it('dot-notation: runtime returns real nested values', () => {

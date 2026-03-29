@@ -59,18 +59,20 @@ Recorders don't exist *on top of* the data layer. They exist *because of* it. Th
 |---|---|---|
 | `MetricRecorder` | Timing + read/write/commit counts per stage | Ops / monitoring |
 | `DebugRecorder` | Errors (always) + mutations + reads (verbose mode) | Developer |
-| `NarrativeRecorder` | Per-stage data sentences for trace enrichment | **The LLM** |
+| `narrative()` | Per-stage data sentences + control flow for trace enrichment | **The LLM** |
 
-**NarrativeRecorder is the unique one.** It produces runtime decoration — per-stage sentences like *"Stage 'fetchUser' read 'userId' and wrote 'userName', 'userEmail'"*. This is the runtime counterpart to builder's static tool descriptions. Builder tells the LLM what the tool does. NarrativeRecorder tells it what data flowed, what changed, what conditions were hit, and why a stage backtracked. Together they give the LLM full context without re-running the pipeline.
+**`narrative()` is the unique one.** It produces runtime decoration — per-stage sentences like *"Stage 'fetchUser' read 'userId' and wrote 'userName', 'userEmail'"*. This is the runtime counterpart to builder's static tool descriptions. Builder tells the LLM what the tool does. `narrative()` tells it what data flowed, what changed, what conditions were hit, and why a stage backtracked. Together they give the LLM full context without re-running the pipeline.
 
 **Build your own recorder.** The Recorder interface is all-optional — implement only the hooks you need. An error tracker only needs `onError`. A timing recorder only needs `onStageStart`/`onStageEnd`. Because the data layer captures everything, any recorder you attach automatically sees all state changes. No instrumentation needed.
 
 **Error isolation:** If a recorder throws, the error is caught and forwarded to `onError` hooks of other recorders. Scope operations continue normally. Recorders can never break execution.
 
 ```typescript
+import { narrative } from 'footprintjs/recorders';
+
 const executor = new FlowChartExecutor(chart);
 executor.attachRecorder(new MetricRecorder());
-executor.attachRecorder(new NarrativeRecorder({ detail: 'full' }));
+executor.recorder(narrative());   // combined flow + data narrative
 
 await executor.run();
 
@@ -219,7 +221,7 @@ Static decoration                    Runtime decoration
 | ScopeFacade wraps StageContext | Consumers get clean API, internals stay hidden | Single trunk — all state flows through one place |
 | Recorder interface is all-optional | Partial implementations are the common case | Easy to build custom recorders (error-only, timing-only, audit) |
 | Recorder errors caught + forwarded to onError | Observers must never break the observed system | Production safety — bad recorder can't crash pipeline |
-| NarrativeRecorder summarizes values | Raw values can be huge (LLM responses, arrays) | Runtime decoration stays concise for LLM context windows |
+| `narrative()` summarizes values | Raw values can be huge (LLM responses, arrays) | Runtime decoration stays concise for LLM context windows |
 | Protection uses Proxy, not linting | Runtime catch is more reliable than build-time | Catches bypasses even in JS (non-TypeScript) consumers |
 | Three protection modes (error/warn/off) | Different needs for dev vs prod vs testing | Strict in dev, lenient where needed |
 | Provider system with pluggable resolvers | New scope types (Zod) don't require engine changes | Plugin architecture — extend without modifying core |

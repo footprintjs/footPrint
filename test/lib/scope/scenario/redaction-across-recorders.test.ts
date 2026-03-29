@@ -1,7 +1,6 @@
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
-import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
@@ -9,41 +8,6 @@ function makeCtx(runId = 'p1', stageName = 's1') {
 }
 
 describe('Scenario: redaction across recorders', () => {
-  it('NarrativeRecorder shows [REDACTED] in sentences for redacted writes', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Authenticate');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-
-    scope.setValue('username', 'alice');
-    scope.setValue('password', 'super-secret-123', true);
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Authenticate')!;
-    // username should appear in narrative
-    expect(lines.some((l) => l.includes('alice'))).toBe(true);
-    // password value should be redacted, not the raw value
-    expect(lines.some((l) => l.includes('super-secret-123'))).toBe(false);
-    expect(lines.some((l) => l.includes('[REDACTED]'))).toBe(true);
-  });
-
-  it('NarrativeRecorder shows [REDACTED] in sentences for redacted reads', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Decrypt');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-
-    scope.setValue('encryptionKey', 'aes-256-key-data', true);
-    ctx.commit();
-
-    scope.attachRecorder(narrative);
-    scope.getValue('encryptionKey');
-
-    const sentences = narrative.toSentences();
-    const lines = sentences.get('Decrypt')!;
-    expect(lines.some((l) => l.includes('aes-256-key-data'))).toBe(false);
-    expect(lines.some((l) => l.includes('[REDACTED]'))).toBe(true);
-  });
-
   it('DebugRecorder stores [REDACTED] value in entries for redacted keys', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'ProcessPayment');
@@ -106,14 +70,12 @@ describe('Scenario: redaction across recorders', () => {
     expect(m.totalReads).toBe(2);
   });
 
-  it('all three recorders see consistent redaction for the same operation', () => {
+  it('DebugRecorder sees consistent redaction for the same operation', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Sync');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
     const metrics = new MetricRecorder('m1');
 
-    scope.attachRecorder(narrative);
     scope.attachRecorder(debug);
     scope.attachRecorder(metrics);
 
@@ -121,12 +83,6 @@ describe('Scenario: redaction across recorders', () => {
     scope.setValue('userId', 'user-42');
     ctx.commit();
     scope.getValue('token');
-
-    // Narrative: token redacted, userId visible
-    const sentences = narrative.toFlatSentences();
-    expect(sentences.some((s) => s.includes('bearer-xyz'))).toBe(false);
-    expect(sentences.some((s) => s.includes('[REDACTED]'))).toBe(true);
-    expect(sentences.some((s) => s.includes('user-42'))).toBe(true);
 
     // Debug: token entries redacted
     const debugEntries = debug.getEntries();
@@ -138,64 +94,6 @@ describe('Scenario: redaction across recorders', () => {
     // Metrics: counts are correct regardless
     expect(metrics.getMetrics().totalWrites).toBe(2);
     expect(metrics.getMetrics().totalReads).toBe(1);
-  });
-
-  it('TypedScope top-level write on a previously-redacted key stays redacted (scope.prop = val path)', () => {
-    // TypedScope top-level set → target.setValue(prop, unwrapped) — fix must apply here too
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Payment');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-
-    // Mark cardNumber redacted via per-call flag (e.g. via $setValue escape hatch)
-    scope.setValue('cardNumber', '4111-1111-1111-1111', true);
-    // Then write again without shouldRedact — simulates TypedScope `scope.cardNumber = val`
-    scope.setValue('cardNumber', '4111-1111-1111-1111');
-
-    const sentences = narrative.toFlatSentences();
-    expect(sentences.some((s) => s.includes('4111-1111-1111-1111'))).toBe(false);
-    expect(sentences.filter((s) => s.includes('[REDACTED]'))).toHaveLength(2);
-  });
-
-  it('cross-scope outputMapper write: key marked redacted in subflow scope stays redacted when written to parent scope', () => {
-    // Simulates: subflow marks cardNumber redacted → sharedKeys → outputMapper writes to parent
-    const sharedSet = new Set<string>();
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-
-    // Subflow scope: marks cardNumber as redacted
-    const subflowCtx = makeCtx('p1', 'ChargeCard');
-    const subflowScope = new ScopeFacade(subflowCtx, 'ChargeCard');
-    subflowScope.useSharedRedactedKeys(sharedSet);
-    subflowScope.setValue('cardNumber', '4111-1111-1111-1111', true); // subflow marks PII
-
-    // Parent scope: outputMapper writes cardNumber — no shouldRedact flag
-    const parentCtx = makeCtx('p1', 'ConfirmOrder');
-    const parentScope = new ScopeFacade(parentCtx, 'ConfirmOrder');
-    parentScope.useSharedRedactedKeys(sharedSet); // same shared set — as FlowChartExecutor wires
-    parentScope.attachRecorder(narrative);
-    parentScope.setValue('cardNumber', '4111-1111-1111-1111'); // outputMapper call — no flag
-
-    const sentences = narrative.toFlatSentences();
-    expect(sentences.some((s) => s.includes('4111-1111-1111-1111'))).toBe(false);
-    expect(sentences.some((s) => s.includes('[REDACTED]'))).toBe(true);
-  });
-
-  it('updateValue on a previously-redacted key stays redacted in recorders', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'Rotate');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-
-    scope.setValue('secret', 'old-value', true);
-    scope.updateValue('secret', 'new-value');
-
-    const sentences = narrative.toFlatSentences();
-    // Neither old nor new value should leak
-    expect(sentences.some((s) => s.includes('old-value'))).toBe(false);
-    expect(sentences.some((s) => s.includes('new-value'))).toBe(false);
-    // Both should show [REDACTED]
-    const redactedLines = sentences.filter((s) => s.includes('[REDACTED]'));
-    expect(redactedLines).toHaveLength(2);
   });
 
   it('runtime getValue still returns real value despite recorder redaction', () => {
@@ -218,14 +116,12 @@ describe('Scenario: redaction across recorders', () => {
 
   it('shared redacted keys persist across stages with different scope instances', () => {
     const sharedSet = new Set<string>();
-    const narrative = new NarrativeRecorder({ id: 'n1' });
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
 
     // Stage 1: set redacted value
     const ctx1 = makeCtx('p1', 'Collect');
     const scope1 = new ScopeFacade(ctx1, 'Collect');
     scope1.useSharedRedactedKeys(sharedSet);
-    scope1.attachRecorder(narrative);
     scope1.attachRecorder(debug);
     scope1.setValue('apiKey', 'sk-live-secret', true);
     scope1.setValue('region', 'us-east-1');
@@ -238,15 +134,9 @@ describe('Scenario: redaction across recorders', () => {
     ctx2.commit();
     const scope2 = new ScopeFacade(ctx2, 'Use');
     scope2.useSharedRedactedKeys(sharedSet);
-    scope2.attachRecorder(narrative);
     scope2.attachRecorder(debug);
     scope2.getValue('apiKey');
     scope2.getValue('region');
-
-    // Narrative: apiKey redacted in both stages, region visible
-    const sentences = narrative.toFlatSentences();
-    expect(sentences.some((s) => s.includes('sk-live-secret'))).toBe(false);
-    expect(sentences.some((s) => s.includes('us-east-1'))).toBe(true);
 
     // Debug: read of apiKey in stage 2 is redacted
     const useEntries = debug.getEntriesForStage('Use');

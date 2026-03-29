@@ -76,7 +76,7 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
     expect(result).toBe('value');
   });
 
-  it('explicit undefined scopeFactory still allows positional params after it', async () => {
+  it('options object form supports streamHandlers', async () => {
     const tokens: string[] = [];
     const chart = flowChart('entry', () => {}, 'entry')
       .addStreamingFunction(
@@ -89,15 +89,9 @@ describe('FlowChartExecutor — default scopeFactory (unit)', () => {
       )
       .build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      undefined, // scopeFactory — default
-      undefined, // defaultValuesForContext
-      undefined, // initialContext
-      undefined, // readOnlyContext
-      undefined, // throttlingErrorChecker
-      { onToken: (_id, t) => tokens.push(t) }, // streamHandlers
-    );
+    const executor = new FlowChartExecutor(chart, {
+      streamHandlers: { onToken: (_id: string, t: string) => tokens.push(t) },
+    });
     await executor.run();
 
     expect(tokens).toEqual(['tok']);

@@ -27,12 +27,6 @@ export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './recorde
 export { DebugRecorder } from './recorders/DebugRecorder.js';
 export type { AggregatedMetrics, StageMetrics } from './recorders/MetricRecorder.js';
 export { MetricRecorder } from './recorders/MetricRecorder.js';
-export type {
-  NarrativeDetail,
-  NarrativeOperation,
-  NarrativeRecorderOptions,
-  StageNarrativeData,
-} from './recorders/NarrativeRecorder.js';
 
 // Protection
 export type { ScopeProtectionMode, ScopeProtectionOptions } from './protection/index.js';

@@ -116,11 +116,11 @@ executor.attachRecorder(new MetricRecorder());
 
 | Recorder | Captures | Audience |
 |---|---|---|
-| `NarrativeRecorder` | Per-stage data sentences for trace enrichment | The LLM |
+| `narrative()` | Per-stage data sentences + control flow for trace enrichment | The LLM |
 | `MetricRecorder` | Timing + read/write/commit counts per stage | Ops / monitoring |
 | `DebugRecorder` | Errors (always) + mutations + reads (verbose mode) | Developer |
 
-> **Note:** `NarrativeRecorder` is attached automatically when narrative is enabled via `executor.recorder(narrative())`. You only need to attach it manually if you need custom options.
+> **Note:** `narrative()` from `footprintjs/recorders` produces the combined flow + data narrative. Attach it via `executor.recorder(narrative())` — this is the only step needed.
 
 ### Custom Recorders
 
@@ -157,7 +157,7 @@ scope.setValue('publicName', 'Alice'); // not redacted
 | Consumer | Sees |
 |----------|------|
 | Stage function (`getValue`) | Real value — runtime needs it |
-| NarrativeRecorder | `[REDACTED]` |
+| `narrative()` recorder | `[REDACTED]` |
 | DebugRecorder | `[REDACTED]` |
 | MetricRecorder | Counts only (safe by default) |
 | Custom recorders | `[REDACTED]` |

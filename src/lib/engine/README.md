@@ -116,9 +116,9 @@ The `FlowRecorderDispatcher` implements `IControlFlowNarrative`, so it drops int
 **Two narrative systems, complementary:**
 
 ```
-memory/NarrativeRecorder     = DATA observation  → "wrote userName = 'Alice'"
-engine/FlowRecorder          = FLOW observation  → "chose Reject because riskScore > 0.5"
-CombinedNarrativeRecorder    = MERGE both        → the full story (inline during traversal)
+scope/Recorder (data events)         = DATA observation  → "wrote userName = 'Alice'"
+engine/FlowRecorder (flow events)    = FLOW observation  → "chose Reject because riskScore > 0.5"
+CombinedNarrativeRecorder            = MERGE both        → the full story (inline during traversal)
 ```
 
 **Quick start:**

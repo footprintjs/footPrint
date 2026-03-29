@@ -1,7 +1,6 @@
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
-import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
@@ -43,33 +42,14 @@ describe('Scenario: recorder observes real writes', () => {
     expect(entries[2].type).toBe('write');
   });
 
-  it('NarrativeRecorder produces sentences from ScopeFacade operations', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'CallLLM');
-    const narrative = new NarrativeRecorder({ id: 'n1' });
-    scope.attachRecorder(narrative);
-
-    scope.getValue('messages');
-    scope.setValue('lastResponse', { model: 'gpt-4', content: 'Hello' });
-
-    const sentences = narrative.toSentences();
-    expect(sentences.has('CallLLM')).toBe(true);
-    const lines = sentences.get('CallLLM')!;
-    expect(lines.length).toBeGreaterThanOrEqual(2);
-    expect(lines.some((l) => l.includes('Read'))).toBe(true);
-    expect(lines.some((l) => l.includes('Write'))).toBe(true);
-  });
-
   it('multiple recorders observe same operations', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'multi');
     const metrics = new MetricRecorder('m1');
     const debug = new DebugRecorder({ id: 'd1' });
-    const narrative = new NarrativeRecorder({ id: 'n1' });
 
     scope.attachRecorder(metrics);
     scope.attachRecorder(debug);
-    scope.attachRecorder(narrative);
 
     scope.setValue('key', 'value');
     scope.getValue('key');
@@ -77,7 +57,6 @@ describe('Scenario: recorder observes real writes', () => {
     expect(metrics.getMetrics().totalWrites).toBe(1);
     expect(metrics.getMetrics().totalReads).toBe(1);
     expect(debug.getEntries()).toHaveLength(2);
-    expect(narrative.getStageData().get('multi')!.operations).toHaveLength(2);
   });
 
   it('detaching a recorder stops it from receiving events', () => {

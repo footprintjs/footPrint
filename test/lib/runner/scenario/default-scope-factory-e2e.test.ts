@@ -8,7 +8,6 @@
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 import { ScopeFacade } from '../../../../src/lib/scope';
-import { NarrativeRecorder } from '../../../../src/lib/scope/recorders/NarrativeRecorder';
 
 describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
   it('narrative works with default scopeFactory', async () => {
@@ -129,28 +128,6 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
 
     const snapshot = executor.getSnapshot();
     expect(snapshot.sharedState.counter).toBe(42);
-  });
-
-  it('custom scopeFactory with recorder still works (regression)', async () => {
-    const recorder = new NarrativeRecorder({ id: 'test', detail: 'full' });
-    const customFactory = (ctx: any, stageName: string) => {
-      const scope = new ScopeFacade(ctx, stageName);
-      scope.attachRecorder(recorder);
-      return scope;
-    };
-
-    const chart = flowChart(
-      'A',
-      (scope: any) => {
-        scope.setValue('x', 1);
-      },
-      'a',
-    ).build();
-
-    const executor = new FlowChartExecutor(chart, customFactory);
-    await executor.run();
-
-    expect(recorder.getStageData().size).toBeGreaterThan(0);
   });
 
   it('decider branching works with default scopeFactory', async () => {

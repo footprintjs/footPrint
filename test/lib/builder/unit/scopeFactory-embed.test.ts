@@ -1,12 +1,12 @@
 /**
- * Tests: flowChart<T>() / typedFlowChart<T>() auto-embeds scopeFactory in FlowChart.
+ * Tests: flowChart<T>() auto-embeds scopeFactory in FlowChart.
  * FlowChartExecutor reads chart.scopeFactory — no need to pass createTypedScopeFactory().
  *
  * Unit + Boundary + Scenario + Property + Security + ML tests.
  */
 import { describe, expect, it } from 'vitest';
 
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { flowChart } from '../../../../src/lib/builder/FlowChartBuilder';
 import type { TypedScope } from '../../../../src/lib/reactive/types';
 import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
 
@@ -18,7 +18,7 @@ interface TestState {
 
 describe('scopeFactory embed — Unit', () => {
   it('typedFlowChart<T>() embeds scopeFactory in built chart', () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'Alice';
@@ -31,7 +31,7 @@ describe('scopeFactory embed — Unit', () => {
   });
 
   it('FlowChartExecutor works WITHOUT passing createTypedScopeFactory', async () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'Alice';
@@ -50,7 +50,7 @@ describe('scopeFactory embed — Unit', () => {
   });
 
   it('narrative works with auto-embedded factory', async () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'Bob';
@@ -68,7 +68,7 @@ describe('scopeFactory embed — Unit', () => {
   });
 
   it('explicitly passed factory overrides chart.scopeFactory', () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'test';
@@ -89,7 +89,7 @@ describe('scopeFactory embed — Unit', () => {
 
 describe('scopeFactory embed — Scenario', () => {
   it('full pipeline: build → run without separate factory', async () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Intake',
       async (scope) => {
         scope.name = 'Charlie';
@@ -122,7 +122,7 @@ describe('scopeFactory embed — Scenario', () => {
       tier?: string;
     }
 
-    const chart = typedFlowChart<DeciderState>(
+    const chart = flowChart<DeciderState>(
       'Load',
       async (scope) => {
         scope.score = 750;
@@ -182,7 +182,7 @@ describe('scopeFactory embed — Boundary', () => {
 
 describe('scopeFactory embed — Security', () => {
   it('embedded factory produces TypedScope with typed property enforcement', async () => {
-    const chart = typedFlowChart<TestState>(
+    const chart = flowChart<TestState>(
       'Start',
       async (scope) => {
         scope.name = 'safe';
@@ -201,7 +201,7 @@ describe('scopeFactory embed — Security', () => {
 describe('scopeFactory embed — ML/AI', () => {
   it('auto-embedded factory enables zero-boilerplate agent pipelines', async () => {
     // This is the v2 API an ML engineer would use:
-    const chart = typedFlowChart<{ input: string; output: string }>(
+    const chart = flowChart<{ input: string; output: string }>(
       'Process',
       async (scope) => {
         scope.input = 'user query';

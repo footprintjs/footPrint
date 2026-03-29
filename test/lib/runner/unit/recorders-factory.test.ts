@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { flowChart } from '../../../../src/lib/builder';
 import { adaptive, debug, manifest, metrics, milestone, narrative, windowed } from '../../../../src/recorders';
 
 interface State {
@@ -13,7 +13,7 @@ interface State {
 }
 
 function buildChart() {
-  return typedFlowChart<State>(
+  return flowChart<State>(
     'Start',
     async (scope) => {
       scope.name = 'Alice';
@@ -159,7 +159,7 @@ describe('Recorder Factories — Scenario', () => {
 describe('Recorder Factories — Boundary', () => {
   it('narrative on chart with single stage', async () => {
     const trace = narrative();
-    const chart = typedFlowChart<{ x: number }>(
+    const chart = flowChart<{ x: number }>(
       'Only',
       async (scope) => {
         scope.x = 1;
@@ -172,7 +172,7 @@ describe('Recorder Factories — Boundary', () => {
 
   it('metrics on chart with no reads (write-only)', async () => {
     const perf = metrics();
-    const chart = typedFlowChart<{ x: number }>(
+    const chart = flowChart<{ x: number }>(
       'Write',
       async (scope) => {
         scope.x = 1;
@@ -196,7 +196,7 @@ describe('Recorder Factories — Boundary', () => {
 describe('Recorder Factories — Security', () => {
   it('narrative with redaction hides values', async () => {
     const trace = narrative();
-    const chart = typedFlowChart<{ secret: string; public: string }>(
+    const chart = flowChart<{ secret: string; public: string }>(
       'Start',
       async (scope) => {
         scope.secret = 'hunter2';

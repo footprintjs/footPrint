@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { flowChart } from '../../../../src/lib/builder';
 
 interface State {
   amount: number;
@@ -16,7 +16,7 @@ interface State {
 describe('.contract() — Unit', () => {
   it('contract sets inputSchema on built chart', () => {
     const inputSchema = { type: 'object', properties: { amount: { type: 'number' } } };
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -31,7 +31,7 @@ describe('.contract() — Unit', () => {
 
   it('contract sets outputSchema on built chart', () => {
     const outputSchema = { type: 'object', properties: { status: { type: 'string' } } };
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -46,7 +46,7 @@ describe('.contract() — Unit', () => {
 
   it('contract sets outputMapper on built chart', () => {
     const mapper = (state: Record<string, unknown>) => ({ result: state.status });
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -60,7 +60,7 @@ describe('.contract() — Unit', () => {
   });
 
   it('contract sets all three at once', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -80,7 +80,7 @@ describe('.contract() — Unit', () => {
   });
 
   it('contract is chainable', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -98,7 +98,7 @@ describe('.contract() — Unit', () => {
 
 describe('.contract() — Scenario', () => {
   it('contract with mapper: result.output uses mapper', async () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 99;
@@ -118,7 +118,7 @@ describe('.contract() — Scenario', () => {
   });
 
   it('contract with input: input accessible via $getArgs', async () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         const args = scope.$getArgs<{ initialAmount: number }>();
@@ -134,7 +134,7 @@ describe('.contract() — Scenario', () => {
   });
 
   it('contract sets both input and output when chained', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -155,7 +155,7 @@ describe('.contract() — Scenario', () => {
 
 describe('.contract() — Boundary', () => {
   it('empty contract is valid (no-op)', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -171,7 +171,7 @@ describe('.contract() — Boundary', () => {
   });
 
   it('contract with only mapper', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 10;
@@ -190,7 +190,7 @@ describe('.contract() — Boundary', () => {
 
 describe('.contract() — Security', () => {
   it('mapper cannot access scope methods, only state keys', async () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Start',
       async (scope) => {
         scope.amount = 42;
@@ -215,7 +215,7 @@ describe('.contract() — Security', () => {
 
 describe('.contract() — ML/AI', () => {
   it('contract enables OpenAPI generation from chart metadata', () => {
-    const chart = typedFlowChart<State>(
+    const chart = flowChart<State>(
       'Process',
       async (scope) => {
         scope.amount = 10;

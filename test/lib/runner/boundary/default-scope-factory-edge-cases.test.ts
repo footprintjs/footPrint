@@ -144,11 +144,7 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
       'read',
     ).build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      undefined, // default scopeFactory
-      { preset: 'hello' }, // defaultValuesForContext
-    );
+    const executor = new FlowChartExecutor(chart, { defaultValuesForContext: { preset: 'hello' } });
     const result = await executor.run();
 
     expect(result).toBe('hello');
@@ -169,17 +165,7 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
       })
       .build();
 
-    const executor = new FlowChartExecutor(
-      chart,
-      undefined, // default scopeFactory
-      undefined, // defaultValuesForContext
-      undefined, // initialContext
-      undefined, // readOnlyContext
-      undefined, // throttlingErrorChecker
-      undefined, // streamHandlers
-      undefined, // scopeProtectionMode
-      true, // enrichSnapshots
-    );
+    const executor = new FlowChartExecutor(chart, { enrichSnapshots: true });
     await executor.run();
 
     expect(capturedSnapshot).toBeDefined();

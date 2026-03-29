@@ -72,7 +72,7 @@ export type {
   SubflowRef,
 } from './lib/builder/index.js';
 export { DeciderList, SelectorFnList, specToStageNode } from './lib/builder/index.js';
-export { createTypedScopeFactory, typedFlowChart } from './lib/builder/typedFlowChart.js';
+export { createTypedScopeFactory } from './lib/builder/typedFlowChart.js';
 
 // ============================================================================
 // Scope — Providers, protection, recorder options, and event types
@@ -105,13 +105,9 @@ export type {
   DebugRecorderOptions,
   DebugVerbosity,
   DefineScopeOptions,
-  NarrativeDetail,
-  NarrativeOperation,
-  NarrativeRecorderOptions,
   RecorderContext,
   StageEvent,
   StageMetrics,
-  StageNarrativeData,
 } from './lib/scope/index.js';
 
 // Zod internals

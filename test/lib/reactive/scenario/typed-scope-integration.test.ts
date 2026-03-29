@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { typedFlowChart } from '../../../../src/lib/builder/typedFlowChart';
+import { flowChart } from '../../../../src/lib/builder';
 import type { TypedScope } from '../../../../src/lib/reactive/types';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 import { MetricRecorder } from '../../../../src/lib/scope';
@@ -34,7 +34,7 @@ interface SimpleState {
 
 describe('TypedScope integration -- basic typed access', () => {
   it('typed reads and writes work end-to-end', async () => {
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'SetValues',
       (scope) => {
         scope.x = 10;
@@ -65,7 +65,7 @@ describe('TypedScope integration -- basic typed access', () => {
 
 describe('TypedScope integration -- narrative', () => {
   it('enableNarrative() produces narrative with typed access', async () => {
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'Init',
       (scope) => {
         scope.x = 42;
@@ -99,7 +99,7 @@ describe('TypedScope integration -- narrative', () => {
 
 describe('TypedScope integration -- recorders', () => {
   it('MetricRecorder captures reads and writes from typed access', async () => {
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'Write',
       (scope) => {
         scope.x = 1;
@@ -131,7 +131,7 @@ describe('TypedScope integration -- recorders', () => {
 
 describe('TypedScope integration -- nested writes', () => {
   it('scope.customer.address.zip = "10001" updates nested state', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'Setup',
       (scope) => {
         scope.applicantName = 'Alice';
@@ -169,7 +169,7 @@ describe('TypedScope integration -- nested writes', () => {
 
 describe('TypedScope integration -- array mutations', () => {
   it('scope.tags.push("vip") works end-to-end', async () => {
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'Setup',
       (scope) => {
         scope.tags = ['new'];
@@ -204,7 +204,7 @@ describe('TypedScope integration -- $-methods', () => {
   it('$getArgs returns frozen input', async () => {
     let capturedArgs: any;
 
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'Check',
       (scope) => {
         capturedArgs = scope.$getArgs<{ requestId: string }>();
@@ -221,7 +221,7 @@ describe('TypedScope integration -- $-methods', () => {
   });
 
   it('$debug logs to diagnostics', async () => {
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'Debug',
       (scope) => {
         scope.x = 1;
@@ -240,7 +240,7 @@ describe('TypedScope integration -- $-methods', () => {
   it('$read returns precise nested value', async () => {
     let capturedZip: unknown;
 
-    const chart = typedFlowChart<LoanState>(
+    const chart = flowChart<LoanState>(
       'Setup',
       (scope) => {
         scope.customer = { name: 'Alice', address: { city: 'LA', zip: '90210' } };
@@ -273,7 +273,7 @@ describe('TypedScope integration -- $break', () => {
   it('$break() stops pipeline execution', async () => {
     const stagesRun: string[] = [];
 
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'First',
       (scope) => {
         scope.x = 1;
@@ -307,7 +307,7 @@ describe('TypedScope integration -- enumeration', () => {
   it('Object.keys returns state keys, no $-methods', async () => {
     let capturedKeys: string[] = [];
 
-    const chart = typedFlowChart<SimpleState>(
+    const chart = flowChart<SimpleState>(
       'Setup',
       (scope) => {
         scope.x = 10;

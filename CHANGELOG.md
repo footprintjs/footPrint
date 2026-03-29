@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0]
+
+### Removed
+
+- **`NarrativeRecorder` class** (`scope/recorders/NarrativeRecorder.ts`) — superseded by `CombinedNarrativeRecorder` (via `executor.recorder(narrative())`). All associated types (`NarrativeDetail`, `NarrativeOperation`, `StageNarrativeData`, `NarrativeRecorderOptions`) are also removed. Migration: replace `executor.attachRecorder(new NarrativeRecorder())` with `executor.recorder(narrative())` from `footprintjs/recorders`.
+- **`typedFlowChart()` function** (`builder/typedFlowChart.ts`) — use `flowChart<T>(name, fn, id)` instead, which is identical and auto-embeds the TypedScope factory. `createTypedScopeFactory` remains available in `footprintjs/advanced` for custom executor setups.
+- **`StageContext.get()` method** (`memory/StageContext.ts`) — deprecated alias for `getValue()`. Use `ctx.getValue(path, key)` directly.
+- **`StageContext.getFromRoot()` method** (`memory/StageContext.ts`) — deprecated alias for `getRoot()`. Use `ctx.getRoot(key)` directly.
+- **`StageContext.getFromGlobalContext()` method** (`memory/StageContext.ts`) — deprecated alias for `getGlobal()`. Use `ctx.getGlobal(key)` directly.
+- **`FlowChartExecutor` positional params 3–9** (`runner/FlowChartExecutor.ts`) — the 9-positional-parameter constructor form is removed. Pass an options object instead: `new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true, ... })`. The 2-param form `new FlowChartExecutor(chart, scopeFactory)` is retained.
+
 ## [3.1.0]
 
 ### Fixed

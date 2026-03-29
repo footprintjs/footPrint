@@ -219,13 +219,6 @@ describe('StageContext', () => {
       expect(ctx.getGlobal('globalVal')).toBe(42);
     });
 
-    it('getFromGlobalContext (deprecated) reads from global scope', () => {
-      // Tests the deprecated alias — kept to verify backward compatibility until removal.
-      const mem = new SharedMemory({ globalVal: 42 });
-      const ctx = new StageContext('p1', 's1', 's1', mem);
-      expect(ctx.getFromGlobalContext('globalVal')).toBe(42);
-    });
-
     it('getScope returns full state', () => {
       const mem = new SharedMemory({ x: 1 });
       const ctx = new StageContext('p1', 's1', 's1', mem);
@@ -248,14 +241,6 @@ describe('StageContext', () => {
       const { ctx } = createCtx();
       ctx.set([], 'key', 'val');
       expect(ctx.getValue([], 'key')).toBe('val');
-    });
-  });
-
-  describe('get (alias for getValue)', () => {
-    it('reads a value via get', () => {
-      const { ctx } = createCtx();
-      ctx.setObject([], 'key', 'val');
-      expect(ctx.get([], 'key')).toBe('val');
     });
   });
 
@@ -299,15 +284,6 @@ describe('StageContext', () => {
       ctx.setRoot('status', 'done');
       ctx.commit();
       expect(ctx.getRoot('status')).toBe('done');
-    });
-  });
-
-  describe('getFromRoot', () => {
-    it('reads from run root (alias)', () => {
-      const { ctx } = createCtx();
-      ctx.setRoot('status', 'ok');
-      ctx.commit();
-      expect(ctx.getFromRoot('status')).toBe('ok');
     });
   });
 

@@ -12,9 +12,3 @@ export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './DebugRe
 export { DebugRecorder } from './DebugRecorder.js';
 export type { AggregatedMetrics, StageMetrics } from './MetricRecorder.js';
 export { MetricRecorder } from './MetricRecorder.js';
-export type {
-  NarrativeDetail,
-  NarrativeOperation,
-  NarrativeRecorderOptions,
-  StageNarrativeData,
-} from './NarrativeRecorder.js';
