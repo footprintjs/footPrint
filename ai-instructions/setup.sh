@@ -19,19 +19,34 @@ echo "  This will copy instruction files so your AI coding"
 echo "  assistant understands the footprint.js API."
 echo ""
 
+_copy_or_fetch() {
+  # Try local copy first (npm install path); fall back to GitHub raw (degit path)
+  local src_local="$1" dest="$2" raw_url="$3"
+  if [ -f "$src_local" ]; then
+    cp "$src_local" "$dest"
+  elif command -v curl &>/dev/null; then
+    curl -fsSL "$raw_url" -o "$dest" 2>/dev/null || true
+  fi
+}
+
 install_claude_code() {
   mkdir -p "$PROJECT_DIR/.claude/skills/footprint"
   cp "$PKG_DIR/claude-code/SKILL.md" "$PROJECT_DIR/.claude/skills/footprint/SKILL.md"
-  # Also copy CLAUDE.md to project root if not present
   if [ ! -f "$PROJECT_DIR/CLAUDE.md" ]; then
-    cp "$PKG_DIR/../CLAUDE.md" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null || true
+    _copy_or_fetch \
+      "$PKG_DIR/../CLAUDE.md" \
+      "$PROJECT_DIR/CLAUDE.md" \
+      "https://raw.githubusercontent.com/footprintjs/footPrint/main/CLAUDE.md"
   fi
   echo "  [ok] Claude Code — .claude/skills/footprint/SKILL.md"
 }
 
 install_codex() {
   if [ ! -f "$PROJECT_DIR/AGENTS.md" ]; then
-    cp "$PKG_DIR/../AGENTS.md" "$PROJECT_DIR/AGENTS.md" 2>/dev/null || true
+    _copy_or_fetch \
+      "$PKG_DIR/../AGENTS.md" \
+      "$PROJECT_DIR/AGENTS.md" \
+      "https://raw.githubusercontent.com/footprintjs/footPrint/main/AGENTS.md"
     echo "  [ok] OpenAI Codex — AGENTS.md"
   else
     echo "  [skip] AGENTS.md already exists"
