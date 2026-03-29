@@ -64,6 +64,16 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $attachRecorder: (t) => t.attachRecorder.bind(t),
   $detachRecorder: (t) => t.detachRecorder.bind(t),
   $getRecorders: (t) => t.getRecorders.bind(t),
+  $batchArray: (t) => (key: string, fn: (arr: unknown[]) => void) => {
+    // One getValue — fires onRead once
+    const current = t.getValue(key);
+    // Clone once (or start empty if missing/non-array)
+    const clone: unknown[] = Array.isArray(current) ? [...current] : [];
+    // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
+    fn(clone);
+    // One setValue — fires onWrite once with the final array
+    t.setValue(key, clone);
+  },
   $break: (_t, opts) => () => {
     if (!opts.breakFn) throw new Error('$break() is not available outside stage execution');
     opts.breakFn();

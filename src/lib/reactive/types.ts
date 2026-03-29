@@ -76,6 +76,30 @@ export interface ScopeMethods {
   $detachRecorder(recorderId: string): void;
   $getRecorders(): Recorder[];
 
+  /**
+   * Batch-mutate an array key in a single clone+write cycle.
+   *
+   * Every `scope.items.push(x)` clones the entire array and commits it — O(N) per call.
+   * For N mutations on an M-length array that is O(N×M). Use `$batchArray` to clone once,
+   * apply all mutations inside `fn`, then commit once — O(M) total.
+   *
+   * ```typescript
+   * // Before: 1000 clones × growing array = O(N²)
+   * for (let i = 0; i < 1000; i++) scope.items.push(i);
+   *
+   * // After: 1 clone + 1 commit = O(N)
+   * scope.$batchArray('items', (arr) => {
+   *   for (let i = 0; i < 1000; i++) arr.push(i);
+   * });
+   * ```
+   *
+   * `fn` receives a plain (non-proxy) mutable copy of the current array. Mutations
+   * inside `fn` are NOT tracked individually — only the final committed array appears
+   * in the narrative as a single write. If the key does not exist or is not an array,
+   * `fn` receives an empty array and the result is committed as the new value.
+   */
+  $batchArray(key: string, fn: (arr: unknown[]) => void): void;
+
   // Pipeline control
   $break(): void;
 
@@ -116,6 +140,7 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$attachRecorder',
   '$detachRecorder',
   '$getRecorders',
+  '$batchArray',
   '$break',
   '$toRaw',
 ]);

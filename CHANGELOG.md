@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.3]
+
+### Added
+
+- **`TypedScope.$batchArray(key, fn)`** (`reactive/types.ts`, `reactive/createTypedScope.ts`) — new escape hatch for batch array mutations. Every `scope.items.push(x)` in a loop clones the full array and commits it, giving O(N×M) total cost. `$batchArray` clones once, applies all mutations inside `fn` on the plain clone, then commits once — O(M) total regardless of how many mutations `fn` applies.
+
+  ```typescript
+  // Before: 1000 clones × growing array = O(N²)
+  for (let i = 0; i < 1000; i++) scope.items.push(i);
+
+  // After: 1 clone + 1 commit = O(N)
+  scope.$batchArray('items', (arr) => {
+    for (let i = 0; i < 1000; i++) arr.push(i);
+  });
+  ```
+
+  `fn` receives a plain mutable array (not a Proxy). Mutations inside `fn` are not tracked individually — only the final committed array appears in the narrative as a single write. If the key does not exist or is not an array, `fn` receives an empty array.
+
 ## [4.0.2]
 
 ### Removed
