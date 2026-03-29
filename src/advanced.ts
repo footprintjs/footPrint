@@ -29,7 +29,6 @@ export type {
   FlowControlType,
   FlowMessage,
   MemoryPatch,
-  ScopeFactory,
   StageSnapshot,
   TraceEntry,
 } from './lib/memory/index.js';
@@ -156,6 +155,7 @@ export type {
   IExecutionRuntime,
   NodeResultType,
   RuntimeStructureMetadata,
+  ScopeFactory,
   SerializedPipelineNode,
   StageFunction,
   SubflowResult,

@@ -21,7 +21,7 @@
  *   listSubflowPaths(snapshot); // ['sf-payment', 'sf-payment/sf-validation']
  */
 
-import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder.js';
+import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { StageSnapshot } from '../memory/types.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 

@@ -291,6 +291,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * Build an O(1) ID→node map from the root graph.
    * Used by NodeResolver to avoid repeated DFS on every loopTo() call.
    * Depth-guarded at MAX_EXECUTE_DEPTH to prevent infinite recursion on cyclic graphs.
+   * Dynamic subflows and lazy-resolved nodes are added to stageMap at runtime but not to this map —
+   * those use the DFS fallback in NodeResolver.
    */
   private buildNodeIdMap(root: StageNode<TOut, TScope>): Map<string, StageNode<TOut, TScope>> {
     const map = new Map<string, StageNode<TOut, TScope>>();
@@ -859,6 +861,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };
     clone.name = `${prefix}/${node.name}`;
+    if (clone.id) clone.id = `${prefix}/${clone.id}`;
     if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
     if (clone.next) clone.next = this.prefixNodeTree(clone.next, prefix);
     if (clone.children) {

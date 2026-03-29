@@ -503,6 +503,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _logger?: ILogger;
   private _descriptionParts: string[] = [];
   private _stepCounter = 0;
+  // NOTE: keyed by stage name (for human-readable descriptions), while stageMap
+  // and knownStageIds use id (stable identifier). These are intentionally different
+  // namespaces — descriptions are presentational, lookups are structural.
   private _stageDescriptions = new Map<string, string>();
   private _stageStepMap = new Map<string, number>();
   private _knownStageIds = new Set<string>();
@@ -1227,7 +1230,7 @@ export function flowChart<TOut = any, TScope = any>(
 export function specToStageNode(spec: FlowChartSpec): StageNode<any, any> {
   const inflate = (s: FlowChartSpec): StageNode<any, any> => ({
     name: s.name,
-    id: s.id ?? s.name,
+    id: s.id,
     children: s.children?.length ? s.children.map(inflate) : undefined,
     next: s.next ? inflate(s.next) : undefined,
   });

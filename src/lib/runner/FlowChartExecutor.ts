@@ -17,9 +17,9 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
-import type { CombinedNarrativeEntry } from '../engine/narrative/CombinedNarrativeBuilder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder.js';
+import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -410,6 +410,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /**
    * Returns flow-only narrative sentences (without data operations).
    * Use this when you only want control flow descriptions.
+   *
+   * Sentences come from `NarrativeFlowRecorder` (a dedicated flow-only recorder automatically
+   * attached when narrative is enabled). It emits both `onStageExecuted` sentences (one per
+   * stage) AND `onNext` transition sentences (one per stage-to-stage transition), so for a
+   * chart with N stages you will typically get more entries here than from `getNarrative()`.
    */
   getFlowNarrative(): string[] {
     return this.traverser.getNarrative();
@@ -435,7 +440,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
     }
 
-    // Clear stateful recorders before re-run to prevent cross-run accumulation
+    // User-attached recorders (flowRecorders + scopeRecorders) are cleared via clear() to prevent
+    // cross-run accumulation. The combinedRecorder is NOT cleared here — createTraverser() always
+    // creates a fresh CombinedNarrativeRecorder instance on each run, so stale state is never an issue.
     for (const r of this.flowRecorders) {
       r.clear?.();
     }

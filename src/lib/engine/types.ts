@@ -279,7 +279,7 @@ export type TraversalResult = BranchResults | string | Error;
 
 export interface SerializedPipelineNode {
   name: string;
-  id?: string;
+  id: string;
   type?:
     | 'stage'
     | 'decider'

@@ -24,8 +24,8 @@
  * Pass directly to chart.recorder(). No wrapping, no proxying -- just the class + shortcuts.
  */
 
-import type { CombinedNarrativeEntry } from './lib/engine/narrative/CombinedNarrativeBuilder.js';
 import { CombinedNarrativeRecorder } from './lib/engine/narrative/CombinedNarrativeRecorder.js';
+import type { CombinedNarrativeEntry } from './lib/engine/narrative/narrativeTypes.js';
 import { AdaptiveNarrativeFlowRecorder } from './lib/engine/narrative/recorders/AdaptiveNarrativeFlowRecorder.js';
 import type { ManifestEntry } from './lib/engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from './lib/engine/narrative/recorders/ManifestFlowRecorder.js';

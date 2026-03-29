@@ -15,7 +15,7 @@
 
 import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
 import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types.js';
-import type { CombinedNarrativeEntry } from './CombinedNarrativeBuilder.js';
+import type { CombinedNarrativeEntry } from './narrativeTypes.js';
 import type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -50,7 +50,17 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   readonly id: string;
 
   private entries: CombinedNarrativeEntry[] = [];
+  /**
+   * Pending scope ops keyed by stageId (stable identifier). Populated at buffer time
+   * using the stageName→stageId mapping; falls back to stageName when stageId is unknown.
+   * Keying by stageId prevents ops from merging when two stages share the same name.
+   */
   private pendingOps = new Map<string, BufferedOp[]>();
+  /**
+   * Maps stageName → stageId as we learn them from onStageExecuted/onDecision.
+   * Allows bufferOp() to use stageId as the key while scope events only carry stageName.
+   */
+  private stageNameToId = new Map<string, string>();
   /** Per-subflow stage counters. Key '' = root flow. */
   private stageCounters = new Map<string, number>();
   /** Per-subflow first-stage flags. Key '' = root flow. */
@@ -90,6 +100,10 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
+    // Register stageName → stageId mapping so bufferOp can use stageId as key.
+    const stageId = event.traversalContext?.stageId;
+    if (stageId) this.stageNameToId.set(event.stageName, stageId);
+
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
@@ -102,7 +116,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       : `Next, it moved on to ${event.stageName}.`;
 
     const sfId = event.traversalContext?.subflowId;
-    const stageId = event.traversalContext?.stageId;
     this.entries.push({
       type: 'stage',
       text: `Stage ${stageNum}: ${text}`,
@@ -115,6 +128,10 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onDecision(event: FlowDecisionEvent): void {
+    // Register stageName → stageId mapping so bufferOp can use stageId as key.
+    const deciderStageIdEarly = event.traversalContext?.stageId;
+    if (deciderStageIdEarly) this.stageNameToId.set(event.decider, deciderStageIdEarly);
+
     // Emit the decider stage entry (deciders don't fire onStageExecuted)
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
@@ -127,16 +144,15 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       ? `Next step: ${event.description}.`
       : `Next, it moved on to ${event.decider}.`;
 
-    const deciderStageId = event.traversalContext?.stageId;
     this.entries.push({
       type: 'stage',
       text: `Stage ${stageNum}: ${stageText}`,
       depth: 0,
       stageName: event.decider,
-      stageId: deciderStageId,
+      stageId: deciderStageIdEarly,
       subflowId: event.traversalContext?.subflowId,
     });
-    this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageId);
+    this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageIdEarly);
 
     // Emit the condition entry — with evidence-aware rendering when available
     const branchName = event.chosen;
@@ -177,7 +193,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       text: `[Condition]: ${conditionText}`,
       depth: 0,
       stageName: event.decider,
-      stageId: deciderStageId,
+      stageId: deciderStageIdEarly,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -342,6 +358,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   clear(): void {
     this.entries = [];
     this.pendingOps.clear();
+    this.stageNameToId.clear();
     this.stageCounters.clear();
     this.firstStageFlags.clear();
   }
@@ -366,16 +383,23 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   private bufferOp(stageName: string, op: Omit<BufferedOp, 'stepNumber'>): void {
-    let ops = this.pendingOps.get(stageName);
+    // Use stageId as key when known (prevents merge when two stages share the same name).
+    // Falls back to stageName when we haven't yet seen the flow event for this stage.
+    const key = this.stageNameToId.get(stageName) ?? stageName;
+    let ops = this.pendingOps.get(key);
     if (!ops) {
       ops = [];
-      this.pendingOps.set(stageName, ops);
+      this.pendingOps.set(key, ops);
     }
     ops.push({ ...op, stepNumber: ops.length + 1 });
   }
 
   private flushOps(stageName: string, subflowId?: string, stageId?: string): void {
-    const ops = this.pendingOps.get(stageName);
+    // Resolve key: ops may have been buffered under stageId (if we saw the mapping first)
+    // or under stageName (if scope events fired before stageNameToId was populated).
+    // Try stageId first, then fall back to the stageName key.
+    const key = (stageId && this.pendingOps.has(stageId) ? stageId : undefined) ?? stageName;
+    const ops = this.pendingOps.get(key);
     if (!ops || ops.length === 0) return;
 
     for (const op of ops) {
@@ -410,6 +434,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       });
     }
 
-    this.pendingOps.delete(stageName);
+    this.pendingOps.delete(key);
   }
 }

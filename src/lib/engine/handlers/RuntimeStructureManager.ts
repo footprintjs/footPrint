@@ -8,6 +8,7 @@
  * Deep-clones build-time structure at init, then maintains O(1) lookup map.
  */
 
+import { isDevMode } from '../../scope/detectCircular.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { SerializedPipelineStructure } from '../types.js';
 
@@ -61,8 +62,7 @@ export class RuntimeStructureManager {
       // Normal builder-produced charts are naturally bounded well below this limit.
       return;
     }
-    const key = node.id ?? node.name;
-    this.structureNodeMap.set(key, node);
+    this.structureNodeMap.set(node.id, node);
 
     if (node.children) {
       for (const child of node.children) {
@@ -132,7 +132,14 @@ export class RuntimeStructureManager {
     if (!this.runtimePipelineStructure) return;
 
     const parentStructure = this.structureNodeMap.get(parentNodeId);
-    if (!parentStructure) return;
+    if (!parentStructure) {
+      if (isDevMode()) {
+        console.warn(
+          `[footprint] RuntimeStructureManager: node '${parentNodeId}' not found in structure map — snapshot visualization may be incomplete`,
+        );
+      }
+      return;
+    }
 
     const childStructures = dynamicChildren.map((child) => this.stageNodeToStructure(child));
     parentStructure.children = childStructures;
@@ -162,7 +169,14 @@ export class RuntimeStructureManager {
     if (!this.runtimePipelineStructure) return;
 
     const mountStructure = this.structureNodeMap.get(mountNodeId);
-    if (!mountStructure) return;
+    if (!mountStructure) {
+      if (isDevMode()) {
+        console.warn(
+          `[footprint] RuntimeStructureManager: node '${mountNodeId}' not found in structure map — snapshot visualization may be incomplete`,
+        );
+      }
+      return;
+    }
 
     mountStructure.isSubflowRoot = true;
     mountStructure.subflowId = subflowId;
@@ -189,7 +203,14 @@ export class RuntimeStructureManager {
     if (!this.runtimePipelineStructure) return;
 
     const currentStructure = this.structureNodeMap.get(currentNodeId);
-    if (!currentStructure) return;
+    if (!currentStructure) {
+      if (isDevMode()) {
+        console.warn(
+          `[footprint] RuntimeStructureManager: node '${currentNodeId}' not found in structure map — snapshot visualization may be incomplete`,
+        );
+      }
+      return;
+    }
 
     const nextStructure = this.stageNodeToStructure(dynamicNext);
     currentStructure.next = nextStructure;

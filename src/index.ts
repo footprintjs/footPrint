@@ -61,6 +61,9 @@ export { decide, select } from './lib/decide/index.js';
 export type { RunResult } from './lib/runner/index.js';
 
 /** @category Run */
+export type { FlowChartExecutorOptions } from './lib/runner/index.js';
+
+/** @category Run */
 export { FlowChartExecutor } from './lib/runner/index.js';
 
 /** @category Run */
