@@ -1,0 +1,235 @@
+---
+title: flowChart() / FlowChartBuilder
+description: API reference for building flowcharts — flowChart(), FlowChartBuilder, and all builder methods.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## flowChart()
+
+The primary factory function. Creates the root stage and returns a builder.
+
+```ts
+flowChart<State>(
+  name: string,
+  fn: (scope: TypedScope<State>) => Promise<void>,
+  id?: string,
+  inputSchema?: ZodSchema | JsonSchema,
+  description?: string,
+): FlowChartBuilder<State>
+```
+
+**Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Stage display name (shown in narrative) |
+| `fn` | async function | Stage handler — reads/writes `scope` |
+| `id` | `string?` | Stable ID for snapshot navigation (defaults to slug of `name`) |
+| `inputSchema` | Zod or JSON Schema | Input validation for this stage only (rarely needed — use `.contract()` instead) |
+| `description` | `string?` | Human description included in MCP tool output |
+
+```ts
+import { flowChart } from 'footprintjs';
+
+interface LoanState {
+  creditScore: number;
+  dti: number;
+  decision?: string;
+}
+
+const chart = flowChart<LoanState>('AssessCredit', async (scope) => {
+  scope.creditScore = 720;
+  scope.dti = 0.38;
+}, 'assess-credit', undefined, 'Load and validate credit application')
+  .build();
+```
+
+<Aside>
+  `flowChart<T>()` automatically embeds `TypedScope<T>` — you get full TypeScript property access inside every stage with no extra setup.
+</Aside>
+
+---
+
+## FlowChartBuilder
+
+Returned by `flowChart()`. All methods return the builder (or a branch builder) for chaining. Call `.build()` at the end.
+
+### .addFunction()
+
+Append a sequential stage.
+
+```ts
+.addFunction(
+  name: string,
+  fn: (scope: TypedScope<State>) => Promise<void>,
+  id?: string,
+  description?: string,
+): FlowChartBuilder<State>
+```
+
+```ts
+const chart = flowChart<LoanState>('Load', async (scope) => {
+  scope.creditScore = 720;
+}, 'load')
+  .addFunction('Validate', async (scope) => {
+    scope.decision = scope.creditScore >= 580 ? 'proceed' : 'reject';
+  }, 'validate', 'Check minimum credit score')
+  .build();
+```
+
+### .addDeciderFunction()
+
+Add a branching stage. The handler returns a branch ID (plain string) or a `DecisionResult` from [`decide()`](/footPrint/api/decide/).
+
+```ts
+.addDeciderFunction(
+  name: string,
+  fn: (scope: TypedScope<State>) => string | DecisionResult,
+  id?: string,
+  description?: string,
+): DeciderBuilder<State>
+```
+
+Inside the returned `DeciderBuilder`, call `.addFunctionBranch()`, `.setDefault()`, then `.end()` to return to the parent builder.
+
+```ts
+import { decide } from 'footprintjs';
+
+const chart = flowChart<LoanState>('Load', async (scope) => {
+  scope.creditScore = 720;
+  scope.dti = 0.38;
+}, 'load')
+  .addDeciderFunction('ClassifyRisk', (scope) => {
+    return decide(scope, [
+      { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Strong profile' },
+      { when: { creditScore: { gt: 580 } }, then: 'review', label: 'Marginal' },
+    ], 'rejected');
+  }, 'classify-risk', 'Route by credit profile')
+    .addFunctionBranch('approved', 'Approve', async (scope) => {
+      scope.decision = 'Approved';
+    })
+    .addFunctionBranch('review', 'Review', async (scope) => {
+      scope.decision = 'Manual review';
+    })
+    .addFunctionBranch('rejected', 'Reject', async (scope) => {
+      scope.decision = 'Rejected';
+    })
+    .setDefault('rejected')
+    .end()
+  .build();
+```
+
+### .addSelectorFunction()
+
+Add a parallel fan-out stage. The handler returns a `SelectionResult` from [`select()`](/footPrint/api/decide/). All matched branches run concurrently.
+
+```ts
+.addSelectorFunction(
+  name: string,
+  fn: (scope: TypedScope<State>) => SelectionResult,
+  id?: string,
+  description?: string,
+): SelectorBuilder<State>
+```
+
+### .addSubFlowChartNext()
+
+Mount another compiled flowchart as a sequential subflow.
+
+```ts
+.addSubFlowChartNext(
+  id: string,
+  chart: FlowChart,
+  name: string,
+  options?: { inputMapper?: (s: State) => unknown },
+): FlowChartBuilder<State>
+```
+
+```ts
+const paymentChart = new FlowChartBuilder()
+  .start('ChargeCard', async (scope: any) => { scope.txnId = 'TXN-001'; }, 'charge-card')
+  .build();
+
+const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
+  scope.amount = 99.99;
+}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', paymentChart, 'Payment', {
+    inputMapper: (s) => ({ amount: s.amount }),
+  })
+  .build();
+```
+
+### .addStreamingFunction()
+
+Add a stage that emits tokens incrementally (for LLM responses, SSE, etc.).
+
+```ts
+.addStreamingFunction(
+  name: string,
+  fn: (scope: TypedScope<State>, handlers: StreamHandlers) => Promise<void>,
+  id?: string,
+): FlowChartBuilder<State>
+```
+
+```ts
+.addStreamingFunction('GenerateResponse', async (scope, handlers) => {
+  for await (const chunk of callLLM(scope.$getArgs())) {
+    handlers.onChunk(chunk);
+  }
+  handlers.onComplete('done');
+}, 'generate-response')
+```
+
+### .loopTo()
+
+Create a back-edge to an earlier stage. The loop exits when `scope.$break()` is called inside any stage.
+
+```ts
+.loopTo(targetStageName: string): FlowChartBuilder<State>
+```
+
+```ts
+const chart = flowChart<{ attempt: number; result?: string }>('Init', async (scope) => {
+  scope.attempt = 0;
+}, 'init')
+  .addFunction('TryRequest', async (scope) => {
+    scope.attempt += 1;
+    const ok = await fetchWithRetry();
+    if (ok) { scope.result = 'success'; scope.$break(); }
+    if (scope.attempt >= 3) { scope.result = 'failed'; scope.$break(); }
+  }, 'try-request')
+  .loopTo('TryRequest')
+  .build();
+```
+
+### .contract()
+
+Attach input/output schemas for validation and API generation. See [Self-describing APIs](/footPrint/guides/self-describing/).
+
+```ts
+.contract(options: {
+  input?: ZodSchema | JsonSchema;
+  output?: ZodSchema | JsonSchema;
+  mapper?: (scope: TypedScope<State>) => unknown;
+}): FlowChartBuilder<State>
+```
+
+### .build()
+
+Compile the builder into an immutable `FlowChart`. Must be called last.
+
+```ts
+.build(): FlowChart
+```
+
+---
+
+## Try it live
+
+- [Linear Pipeline](https://footprintjs.github.io/footprint-playground/samples/linear) — sequential stages
+- [Decider (Conditional)](https://footprintjs.github.io/footprint-playground/samples/decider) — branching
+- [Loops](https://footprintjs.github.io/footprint-playground/samples/loops) — loopTo + $break()
+- [Subflow](https://footprintjs.github.io/footprint-playground/samples/subflow) — nested flowchart
+
+→ Full guide: [Building a flowchart](/footPrint/guides/building/)

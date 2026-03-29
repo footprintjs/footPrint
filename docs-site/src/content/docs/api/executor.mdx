@@ -1,0 +1,198 @@
+---
+title: FlowChartExecutor
+description: API reference for FlowChartExecutor — run, observe, snapshot, and redact.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Constructor
+
+```ts
+new FlowChartExecutor(chart: FlowChart)
+```
+
+Takes a compiled `FlowChart` (the return value of `.build()`). The executor is stateful — call `.run()` and then read the results.
+
+```ts
+import { FlowChartExecutor } from 'footprintjs';
+
+const executor = new FlowChartExecutor(chart);
+await executor.run({ input: { orderId: 'ORD-001', amount: 49.99 } });
+```
+
+---
+
+## .run()
+
+Execute the flowchart. Returns a `RunResult` with the output value (if a `.contract()` mapper is defined), the final snapshot, and narrative lines.
+
+```ts
+executor.run(options?: RunOptions): Promise<RunResult>
+```
+
+**RunOptions**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `input` | `unknown` | Business input — frozen, accessible via `scope.$getArgs()` |
+| `env` | `ExecutionEnv?` | Infrastructure context (signal, timeoutMs, traceId) — accessible via `scope.$getEnv()` |
+
+```ts
+await executor.run({
+  input: { userId: 42 },
+  env: { traceId: 'req-abc123', timeoutMs: 5000 },
+});
+```
+
+<Aside type="tip">
+  `input` is **frozen** — stages cannot mutate it. Use `scope.$getArgs<T>()` to read it. All mutable pipeline state lives in scope properties (the `State` type parameter).
+</Aside>
+
+### Fluent chaining with .recorder()
+
+For a one-shot run without a persistent executor, chain recorders directly on the compiled chart:
+
+```ts
+import { flowChart, narrative, metrics } from 'footprintjs';
+
+const narr = narrative();
+const metr = metrics();
+
+await chart
+  .recorder(narr)
+  .recorder(metr)
+  .run({ input: { orderId: 'ORD-001', amount: 49.99 } });
+
+console.log(narr.lines().join('\n'));
+console.log(`Total: ${metr.all().totalDuration}ms`);
+```
+
+---
+
+## Attaching recorders
+
+### .attachRecorder()
+
+Attach a **scope recorder** — fires on data operations (reads, writes, commits) during stage execution.
+
+```ts
+executor.attachRecorder(recorder: Recorder): void
+```
+
+```ts
+import { MetricRecorder, DebugRecorder } from 'footprintjs';
+
+executor.attachRecorder(new MetricRecorder());
+executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+```
+
+### .attachFlowRecorder()
+
+Attach a **flow recorder** — fires on control-flow events (decisions, loops, forks) after each stage completes.
+
+```ts
+executor.attachFlowRecorder(recorder: FlowRecorder): void
+```
+
+```ts
+import { ManifestFlowRecorder } from 'footprintjs';
+
+const manifest = new ManifestFlowRecorder();
+executor.attachFlowRecorder(manifest);
+await executor.run();
+console.log(manifest.getManifest());
+```
+
+### .enableNarrative()
+
+Shorthand: attaches a `CombinedNarrativeRecorder` that implements both scope and flow recorder interfaces, producing a merged timeline.
+
+```ts
+executor.enableNarrative(): void
+```
+
+```ts
+executor.enableNarrative();
+await executor.run();
+executor.getNarrative().forEach(line => console.log(line));
+```
+
+---
+
+## Reading results
+
+### .getNarrative()
+
+Returns the merged narrative as a `string[]` — one sentence per event.
+
+```ts
+executor.getNarrative(): string[]
+```
+
+```
+Stage 1: The process began with AssessCredit.
+  Step 1: Write creditScore = 750
+[Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓ → approved.
+Stage 2: Next, it moved on to Approve.
+  Step 1: Write decision = "Approved"
+```
+
+### .getNarrativeEntries()
+
+Returns structured `CombinedNarrativeEntry[]` with `type`, `depth`, `stageName`, and `stageId` metadata — useful for building custom UIs.
+
+```ts
+executor.getNarrativeEntries(): CombinedNarrativeEntry[]
+```
+
+### .getFlowNarrative()
+
+Returns only the control-flow sentences (stage transitions, decisions, loops) — without data operation lines.
+
+```ts
+executor.getFlowNarrative(): string[]
+```
+
+### .getSnapshot()
+
+Returns the full `RuntimeSnapshot` — shared state, execution tree, and recorder snapshots at every nesting depth.
+
+```ts
+executor.getSnapshot(): RuntimeSnapshot | undefined
+```
+
+```ts
+const snapshot = executor.getSnapshot();
+const finalState = snapshot?.sharedState as LoanState;
+console.log(finalState.decision); // 'Approved'
+```
+
+Use [`getSubtreeSnapshot()`](/footPrint/api/contract/#getsubtreesnapshot) to drill into subflows.
+
+---
+
+## Redaction
+
+### .setRedactionPolicy()
+
+Protect sensitive fields from leaking into narratives and debug logs. Keys matching the policy are replaced with `[REDACTED]` in all recorder output.
+
+```ts
+executor.setRedactionPolicy(policy: RedactionPolicy): void
+```
+
+```ts
+executor.setRedactionPolicy({
+  keys: ['password', 'ssn', 'cardNumber'],
+});
+```
+
+---
+
+## Try it live
+
+- [Auto-Narrative](https://footprintjs.github.io/footprint-playground/samples/narrative) — `enableNarrative()` + `getNarrative()`
+- [Metrics](https://footprintjs.github.io/footprint-playground/samples/metrics) — `MetricRecorder`
+- [Redaction](https://footprintjs.github.io/footprint-playground/samples/redaction) — `setRedactionPolicy()`
+
+→ Full guide: [Observing with recorders](/footPrint/guides/recording/)

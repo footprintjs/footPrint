@@ -1,0 +1,179 @@
+---
+title: decide() / select()
+description: API reference for decision evidence capture — decide(), select(), DecideRule, and FilterOps.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## decide()
+
+First-match branching with automatic evidence capture. Returns a `DecisionResult` that the engine uses to route and record which conditions were evaluated.
+
+```ts
+decide<S>(
+  scope: TypedScope<S> | ScopeFacade,
+  rules: DecideRule<S>[],
+  defaultBranch: string,
+): DecisionResult
+```
+
+**Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `scope` | `TypedScope<S>` | The stage scope — passed directly from the decider handler |
+| `rules` | `DecideRule<S>[]` | Ordered list of rules. First match wins. |
+| `defaultBranch` | `string` | Branch ID returned when no rule matches |
+
+```ts
+import { flowChart, decide } from 'footprintjs';
+
+interface LoanState {
+  creditScore: number;
+  dti: number;
+  decision?: string;
+}
+
+const chart = flowChart<LoanState>('Load', async (scope) => {
+  scope.creditScore = 750;
+  scope.dti = 0.38;
+}, 'load')
+  .addDeciderFunction('ClassifyRisk', (scope) => {
+    return decide(scope, [
+      {
+        when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } },
+        then: 'approved',
+        label: 'Strong credit profile',
+      },
+      {
+        when: { creditScore: { gt: 580 } },
+        then: 'review',
+        label: 'Marginal credit',
+      },
+    ], 'rejected');
+  }, 'classify-risk')
+    .addFunctionBranch('approved', 'Approve', async (scope) => { scope.decision = 'Approved'; })
+    .addFunctionBranch('review', 'Review', async (scope) => { scope.decision = 'Manual review'; })
+    .addFunctionBranch('rejected', 'Reject', async (scope) => { scope.decision = 'Rejected'; })
+    .setDefault('rejected')
+    .end()
+  .build();
+```
+
+**Narrative output:**
+
+```
+[Condition]: It evaluated Rule 0 "Strong credit profile":
+  creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose approved.
+```
+
+---
+
+## select()
+
+Multi-match fan-out with automatic evidence capture. Evaluates **all** rules and returns every branch that matched. Used with `.addSelectorFunction()`.
+
+```ts
+select<S>(
+  scope: TypedScope<S> | ScopeFacade,
+  rules: DecideRule<S>[],
+): SelectionResult
+```
+
+```ts
+import { flowChart, select } from 'footprintjs';
+
+interface ScreeningState {
+  glucose: number;
+  systolicBP: number;
+  results: string[];
+}
+
+const chart = flowChart<ScreeningState>('LoadVitals', async (scope) => {
+  scope.glucose = 128;
+  scope.systolicBP = 148;
+  scope.results = [];
+}, 'load-vitals')
+  .addSelectorFunction('Triage', (scope) => {
+    return select(scope, [
+      { when: { glucose: { gt: 100 } }, then: 'diabetes', label: 'Elevated glucose' },
+      { when: { systolicBP: { gt: 140 } }, then: 'hypertension', label: 'High BP' },
+    ]);
+  }, 'triage')
+    .addFunctionBranch('diabetes', 'DiabetesCheck', async (scope) => {
+      scope.results = [...scope.results, 'glucose check'];
+    })
+    .addFunctionBranch('hypertension', 'BPCheck', async (scope) => {
+      scope.results = [...scope.results, 'BP check'];
+    })
+    .end()
+  .build();
+```
+
+Both branches match, so `DiabetesCheck` and `BPCheck` run in parallel.
+
+---
+
+## DecideRule
+
+```ts
+interface DecideRule<S> {
+  when: WhereFilter<S> | ((scope: S) => boolean);
+  then: string;
+  label?: string;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `when` | filter object or function | Condition to test |
+| `then` | `string` | Branch ID to route to when matched |
+| `label` | `string?` | Human name shown in the narrative — e.g. `"Good credit"` |
+
+### Filter object (recommended)
+
+A `WhereFilter<S>` is a plain object mapping state keys to `FilterOps`:
+
+```ts
+{ creditScore: { gt: 700 }, dti: { lt: 0.43 } }
+```
+
+All keys use **AND** semantics — every condition must pass for the rule to match. The narrative captures each condition's key, operator, threshold, actual value, and pass/fail result.
+
+### Function
+
+A `(scope: S) => boolean` for logic a filter can't express. The narrative captures which scope keys were **read** during the function call.
+
+```ts
+{ when: (s) => s.creditScore > 700 && someExternalCheck(s.id), then: 'approved' }
+```
+
+---
+
+## FilterOps
+
+All 8 operators follow [Prisma](https://www.prisma.io/docs/reference/api-reference/prisma-client-reference#filter-conditions-and-operators) naming:
+
+| Operator | Meaning | Example |
+|----------|---------|---------|
+| `eq` | Equal | `{ status: { eq: 'active' } }` |
+| `ne` | Not equal | `{ status: { ne: 'banned' } }` |
+| `gt` | Greater than | `{ score: { gt: 700 } }` |
+| `gte` | Greater than or equal | `{ score: { gte: 700 } }` |
+| `lt` | Less than | `{ dti: { lt: 0.43 } }` |
+| `lte` | Less than or equal | `{ dti: { lte: 0.43 } }` |
+| `in` | Value in array | `{ tier: { in: ['gold', 'platinum'] } }` |
+| `notIn` | Value not in array | `{ tier: { notIn: ['free'] } }` |
+
+<Aside>
+  `decide()` and `select()` are pure functions — no side effects, no running executor required. You can test them in isolation by passing a plain object for `scope`.
+</Aside>
+
+---
+
+## Try it live
+
+- [decide() / select()](https://footprintjs.github.io/footprint-playground/samples/decide-select) — filter rules, function rules, multi-match with evidence
+- [Decider (Conditional)](https://footprintjs.github.io/footprint-playground/samples/decider) — plain decider without `decide()`
+
+→ Full guide: [Decision branching](/footPrint/guides/decision-branching/)

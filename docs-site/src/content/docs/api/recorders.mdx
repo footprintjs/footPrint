@@ -1,0 +1,251 @@
+---
+title: Recorders
+description: API reference for narrative(), metrics(), debug(), manifest() and the built-in recorder classes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+footprintjs has two observer layers. **Scope recorders** (`Recorder`) fire on data operations during stage execution. **Flow recorders** (`FlowRecorder`) fire on control-flow events after each stage completes. All built-in recorders attach via `chart.recorder(r)` or `executor.attachRecorder(r)` / `executor.attachFlowRecorder(r)`.
+
+---
+
+## narrative()
+
+The primary observer. Implements both `Recorder` and `FlowRecorder` — captures reads, writes, decisions, and loops into a single human-readable timeline.
+
+```ts
+import { narrative } from 'footprintjs';
+
+const narr = narrative();
+await chart.recorder(narr).run({ input });
+
+narr.lines()      // string[] — one sentence per event
+narr.structured() // CombinedNarrativeEntry[] — typed entries with depth/stageName
+```
+
+**NarrativeInstance methods**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.lines()` | `string[]` | Full merged narrative |
+| `.structured()` | `CombinedNarrativeEntry[]` | Structured entries with `type`, `depth`, `stageName`, `stageId` |
+
+```ts
+const narr = narrative();
+await chart.recorder(narr).run({ input: { creditScore: 750, dti: 0.38 } });
+
+narr.lines().forEach(line => console.log(line));
+// Stage 1: The process began with AssessCredit.
+//   Step 1: Write creditScore = 750
+// [Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓ → approved.
+```
+
+---
+
+## metrics()
+
+Tracks per-stage read/write counts and wall-clock duration.
+
+```ts
+import { metrics } from 'footprintjs';
+
+const metr = metrics();
+await chart.recorder(metr).run({ input });
+
+metr.all()          // aggregate totals
+metr.stage(id)      // per-stage breakdown
+metr.reads()        // total read count
+metr.writes()       // total write count
+metr.commits()      // total commit count
+```
+
+**MetricsInstance methods**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.all()` | `AggregateMetrics` | `{ totalDuration, totalReads, totalWrites, stageMetrics }` |
+| `.stage(stageId)` | `StageMetrics \| undefined` | Duration + counts for one stage |
+| `.reads()` | `number` | Total reads across all stages |
+| `.writes()` | `number` | Total writes across all stages |
+| `.commits()` | `number` | Total commit events |
+
+```ts
+const metr = metrics();
+await chart.recorder(metr).run({ input });
+
+const all = metr.all();
+console.log(`Total: ${all.totalDuration}ms`);
+
+for (const [id, m] of all.stageMetrics) {
+  console.log(`${id}: ${m.totalDuration}ms · ${m.readCount}r ${m.writeCount}w`);
+}
+```
+
+---
+
+## debug()
+
+Captures a structured log of every scope operation — reads, writes, commits, errors — for debugging and inspection.
+
+```ts
+import { debug } from 'footprintjs';
+
+const dbg = debug();
+await chart.recorder(dbg).run({ input });
+
+dbg.logs()   // DebugEntry[] — all operations in order
+```
+
+**DebugInstance methods**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.logs()` | `DebugEntry[]` | All scope operations: `{ type, stageName, key, value }` |
+
+```ts
+const dbg = debug();
+await chart.recorder(dbg).run({ input });
+
+const writes = dbg.logs().filter(e => e.type === 'write');
+const errors = dbg.logs().filter(e => e.type === 'error');
+console.log(`${writes.length} writes, ${errors.length} errors`);
+```
+
+---
+
+## manifest()
+
+Builds a lightweight catalog of all subflow IDs, names, and descriptions as a side effect of traversal. An LLM receiving a snapshot can read the manifest to understand structure, then pull full specs on demand.
+
+```ts
+import { manifest } from 'footprintjs';
+
+const mani = manifest();
+await chart.recorder(mani).run({ input });
+
+mani.entries()   // ManifestEntry[] — nested tree of subflow entries
+```
+
+**ManifestInstance methods**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.entries()` | `ManifestEntry[]` | Nested tree: `{ subflowId, name, description, children }` |
+
+---
+
+## Built-in classes (low-level)
+
+The factory functions above (`narrative()`, `metrics()`, etc.) wrap these classes. Use the classes directly only when you need access to raw methods or want to attach via `executor.attachRecorder()`.
+
+### MetricRecorder
+
+```ts
+import { MetricRecorder } from 'footprintjs';
+
+const rec = new MetricRecorder();
+executor.attachRecorder(rec);
+await executor.run();
+
+const result = rec.getMetrics();
+// result.totalDuration, result.totalReads, result.stageMetrics (Map)
+```
+
+### DebugRecorder
+
+```ts
+import { DebugRecorder } from 'footprintjs';
+
+const rec = new DebugRecorder({ verbosity: 'verbose' });
+executor.attachRecorder(rec);
+await executor.run();
+
+rec.getEntries().forEach(e => {
+  if (e.type === 'write') console.log(`${e.stageName}: ${e.data.key} = ${JSON.stringify(e.data.value)}`);
+});
+```
+
+---
+
+## Narrative strategies for loops
+
+When a pipeline loops, the default narrative grows linearly. Six strategies control this:
+
+```ts
+import {
+  WindowedNarrativeFlowRecorder,   // first N + last N iterations
+  SilentNarrativeFlowRecorder,      // summary only
+  AdaptiveNarrativeFlowRecorder,    // full for first N, then every Kth
+  RLENarrativeFlowRecorder,         // run-length encoding
+  MilestoneNarrativeFlowRecorder,   // only milestone iterations
+  SeparateNarrativeFlowRecorder,    // main + separate loop detail channel
+} from 'footprintjs';
+
+executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
+// → full detail for first 3 and last 2 iterations; summary for the rest
+```
+
+<Aside>
+  All recorders are error-isolated — if one throws, the others and the pipeline are unaffected.
+</Aside>
+
+---
+
+## Custom scope recorder
+
+Implement `Recorder` for audit logs, compliance trails, or telemetry:
+
+```ts
+import { type Recorder, type ReadEvent, type WriteEvent } from 'footprintjs';
+
+class AuditRecorder implements Recorder {
+  readonly id = 'audit';
+  private log: string[] = [];
+
+  onWrite(event: WriteEvent): void {
+    this.log.push(`WRITE ${event.stageName}.${event.key} = ${JSON.stringify(event.value)}`);
+  }
+  onRead(event: ReadEvent): void {
+    this.log.push(`READ  ${event.stageName}.${event.key}`);
+  }
+
+  getLog() { return this.log; }
+}
+
+executor.attachRecorder(new AuditRecorder());
+```
+
+**Scope recorder hooks**: `onRead`, `onWrite`, `onCommit`, `onStageStart`, `onStageEnd`, `onError`
+
+## Custom flow recorder
+
+Implement `FlowRecorder` for control-flow observation:
+
+```ts
+import { type FlowRecorder } from 'footprintjs';
+
+const tracer: FlowRecorder = {
+  id: 'tracer',
+  onDecision: (event) => {
+    console.log(`${event.stageName} → ${event.chosen}`);
+    // event.evidence populated when decide() was used
+  },
+  onLoop: (event) => console.log(`loop ${event.iteration}`),
+};
+
+executor.attachFlowRecorder(tracer);
+```
+
+**Flow recorder hooks**: `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onLoop`, `onBreak`, `onSubflowEntry`, `onSubflowExit`, `onError`
+
+---
+
+## Try it live
+
+- [Auto-Narrative](https://footprintjs.github.io/footprint-playground/samples/narrative) — zero-setup causal trace
+- [Metrics](https://footprintjs.github.io/footprint-playground/samples/metrics) — per-stage latency
+- [Scope Recorders](https://footprintjs.github.io/footprint-playground/samples/recorders) — custom audit recorder
+- [Flow Recorders](https://footprintjs.github.io/footprint-playground/samples/flow-recorders) — custom flow recorder
+- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 6 loop strategies
+
+→ Full guide: [Observing with recorders](/footPrint/guides/recording/)

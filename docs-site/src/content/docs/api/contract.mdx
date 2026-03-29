@@ -1,0 +1,228 @@
+---
+title: Contract & Self-describing
+description: API reference for .contract(), toOpenAPI(), toMCPTool(), getSubtreeSnapshot(), and listSubflowPaths().
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A footprintjs flowchart knows its own structure. Declare a contract and the chart generates its own OpenAPI spec and MCP tool description — no separate schema maintenance.
+
+---
+
+## .contract()
+
+Attach input/output schemas and an optional output mapper. Call before `.build()`.
+
+```ts
+.contract(options: {
+  input?:  ZodSchema | JsonSchema;
+  output?: ZodSchema | JsonSchema;
+  mapper?: (scope: TypedScope<State>) => unknown;
+}): FlowChartBuilder<State>
+```
+
+| Option | Description |
+|--------|-------------|
+| `input` | Schema validated before each `.run()`. Throws `InputValidationError` on failure. |
+| `output` | Schema for the contract's output type. |
+| `mapper` | Maps scope state to the output value returned by `.run()`. |
+
+Accepts both [Zod](https://zod.dev) schemas and plain [JSON Schema](https://json-schema.org/) objects.
+
+```ts
+import { flowChart, decide } from 'footprintjs';
+import { z } from 'zod';
+
+interface OrderState {
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+  status?: string;
+}
+
+const chart = flowChart<OrderState>('CalculateTotal', async (scope) => {
+  const { quantity, unitPrice } = scope.$getArgs<{ quantity: number; unitPrice: number }>();
+  scope.subtotal = quantity * unitPrice;
+  scope.tax = Math.round(scope.subtotal * 0.08 * 100) / 100;
+  scope.total = scope.subtotal + scope.tax;
+  scope.status = 'calculated';
+}, 'calculate-total')
+  .contract({
+    input: z.object({
+      quantity: z.number().describe('Number of units'),
+      unitPrice: z.number().describe('Price per unit in USD'),
+    }),
+    output: z.object({
+      total: z.number().describe('Order total including tax'),
+      status: z.string(),
+    }),
+    mapper: (scope) => ({
+      total: scope.total,
+      status: scope.status,
+    }),
+  })
+  .build();
+```
+
+When `input` is defined, `chart.run({ input: {...} })` validates the input automatically. Invalid input throws `InputValidationError` with field-level detail before any stage runs.
+
+---
+
+## .toOpenAPI()
+
+Generate an OpenAPI 3.1 spec from the chart's contract. Requires an `input` schema in `.contract()`.
+
+```ts
+chart.toOpenAPI(options?: ChartOpenAPIOptions): OpenAPISpec
+```
+
+**Options**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `title` | Chart description | API title |
+| `version` | `'1.0.0'` | API version string |
+| `description` | Chart description | API description |
+| `path` | `'/<root-stage-id>'` | HTTP path |
+
+```ts
+const spec = chart.toOpenAPI({
+  title: 'Order Processing API',
+  version: '2.0.0',
+  path: '/orders/process',
+});
+
+console.log(JSON.stringify(spec, null, 2));
+// {
+//   "openapi": "3.1.0",
+//   "info": { "title": "Order Processing API", "version": "2.0.0" },
+//   "paths": {
+//     "/orders/process": {
+//       "post": {
+//         "requestBody": { "content": { "application/json": { "schema": { ... } } } },
+//         "responses": { "200": { "content": { "application/json": { "schema": { ... } } } } }
+//       }
+//     }
+//   }
+// }
+```
+
+The result is cached — calling `toOpenAPI()` multiple times is free.
+
+---
+
+## .toMCPTool()
+
+Generate an MCP-compatible tool definition. The name, description, and input schema come directly from the flowchart — no duplication.
+
+```ts
+chart.toMCPTool(): MCPToolDescription
+```
+
+Returns:
+
+```ts
+{
+  name: string;         // root stage name, lowercased + spaces → underscores
+  description: string;  // numbered stage list from stage descriptions
+  inputSchema: JsonSchema; // from .contract({ input }) or inferred
+}
+```
+
+```ts
+const tool = chart.toMCPTool();
+
+console.log(tool.name);        // 'calculatetotal'
+console.log(tool.description); // '1. CalculateTotal\n2. ...'
+console.log(tool.inputSchema); // { type: 'object', properties: { ... } }
+```
+
+**Registering with an MCP server:**
+
+```ts
+// The Anthropic SDK uses input_schema (snake_case)
+const anthropicTool = {
+  name: tool.name,
+  description: tool.description,
+  input_schema: tool.inputSchema,
+};
+```
+
+<Aside>
+  `toMCPTool()` requires either a `.contract({ input })` schema or stage-level `inputSchema` on the root stage. The description is built from stage `description` params in the builder.
+</Aside>
+
+---
+
+## getSubtreeSnapshot()
+
+Extract the execution tree for a specific subflow from a `RuntimeSnapshot`. Returns `SubtreeSnapshot | undefined`.
+
+```ts
+import { getSubtreeSnapshot } from 'footprintjs';
+
+const snapshot = executor.getSnapshot();
+const paymentTree = getSubtreeSnapshot(snapshot, 'sf-payment');
+
+if (paymentTree) {
+  console.log(paymentTree.subflowId);           // 'sf-payment'
+  console.log(paymentTree.executionTree.name);   // 'ValidateCard'
+}
+```
+
+```ts
+getSubtreeSnapshot(
+  snapshot: RuntimeSnapshot | undefined,
+  subflowId: string,
+): SubtreeSnapshot | undefined
+```
+
+Traverses the full execution tree recursively — works at any nesting depth.
+
+---
+
+## listSubflowPaths()
+
+Return all mounted subflow IDs at any depth in the execution tree. Nested subflows use slash-separated paths.
+
+```ts
+import { listSubflowPaths } from 'footprintjs';
+
+const paths = listSubflowPaths(snapshot);
+// ['sf-payment', 'sf-inventory']
+// Nested: ['sf-outer/sf-inner']
+```
+
+```ts
+listSubflowPaths(snapshot: RuntimeSnapshot | undefined): string[]
+```
+
+---
+
+## JSON Schema (without Zod)
+
+If you don't use Zod, pass a plain JSON Schema object to `.contract()`:
+
+```ts
+.contract({
+  input: {
+    type: 'object',
+    properties: {
+      quantity: { type: 'number', description: 'Number of units' },
+      unitPrice: { type: 'number', description: 'Price per unit' },
+    },
+    required: ['quantity', 'unitPrice'],
+  },
+  mapper: (scope) => ({ total: scope.total }),
+})
+```
+
+---
+
+## Try it live
+
+- [Contract & OpenAPI](https://footprintjs.github.io/footprint-playground/samples/contract-openapi) — Zod schemas, OpenAPI generation, and mapped output
+- [Claude Agent + FootPrint Tool](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool) — `toMCPTool()` with a live Claude agent
+- [Subflow](https://footprintjs.github.io/footprint-playground/samples/subflow) — `getSubtreeSnapshot()` drill-down
+
+→ Full guide: [Self-describing APIs](/footPrint/guides/self-describing/)

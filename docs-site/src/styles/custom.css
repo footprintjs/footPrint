@@ -1,38 +1,58 @@
 /* footprintjs — Starlight theme overrides
  *
- * Brand accent: footprint orange (#e86c1a) matches playground header.
- * Keeps Starlight's accessible contrast ratios.
+ * Brand accent: matches playground palette (purple #7c6cf0 dark / #4f46e5 light).
+ * Body font: Inter (same as playground). Code font: JetBrains Mono.
  */
 
-/* Dark mode (default) — accent only; leave Starlight's gray scale untouched */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Fonts ──────────────────────────────────────────────────────────────── */
 :root {
-  --sl-color-accent-low: #3d1a00;
-  --sl-color-accent: #e86c1a;
-  --sl-color-accent-high: #ffb380;
+  --sl-font: 'Inter', system-ui, -apple-system, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* Light mode accent */
+/* ── Dark mode accent (default) ─────────────────────────────────────────── */
+:root {
+  --sl-color-accent-low: #1a1540;
+  --sl-color-accent: #7c6cf0;
+  --sl-color-accent-high: #bdb5fa;
+}
+
+/* ── Light mode accent ──────────────────────────────────────────────────── */
 :root[data-theme='light'] {
-  --sl-color-accent-low: #fff0e6;
-  --sl-color-accent: #b84e00;
-  --sl-color-accent-high: #5c2600;
+  --sl-color-accent-low: #ede9fe;
+  --sl-color-accent: #4f46e5;
+  --sl-color-accent-high: #3730a3;
 }
 
-/* Sidebar: make category labels bolder */
+/* ── Sidebar category labels ────────────────────────────────────────────── */
 .sidebar-content summary span {
   font-weight: 600;
 }
 
-/* Code blocks: slightly warmer background */
+/* ── Code blocks ────────────────────────────────────────────────────────── */
 .expressive-code .frame {
   border-color: var(--sl-color-gray-5);
 }
 
-/* Hero badge pill */
+/* ── Hero badge pill ────────────────────────────────────────────────────── */
 .hero .badge {
   background: var(--sl-color-accent);
   color: var(--sl-color-white);
   font-size: 0.75rem;
   border-radius: 9999px;
   padding: 0.2rem 0.6rem;
+}
+
+/* ── API signature blocks (used in api/ MDX pages) ───────────────────────── */
+.api-sig {
+  background: var(--sl-color-bg-inline-code);
+  border-left: 3px solid var(--sl-color-accent);
+  border-radius: 0 6px 6px 0;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-family: var(--sl-font-mono);
+  font-size: 0.875rem;
+  overflow-x: auto;
 }

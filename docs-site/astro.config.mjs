@@ -52,18 +52,11 @@ export default defineConfig({
         {
           label: 'API Reference',
           items: [
-            {
-              label: 'footprintjs (main)',
-              link: '/api/modules/main',
-            },
-            {
-              label: 'footprintjs/recorders',
-              link: '/api/modules/recorders',
-            },
-            {
-              label: 'footprintjs/advanced',
-              link: '/api/modules/advanced',
-            },
+            { label: 'flowChart() / Builder', slug: 'api/flowchart' },
+            { label: 'decide() / select()', slug: 'api/decide' },
+            { label: 'FlowChartExecutor', slug: 'api/executor' },
+            { label: 'Recorders', slug: 'api/recorders' },
+            { label: 'Contract & Self-describing', slug: 'api/contract' },
           ],
         },
         {
