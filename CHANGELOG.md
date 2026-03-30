@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.4]
+
+### Fixed
+
+- **`$batchArray` JSDoc corrected: shallow clone, atomicity on error, type limitations** (`reactive/types.ts`) — the previous JSDoc said "mutable copy" which implies deep copy; corrected to "mutable **shallow copy**" with an explicit note that object references inside the array are shared. Added: if `fn` throws, `setValue` is never called and state remains unchanged. Added: `key` is untyped (`string`) and `arr` is typed as `unknown[]` — both are known limitations of `ScopeMethods` not being parameterized by `T`.
+- **`$batchArray` added to CLAUDE.md escape hatches example** (`CLAUDE.md`) — was absent from the `$-prefixed escape hatches` code block in the TypedScope API section.
+
+### Tests
+
+- **`$batchArray` — fn throws: state unchanged, no write committed** (`test/lib/reactive/unit/batchArray.test.ts`) — new boundary test verifying atomicity on error.
+- **`$batchArray` — shallow clone: object mutation inside fn affects original** (`test/lib/reactive/unit/batchArray.test.ts`) — new boundary test documenting the shallow-clone contract.
+- **`$batchArray` — 10k-element performance test asserts final array length** (`test/lib/reactive/unit/batchArray.test.ts`) — tightened assertion: was only checking write count; now also asserts `length === 10_002`.
+
 ## [4.0.3]
 
 ### Added

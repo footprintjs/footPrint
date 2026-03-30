@@ -46,7 +46,10 @@ const chart = flowChart<LoanState>('Intake', async (scope) => {
   scope.creditTier = 'A';                    // typed write
   scope.amount = 50000;                       // typed write
   scope.customer.address.zip = '90210';       // deep write (updateValue)
-  scope.tags.push('vip');                     // array copy-on-write
+  scope.tags.push('vip');                     // array copy-on-write (single push)
+  scope.$batchArray('tags', (arr) => {        // O(1) batch: 1 clone + 1 commit
+    arr.push('vip', 'premium', 'verified');
+  });
   scope.approved = true;                      // optional field
 
   // $-prefixed escape hatches

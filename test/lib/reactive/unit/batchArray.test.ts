@@ -164,6 +164,30 @@ describe('$batchArray — boundary: edge cases', () => {
     // The target state was the original reference; batchArray clones so original is untouched
     expect(original).toEqual(['a', 'b']);
   });
+
+  it('shallow clone — object references inside the array are shared with original', () => {
+    const obj = { value: 1 };
+    const { scope, target } = makeScope({ items: [obj] });
+    scope.$batchArray('items', (arr) => {
+      // The array slot is a copy, but the object inside is the same reference
+      (arr[0] as { value: number }).value = 999;
+    });
+    // obj was mutated in-place because the clone is shallow
+    expect(obj.value).toBe(999);
+    // The committed array still contains one element
+    expect((target.state.items as unknown[]).length).toBe(1);
+  });
+
+  it('if fn throws, state is unchanged and no write is committed', () => {
+    const { scope, target } = makeScope({ items: ['a', 'b'] });
+    expect(() => {
+      scope.$batchArray('items', () => {
+        throw new Error('boom');
+      });
+    }).toThrow('boom');
+    expect(target.state.items).toEqual(['a', 'b']); // unchanged
+    expect(target.writes).toHaveLength(0); // no commit
+  });
 });
 
 // -- Scenario ----------------------------------------------------------------
@@ -265,5 +289,6 @@ describe('$batchArray — performance: write count is O(1) not O(N)', () => {
     });
 
     expect(target.writes).toHaveLength(1);
+    expect((target.state.items as number[]).length).toBe(10_002);
   });
 });

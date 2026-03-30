@@ -93,10 +93,22 @@ export interface ScopeMethods {
    * });
    * ```
    *
-   * `fn` receives a plain (non-proxy) mutable copy of the current array. Mutations
-   * inside `fn` are NOT tracked individually — only the final committed array appears
-   * in the narrative as a single write. If the key does not exist or is not an array,
-   * `fn` receives an empty array and the result is committed as the new value.
+   * `fn` receives a plain (non-proxy) mutable **shallow copy** of the current array.
+   * The array itself is a new instance, but object references inside it are shared with
+   * the original state — mutations to nested objects inside `fn` affect those originals.
+   * Only push/pop/sort/splice and other operations that change the array's own slots are
+   * safely isolated.
+   *
+   * Mutations inside `fn` are NOT tracked individually — only the final committed array
+   * appears in the narrative as a single write. If the key does not exist or is not an
+   * array, `fn` receives an empty array and the result is committed as the new value.
+   *
+   * If `fn` throws, `setValue` is never called and state remains unchanged (atomic on
+   * error). The exception propagates to the caller.
+   *
+   * `key` is untyped (`string`) — TypeScript will not catch typos. `arr` is typed as
+   * `unknown[]` because `ScopeMethods` is not parameterized by `T`; cast inside `fn`
+   * when element types are known: `(arr as string[]).push(x)`.
    */
   $batchArray(key: string, fn: (arr: unknown[]) => void): void;
 
