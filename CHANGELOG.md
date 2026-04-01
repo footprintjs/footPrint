@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.5]
+
+### Fixed
+
+- **SubflowExecutor continues after nested subflows instead of silently skipping** (`engine/handlers/SubflowExecutor.ts`) — when a chart built with `addSubFlowChartNext` was itself mounted as a subflow, `executeSubflowInternal()` returned immediately after a nested subflow completed, silently dropping all subsequent stages. Two fixes: (1) detect nested subflow nodes (`isSubflowRoot && subflowId`) and continue with `node.next` after `executeSubflow()` returns — mirrors `FlowchartTraverser.executeNode()` behavior; (2) save/restore instance variables (`currentSubflowRoot`, `currentSubflowDeps`, `subflowResultsMap`) around nested `executeSubflow()` calls to prevent parent context clobbering.
+
+### Tests
+
+- **Nested subflow continuation — 12 tests across 5 tiers** (`test/lib/engine/scenario/nested-subflow-continuation.test.ts`) — unit: stage after inner subflow executes, output doesn't swallow continuation; boundary: inner subflow at end of chain, empty inner subflow; scenario: multiple chained inner subflows, 3-level nesting, I/O mapping through nested, narrative captures entry/exit; property: execution order matches topology regardless of depth, snapshot available at every level; security: inner error propagates without skipping cleanup, break isolation.
+
 ## [4.0.4]
 
 ### Fixed
