@@ -129,6 +129,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     let subflowOutput: any;
     let subflowError: Error | undefined;
 
+    // Save parent subflow state — nested executeSubflow() calls (from executeSubflowInternal's
+    // nested subflow detection) would otherwise clobber these instance variables.
+    const savedSubflowRoot = this.currentSubflowRoot;
+    const savedSubflowDeps = this.currentSubflowDeps;
+    const savedSubflowResultsMap = this.subflowResultsMap;
+
     try {
       this.subflowResultsMap = subflowResultsMap;
       this.currentSubflowRoot = subflowNode;
@@ -140,8 +146,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       parentContext.addError('subflowError', error.toString());
       this.deps.logger.error(`Error in subflow (${subflowId}):`, { error });
     } finally {
-      this.currentSubflowRoot = undefined;
-      this.currentSubflowDeps = undefined;
+      // Restore parent subflow state so continuation stages execute in the right context.
+      this.currentSubflowRoot = savedSubflowRoot;
+      this.currentSubflowDeps = savedSubflowDeps;
+      this.subflowResultsMap = savedSubflowResultsMap;
     }
 
     const subflowTreeContext = nestedRuntime.getSnapshot();
@@ -219,7 +227,31 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // Detect nested subflows
     if (node.isSubflowRoot && node.subflowId) {
       const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
-      return await this.executeSubflow(resolvedNode, context, breakFlag, branchPath, this.subflowResultsMap!);
+      const nestedOutput = await this.executeSubflow(
+        resolvedNode,
+        context,
+        breakFlag,
+        branchPath,
+        this.subflowResultsMap!,
+      );
+
+      // Continue with node.next after nested subflow completes.
+      // Without this, stages chained after an inner subflow mount are silently skipped.
+      // Mirrors FlowchartTraverser.executeNode() which checks node.next after subflow return.
+      if (node.next) {
+        const nestedTraversalCtx: TraversalContext = {
+          stageId: node.id ?? context.stageId,
+          stageName: node.name,
+          parentStageId: context.parent?.stageId,
+          subflowId: branchPath || undefined,
+          subflowPath: branchPath || undefined,
+          depth: this.computeContextDepth(context),
+        };
+        this.deps.narrativeGenerator.onNext(node.name, node.next.name, node.next.description, nestedTraversalCtx);
+        const nextCtx = context.createNext('', node.next.name, node.next.id);
+        return await this.executeSubflowInternal(node.next, nextCtx, breakFlag, branchPath);
+      }
+      return nestedOutput;
     }
 
     // Build traversal context for subflow stage events
