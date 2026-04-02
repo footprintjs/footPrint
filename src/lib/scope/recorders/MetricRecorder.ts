@@ -9,15 +9,24 @@
  *
  * @example
  * ```typescript
- * // Basic — auto-generated unique ID
+ * // Track all stages (default)
  * executor.attachRecorder(new MetricRecorder());
  *
- * // Two instances coexist (different auto IDs)
- * executor.attachRecorder(new MetricRecorder()); // metrics-1
- * executor.attachRecorder(new MetricRecorder()); // metrics-2
+ * // Track only LLM-related stages
+ * executor.attachRecorder(new MetricRecorder({
+ *   stageFilter: (name) => ['CallLLM', 'ParseResponse'].includes(name),
+ * }));
  *
- * // Override a framework-attached recorder with well-known ID
- * executor.attachRecorder(new MetricRecorder('metrics')); // replaces framework's
+ * // Two recorders: one for LLM timing, one for everything else
+ * executor.attachRecorder(new MetricRecorder({
+ *   stageFilter: (name) => name === 'CallLLM',
+ * }));
+ * executor.attachRecorder(new MetricRecorder({
+ *   stageFilter: (name) => name !== 'CallLLM',
+ * }));
+ *
+ * // Override a framework-attached recorder by passing its well-known ID
+ * executor.attachRecorder(new MetricRecorder({ id: 'metrics' }));
  * ```
  */
 
@@ -40,35 +49,67 @@ export interface AggregatedMetrics {
   stageMetrics: Map<string, StageMetrics>;
 }
 
+/** Options for MetricRecorder. All fields are optional. */
+export interface MetricRecorderOptions {
+  /** Recorder ID. Defaults to auto-increment (`metrics-1`, `metrics-2`, ...). */
+  id?: string;
+  /**
+   * Filter which stages are recorded. Return `true` to record, `false` to skip.
+   * When omitted, all stages are recorded.
+   *
+   * @example
+   * ```typescript
+   * // Only track stages that start with "Call"
+   * stageFilter: (name) => name.startsWith('Call')
+   * ```
+   */
+  stageFilter?: (stageName: string) => boolean;
+}
+
 export class MetricRecorder implements Recorder {
   private static _counter = 0;
 
   readonly id: string;
   private metrics: Map<string, StageMetrics> = new Map();
   private stageStartTimes: Map<string, number> = new Map();
+  private stageFilter?: (stageName: string) => boolean;
 
-  constructor(id?: string) {
-    this.id = id ?? `metrics-${++MetricRecorder._counter}`;
+  constructor(idOrOptions?: string | MetricRecorderOptions) {
+    if (typeof idOrOptions === 'string') {
+      this.id = idOrOptions;
+    } else {
+      this.id = idOrOptions?.id ?? `metrics-${++MetricRecorder._counter}`;
+      this.stageFilter = idOrOptions?.stageFilter;
+    }
+  }
+
+  private shouldRecord(stageName: string): boolean {
+    return !this.stageFilter || this.stageFilter(stageName);
   }
 
   onRead(event: ReadEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
     this.getOrCreateStageMetrics(event.stageName).readCount++;
   }
 
   onWrite(event: WriteEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
     this.getOrCreateStageMetrics(event.stageName).writeCount++;
   }
 
   onCommit(event: CommitEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
     this.getOrCreateStageMetrics(event.stageName).commitCount++;
   }
 
   onStageStart(event: StageEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
     this.stageStartTimes.set(event.stageName, event.timestamp);
     this.getOrCreateStageMetrics(event.stageName).invocationCount++;
   }
 
   onStageEnd(event: StageEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
     const stageMetrics = this.getOrCreateStageMetrics(event.stageName);
     let duration: number;
     if (event.duration !== undefined) {

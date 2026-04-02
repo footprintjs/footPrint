@@ -46,7 +46,7 @@ import { MilestoneNarrativeFlowRecorder } from './lib/engine/narrative/recorders
 import { WindowedNarrativeFlowRecorder } from './lib/engine/narrative/recorders/WindowedNarrativeFlowRecorder.js';
 import type { DebugEntry, DebugRecorderOptions } from './lib/scope/recorders/DebugRecorder.js';
 import { DebugRecorder } from './lib/scope/recorders/DebugRecorder.js';
-import type { AggregatedMetrics, StageMetrics } from './lib/scope/recorders/MetricRecorder.js';
+import type { AggregatedMetrics, MetricRecorderOptions, StageMetrics } from './lib/scope/recorders/MetricRecorder.js';
 import { MetricRecorder } from './lib/scope/recorders/MetricRecorder.js';
 
 // ---- Narrative ----
@@ -77,8 +77,8 @@ export type MetricsInstance = MetricRecorder & {
   all(): AggregatedMetrics;
 };
 
-export function metrics(): MetricsInstance {
-  const rec = new MetricRecorder() as MetricsInstance;
+export function metrics(options?: MetricRecorderOptions): MetricsInstance {
+  const rec = new MetricRecorder(options) as MetricsInstance;
   rec.reads = function (this: MetricRecorder) {
     return this.getMetrics().totalReads;
   };
@@ -151,3 +151,4 @@ export type {
   StageRenderContext,
   SubflowRenderContext,
 };
+export type { AggregatedMetrics, MetricRecorderOptions, StageMetrics };
