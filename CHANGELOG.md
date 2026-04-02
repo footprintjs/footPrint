@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0]
+
+### Added
+
+- **Pluggable NarrativeRenderer** — `CombinedNarrativeRecorder` accepts a `renderer` option with optional hooks (`renderStage`, `renderOp`, `renderDecision`, `renderSubflow`, etc.) for custom narrative output. Unimplemented methods fall back to the default English renderer. `renderOp` can return `null` to exclude an entry.
+- **Decision entries nest under decider stage** — condition entries now render at `depth: 1` (indented under their parent decider stage) instead of as separate top-level entries.
+- **`outputMapper` array concat behavior documented** — JSDoc on `SubflowMountOptions.outputMapper` and CLAUDE.md anti-patterns section now warn that `applyOutputMapping` concatenates arrays (`[...existing, ...value]`). Return only the delta (new items) for array keys to avoid duplication.
+- **Array proxy silent reads eliminated** — TypedScope array property access no longer emits redundant read events for internal proxy operations, reducing narrative noise.
+
+### Tests
+
+- **Pluggable renderer** — unit tests for custom `renderStage`, `renderOp`, `renderDecision` hooks.
+- **Decider-in-subflow scenario** — verifies decision events fire with correct `traversalContext` when decider is inside a subflow.
+- **Array proxy silent reads** — 11 tests verifying `.push()`, `.length`, `.filter()` etc. don't emit extra read events.
+- **onCommit wiring** — 11 tests verifying scope recorder `onCommit` fires correctly per stage.
+
 ## [4.0.5]
 
 ### Fixed
