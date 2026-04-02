@@ -109,6 +109,8 @@ export class ScopeFacade {
   // ── Recorder Management ──────────────────────────────────────────────────
 
   attachRecorder(recorder: Recorder): void {
+    // Replace existing recorder with same ID (idempotent — prevents double-counting)
+    this._recorders = this._recorders.filter((r) => r.id !== recorder.id);
     this._recorders.push(recorder);
   }
 

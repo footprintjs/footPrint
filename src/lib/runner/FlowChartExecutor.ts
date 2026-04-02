@@ -336,6 +336,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Must be called before run().
    */
   attachRecorder(recorder: Recorder): void {
+    // Replace existing recorder with same ID (idempotent — prevents double-counting)
+    this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== recorder.id);
     this.scopeRecorders.push(recorder);
   }
 
@@ -357,6 +359,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Must be called before run() — recorders are passed to the traverser at creation time.
    */
   attachFlowRecorder(recorder: FlowRecorder): void {
+    // Replace existing recorder with same ID (idempotent — prevents double-counting)
+    this.flowRecorders = this.flowRecorders.filter((r) => r.id !== recorder.id);
     this.flowRecorders.push(recorder);
     this.narrativeEnabled = true;
   }
