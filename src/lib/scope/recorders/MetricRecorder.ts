@@ -29,7 +29,7 @@ export class MetricRecorder implements Recorder {
   private stageStartTimes: Map<string, number> = new Map();
 
   constructor(id?: string) {
-    this.id = id ?? `metric-recorder-${Date.now()}`;
+    this.id = id ?? 'metrics';
   }
 
   onRead(event: ReadEvent): void {
