@@ -342,6 +342,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Built-in recorders use auto-increment IDs (`metrics-1`, `debug-1`, ...) by
    * default, so multiple instances with different configs coexist. To override
    * a framework-attached recorder, pass the same well-known ID.
+   *
+   * @example
+   * ```typescript
+   * // Multiple recorders with different configs — each gets a unique ID
+   * executor.attachRecorder(new MetricRecorder());
+   * executor.attachRecorder(new DebugRecorder({ verbosity: 'minimal' }));
+   *
+   * // Override a framework-attached recorder by passing its well-known ID
+   * executor.attachRecorder(new MetricRecorder('metrics'));
+   *
+   * // Attaching twice with same ID replaces (no double-counting)
+   * executor.attachRecorder(new MetricRecorder('my-metrics'));
+   * executor.attachRecorder(new MetricRecorder('my-metrics')); // replaces previous
+   * ```
    */
   attachRecorder(recorder: Recorder): void {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)

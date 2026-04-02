@@ -90,6 +90,18 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    * `[...existing, ...value]` for arrays. Return only the **delta** (new items)
    * for array keys, or the parent's existing array items will be duplicated.
    * Scalar values are replaced normally.
+   *
+   * @example
+   * ```typescript
+   * // WRONG — returns full array, parent concats → duplicates
+   * outputMapper: (sf) => ({ messages: sf.allMessages })
+   *
+   * // RIGHT — returns only new items (delta), concat appends correctly
+   * outputMapper: (sf) => ({ messages: sf.newMessages })
+   *
+   * // Scalars are fine — replaced, not concatenated
+   * outputMapper: (sf) => ({ status: sf.result, count: sf.total })
+   * ```
    */
   outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
 }

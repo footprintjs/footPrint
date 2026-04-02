@@ -1,7 +1,24 @@
 /**
- * MetricRecorder — Production-focused recorder for timing and execution counts
+ * MetricRecorder — Production-focused recorder for timing and execution counts.
  *
  * Tracks read/write/commit counts per stage and measures stage execution duration.
+ *
+ * Each instance gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...),
+ * so multiple recorders with different configs coexist. Pass an explicit ID to
+ * override a specific instance (e.g., a framework-attached recorder).
+ *
+ * @example
+ * ```typescript
+ * // Basic — auto-generated unique ID
+ * executor.attachRecorder(new MetricRecorder());
+ *
+ * // Two instances coexist (different auto IDs)
+ * executor.attachRecorder(new MetricRecorder()); // metrics-1
+ * executor.attachRecorder(new MetricRecorder()); // metrics-2
+ *
+ * // Override a framework-attached recorder with well-known ID
+ * executor.attachRecorder(new MetricRecorder('metrics')); // replaces framework's
+ * ```
  */
 
 import type { CommitEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';

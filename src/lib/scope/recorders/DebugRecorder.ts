@@ -21,6 +21,21 @@ export interface DebugRecorderOptions {
   verbosity?: DebugVerbosity;
 }
 
+/**
+ * Each instance gets a unique auto-increment ID (`debug-1`, `debug-2`, ...),
+ * so multiple recorders with different verbosity coexist.
+ *
+ * @example
+ * ```typescript
+ * // Verbose debug for development
+ * executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+ *
+ * // Minimal debug for production (errors only)
+ * executor.attachRecorder(new DebugRecorder({ verbosity: 'minimal' }));
+ *
+ * // Both coexist — different auto IDs
+ * ```
+ */
 export class DebugRecorder implements Recorder {
   private static _counter = 0;
 
