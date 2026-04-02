@@ -83,6 +83,14 @@ export interface StreamHandlers {
 
 export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
   inputMapper?: (parentScope: TParentScope) => TSubflowInput;
+  /**
+   * Maps subflow output back into parent scope.
+   *
+   * **Array values are concatenated, not replaced.** `applyOutputMapping` uses
+   * `[...existing, ...value]` for arrays. Return only the **delta** (new items)
+   * for array keys, or the parent's existing array items will be duplicated.
+   * Scalar values are replaced normally.
+   */
   outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
 }
 

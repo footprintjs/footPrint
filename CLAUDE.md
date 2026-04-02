@@ -176,6 +176,7 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - Don't use `getArgs()` for tracked data — use typed scope properties
 - Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
 - Don't manually create `CombinedNarrativeRecorder` — `executor.recorder(narrative())` handles it
+- Don't return full arrays from `outputMapper` — `applyOutputMapping` **concatenates** arrays (`[...parent, ...subflow]`). Return only the **delta** (new items), not the full array, or you'll get duplicates. Scalars are replaced normally.
 
 ## Build & Test
 
