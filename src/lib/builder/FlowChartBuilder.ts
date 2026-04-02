@@ -834,6 +834,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     cur.children.push(node);
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
+    this._knownStageIds.add(id);
 
     this._mergeStageMap(subflow.stageMap, id);
     this._mergeSubflows(subflow.subflows, id);
@@ -984,6 +985,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = attachedSpec;
     this._cursor = node;
     this._cursorSpec = attachedSpec;
+    this._knownStageIds.add(id);
 
     this._mergeStageMap(subflow.stageMap, id);
     this._mergeSubflows(subflow.subflows, id);
