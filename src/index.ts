@@ -173,6 +173,16 @@ export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/r
 export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
 // ============================================================================
+// Recorder Composition — Bundle multiple recorders into domain presets
+// ============================================================================
+
+/** @category Recorder */
+export { CompositeRecorder } from './lib/recorder/index.js';
+
+/** @category Recorder */
+export type { CompositeSnapshot } from './lib/recorder/index.js';
+
+// ============================================================================
 // Configuration — Types passed to FlowChartExecutor and run()
 // ============================================================================
 

@@ -152,3 +152,5 @@ export type {
   SubflowRenderContext,
 };
 export type { AggregatedMetrics, MetricRecorderOptions, StageMetrics };
+export type { CompositeSnapshot } from './lib/recorder/index.js';
+export { CompositeRecorder } from './lib/recorder/index.js';

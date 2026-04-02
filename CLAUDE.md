@@ -16,6 +16,7 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
+├── recorder/  → CompositeRecorder composition primitives (domain presets)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
 └── contract/  → I/O schema + OpenAPI generation
