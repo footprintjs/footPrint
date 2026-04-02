@@ -23,7 +23,6 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import type { ExecutionEnv, FlowChart, RunnableFlowChart, ScopeFactory } from '../../src/index.js';
-import type { RunStageFn as SubflowRunStageFn } from '../../src/lib/engine/handlers/SubflowExecutor.js';
 import type {
   CallExtractorFn,
   ExecuteNodeFn,
@@ -57,8 +56,11 @@ describe('RunnableFlowChart extends FlowChart', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Handler callback type unification', () => {
-  it('SubflowExecutor re-exports RunStageFn from handlers/types (not a local alias)', () => {
-    expectTypeOf<SubflowRunStageFn>().toEqualTypeOf<RunStageFn>();
+  it('SubflowExecutor no longer re-exports handler types (factory pattern)', () => {
+    // After the factory refactor, SubflowExecutor no longer uses or re-exports
+    // RunStageFn — it delegates to SubflowTraverserFactory instead.
+    // This test verifies the types still exist in their canonical location.
+    expectTypeOf<RunStageFn>().not.toBeNever();
   });
 
   it('ExecuteNodeFn, RunStageFn, CallExtractorFn, GetStagePathFn all come from one source', () => {

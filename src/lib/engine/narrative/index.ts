@@ -1,7 +1,20 @@
 /* istanbul ignore file */
 export type { CombinedNarrativeRecorderOptions } from './CombinedNarrativeRecorder.js';
 export { CombinedNarrativeRecorder } from './CombinedNarrativeRecorder.js';
-export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './narrativeTypes.js';
+export type {
+  BreakRenderContext,
+  CombinedNarrativeEntry,
+  CombinedNarrativeOptions,
+  DecisionRenderContext,
+  ErrorRenderContext,
+  ForkRenderContext,
+  LoopRenderContext,
+  NarrativeRenderer,
+  OpRenderContext,
+  SelectedRenderContext,
+  StageRenderContext,
+  SubflowRenderContext,
+} from './narrativeTypes.js';
 export { NullControlFlowNarrativeGenerator } from './NullControlFlowNarrativeGenerator.js';
 export type { IControlFlowNarrative } from './types.js';
 

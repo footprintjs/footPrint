@@ -24,8 +24,21 @@
  * Pass directly to chart.recorder(). No wrapping, no proxying -- just the class + shortcuts.
  */
 
+import type { CombinedNarrativeRecorderOptions } from './lib/engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from './lib/engine/narrative/CombinedNarrativeRecorder.js';
-import type { CombinedNarrativeEntry } from './lib/engine/narrative/narrativeTypes.js';
+import type {
+  BreakRenderContext,
+  CombinedNarrativeEntry,
+  DecisionRenderContext,
+  ErrorRenderContext,
+  ForkRenderContext,
+  LoopRenderContext,
+  NarrativeRenderer,
+  OpRenderContext,
+  SelectedRenderContext,
+  StageRenderContext,
+  SubflowRenderContext,
+} from './lib/engine/narrative/narrativeTypes.js';
 import { AdaptiveNarrativeFlowRecorder } from './lib/engine/narrative/recorders/AdaptiveNarrativeFlowRecorder.js';
 import type { ManifestEntry } from './lib/engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from './lib/engine/narrative/recorders/ManifestFlowRecorder.js';
@@ -43,8 +56,8 @@ export type NarrativeInstance = CombinedNarrativeRecorder & {
   structured(): CombinedNarrativeEntry[];
 };
 
-export function narrative(): NarrativeInstance {
-  const rec = new CombinedNarrativeRecorder() as NarrativeInstance;
+export function narrative(options?: CombinedNarrativeRecorderOptions): NarrativeInstance {
+  const rec = new CombinedNarrativeRecorder(options) as NarrativeInstance;
   rec.lines = function (this: CombinedNarrativeRecorder) {
     return this.getNarrative();
   };
@@ -123,3 +136,18 @@ export function milestone() {
 export function windowed(maxEntries?: number) {
   return new WindowedNarrativeFlowRecorder(maxEntries);
 }
+
+// ---- Re-exported types ----
+export type {
+  BreakRenderContext,
+  CombinedNarrativeRecorderOptions,
+  DecisionRenderContext,
+  ErrorRenderContext,
+  ForkRenderContext,
+  LoopRenderContext,
+  NarrativeRenderer,
+  OpRenderContext,
+  SelectedRenderContext,
+  StageRenderContext,
+  SubflowRenderContext,
+};

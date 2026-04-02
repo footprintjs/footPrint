@@ -29,6 +29,8 @@ export interface ReactiveTarget {
   getStateKeys?(): string[];
   /** Check key existence without firing onRead. Used by has trap. */
   hasKey?(key: string): boolean;
+  /** Read state without firing onRead. Used by array proxy getCurrent(). */
+  getValueSilent?(key?: string): unknown;
 
   // Input & environment (readonly, NOT tracked)
   getArgs<T = Record<string, unknown>>(): T;

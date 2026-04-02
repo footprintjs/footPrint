@@ -35,6 +35,10 @@ export type StageNode<TOut = any, TScope = any> = {
   name: string;
   /** Stable identifier for visualization matching and branch aggregation. */
   id: string;
+  /** Original branch identifier as supplied to addFunctionBranch() / addSubFlowChartBranch().
+   *  When a subflow prefix is applied to the node tree, this field preserves the
+   *  unprefixed ID so handlers can match against the value returned by user decider/selector functions. */
+  branchId?: string;
   /** Description of what this stage does. Used for narrative and tool descriptions. */
   description?: string;
 

@@ -17,6 +17,7 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
+import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
@@ -112,6 +113,7 @@ export interface FlowChartExecutorOptions<TScope = any> {
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
   private narrativeEnabled = false;
+  private narrativeOptions?: CombinedNarrativeRecorderOptions;
   private combinedRecorder: CombinedNarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
   private scopeRecorders: Recorder[] = [];
@@ -209,7 +211,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // previous 4-deep closure nesting with a flat, debuggable composition.
 
     if (narrativeFlag) {
-      this.combinedRecorder = new CombinedNarrativeRecorder();
+      this.combinedRecorder = new CombinedNarrativeRecorder(this.narrativeOptions);
     } else {
       this.combinedRecorder = undefined;
     }
@@ -297,8 +299,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     });
   }
 
-  enableNarrative(): void {
+  enableNarrative(options?: CombinedNarrativeRecorderOptions): void {
     this.narrativeEnabled = true;
+    if (options) this.narrativeOptions = options;
   }
 
   /**

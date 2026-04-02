@@ -38,11 +38,16 @@ export class StageContext {
 
   public debug: DiagnosticCollector = new DiagnosticCollector();
 
-  /** Tracks user-level writes (pre-namespace) for the memory view. */
-  private _stageWrites: Record<string, unknown> = {};
+  /** Tracks user-level writes (pre-namespace) for the memory view and onCommit. */
+  private _stageWrites: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }> = {};
 
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
+
+  /** Observer called after commit() — used by ScopeFacade to fire Recorder.onCommit. */
+  private _commitObserver?: (
+    mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
+  ) => void;
 
   constructor(
     runId: string,
@@ -98,22 +103,35 @@ export class StageContext {
     this.getTransactionBuffer().merge(this.withNamespace(path, key), value);
   }
 
-  setObject(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+  setObject(
+    path: string[],
+    key: string,
+    value: unknown,
+    shouldRedact?: boolean,
+    description?: string,
+    operationOverride?: 'set' | 'delete',
+  ) {
     this.patch(path, key, value, shouldRedact ?? false);
-    // Track user-level write (pre-namespace) for memory view
+    // Track user-level write (pre-namespace) for memory view + onCommit
     const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this._stageWrites[userKey] = shouldRedact ? '[REDACTED]' : structuredClone(value);
+    this._stageWrites[userKey] = {
+      value: shouldRedact ? '[REDACTED]' : structuredClone(value),
+      operation: operationOverride ?? 'set',
+    };
     if (description) {
       const tagged = description.startsWith('[') ? description : `[WRITE] ${description}`;
       this.debug.addLog('message', tagged);
     }
   }
 
-  updateObject(path: string[], key: string, value: unknown, description?: string) {
+  updateObject(path: string[], key: string, value: unknown, description?: string, shouldRedact?: boolean) {
     this.merge(path, key, value);
-    // Track user-level write (pre-namespace) for memory view
+    // Track user-level write (pre-namespace) for memory view + onCommit
     const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this._stageWrites[userKey] = structuredClone(value);
+    this._stageWrites[userKey] = {
+      value: shouldRedact ? '[REDACTED]' : structuredClone(value),
+      operation: 'update',
+    };
     if (description) {
       this.debug.addLog('message', description);
     }
@@ -166,6 +184,14 @@ export class StageContext {
     return value;
   }
 
+  /** Read state without tracking in _stageReads or paying structuredClone cost.
+   *  Used by ScopeFacade.getValueSilent() for array proxy internal operations. */
+  getValueDirect(path: string[], key?: string): unknown {
+    const buf = this.getTransactionBuffer();
+    const fromPatch = buf.get(this.withNamespace(path, key as string));
+    return typeof fromPatch !== 'undefined' ? fromPatch : this.sharedMemory.getValue(this.runId, path, key);
+  }
+
   getRoot(key: string) {
     return this.sharedMemory.getValue(this.runId, [], key);
   }
@@ -184,6 +210,14 @@ export class StageContext {
 
   // ── Commit ─────────────────────────────────────────────────────────────
 
+  /** Register an observer that fires after commit() applies patches.
+   *  Used by ScopeFacade to dispatch Recorder.onCommit events. */
+  setCommitObserver(
+    observer: (mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>) => void,
+  ): void {
+    this._commitObserver = observer;
+  }
+
   commit(): void {
     const buf = this.getTransactionBuffer();
     const bundle = buf.commit();
@@ -199,6 +233,11 @@ export class StageContext {
       overwrite: redactedOverwrite,
       updates: redactedUpdates,
     });
+
+    // Notify observer (ScopeFacade) with tracked mutations
+    if (this._commitObserver) {
+      this._commitObserver({ ...this._stageWrites });
+    }
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -293,7 +332,12 @@ export class StageContext {
       evals: this.debug.evalContext,
     };
     if (Object.keys(this._stageWrites).length > 0) {
-      snapshot.stageWrites = this._stageWrites;
+      // Extract values only for the snapshot (strip operation metadata)
+      const writes: Record<string, unknown> = {};
+      for (const [k, entry] of Object.entries(this._stageWrites)) {
+        writes[k] = entry.value;
+      }
+      snapshot.stageWrites = writes;
     }
     if (Object.keys(this._stageReads).length > 0) {
       snapshot.stageReads = this._stageReads;

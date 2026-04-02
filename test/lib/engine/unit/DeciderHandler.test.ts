@@ -354,4 +354,101 @@ describe('DeciderHandler', () => {
       );
     });
   });
+
+  describe('handleScopeBased — branchId matching (subflow prefix fix)', () => {
+    it('matches by branchId when id is prefixed (the root cause bug)', async () => {
+      const deps = makeDeps();
+      const handler = new DeciderHandler(deps);
+      const context = makeContext();
+      const breakFlag = { shouldBreak: false };
+
+      // Simulate nodes after _prefixNodeTree: id is prefixed, branchId is original
+      const prefixedChildHigh: StageNode = { name: 'sf/Reject', id: 'sf/high', branchId: 'high' };
+      const prefixedChildLow: StageNode = { name: 'sf/Approve', id: 'sf/low', branchId: 'low' };
+      const node = makeNode([prefixedChildHigh, prefixedChildLow]);
+
+      // User decider returns unprefixed 'high'
+      const stageFunc = () => 'high';
+
+      await handler.handleScopeBased(
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
+      );
+
+      // Should resolve to the 'high' child via branchId, not fail
+      expect(context.createChild).toHaveBeenCalledWith('main', 'sf/high', 'sf/Reject', 'sf/high');
+    });
+
+    it('falls back to default by branchId when id is prefixed', async () => {
+      const deps = makeDeps();
+      const handler = new DeciderHandler(deps);
+      const context = makeContext();
+      const breakFlag = { shouldBreak: false };
+
+      const prefixedChildA: StageNode = { name: 'sf/A', id: 'sf/a', branchId: 'a' };
+      const prefixedDefault: StageNode = { name: 'sf/A', id: 'sf/default', branchId: 'default' };
+      const node = makeNode([prefixedChildA, prefixedDefault]);
+
+      // Decider returns unknown value → should fall back to default
+      const stageFunc = () => 'unknown';
+
+      await handler.handleScopeBased(
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
+      );
+
+      expect(context.createChild).toHaveBeenCalledWith('main', 'sf/default', 'sf/A', 'sf/default');
+      expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
+        'branch',
+        expect.stringContaining('fell back to default'),
+        expect.any(Object),
+      );
+    });
+
+    it('wasDefault is false when decider directly matches a prefixed branch', async () => {
+      const deps = makeDeps();
+      const handler = new DeciderHandler(deps);
+      const context = makeContext();
+      const breakFlag = { shouldBreak: false };
+
+      const prefixedChild: StageNode = { name: 'sf/Target', id: 'sf/target', branchId: 'target' };
+      const prefixedDefault: StageNode = { name: 'sf/Target', id: 'sf/default', branchId: 'default' };
+      const node = makeNode([prefixedChild, prefixedDefault]);
+
+      const stageFunc = () => 'target';
+
+      await handler.handleScopeBased(
+        node,
+        stageFunc,
+        context,
+        breakFlag,
+        'main',
+        noopRunStage,
+        noopExecuteNode,
+        noopCallExtractor,
+        noopGetStagePath,
+      );
+
+      // Should NOT say "fell back to default" — direct match via branchId
+      expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
+        'branch',
+        expect.stringContaining("returned 'target'"),
+        expect.any(Object),
+      );
+    });
+  });
 });

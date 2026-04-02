@@ -47,6 +47,7 @@ import type {
   StageNode,
   StreamHandlers,
   SubflowResult,
+  SubflowTraverserFactory,
   TraversalExtractor,
   TraversalResult,
 } from '../types.js';
@@ -72,10 +73,21 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   /** Pre-configured FlowRecorders to attach when narrative is enabled. */
   flowRecorders?: FlowRecorder[];
   /**
+   * Pre-configured narrative generator. If provided, takes precedence over
+   * flowRecorders and narrativeEnabled. Used by the subflow traverser factory
+   * to share the parent's narrative generator with subflow traversers.
+   */
+  narrativeGenerator?: IControlFlowNarrative;
+  /**
    * Maximum recursive executeNode depth. Defaults to FlowchartTraverser.MAX_EXECUTE_DEPTH (500).
    * Override in tests or unusually deep pipelines.
    */
   maxDepth?: number;
+  /**
+   * When this traverser runs inside a subflow, set this to the subflow's ID.
+   * Propagated to TraversalContext so narrative entries carry the correct subflowId.
+   */
+  parentSubflowId?: string;
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -85,6 +97,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private subflows: Record<string, { root: StageNode<TOut, TScope> }>;
   private readonly logger: ILogger;
   private readonly signal?: AbortSignal;
+  private readonly parentSubflowId?: string;
 
   // Handler modules
   private readonly nodeResolver: NodeResolver<TOut, TScope>;
@@ -157,6 +170,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.subflows = opts.subflows ? { ...opts.subflows } : {};
     this.logger = opts.logger;
     this.signal = opts.signal;
+    this.parentSubflowId = opts.parentSubflowId;
 
     // Structure manager (deep-clones build-time structure)
     this.structureManager = new RuntimeStructureManager();
@@ -171,9 +185,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     );
 
     // Narrative generator
-    // When narrative is enabled, use FlowRecorderDispatcher (with default NarrativeFlowRecorder or custom recorders).
-    // When disabled, use NullControlFlowNarrativeGenerator (zero-cost).
-    if (opts.narrativeEnabled) {
+    // Priority: explicit narrativeGenerator > flowRecorders > default NarrativeFlowRecorder > null.
+    // Subflow traversers receive the parent's narrativeGenerator so all events flow to one place.
+    if (opts.narrativeGenerator) {
+      this.narrativeGenerator = opts.narrativeGenerator;
+    } else if (opts.narrativeEnabled) {
       const dispatcher = new FlowRecorderDispatcher();
       this.flowRecorderDispatcher = dispatcher;
 
@@ -206,13 +222,50 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     );
     this.deciderHandler = new DeciderHandler(deps);
     this.selectorHandler = new SelectorHandler(deps, this.childrenExecutor);
-    this.subflowExecutor = new SubflowExecutor(
-      deps,
-      this.nodeResolver,
-      this.executeStage.bind(this),
-      this.extractorRunner.callExtractor.bind(this.extractorRunner),
-      this.getStageFn.bind(this),
-    );
+    this.subflowExecutor = new SubflowExecutor(deps, this.createSubflowTraverserFactory(opts));
+  }
+
+  /**
+   * Create a factory that produces FlowchartTraverser instances for subflow execution.
+   * Captures parent config in closure — SubflowExecutor provides subflow-specific overrides.
+   * Each subflow gets a full traverser with all 7 phases (deciders, selectors, loops, etc.).
+   */
+  private createSubflowTraverserFactory(
+    parentOpts: TraverserOptions<TOut, TScope>,
+  ): SubflowTraverserFactory<TOut, TScope> {
+    // Capture references to mutable state — factory reads the CURRENT state when called,
+    // not the state at factory creation time. This is correct because lazy subflow resolution
+    // may add entries to stageMap/subflows before a nested subflow is encountered.
+    const parentStageMap = this.stageMap;
+    const parentSubflows = this.subflows;
+    const narrativeGenerator = this.narrativeGenerator;
+
+    return (subflowOpts) => {
+      const traverser = new FlowchartTraverser<TOut, TScope>({
+        root: subflowOpts.root,
+        stageMap: parentStageMap, // Constructor shallow-copies this
+        scopeFactory: parentOpts.scopeFactory,
+        executionRuntime: subflowOpts.executionRuntime,
+        readOnlyContext: subflowOpts.readOnlyContext,
+        executionEnv: parentOpts.executionEnv,
+        throttlingErrorChecker: parentOpts.throttlingErrorChecker,
+        streamHandlers: parentOpts.streamHandlers,
+        extractor: parentOpts.extractor,
+        scopeProtectionMode: parentOpts.scopeProtectionMode,
+        subflows: parentSubflows, // Constructor shallow-copies this
+        enrichSnapshots: parentOpts.enrichSnapshots,
+        narrativeGenerator, // Share parent's — all events flow to one place
+        logger: parentOpts.logger,
+        signal: parentOpts.signal,
+        maxDepth: this._maxDepth,
+        parentSubflowId: subflowOpts.subflowId,
+      });
+
+      return {
+        execute: () => traverser.execute(),
+        getSubflowResults: () => traverser.getSubflowResults(),
+      };
+    };
   }
 
   private createDeps(opts: TraverserOptions<TOut, TScope>): HandlerDeps<TOut, TScope> {
@@ -235,9 +288,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   // ─────────────────────── Public API ───────────────────────
 
-  async execute(): Promise<TraversalResult> {
+  async execute(branchPath?: string): Promise<TraversalResult> {
     const context = this.executionRuntime.rootStageContext;
-    return await this.executeNode(this.root, context, { shouldBreak: false }, '');
+    return await this.executeNode(this.root, context, { shouldBreak: false }, branchPath ?? '');
   }
 
   getRuntimeStructure(): SerializedPipelineStructure | undefined {
@@ -364,7 +417,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         stageId: node.id ?? context.stageId,
         stageName: node.name,
         parentStageId: context.parent?.stageId,
-        subflowId: context.subflowId,
+        subflowId: context.subflowId ?? this.parentSubflowId,
         subflowPath: branchPath || undefined,
         depth: this.computeContextDepth(context),
       };

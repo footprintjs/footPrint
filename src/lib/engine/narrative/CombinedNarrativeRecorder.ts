@@ -15,7 +15,19 @@
 
 import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
 import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types.js';
-import type { CombinedNarrativeEntry } from './narrativeTypes.js';
+import type {
+  BreakRenderContext,
+  CombinedNarrativeEntry,
+  DecisionRenderContext,
+  ErrorRenderContext,
+  ForkRenderContext,
+  LoopRenderContext,
+  NarrativeRenderer,
+  OpRenderContext,
+  SelectedRenderContext,
+  StageRenderContext,
+  SubflowRenderContext,
+} from './narrativeTypes.js';
 import type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -33,7 +45,7 @@ import type {
 interface BufferedOp {
   type: 'read' | 'write';
   key: string;
-  valueSummary: string;
+  rawValue: unknown;
   operation?: 'set' | 'update' | 'delete';
   stepNumber: number;
 }
@@ -42,6 +54,12 @@ export interface CombinedNarrativeRecorderOptions {
   includeStepNumbers?: boolean;
   includeValues?: boolean;
   maxValueLength?: number;
+  /** Custom value formatter. Called at render time (flushOps), not capture time.
+   *  Receives the raw value and maxValueLength. Defaults to summarizeValue(). */
+  formatValue?: (value: unknown, maxLen: number) => string;
+  /** Pluggable renderer for customizing narrative output. Unimplemented methods
+   *  fall back to the default English renderer. See NarrativeRenderer docs. */
+  renderer?: NarrativeRenderer;
 }
 
 // ── Recorder ───────────────────────────────────────────────────────────────
@@ -67,12 +85,16 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   private includeStepNumbers: boolean;
   private includeValues: boolean;
   private maxValueLength: number;
+  private formatValue: (value: unknown, maxLen: number) => string;
+  private renderer?: NarrativeRenderer;
 
   constructor(options?: CombinedNarrativeRecorderOptions & { id?: string }) {
     this.id = options?.id ?? 'combined-narrative';
     this.includeStepNumbers = options?.includeStepNumbers ?? true;
     this.includeValues = options?.includeValues ?? true;
     this.maxValueLength = options?.maxValueLength ?? 80;
+    this.formatValue = options?.formatValue ?? summarizeValue;
+    this.renderer = options?.renderer;
   }
 
   // ── Scope channel (fires first, during stage execution) ───────────────
@@ -82,7 +104,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     this.bufferOp(event.stageName, {
       type: 'read',
       key: event.key,
-      valueSummary: summarizeValue(event.value, this.maxValueLength),
+      rawValue: event.value,
     });
   }
 
@@ -90,7 +112,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     this.bufferOp(event.stageName, {
       type: 'write',
       key: event.key,
-      valueSummary: summarizeValue(event.value, this.maxValueLength),
+      rawValue: event.value,
       operation: event.operation,
     });
   }
@@ -99,22 +121,22 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   onStageExecuted(event: FlowStageEvent): void {
     const stageId = event.traversalContext?.stageId;
-
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
-    const text = isFirst
-      ? event.description
-        ? `The process began: ${event.description}.`
-        : `The process began with ${event.stageName}.`
-      : event.description
-      ? `Next step: ${event.description}.`
-      : `Next, it moved on to ${event.stageName}.`;
+
+    const ctx: StageRenderContext = {
+      stageName: event.stageName,
+      stageNumber: stageNum,
+      isFirst,
+      description: event.description,
+    };
+    const text = this.renderer?.renderStage?.(ctx) ?? this.defaultRenderStage(ctx);
 
     const sfId = event.traversalContext?.subflowId;
     this.entries.push({
       type: 'stage',
-      text: `Stage ${stageNum}: ${text}`,
+      text,
       depth: 0,
       stageName: event.stageName,
       stageId,
@@ -130,17 +152,18 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
-    const stageText = isFirst
-      ? event.description
-        ? `The process began: ${event.description}.`
-        : `The process began with ${event.decider}.`
-      : event.description
-      ? `Next step: ${event.description}.`
-      : `Next, it moved on to ${event.decider}.`;
+
+    const stageCtx: StageRenderContext = {
+      stageName: event.decider,
+      stageNumber: stageNum,
+      isFirst,
+      description: event.description,
+    };
+    const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
 
     this.entries.push({
       type: 'stage',
-      text: `Stage ${stageNum}: ${stageText}`,
+      text: stageText,
       depth: 0,
       stageName: event.decider,
       stageId: deciderStageIdEarly,
@@ -148,44 +171,20 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     });
     this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageIdEarly);
 
-    // Emit the condition entry — with evidence-aware rendering when available
-    const branchName = event.chosen;
-    let conditionText: string;
-    if (event.evidence) {
-      // Rich evidence from decide() helper
-      const matchedRule = event.evidence.rules.find((r) => r.matched);
-      if (matchedRule) {
-        const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
-        if (matchedRule.type === 'filter') {
-          const parts = matchedRule.conditions.map(
-            (c) =>
-              `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
-          );
-          conditionText = `It evaluated Rule ${matchedRule.ruleIndex}${label}: ${parts.join(
-            ', ',
-          )}, and chose ${branchName}.`;
-        } else {
-          const parts = matchedRule.inputs.map((i) => `${i.key}=${i.valueSummary}`);
-          conditionText = `It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`;
-        }
-      } else {
-        const erroredCount = event.evidence.rules.filter((r) => r.matchError !== undefined).length;
-        const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
-        conditionText = `No rules matched${errorNote}, fell back to default: ${branchName}.`;
-      }
-    } else if (event.description && event.rationale) {
-      conditionText = `It ${event.description}: ${event.rationale}, so it chose ${branchName}.`;
-    } else if (event.description) {
-      conditionText = `It ${event.description} and chose ${branchName}.`;
-    } else if (event.rationale) {
-      conditionText = `A decision was made: ${event.rationale}, so the path taken was ${branchName}.`;
-    } else {
-      conditionText = `A decision was made, and the path taken was ${branchName}.`;
-    }
+    // Emit the condition entry as a nested sub-item (depth 1) of the stage above.
+    // Decision outcome is a detail of the decider stage, not a separate top-level entry.
+    const decisionCtx: DecisionRenderContext = {
+      decider: event.decider,
+      chosen: event.chosen,
+      description: event.description,
+      rationale: event.rationale,
+      evidence: event.evidence,
+    };
+    const conditionText = this.renderer?.renderDecision?.(decisionCtx) ?? this.defaultRenderDecision(decisionCtx);
     this.entries.push({
       type: 'condition',
-      text: `[Condition]: ${conditionText}`,
-      depth: 0,
+      text: conditionText,
+      depth: 1,
       stageName: event.decider,
       stageId: deciderStageIdEarly,
       subflowId: event.traversalContext?.subflowId,
@@ -198,10 +197,11 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onFork(event: FlowForkEvent): void {
-    const names = event.children.join(', ');
+    const ctx: ForkRenderContext = { children: event.children };
+    const text = this.renderer?.renderFork?.(ctx) ?? this.defaultRenderFork(ctx);
     this.entries.push({
       type: 'fork',
-      text: `[Parallel]: Forking into ${event.children.length} parallel paths: ${names}.`,
+      text,
       depth: 0,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
@@ -209,28 +209,12 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onSelected(event: FlowSelectedEvent): void {
-    let text: string;
-    if (event.evidence) {
-      const matched = event.evidence.rules.filter((r) => r.matched);
-      const parts = matched.map((r) => {
-        const label = r.label ? ` "${r.label}"` : '';
-        if (r.type === 'filter') {
-          const conds = r.conditions
-            .map(
-              (c) =>
-                `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
-            )
-            .join(', ');
-          return `${r.branch}${label} (${conds})`;
-        }
-        const inputs = r.inputs.map((i) => `${i.key}=${i.valueSummary}`).join(', ');
-        return `${r.branch}${label} (${inputs})`;
-      });
-      text = `[Selected]: ${event.selected.length} of ${event.total} paths selected: ${parts.join('; ')}.`;
-    } else {
-      const names = event.selected.join(', ');
-      text = `[Selected]: ${event.selected.length} of ${event.total} paths selected for execution: ${names}.`;
-    }
+    const ctx: SelectedRenderContext = {
+      selected: event.selected,
+      total: event.total,
+      evidence: event.evidence,
+    };
+    const text = this.renderer?.renderSelected?.(ctx) ?? this.defaultRenderSelected(ctx);
     this.entries.push({
       type: 'selector',
       text,
@@ -246,32 +230,45 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     this.stageCounters.delete(sfKey);
     this.firstStageFlags.delete(sfKey);
 
-    const text = event.description
-      ? `Entering the ${event.name} subflow: ${event.description}.`
-      : `Entering the ${event.name} subflow.`;
+    const ctx: SubflowRenderContext = {
+      name: event.name,
+      direction: 'entry',
+      description: event.description,
+    };
+    const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
     this.entries.push({
       type: 'subflow',
       text,
       depth: 0,
+      stageName: event.name,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
+    const ctx: SubflowRenderContext = {
+      name: event.name,
+      direction: 'exit',
+    };
+    const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
     this.entries.push({
       type: 'subflow',
-      text: `Exiting the ${event.name} subflow.`,
+      text,
       depth: 0,
+      stageName: event.name,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
 
   onLoop(event: FlowLoopEvent): void {
-    const text = event.description
-      ? `On pass ${event.iteration}: ${event.description} again.`
-      : `On pass ${event.iteration} through ${event.target}.`;
+    const ctx: LoopRenderContext = {
+      target: event.target,
+      iteration: event.iteration,
+      description: event.description,
+    };
+    const text = this.renderer?.renderLoop?.(ctx) ?? this.defaultRenderLoop(ctx);
     this.entries.push({
       type: 'loop',
       text,
@@ -282,9 +279,11 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onBreak(event: FlowBreakEvent): void {
+    const ctx: BreakRenderContext = { stageName: event.stageName };
+    const text = this.renderer?.renderBreak?.(ctx) ?? this.defaultRenderBreak(ctx);
     this.entries.push({
       type: 'break',
-      text: `Execution stopped at ${event.stageName}.`,
+      text,
       depth: 0,
       stageName: event.stageName,
       stageId: event.traversalContext?.stageId,
@@ -302,19 +301,25 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     if (typeof (event as FlowErrorEvent).message !== 'string') return;
     const flowEvent = event as FlowErrorEvent;
 
-    let text = `An error occurred at ${flowEvent.stageName}: ${flowEvent.message}.`;
+    let validationIssues: string | undefined;
     if (flowEvent.structuredError?.issues?.length) {
-      const details = flowEvent.structuredError.issues
+      validationIssues = flowEvent.structuredError.issues
         .map((issue) => {
           const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
           return `${path}: ${issue.message}`;
         })
         .join('; ');
-      text += ` Validation issues: ${details}.`;
     }
+
+    const ctx: ErrorRenderContext = {
+      stageName: flowEvent.stageName,
+      message: flowEvent.message,
+      validationIssues,
+    };
+    const text = this.renderer?.renderError?.(ctx) ?? this.defaultRenderError(ctx);
     this.entries.push({
       type: 'error',
-      text: `[Error]: ${text}`,
+      text,
       depth: 0,
       stageName: flowEvent.stageName,
       stageId: flowEvent.traversalContext?.stageId,
@@ -389,25 +394,19 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     if (!ops || ops.length === 0) return;
 
     for (const op of ops) {
-      const stepPrefix = this.includeStepNumbers ? `Step ${op.stepNumber}: ` : '';
+      const valueSummary = this.formatValue(op.rawValue, this.maxValueLength);
+      const opCtx: OpRenderContext = {
+        type: op.type,
+        key: op.key,
+        rawValue: op.rawValue,
+        valueSummary,
+        operation: op.operation,
+        stepNumber: op.stepNumber,
+      };
 
-      let text: string;
-      if (op.type === 'read') {
-        text =
-          this.includeValues && op.valueSummary
-            ? `${stepPrefix}Read ${op.key} = ${op.valueSummary}`
-            : `${stepPrefix}Read ${op.key}`;
-      } else if (op.operation === 'delete') {
-        text = `${stepPrefix}Delete ${op.key}`;
-      } else if (op.operation === 'update') {
-        text = this.includeValues
-          ? `${stepPrefix}Update ${op.key} = ${op.valueSummary}`
-          : `${stepPrefix}Update ${op.key}`;
-      } else {
-        text = this.includeValues
-          ? `${stepPrefix}Write ${op.key} = ${op.valueSummary}`
-          : `${stepPrefix}Write ${op.key}`;
-      }
+      const text = this.renderer?.renderOp ? this.renderer.renderOp(opCtx) : this.defaultRenderOp(opCtx);
+
+      if (text == null) continue; // renderer excluded this op (null or undefined)
 
       this.entries.push({
         type: 'step',
@@ -417,9 +416,136 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
         stageId,
         stepNumber: op.stepNumber,
         subflowId,
+        rawValue: op.rawValue,
       });
     }
 
     this.pendingOps.delete(stageName);
+  }
+
+  // ── Default renderers (used when no custom renderer is provided) ────
+
+  private defaultRenderStage(ctx: StageRenderContext): string {
+    const inner = ctx.isFirst
+      ? ctx.description
+        ? `The process began: ${ctx.description}.`
+        : `The process began with ${ctx.stageName}.`
+      : ctx.description
+      ? `Next step: ${ctx.description}.`
+      : `Next, it moved on to ${ctx.stageName}.`;
+    return `Stage ${ctx.stageNumber}: ${inner}`;
+  }
+
+  private defaultRenderOp(ctx: OpRenderContext): string {
+    const stepPrefix = this.includeStepNumbers ? `Step ${ctx.stepNumber}: ` : '';
+    if (ctx.type === 'read') {
+      return this.includeValues && ctx.valueSummary
+        ? `${stepPrefix}Read ${ctx.key} = ${ctx.valueSummary}`
+        : `${stepPrefix}Read ${ctx.key}`;
+    }
+    if (ctx.operation === 'delete') {
+      return `${stepPrefix}Delete ${ctx.key}`;
+    }
+    if (ctx.operation === 'update') {
+      return this.includeValues
+        ? `${stepPrefix}Update ${ctx.key} = ${ctx.valueSummary}`
+        : `${stepPrefix}Update ${ctx.key}`;
+    }
+    return this.includeValues ? `${stepPrefix}Write ${ctx.key} = ${ctx.valueSummary}` : `${stepPrefix}Write ${ctx.key}`;
+  }
+
+  private defaultRenderDecision(ctx: DecisionRenderContext): string {
+    const branchName = ctx.chosen;
+    let conditionText: string;
+    if (ctx.evidence) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const evidence = ctx.evidence as any;
+      const matchedRule = evidence.rules?.find((r: any) => r.matched);
+      if (matchedRule) {
+        const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
+        if (matchedRule.type === 'filter') {
+          const parts = matchedRule.conditions.map(
+            (c: any) =>
+              `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+          );
+          conditionText = `It evaluated Rule ${matchedRule.ruleIndex}${label}: ${parts.join(
+            ', ',
+          )}, and chose ${branchName}.`;
+        } else {
+          const parts = matchedRule.inputs.map((i: any) => `${i.key}=${i.valueSummary}`);
+          conditionText = `It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`;
+        }
+      } else {
+        const erroredCount = evidence.rules?.filter((r: any) => r.matchError !== undefined).length ?? 0;
+        const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
+        conditionText = `No rules matched${errorNote}, fell back to default: ${branchName}.`;
+      }
+    } else if (ctx.description && ctx.rationale) {
+      conditionText = `It ${ctx.description}: ${ctx.rationale}, so it chose ${branchName}.`;
+    } else if (ctx.description) {
+      conditionText = `It ${ctx.description} and chose ${branchName}.`;
+    } else if (ctx.rationale) {
+      conditionText = `A decision was made: ${ctx.rationale}, so the path taken was ${branchName}.`;
+    } else {
+      conditionText = `A decision was made, and the path taken was ${branchName}.`;
+    }
+    return `[Condition]: ${conditionText}`;
+  }
+
+  private defaultRenderFork(ctx: ForkRenderContext): string {
+    const names = ctx.children.join(', ');
+    return `[Parallel]: Forking into ${ctx.children.length} parallel paths: ${names}.`;
+  }
+
+  private defaultRenderSelected(ctx: SelectedRenderContext): string {
+    if (ctx.evidence) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const evidence = ctx.evidence as any;
+      const matched = evidence.rules?.filter((r: any) => r.matched) ?? [];
+      const parts = matched.map((r: any) => {
+        const label = r.label ? ` "${r.label}"` : '';
+        if (r.type === 'filter') {
+          const conds = r.conditions
+            .map(
+              (c: any) =>
+                `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+            )
+            .join(', ');
+          return `${r.branch}${label} (${conds})`;
+        }
+        const inputs = r.inputs.map((i: any) => `${i.key}=${i.valueSummary}`).join(', ');
+        return `${r.branch}${label} (${inputs})`;
+      });
+      return `[Selected]: ${ctx.selected.length} of ${ctx.total} paths selected: ${parts.join('; ')}.`;
+    }
+    const names = ctx.selected.join(', ');
+    return `[Selected]: ${ctx.selected.length} of ${ctx.total} paths selected for execution: ${names}.`;
+  }
+
+  private defaultRenderSubflow(ctx: SubflowRenderContext): string {
+    if (ctx.direction === 'exit') {
+      return `Exiting the ${ctx.name} subflow.`;
+    }
+    return ctx.description
+      ? `Entering the ${ctx.name} subflow: ${ctx.description}.`
+      : `Entering the ${ctx.name} subflow.`;
+  }
+
+  private defaultRenderLoop(ctx: LoopRenderContext): string {
+    return ctx.description
+      ? `On pass ${ctx.iteration}: ${ctx.description} again.`
+      : `On pass ${ctx.iteration} through ${ctx.target}.`;
+  }
+
+  private defaultRenderBreak(ctx: BreakRenderContext): string {
+    return `Execution stopped at ${ctx.stageName}.`;
+  }
+
+  private defaultRenderError(ctx: ErrorRenderContext): string {
+    let text = `An error occurred at ${ctx.stageName}: ${ctx.message}.`;
+    if (ctx.validationIssues) {
+      text += ` Validation issues: ${ctx.validationIssues}.`;
+    }
+    return `[Error]: ${text}`;
   }
 }

@@ -88,7 +88,7 @@ export class DeciderList<TOut = any, TScope = any> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
 
-    const node: StageNode<TOut, TScope> = { name: name ?? id, id };
+    const node: StageNode<TOut, TScope> = { name: name ?? id, id, branchId: id };
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
@@ -127,6 +127,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
       id,
+      branchId: id,
       isSubflowRoot: true,
       subflowId: id,
       subflowName,
@@ -169,6 +170,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
       id,
+      branchId: id,
       isSubflowRoot: true,
       subflowId: id,
       subflowName,
@@ -234,17 +236,18 @@ export class DeciderList<TOut = any, TScope = any> {
 
     this.curNode.deciderFn = true;
 
-    if (this.defaultId) {
-      const defaultChild = children.find((c) => c.id === this.defaultId);
-      if (defaultChild) {
-        children.push({ ...defaultChild, id: 'default' });
-      }
-    }
-
+    // Build branchIds BEFORE appending the synthetic default — only user-specified branches
     this.curSpec.branchIds = children
       .map((c) => c.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
     this.curSpec.type = 'decider';
+
+    if (this.defaultId) {
+      const defaultChild = children.find((c) => c.id === this.defaultId);
+      if (defaultChild) {
+        children.push({ ...defaultChild, id: 'default', branchId: 'default' });
+      }
+    }
 
     if (this.reservedStepNumber > 0) {
       const deciderLabel = this.curNode.name;
@@ -316,7 +319,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
 
-    const node: StageNode<TOut, TScope> = { name: name ?? id, id };
+    const node: StageNode<TOut, TScope> = { name: name ?? id, id, branchId: id };
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
@@ -355,6 +358,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
       id,
+      branchId: id,
       isSubflowRoot: true,
       subflowId: id,
       subflowName,
@@ -396,6 +400,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
       id,
+      branchId: id,
       isSubflowRoot: true,
       subflowId: id,
       subflowName,

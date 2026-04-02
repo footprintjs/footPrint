@@ -90,13 +90,14 @@ export class SelectorHandler<TOut = any, TScope = any> {
       return {};
     }
 
-    // Resolve children by matching selected IDs against node.children
+    // Resolve children by matching selected IDs against node.children.
+    // Match branchId first (original unprefixed ID), fall back to id for backward compat.
     const children = node.children as StageNode<TOut, TScope>[];
-    const selectedChildren = children.filter((c) => selectedIds.includes(c.id!));
+    const selectedChildren = children.filter((c) => selectedIds.includes(c.branchId ?? c.id!));
 
     // Validate all IDs exist (fail fast)
     if (selectedChildren.length !== selectedIds.length) {
-      const childIds = children.map((c) => c.id);
+      const childIds = children.map((c) => c.branchId ?? c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
       const errorMessage = `Scope-based selector '${node.name}' returned unknown child IDs: ${missing.join(
         ', ',
@@ -106,7 +107,9 @@ export class SelectorHandler<TOut = any, TScope = any> {
       throw new Error(errorMessage);
     }
 
-    const skippedIds = children.filter((c) => !selectedIds.includes(c.id!)).map((c) => c.id);
+    const skippedIds = children
+      .filter((c) => !selectedIds.includes(c.branchId ?? c.id!))
+      .map((c) => c.branchId ?? c.id);
     if (skippedIds.length > 0) {
       context.addLog('skippedChildIds', skippedIds);
     }

@@ -169,6 +169,7 @@ function createNestedProxy(
   rootKey: string,
   segments: string[],
   target: ReactiveTarget,
+  readSilent: (key?: string) => unknown,
   state: ReactiveState,
   ancestors: Set<object> = new Set(),
 ): unknown {
@@ -202,7 +203,7 @@ function createNestedProxy(
       if (Array.isArray(value)) {
         return createArrayProxy(
           () => {
-            const current = target.getValue(rootKey) as any;
+            const current = readSilent(rootKey) as any;
             return lodashGet(current, childSegments.join('.')) ?? [];
           },
           (newArr) => {
@@ -223,7 +224,15 @@ function createNestedProxy(
       const childAncestors = new Set(ancestors);
       childAncestors.add(value as object);
 
-      return createNestedProxy(value as Record<string, unknown>, rootKey, childSegments, target, state, childAncestors);
+      return createNestedProxy(
+        value as Record<string, unknown>,
+        rootKey,
+        childSegments,
+        target,
+        readSilent,
+        state,
+        childAncestors,
+      );
     },
 
     set(raw, prop, value) {
@@ -252,6 +261,9 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
     breakFn: options?.breakPipeline,
     childCache: new Map(),
   };
+
+  // Bind silent-read method once — avoids per-call ?? + .call() in array proxy getCurrent closures
+  const readSilent = (target.getValueSilent ?? target.getValue).bind(target);
 
   const proxy = new Proxy(target as unknown as TypedScope<T>, {
     get(_proxyTarget, prop, _receiver) {
@@ -307,7 +319,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
         if (cached && cached.ref === value) return cached.proxy;
 
         const arrProxy = createArrayProxy(
-          () => (target.getValue(prop) as unknown[]) ?? [],
+          () => (readSilent(prop) as unknown[]) ?? [],
           (newArr) => {
             target.setValue(prop, unwrapProxy(newArr));
             state.childCache.delete(prop);
@@ -326,6 +338,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
         prop,
         [],
         target,
+        readSilent,
         state,
         new Set<object>([value as object]), // seed ancestor set with root object
       );

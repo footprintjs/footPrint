@@ -68,13 +68,14 @@ export class DeciderHandler<TOut = any, TScope = any> {
       return branchId;
     }
 
-    // Resolve child by matching branch ID against node.children
+    // Resolve child by matching branch ID against node.children.
+    // Match branchId first (original unprefixed ID), fall back to id for backward compat.
     const children = node.children as StageNode<TOut, TScope>[];
-    let chosen = children.find((child) => child.id === branchId);
+    let chosen = children.find((child) => (child.branchId ?? child.id) === branchId);
 
     // Fall back to default branch
     if (!chosen) {
-      const defaultChild = children.find((child) => child.id === 'default');
+      const defaultChild = children.find((child) => (child.branchId ?? child.id) === 'default');
       if (defaultChild) {
         chosen = defaultChild;
       } else {
@@ -85,7 +86,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     }
 
     const chosenName = chosen.name;
-    const wasDefault = chosen.id !== branchId;
+    const wasDefault = (chosen.branchId ?? chosen.id) !== branchId;
     const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
     let branchReason: string;
     if (wasDefault) {

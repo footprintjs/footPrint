@@ -99,6 +99,43 @@ export interface SubflowResult {
 }
 
 // ---------------------------------------------------------------------------
+// Subflow Traverser Factory
+// ---------------------------------------------------------------------------
+
+/**
+ * SubflowTraverserFactory — Creates a FlowchartTraverser for subflow execution.
+ *
+ * Injected into SubflowExecutor to break the circular dependency:
+ * FlowchartTraverser → SubflowExecutor → FlowchartTraverser.
+ *
+ * The factory captures parent traverser config (stageMap, scopeFactory, narrative, etc.)
+ * in a closure. SubflowExecutor calls it with subflow-specific overrides (root, runtime, input).
+ * The returned traverser uses the SAME 7-phase algorithm as the top-level traverser,
+ * so deciders, selectors, loops, lazy subflows, and abort signals all work inside subflows.
+ */
+export type SubflowTraverserFactory<TOut = any, TScope = any> = (options: {
+  /** Root node of the subflow (with isSubflowRoot stripped). */
+  root: StageNode<TOut, TScope>;
+  /** Isolated execution runtime for the subflow. */
+  executionRuntime: IExecutionRuntime;
+  /** Mapped input from parent scope (becomes readOnlyContext for stages). */
+  readOnlyContext?: unknown;
+  /** Subflow identifier — used as branchPath for narrative context. */
+  subflowId?: string;
+}) => SubflowTraverserHandle<TOut, TScope>;
+
+/**
+ * Handle returned by SubflowTraverserFactory.
+ * Provides execute() + access to nested subflow results.
+ */
+export interface SubflowTraverserHandle<TOut = any, TScope = any> {
+  /** Execute the subflow's graph using the full 7-phase traversal algorithm. */
+  execute(): Promise<TraversalResult>;
+  /** Collect nested subflow results (from subflows mounted inside this subflow). */
+  getSubflowResults(): Map<string, SubflowResult>;
+}
+
+// ---------------------------------------------------------------------------
 // Execution Runtime Interface
 // ---------------------------------------------------------------------------
 

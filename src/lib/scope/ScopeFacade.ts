@@ -46,6 +46,11 @@ export class ScopeFacade {
     this._frozenArgs = createFrozenArgs(readOnlyValues);
     this._executionEnv = Object.freeze({ ...executionEnv });
     this._redactedKeys = new Set<string>();
+
+    // Register as commit observer so Recorder.onCommit fires when StageContext.commit() is called
+    this._stageContext.setCommitObserver((mutations) => {
+      this._onCommitFired(mutations);
+    });
   }
 
   /**
@@ -144,6 +149,39 @@ export class ScopeFacade {
     });
   }
 
+  /** Called by StageContext.commit() observer. Converts tracked writes to CommitEvent format.
+   *  Errors are caught to prevent recorder issues from aborting the traversal. */
+  private _onCommitFired(mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>): void {
+    if (this._recorders.length === 0) return;
+
+    try {
+      const commitMutations: CommitEvent['mutations'] = Object.entries(mutations).map(([key, entry]) => {
+        const isRedacted = this._isKeyRedacted(key) || this._isPolicyRedacted(key);
+        const fieldSet = this._redactedFieldsByKey.get(key);
+
+        let recorderValue: unknown;
+        if (isRedacted) {
+          recorderValue = '[REDACTED]';
+        } else if (fieldSet && entry.value && typeof entry.value === 'object') {
+          recorderValue = this._scrubFields(entry.value as Record<string, unknown>, fieldSet);
+        } else {
+          recorderValue = entry.value;
+        }
+
+        return {
+          key,
+          value: recorderValue,
+          operation: entry.operation,
+        };
+      });
+
+      this.notifyCommit(commitMutations);
+    } catch {
+      // Swallow — recorder errors must not abort the traversal.
+      // Individual recorder errors are already isolated by _invokeHook.
+    }
+  }
+
   // ── Debug / Diagnostics ──────────────────────────────────────────────────
 
   addDebugInfo(key: string, value: unknown) {
@@ -180,6 +218,17 @@ export class ScopeFacade {
    *  This matches deleteValue() semantics (sets to undefined = deleted). */
   hasKey(key: string): boolean {
     return this._stageContext.getValue([], key) !== undefined;
+  }
+
+  /** Read state without firing onRead. Used by array proxy getCurrent() to avoid
+   *  phantom reads on internal array operations (.length, .has, iteration, etc.).
+   *  The initial property access fires one tracked onRead via getValue(); subsequent
+   *  internal array operations use this method to stay silent.
+   *  NOTE: Like getValue(), returns the raw value to the caller. Redaction applies
+   *  only to recorder dispatch — it does not filter the returned value. This matches
+   *  the existing getValue() contract where user code always receives raw data. */
+  getValueSilent(key?: string): unknown {
+    return this._stageContext.getValueDirect([], key);
   }
 
   // ── State Access ─────────────────────────────────────────────────────────
@@ -286,10 +335,10 @@ export class ScopeFacade {
       }
     }
 
-    const result = this._stageContext.updateObject([], key, value, description);
+    const isRedacted = this._isKeyRedacted(key) || this._isPolicyRedacted(key);
+    const result = this._stageContext.updateObject([], key, value, description, isRedacted);
 
     if (this._recorders.length > 0) {
-      const isRedacted = this._isKeyRedacted(key);
       const fieldSet = this._redactedFieldsByKey.get(key);
 
       let recorderValue: unknown;
@@ -318,7 +367,7 @@ export class ScopeFacade {
   deleteValue(key: string, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'delete');
 
-    const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`);
+    const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`, 'delete');
 
     // Deleting a redacted key clears its redaction status
     this._redactedKeys.delete(key);

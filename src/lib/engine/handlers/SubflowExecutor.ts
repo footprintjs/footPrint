@@ -1,50 +1,34 @@
 /**
- * SubflowExecutor — Isolated recursive execution with I/O mapping.
+ * SubflowExecutor — Isolation boundary for subflow execution.
  *
  * Responsibilities:
- * - Execute subflows with isolated ExecutionRuntime contexts
+ * - Create isolated ExecutionRuntime for each subflow
  * - Apply input/output mapping via SubflowInputMapper
- * - Handle nested subflow detection and delegation
+ * - Delegate traversal to a factory-created FlowchartTraverser
  * - Track subflow results for debugging/visualization
  *
  * Each subflow gets its own GlobalStore for isolation.
- * The subflow's `next` chain after children is NOT executed inside —
- * the parent's executeNode continues with node.next after return.
+ * Traversal uses the SAME 7-phase algorithm as the top-level traverser
+ * (via SubflowTraverserFactory), so deciders, selectors, loops, lazy subflows,
+ * and abort signals all work inside subflows automatically.
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
-import type { Selector, StageNode } from '../graph/StageNode.js';
-import { isStageNodeReturn } from '../graph/StageNode.js';
+import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
-import type { HandlerDeps, IExecutionRuntime, NodeResultType, StageFunction, SubflowResult } from '../types.js';
-import type { NodeResolver } from './NodeResolver.js';
-import { StageRunner } from './StageRunner.js';
-import {
-  applyOutputMapping,
-  createSubflowHandlerDeps,
-  getInitialScopeValues,
-  seedSubflowGlobalStore,
-} from './SubflowInputMapper.js';
-import type { CallExtractorFn, RunStageFn } from './types.js';
-
-export type { CallExtractorFn, RunStageFn } from './types.js';
-
-/** Callback for getting a stage function from the stage map. */
-export type GetStageFnFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-) => StageFunction<TOut, TScope> | undefined;
+import type {
+  HandlerDeps,
+  IExecutionRuntime,
+  SubflowResult,
+  SubflowTraverserFactory,
+  SubflowTraverserHandle,
+} from '../types.js';
+import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 
 export class SubflowExecutor<TOut = any, TScope = any> {
-  private currentSubflowDeps?: HandlerDeps<TOut, TScope>;
-  private currentSubflowRoot?: StageNode<TOut, TScope>;
-  private subflowResultsMap?: Map<string, SubflowResult>;
-
   constructor(
     private deps: HandlerDeps<TOut, TScope>,
-    private nodeResolver: NodeResolver<TOut, TScope>,
-    private executeStage: RunStageFn<TOut, TScope>,
-    private callExtractor: CallExtractorFn<TOut, TScope>,
-    private getStageFn: GetStageFnFn<TOut, TScope>,
+    private traverserFactory: SubflowTraverserFactory<TOut, TScope>,
   ) {}
 
   /**
@@ -52,7 +36,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
    *
    * 1. Creates a fresh ExecutionRuntime for the subflow
    * 2. Applies input mapping to seed the subflow's GlobalStore
-   * 3. Executes the subflow's internal structure
+   * 3. Delegates traversal to a factory-created FlowchartTraverser
    * 4. Applies output mapping to write results back to parent scope
    * 5. Stores execution data for debugging/visualization
    */
@@ -114,11 +98,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRuntime.rootStageContext = nestedRootContext;
     }
 
-    // Create subflow HandlerDeps
-    const subflowDeps = createSubflowHandlerDeps(this.deps, nestedRuntime, mappedInput);
-
-    const subflowBreakFlag = { shouldBreak: false };
-
+    // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation
     const hasChildren = Boolean(node.children && node.children.length > 0);
     const subflowNode: StageNode<TOut, TScope> = {
       ...node,
@@ -126,30 +106,33 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       next: hasChildren ? undefined : node.next,
     };
 
+    // ─── Execute via factory traverser ───
+    // The factory creates a full FlowchartTraverser with the same 7-phase algorithm,
+    // sharing the parent's stageMap, subflows dict, and narrative generator.
     let subflowOutput: any;
     let subflowError: Error | undefined;
-
-    // Save parent subflow state — nested executeSubflow() calls (from executeSubflowInternal's
-    // nested subflow detection) would otherwise clobber these instance variables.
-    const savedSubflowRoot = this.currentSubflowRoot;
-    const savedSubflowDeps = this.currentSubflowDeps;
-    const savedSubflowResultsMap = this.subflowResultsMap;
+    let traverserHandle: SubflowTraverserHandle<TOut, TScope> | undefined;
 
     try {
-      this.subflowResultsMap = subflowResultsMap;
-      this.currentSubflowRoot = subflowNode;
-      this.currentSubflowDeps = subflowDeps;
+      traverserHandle = this.traverserFactory({
+        root: subflowNode,
+        executionRuntime: nestedRuntime,
+        readOnlyContext: mappedInput,
+        subflowId,
+      });
 
-      subflowOutput = await this.executeSubflowInternal(subflowNode, nestedRootContext, subflowBreakFlag, subflowId);
+      subflowOutput = await traverserHandle.execute();
     } catch (error: any) {
       subflowError = error;
       parentContext.addError('subflowError', error.toString());
       this.deps.logger.error(`Error in subflow (${subflowId}):`, { error });
-    } finally {
-      // Restore parent subflow state so continuation stages execute in the right context.
-      this.currentSubflowRoot = savedSubflowRoot;
-      this.currentSubflowDeps = savedSubflowDeps;
-      this.subflowResultsMap = savedSubflowResultsMap;
+    }
+
+    // Always merge nested subflow results (even on error — partial results aid debugging)
+    if (traverserHandle) {
+      for (const [key, value] of traverserHandle.getSubflowResults()) {
+        subflowResultsMap.set(key, value);
+      }
     }
 
     const subflowTreeContext = nestedRuntime.getSnapshot();
@@ -212,270 +195,5 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     }
 
     return subflowOutput;
-  }
-
-  /**
-   * Internal execution within subflow context.
-   * Mirrors the traverser's executeNode but within the subflow's isolated runtime.
-   */
-  private async executeSubflowInternal(
-    node: StageNode<TOut, TScope>,
-    context: StageContext,
-    breakFlag: { shouldBreak: boolean },
-    branchPath: string,
-  ): Promise<any> {
-    // Detect nested subflows
-    if (node.isSubflowRoot && node.subflowId) {
-      const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
-      const nestedOutput = await this.executeSubflow(
-        resolvedNode,
-        context,
-        breakFlag,
-        branchPath,
-        this.subflowResultsMap!,
-      );
-
-      // Continue with node.next after nested subflow completes.
-      // Without this, stages chained after an inner subflow mount are silently skipped.
-      // Mirrors FlowchartTraverser.executeNode() which checks node.next after subflow return.
-      if (node.next) {
-        const nestedTraversalCtx: TraversalContext = {
-          stageId: node.id ?? context.stageId,
-          stageName: node.name,
-          parentStageId: context.parent?.stageId,
-          subflowId: branchPath || undefined,
-          subflowPath: branchPath || undefined,
-          depth: this.computeContextDepth(context),
-        };
-        this.deps.narrativeGenerator.onNext(node.name, node.next.name, node.next.description, nestedTraversalCtx);
-        const nextCtx = context.createNext('', node.next.name, node.next.id);
-        return await this.executeSubflowInternal(node.next, nextCtx, breakFlag, branchPath);
-      }
-      return nestedOutput;
-    }
-
-    // Build traversal context for subflow stage events
-    const traversalContext: TraversalContext = {
-      stageId: node.id ?? context.stageId,
-      stageName: node.name,
-      parentStageId: context.parent?.stageId,
-      subflowId: branchPath || undefined,
-      subflowPath: branchPath || undefined,
-      depth: this.computeContextDepth(context),
-    };
-
-    const stageFunc = this.getStageFn(node);
-    const breakFn = () => (breakFlag.shouldBreak = true);
-
-    let stageOutput: TOut | undefined;
-    if (stageFunc) {
-      try {
-        if (this.currentSubflowDeps) {
-          const subflowStageRunner = new StageRunner<TOut, TScope>(this.currentSubflowDeps);
-          stageOutput = await subflowStageRunner.run(node, stageFunc, context, breakFn);
-        } else {
-          stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
-        }
-      } catch (error: any) {
-        context.commit();
-        this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), undefined, {
-          type: 'stageExecutionError',
-          message: error.toString(),
-        });
-        context.addError('stageExecutionError', error.toString());
-        this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
-        throw error;
-      }
-      context.commit();
-      this.callExtractor(node, context, this.getStagePath(node, branchPath, context.stageName), stageOutput);
-      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext);
-
-      if (breakFlag.shouldBreak) {
-        this.deps.narrativeGenerator.onBreak(node.name, traversalContext);
-        return stageOutput;
-      }
-
-      // Handle dynamic StageNode return
-      if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
-        const dynamicNode = stageOutput as StageNode<TOut, TScope>;
-        context.addLog('isDynamic', true);
-        context.addLog('dynamicPattern', 'StageNodeReturn');
-
-        if (dynamicNode.children && dynamicNode.children.length > 0) {
-          node.children = dynamicNode.children;
-          context.addLog('dynamicChildCount', dynamicNode.children.length);
-          context.addLog(
-            'dynamicChildIds',
-            dynamicNode.children.map((c) => c.id),
-          );
-
-          if (typeof dynamicNode.nextNodeSelector === 'function') {
-            node.nextNodeSelector = dynamicNode.nextNodeSelector;
-            context.addLog('hasSelector', true);
-          }
-        }
-
-        if (dynamicNode.next) {
-          node.next = dynamicNode.next;
-          context.addLog('hasDynamicNext', true);
-          const loopTargetId = dynamicNode.next.id;
-          if (loopTargetId) {
-            context.addLog('loopTarget', loopTargetId);
-          }
-        }
-
-        stageOutput = undefined;
-      }
-    }
-
-    // ─── Children dispatch ───
-    const hasChildrenAfterStage = Boolean(node.children?.length);
-    const hasNextAfterStage = Boolean(node.next);
-
-    if (hasChildrenAfterStage) {
-      if (node.nextNodeSelector) {
-        const results = await this.executeSelectedChildrenInternal(
-          node.nextNodeSelector,
-          node.children!,
-          stageOutput,
-          context,
-          branchPath,
-          breakFlag,
-        );
-        if (!hasNextAfterStage) return results;
-      } else {
-        const results = await this.executeNodeChildrenInternal(node, context, branchPath, breakFlag);
-        if (!hasNextAfterStage) return results;
-      }
-    }
-
-    // ─── Linear next ───
-    if (hasNextAfterStage) {
-      let nextNode = node.next!;
-
-      // Resolve reference nodes (has id but no fn)
-      if (nextNode.id && !nextNode.fn) {
-        let resolvedNode: StageNode<TOut, TScope> | undefined;
-        if (this.currentSubflowRoot) {
-          resolvedNode = this.nodeResolver.findNodeById(nextNode.id, this.currentSubflowRoot);
-          if (resolvedNode) context.addLog('dynamicNextResolvedFrom', 'subflow');
-        }
-        if (!resolvedNode) {
-          resolvedNode = this.nodeResolver.findNodeById(nextNode.id);
-          if (resolvedNode) context.addLog('dynamicNextResolvedFrom', 'mainPipeline');
-        }
-        if (resolvedNode) {
-          nextNode = resolvedNode;
-          context.addLog('dynamicNextResolved', true);
-          context.addLog('dynamicNextTarget', nextNode.id);
-        } else {
-          this.deps.logger.info(`Dynamic next node '${nextNode.id}' not found in subflow or main pipeline`);
-          context.addLog('dynamicNextResolved', false);
-          context.addLog('dynamicNextNotFound', nextNode.id);
-        }
-      }
-
-      this.deps.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
-      const nextCtx = context.createNext('', nextNode.name, nextNode.id);
-      return await this.executeSubflowInternal(nextNode, nextCtx, breakFlag, branchPath);
-    }
-
-    return stageOutput;
-  }
-
-  private computeContextDepth(context: StageContext): number {
-    let depth = 0;
-    let current = context.parent;
-    while (current) {
-      depth++;
-      current = current.parent;
-    }
-    return depth;
-  }
-
-  private getStagePath(node: StageNode<TOut, TScope>, branchPath?: string, contextStageName?: string): string {
-    const baseName = node.id;
-    const nodeId = contextStageName && contextStageName !== node.name ? contextStageName : baseName;
-    if (!branchPath) return nodeId;
-    return `${branchPath}.${nodeId}`;
-  }
-
-  private async executeNodeChildrenInternal(
-    node: StageNode<TOut, TScope>,
-    context: StageContext,
-    branchPath: string,
-    breakFlag: { shouldBreak: boolean },
-  ): Promise<Record<string, NodeResultType>> {
-    const childPromises: Promise<NodeResultType>[] = (node.children ?? []).map((child) => {
-      const childContext = context.createChild('', child.id as string, child.name, child.id);
-      const childBreakFlag = { shouldBreak: false };
-
-      return this.executeSubflowInternal(child, childContext, childBreakFlag, branchPath)
-        .then((result) => {
-          childContext.commit();
-          return { id: child.id!, result, isError: false };
-        })
-        .catch((error) => {
-          childContext.commit();
-          this.deps.logger.info(`TREE PIPELINE: executeNodeChildrenInternal - Error for id: ${child?.id}`, { error });
-          return { id: child.id!, result: error, isError: true };
-        });
-    });
-
-    const settled = await Promise.allSettled(childPromises);
-    const childrenResults: Record<string, NodeResultType> = {};
-    settled.forEach((s) => {
-      if (s.status === 'fulfilled') {
-        const { id, result, isError } = s.value;
-        childrenResults[id] = { id, result, isError };
-      } else {
-        this.deps.logger.error(`Execution failed: ${s.reason}`);
-      }
-    });
-    return childrenResults;
-  }
-
-  private async executeSelectedChildrenInternal(
-    selector: Selector,
-    children: StageNode<TOut, TScope>[],
-    input: any,
-    context: StageContext,
-    branchPath: string,
-    breakFlag: { shouldBreak: boolean },
-  ): Promise<Record<string, NodeResultType>> {
-    const selectorResult = await selector(input);
-    const selectedIds = Array.isArray(selectorResult) ? selectorResult : [selectorResult];
-
-    context.addLog('selectedChildIds', selectedIds);
-    context.addLog('selectorPattern', 'multi-choice');
-
-    if (selectedIds.length === 0) {
-      context.addLog('skippedAllChildren', true);
-      return {};
-    }
-
-    const selectedChildren = children.filter((c) => selectedIds.includes(c.id!));
-    if (selectedChildren.length !== selectedIds.length) {
-      const childIds = children.map((c) => c.id);
-      const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(
-        ', ',
-      )}`;
-      this.deps.logger.error(`Error in subflow (${branchPath}):`, { error: errorMessage });
-      context.addError('selectorError', errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    const skippedIds = children.filter((c) => !selectedIds.includes(c.id!)).map((c) => c.id);
-    if (skippedIds.length > 0) {
-      context.addLog('skippedChildIds', skippedIds);
-    }
-
-    const tempNode: StageNode<TOut, TScope> = {
-      name: 'selector-temp',
-      id: 'selector-temp',
-      children: selectedChildren,
-    };
-    return await this.executeNodeChildrenInternal(tempNode, context, branchPath, breakFlag);
   }
 }
