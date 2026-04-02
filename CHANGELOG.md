@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0]
+
+### Added
+
+- **`recorder/` library — CompositeRecorder** (`src/lib/recorder/`) — composition primitive for bundling multiple recorders under a single ID. Implements both `Recorder` and `FlowRecorder` interfaces. Domain libraries use this to export one-call observability presets. Typed child access via `get(Type)`, merged `toSnapshot()`, and `clear()` lifecycle.
+- **`MetricRecorder` stageFilter option** — `new MetricRecorder({ stageFilter: (name) => ... })` records only matching stages. Multiple instances with different filters coexist via auto-increment IDs.
+- **`MetricRecorderOptions` type exported** from `footprintjs/recorders` — along with `AggregatedMetrics` and `StageMetrics`.
+- **`metrics()` factory accepts options** — `metrics({ stageFilter })` passes through to MetricRecorder.
+
+### Changed
+
+- **`attachRecorder` is idempotent by ID** — same ID replaces existing recorder (prevents double-counting). Different IDs coexist. Applied to both scope recorders (`attachRecorder`) and flow recorders (`attachFlowRecorder`).
+- **Recorder default IDs use auto-increment** — `MetricRecorder` defaults to `metrics-1`, `metrics-2`, etc. `DebugRecorder` defaults to `debug-1`, `debug-2`, etc. Multiple instances with different configs coexist naturally. Framework uses well-known ID `'metrics'` for override pattern.
+- **`outputMapper` array concat behavior documented** — JSDoc on `SubflowMountOptions.outputMapper` warns that arrays are concatenated, not replaced. Return only the delta for array keys.
+
+### Documentation
+
+- **`recorder/` README** — full recorder architecture: ID contract, 12 built-in recorders table, CompositeRecorder pattern, custom recorder patterns, domain preset pattern, 6 design principles.
+- **JSDoc `@example` blocks** on `attachRecorder`, `MetricRecorder`, `DebugRecorder`, `outputMapper` — code examples appear in IDE hover and API docs.
+
 ## [4.1.0]
 
 ### Added
