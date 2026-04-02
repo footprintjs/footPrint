@@ -143,6 +143,11 @@ listSubflowPaths(snapshot); // ['sf-payment', 'sf-outer/sf-inner']
 
 Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Intentionally NOT unified.
 
+**Recorder ID contract:**
+- `attachRecorder` is **idempotent by ID** — same ID replaces, different IDs coexist. Prevents accidental double-counting.
+- Built-in recorders use auto-increment default IDs (`metrics-1`, `debug-1`, ...) so multiple instances with different configs coexist naturally.
+- Frameworks that auto-attach recorders should use a well-known ID (e.g., `new MetricRecorder('metrics')`) so the consumer can override it by passing the same ID, or add a second instance with `new MetricRecorder()` (gets unique ID).
+
 **Scope Recorder** (data ops — fires DURING stage execution):
 - `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`
 - Built-in: `MetricRecorder`, `DebugRecorder`

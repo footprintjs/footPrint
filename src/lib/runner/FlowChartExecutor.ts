@@ -334,6 +334,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Attach a scope Recorder to observe data operations (reads, writes, commits).
    * Automatically attached to every ScopeFacade created during traversal.
    * Must be called before run().
+   *
+   * **Idempotent by ID:** If a recorder with the same `id` is already attached,
+   * it is replaced (not duplicated). This prevents double-counting when both
+   * a framework and the user attach the same recorder type.
+   *
+   * Built-in recorders use auto-increment IDs (`metrics-1`, `debug-1`, ...) by
+   * default, so multiple instances with different configs coexist. To override
+   * a framework-attached recorder, pass the same well-known ID.
    */
   attachRecorder(recorder: Recorder): void {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)
@@ -357,6 +365,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Attach a FlowRecorder to observe control flow events.
    * Automatically enables narrative if not already enabled.
    * Must be called before run() — recorders are passed to the traverser at creation time.
+   *
+   * **Idempotent by ID:** replaces existing recorder with same `id`.
    */
   attachFlowRecorder(recorder: FlowRecorder): void {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)

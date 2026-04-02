@@ -112,6 +112,8 @@ executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
 executor.attachRecorder(new MetricRecorder());
 ```
 
+**ID-based idempotency:** `attachRecorder` replaces any existing recorder with the same ID. Each `new MetricRecorder()` gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...), so multiple instances with different configs coexist. To override a framework-attached recorder, pass the same ID: `new MetricRecorder('metrics')`.
+
 ### Built-in Recorders
 
 | Recorder | Captures | Audience |
