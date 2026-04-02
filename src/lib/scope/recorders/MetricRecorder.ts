@@ -24,12 +24,14 @@ export interface AggregatedMetrics {
 }
 
 export class MetricRecorder implements Recorder {
+  private static _counter = 0;
+
   readonly id: string;
   private metrics: Map<string, StageMetrics> = new Map();
   private stageStartTimes: Map<string, number> = new Map();
 
   constructor(id?: string) {
-    this.id = id ?? 'metrics';
+    this.id = id ?? `metrics-${++MetricRecorder._counter}`;
   }
 
   onRead(event: ReadEvent): void {

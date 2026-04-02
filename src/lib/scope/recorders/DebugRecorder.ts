@@ -22,12 +22,14 @@ export interface DebugRecorderOptions {
 }
 
 export class DebugRecorder implements Recorder {
+  private static _counter = 0;
+
   readonly id: string;
   private entries: DebugEntry[] = [];
   private verbosity: DebugVerbosity;
 
   constructor(options?: DebugRecorderOptions) {
-    this.id = options?.id ?? `debug-recorder-${Date.now()}`;
+    this.id = options?.id ?? `debug-${++DebugRecorder._counter}`;
     this.verbosity = options?.verbosity ?? 'verbose';
   }
 

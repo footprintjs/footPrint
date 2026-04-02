@@ -68,8 +68,11 @@ describe('MetricRecorder', () => {
     expect(rec.getStageMetrics('a')!.readCount).toBe(1);
   });
 
-  it('defaults id to "metrics" if not provided', () => {
-    const rec = new MetricRecorder();
-    expect(rec.id).toBe('metrics');
+  it('auto-generates unique id if not provided', () => {
+    const rec1 = new MetricRecorder();
+    const rec2 = new MetricRecorder();
+    expect(rec1.id).toMatch(/^metrics-\d+$/);
+    expect(rec2.id).toMatch(/^metrics-\d+$/);
+    expect(rec1.id).not.toBe(rec2.id);
   });
 });
