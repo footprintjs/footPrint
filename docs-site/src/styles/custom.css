@@ -45,31 +45,61 @@
   padding: 0.2rem 0.6rem;
 }
 
-/* ── Blog cards ────────────────────────────────────────────────────────── */
+/* ── Blog — multi-column card grid ─────────────────────────────────────── */
+.posts {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem !important;
+}
+
+@media (max-width: 768px) {
+  .posts {
+    grid-template-columns: 1fr;
+  }
+}
+
 article.preview {
   background: var(--sl-color-bg-nav);
   border: 1px solid var(--sl-color-gray-5);
   border-radius: 12px;
-  padding: 1.5rem 2rem;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  padding: 1.5rem 1.75rem;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
 article.preview:hover {
   border-color: var(--sl-color-accent);
-  box-shadow: 0 4px 20px rgba(124, 108, 240, 0.12);
+  box-shadow: 0 4px 24px rgba(124, 108, 240, 0.15);
+  transform: translateY(-2px);
 }
 
 article.preview h2 {
-  font-size: 1.25rem;
-  margin-bottom: 0.75rem;
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
 }
 
 article.preview h2 a {
   color: var(--sl-color-white);
+  text-decoration: none;
+}
+
+article.preview h2 a:hover {
+  color: var(--sl-color-accent-high);
 }
 
 :root[data-theme='light'] article.preview h2 a {
   color: var(--sl-color-text);
+}
+
+/* Subtle gradient accent stripe on the left edge */
+article.preview {
+  border-left: 3px solid var(--sl-color-accent);
+}
+
+/* Metadata (date, author, reading time) — smaller, muted */
+article.preview header :global(.not-content) {
+  font-size: 0.8rem;
+  opacity: 0.7;
 }
 
 /* ── API signature blocks (used in api/ MDX pages) ───────────────────────── */
