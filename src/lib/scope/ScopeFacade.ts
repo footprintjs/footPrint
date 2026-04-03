@@ -142,6 +142,28 @@ export class ScopeFacade {
   }
 
   /** @internal */
+  notifyPause(stageId: string, pauseData?: unknown): void {
+    this._invokeHook('onPause', {
+      stageName: this._stageName,
+      pipelineId: this._stageContext.runId,
+      timestamp: Date.now(),
+      stageId,
+      pauseData,
+    });
+  }
+
+  /** @internal */
+  notifyResume(stageId: string, hasInput: boolean): void {
+    this._invokeHook('onResume', {
+      stageName: this._stageName,
+      pipelineId: this._stageContext.runId,
+      timestamp: Date.now(),
+      stageId,
+      hasInput,
+    });
+  }
+
+  /** @internal */
   notifyCommit(mutations: CommitEvent['mutations']): void {
     this._invokeHook('onCommit', {
       stageName: this._stageName,

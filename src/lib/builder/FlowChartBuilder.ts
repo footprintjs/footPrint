@@ -694,7 +694,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       id,
       fn: handler.execute as StageFunction<TOut, TScope>,
       isPausable: true,
-      resumeFn: handler.resume as StageFunction<TOut, TScope>,
+      resumeFn: handler.resume,
     };
     if (description) node.description = description;
     this._addToMap(id, handler.execute as StageFunction<TOut, TScope>);

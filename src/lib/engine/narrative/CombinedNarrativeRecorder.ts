@@ -34,7 +34,9 @@ import type {
   FlowErrorEvent,
   FlowForkEvent,
   FlowLoopEvent,
+  FlowPauseEvent,
   FlowRecorder,
+  FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
@@ -288,6 +290,40 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       stageName: event.stageName,
       stageId: event.traversalContext?.stageId,
       subflowId: event.traversalContext?.subflowId,
+    });
+  }
+
+  onPause(event: FlowPauseEvent | { stageName?: string; stageId?: string }): void {
+    // Only handle FlowPauseEvent (from FlowRecorder channel); ignore scope PauseEvent.
+    // FlowPauseEvent has 'subflowPath', scope PauseEvent has 'pipelineId'.
+    if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
+    const flowEvent = event as FlowPauseEvent;
+    if (!flowEvent.stageName || !flowEvent.stageId) return;
+    const text = `Execution paused at ${flowEvent.stageName}.`;
+    this.entries.push({
+      type: 'pause',
+      text,
+      depth: 0,
+      stageName: flowEvent.stageName,
+      stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
+      subflowId: flowEvent.traversalContext?.subflowId,
+    });
+  }
+
+  onResume(event: FlowResumeEvent | { stageName?: string; stageId?: string }): void {
+    // Only handle FlowResumeEvent (from FlowRecorder channel); ignore scope ResumeEvent.
+    if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
+    const flowEvent = event as FlowResumeEvent;
+    if (!flowEvent.stageName || !flowEvent.stageId) return;
+    const suffix = flowEvent.hasInput ? ' with input.' : '.';
+    const text = `Execution resumed at ${flowEvent.stageName}${suffix}`;
+    this.entries.push({
+      type: 'resume',
+      text,
+      depth: 0,
+      stageName: flowEvent.stageName,
+      stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
+      subflowId: flowEvent.traversalContext?.subflowId,
     });
   }
 

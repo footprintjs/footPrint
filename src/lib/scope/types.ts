@@ -49,6 +49,16 @@ export interface StageEvent extends RecorderContext {
   duration?: number;
 }
 
+export interface PauseEvent extends RecorderContext {
+  stageId: string;
+  pauseData?: unknown;
+}
+
+export interface ResumeEvent extends RecorderContext {
+  stageId: string;
+  hasInput: boolean;
+}
+
 // ============================================================================
 // Redaction Policy
 // ============================================================================
@@ -107,6 +117,8 @@ export interface Recorder {
   onError?(event: ErrorEvent): void;
   onStageStart?(event: StageEvent): void;
   onStageEnd?(event: StageEvent): void;
+  onPause?(event: PauseEvent): void;
+  onResume?(event: ResumeEvent): void;
   /** Reset state before each executor.run() — prevents cross-run accumulation. */
   clear?(): void;
   /** Expose collected data for inclusion in executor.getSnapshot().recorders. */

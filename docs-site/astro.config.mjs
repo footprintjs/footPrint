@@ -34,6 +34,7 @@ export default defineConfig({
         {
           label: 'Blog',
           items: [
+            { label: 'Pause/Resume: Human-in-the-Loop', slug: 'blog/pause-resume', badge: { text: 'New', variant: 'success' } },
             { label: 'Why we built FootPrint', slug: 'blog/why-we-built-footprint' },
             { label: 'Testing AI agents for $0', slug: 'blog/testing-agents-for-zero' },
             { label: 'Auto-generate MCP tools', slug: 'blog/mcp-tool-generation' },

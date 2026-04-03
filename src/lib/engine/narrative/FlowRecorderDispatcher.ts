@@ -207,6 +207,38 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
+  onPause(
+    stageName: string,
+    stageId: string,
+    pauseData: unknown,
+    subflowPath: readonly string[],
+    traversalContext?: TraversalContext,
+  ): void {
+    if (this.recorders.length === 0) return;
+    const event = { stageName, stageId, pauseData, subflowPath, traversalContext };
+    for (const r of this.recorders) {
+      try {
+        r.onPause?.(event);
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onPause: ${err}`);
+      }
+    }
+  }
+
+  onResume(stageName: string, stageId: string, hasInput: boolean, traversalContext?: TraversalContext): void {
+    if (this.recorders.length === 0) return;
+    const event = { stageName, stageId, hasInput, traversalContext };
+    for (const r of this.recorders) {
+      try {
+        r.onResume?.(event);
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onResume: ${err}`);
+      }
+    }
+  }
+
   /**
    * Returns sentences from an attached NarrativeFlowRecorder (looked up by ID).
    * Callers that need sentences should attach a NarrativeFlowRecorder with id 'narrative'

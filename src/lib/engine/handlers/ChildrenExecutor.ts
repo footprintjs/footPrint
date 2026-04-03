@@ -9,6 +9,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
@@ -55,6 +56,8 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           return { id: child.id!, result, isError: false };
         })
         .catch((error) => {
+          // PauseSignal is expected control flow — re-throw immediately.
+          if (isPauseSignal(error)) throw error;
           childContext.commit();
           updateParentBreakFlag();
           this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
@@ -83,14 +86,21 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     } else {
       // Default: run all children to completion even if some fail
       const settled = await Promise.allSettled(childPromises);
+      let pauseSignal: unknown;
       settled.forEach((s) => {
         if (s.status === 'fulfilled') {
           const { id, result, isError } = s.value;
           childrenResults[id] = { id, result, isError: isError ?? false };
+        } else if (isPauseSignal(s.reason)) {
+          // PauseSignal from a child — re-throw after all children settle.
+          // Keep the first signal if multiple children pause.
+          pauseSignal ??= s.reason;
         } else {
           this.deps.logger.error(`Execution failed: ${s.reason}`);
         }
       });
+      // Re-throw PauseSignal after all children have settled
+      if (pauseSignal) throw pauseSignal;
     }
 
     return childrenResults;

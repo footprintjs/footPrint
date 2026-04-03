@@ -14,6 +14,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type {
@@ -123,6 +124,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       subflowOutput = await traverserHandle.execute();
     } catch (error: any) {
+      // PauseSignal is not an error — prepend subflow ID and re-throw immediately.
+      // No error logging, no subflowResult recording — the pause is control flow.
+      if (isPauseSignal(error)) {
+        error.prependSubflow(subflowId);
+        throw error;
+      }
       subflowError = error;
       parentContext.addError('subflowError', error.toString());
       this.deps.logger.error(`Error in subflow (${subflowId}):`, { error });

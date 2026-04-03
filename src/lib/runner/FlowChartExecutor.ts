@@ -26,8 +26,10 @@ import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlow
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
+  type ExecutorResult,
   type ExtractorError,
   type FlowChart,
+  type PausedResult,
   type RunOptions,
   type ScopeFactory,
   type SerializedPipelineStructure,
@@ -37,6 +39,8 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
+import type { FlowchartCheckpoint } from '../pause/types.js';
+import { isPauseSignal } from '../pause/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { Recorder, RedactionPolicy, RedactionReport } from '../scope/types.js';
@@ -120,6 +124,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private redactionPolicy: RedactionPolicy | undefined;
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
+  private lastCheckpoint: FlowchartCheckpoint | undefined;
 
   // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
   // AND be assigned in the constructor's options-resolution block (the `else if` branch).
@@ -200,6 +205,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     readOnlyContextOverride?: unknown,
     env?: import('../engine/types').ExecutionEnv,
     maxDepth?: number,
+    overrides?: {
+      root?: StageNode<TOut, TScope>;
+      initialContext?: unknown;
+      preserveRecorders?: boolean;
+      existingRuntime?: InstanceType<typeof ExecutionRuntime>;
+    },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
@@ -210,7 +221,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // then create ONE factory that applies them in a loop. Replaces the
     // previous 4-deep closure nesting with a flat, debuggable composition.
 
-    if (narrativeFlag) {
+    if (overrides?.preserveRecorders) {
+      // Resume mode: keep existing combinedRecorder so narrative accumulates
+    } else if (narrativeFlag) {
       this.combinedRecorder = new CombinedNarrativeRecorder(this.narrativeOptions);
     } else {
       this.combinedRecorder = undefined;
@@ -275,10 +288,30 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return scope;
     }) as ScopeFactory<TScope>;
 
-    const runtime = new ExecutionRuntime(fc.root.name, fc.root.id, args.defaultValuesForContext, args.initialContext);
+    const effectiveRoot = overrides?.root ?? fc.root;
+    const effectiveInitialContext = overrides?.initialContext ?? args.initialContext;
+
+    let runtime: ExecutionRuntime;
+    if (overrides?.existingRuntime) {
+      // Resume mode: reuse existing runtime so execution tree continues from pause point.
+      // Preserve the original root for getSnapshot() (full tree), then advance
+      // rootStageContext to a continuation from the leaf (for traversal).
+      runtime = overrides.existingRuntime;
+      runtime.preserveSnapshotRoot();
+      let leaf = runtime.rootStageContext;
+      while (leaf.next) leaf = leaf.next;
+      runtime.rootStageContext = leaf.createNext('', effectiveRoot.name, effectiveRoot.id);
+    } else {
+      runtime = new ExecutionRuntime(
+        effectiveRoot.name,
+        effectiveRoot.id,
+        args.defaultValuesForContext,
+        effectiveInitialContext,
+      );
+    }
 
     return new FlowchartTraverser<TOut, TScope>({
-      root: fc.root,
+      root: effectiveRoot,
       stageMap: fc.stageMap,
       scopeFactory,
       executionRuntime: runtime,
@@ -326,6 +359,210 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       fieldRedactions,
       patterns: (this.redactionPolicy?.patterns ?? []).map((p) => p.source),
     };
+  }
+
+  // ─── Pause/Resume ───
+
+  /**
+   * Returns the checkpoint from the most recent paused execution, or `undefined`
+   * if the last run completed without pausing.
+   *
+   * The checkpoint is JSON-serializable — store it in Redis, Postgres, localStorage, etc.
+   *
+   * @example
+   * ```typescript
+   * const result = await executor.run({ input });
+   * if (executor.isPaused()) {
+   *   const checkpoint = executor.getCheckpoint()!;
+   *   await redis.set(`session:${id}`, JSON.stringify(checkpoint));
+   * }
+   * ```
+   */
+  getCheckpoint(): FlowchartCheckpoint | undefined {
+    return this.lastCheckpoint;
+  }
+
+  /** Returns `true` if the most recent run() was paused (checkpoint available). */
+  isPaused(): boolean {
+    return this.lastCheckpoint !== undefined;
+  }
+
+  /**
+   * Resume a paused flowchart from a checkpoint.
+   *
+   * Restores the scope state, calls the paused stage's `resumeFn` with the
+   * provided input, then continues traversal from the next stage.
+   *
+   * The checkpoint can come from `getCheckpoint()` on a previous run, or from
+   * a serialized checkpoint stored in Redis/Postgres/localStorage.
+   *
+   * **Narrative/recorder state is reset on resume.** To keep a unified narrative
+   * across pause/resume cycles, collect it before calling resume.
+   *
+   * @example
+   * ```typescript
+   * // After a pause...
+   * const checkpoint = executor.getCheckpoint()!;
+   * await redis.set(`session:${id}`, JSON.stringify(checkpoint));
+   *
+   * // Later (possibly different server, same chart)
+   * const checkpoint = JSON.parse(await redis.get(`session:${id}`));
+   * const executor = new FlowChartExecutor(chart);
+   * const result = await executor.resume(checkpoint, { approved: true });
+   * ```
+   */
+  async resume(
+    checkpoint: FlowchartCheckpoint,
+    resumeInput?: unknown,
+    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth'>,
+  ): Promise<ExecutorResult> {
+    this.lastCheckpoint = undefined;
+
+    // ── Validate checkpoint structure (may come from untrusted external storage) ──
+    if (
+      !checkpoint ||
+      typeof checkpoint !== 'object' ||
+      typeof checkpoint.sharedState !== 'object' ||
+      checkpoint.sharedState === null ||
+      Array.isArray(checkpoint.sharedState)
+    ) {
+      throw new Error('Invalid checkpoint: sharedState must be a plain object.');
+    }
+    if (typeof checkpoint.pausedStageId !== 'string' || checkpoint.pausedStageId === '') {
+      throw new Error('Invalid checkpoint: pausedStageId must be a non-empty string.');
+    }
+    if (
+      !Array.isArray(checkpoint.subflowPath) ||
+      !checkpoint.subflowPath.every((s: unknown) => typeof s === 'string')
+    ) {
+      throw new Error('Invalid checkpoint: subflowPath must be an array of strings.');
+    }
+
+    // Find the paused node in the graph
+    const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
+    if (!pausedNode) {
+      throw new Error(
+        `Cannot resume: stage '${checkpoint.pausedStageId}' not found in flowchart. ` +
+          'The chart may have changed since the checkpoint was created.',
+      );
+    }
+    if (!pausedNode.resumeFn) {
+      throw new Error(
+        `Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) has no resumeFn. ` +
+          'Only stages created with addPausableFunction() can be resumed.',
+      );
+    }
+
+    // Build a synthetic resume node: calls resumeFn with resumeInput, then continues to original next.
+    // resumeFn signature is (scope, input) per PausableHandler — wrap to match StageFunction(scope, breakFn).
+    const resumeFn = pausedNode.resumeFn;
+    const resumeStageFn = (scope: TScope) => {
+      return resumeFn(scope, resumeInput);
+    };
+
+    const resumeNode: StageNode<TOut, TScope> = {
+      name: pausedNode.name,
+      id: pausedNode.id,
+      description: pausedNode.description,
+      fn: resumeStageFn,
+      next: pausedNode.next,
+    };
+
+    // Don't clear recorders — resume continues from previous state.
+    // Narrative, metrics, debug entries accumulate across pause/resume.
+
+    // Reuse the existing runtime so the execution tree continues from the pause point.
+    // preserveRecorders keeps the CombinedNarrativeRecorder so narrative accumulates.
+    const existingRuntime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>;
+    this.traverser = this.createTraverser(options?.signal, undefined, options?.env, options?.maxDepth, {
+      root: resumeNode,
+      initialContext: checkpoint.sharedState,
+      preserveRecorders: true,
+      existingRuntime,
+    });
+
+    // Fire onResume event on all recorders (flow + scope)
+    const hasInput = resumeInput !== undefined;
+    const flowResumeEvent = {
+      stageName: pausedNode.name,
+      stageId: pausedNode.id,
+      hasInput,
+    };
+    if (this.combinedRecorder) this.combinedRecorder.onResume(flowResumeEvent);
+    for (const r of this.flowRecorders) r.onResume?.(flowResumeEvent);
+
+    const scopeResumeEvent = {
+      stageName: pausedNode.name,
+      stageId: pausedNode.id,
+      hasInput,
+      pipelineId: '',
+      timestamp: Date.now(),
+    };
+    for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
+
+    try {
+      return await this.traverser.execute();
+    } catch (error: unknown) {
+      if (isPauseSignal(error)) {
+        const snapshot = this.traverser.getSnapshot();
+        const sfResults = this.traverser.getSubflowResults();
+        this.lastCheckpoint = {
+          sharedState: snapshot.sharedState,
+          executionTree: snapshot.executionTree,
+          pausedStageId: error.stageId,
+          subflowPath: error.subflowPath,
+          pauseData: error.pauseData,
+          ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+          pausedAt: Date.now(),
+        };
+        return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Find a StageNode in the compiled graph by ID.
+   * Handles subflow paths by drilling into registered subflows.
+   */
+  private findNodeInGraph(stageId: string, subflowPath: readonly string[]): StageNode<TOut, TScope> | undefined {
+    const fc = this.flowChartArgs.flowChart;
+
+    if (subflowPath.length === 0) {
+      // Top-level: DFS from root
+      return this.dfsFind(fc.root, stageId);
+    }
+
+    // Subflow: drill into the subflow chain, then search from the last subflow's root
+    let subflowRoot: StageNode<TOut, TScope> | undefined;
+    for (const sfId of subflowPath) {
+      const subflow = fc.subflows?.[sfId];
+      if (!subflow) return undefined;
+      subflowRoot = subflow.root;
+    }
+    if (!subflowRoot) return undefined;
+    return this.dfsFind(subflowRoot, stageId);
+  }
+
+  /** DFS search for a node by ID in the StageNode graph. Cycle-safe via visited set. */
+  private dfsFind(
+    node: StageNode<TOut, TScope>,
+    targetId: string,
+    visited = new Set<string>(),
+  ): StageNode<TOut, TScope> | undefined {
+    // Skip loop back-edge references (they share the target's ID but have no fn/resumeFn)
+    if (node.isLoopRef) return undefined;
+    if (visited.has(node.id)) return undefined;
+    visited.add(node.id);
+    if (node.id === targetId) return node;
+    if (node.children) {
+      for (const child of node.children) {
+        const found = this.dfsFind(child, targetId, visited);
+        if (found) return found;
+      }
+    }
+    if (node.next) return this.dfsFind(node.next, targetId, visited);
+    return undefined;
   }
 
   // ─── Recorder Management ───
@@ -457,7 +694,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return this.traverser.getNarrative();
   }
 
-  async run(options?: RunOptions): Promise<TraversalResult> {
+  async run(options?: RunOptions): Promise<ExecutorResult> {
     let signal = options?.signal;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -487,9 +724,28 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       r.clear?.();
     }
 
+    this.lastCheckpoint = undefined;
     this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
     try {
       return await this.traverser.execute();
+    } catch (error: unknown) {
+      if (isPauseSignal(error)) {
+        // Build checkpoint from current execution state
+        const snapshot = this.traverser.getSnapshot();
+        const sfResults = this.traverser.getSubflowResults();
+        this.lastCheckpoint = {
+          sharedState: snapshot.sharedState,
+          executionTree: snapshot.executionTree,
+          pausedStageId: error.stageId,
+          subflowPath: error.subflowPath,
+          pauseData: error.pauseData,
+          ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+          pausedAt: Date.now(),
+        };
+        // Return a PauseResult-shaped value so callers can check without try/catch
+        return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
+      }
+      throw error;
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }

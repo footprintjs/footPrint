@@ -36,11 +36,20 @@ export class ExecutionRuntime {
   public globalStore: SharedMemory;
   public rootStageContext: StageContext;
   public executionHistory: EventLog;
+  /** Original root for getSnapshot() — set before resume changes rootStageContext. */
+  private _snapshotRoot?: StageContext;
 
   constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
     this.executionHistory = new EventLog(initialState);
     this.globalStore = new SharedMemory(defaultValues, initialState);
     this.rootStageContext = new StageContext('', rootName, rootId, this.globalStore, '', this.executionHistory);
+  }
+
+  /** Preserve the current rootStageContext for snapshots before changing it for resume. */
+  preserveSnapshotRoot(): void {
+    if (!this._snapshotRoot) {
+      this._snapshotRoot = this.rootStageContext;
+    }
   }
 
   getPipelines(): string[] {
@@ -53,9 +62,11 @@ export class ExecutionRuntime {
   }
 
   getSnapshot(): RuntimeSnapshot {
+    // Use the original root (preserved before resume) for the full execution tree
+    const snapshotRoot = this._snapshotRoot ?? this.rootStageContext;
     return {
       sharedState: this.globalStore.getState(),
-      executionTree: this.rootStageContext.getSnapshot(),
+      executionTree: snapshotRoot.getSnapshot(),
       commitLog: this.executionHistory.list(),
     };
   }

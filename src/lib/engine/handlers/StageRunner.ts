@@ -9,6 +9,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { isPauseResult, PauseSignal } from '../../pause/types.js';
 import { BREAK_SETTER, IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -85,6 +86,18 @@ export class StageRunner<TOut = any, TScope = any> {
     if (node.isStreaming) {
       const streamId = node.streamId ?? node.name;
       this.deps.streamHandlers?.onEnd?.(streamId, accumulatedText);
+    }
+
+    // ── Pause detection ──
+    // Pausable stages: any non-void return = pause with that data.
+    // Also supports explicit pause({ ... }) for backward compat.
+    if (node.isPausable && result !== undefined) {
+      const pauseData = isPauseResult(result) ? (result as any).data : result;
+      // Notify scope recorders before throwing
+      if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
+        (rawScope as any).notifyPause(node.id, pauseData);
+      }
+      throw new PauseSignal(pauseData, node.id);
     }
 
     return result;

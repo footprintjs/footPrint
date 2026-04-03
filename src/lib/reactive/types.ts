@@ -179,6 +179,7 @@ export const IS_TYPED_SCOPE = Symbol('footprint:reactive:isTypedScope');
 export const EXECUTOR_INTERNAL_METHODS = new Set([
   'notifyStageStart', // StageRunner.run() line 59
   'notifyStageEnd', // StageRunner.run() line 79
+  'notifyPause', // StageRunner.run() — pause detection
   'attachRecorder', // FlowChartExecutor.createTraverser() — narrative + user recorders
   'detachRecorder', // FlowChartExecutor.detachRecorder()
   'getRecorders', // FlowChartExecutor.getRecorders()

@@ -11,6 +11,12 @@
 
 import type { StageFunction, SubflowMountOptions } from '../types.js';
 
+/**
+ * Resume function for pausable stages.
+ * Unlike StageFunction, the 2nd argument is the resume input (not breakFn).
+ */
+export type ResumeFn<TScope = any, TInput = unknown> = (scope: TScope, input: TInput) => Promise<void> | void;
+
 // ---------------------------------------------------------------------------
 // Decider + Selector
 // ---------------------------------------------------------------------------
@@ -92,7 +98,7 @@ export type StageNode<TOut = any, TScope = any> = {
   /** When true, this stage can pause execution (PausableHandler pattern). */
   isPausable?: boolean;
   /** Resume function — called instead of fn when resuming a paused stage. */
-  resumeFn?: StageFunction<TOut, TScope>;
+  resumeFn?: ResumeFn<TScope>;
 
   /**
    * True if this node is a back-edge reference created by loopTo() — not an executable stage.

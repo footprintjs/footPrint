@@ -10,6 +10,7 @@
 import type { SelectionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
@@ -58,6 +59,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
         selectedIds = Array.isArray(stageOutput) ? stageOutput.map(String) : [String(stageOutput)];
       }
     } catch (error: any) {
+      // PauseSignal is expected control flow — commit and re-throw without error logging.
+      if (isPauseSignal(error)) {
+        context.commit();
+        throw error;
+      }
       context.commit();
       callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
         type: 'stageExecutionError',

@@ -184,10 +184,8 @@ export { CompositeRecorder } from './lib/recorder/index.js';
 // ============================================================================
 
 /** @category Pause/Resume */
-export { isPauseResult, isPauseSignal, PauseSignal } from './lib/pause/index.js';
-
 /** @category Pause/Resume */
-export type { FlowchartCheckpoint, PausableHandler, PauseResult } from './lib/pause/index.js';
+export type { FlowchartCheckpoint, PausableHandler } from './lib/pause/index.js';
 
 /** @category Recorder */
 export type { CompositeSnapshot } from './lib/recorder/index.js';
@@ -197,7 +195,7 @@ export type { CompositeSnapshot } from './lib/recorder/index.js';
 // ============================================================================
 
 /** @category Configuration */
-export type { ExecutionEnv, RunOptions } from './lib/engine/index.js';
+export type { ExecutionEnv, ExecutorResult, PausedResult, RunOptions } from './lib/engine/index.js';
 
 /** @category Configuration */
 export type { ScopeFactory } from './lib/engine/index.js';

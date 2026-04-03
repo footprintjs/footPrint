@@ -334,6 +334,15 @@ export type BranchResult = {
 export type BranchResults = { [branchId: string]: BranchResult };
 export type TraversalResult = BranchResults | string | Error;
 
+/** Returned by run()/resume() when execution pauses. */
+export type PausedResult = {
+  readonly paused: true;
+  readonly checkpoint: import('../pause/types.js').FlowchartCheckpoint;
+};
+
+/** Full return type of FlowChartExecutor.run() and resume(). */
+export type ExecutorResult = TraversalResult | PausedResult;
+
 // ---------------------------------------------------------------------------
 // Serialized Pipeline Structure (for visualization)
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
@@ -620,6 +621,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         try {
           stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
         } catch (error: any) {
+          // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
+          if (isPauseSignal(error)) {
+            context.commit();
+            this.narrativeGenerator.onPause(node.name, node.id, error.pauseData, error.subflowPath, traversalContext);
+            throw error;
+          }
           context.commit();
           this.extractorRunner.callExtractor(
             node,

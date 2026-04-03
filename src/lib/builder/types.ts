@@ -17,7 +17,7 @@ import type { ScopeProtectionMode } from '../scope/protection/types.js';
 // Re-exports from engine (canonical definitions)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { StageNode } from '../engine/graph/StageNode.js';
+export type { ResumeFn, StageNode } from '../engine/graph/StageNode.js';
 export type {
   ILogger,
   StageFunction,

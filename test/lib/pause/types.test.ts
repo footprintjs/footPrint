@@ -61,6 +61,8 @@ describe('Pause types — unit', () => {
         status: 'done',
         next: { id: 'approve', status: 'paused' },
       },
+      pausedStageId: 'approve',
+      subflowPath: [],
       pauseData: { question: 'Approve $299 refund?' },
       pausedAt: Date.now(),
     };
@@ -91,6 +93,8 @@ describe('Pause types — boundary', () => {
     const checkpoint: FlowchartCheckpoint = {
       sharedState: {},
       executionTree: null,
+      pausedStageId: 'stage-1',
+      subflowPath: [],
       pausedAt: 0,
     };
     expect(JSON.stringify(checkpoint)).toBeTruthy();
@@ -163,6 +167,8 @@ describe('Pause types — property', () => {
     const original: FlowchartCheckpoint = {
       sharedState: { nested: { deep: [1, 2, 3] } },
       executionTree: { id: 'a', next: { id: 'b', children: [{ id: 'c' }] } },
+      pausedStageId: 'b',
+      subflowPath: ['sf-1'],
       pauseData: { question: 'Continue?', options: ['yes', 'no'] },
       subflowResults: { 'sf-1': { result: 'done' } },
       pausedAt: 1712345678000,
@@ -180,6 +186,8 @@ describe('Pause types — security', () => {
     const checkpoint: FlowchartCheckpoint = {
       sharedState: { value: 'safe' },
       executionTree: {},
+      pausedStageId: 'gate',
+      subflowPath: [],
       pausedAt: Date.now(),
     };
 

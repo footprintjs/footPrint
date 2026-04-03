@@ -5,12 +5,12 @@
  * and stage lifecycle events for troubleshooting.
  */
 
-import type { ErrorEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
+import type { ErrorEvent, PauseEvent, ReadEvent, Recorder, ResumeEvent, StageEvent, WriteEvent } from '../types.js';
 
 export type DebugVerbosity = 'minimal' | 'verbose';
 
 export interface DebugEntry {
-  type: 'read' | 'write' | 'error' | 'stageStart' | 'stageEnd';
+  type: 'read' | 'write' | 'error' | 'stageStart' | 'stageEnd' | 'pause' | 'resume';
   stageName: string;
   timestamp: number;
   data: unknown;
@@ -94,6 +94,26 @@ export class DebugRecorder implements Recorder {
       stageName: event.stageName,
       timestamp: event.timestamp,
       data: { pipelineId: event.pipelineId, duration: event.duration },
+    });
+  }
+
+  onPause(event: PauseEvent): void {
+    // Always log pauses (even in minimal mode — pauses are significant events)
+    this.entries.push({
+      type: 'pause',
+      stageName: event.stageName,
+      timestamp: event.timestamp,
+      data: { stageId: event.stageId, pauseData: event.pauseData, pipelineId: event.pipelineId },
+    });
+  }
+
+  onResume(event: ResumeEvent): void {
+    // Always log resumes (even in minimal mode)
+    this.entries.push({
+      type: 'resume',
+      stageName: event.stageName,
+      timestamp: event.timestamp,
+      data: { stageId: event.stageId, hasInput: event.hasInput, pipelineId: event.pipelineId },
     });
   }
 

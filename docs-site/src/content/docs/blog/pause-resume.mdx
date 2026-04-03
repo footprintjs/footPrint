@@ -1,0 +1,167 @@
+---
+title: "Pause/Resume: Human-in-the-Loop for Backend Pipelines"
+description: "Pausable stages stop execution, create a JSON-safe checkpoint, and resume hours later — possibly on a different server. No timeouts, no polling, no WebSockets."
+---
+
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The problem
+
+Your pipeline needs a human decision in the middle.
+
+A refund over $500 requires manager approval. An AI-generated report needs editorial review before publishing. A deployment pipeline pauses for a security sign-off.
+
+Traditional approaches:
+
+| Approach | Problem |
+|----------|---------|
+| Polling loop | Wastes compute, ties up a process |
+| WebSocket + in-memory state | Loses state on server restart |
+| Split into two pipelines | Business logic scattered across endpoints |
+| Background job + callback | Complex coordination, race conditions |
+
+What if the pipeline could just... pause? Save its state. Shut down. And pick up exactly where it left off — hours later, on a different server — when the human responds?
+
+## How it works
+
+### 1. Define a pausable stage
+
+A pausable stage has two phases: `execute` (first run) and `resume` (when the human responds).
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import type { PausableHandler } from 'footprintjs';
+
+interface RefundState {
+  orderId: string;
+  amount: number;
+  riskLevel?: string;
+  approved?: boolean;
+  approver?: string;
+}
+
+const approvalGate: PausableHandler<RefundState> = {
+  execute: async (scope) => {
+    // Classify risk
+    scope.riskLevel = scope.amount > 500 ? 'high' : 'low';
+
+    // Return data = pause. Return nothing = continue.
+    return {
+      question: `Approve $${scope.amount} refund?`,
+      riskLevel: scope.riskLevel,
+    };
+  },
+  resume: async (scope, input) => {
+    scope.approved = input.approved;
+    scope.approver = input.approver;
+  },
+};
+```
+
+<Aside type="tip">
+**No special imports needed to pause.** Just return data from `execute` — the library detects the non-void return and pauses automatically. Return `undefined` to skip the pause and continue normally (conditional pause).
+</Aside>
+
+### 2. Build the pipeline
+
+```typescript
+const chart = flowChart<RefundState>(
+  'ReceiveRequest', async (scope) => {
+    scope.orderId = 'ORD-2024-7891';
+    scope.amount = 299;
+  }, 'receive')
+  .addPausableFunction('ManagerApproval', approvalGate, 'approve',
+    'Pause for manager review')
+  .addFunction('ProcessRefund', async (scope) => {
+    if (scope.approved) {
+      console.log(`Refund approved by ${scope.approver}`);
+    }
+  }, 'process')
+  .build();
+```
+
+### 3. Run, pause, checkpoint
+
+```typescript
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+
+if (executor.isPaused()) {
+  const checkpoint = executor.getCheckpoint();
+  // checkpoint is JSON-safe — store anywhere
+  await redis.set(`refund:${orderId}`, JSON.stringify(checkpoint));
+}
+```
+
+The checkpoint contains:
+- **sharedState** — full scope at the pause point
+- **pausedStageId** — which stage paused
+- **pauseData** — the data you returned from `execute`
+- **executionTree** — the traversal path for visualization
+
+### 4. Resume (hours later, any server)
+
+```typescript
+const checkpoint = JSON.parse(await redis.get(`refund:${orderId}`));
+
+const executor = new FlowChartExecutor(chart); // same chart, fresh executor
+await executor.resume(checkpoint, {
+  approved: true,
+  approver: 'Manager Kim',
+});
+// Pipeline continues: ProcessRefund → NotifyCustomer → done
+```
+
+## What makes this different
+
+**No timeouts.** The pipeline doesn't sit in memory waiting. It checkpoints and exits. The process can shut down.
+
+**No WebSockets.** The checkpoint is a plain JSON object. Store it in Redis, Postgres, S3, localStorage — anywhere. Resume from any server, any process.
+
+**Continuous execution tree.** After resume, `getSnapshot()` returns the full traversal path — pre-pause stages + resume + continuation. The narrative accumulates. Metrics accumulate. No gaps.
+
+**Conditional pause.** Return data to pause, return nothing to continue. One handler handles both paths:
+
+```typescript
+execute: async (scope) => {
+  if (scope.amount > 500) {
+    return { reason: 'High-value — needs approval' }; // pauses
+  }
+  // under $500 — auto-approved, no pause
+}
+```
+
+**Multi-pause.** Chain multiple pausable stages. Each resume continues to the next pause point or to completion:
+
+```
+receive → approve(pause) → resume → review(pause) → resume → process → done
+```
+
+## Try it live
+
+Open the [Pause/Resume sample](https://footprintjs.github.io/footprint-playground/samples/pause-resume) in the playground. Click Run — the pipeline pauses at ManagerApproval. Edit the resume JSON and click Resume to continue.
+
+## The API surface
+
+Consumers touch exactly 4 things:
+
+| What | Purpose |
+|------|---------|
+| `PausableHandler<TScope, TInput>` | Type for `{ execute, resume }` |
+| `.addPausableFunction(name, handler, id)` | Builder method |
+| `executor.isPaused()` / `executor.getCheckpoint()` | Check pause state |
+| `executor.resume(checkpoint, input)` | Continue execution |
+
+Everything else is internal — `PauseSignal`, `isPauseResult`, checkpoint validation, execution tree grafting — the consumer never sees it.
+
+## What's next
+
+This is the foundation for **ask_human** in [agentfootprint](https://github.com/footprintjs/agentfootprint) — a tool that pauses an AI agent loop, sends a question to the frontend, and resumes with the human's answer. The agent's full reasoning chain (narrative, decisions, tool calls) is preserved across the pause.
+
+---
+
+*Pause/Resume ships in footprintjs v4.1.0.*

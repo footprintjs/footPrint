@@ -68,6 +68,18 @@ export interface IControlFlowNarrative {
   /** Called when a stage throws an error. Raw error is extracted into structured details. */
   onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
 
+  /** Called when a pausable stage pauses execution. */
+  onPause(
+    stageName: string,
+    stageId: string,
+    pauseData: unknown,
+    subflowPath: readonly string[],
+    traversalContext?: TraversalContext,
+  ): void;
+
+  /** Called when a paused stage is resumed. */
+  onResume(stageName: string, stageId: string, hasInput: boolean, traversalContext?: TraversalContext): void;
+
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
 }
@@ -197,6 +209,26 @@ export interface FlowErrorEvent {
   traversalContext?: TraversalContext;
 }
 
+/** Event passed to FlowRecorder.onPause. */
+export interface FlowPauseEvent {
+  stageName: string;
+  stageId: string;
+  /** Data from the pause signal (question, reason, metadata). */
+  pauseData?: unknown;
+  /** Path through subflows to the paused stage. Empty at root level. */
+  subflowPath: readonly string[];
+  traversalContext?: TraversalContext;
+}
+
+/** Event passed to FlowRecorder.onResume. */
+export interface FlowResumeEvent {
+  stageName: string;
+  stageId: string;
+  /** Whether resume input was provided. */
+  hasInput: boolean;
+  traversalContext?: TraversalContext;
+}
+
 /**
  * FlowRecorder — Pluggable observer for control flow events.
  *
@@ -229,6 +261,8 @@ export interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  onPause?(event: FlowPauseEvent): void;
+  onResume?(event: FlowResumeEvent): void;
   /** Called before each run to reset per-run state. Implement for stateful recorders. */
   clear?(): void;
   /** Optional: expose collected data for inclusion in snapshots. */

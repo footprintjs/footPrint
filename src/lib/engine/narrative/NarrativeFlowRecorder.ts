@@ -16,7 +16,9 @@ import type {
   FlowForkEvent,
   FlowLoopEvent,
   FlowNextEvent,
+  FlowPauseEvent,
   FlowRecorder,
+  FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,
@@ -119,6 +121,17 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     }
 
     this.sentences.push(sentence);
+    this.stageNames.push(event.stageName);
+  }
+
+  onPause(event: FlowPauseEvent): void {
+    this.sentences.push(`Execution paused at ${event.stageName}.`);
+    this.stageNames.push(event.stageName);
+  }
+
+  onResume(event: FlowResumeEvent): void {
+    const suffix = event.hasInput ? ' with input.' : '.';
+    this.sentences.push(`Execution resumed at ${event.stageName}${suffix}`);
     this.stageNames.push(event.stageName);
   }
 

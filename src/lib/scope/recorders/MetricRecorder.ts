@@ -30,13 +30,14 @@
  * ```
  */
 
-import type { CommitEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
+import type { CommitEvent, PauseEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
 
 export interface StageMetrics {
   stageName: string;
   readCount: number;
   writeCount: number;
   commitCount: number;
+  pauseCount: number;
   totalDuration: number;
   invocationCount: number;
 }
@@ -46,6 +47,7 @@ export interface AggregatedMetrics {
   totalReads: number;
   totalWrites: number;
   totalCommits: number;
+  totalPauses: number;
   stageMetrics: Map<string, StageMetrics>;
 }
 
@@ -102,6 +104,11 @@ export class MetricRecorder implements Recorder {
     this.getOrCreateStageMetrics(event.stageName).commitCount++;
   }
 
+  onPause(event: PauseEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
+    this.getOrCreateStageMetrics(event.stageName).pauseCount++;
+  }
+
   onStageStart(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
     this.stageStartTimes.set(event.stageName, event.timestamp);
@@ -127,12 +134,14 @@ export class MetricRecorder implements Recorder {
     let totalReads = 0;
     let totalWrites = 0;
     let totalCommits = 0;
+    let totalPauses = 0;
 
     for (const stageMetrics of this.metrics.values()) {
       totalDuration += stageMetrics.totalDuration;
       totalReads += stageMetrics.readCount;
       totalWrites += stageMetrics.writeCount;
       totalCommits += stageMetrics.commitCount;
+      totalPauses += stageMetrics.pauseCount;
     }
 
     return {
@@ -140,6 +149,7 @@ export class MetricRecorder implements Recorder {
       totalReads,
       totalWrites,
       totalCommits,
+      totalPauses,
       stageMetrics: new Map(this.metrics),
     };
   }
@@ -180,6 +190,7 @@ export class MetricRecorder implements Recorder {
         readCount: 0,
         writeCount: 0,
         commitCount: 0,
+        pauseCount: 0,
         totalDuration: 0,
         invocationCount: 0,
       };
