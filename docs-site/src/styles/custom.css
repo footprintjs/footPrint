@@ -45,6 +45,15 @@
   padding: 0.2rem 0.6rem;
 }
 
+/* ── Blog page — distinct background ───────────────────────────────────── */
+/* Target the main content area when it contains blog posts */
+:root .main-pane:has(.posts) {
+  background: linear-gradient(180deg, var(--sl-color-bg) 0%, #0d0b1a 100%);
+}
+:root[data-theme='light'] .main-pane:has(.posts) {
+  background: linear-gradient(180deg, var(--sl-color-bg) 0%, #f0ecff 100%);
+}
+
 /* ── Blog — multi-column card grid ─────────────────────────────────────── */
 .posts {
   display: grid !important;

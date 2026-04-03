@@ -35,6 +35,9 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/footprintjs/footPrint' },
         { icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/footprintjs' },
       ],
+      components: {
+        SiteTitle: './src/components/HeaderLinks.astro',
+      },
       customCss: ['./src/styles/custom.css'],
       head: [
         {

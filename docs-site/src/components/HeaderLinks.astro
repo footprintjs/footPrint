@@ -1,0 +1,50 @@
+---
+/**
+ * Custom SiteTitle override — adds Docs, Blog, Playground links in the header.
+ * Replaces both the default SiteTitle and the starlight-blog SiteTitle.
+ */
+import Default from '@astrojs/starlight/components/SiteTitle.astro';
+---
+
+<Default {...Astro.props} />
+<nav class="header-links">
+  <a href="/footPrint/getting-started/quick-start/">Docs</a>
+  <a href="/footPrint/blog/">Blog</a>
+  <a href="https://footprintjs.github.io/footprint-playground/" target="_blank" rel="noopener">Playground</a>
+</nav>
+
+<style>
+  .header-links {
+    display: none;
+    gap: 0.15rem;
+    margin-left: 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--sl-color-gray-5);
+    align-items: center;
+  }
+  @media (min-width: 50rem) {
+    .header-links {
+      display: flex;
+    }
+  }
+  .header-links a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .header-links a:hover {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-6);
+  }
+  :root[data-theme='light'] .header-links a {
+    color: var(--sl-color-gray-3);
+  }
+  :root[data-theme='light'] .header-links a:hover {
+    color: var(--sl-color-text);
+    background: var(--sl-color-gray-6);
+  }
+</style>
