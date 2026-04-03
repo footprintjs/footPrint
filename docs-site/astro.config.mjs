@@ -19,6 +19,9 @@ export default defineConfig({
       plugins: [
         starlightBlog({
           title: 'Blog',
+          navigation: 'header-start',
+          metrics: { readingTime: true },
+          rss: true,
           authors: {
             sanjay: {
               name: 'Sanjay Krishna Anbalagan',
