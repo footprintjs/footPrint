@@ -17,6 +17,7 @@ src/lib/
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
 ├── recorder/  → CompositeRecorder composition primitives (domain presets)
+├── pause/     → Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
 └── contract/  → I/O schema + OpenAPI generation
@@ -97,7 +98,7 @@ const chart = flowChart('Stage1', fn1, 'stage-1', undefined, 'Description')
   .build();
 ```
 
-Methods: `start()`, `addFunction()`, `addStreamingFunction()`, `addDeciderFunction()`, `addSelectorFunction()`, `addListOfFunction()`, `addSubFlowChart()`, `addSubFlowChartNext()`, `loopTo()`, `contract()`, `build()`, `toSpec()`, `toMermaid()`
+Methods: `start()`, `addFunction()`, `addStreamingFunction()`, `addDeciderFunction()`, `addSelectorFunction()`, `addListOfFunction()`, `addPausableFunction()`, `addSubFlowChart()`, `addSubFlowChartNext()`, `loopTo()`, `contract()`, `build()`, `toSpec()`, `toMermaid()`
 
 ### ScopeFacade (Internal — use TypedScope for new code)
 
@@ -128,7 +129,48 @@ executor.getFlowNarrative()       // flow-only (no data ops)
 executor.getSnapshot()            // full memory state (includes recorder snapshots)
 executor.attachFlowRecorder(r)    // plug flow observer
 executor.setRedactionPolicy({})   // PII protection
+
+// Pause/Resume — human-in-the-loop
+executor.isPaused()               // true if last run paused
+executor.getCheckpoint()          // JSON-safe checkpoint (store in Redis/Postgres/etc.)
+executor.resume(checkpoint, input) // continue from checkpoint with human's answer
 ```
+
+### Pause/Resume (Human-in-the-Loop)
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import type { PausableHandler } from 'footprintjs';
+
+const handler: PausableHandler<MyState> = {
+  execute: async (scope) => {
+    // Return data = pause. Return nothing = continue.
+    return { question: `Approve $${scope.amount}?` };
+  },
+  resume: async (scope, input) => {
+    scope.approved = input.approved;
+  },
+};
+
+const chart = flowChart<MyState>('Seed', seedFn, 'seed')
+  .addPausableFunction('Approve', handler, 'approve')
+  .addFunction('Process', processFn, 'process')
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+
+if (executor.isPaused()) {
+  const checkpoint = executor.getCheckpoint(); // JSON-safe, store anywhere
+  // Later (hours, different server):
+  await executor.resume(checkpoint, { approved: true });
+}
+```
+
+- `execute` returns data → pauses. Returns void → continues normally (conditional pause).
+- Checkpoint is JSON-serializable — no functions, no class instances.
+- `resume()` reuses the execution runtime — narrative, metrics, execution tree all accumulate.
+- `FlowRecorder.onPause`/`onResume` and `Recorder.onPause`/`onResume` fire on both observer systems.
 
 ### ComposableRunner & Snapshot Navigation
 
