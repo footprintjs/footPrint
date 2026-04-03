@@ -14,6 +14,10 @@ import type { IControlFlowNarrative } from './narrative/types.js';
 // Re-export StageNode types for convenience
 export type { Decider, Selector, StageNode } from './graph/StageNode.js';
 
+// Re-export pause types from pause/ library
+export type { FlowchartCheckpoint, PausableHandler, PauseResult } from '../pause/index.js';
+export { isPauseResult, isPauseSignal, PauseSignal } from '../pause/index.js';
+
 // ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------

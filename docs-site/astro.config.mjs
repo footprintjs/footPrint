@@ -32,6 +32,15 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          label: 'Blog',
+          items: [
+            { label: 'Why we built FootPrint', slug: 'blog/why-we-built-footprint' },
+            { label: 'Testing AI agents for $0', slug: 'blog/testing-agents-for-zero' },
+            { label: 'Auto-generate MCP tools', slug: 'blog/mcp-tool-generation' },
+            { label: 'Explainability for compliance', slug: 'blog/explainability-compliance' },
+          ],
+        },
+        {
           label: 'Getting Started',
           items: [
             { label: 'Quick Start', slug: 'getting-started/quick-start' },

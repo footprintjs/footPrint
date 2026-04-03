@@ -1,0 +1,130 @@
+---
+title: "Why We Built FootPrint: The Missing Pattern for Explainable Backend Code"
+description: "MVC solved UI separation. We needed a pattern where AI could explain every decision your code made — without hallucinating."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The moment that started everything
+
+A user asked: **"Why was my loan rejected?"**
+
+Our LLM had all the context. It had the code, the logs, the application data. It generated a confident, detailed explanation — citing the user's credit score, debt-to-income ratio, and employment history.
+
+The explanation was wrong.
+
+Not slightly wrong. *Structurally* wrong. The LLM had reconstructed a plausible-sounding narrative from scattered signals — a `console.log` here, a database write there — and hallucinated the causal chain that connected them. The user's actual rejection reason was a completely different risk factor that the LLM never surfaced.
+
+That's when we realized: **the problem isn't the LLM. The problem is the code.**
+
+## The structural problem
+
+Traditional backend code scatters business logic across controllers, services, and middleware. When something happens — a loan gets rejected, a claim gets denied, an order gets flagged — the *why* is implicit. It lives in the execution path the code took, the variables it read, the branches it chose. But none of that is captured in a structured way.
+
+So when an LLM needs to explain a decision, it does what any intelligent system would: it guesses. It reconstructs reasoning from whatever artifacts it can find — log lines, database states, API responses. And it hallucinates the connections between them.
+
+| | Traditional | What we needed |
+|---|---|---|
+| **Decision reasoning** | Implicit in code paths | Explicit causal trace |
+| **LLM explanation** | Reconstructed from logs | Read directly from execution |
+| **State management** | Global, scattered | Transactional, observable |
+| **Tool descriptions** | Written by hand | Generated from the code |
+
+We didn't need better prompts. We needed a **different pattern**.
+
+## The flowchart pattern
+
+We looked at how humans explain decisions. When a loan officer explains a rejection, they walk through a flowchart: first we checked this, then we evaluated that, and based on this threshold, we made this decision. Every step is traceable.
+
+What if backend code worked the same way?
+
+That's FootPrint. Your business logic is a **graph of typed functions with transactional state**. The runtime captures every read, write, and decision as a **causal trace**. When an LLM needs to explain what happened, it reads the trace — it doesn't guess.
+
+```typescript
+import { flowChart, decide, narrative } from 'footprintjs';
+
+const chart = flowChart<State>('ReceiveApplication', async (scope) => {
+    scope.creditScore = 580;
+    scope.dti = 0.6;
+  }, 'receive')
+  .addFunction('EvaluateRisk', async (scope) => {
+    scope.riskTier = scope.creditScore < 620 ? 'high' : 'low';
+  }, 'evaluate')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { riskTier: { eq: 'high' } }, then: 'reject', label: 'High risk' },
+    ], 'approve');
+  }, 'route', 'Route based on risk tier')
+    .addFunctionBranch('reject', 'RejectApplication', async (scope) => {
+      scope.decision = 'REJECTED';
+    })
+    .addFunctionBranch('approve', 'ApproveApplication', async (scope) => {
+      scope.decision = 'APPROVED';
+    })
+    .setDefault('approve')
+    .end()
+  .build();
+
+const result = await chart.recorder(narrative()).run();
+```
+
+The runtime auto-generates this trace:
+
+```
+Stage 1: The process began with ReceiveApplication.
+  Step 1: Write creditScore = 580
+  Step 2: Write dti = 0.6
+Stage 2: Next, it moved on to EvaluateRisk.
+  Step 1: Read creditScore = 580
+  Step 2: Write riskTier = "high"
+Stage 3: Next step: Route based on risk tier.
+  Step 1: Read riskTier = "high"
+[Condition]: It evaluated "High risk": riskTier "high" eq "high" ✓, and chose RejectApplication.
+Stage 4: Next, it moved on to RejectApplication.
+  Step 1: Write decision = "REJECTED"
+```
+
+The LLM backtracks: `decision=REJECTED` ← `riskTier="high"` ← `creditScore=580`. Every variable links to its cause. No hallucination.
+
+## The ecosystem
+
+FootPrint isn't one library — it's an ecosystem of two packages that work together:
+
+**[footprintjs](https://www.npmjs.com/package/footprintjs)** is the engine. The flowchart pattern with typed state, causal traces, decision evidence, and self-describing APIs. Zero runtime dependencies. This is the foundation.
+
+**[agentfootprint](https://www.npmjs.com/package/agentfootprint)** is the AI agent framework built on top. Five concepts — LLMCall, Agent, RAG, FlowChart, Swarm — that compose together. Adapter-swap testing (`mock()` in tests, `anthropic()` in production), agent-level tool gating, built-in cost and token tracking.
+
+Together, they give you explainable backend logic + explainable AI agents. Same causal trace model all the way through.
+
+## What we got wrong (and fixed)
+
+Building this taught us a few things the hard way:
+
+**We started with too many dependencies.** The first version used lodash. Every enterprise conversation hit the same wall: "how many transitive deps?" By v4.0, we removed everything. `dependencies: {}` in package.json. That single change unlocked more adoption conversations than any feature we shipped.
+
+**We built docs before a playground.** The docs are good — 14 pages, 108+ code examples. But the [interactive playground](https://footprintjs.github.io/footprint-playground/) with 37+ runnable samples and a [live LLM demo](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool) converts 10x better. If you're building a developer tool, build the playground first.
+
+**We underestimated how important `decide()` would be.** We originally had decisions as plain `if/else`. But without structured evidence capture, the trace just said "chose branch A" with no *why*. Adding `decide()` with declarative rules — `{ when: { score: { gt: 700 } }, then: 'approved' }` — made the traces actually useful for explanation.
+
+## Try it
+
+The fastest way to understand FootPrint is to see it run:
+
+- **[Interactive Playground](https://footprintjs.github.io/footprint-playground/)** — 37+ samples, zero install, runs in your browser
+- **[Live LLM Demo](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool)** — watch Claude call a credit-decision flowchart as an MCP tool
+- **[GitHub](https://github.com/footprintjs/footPrint)** — MIT licensed, zero dependencies, npm provenance signed
+
+```bash
+npm install footprintjs        # the engine
+npm install agentfootprint     # the agent framework
+```
+
+We built the pattern we wished existed when our LLM lied to a user. If you're building systems where AI needs to explain decisions — fintech, healthcare, compliance, insurance — we think this is the right foundation.
+
+<Aside type="tip">
+Questions? Open an issue on [GitHub](https://github.com/footprintjs/footPrint/issues) or try the playground and let the code speak for itself.
+</Aside>

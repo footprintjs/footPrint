@@ -1,0 +1,217 @@
+---
+title: "Automated Decision Explainability: How Causal Traces Solve GDPR Article 22 and Audit Requirements"
+description: "Regulators require you to explain automated decisions. FootPrint generates causal traces from running code — structured, auditable, and tamper-evident."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The regulatory reality
+
+If your software makes automated decisions about people — loan approvals, insurance claims, hiring screens, fraud flags — regulators increasingly require you to explain *why*.
+
+**GDPR Article 22** gives EU citizens the right to not be subject to decisions based solely on automated processing, and the right to obtain "meaningful information about the logic involved." **CCPA** requires disclosure of the "logic involved in such decision-making." The **EU AI Act** mandates transparency and explainability for high-risk AI systems. **SOX** requires auditability of financial decision processes. **ECOA/FCRA** in the US require specific adverse action notices explaining credit decisions.
+
+The common thread: **you must be able to explain, after the fact, exactly why your system made a specific decision for a specific person.**
+
+Most teams solve this with one of two approaches, both flawed:
+
+**Approach 1: Post-hoc logging.** Scatter `console.log` or structured log statements throughout the code. After a decision, reconstruct the reasoning from log entries. Problem: logs are incomplete, disconnected, and require manual interpretation. Auditors can't verify that the logs faithfully represent the actual execution path.
+
+**Approach 2: LLM explanation.** Feed the code and context to an LLM and ask it to explain the decision. Problem: the LLM hallucinates causal connections. It generates plausible-sounding explanations that may not reflect what actually happened. An auditor can't trust it.
+
+## Causal traces: the structural solution
+
+FootPrintJS takes a different approach. Your business logic is structured as a flowchart — a graph of typed functions with transactional state. The runtime automatically captures a **causal trace** of every read, write, and decision during execution.
+
+This isn't logging you add manually. It's a structural property of the execution model. If the code reads a variable, the trace records it. If the code writes a variable, the trace records it. If the code makes a branching decision, the trace records the operator, the threshold, the actual value, and whether it passed or failed.
+
+```typescript
+import { flowChart, decide, narrative } from 'footprintjs';
+
+interface UnderwritingState {
+  applicantId: string;
+  creditScore: number;
+  dtiRatio: number;
+  employmentMonths: number;
+  riskTier: string;
+  riskFactors: string[];
+  decision: string;
+  adverseReasons: string[];
+}
+
+const underwriting = flowChart<UnderwritingState>('ReceiveApplication', async (scope) => {
+    scope.applicantId = 'APP-2026-1847';
+    scope.creditScore = 580;
+    scope.dtiRatio = 0.6;
+    scope.employmentMonths = 12;
+  }, 'receive')
+  .addFunction('AssessCredit', async (scope) => {
+    scope.riskFactors = [];
+    if (scope.creditScore < 620) scope.riskFactors.push('Below-average credit score');
+    if (scope.dtiRatio > 0.43) scope.riskFactors.push('DTI exceeds 43% threshold');
+    if (scope.employmentMonths < 24) scope.riskFactors.push('Employment tenure under 2 years');
+    scope.riskTier = scope.riskFactors.length >= 2 ? 'high' : 'standard';
+  }, 'assess')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { riskTier: { eq: 'high' } }, then: 'reject', label: 'High risk applicant' },
+    ], 'approve');
+  }, 'route', 'Route based on risk assessment')
+    .addFunctionBranch('reject', 'GenerateAdverseAction', async (scope) => {
+      scope.decision = 'REJECTED';
+      scope.adverseReasons = scope.riskFactors;
+    })
+    .addFunctionBranch('approve', 'Approve', async (scope) => {
+      scope.decision = 'APPROVED';
+    })
+    .setDefault('approve')
+    .end()
+  .build();
+
+const result = await underwriting.recorder(narrative()).run();
+```
+
+The runtime generates this trace automatically:
+
+```
+Stage 1: The process began with ReceiveApplication.
+  Step 1: Write applicantId = "APP-2026-1847"
+  Step 2: Write creditScore = 580
+  Step 3: Write dtiRatio = 0.6
+  Step 4: Write employmentMonths = 12
+Stage 2: Next, it moved on to AssessCredit.
+  Step 1: Write riskFactors = (0 items)
+  Step 2: Read creditScore = 580
+  Step 3: Write riskFactors = (1 items)
+  Step 4: Read dtiRatio = 0.6
+  Step 5: Write riskFactors = (2 items)
+  Step 6: Read employmentMonths = 12
+  Step 7: Write riskFactors = (3 items)
+  Step 8: Read riskFactors = (3 items)
+  Step 9: Write riskTier = "high"
+Stage 3: Next step: Route based on risk assessment.
+  Step 1: Read riskTier = "high"
+[Condition]: It evaluated "High risk applicant": riskTier "high" eq "high" ✓, and chose GenerateAdverseAction.
+Stage 4: Next, it moved on to GenerateAdverseAction.
+  Step 1: Write decision = "REJECTED"
+  Step 2: Read riskFactors = (3 items)
+  Step 3: Write adverseReasons = (3 items)
+```
+
+## What auditors see
+
+An auditor reviewing this trace can verify:
+
+1. **Data provenance.** What data was used? The trace shows exactly which fields were read at each stage. `creditScore = 580` was read at Stage 2, Step 2. Not inferred, not logged — captured by the runtime.
+
+2. **Decision logic.** Why was this branch chosen? The `[Condition]` entry shows the operator (`eq`), the actual value (`"high"`), the expected value (`"high"`), and the result (`✓`). The auditor can verify the rule without reading source code.
+
+3. **Causal chain.** The auditor backtracks: `decision = "REJECTED"` ← `riskTier = "high"` ← `riskFactors.length >= 2` ← `creditScore < 620` AND `dtiRatio > 0.43` AND `employmentMonths < 24`. Every link in the chain is in the trace.
+
+4. **Completeness.** Every read and write is captured. There are no hidden side effects, no unlogged decisions. The trace is a complete record of the execution.
+
+## Decision evidence with `decide()`
+
+The `decide()` function captures structured evidence for every rule evaluation:
+
+```typescript
+const result = decide(scope, [
+  { when: { creditScore: { gte: 700 }, dtiRatio: { lte: 0.35 } }, then: 'premium', label: 'Prime borrower' },
+  { when: { creditScore: { gte: 620 } }, then: 'standard', label: 'Standard borrower' },
+], 'subprime');
+```
+
+The evidence object includes:
+
+```json
+{
+  "chosenBranch": "subprime",
+  "chosenLabel": "Default",
+  "rules": [
+    {
+      "label": "Prime borrower",
+      "passed": false,
+      "conditions": [
+        { "field": "creditScore", "operator": "gte", "expected": 700, "actual": 580, "passed": false },
+        { "field": "dtiRatio", "operator": "lte", "expected": 0.35, "actual": 0.6, "passed": false }
+      ]
+    },
+    {
+      "label": "Standard borrower",
+      "passed": false,
+      "conditions": [
+        { "field": "creditScore", "operator": "gte", "expected": 620, "actual": 580, "passed": false }
+      ]
+    }
+  ]
+}
+```
+
+Every rule that was evaluated, whether it passed or failed, with the exact values compared. This is the structured evidence an ECOA adverse action notice needs.
+
+## Compliance properties
+
+FootPrintJS's execution model provides several properties that compliance teams care about:
+
+**Deterministic replay.** Given the same initial state, the flowchart produces the same trace. You can re-run a historical decision and verify the trace matches.
+
+**Transactional state.** State changes are atomic — committed per stage with copy-on-write semantics. There are no partial updates, no race conditions, no state corruption. Each stage sees a consistent snapshot.
+
+**Tamper-evident.** The trace is generated by the runtime, not by the application code. Application code cannot modify the trace without changing the execution model itself. The trace is a faithful record of what the runtime observed.
+
+**PII redaction.** Built-in `RedactionPolicy` for per-key or declarative redaction with audit trail. Redacted fields appear in the trace as `[REDACTED]` while maintaining the causal structure.
+
+```typescript
+const result = await chart
+  .recorder(narrative({ redactionPolicy: { keys: ['ssn', 'dateOfBirth'] } }))
+  .run();
+// Trace shows: Write ssn = [REDACTED], Read dateOfBirth = [REDACTED]
+// Causal chain is preserved. PII is not exposed.
+```
+
+**Time-travel debugging.** Snapshots capture the full state at each stage boundary. Compliance teams can inspect the exact state the system saw when it made a decision — not the state 5 minutes later after other processes modified it.
+
+## Real-world application
+
+Here's how teams use this in practice:
+
+**Loan underwriting.** The flowchart evaluates credit, DTI, employment, collateral. The trace generates ECOA-compliant adverse action reasons automatically. When a borrower appeals, the operations team pulls the trace — not a log file, not an LLM explanation — and sees exactly what happened.
+
+**Insurance claims.** The flowchart triages claims by severity, checks policy coverage, applies deductibles. The trace documents every coverage check, every exclusion evaluation. When a regulator audits, the trace is the evidence.
+
+**Fraud detection.** The flowchart evaluates risk signals: IP geolocation, velocity checks, device fingerprint. The trace documents which signals triggered the flag. When a legitimate transaction is blocked, support can explain exactly which rule fired and why.
+
+## Getting started
+
+```bash
+npm install footprintjs
+```
+
+```typescript
+import { flowChart, decide, narrative } from 'footprintjs';
+
+// Define your decision logic as a flowchart
+const chart = flowChart<YourState>('FirstStage', handler, 'id')
+  // ... add stages, decisions, branches
+  .build();
+
+// Run with narrative recording
+const result = await chart.recorder(narrative()).run();
+
+// result.narrative — human-readable causal trace
+// result.state — final state with all decisions
+```
+
+The trace is generated automatically. No logging code to write. No post-hoc reconstruction. No LLM hallucination.
+
+<Aside type="caution">
+FootPrintJS provides the technical infrastructure for decision explainability. It does not constitute legal advice. Consult with your legal and compliance teams to determine how causal traces fit into your specific regulatory obligations.
+</Aside>
+
+- **[Interactive Playground](https://footprintjs.github.io/footprint-playground/)** — try the loan underwriting demo
+- **[Documentation](https://footprintjs.github.io/footPrint/)** — full API reference
+- **[GitHub](https://github.com/footprintjs/footPrint)** — MIT licensed, zero dependencies, npm provenance

@@ -1,0 +1,209 @@
+---
+title: "Testing AI Agents for $0: The Adapter-Swap Pattern"
+description: "Write tests with mock(), deploy with anthropic(). Same code. Zero API calls. Full coverage. Here's how."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The $47 test suite
+
+We ran our agent test suite. Fifty-three tests. Each one called Claude with real prompts, real tools, real multi-turn conversations. Every test passed. The bill: **$47.12**.
+
+The next day, two tests failed. Same code, same prompts. Different responses — because LLMs are non-deterministic. We re-ran. They passed. We re-ran again. One failed. Another $14.
+
+This is the testing problem nobody talks about in the AI agent space: **your tests are expensive, slow, flaky, and non-deterministic.** Every run costs money. Every assertion is probabilistic. CI pipelines become unreliable. Developers stop writing tests because the feedback loop is broken.
+
+We fixed this with a pattern we call **adapter swapping**.
+
+## The pattern: mock() → anthropic()
+
+The idea is simple: your agent code doesn't know (or care) which LLM provider is behind it. In tests, you use `mock()`. In production, you use `anthropic()` or `openai()`. The agent code is identical.
+
+```typescript
+import { Agent, defineTool, mock } from 'agentfootprint';
+import { createProvider, anthropic } from 'agentfootprint';
+
+// The tool — same in tests and production
+const calculator = defineTool({
+  id: 'calculator',
+  description: 'Evaluate a math expression',
+  inputSchema: {
+    type: 'object',
+    properties: { expression: { type: 'string' } },
+    required: ['expression'],
+  },
+  handler: async (input) => ({
+    content: String(eval(input.expression)),
+  }),
+});
+
+// ── Test code ────────────────────────────────────────
+const testProvider = mock([
+  {
+    content: 'Let me calculate that.',
+    toolCalls: [{
+      id: 'tc1',
+      name: 'calculator',
+      arguments: { expression: '42 * 17' },
+    }],
+  },
+  { content: 'The answer is 714.' },
+]);
+
+// ── Production code ──────────────────────────────────
+const prodProvider = createProvider(anthropic('claude-sonnet-4-20250514'));
+
+// ── Agent code — IDENTICAL in both cases ─────────────
+function buildAgent(provider) {
+  return Agent.create({ provider })
+    .system('You are a helpful calculator assistant.')
+    .tool(calculator)
+    .maxIterations(5)
+    .build();
+}
+
+// Test: $0, instant, deterministic
+const testAgent = buildAgent(testProvider);
+const result = await testAgent.run('What is 42 times 17?');
+assert(result.content.includes('714'));
+
+// Production: real LLM, real cost
+const prodAgent = buildAgent(prodProvider);
+```
+
+The mock provider returns exactly the responses you specify. Tool calls happen deterministically. The agent's ReAct loop executes the same way — calling tools, processing results, generating the next turn — but without any API calls.
+
+## What you can test for $0
+
+This isn't just "mock the HTTP call." The mock adapter participates in the full agent lifecycle:
+
+**Tool call orchestration.** The mock returns a tool call → the agent executes the real tool handler → the result goes back to the mock → the mock returns the next response. Your tool handlers run for real. Your error handling runs for real. Only the LLM is mocked.
+
+```typescript
+const provider = mock([
+  // Turn 1: LLM decides to search
+  {
+    content: 'Searching for information...',
+    toolCalls: [{ id: 'tc1', name: 'search', arguments: { query: 'AI trends' } }],
+  },
+  // Turn 2: LLM processes search results and responds
+  { content: 'Based on my research, here are the top AI trends...' },
+]);
+
+const agent = Agent.create({ provider })
+  .tool(searchTool)  // Real tool — actually executes
+  .build();
+
+const result = await agent.run('What are the AI trends?');
+// searchTool.handler() was called with { query: 'AI trends' }
+// The full ReAct loop ran — mock → tool → mock → response
+```
+
+**Multi-turn conversations.** Each entry in the mock array is one LLM turn. The agent processes them in sequence, exactly like it would with a real provider.
+
+**Recorder verification.** Attach `TokenRecorder`, `CostRecorder`, `TurnRecorder` to mock runs. Verify that your observability pipeline captures the right data.
+
+```typescript
+const tokens = new TokenRecorder();
+const turns = new TurnRecorder();
+
+const agent = Agent.create({ provider: mock([...]) })
+  .recorder(tokens)
+  .recorder(turns)
+  .build();
+
+await agent.run('Hello');
+
+assert(turns.getCompletedCount() === 2); // Two LLM turns
+assert(tokens.getStats().totalCalls === 2);
+```
+
+**FlowChart pipelines.** Mock individual agents within a pipeline. Test the orchestration logic without any API calls.
+
+```typescript
+const pipeline = FlowChart.create()
+  .agent('research', 'Research phase', mockResearchAgent)
+  .agent('write', 'Writing phase', mockWriterAgent)
+  .build();
+
+const result = await pipeline.run('Write about AI safety');
+// Both agents ran with mocks — pipeline orchestration tested for $0
+```
+
+**Error handling.** Mock providers can simulate errors to test your resilience patterns:
+
+```typescript
+import { withRetry, withFallback } from 'agentfootprint';
+
+// Simulate API failure on first call, success on retry
+const flakyProvider = mock([
+  { error: { code: 'rate_limit', message: 'Too many requests' } },
+  { content: 'Success on retry!' },
+]);
+
+const resilientAgent = withRetry(
+  Agent.create({ provider: flakyProvider }).build(),
+  { maxRetries: 3, backoffMs: 100 },
+);
+
+const result = await resilientAgent.run('Hello');
+assert(result.content === 'Success on retry!');
+```
+
+## The concept ladder makes this natural
+
+agentfootprint has five concepts that compose together: **LLMCall → Agent → RAG → FlowChart → Swarm**. Each one accepts a provider. Every one works with `mock()`.
+
+| Concept | What it adds | Testing pattern |
+|---------|-------------|-----------------|
+| **LLMCall** | Single invocation | Mock one response |
+| **Agent** | Tool use loop | Mock response sequence with tool calls |
+| **RAG** | Retrieval + generation | Mock retriever + LLM response |
+| **FlowChart** | Sequential pipeline | Mock each agent in the pipeline |
+| **Swarm** | Dynamic routing | Mock router decisions + specialist responses |
+
+You start simple (test an LLMCall), compose up (test an Agent with tools), and eventually test full Swarm orchestrations — all at $0.
+
+## When you still need real LLM tests
+
+Mock tests verify your orchestration logic, tool integrations, and error handling. They don't verify prompt quality or response appropriateness. For that, you still need real LLM calls — but far fewer.
+
+Our recommended split:
+
+- **90% mock tests** — orchestration, tools, error handling, recorders, pipelines
+- **10% real LLM tests** — prompt quality, response format, edge cases
+
+The mock tests run in CI on every commit (fast, free, deterministic). The real LLM tests run nightly or before release (slow, costly, but necessary).
+
+## Try it
+
+```bash
+npm install agentfootprint
+```
+
+```typescript
+import { Agent, mock, defineTool } from 'agentfootprint';
+
+const agent = Agent.create({
+  provider: mock([{ content: 'Hello! How can I help?' }]),
+})
+  .system('You are a helpful assistant.')
+  .build();
+
+const result = await agent.run('Hi there');
+console.log(result.content); // "Hello! How can I help?"
+```
+
+Zero API calls. Zero cost. Deterministic. Your CI pipeline will thank you.
+
+<Aside type="tip">
+**Try it in the browser** — the [agent playground](https://footprintjs.github.io/agent-playground/) runs all 23 samples with mock adapters by default. No API key needed.
+</Aside>
+
+- **[Agent Playground](https://footprintjs.github.io/agent-playground/)** — 23 interactive samples
+- **[GitHub — agentfootprint](https://github.com/footprintjs/footPrint)** — MIT licensed
+- **[GitHub — footprintjs](https://github.com/footprintjs/footPrint)** — the engine underneath

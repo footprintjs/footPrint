@@ -179,6 +179,16 @@ export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 /** @category Recorder */
 export { CompositeRecorder } from './lib/recorder/index.js';
 
+// ============================================================================
+// Pause/Resume — Serializable checkpoints for long-running or human-in-the-loop flows
+// ============================================================================
+
+/** @category Pause/Resume */
+export { isPauseResult, isPauseSignal, PauseSignal } from './lib/pause/index.js';
+
+/** @category Pause/Resume */
+export type { FlowchartCheckpoint, PausableHandler, PauseResult } from './lib/pause/index.js';
+
 /** @category Recorder */
 export type { CompositeSnapshot } from './lib/recorder/index.js';
 

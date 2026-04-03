@@ -1,0 +1,229 @@
+---
+title: "Auto-Generate MCP Tools from Your Backend Code in One Line"
+description: "Stop hand-writing tool descriptions. Let your flowchart graph generate the MCP tool name, description, and input schema automatically."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The tool description problem
+
+Every MCP tool needs three things: a **name**, a **description**, and an **input schema**. If you're building tools by hand, you're writing and maintaining all three separately from the code that actually runs.
+
+```typescript
+// You write this by hand...
+const tool = {
+  name: 'assess_credit_risk',
+  description: 'Evaluates credit risk by checking credit score, DTI ratio, and employment status. Returns risk tier and decision.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      creditScore: { type: 'number' },
+      dtiRatio: { type: 'number' },
+      employmentYears: { type: 'number' },
+    },
+    required: ['creditScore', 'dtiRatio', 'employmentYears'],
+  },
+};
+
+// ...and separately maintain the code that does the work
+function assessCreditRisk(input) {
+  // 200 lines of business logic
+}
+```
+
+The description drifts from the code. You add a new stage but forget to update the tool description. You rename a field but the schema still says the old name. The LLM gets confused because the tool it's calling doesn't match what it was told.
+
+FootPrintJS solves this with **self-describing graphs**. The flowchart *is* the tool. The name, description, and schema are generated from the graph structure — always in sync with the code that runs.
+
+## One line: `.toMCPTool()`
+
+```typescript
+import { flowChart, decide, narrative } from 'footprintjs';
+
+interface CreditState {
+  creditScore: number;
+  dtiRatio: number;
+  employmentYears: number;
+  riskTier: string;
+  decision: string;
+  reasons: string[];
+}
+
+const chart = flowChart<CreditState>('ReceiveApplication', async (scope) => {
+    // Input is already on scope from the caller
+  }, 'receive')
+  .addFunction('CheckCredit', async (scope) => {
+    scope.riskTier = scope.creditScore >= 700 ? 'low' :
+                     scope.creditScore >= 620 ? 'medium' : 'high';
+  }, 'check-credit')
+  .addFunction('CheckDTI', async (scope) => {
+    if (scope.dtiRatio > 0.43) {
+      scope.reasons = [...(scope.reasons || []), 'DTI exceeds 43%'];
+    }
+  }, 'check-dti')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { riskTier: { eq: 'high' } }, then: 'reject', label: 'High risk' },
+    ], 'approve');
+  }, 'route', 'Route based on overall risk assessment')
+    .addFunctionBranch('reject', 'Reject', async (scope) => {
+      scope.decision = 'REJECTED';
+    })
+    .addFunctionBranch('approve', 'Approve', async (scope) => {
+      scope.decision = 'APPROVED';
+    })
+    .setDefault('approve')
+    .end()
+  .build();
+
+// One line — tool descriptor generated from the graph
+const tool = chart.toMCPTool();
+```
+
+`tool` now contains:
+
+```json
+{
+  "name": "receivecreditapplication",
+  "description": "1. ReceiveApplication\n2. CheckCredit\n3. CheckDTI\n4. Route based on overall risk assessment\n   → Reject\n   → Approve",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "creditScore": { "type": "number" },
+      "dtiRatio": { "type": "number" },
+      "employmentYears": { "type": "number" }
+    }
+  }
+}
+```
+
+The description is auto-generated from the graph stages. The input schema comes from the contract (or can be inferred). If you add a new stage to the flowchart, the tool description updates automatically.
+
+## Register with any MCP server
+
+The output of `.toMCPTool()` is a standard MCP tool descriptor. Register it with any MCP server implementation:
+
+```typescript
+// With the Anthropic SDK directly
+const anthropicTool = {
+  name: tool.name,
+  description: tool.description,
+  input_schema: tool.inputSchema,
+};
+
+// Pass to Claude
+const response = await anthropic.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: [anthropicTool],
+  messages: [{ role: 'user', content: 'Assess credit risk for score 580, DTI 0.6, 1yr employment' }],
+});
+```
+
+When Claude calls the tool, execute the flowchart and return the result **with the causal trace**:
+
+```typescript
+// Handle the tool call
+const toolInput = response.content[0].input; // { creditScore: 580, dtiRatio: 0.6, employmentYears: 1 }
+
+const result = await chart
+  .initialState(toolInput)
+  .recorder(narrative())
+  .run();
+
+// Return to Claude: the decision + why
+const toolResult = {
+  decision: result.state.decision,       // "REJECTED"
+  reasons: result.state.reasons,          // ["DTI exceeds 43%"]
+  trace: result.narrative.join('\n'),     // Full causal trace
+};
+```
+
+Claude now has the structured trace. When the user asks "why was I rejected?", Claude reads the trace and gives a precise, non-hallucinated explanation.
+
+## Also: `.toOpenAPI()`
+
+Same graph, different output format. Generate an OpenAPI 3.1 spec for REST API documentation:
+
+```typescript
+const spec = chart.toOpenAPI({
+  title: 'Credit Risk Assessment',
+  version: '1.0.0',
+  description: 'Automated credit risk evaluation pipeline',
+});
+
+// spec is a full OpenAPI 3.1 document
+// Import into Swagger UI, Postman, or any API documentation tool
+```
+
+One flowchart, two output formats — MCP for AI agents, OpenAPI for humans and API consumers.
+
+## With agentfootprint: full agent integration
+
+If you're using agentfootprint (the agent framework), the integration is even tighter:
+
+```typescript
+import { Agent, createProvider, anthropic, defineTool } from 'agentfootprint';
+
+// Turn the flowchart into an agent tool
+const creditTool = defineTool({
+  id: tool.name,
+  description: tool.description,
+  inputSchema: tool.inputSchema,
+  handler: async (input) => {
+    const result = await chart
+      .initialState(input)
+      .recorder(narrative())
+      .run();
+    return {
+      content: JSON.stringify({
+        decision: result.state.decision,
+        trace: result.narrative,
+      }),
+    };
+  },
+});
+
+// Build an agent that uses it
+const agent = Agent.create({
+  provider: createProvider(anthropic('claude-sonnet-4-20250514')),
+})
+  .system('You are a loan officer assistant. Use the credit assessment tool to evaluate applications and explain decisions clearly.')
+  .tool(creditTool)
+  .build();
+
+const response = await agent.run(
+  'Evaluate this application: credit score 580, DTI 60%, 1 year employment'
+);
+// Agent calls the tool, gets the trace, explains the decision
+```
+
+## Why this matters
+
+**For AI engineers:** Your tools stay in sync with your code. Add a stage, the tool description updates. Rename a field, the schema updates. No drift.
+
+**For compliance teams:** The causal trace is auto-generated, not hand-written. It's a faithful record of what the code actually did — auditable, reproducible, tamper-evident.
+
+**For product teams:** LLMs give better explanations because they have structured traces instead of scattered logs. User trust increases because the explanations are accurate.
+
+## Try the live demo
+
+We have a live demo where Claude calls a credit-decision flowchart as an MCP tool. Enter your API key, ask a question, and watch the tool call happen in real time:
+
+**[Live MCP Demo](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool)** — see `.toMCPTool()` in action
+
+<Aside type="note">
+The demo runs in your browser. Your API key is used client-side only and never stored.
+</Aside>
+
+```bash
+npm install footprintjs        # the engine
+npm install agentfootprint     # the agent framework (optional)
+```
+
+- **[Interactive Playground](https://footprintjs.github.io/footprint-playground/)** — 37+ samples
+- **[Documentation](https://footprintjs.github.io/footPrint/)** — full API reference
+- **[GitHub](https://github.com/footprintjs/footPrint)** — MIT licensed, zero dependencies
