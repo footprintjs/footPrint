@@ -370,6 +370,8 @@ export interface SerializedPipelineNode {
   isParallelChild?: boolean;
   parallelGroupId?: string;
   isDynamic?: boolean;
+  /** When true, this stage can pause execution (PausableHandler pattern). */
+  isPausable?: boolean;
 }
 
 // ---------------------------------------------------------------------------

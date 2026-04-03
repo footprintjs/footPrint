@@ -87,6 +87,13 @@ export type StageNode<TOut = any, TScope = any> = {
   /** When true, parallel children use fail-fast semantics (reject on first error) */
   failFast?: boolean;
 
+  // ── Pause/Resume ──
+
+  /** When true, this stage can pause execution (PausableHandler pattern). */
+  isPausable?: boolean;
+  /** Resume function — called instead of fn when resuming a paused stage. */
+  resumeFn?: StageFunction<TOut, TScope>;
+
   /**
    * True if this node is a back-edge reference created by loopTo() — not an executable stage.
    * Serialization equivalent: `SerializedPipelineStructure.isLoopReference` (different name

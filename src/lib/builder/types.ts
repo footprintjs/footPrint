@@ -78,6 +78,8 @@ export interface SerializedPipelineStructure {
   isLazy?: boolean;
   /** True when this node is a back-edge reference created by loopTo() — not an executable stage. */
   isLoopReference?: boolean;
+  /** When true, this stage can pause execution (PausableHandler pattern). */
+  isPausable?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

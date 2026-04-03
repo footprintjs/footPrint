@@ -13,6 +13,7 @@
  */
 
 import type { ScopeFactory } from '../engine/types.js';
+import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
 import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';
@@ -650,6 +651,59 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       type: 'streaming',
       isStreaming: true,
       streamId: streamId ?? name,
+    };
+    if (description) spec.description = description;
+    spec = this._applyExtractorToNode(spec);
+
+    cur.next = node;
+    curSpec.next = spec;
+    this._cursor = node;
+    this._cursorSpec = spec;
+    this._knownStageIds.add(id);
+
+    this._appendDescriptionLine(name, description);
+    return this;
+  }
+
+  /**
+   * Add a pausable stage — can pause execution and resume later with input.
+   *
+   * The handler has two phases:
+   * - `execute`: runs first time. Return `{ pause: true }` to pause.
+   * - `resume`: runs when the flowchart is resumed with input.
+   *
+   * @example
+   * ```typescript
+   * .addPausableFunction('ApproveOrder', {
+   *   execute: async (scope) => {
+   *     scope.orderId = '123';
+   *     return { pause: true, data: { question: 'Approve?' } };
+   *   },
+   *   resume: async (scope, input) => {
+   *     scope.approved = input.approved;
+   *   },
+   * }, 'approve-order', 'Manager approval gate')
+   * ```
+   */
+  addPausableFunction(name: string, handler: PausableHandler<TScope>, id: string, description?: string): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    const node: StageNode<TOut, TScope> = {
+      name,
+      id,
+      fn: handler.execute as StageFunction<TOut, TScope>,
+      isPausable: true,
+      resumeFn: handler.resume as StageFunction<TOut, TScope>,
+    };
+    if (description) node.description = description;
+    this._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
+
+    let spec: SerializedPipelineStructure = {
+      name,
+      id,
+      type: 'stage',
+      isPausable: true,
     };
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
