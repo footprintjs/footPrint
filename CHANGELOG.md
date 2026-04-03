@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.1]
+
+### Documentation
+
+- **Blog section** — starlight-blog plugin with card grid, header nav (Docs/Blog/Playground), reading time, RSS feed, gradient background.
+- **Blog post:** "Pause/Resume: Human-in-the-Loop for Backend Pipelines" with playground link.
+- **CLAUDE.md** — documented pause/resume API for AI coding agents.
+
 ## [4.3.0]
 
 ### Added
