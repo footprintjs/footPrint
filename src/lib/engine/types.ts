@@ -60,6 +60,15 @@ export type StageFunction<TOut = any, TScope = any> = (
   streamCallback?: StreamCallback,
 ) => Promise<TOut | void> | TOut | void;
 
+/**
+ * Stage function for pausable stages — return value is the pause data (any type).
+ * Return non-void to pause, return void to continue normally.
+ */
+export type PausableStageFunction<TScope = any> = (
+  scope: TScope,
+  breakPipeline: () => void,
+) => Promise<unknown> | unknown;
+
 /** Factory that creates a scope instance for each stage. */
 export type ScopeFactory<TScope = any> = (
   context: StageContext,

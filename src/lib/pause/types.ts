@@ -169,31 +169,28 @@ export interface FlowchartCheckpoint {
  * await executor.resume(checkpoint, { approved: true, approver: 'Jane' });
  * ```
  */
-export interface PausableHandler<TScope = any, TInput = unknown> {
+export interface PausableHandler<TScope = any, TInput = unknown, TPauseData = unknown> {
   /**
    * First-run phase. Return data to pause, or void/undefined to continue normally.
    *
    * Any non-void return value becomes the `pauseData` in the checkpoint.
-   * The library detects the return and pauses automatically — no need to
-   * call `pause()` or construct `{ pause: true }`.
+   * The consumer defines the `TPauseData` type — the FE uses it to render
+   * the right UI (form fields, approval buttons, etc.).
    *
    * @example
    * ```typescript
-   * execute: async (scope) => {
-   *   scope.orderId = '123';
-   *   return { question: `Approve order ${scope.orderId}?` }; // ← pauses
-   * }
-   *
-   * // Conditional pause
-   * execute: async (scope) => {
-   *   if (scope.amount > 500) {
-   *     return { reason: 'High-value order needs approval' }; // ← pauses
-   *   }
-   *   // void return → no pause, continues normally
-   * }
+   * // TPauseData = { question: string; riskLevel: string }
+   * const handler: PausableHandler<MyState, { approved: boolean }, { question: string; riskLevel: string }> = {
+   *   execute: async (scope) => {
+   *     return { question: `Approve order ${scope.orderId}?`, riskLevel: 'high' };
+   *   },
+   *   resume: async (scope, input) => {
+   *     scope.approved = input.approved;
+   *   },
+   * };
    * ```
    */
-  execute: (scope: TScope) => Promise<unknown> | unknown;
+  execute: (scope: TScope) => Promise<TPauseData | void> | TPauseData | void;
   /**
    * Resume phase. Called with the resume input when execution continues.
    *
