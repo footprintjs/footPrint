@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0]
+
+### Added
+
+- **Pause/Resume — human-in-the-loop for backend pipelines.** Pausable stages stop execution and create a JSON-safe checkpoint. Resume hours later, any server, with the human's response.
+  - `addPausableFunction(name, { execute, resume }, id)` — builder method for pausable stages
+  - `executor.isPaused()` / `getCheckpoint()` / `resume(checkpoint, input)` — pause lifecycle
+  - `PausableHandler<TScope, TInput>` type — `execute` returns data to pause, void to continue
+  - `FlowchartCheckpoint` — JSON-serializable checkpoint (store in Redis, Postgres, localStorage)
+  - `ExecutorResult = TraversalResult | PausedResult` — proper union return type (no `as any` casts)
+  - `ResumeFn<TScope>` — dedicated type for resume functions on StageNode
+- **Pause/resume events on both observer systems:**
+  - `FlowRecorder.onPause` / `onResume` — control flow events for narrative
+  - `Recorder.onPause` / `onResume` — scope events for MetricRecorder (`pauseCount`, `totalPauses`) and DebugRecorder (pause/resume entries, logged even in minimal mode)
+- **`pause/` library** (`src/lib/pause/`) — PauseSignal, FlowchartCheckpoint, PausableHandler, type guards. Internal to engine — consumers never import PauseSignal directly.
+- **Blog post:** "Pause/Resume: Human-in-the-Loop for Backend Pipelines" in docs site.
+
+### Changed
+
+- **`resume()` reuses ExecutionRuntime** — execution tree, narrative, and metrics are continuous across pause/resume. No merge or graft needed.
+- **`preserveSnapshotRoot()`** — `getSnapshot()` always returns the full execution tree from the original root, even after resume changes the traversal starting point.
+- **Checkpoint validation** — `resume()` validates `sharedState` (plain object), `pausedStageId` (non-empty string), `subflowPath` (string array) before processing. Protects against tampered checkpoints from external storage.
+- **PauseSignal passthrough** — 5 catch sites (FlowchartTraverser, SubflowExecutor, DeciderHandler, SelectorHandler, ChildrenExecutor) detect PauseSignal and re-throw without error logging.
+
 ## [4.2.0]
 
 ### Added
