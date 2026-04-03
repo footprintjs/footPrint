@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightBlog from 'starlight-blog';
 
 export default defineConfig({
   // Must match GitHub repository name. Update base + site if repo is renamed
@@ -15,6 +16,18 @@ export default defineConfig({
     starlight({
       title: 'footprintjs',
       description: 'The flowchart pattern for backend code. Self-explainable systems that AI can reason about.',
+      plugins: [
+        starlightBlog({
+          title: 'Blog',
+          authors: {
+            sanjay: {
+              name: 'Sanjay Krishna Anbalagan',
+              title: 'Creator of footprintjs',
+              url: 'https://github.com/sanjay1909',
+            },
+          },
+        }),
+      ],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/footprintjs/footPrint' },
         { icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/footprintjs' },
@@ -31,16 +44,6 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        {
-          label: 'Blog',
-          items: [
-            { label: 'Pause/Resume: Human-in-the-Loop', slug: 'blog/pause-resume', badge: { text: 'New', variant: 'success' } },
-            { label: 'Why we built FootPrint', slug: 'blog/why-we-built-footprint' },
-            { label: 'Testing AI agents for $0', slug: 'blog/testing-agents-for-zero' },
-            { label: 'Auto-generate MCP tools', slug: 'blog/mcp-tool-generation' },
-            { label: 'Explainability for compliance', slug: 'blog/explainability-compliance' },
-          ],
-        },
         {
           label: 'Getting Started',
           items: [

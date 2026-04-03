@@ -45,6 +45,33 @@
   padding: 0.2rem 0.6rem;
 }
 
+/* ── Blog cards ────────────────────────────────────────────────────────── */
+article.preview {
+  background: var(--sl-color-bg-nav);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+article.preview:hover {
+  border-color: var(--sl-color-accent);
+  box-shadow: 0 4px 20px rgba(124, 108, 240, 0.12);
+}
+
+article.preview h2 {
+  font-size: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+article.preview h2 a {
+  color: var(--sl-color-white);
+}
+
+:root[data-theme='light'] article.preview h2 a {
+  color: var(--sl-color-text);
+}
+
 /* ── API signature blocks (used in api/ MDX pages) ───────────────────────── */
 .api-sig {
   background: var(--sl-color-bg-inline-code);
