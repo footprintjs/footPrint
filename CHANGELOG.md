@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0]
+
+### Added
+
+- **ArrayMergeMode** — `SubflowMountOptions.arrayMerge` controls how array values from `outputMapper` merge into parent scope. `ArrayMergeMode.Concat` (default, existing behavior) appends. `ArrayMergeMode.Replace` overwrites. Essential for Dynamic loops where subflows recompute full arrays each iteration.
+- **CombinedNarrativeEntry.key** — exposes the scope key (`string`) on narrative step entries. Enables structured data extraction (e.g., grounding analysis) without matching on rendered text strings.
+
 ## [4.3.1]
 
 ### Documentation

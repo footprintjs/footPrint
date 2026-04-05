@@ -31,6 +31,10 @@ export interface CombinedNarrativeEntry {
   stepNumber?: number;
   /** Subflow ID when this entry was generated inside a subflow. Undefined for root-level. */
   subflowId?: string;
+  /** Scope key that was read or written. Only present on 'step' entries.
+   *  Use this for structured data extraction (e.g., grounding analysis)
+   *  instead of matching on rendered text strings. */
+  key?: string;
   /** Raw value from the scope event — available for programmatic access and custom formatting.
    *  Only present on 'step' entries (read/write ops). This is a live reference, not a clone.
    *  When using ScopeFacade, redacted keys will have value '[REDACTED]' (sanitized upstream

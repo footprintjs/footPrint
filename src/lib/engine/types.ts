@@ -94,29 +94,50 @@ export interface StreamHandlers {
 // Subflow
 // ---------------------------------------------------------------------------
 
+/**
+ * Controls how array values from outputMapper are merged into parent scope.
+ */
+export enum ArrayMergeMode {
+  /** Append subflow output to existing parent array: [...existing, ...value]. Default. */
+  Concat = 'concat',
+  /** Overwrite parent array with subflow output. Use for Dynamic loops. */
+  Replace = 'replace',
+}
+
 export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
   inputMapper?: (parentScope: TParentScope) => TSubflowInput;
   /**
    * Maps subflow output back into parent scope.
    *
-   * **Array values are concatenated, not replaced.** `applyOutputMapping` uses
-   * `[...existing, ...value]` for arrays. Return only the **delta** (new items)
-   * for array keys, or the parent's existing array items will be duplicated.
-   * Scalar values are replaced normally.
+   * **Array merge behavior** is controlled by `arrayMerge`:
+   * - `'concat'` (default): `[...existing, ...value]` — return only **delta** items
+   * - `'replace'`: overwrites the parent value — return the full array
+   *
+   * Scalar values are always replaced regardless of `arrayMerge`.
    *
    * @example
    * ```typescript
-   * // WRONG — returns full array, parent concats → duplicates
-   * outputMapper: (sf) => ({ messages: sf.allMessages })
-   *
-   * // RIGHT — returns only new items (delta), concat appends correctly
+   * // Delta mode (default) — return only new items, concat appends
    * outputMapper: (sf) => ({ messages: sf.newMessages })
    *
-   * // Scalars are fine — replaced, not concatenated
+   * // Replace mode — return full array, parent value is overwritten
+   * // Useful in Dynamic loops where the subflow recomputes the full value each iteration
+   * outputMapper: (sf) => ({ toolDescriptions: sf.toolDescriptions }),
+   * arrayMerge: ArrayMergeMode.Replace,
+   *
+   * // Scalars are fine in both modes — always replaced
    * outputMapper: (sf) => ({ status: sf.result, count: sf.total })
    * ```
    */
   outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
+  /**
+   * Controls how array values from outputMapper are merged into parent scope.
+   * Applies only to top-level array keys. Nested arrays inside objects
+   * always use append (appendToArray) regardless of this setting.
+   *
+   * @default ArrayMergeMode.Concat
+   */
+  arrayMerge?: ArrayMergeMode;
 }
 
 export interface SubflowResult {

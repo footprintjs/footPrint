@@ -27,6 +27,7 @@ export type {
   StreamTokenHandler,
   SubflowMountOptions,
 } from '../engine/types.js';
+export { ArrayMergeMode } from '../engine/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Aliases

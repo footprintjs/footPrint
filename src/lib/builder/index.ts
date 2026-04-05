@@ -34,3 +34,4 @@ export type {
   SubflowRef,
   TraversalExtractor,
 } from './types.js';
+export { ArrayMergeMode } from './types.js';

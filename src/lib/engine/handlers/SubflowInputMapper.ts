@@ -126,11 +126,15 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
         }
       }
     } else if (Array.isArray(value)) {
-      const existing = parentContext.getGlobal(key);
-      if (Array.isArray(existing)) {
-        parentContext.setGlobal(key, [...existing, ...value]);
-      } else {
+      if (options?.arrayMerge === 'replace') {
         parentContext.setGlobal(key, value);
+      } else {
+        const existing = parentContext.getGlobal(key);
+        if (Array.isArray(existing)) {
+          parentContext.setGlobal(key, [...existing, ...value]);
+        } else {
+          parentContext.setGlobal(key, value);
+        }
       }
     } else {
       parentContext.setGlobal(key, value);

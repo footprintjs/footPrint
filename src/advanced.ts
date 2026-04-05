@@ -70,7 +70,7 @@ export type {
   SubflowMountOptions,
   SubflowRef,
 } from './lib/builder/index.js';
-export { DeciderList, SelectorFnList, specToStageNode } from './lib/builder/index.js';
+export { ArrayMergeMode, DeciderList, SelectorFnList, specToStageNode } from './lib/builder/index.js';
 export { createTypedScopeFactory } from './lib/builder/typedFlowChart.js';
 
 // ============================================================================

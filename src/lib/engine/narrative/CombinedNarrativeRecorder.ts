@@ -452,6 +452,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
         stageId,
         stepNumber: op.stepNumber,
         subflowId,
+        key: op.key,
         rawValue: op.rawValue,
       });
     }

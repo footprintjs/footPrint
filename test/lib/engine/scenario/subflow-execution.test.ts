@@ -208,4 +208,66 @@ describe('Scenario: Subflow Execution', () => {
     expect(sfResult!.treeContext.stageContexts).toBeDefined();
     expect(sfResult!.treeContext.history).toBeDefined();
   });
+
+  it('arrayMerge: replace overwrites parent array instead of concatenating', async () => {
+    const { ArrayMergeMode } = await import('../../../../src/lib/builder/types');
+
+    const subChart = flowChart(
+      'sub-stage',
+      (scope: any) => {
+        scope.items = ['new-a', 'new-b'];
+      },
+      'sub-id',
+    ).build();
+
+    const main = flowChart(
+      'seed',
+      (scope: any) => {
+        scope.items = ['old-1', 'old-2', 'old-3'];
+      },
+      'seed-id',
+    )
+      .addSubFlowChartNext('sf', subChart, 'Sub', {
+        inputMapper: () => ({}),
+        outputMapper: (sf: any) => ({ items: sf.items }),
+        arrayMerge: ArrayMergeMode.Replace,
+      })
+      .build();
+
+    const executor = new FlowChartExecutor(main);
+    await executor.run();
+    const state = executor.getSnapshot()?.sharedState ?? {};
+    // Replace mode: parent's [old-1, old-2, old-3] overwritten by [new-a, new-b]
+    expect(state.items).toEqual(['new-a', 'new-b']);
+  });
+
+  it('arrayMerge: default (concat) appends subflow array to parent array', async () => {
+    const subChart = flowChart(
+      'sub-stage',
+      (scope: any) => {
+        scope.items = ['new-a'];
+      },
+      'sub-id',
+    ).build();
+
+    const main = flowChart(
+      'seed',
+      (scope: any) => {
+        scope.items = ['old-1'];
+      },
+      'seed-id',
+    )
+      .addSubFlowChartNext('sf', subChart, 'Sub', {
+        inputMapper: () => ({}),
+        outputMapper: (sf: any) => ({ items: sf.items }),
+        // No arrayMerge — default is concat
+      })
+      .build();
+
+    const executor = new FlowChartExecutor(main);
+    await executor.run();
+    const state = executor.getSnapshot()?.sharedState ?? {};
+    // Concat mode (default): [old-1] + [new-a] = [old-1, new-a]
+    expect(state.items).toEqual(['old-1', 'new-a']);
+  });
 });
