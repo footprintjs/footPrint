@@ -267,3 +267,59 @@ describe('addPausableFunction — security', () => {
     expect(json).toContain('"isPausable":true');
   });
 });
+
+// ── Pausable Root Stage ───────────────────────────────────────
+
+describe('flowChart() with PausableHandler as root stage', () => {
+  it('creates a single-stage pausable flowchart', () => {
+    const handler: PausableHandler<any> = {
+      execute: async (scope) => {
+        scope.value = 'executed';
+        return { question: 'Continue?' };
+      },
+      resume: async (scope, input: { answer: string }) => {
+        scope.value = input.answer;
+      },
+    };
+
+    const chart = flowChart('PausableRoot', handler, 'pausable-root').build();
+    expect(chart.root.isPausable).toBe(true);
+    expect(chart.root.resumeFn).toBeDefined();
+  });
+
+  it('spec includes isPausable for root stage', () => {
+    const handler: PausableHandler<any> = {
+      execute: async () => ({ question: 'Approve?' }),
+      resume: async () => {},
+    };
+
+    const builder = flowChart('Gate', handler, 'gate');
+    const spec = builder.toSpec();
+    expect(JSON.stringify(spec)).toContain('"isPausable":true');
+  });
+
+  it('pausable root can be chained with addFunction', () => {
+    const handler: PausableHandler<any> = {
+      execute: async (scope) => {
+        scope.value = 'paused';
+        return { question: 'Approve?' };
+      },
+      resume: async (scope, input: { ok: boolean }) => {
+        scope.approved = input.ok;
+      },
+    };
+
+    const chart = flowChart('Gate', handler, 'gate')
+      .addFunction(
+        'Process',
+        (scope: any) => {
+          scope.result = scope.approved ? 'approved' : 'denied';
+        },
+        'process',
+      )
+      .build();
+
+    expect(chart.root.isPausable).toBe(true);
+    expect(chart.stageMap.has('process')).toBe(true);
+  });
+});

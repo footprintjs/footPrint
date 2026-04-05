@@ -152,7 +152,11 @@ const handler: PausableHandler<MyState> = {
   },
 };
 
-const chart = flowChart<MyState>('Seed', seedFn, 'seed')
+// Pausable root stage (single-stage subflows):
+const chart = flowChart<MyState>('Approve', handler, 'approve').build();
+
+// Or chained after other stages:
+const chart2 = flowChart<MyState>('Seed', seedFn, 'seed')
   .addPausableFunction('Approve', handler, 'approve')
   .addFunction('Process', processFn, 'process')
   .build();
@@ -224,7 +228,7 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - Don't use `getArgs()` for tracked data — use typed scope properties
 - Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
 - Don't manually create `CombinedNarrativeRecorder` — `executor.recorder(narrative())` handles it
-- Don't return full arrays from `outputMapper` — `applyOutputMapping` **concatenates** arrays (`[...parent, ...subflow]`). Return only the **delta** (new items), not the full array, or you'll get duplicates. Scalars are replaced normally.
+- Don't return full arrays from `outputMapper` without `arrayMerge: ArrayMergeMode.Replace` — default `applyOutputMapping` **concatenates** arrays (`[...parent, ...subflow]`). Either return only the **delta** (new items), or set `arrayMerge: ArrayMergeMode.Replace` on `SubflowMountOptions` to overwrite instead of concatenate. Scalars are always replaced regardless.
 
 ## Build & Test
 

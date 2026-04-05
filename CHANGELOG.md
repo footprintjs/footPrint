@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.1]
+
+### Added
+
+- **Pausable root stage** — `flowChart('Name', pausableHandler, 'id')` now accepts `PausableHandler` as the root stage. Enables single-stage pausable subflows without post-build graph mutation.
+
 ## [4.4.0]
 
 ### Added

@@ -582,14 +582,31 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Linear Chaining ──
 
-  start(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
+  start(
+    name: string,
+    fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
+    id: string,
+    description?: string,
+  ): this {
     if (this._root) fail('root already defined; create a new builder');
 
-    const node: StageNode<TOut, TScope> = { name, id, fn };
+    // Detect PausableHandler by duck-typing (has .execute property)
+    // eslint-disable-next-line no-restricted-syntax
+    const isPausable = typeof fn === 'object' && fn !== null && 'execute' in fn;
+    const stageFn = isPausable
+      ? ((fn as PausableHandler<TScope>).execute as StageFunction<TOut, TScope>)
+      : (fn as StageFunction<TOut, TScope>);
+
+    const node: StageNode<TOut, TScope> = { name, id, fn: stageFn };
+    if (isPausable) {
+      node.isPausable = true;
+      node.resumeFn = (fn as PausableHandler<TScope>).resume;
+    }
     if (description) node.description = description;
-    this._addToMap(id, fn);
+    this._addToMap(id, stageFn);
 
     let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
+    if (isPausable) spec.isPausable = true;
     if (description) spec.description = description;
     spec = this._applyExtractorToNode(spec);
 
@@ -1259,7 +1276,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 // Overload 1: typed state — flowChart<LoanState>(...) → scope: TypedScope<LoanState>
 export function flowChart<TState extends object>(
   name: string,
-  fn: TypedStageFunction<TState>,
+  fn: TypedStageFunction<TState> | PausableHandler<TypedScope<TState>>,
   id: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
@@ -1268,7 +1285,7 @@ export function flowChart<TState extends object>(
 // Overload 2: fully explicit generics (advanced / ScopeFacade usage)
 export function flowChart<TOut = any, TScope = any>(
   name: string,
-  fn: StageFunction<TOut, TScope>,
+  fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
   id: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
@@ -1276,12 +1293,12 @@ export function flowChart<TOut = any, TScope = any>(
 
 export function flowChart<TOut = any, TScope = any>(
   name: string,
-  fn: StageFunction<TOut, TScope>,
+  fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
   id: string,
   buildTimeExtractor?: BuildTimeExtractor<any>,
   description?: string,
 ): FlowChartBuilder<TOut, TScope> {
-  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn, id, description);
+  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn as any, id, description);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
