@@ -1,0 +1,111 @@
+/**
+ * decide/types -- Type definitions for the decide()/select() decision reasoning system.
+ *
+ * Two `when` formats in one API:
+ * - Function: (s) => s.creditScore > 700   (auto-captures reads via temp recorder)
+ * - Filter:   { creditScore: { gt: 700 } } (captures reads + operators + thresholds)
+ */
+/** Multiple operators on the same key are ANDed (e.g., { gt: 5, lt: 10 } means 5 < value < 10). */
+export type FilterOps<V> = {
+    /** Equal: value === threshold */
+    eq?: V;
+    /** Not equal: value !== threshold */
+    ne?: V;
+    /** Greater than: value > threshold */
+    gt?: V;
+    /** Greater than or equal: value >= threshold */
+    gte?: V;
+    /** Less than: value < threshold */
+    lt?: V;
+    /** Less than or equal: value <= threshold */
+    lte?: V;
+    /** Value is in array */
+    in?: V[];
+    /** Value is NOT in array */
+    notIn?: V[];
+};
+export type WhereFilter<T extends object = Record<string, unknown>> = {
+    [K in keyof T]?: FilterOps<T[K]>;
+};
+export type WhenClause<T extends object = Record<string, unknown>> = ((s: T) => boolean) | WhereFilter<T>;
+export interface DecideRule<T extends object = Record<string, unknown>> {
+    when: WhenClause<T>;
+    then: string;
+    /** Human-readable rule name for narrative: "Good credit" */
+    label?: string;
+}
+export declare const DECISION_RESULT: unique symbol;
+export interface DecisionResult {
+    branch: string;
+    [DECISION_RESULT]: true;
+    evidence: DecisionEvidence;
+}
+export interface SelectionResult {
+    branches: string[];
+    [DECISION_RESULT]: true;
+    evidence: SelectionEvidence;
+}
+export interface FunctionRuleEvidence {
+    type: 'function';
+    ruleIndex: number;
+    /** The branch ID this rule maps to. Self-describing — no index correlation needed. */
+    branch: string;
+    matched: boolean;
+    label?: string;
+    inputs: ReadInput[];
+    /**
+     * Error message if the `when` function threw during evaluation.
+     * Present only when an exception occurred; `matched` is `false` in that case.
+     * Surfaces the error for debugging rather than swallowing it silently.
+     *
+     * **Security note:** Error messages from user-provided `when` functions are captured
+     * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
+     * scope values in thrown error messages.
+     */
+    matchError?: string;
+}
+export interface FilterRuleEvidence {
+    type: 'filter';
+    ruleIndex: number;
+    /** The branch ID this rule maps to. Self-describing — no index correlation needed. */
+    branch: string;
+    matched: boolean;
+    label?: string;
+    conditions: FilterCondition[];
+    /**
+     * Error message if the filter evaluator threw during evaluation.
+     * Present only when an exception occurred; `matched` is `false` in that case.
+     * Surfaces the error for debugging rather than swallowing it silently.
+     *
+     * **Security note:** Error messages from user-provided `when` functions are captured
+     * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
+     * scope values in thrown error messages.
+     */
+    matchError?: string;
+}
+export type RuleEvidence = FunctionRuleEvidence | FilterRuleEvidence;
+export interface ReadInput {
+    key: string;
+    valueSummary: string;
+    redacted: boolean;
+}
+export interface FilterCondition {
+    key: string;
+    op: string;
+    /** Kept raw for audit accuracy; engine/serializer must handle safely. */
+    threshold: unknown;
+    actualSummary: string;
+    result: boolean;
+    redacted: boolean;
+}
+export interface DecisionEvidence {
+    rules: RuleEvidence[];
+    /** The branch selected. Equals `default` when no rule matched. */
+    chosen: string;
+    /** The fallback branch passed as defaultBranch. Always set. */
+    default: string;
+}
+export interface SelectionEvidence {
+    rules: RuleEvidence[];
+    selected: string[];
+}

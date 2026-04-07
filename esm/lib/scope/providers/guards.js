@@ -1,0 +1,43 @@
+/**
+ * Guards — Heuristic functions for detecting input types
+ *
+ * Used by the registry to determine whether an input is a class constructor,
+ * factory function, or ScopeFacade subclass.
+ */
+import { ScopeFacade } from '../ScopeFacade.js';
+/** Heuristic: class constructor vs. plain function */
+export function looksLikeClassCtor(fn) {
+    if (typeof fn !== 'function')
+        return false;
+    try {
+        const src = Function.prototype.toString.call(fn);
+        if (/^\s*class\s/.test(src))
+            return true;
+    }
+    catch (_a) {
+        /* ignore */
+    }
+    const proto = fn.prototype;
+    if (!proto || proto.constructor !== fn)
+        return false;
+    const ownNames = Object.getOwnPropertyNames(proto);
+    return ownNames.length > 1;
+}
+/** Heuristic: factory function (a function that is NOT a class ctor) */
+export function looksLikeFactory(fn) {
+    return typeof fn === 'function' && !looksLikeClassCtor(fn);
+}
+/** True iff `ctor` is a class that extends ScopeFacade (checks prototype chain) */
+export function isSubclassOfScopeFacade(ctor) {
+    if (!looksLikeClassCtor(ctor))
+        return false;
+    const baseProto = ScopeFacade.prototype;
+    let p = ctor.prototype;
+    while (p) {
+        if (p === baseProto)
+            return true;
+        p = Object.getPrototypeOf(p);
+    }
+    return false;
+}
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZ3VhcmRzLmpzIiwic291cmNlUm9vdCI6IiIsInNvdXJjZXMiOlsiLi4vLi4vLi4vLi4vLi4vc3JjL2xpYi9zY29wZS9wcm92aWRlcnMvZ3VhcmRzLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBOzs7OztHQUtHO0FBRUgsT0FBTyxFQUFFLFdBQVcsRUFBRSxNQUFNLG1CQUFtQixDQUFDO0FBSWhELHNEQUFzRDtBQUN0RCxNQUFNLFVBQVUsa0JBQWtCLENBQUMsRUFBVztJQUM1QyxJQUFJLE9BQU8sRUFBRSxLQUFLLFVBQVU7UUFBRSxPQUFPLEtBQUssQ0FBQztJQUUzQyxJQUFJLENBQUM7UUFDSCxNQUFNLEdBQUcsR0FBRyxRQUFRLENBQUMsU0FBUyxDQUFDLFFBQVEsQ0FBQyxJQUFJLENBQUMsRUFBRSxDQUFDLENBQUM7UUFDakQsSUFBSSxhQUFhLENBQUMsSUFBSSxDQUFDLEdBQUcsQ0FBQztZQUFFLE9BQU8sSUFBSSxDQUFDO0lBQzNDLENBQUM7SUFBQyxXQUFNLENBQUM7UUFDUCxZQUFZO0lBQ2QsQ0FBQztJQUVELE1BQU0sS0FBSyxHQUFJLEVBQVUsQ0FBQyxTQUFTLENBQUM7SUFDcEMsSUFBSSxDQUFDLEtBQUssSUFBSSxLQUFLLENBQUMsV0FBVyxLQUFLLEVBQUU7UUFBRSxPQUFPLEtBQUssQ0FBQztJQUVyRCxNQUFNLFFBQVEsR0FBRyxNQUFNLENBQUMsbUJBQW1CLENBQUMsS0FBSyxDQUFDLENBQUM7SUFDbkQsT0FBTyxRQUFRLENBQUMsTUFBTSxHQUFHLENBQUMsQ0FBQztBQUM3QixDQUFDO0FBRUQsd0VBQXdFO0FBQ3hFLE1BQU0sVUFBVSxnQkFBZ0IsQ0FBQyxFQUFXO0lBQzFDLE9BQU8sT0FBTyxFQUFFLEtBQUssVUFBVSxJQUFJLENBQUMsa0JBQWtCLENBQUMsRUFBRSxDQUFDLENBQUM7QUFDN0QsQ0FBQztBQUVELG1GQUFtRjtBQUNuRixNQUFNLFVBQVUsdUJBQXVCLENBQUMsSUFBYTtJQUNuRCxJQUFJLENBQUMsa0JBQWtCLENBQUMsSUFBSSxDQUFDO1FBQUUsT0FBTyxLQUFLLENBQUM7SUFDNUMsTUFBTSxTQUFTLEdBQUcsV0FBVyxDQUFDLFNBQVMsQ0FBQztJQUN4QyxJQUFJLENBQUMsR0FBUyxJQUFZLENBQUMsU0FBUyxDQUFDO0lBQ3JDLE9BQU8sQ0FBQyxFQUFFLENBQUM7UUFDVCxJQUFJLENBQUMsS0FBSyxTQUFTO1lBQUUsT0FBTyxJQUFJLENBQUM7UUFDakMsQ0FBQyxHQUFHLE1BQU0sQ0FBQyxjQUFjLENBQUMsQ0FBQyxDQUFDLENBQUM7SUFDL0IsQ0FBQztJQUNELE9BQU8sS0FBSyxDQUFDO0FBQ2YsQ0FBQyIsInNvdXJjZXNDb250ZW50IjpbIi8qKlxuICogR3VhcmRzIOKAlCBIZXVyaXN0aWMgZnVuY3Rpb25zIGZvciBkZXRlY3RpbmcgaW5wdXQgdHlwZXNcbiAqXG4gKiBVc2VkIGJ5IHRoZSByZWdpc3RyeSB0byBkZXRlcm1pbmUgd2hldGhlciBhbiBpbnB1dCBpcyBhIGNsYXNzIGNvbnN0cnVjdG9yLFxuICogZmFjdG9yeSBmdW5jdGlvbiwgb3IgU2NvcGVGYWNhZGUgc3ViY2xhc3MuXG4gKi9cblxuaW1wb3J0IHsgU2NvcGVGYWNhZGUgfSBmcm9tICcuLi9TY29wZUZhY2FkZS5qcyc7XG5cbnR5cGUgQ2FsbGFibGVGdW5jdGlvbiA9ICguLi5hcmdzOiB1bmtub3duW10pID0+IHVua25vd247XG5cbi8qKiBIZXVyaXN0aWM6IGNsYXNzIGNvbnN0cnVjdG9yIHZzLiBwbGFpbiBmdW5jdGlvbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIGxvb2tzTGlrZUNsYXNzQ3RvcihmbjogdW5rbm93bik6IGZuIGlzIENhbGxhYmxlRnVuY3Rpb24ge1xuICBpZiAodHlwZW9mIGZuICE9PSAnZnVuY3Rpb24nKSByZXR1cm4gZmFsc2U7XG5cbiAgdHJ5IHtcbiAgICBjb25zdCBzcmMgPSBGdW5jdGlvbi5wcm90b3R5cGUudG9TdHJpbmcuY2FsbChmbik7XG4gICAgaWYgKC9eXFxzKmNsYXNzXFxzLy50ZXN0KHNyYykpIHJldHVybiB0cnVlO1xuICB9IGNhdGNoIHtcbiAgICAvKiBpZ25vcmUgKi9cbiAgfVxuXG4gIGNvbnN0IHByb3RvID0gKGZuIGFzIGFueSkucHJvdG90eXBlO1xuICBpZiAoIXByb3RvIHx8IHByb3RvLmNvbnN0cnVjdG9yICE9PSBmbikgcmV0dXJuIGZhbHNlO1xuXG4gIGNvbnN0IG93bk5hbWVzID0gT2JqZWN0LmdldE93blByb3BlcnR5TmFtZXMocHJvdG8pO1xuICByZXR1cm4gb3duTmFtZXMubGVuZ3RoID4gMTtcbn1cblxuLyoqIEhldXJpc3RpYzogZmFjdG9yeSBmdW5jdGlvbiAoYSBmdW5jdGlvbiB0aGF0IGlzIE5PVCBhIGNsYXNzIGN0b3IpICovXG5leHBvcnQgZnVuY3Rpb24gbG9va3NMaWtlRmFjdG9yeShmbjogdW5rbm93bik6IGZuIGlzIENhbGxhYmxlRnVuY3Rpb24ge1xuICByZXR1cm4gdHlwZW9mIGZuID09PSAnZnVuY3Rpb24nICYmICFsb29rc0xpa2VDbGFzc0N0b3IoZm4pO1xufVxuXG4vKiogVHJ1ZSBpZmYgYGN0b3JgIGlzIGEgY2xhc3MgdGhhdCBleHRlbmRzIFNjb3BlRmFjYWRlIChjaGVja3MgcHJvdG90eXBlIGNoYWluKSAqL1xuZXhwb3J0IGZ1bmN0aW9uIGlzU3ViY2xhc3NPZlNjb3BlRmFjYWRlKGN0b3I6IHVua25vd24pOiBib29sZWFuIHtcbiAgaWYgKCFsb29rc0xpa2VDbGFzc0N0b3IoY3RvcikpIHJldHVybiBmYWxzZTtcbiAgY29uc3QgYmFzZVByb3RvID0gU2NvcGVGYWNhZGUucHJvdG90eXBlO1xuICBsZXQgcDogYW55ID0gKGN0b3IgYXMgYW55KS5wcm90b3R5cGU7XG4gIHdoaWxlIChwKSB7XG4gICAgaWYgKHAgPT09IGJhc2VQcm90bykgcmV0dXJuIHRydWU7XG4gICAgcCA9IE9iamVjdC5nZXRQcm90b3R5cGVPZihwKTtcbiAgfVxuICByZXR1cm4gZmFsc2U7XG59XG4iXX0=

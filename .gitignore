@@ -1,0 +1,41 @@
+# Dependencies
+/node_modules
+
+# Build outputs
+/build
+/dist
+/coverage
+
+# Logs
+*.log
+build.log
+npm-debug.log*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Package manager
+*.tgz
+
+# Screenshots (Playwright testing artifacts)
+*.png
+
+# Generated API docs (TypeDoc)
+/api-docs
+
+# Starlight docs site build outputs (built by CI)
+/docs-site/dist
+/docs-site/.astro
+
+# Claude Code
+.claude/

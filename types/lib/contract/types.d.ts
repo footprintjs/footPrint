@@ -1,0 +1,105 @@
+/**
+ * contract/types.ts — Types for the FlowChart contract layer.
+ *
+ * Defines the I/O boundary for a flowchart: input schema, output schema,
+ * and output mapper. Uses the same pattern as SubflowMountOptions
+ * (inputMapper/outputMapper) but at the top-level flowchart boundary.
+ */
+import type { FlowChart } from '../builder/types.js';
+export type JsonSchema = {
+    type?: string | string[];
+    properties?: Record<string, JsonSchema>;
+    required?: string[];
+    items?: JsonSchema;
+    enum?: unknown[];
+    description?: string;
+    default?: unknown;
+    format?: string;
+    additionalProperties?: boolean | JsonSchema;
+    oneOf?: JsonSchema[];
+    anyOf?: JsonSchema[];
+    allOf?: JsonSchema[];
+    $ref?: string;
+    [key: string]: unknown;
+};
+/** Anything with a `def` (Zod v4) or `_def` (Zod v3) property is treated as a Zod schema. */
+export type SchemaInput = JsonSchema | {
+    def: unknown;
+    [key: string]: unknown;
+};
+export interface FlowChartContractOptions<_TInput = unknown, TOutput = unknown> {
+    /** Schema describing the input (readOnlyContext) shape. Zod or JSON Schema. */
+    inputSchema?: SchemaInput;
+    /** Schema describing the output shape. Zod or JSON Schema. */
+    outputSchema?: SchemaInput;
+    /** Maps the final scope state into the response shape. */
+    outputMapper?: (finalScope: Record<string, unknown>) => TOutput;
+}
+export interface FlowChartContract<_TInput = unknown, TOutput = unknown> {
+    /**
+     * Prototype-linked view of the original compiled FlowChart.
+     *
+     * Own properties (inputSchema, outputSchema, outputMapper) are shadowed here
+     * so that the contract's values take precedence over builder-set values.
+     * All other fields (root, stageMap, methods) are inherited via the prototype
+     * chain with zero copying. The original chart is never mutated.
+     *
+     * ⚠️ Do NOT use Object.keys(), spread ({...chart}), or JSON.stringify() on
+     * this object — it will only see own (shadowed) properties. Use named
+     * property access or chart.toSpec() instead.
+     */
+    chart: FlowChart;
+    /** JSON Schema for the input (normalized from Zod or raw). */
+    inputSchema?: JsonSchema;
+    /** JSON Schema for the output (normalized from Zod or raw). */
+    outputSchema?: JsonSchema;
+    /** Maps the final scope state into the response shape. */
+    outputMapper?: (finalScope: Record<string, unknown>) => TOutput;
+    /** Auto-generated OpenAPI spec. Description is read from `chart.description` (pre-built at build time). */
+    toOpenAPI(options?: OpenAPIOptions): OpenAPISpec;
+}
+export interface OpenAPIOptions {
+    /** API version string (default: "1.0.0"). */
+    version?: string;
+    /** Base path prefix (default: "/"). */
+    basePath?: string;
+    /** HTTP method for the execute endpoint (default: "post"). */
+    method?: string;
+}
+export interface OpenAPISpec {
+    openapi: '3.1.0';
+    info: {
+        title: string;
+        description: string;
+        version: string;
+    };
+    paths: Record<string, Record<string, OpenAPIOperation>>;
+    components?: {
+        schemas?: Record<string, JsonSchema>;
+    };
+}
+export interface OpenAPIOperation {
+    operationId: string;
+    summary: string;
+    description: string;
+    requestBody?: {
+        required: boolean;
+        content: {
+            'application/json': {
+                schema: JsonSchema | {
+                    $ref: string;
+                };
+            };
+        };
+    };
+    responses: Record<string, {
+        description: string;
+        content?: {
+            'application/json': {
+                schema: JsonSchema | {
+                    $ref: string;
+                };
+            };
+        };
+    }>;
+}

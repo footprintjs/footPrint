@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / Discussion
+    url: https://github.com/footprintjs/footPrint/discussions
+    about: Ask questions, share what you've built, or discuss the library direction here.
+  - name: Security Vulnerability
+    url: https://github.com/footprintjs/footPrint/security/advisories/new
+    about: Please report security vulnerabilities privately, not as public issues.
+  - name: Interactive Playground
+    url: https://footprintjs.github.io/footprint-playground/
+    about: Try FootPrintJS in the browser — no install needed.

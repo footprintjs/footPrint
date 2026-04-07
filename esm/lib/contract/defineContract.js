@@ -1,0 +1,64 @@
+/**
+ * contract/defineContract.ts — Factory for creating a FlowChartContract.
+ *
+ * Wraps a compiled FlowChart with I/O schemas and an output mapper,
+ * using the same pattern as SubflowMountOptions (inputMapper/outputMapper).
+ *
+ * Usage:
+ *   const contract = defineContract(chart, {
+ *     inputSchema: z.object({ name: z.string() }),
+ *     outputSchema: z.object({ greeting: z.string() }),
+ *     outputMapper: (scope) => ({ greeting: scope.message as string }),
+ *   });
+ *
+ *   const openapi = contract.toOpenAPI();
+ */
+import { generateOpenAPI } from './openapi.js';
+import { normalizeSchema } from './schema.js';
+export function defineContract(chart, options) {
+    const inputSchema = options.inputSchema ? normalizeSchema(options.inputSchema) : undefined;
+    const outputSchema = options.outputSchema ? normalizeSchema(options.outputSchema) : undefined;
+    // Build a lightweight chart view for the contract.
+    //
+    // We must NOT mutate the original `chart` object because charts are compiled
+    // artifacts meant to be shared across multiple concurrent executors. Mutating
+    // any schema field after build would be visible to all holders of that chart
+    // reference, causing cross-contract contamination.
+    //
+    // Instead, use Object.create(chart) to create a prototype-linked view:
+    //   - All properties (root, stageMap, subflows, methods…) are inherited via
+    //     the prototype chain — zero extra copying.
+    //   - Setting schema fields on the view creates OWN properties that shadow
+    //     the prototype's value, leaving the original chart untouched.
+    //   - FlowChartExecutor reads chartView.inputSchema which resolves to the
+    //     own-property (contract schema) before the prototype (builder schema).
+    //   - RunContext reads chartView.outputMapper to apply the output transform —
+    //     that must also be shadowed here so the contract's mapper wins.
+    //
+    // Limitation: Object.keys(chartView) returns only own properties (the schema
+    // fields that were shadowed). Do NOT use Object.keys(), spread ({...chartView}),
+    // or JSON.stringify(chartView) on this view — use named property access or
+    // chart.toSpec() instead.
+    const chartView = Object.create(chart);
+    const view = chartView;
+    if (options.inputSchema) {
+        view.inputSchema = options.inputSchema;
+    }
+    if (options.outputSchema) {
+        view.outputSchema = options.outputSchema;
+    }
+    if (options.outputMapper) {
+        view.outputMapper = options.outputMapper;
+    }
+    const contract = {
+        chart: chartView,
+        inputSchema,
+        outputSchema,
+        outputMapper: options.outputMapper,
+        toOpenAPI(apiOptions) {
+            return generateOpenAPI(contract, apiOptions);
+        },
+    };
+    return contract;
+}
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZGVmaW5lQ29udHJhY3QuanMiLCJzb3VyY2VSb290IjoiIiwic291cmNlcyI6WyIuLi8uLi8uLi8uLi9zcmMvbGliL2NvbnRyYWN0L2RlZmluZUNvbnRyYWN0LnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBOzs7Ozs7Ozs7Ozs7OztHQWNHO0FBR0gsT0FBTyxFQUFFLGVBQWUsRUFBRSxNQUFNLGNBQWMsQ0FBQztBQUMvQyxPQUFPLEVBQUUsZUFBZSxFQUFFLE1BQU0sYUFBYSxDQUFDO0FBRzlDLE1BQU0sVUFBVSxjQUFjLENBQzVCLEtBQWdCLEVBQ2hCLE9BQWtEO0lBRWxELE1BQU0sV0FBVyxHQUFHLE9BQU8sQ0FBQyxXQUFXLENBQUMsQ0FBQyxDQUFDLGVBQWUsQ0FBQyxPQUFPLENBQUMsV0FBVyxDQUFDLENBQUMsQ0FBQyxDQUFDLFNBQVMsQ0FBQztJQUMzRixNQUFNLFlBQVksR0FBRyxPQUFPLENBQUMsWUFBWSxDQUFDLENBQUMsQ0FBQyxlQUFlLENBQUMsT0FBTyxDQUFDLFlBQVksQ0FBQyxDQUFDLENBQUMsQ0FBQyxTQUFTLENBQUM7SUFFOUYsbURBQW1EO0lBQ25ELEVBQUU7SUFDRiw2RUFBNkU7SUFDN0UsOEVBQThFO0lBQzlFLDZFQUE2RTtJQUM3RSxtREFBbUQ7SUFDbkQsRUFBRTtJQUNGLHVFQUF1RTtJQUN2RSw0RUFBNEU7SUFDNUUsZ0RBQWdEO0lBQ2hELDJFQUEyRTtJQUMzRSxtRUFBbUU7SUFDbkUsMEVBQTBFO0lBQzFFLDRFQUE0RTtJQUM1RSw4RUFBOEU7SUFDOUUscUVBQXFFO0lBQ3JFLEVBQUU7SUFDRiw2RUFBNkU7SUFDN0UsaUZBQWlGO0lBQ2pGLDJFQUEyRTtJQUMzRSwwQkFBMEI7SUFDMUIsTUFBTSxTQUFTLEdBQUcsTUFBTSxDQUFDLE1BQU0sQ0FBQyxLQUFLLENBQWMsQ0FBQztJQUNwRCxNQUFNLElBQUksR0FBRyxTQUErQixDQUFDO0lBQzdDLElBQUksT0FBTyxDQUFDLFdBQVcsRUFBRSxDQUFDO1FBQ3hCLElBQUksQ0FBQyxXQUFXLEdBQUcsT0FBTyxDQUFDLFdBQVcsQ0FBQztJQUN6QyxDQUFDO0lBQ0QsSUFBSSxPQUFPLENBQUMsWUFBWSxFQUFFLENBQUM7UUFDekIsSUFBSSxDQUFDLFlBQVksR0FBRyxPQUFPLENBQUMsWUFBWSxDQUFDO0lBQzNDLENBQUM7SUFDRCxJQUFJLE9BQU8sQ0FBQyxZQUFZLEVBQUUsQ0FBQztRQUN6QixJQUFJLENBQUMsWUFBWSxHQUFHLE9BQU8sQ0FBQyxZQUFxRSxDQUFDO0lBQ3BHLENBQUM7SUFFRCxNQUFNLFFBQVEsR0FBdUM7UUFDbkQsS0FBSyxFQUFFLFNBQVM7UUFDaEIsV0FBVztRQUNYLFlBQVk7UUFDWixZQUFZLEVBQUUsT0FBTyxDQUFDLFlBQVk7UUFDbEMsU0FBUyxDQUFDLFVBQTJCO1lBQ25DLE9BQU8sZUFBZSxDQUFDLFFBQVEsRUFBRSxVQUFVLENBQUMsQ0FBQztRQUMvQyxDQUFDO0tBQ0YsQ0FBQztJQUVGLE9BQU8sUUFBUSxDQUFDO0FBQ2xCLENBQUMiLCJzb3VyY2VzQ29udGVudCI6WyIvKipcbiAqIGNvbnRyYWN0L2RlZmluZUNvbnRyYWN0LnRzIOKAlCBGYWN0b3J5IGZvciBjcmVhdGluZyBhIEZsb3dDaGFydENvbnRyYWN0LlxuICpcbiAqIFdyYXBzIGEgY29tcGlsZWQgRmxvd0NoYXJ0IHdpdGggSS9PIHNjaGVtYXMgYW5kIGFuIG91dHB1dCBtYXBwZXIsXG4gKiB1c2luZyB0aGUgc2FtZSBwYXR0ZXJuIGFzIFN1YmZsb3dNb3VudE9wdGlvbnMgKGlucHV0TWFwcGVyL291dHB1dE1hcHBlcikuXG4gKlxuICogVXNhZ2U6XG4gKiAgIGNvbnN0IGNvbnRyYWN0ID0gZGVmaW5lQ29udHJhY3QoY2hhcnQsIHtcbiAqICAgICBpbnB1dFNjaGVtYTogei5vYmplY3QoeyBuYW1lOiB6LnN0cmluZygpIH0pLFxuICogICAgIG91dHB1dFNjaGVtYTogei5vYmplY3QoeyBncmVldGluZzogei5zdHJpbmcoKSB9KSxcbiAqICAgICBvdXRwdXRNYXBwZXI6IChzY29wZSkgPT4gKHsgZ3JlZXRpbmc6IHNjb3BlLm1lc3NhZ2UgYXMgc3RyaW5nIH0pLFxuICogICB9KTtcbiAqXG4gKiAgIGNvbnN0IG9wZW5hcGkgPSBjb250cmFjdC50b09wZW5BUEkoKTtcbiAqL1xuXG5pbXBvcnQgdHlwZSB7IEZsb3dDaGFydCB9IGZyb20gJy4uL2J1aWxkZXIvdHlwZXMuanMnO1xuaW1wb3J0IHsgZ2VuZXJhdGVPcGVuQVBJIH0gZnJvbSAnLi9vcGVuYXBpLmpzJztcbmltcG9ydCB7IG5vcm1hbGl6ZVNjaGVtYSB9IGZyb20gJy4vc2NoZW1hLmpzJztcbmltcG9ydCB0eXBlIHsgRmxvd0NoYXJ0Q29udHJhY3QsIEZsb3dDaGFydENvbnRyYWN0T3B0aW9ucywgT3BlbkFQSU9wdGlvbnMsIE9wZW5BUElTcGVjIH0gZnJvbSAnLi90eXBlcy5qcyc7XG5cbmV4cG9ydCBmdW5jdGlvbiBkZWZpbmVDb250cmFjdDxUSW5wdXQgPSB1bmtub3duLCBUT3V0cHV0ID0gdW5rbm93bj4oXG4gIGNoYXJ0OiBGbG93Q2hhcnQsXG4gIG9wdGlvbnM6IEZsb3dDaGFydENvbnRyYWN0T3B0aW9uczxUSW5wdXQsIFRPdXRwdXQ+LFxuKTogRmxvd0NoYXJ0Q29udHJhY3Q8VElucHV0LCBUT3V0cHV0PiB7XG4gIGNvbnN0IGlucHV0U2NoZW1hID0gb3B0aW9ucy5pbnB1dFNjaGVtYSA/IG5vcm1hbGl6ZVNjaGVtYShvcHRpb25zLmlucHV0U2NoZW1hKSA6IHVuZGVmaW5lZDtcbiAgY29uc3Qgb3V0cHV0U2NoZW1hID0gb3B0aW9ucy5vdXRwdXRTY2hlbWEgPyBub3JtYWxpemVTY2hlbWEob3B0aW9ucy5vdXRwdXRTY2hlbWEpIDogdW5kZWZpbmVkO1xuXG4gIC8vIEJ1aWxkIGEgbGlnaHR3ZWlnaHQgY2hhcnQgdmlldyBmb3IgdGhlIGNvbnRyYWN0LlxuICAvL1xuICAvLyBXZSBtdXN0IE5PVCBtdXRhdGUgdGhlIG9yaWdpbmFsIGBjaGFydGAgb2JqZWN0IGJlY2F1c2UgY2hhcnRzIGFyZSBjb21waWxlZFxuICAvLyBhcnRpZmFjdHMgbWVhbnQgdG8gYmUgc2hhcmVkIGFjcm9zcyBtdWx0aXBsZSBjb25jdXJyZW50IGV4ZWN1dG9ycy4gTXV0YXRpbmdcbiAgLy8gYW55IHNjaGVtYSBmaWVsZCBhZnRlciBidWlsZCB3b3VsZCBiZSB2aXNpYmxlIHRvIGFsbCBob2xkZXJzIG9mIHRoYXQgY2hhcnRcbiAgLy8gcmVmZXJlbmNlLCBjYXVzaW5nIGNyb3NzLWNvbnRyYWN0IGNvbnRhbWluYXRpb24uXG4gIC8vXG4gIC8vIEluc3RlYWQsIHVzZSBPYmplY3QuY3JlYXRlKGNoYXJ0KSB0byBjcmVhdGUgYSBwcm90b3R5cGUtbGlua2VkIHZpZXc6XG4gIC8vICAgLSBBbGwgcHJvcGVydGllcyAocm9vdCwgc3RhZ2VNYXAsIHN1YmZsb3dzLCBtZXRob2Rz4oCmKSBhcmUgaW5oZXJpdGVkIHZpYVxuICAvLyAgICAgdGhlIHByb3RvdHlwZSBjaGFpbiDigJQgemVybyBleHRyYSBjb3B5aW5nLlxuICAvLyAgIC0gU2V0dGluZyBzY2hlbWEgZmllbGRzIG9uIHRoZSB2aWV3IGNyZWF0ZXMgT1dOIHByb3BlcnRpZXMgdGhhdCBzaGFkb3dcbiAgLy8gICAgIHRoZSBwcm90b3R5cGUncyB2YWx1ZSwgbGVhdmluZyB0aGUgb3JpZ2luYWwgY2hhcnQgdW50b3VjaGVkLlxuICAvLyAgIC0gRmxvd0NoYXJ0RXhlY3V0b3IgcmVhZHMgY2hhcnRWaWV3LmlucHV0U2NoZW1hIHdoaWNoIHJlc29sdmVzIHRvIHRoZVxuICAvLyAgICAgb3duLXByb3BlcnR5IChjb250cmFjdCBzY2hlbWEpIGJlZm9yZSB0aGUgcHJvdG90eXBlIChidWlsZGVyIHNjaGVtYSkuXG4gIC8vICAgLSBSdW5Db250ZXh0IHJlYWRzIGNoYXJ0Vmlldy5vdXRwdXRNYXBwZXIgdG8gYXBwbHkgdGhlIG91dHB1dCB0cmFuc2Zvcm0g4oCUXG4gIC8vICAgICB0aGF0IG11c3QgYWxzbyBiZSBzaGFkb3dlZCBoZXJlIHNvIHRoZSBjb250cmFjdCdzIG1hcHBlciB3aW5zLlxuICAvL1xuICAvLyBMaW1pdGF0aW9uOiBPYmplY3Qua2V5cyhjaGFydFZpZXcpIHJldHVybnMgb25seSBvd24gcHJvcGVydGllcyAodGhlIHNjaGVtYVxuICAvLyBmaWVsZHMgdGhhdCB3ZXJlIHNoYWRvd2VkKS4gRG8gTk9UIHVzZSBPYmplY3Qua2V5cygpLCBzcHJlYWQgKHsuLi5jaGFydFZpZXd9KSxcbiAgLy8gb3IgSlNPTi5zdHJpbmdpZnkoY2hhcnRWaWV3KSBvbiB0aGlzIHZpZXcg4oCUIHVzZSBuYW1lZCBwcm9wZXJ0eSBhY2Nlc3Mgb3JcbiAgLy8gY2hhcnQudG9TcGVjKCkgaW5zdGVhZC5cbiAgY29uc3QgY2hhcnRWaWV3ID0gT2JqZWN0LmNyZWF0ZShjaGFydCkgYXMgRmxvd0NoYXJ0O1xuICBjb25zdCB2aWV3ID0gY2hhcnRWaWV3IGFzIFBhcnRpYWw8Rmxvd0NoYXJ0PjtcbiAgaWYgKG9wdGlvbnMuaW5wdXRTY2hlbWEpIHtcbiAgICB2aWV3LmlucHV0U2NoZW1hID0gb3B0aW9ucy5pbnB1dFNjaGVtYTtcbiAgfVxuICBpZiAob3B0aW9ucy5vdXRwdXRTY2hlbWEpIHtcbiAgICB2aWV3Lm91dHB1dFNjaGVtYSA9IG9wdGlvbnMub3V0cHV0U2NoZW1hO1xuICB9XG4gIGlmIChvcHRpb25zLm91dHB1dE1hcHBlcikge1xuICAgIHZpZXcub3V0cHV0TWFwcGVyID0gb3B0aW9ucy5vdXRwdXRNYXBwZXIgYXMgKChzOiBSZWNvcmQ8c3RyaW5nLCB1bmtub3duPikgPT4gdW5rbm93bikgfCB1bmRlZmluZWQ7XG4gIH1cblxuICBjb25zdCBjb250cmFjdDogRmxvd0NoYXJ0Q29udHJhY3Q8VElucHV0LCBUT3V0cHV0PiA9IHtcbiAgICBjaGFydDogY2hhcnRWaWV3LFxuICAgIGlucHV0U2NoZW1hLFxuICAgIG91dHB1dFNjaGVtYSxcbiAgICBvdXRwdXRNYXBwZXI6IG9wdGlvbnMub3V0cHV0TWFwcGVyLFxuICAgIHRvT3BlbkFQSShhcGlPcHRpb25zPzogT3BlbkFQSU9wdGlvbnMpOiBPcGVuQVBJU3BlYyB7XG4gICAgICByZXR1cm4gZ2VuZXJhdGVPcGVuQVBJKGNvbnRyYWN0LCBhcGlPcHRpb25zKTtcbiAgICB9LFxuICB9O1xuXG4gIHJldHVybiBjb250cmFjdDtcbn1cbiJdfQ==

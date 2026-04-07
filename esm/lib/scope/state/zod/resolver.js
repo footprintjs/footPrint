@@ -1,0 +1,28 @@
+/**
+ * ZodScopeResolver — ProviderResolver for Zod-branded scope schemas
+ */
+import { attachScopeMethods } from '../../providers/baseStateCompatible.js';
+import { isScopeSchema } from './schema/builder.js';
+import { createScopeProxyFromZod } from './scopeFactory.js';
+function makeZodProvider(schema, strict = 'warn') {
+    return {
+        kind: 'zod',
+        create: (ctx, stageName, ro) => {
+            const proxy = createScopeProxyFromZod(ctx, schema, strict, ro);
+            return attachScopeMethods(proxy, ctx, stageName, ro);
+        },
+    };
+}
+export const ZodScopeResolver = {
+    name: 'zod',
+    canHandle(input) {
+        return isScopeSchema(input);
+    },
+    makeProvider(input, options) {
+        var _a, _b;
+        const schema = input;
+        const strict = (_b = (_a = options === null || options === void 0 ? void 0 : options.zod) === null || _a === void 0 ? void 0 : _a.strict) !== null && _b !== void 0 ? _b : 'warn';
+        return makeZodProvider(schema, strict);
+    },
+};
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoicmVzb2x2ZXIuanMiLCJzb3VyY2VSb290IjoiIiwic291cmNlcyI6WyIuLi8uLi8uLi8uLi8uLi8uLi9zcmMvbGliL3Njb3BlL3N0YXRlL3pvZC9yZXNvbHZlci50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTs7R0FFRztBQUlILE9BQU8sRUFBRSxrQkFBa0IsRUFBRSxNQUFNLHdDQUF3QyxDQUFDO0FBRTVFLE9BQU8sRUFBRSxhQUFhLEVBQUUsTUFBTSxxQkFBcUIsQ0FBQztBQUNwRCxPQUFPLEVBQUUsdUJBQXVCLEVBQUUsTUFBTSxtQkFBbUIsQ0FBQztBQUU1RCxTQUFTLGVBQWUsQ0FBQyxNQUF3QixFQUFFLFNBQXFCLE1BQU07SUFDNUUsT0FBTztRQUNMLElBQUksRUFBRSxLQUFLO1FBQ1gsTUFBTSxFQUFFLENBQUMsR0FBcUIsRUFBRSxTQUFpQixFQUFFLEVBQVksRUFBRSxFQUFFO1lBQ2pFLE1BQU0sS0FBSyxHQUFHLHVCQUF1QixDQUFDLEdBQUcsRUFBRSxNQUFNLEVBQUUsTUFBTSxFQUFFLEVBQUUsQ0FBQyxDQUFDO1lBQy9ELE9BQU8sa0JBQWtCLENBQUMsS0FBSyxFQUFFLEdBQUcsRUFBRSxTQUFTLEVBQUUsRUFBRSxDQUFDLENBQUM7UUFDdkQsQ0FBQztLQUNGLENBQUM7QUFDSixDQUFDO0FBRUQsTUFBTSxDQUFDLE1BQU0sZ0JBQWdCLEdBQXFCO0lBQ2hELElBQUksRUFBRSxLQUFLO0lBQ1gsU0FBUyxDQUFDLEtBQWM7UUFDdEIsT0FBTyxhQUFhLENBQUMsS0FBSyxDQUFDLENBQUM7SUFDOUIsQ0FBQztJQUNELFlBQVksQ0FBQyxLQUFjLEVBQUUsT0FBMkM7O1FBQ3RFLE1BQU0sTUFBTSxHQUFHLEtBQW9DLENBQUM7UUFDcEQsTUFBTSxNQUFNLEdBQUcsTUFBQSxNQUFBLE9BQU8sYUFBUCxPQUFPLHVCQUFQLE9BQU8sQ0FBRSxHQUFHLDBDQUFFLE1BQU0sbUNBQUksTUFBTSxDQUFDO1FBQzlDLE9BQU8sZUFBZSxDQUFDLE1BQU0sRUFBRSxNQUFNLENBQUMsQ0FBQztJQUN6QyxDQUFDO0NBQ0YsQ0FBQyIsInNvdXJjZXNDb250ZW50IjpbIi8qKlxuICogWm9kU2NvcGVSZXNvbHZlciDigJQgUHJvdmlkZXJSZXNvbHZlciBmb3IgWm9kLWJyYW5kZWQgc2NvcGUgc2NoZW1hc1xuICovXG5cbmltcG9ydCB7IHogfSBmcm9tICd6b2QnO1xuXG5pbXBvcnQgeyBhdHRhY2hTY29wZU1ldGhvZHMgfSBmcm9tICcuLi8uLi9wcm92aWRlcnMvYmFzZVN0YXRlQ29tcGF0aWJsZS5qcyc7XG5pbXBvcnQgdHlwZSB7IFByb3ZpZGVyUmVzb2x2ZXIsIFNjb3BlUHJvdmlkZXIsIFN0YWdlQ29udGV4dExpa2UsIFN0cmljdE1vZGUgfSBmcm9tICcuLi8uLi9wcm92aWRlcnMvdHlwZXMuanMnO1xuaW1wb3J0IHsgaXNTY29wZVNjaGVtYSB9IGZyb20gJy4vc2NoZW1hL2J1aWxkZXIuanMnO1xuaW1wb3J0IHsgY3JlYXRlU2NvcGVQcm94eUZyb21ab2QgfSBmcm9tICcuL3Njb3BlRmFjdG9yeS5qcyc7XG5cbmZ1bmN0aW9uIG1ha2Vab2RQcm92aWRlcihzY2hlbWE6IHouWm9kT2JqZWN0PGFueT4sIHN0cmljdDogU3RyaWN0TW9kZSA9ICd3YXJuJyk6IFNjb3BlUHJvdmlkZXI8YW55PiB7XG4gIHJldHVybiB7XG4gICAga2luZDogJ3pvZCcsXG4gICAgY3JlYXRlOiAoY3R4OiBTdGFnZUNvbnRleHRMaWtlLCBzdGFnZU5hbWU6IHN0cmluZywgcm8/OiB1bmtub3duKSA9PiB7XG4gICAgICBjb25zdCBwcm94eSA9IGNyZWF0ZVNjb3BlUHJveHlGcm9tWm9kKGN0eCwgc2NoZW1hLCBzdHJpY3QsIHJvKTtcbiAgICAgIHJldHVybiBhdHRhY2hTY29wZU1ldGhvZHMocHJveHksIGN0eCwgc3RhZ2VOYW1lLCBybyk7XG4gICAgfSxcbiAgfTtcbn1cblxuZXhwb3J0IGNvbnN0IFpvZFNjb3BlUmVzb2x2ZXI6IFByb3ZpZGVyUmVzb2x2ZXIgPSB7XG4gIG5hbWU6ICd6b2QnLFxuICBjYW5IYW5kbGUoaW5wdXQ6IHVua25vd24pOiBib29sZWFuIHtcbiAgICByZXR1cm4gaXNTY29wZVNjaGVtYShpbnB1dCk7XG4gIH0sXG4gIG1ha2VQcm92aWRlcihpbnB1dDogdW5rbm93biwgb3B0aW9ucz86IHsgem9kPzogeyBzdHJpY3Q/OiBTdHJpY3RNb2RlIH0gfSk6IFNjb3BlUHJvdmlkZXI8YW55PiB7XG4gICAgY29uc3Qgc2NoZW1hID0gaW5wdXQgYXMgdW5rbm93biBhcyB6LlpvZE9iamVjdDxhbnk+O1xuICAgIGNvbnN0IHN0cmljdCA9IG9wdGlvbnM/LnpvZD8uc3RyaWN0ID8/ICd3YXJuJztcbiAgICByZXR1cm4gbWFrZVpvZFByb3ZpZGVyKHNjaGVtYSwgc3RyaWN0KTtcbiAgfSxcbn07XG4iXX0=
