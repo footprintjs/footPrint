@@ -1,0 +1,170 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - heading "Agent Playground" [level=1] [ref=e6] [cursor=pointer]
+        - paragraph [ref=e7]: agentfootprint interactive samples
+        - button "Home" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - generic [ref=e11]: Basics
+          - button "01 Simple LLM Call" [ref=e12] [cursor=pointer]:
+            - generic [ref=e13]: "01"
+            - generic [ref=e14]: Simple LLM Call
+          - button "02 Agent with Tools" [ref=e15] [cursor=pointer]:
+            - generic [ref=e16]: "02"
+            - generic [ref=e17]: Agent with Tools
+          - button "03 RAG Retrieval" [ref=e18] [cursor=pointer]:
+            - generic [ref=e19]: "03"
+            - generic [ref=e20]: RAG Retrieval
+        - generic [ref=e21]:
+          - generic [ref=e22]: Providers
+          - button "04 Prompt Strategies" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: "04"
+            - generic [ref=e25]: Prompt Strategies
+          - button "05 Message Strategies" [ref=e26] [cursor=pointer]:
+            - generic [ref=e27]: "05"
+            - generic [ref=e28]: Message Strategies
+          - button "06 Tool Strategies" [ref=e29] [cursor=pointer]:
+            - generic [ref=e30]: "06"
+            - generic [ref=e31]: Tool Strategies
+        - generic [ref=e32]:
+          - generic [ref=e33]: Orchestration
+          - button "07 FlowChart Pipeline" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: "07"
+            - generic [ref=e36]: FlowChart Pipeline
+          - button "08 Swarm Delegation" [ref=e37] [cursor=pointer]:
+            - generic [ref=e38]: "08"
+            - generic [ref=e39]: Swarm Delegation
+          - button "09 Resilience" [ref=e40] [cursor=pointer]:
+            - generic [ref=e41]: "09"
+            - generic [ref=e42]: Resilience
+          - button "18 Dynamic Tool Subflow" [ref=e43] [cursor=pointer]:
+            - generic [ref=e44]: "18"
+            - generic [ref=e45]: Dynamic Tool Subflow
+          - button "19 Lazy Subflow" [ref=e46] [cursor=pointer]:
+            - generic [ref=e47]: "19"
+            - generic [ref=e48]: Lazy Subflow
+          - button "23 ReAct Loop Decider" [ref=e49] [cursor=pointer]:
+            - generic [ref=e50]: "23"
+            - generic [ref=e51]: ReAct Loop Decider
+        - generic [ref=e52]:
+          - generic [ref=e53]: Memory
+          - button "22 Persistent Memory" [ref=e54] [cursor=pointer]:
+            - generic [ref=e55]: "22"
+            - generic [ref=e56]: Persistent Memory
+        - generic [ref=e57]:
+          - generic [ref=e58]: Security
+          - button "20 Permission-Gated Tools" [ref=e59] [cursor=pointer]:
+            - generic [ref=e60]: "20"
+            - generic [ref=e61]: Permission-Gated Tools
+        - generic [ref=e62]:
+          - generic [ref=e63]: Resilience
+          - button "21 Provider Fallback" [ref=e64] [cursor=pointer]:
+            - generic [ref=e65]: "21"
+            - generic [ref=e66]: Provider Fallback
+        - generic [ref=e67]:
+          - generic [ref=e68]: Observability
+          - button "10 Recorders" [ref=e69] [cursor=pointer]:
+            - generic [ref=e70]: "10"
+            - generic [ref=e71]: Recorders
+        - generic [ref=e72]:
+          - generic [ref=e73]: Adapters
+          - button "11 Protocol Adapters" [ref=e74] [cursor=pointer]:
+            - generic [ref=e75]: "11"
+            - generic [ref=e76]: Protocol Adapters
+          - button "12 Agent Loop" [ref=e77] [cursor=pointer]:
+            - generic [ref=e78]: "12"
+            - generic [ref=e79]: Agent Loop
+          - button "14 Real Adapters" [ref=e80] [cursor=pointer]:
+            - generic [ref=e81]: "14"
+            - generic [ref=e82]: Real Adapters
+        - generic [ref=e83]:
+          - generic [ref=e84]: Integration
+          - button "13 Full Integration" [ref=e85] [cursor=pointer]:
+            - generic [ref=e86]: "13"
+            - generic [ref=e87]: Full Integration
+          - button "15 Error Handling" [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: "15"
+            - generic [ref=e90]: Error Handling
+          - button "16 Multi-modal" [ref=e91] [cursor=pointer]:
+            - generic [ref=e92]: "16"
+            - generic [ref=e93]: Multi-modal
+          - button "17 Live Chat" [ref=e94] [cursor=pointer]:
+            - generic [ref=e95]: "17"
+            - generic [ref=e96]: Live Chat
+    - generic [ref=e97]:
+      - banner [ref=e98]:
+        - generic [ref=e99]: Agent Playground
+        - generic [ref=e100]:
+          - button "⚙" [ref=e101] [cursor=pointer]
+          - generic [ref=e102]: ·
+          - button "☀" [ref=e103] [cursor=pointer]
+          - generic [ref=e104]: ·
+          - link "footprintjs" [ref=e105] [cursor=pointer]:
+            - /url: https://github.com/footprintjs/footPrint
+          - generic [ref=e106]: ·
+          - link "agentfootprint" [ref=e107] [cursor=pointer]:
+            - /url: https://github.com/footprintjs/agentfootprint
+      - generic [ref=e108]:
+        - generic [ref=e110]:
+          - heading "04. Prompt Strategies" [level=2] [ref=e229]
+          - generic [ref=e112]: Different system prompts per runner
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - generic [ref=e116]: Code
+              - generic [ref=e230]: editable
+            - code [ref=e130]:
+              - generic [ref=e131]:
+                - textbox "Editor content" [ref=e132]
+                - textbox [ref=e133]
+                - generic [ref=e135]:
+                  - generic [ref=e232]: "1"
+                  - generic [ref=e142]: "2"
+                  - generic [ref=e144]: "3"
+                  - generic [ref=e146]: "4"
+                  - generic [ref=e234]: "5"
+                  - generic [ref=e151]: "6"
+                  - generic [ref=e155]: "7"
+                  - generic [ref=e157]: "8"
+                  - generic [ref=e159]: "9"
+                  - generic [ref=e161]: "10"
+                  - generic [ref=e239]: "11"
+                  - generic [ref=e241]: "12"
+                  - generic [ref=e243]: "13"
+                  - generic [ref=e245]: "14"
+                  - generic [ref=e247]: "15"
+                  - generic [ref=e249]: "16"
+                  - generic [ref=e251]:
+                    - generic [ref=e253] [cursor=pointer]: 
+                    - generic [ref=e254]: "17"
+                - generic [ref=e197]:
+                  - generic [ref=e281]: "import { LLMCall, mock } from 'agentfootprint';"
+                  - generic [ref=e283]: const summarizer = LLMCall
+                  - generic [ref=e285]: ".create({ provider: mock([{ content: 'This is a"
+                  - generic [ref=e287]: .system('You are a summarizer. Be concise.')
+                  - generic [ref=e289]: .build();
+                  - generic [ref=e292]: const translator = LLMCall
+                  - generic [ref=e294]: ".create({ provider: mock([{ content: 'Ceci est une"
+                  - generic [ref=e296]: .system('You are a translator. Translate to French.
+                  - generic [ref=e298]: "concise summary of the input.' }]) })"
+                  - generic [ref=e300]: "traduction en francais.' }]) })"
+                  - generic [ref=e302]: "')"
+                  - generic [ref=e304]: .build();
+                  - generic [ref=e307]: const r1 = await summarizer.run(input);
+                  - generic [ref=e309]: const r2 = await translator.run(input);
+                  - generic [ref=e312]: "return { summary: r1.content, translation: r2."
+                  - generic [ref=e314]: "content };"
+          - generic [ref=e120]:
+            - generic [ref=e122]: Chat
+            - generic [ref=e124]:
+              - text: Press
+              - strong [ref=e125]: Run ▶
+              - text: to execute
+            - generic [ref=e126]:
+              - textbox "Enter input for the sample…" [ref=e127]: Hello, how can you help me?
+              - button "Run ▶" [ref=e128] [cursor=pointer]
+  - generic [ref=e228]:
+    - alert
+    - alert

@@ -221,7 +221,7 @@ export class StageContext {
   commit(): void {
     const buf = this.getTransactionBuffer();
     const bundle = buf.commit();
-    const commitBundle = { ...bundle, stage: this.stageName };
+    const commitBundle = { ...bundle, stage: this.stageName, stageId: this.stageId };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
 

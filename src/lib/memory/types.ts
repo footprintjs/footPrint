@@ -25,6 +25,8 @@ export interface CommitBundle {
   idx?: number;
   /** Human-readable stage name. */
   stage: string;
+  /** Stable stage identifier (matches spec node id). */
+  stageId: string;
   /** Chronological write log for deterministic replay. */
   trace: TraceEntry[];
   /** Paths that should be redacted in UI (sensitive data). */

@@ -1,0 +1,507 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#_top"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - link "agentfootprint" [ref=e7] [cursor=pointer]:
+            - /url: /agentfootprint/
+            - generic [ref=e8]: agentfootprint
+          - navigation [ref=e9]:
+            - link "Docs" [ref=e10] [cursor=pointer]:
+              - /url: /agentfootprint/getting-started/quick-start/
+            - link "Playground" [ref=e11] [cursor=pointer]:
+              - /url: https://footprintjs.github.io/agent-playground/
+        - button "Search" [ref=e14] [cursor=pointer]:
+          - img [ref=e15]
+          - generic [ref=e17]: Search
+          - generic [ref=e18]:
+            - generic [ref=e19]: ⌘
+            - generic [ref=e20]: K
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - link "GitHub" [ref=e23] [cursor=pointer]:
+              - /url: https://github.com/footprintjs/agentfootprint
+              - generic [ref=e24]: GitHub
+              - img [ref=e25]
+            - link "npm" [ref=e27] [cursor=pointer]:
+              - /url: https://www.npmjs.com/package/agentfootprint
+              - generic [ref=e28]: npm
+              - img [ref=e29]
+          - generic [ref=e32]:
+            - generic [ref=e33]: Select theme
+            - img
+            - combobox "Select theme" [ref=e34] [cursor=pointer]:
+              - option "Dark"
+              - option "Light"
+              - option "Auto" [selected]
+            - img
+    - navigation "Main":
+      - list [ref=e38]:
+        - listitem [ref=e39]:
+          - group [ref=e40]:
+            - generic "Getting Started" [ref=e41] [cursor=pointer]:
+              - generic [ref=e42]: Getting Started
+              - img [ref=e43]
+            - list [ref=e45]:
+              - listitem [ref=e46]:
+                - link "Quick Start" [ref=e47] [cursor=pointer]:
+                  - /url: /agentfootprint/getting-started/quick-start/
+              - listitem [ref=e48]:
+                - link "Key Concepts" [ref=e49] [cursor=pointer]:
+                  - /url: /agentfootprint/getting-started/key-concepts/
+              - listitem [ref=e50]:
+                - link "Why agentfootprint?" [ref=e51] [cursor=pointer]:
+                  - /url: /agentfootprint/getting-started/why/
+        - listitem [ref=e52]:
+          - group [ref=e53]:
+            - generic "Guides" [ref=e54] [cursor=pointer]:
+              - generic [ref=e55]: Guides
+              - img [ref=e56]
+            - list [ref=e58]:
+              - listitem [ref=e59]:
+                - link "Agent pattern" [ref=e60] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/agent/
+              - listitem [ref=e61]:
+                - link "Tool use" [ref=e62] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/tools/
+              - listitem [ref=e63]:
+                - link "Instructions & decisions" [ref=e64] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/instructions/
+              - listitem [ref=e65]:
+                - link "RAG pattern" [ref=e66] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/rag/
+              - listitem [ref=e67]:
+                - link "Multi-agent (Swarm)" [ref=e68] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/swarm/
+              - listitem [ref=e69]:
+                - link "Streaming" [ref=e70] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/streaming/
+              - listitem [ref=e71]:
+                - link "Observability" [ref=e72] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/observability/
+              - listitem [ref=e73]:
+                - link "Grounding analysis" [ref=e74] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/grounding/
+              - listitem [ref=e75]:
+                - link "Error handling" [ref=e76] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/error-handling/
+              - listitem [ref=e77]:
+                - link "Testing" [ref=e78] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/testing/
+              - listitem [ref=e79]:
+                - link "Resilience" [ref=e80] [cursor=pointer]:
+                  - /url: /agentfootprint/guides/resilience/
+        - listitem [ref=e81]:
+          - group [ref=e82]:
+            - generic "API Reference" [ref=e83] [cursor=pointer]:
+              - generic [ref=e84]: API Reference
+              - img [ref=e85]
+            - list [ref=e87]:
+              - listitem [ref=e88]:
+                - link "Agent / LLMCall" [ref=e89] [cursor=pointer]:
+                  - /url: /agentfootprint/api/agent/
+              - listitem [ref=e90]:
+                - link "FlowChart / Swarm / Parallel" [ref=e91] [cursor=pointer]:
+                  - /url: /agentfootprint/api/flowchart-swarm/
+              - listitem [ref=e92]:
+                - link "Providers" [ref=e93] [cursor=pointer]:
+                  - /url: /agentfootprint/api/providers/
+              - listitem [ref=e94]:
+                - link "Tools" [ref=e95] [cursor=pointer]:
+                  - /url: /agentfootprint/api/tools/
+              - listitem [ref=e96]:
+                - link "Instructions" [ref=e97] [cursor=pointer]:
+                  - /url: /agentfootprint/api/instructions/
+              - listitem [ref=e98]:
+                - link "Recorders" [ref=e99] [cursor=pointer]:
+                  - /url: /agentfootprint/api/recorders/
+              - listitem [ref=e100]:
+                - link "Streaming" [ref=e101] [cursor=pointer]:
+                  - /url: /agentfootprint/api/streaming/
+        - listitem [ref=e102]:
+          - group [ref=e103]:
+            - generic "Integrations" [ref=e104] [cursor=pointer]:
+              - generic [ref=e105]: Integrations
+              - img [ref=e106]
+            - list [ref=e108]:
+              - listitem [ref=e109]:
+                - link "Anthropic (Claude)" [ref=e110] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/anthropic/
+              - listitem [ref=e111]:
+                - link "OpenAI" [ref=e112] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/openai/
+              - listitem [ref=e113]:
+                - link "AWS Bedrock" [ref=e114] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/aws-bedrock/
+              - listitem [ref=e115]:
+                - link "Bedrock AgentCore" [ref=e116] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/agentcore/
+              - listitem [ref=e117]:
+                - link "Ollama (Local)" [ref=e118] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/ollama/
+              - listitem [ref=e119]:
+                - link "Custom Provider" [ref=e120] [cursor=pointer]:
+                  - /url: /agentfootprint/integrations/custom-provider/
+        - listitem [ref=e121]:
+          - group [ref=e122]:
+            - generic "Resources" [ref=e123] [cursor=pointer]:
+              - generic [ref=e124]: Resources
+              - img [ref=e125]
+            - list [ref=e127]:
+              - listitem [ref=e128]:
+                - link "Live Playground" [ref=e129] [cursor=pointer]:
+                  - /url: https://footprintjs.github.io/agent-playground/
+              - listitem [ref=e130]:
+                - link "footprintjs (core library)" [ref=e131] [cursor=pointer]:
+                  - /url: https://footprintjs.github.io/footPrint/
+    - generic [ref=e133]:
+      - complementary [ref=e134]:
+        - navigation "On this page" [ref=e139]:
+          - heading "On this page" [level=2] [ref=e140]
+          - list [ref=e141]:
+            - listitem [ref=e142]:
+              - link "Overview" [ref=e143] [cursor=pointer]:
+                - /url: "#_top"
+            - listitem [ref=e144]:
+              - link "Use Claude on Bedrock" [ref=e145] [cursor=pointer]:
+                - /url: "#use-claude-on-bedrock"
+            - listitem [ref=e146]:
+              - link "Configuration" [ref=e147] [cursor=pointer]:
+                - /url: "#configuration"
+            - listitem [ref=e148]:
+              - link "Available Bedrock models" [ref=e149] [cursor=pointer]:
+                - /url: "#available-bedrock-models"
+            - listitem [ref=e150]:
+              - link "Coming from Strands Agents?" [ref=e151] [cursor=pointer]:
+                - /url: "#coming-from-strands-agents"
+              - list [ref=e152]:
+                - listitem [ref=e153]:
+                  - link "Agent runtime" [ref=e154] [cursor=pointer]:
+                    - /url: "#agent-runtime"
+                - listitem [ref=e155]:
+                  - link "Tools" [ref=e156] [cursor=pointer]:
+                    - /url: "#tools"
+                - listitem [ref=e157]:
+                  - link "Memory" [ref=e158] [cursor=pointer]:
+                    - /url: "#memory"
+                - listitem [ref=e159]:
+                  - link "Observability" [ref=e160] [cursor=pointer]:
+                    - /url: "#observability"
+                - listitem [ref=e161]:
+                  - link "Streaming / Lifecycle events" [ref=e162] [cursor=pointer]:
+                    - /url: "#streaming--lifecycle-events"
+            - listitem [ref=e163]:
+              - link "What agentfootprint adds" [ref=e164] [cursor=pointer]:
+                - /url: "#what-agentfootprint-adds"
+            - listitem [ref=e165]:
+              - link "Export to CloudWatch / X-Ray" [ref=e166] [cursor=pointer]:
+                - /url: "#export-to-cloudwatch--x-ray"
+      - main [ref=e168]:
+        - heading "AWS Bedrock" [level=1] [ref=e171]
+        - generic [ref=e173]:
+          - generic [ref=e174]:
+            - generic [ref=e175]:
+              - heading "Use Claude on Bedrock" [level=2] [ref=e176]
+              - link "Section titled “Use Claude on Bedrock”" [ref=e177] [cursor=pointer]:
+                - /url: "#use-claude-on-bedrock"
+                - img [ref=e179]
+                - generic [ref=e181]: Section titled “Use Claude on Bedrock”
+            - paragraph [ref=e182]: Keep your AWS infrastructure. Get explainable agents.
+            - figure "Terminal window" [ref=e184]:
+              - generic [ref=e187]: Terminal window
+              - code [ref=e189]:
+                - generic [ref=e191]: npm install agentfootprint @aws-sdk/client-bedrock-runtime
+              - button "Copy to clipboard" [ref=e193] [cursor=pointer]
+            - figure [ref=e196]:
+              - code [ref=e198]:
+                - generic [ref=e200]: "import { Agent, createProvider, bedrock, defineTool } from 'agentfootprint';"
+                - generic [ref=e204]: const provider = createProvider(bedrock('anthropic.claude-sonnet-4-20250514-v1:0'));
+                - generic [ref=e208]: "const agent = Agent.create({ provider })"
+                - generic [ref=e210]: .system('You are a helpful assistant.')
+                - generic [ref=e212]: .tool(myTool)
+                - generic [ref=e214]: .build();
+                - generic [ref=e218]: const result = await agent.run('Hello');
+                - generic [ref=e220]: console.log(result.content);
+                - generic [ref=e222]: console.log(agent.getNarrative()); // full execution trace
+              - button "Copy to clipboard" [ref=e224] [cursor=pointer]
+            - generic [ref=e226]:
+              - heading "Configuration" [level=2] [ref=e227]
+              - link "Section titled “Configuration”" [ref=e228] [cursor=pointer]:
+                - /url: "#configuration"
+                - img [ref=e230]
+                - generic [ref=e232]: Section titled “Configuration”
+            - figure [ref=e234]:
+              - code [ref=e236]:
+                - generic [ref=e238]: "import { BedrockAdapter } from 'agentfootprint';"
+                - generic [ref=e242]: // Explicit region and credentials
+                - generic [ref=e244]: "const provider = new BedrockAdapter({"
+                - generic [ref=e246]: "model: 'anthropic.claude-sonnet-4-20250514-v1:0',"
+                - generic [ref=e249]: "region: 'us-east-1',"
+                - generic [ref=e252]: "});"
+                - generic [ref=e256]: // Cross-region inference
+                - generic [ref=e258]: "const provider = new BedrockAdapter({"
+                - generic [ref=e260]: "model: 'us.anthropic.claude-sonnet-4-20250514-v1:0',"
+                - generic [ref=e263]: "region: 'us-east-1',"
+                - generic [ref=e266]: "});"
+              - button "Copy to clipboard" [ref=e268] [cursor=pointer]
+            - paragraph [ref=e270]: Authentication uses the standard AWS credential chain (environment variables, IAM roles, SSO profiles).
+            - generic [ref=e271]:
+              - heading "Available Bedrock models" [level=2] [ref=e272]
+              - link "Section titled “Available Bedrock models”" [ref=e273] [cursor=pointer]:
+                - /url: "#available-bedrock-models"
+                - img [ref=e275]
+                - generic [ref=e277]: Section titled “Available Bedrock models”
+            - table [ref=e278]:
+              - rowgroup [ref=e279]:
+                - row "Model Bedrock Model ID" [ref=e280]:
+                  - columnheader "Model" [ref=e281]
+                  - columnheader "Bedrock Model ID" [ref=e282]
+              - rowgroup [ref=e283]:
+                - row "Claude Sonnet 4 anthropic.claude-sonnet-4-20250514-v1:0" [ref=e284]:
+                  - cell "Claude Sonnet 4" [ref=e285]
+                  - cell "anthropic.claude-sonnet-4-20250514-v1:0" [ref=e286]:
+                    - code [ref=e287]: anthropic.claude-sonnet-4-20250514-v1:0
+                - row "Claude Opus 4 anthropic.claude-opus-4-20250514-v1:0" [ref=e288]:
+                  - cell "Claude Opus 4" [ref=e289]
+                  - cell "anthropic.claude-opus-4-20250514-v1:0" [ref=e290]:
+                    - code [ref=e291]: anthropic.claude-opus-4-20250514-v1:0
+                - row "Claude Haiku 3.5 anthropic.claude-3-5-haiku-20241022-v1:0" [ref=e292]:
+                  - cell "Claude Haiku 3.5" [ref=e293]
+                  - cell "anthropic.claude-3-5-haiku-20241022-v1:0" [ref=e294]:
+                    - code [ref=e295]: anthropic.claude-3-5-haiku-20241022-v1:0
+            - separator [ref=e296]
+            - generic [ref=e297]:
+              - heading "Coming from Strands Agents?" [level=2] [ref=e298]
+              - link "Section titled “Coming from Strands Agents?”" [ref=e299] [cursor=pointer]:
+                - /url: "#coming-from-strands-agents"
+                - img [ref=e301]
+                - generic [ref=e303]: Section titled “Coming from Strands Agents?”
+            - paragraph [ref=e304]:
+              - text: If you’re using the
+              - link "Strands Agents SDK" [ref=e305] [cursor=pointer]:
+                - /url: https://strandsagents.com/
+              - text: (
+              - code [ref=e306]: "@strands-agents/sdk"
+              - text: ), here’s how each component maps to agentfootprint. Both frameworks run on Bedrock — you keep the same AWS infrastructure.
+            - generic [ref=e307]:
+              - heading "Agent runtime" [level=3] [ref=e308]
+              - link "Section titled “Agent runtime”" [ref=e309] [cursor=pointer]:
+                - /url: "#agent-runtime"
+                - img [ref=e311]
+                - generic [ref=e313]: Section titled “Agent runtime”
+            - generic [ref=e314]:
+              - tablist [ref=e316]:
+                - tab "Strands Agents" [selected] [ref=e317] [cursor=pointer]
+                - tab "agentfootprint" [ref=e318] [cursor=pointer]
+              - tabpanel "Strands Agents" [ref=e319]:
+                - figure [ref=e321]:
+                  - code [ref=e323]:
+                    - generic [ref=e325]: "import { Agent } from '@strands-agents/sdk';"
+                    - generic [ref=e327]: "import { BedrockModel } from '@strands-agents/sdk/models/bedrock';"
+                    - generic [ref=e331]: "const agent = new Agent({"
+                    - generic [ref=e333]: "model: new BedrockModel({ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0' }),"
+                    - generic [ref=e336]: "systemPrompt: 'You are a support agent.',"
+                    - generic [ref=e339]: "tools: [lookupOrderTool],"
+                    - generic [ref=e342]: "});"
+                    - generic [ref=e346]: const result = await agent('Check order ORD-1003');
+                  - button "Copy to clipboard" [ref=e348] [cursor=pointer]
+            - generic [ref=e350]:
+              - heading "Tools" [level=3] [ref=e351]
+              - link "Section titled “Tools”" [ref=e352] [cursor=pointer]:
+                - /url: "#tools"
+                - img [ref=e354]
+                - generic [ref=e356]: Section titled “Tools”
+            - generic [ref=e357]:
+              - tablist [ref=e359]:
+                - tab "Strands Agents" [selected] [ref=e360] [cursor=pointer]
+                - tab "agentfootprint" [ref=e361] [cursor=pointer]
+              - tabpanel "Strands Agents" [ref=e362]:
+                - figure [ref=e364]:
+                  - code [ref=e366]:
+                    - generic [ref=e368]: "import { tool } from '@strands-agents/sdk';"
+                    - generic [ref=e370]: "import { z } from 'zod';"
+                    - generic [ref=e374]: "const lookupOrder = tool({"
+                    - generic [ref=e376]: "name: 'lookup_order',"
+                    - generic [ref=e379]: "description: 'Lookup order by ID',"
+                    - generic [ref=e382]: "inputSchema: z.object({ orderId: z.string() }),"
+                    - generic [ref=e385]: "callback: async ({ orderId }) => {"
+                    - generic [ref=e387]: return await db.orders.find(orderId);
+                    - generic [ref=e390]: "},"
+                    - generic [ref=e393]: "});"
+                  - button "Copy to clipboard" [ref=e395] [cursor=pointer]
+            - generic [ref=e397]:
+              - heading "Memory" [level=3] [ref=e398]
+              - link "Section titled “Memory”" [ref=e399] [cursor=pointer]:
+                - /url: "#memory"
+                - img [ref=e401]
+                - generic [ref=e403]: Section titled “Memory”
+            - generic [ref=e404]:
+              - tablist [ref=e406]:
+                - tab "Strands Agents" [selected] [ref=e407] [cursor=pointer]
+                - tab "agentfootprint" [ref=e408] [cursor=pointer]
+              - tabpanel "Strands Agents" [ref=e409]:
+                - figure [ref=e411]:
+                  - code [ref=e413]:
+                    - generic [ref=e415]: "import { SlidingWindowConversationManager } from '@strands-agents/sdk';"
+                    - generic [ref=e419]: "const agent = new Agent({"
+                    - generic [ref=e421]: model,
+                    - generic [ref=e423]: "conversationManager: new SlidingWindowConversationManager({ windowSize: 20 }),"
+                    - generic [ref=e426]: "});"
+                  - button "Copy to clipboard" [ref=e428] [cursor=pointer]
+            - generic [ref=e430]:
+              - heading "Observability" [level=3] [ref=e431]
+              - link "Section titled “Observability”" [ref=e432] [cursor=pointer]:
+                - /url: "#observability"
+                - img [ref=e434]
+                - generic [ref=e436]: Section titled “Observability”
+            - generic [ref=e437]:
+              - tablist [ref=e439]:
+                - tab "Strands Agents" [selected] [ref=e440] [cursor=pointer]
+                - tab "agentfootprint" [ref=e441] [cursor=pointer]
+              - tabpanel "Strands Agents" [ref=e442]:
+                - figure [ref=e444]:
+                  - code [ref=e446]:
+                    - generic [ref=e448]: // OpenTelemetry via @strands-agents/sdk/telemetry
+                    - generic [ref=e450]: "import { initTelemetry } from '@strands-agents/sdk/telemetry';"
+                    - generic [ref=e454]: "initTelemetry({ serviceName: 'my-agent' });"
+                    - generic [ref=e456]: // Spans sent to CloudWatch/X-Ray automatically
+                  - button "Copy to clipboard" [ref=e458] [cursor=pointer]
+            - generic [ref=e460]:
+              - heading "Streaming / Lifecycle events" [level=3] [ref=e461]
+              - link "Section titled “Streaming / Lifecycle events”" [ref=e462] [cursor=pointer]:
+                - /url: "#streaming--lifecycle-events"
+                - img [ref=e464]
+                - generic [ref=e466]: Section titled “Streaming / Lifecycle events”
+            - generic [ref=e467]:
+              - tablist [ref=e469]:
+                - tab "Strands Agents" [selected] [ref=e470] [cursor=pointer]
+                - tab "agentfootprint" [ref=e471] [cursor=pointer]
+              - tabpanel "Strands Agents" [ref=e472]:
+                - figure [ref=e474]:
+                  - code [ref=e476]:
+                    - generic [ref=e478]: // Async iterator pattern
+                    - generic [ref=e480]: const stream = agent.stream('Check order ORD-1003');
+                    - generic [ref=e482]: "for await (const event of stream) {"
+                    - generic [ref=e484]: // handle events
+                    - generic [ref=e486]: "}"
+                  - button "Copy to clipboard" [ref=e488] [cursor=pointer]
+            - separator [ref=e490]
+            - generic [ref=e491]:
+              - heading "What agentfootprint adds" [level=2] [ref=e492]
+              - link "Section titled “What agentfootprint adds”" [ref=e493] [cursor=pointer]:
+                - /url: "#what-agentfootprint-adds"
+                - img [ref=e495]
+                - generic [ref=e497]: Section titled “What agentfootprint adds”
+            - paragraph [ref=e498]: "Features that Agent Core doesn’t have:"
+            - table [ref=e499]:
+              - rowgroup [ref=e500]:
+                - row "Feature Description" [ref=e501]:
+                  - columnheader "Feature" [ref=e502]
+                  - columnheader "Description" [ref=e503]
+              - rowgroup [ref=e504]:
+                - row "Connected narrative Structured execution trace — not disconnected spans. Each entry has key, stageId, subflowId" [ref=e505]:
+                  - cell "Connected narrative" [ref=e506]:
+                    - strong [ref=e507]: Connected narrative
+                  - cell "Structured execution trace — not disconnected spans. Each entry has key, stageId, subflowId" [ref=e508]
+                - row "Grounding analysis Compare tool results vs LLM claims. Detect hallucinations without a separate eval pipeline" [ref=e509]:
+                  - cell "Grounding analysis" [ref=e510]:
+                    - strong [ref=e511]: Grounding analysis
+                  - cell "Compare tool results vs LLM claims. Detect hallucinations without a separate eval pipeline" [ref=e512]
+                - row "Conditional instructions defineInstruction() — context-aware behavior driven by accumulated state" [ref=e513]:
+                  - cell "Conditional instructions" [ref=e514]:
+                    - strong [ref=e515]: Conditional instructions
+                  - cell "defineInstruction() — context-aware behavior driven by accumulated state" [ref=e516]:
+                    - code [ref=e517]: defineInstruction()
+                    - text: — context-aware behavior driven by accumulated state
+                - row "6 patterns LLMCall, Agent, RAG, FlowChart, Swarm, Parallel — compose freely" [ref=e518]:
+                  - cell "6 patterns" [ref=e519]:
+                    - strong [ref=e520]: 6 patterns
+                  - cell "LLMCall, Agent, RAG, FlowChart, Swarm, Parallel — compose freely" [ref=e521]
+                - row "$0 testing mock() provider for deterministic, free, instant tests" [ref=e522]:
+                  - cell "$0 testing" [ref=e523]:
+                    - strong [ref=e524]: $0 testing
+                  - cell "mock() provider for deterministic, free, instant tests" [ref=e525]:
+                    - code [ref=e526]: mock()
+                    - text: provider for deterministic, free, instant tests
+                - row "Human-in-the-loop askHuman() — agent pauses, serializes to JSON, resumes on any server" [ref=e527]:
+                  - cell "Human-in-the-loop" [ref=e528]:
+                    - strong [ref=e529]: Human-in-the-loop
+                  - cell "askHuman() — agent pauses, serializes to JSON, resumes on any server" [ref=e530]:
+                    - code [ref=e531]: askHuman()
+                    - text: — agent pauses, serializes to JSON, resumes on any server
+                - row "Tool gating LLM never sees unauthorized tools — can’t hallucinate what it can’t see" [ref=e532]:
+                  - cell "Tool gating" [ref=e533]:
+                    - strong [ref=e534]: Tool gating
+                  - cell "LLM never sees unauthorized tools — can’t hallucinate what it can’t see" [ref=e535]
+                - 'row "Provider failover Cross-family: Claude → GPT-4o → Ollama, automatic" [ref=e536]':
+                  - cell "Provider failover" [ref=e537]:
+                    - strong [ref=e538]: Provider failover
+                  - 'cell "Cross-family: Claude → GPT-4o → Ollama, automatic" [ref=e539]'
+            - generic [ref=e540]:
+              - heading "Export to CloudWatch / X-Ray" [level=2] [ref=e541]
+              - link "Section titled “Export to CloudWatch / X-Ray”" [ref=e542] [cursor=pointer]:
+                - /url: "#export-to-cloudwatch--x-ray"
+                - img [ref=e544]
+                - generic [ref=e546]: Section titled “Export to CloudWatch / X-Ray”
+            - paragraph [ref=e547]: "Send agentfootprint recorder data to your existing AWS observability:"
+            - figure [ref=e549]:
+              - code [ref=e551]:
+                - generic [ref=e553]: "import { CloudWatch } from '@aws-sdk/client-cloudwatch';"
+                - generic [ref=e555]: "import { agentObservability } from 'agentfootprint/observe';"
+                - generic [ref=e559]: "const cw = new CloudWatch({ region: 'us-east-1' });"
+                - generic [ref=e561]: const obs = agentObservability();
+                - generic [ref=e565]: "const agent = Agent.create({ provider })"
+                - generic [ref=e567]: .recorder(obs)
+                - generic [ref=e569]: .build();
+                - generic [ref=e573]: await agent.run(userMessage);
+                - generic [ref=e577]: // Push to CloudWatch
+                - generic [ref=e579]: const tokens = obs.tokens();
+                - generic [ref=e581]: "await cw.putMetricData({"
+                - generic [ref=e583]: "Namespace: 'AgentFootprint',"
+                - generic [ref=e586]: "MetricData: ["
+                - generic [ref=e589]: "{ MetricName: 'LLMCalls', Value: tokens.totalCalls, Unit: 'Count' },"
+                - generic [ref=e592]: "{ MetricName: 'InputTokens', Value: tokens.totalInputTokens, Unit: 'Count' },"
+                - generic [ref=e595]: "{ MetricName: 'OutputTokens', Value: tokens.totalOutputTokens, Unit: 'Count' },"
+                - generic [ref=e598]: "{ MetricName: 'EstimatedCost', Value: obs.cost(), Unit: 'None' },"
+                - generic [ref=e601]: "],"
+                - generic [ref=e604]: "});"
+                - generic [ref=e608]: // Push tool usage
+                - generic [ref=e610]: const tools = obs.tools();
+                - generic [ref=e612]: "for (const [name, stats] of Object.entries(tools.byTool)) {"
+                - generic [ref=e614]: "await cw.putMetricData({"
+                - generic [ref=e616]: "Namespace: 'AgentFootprint/Tools',"
+                - generic [ref=e619]: "MetricData: ["
+                - generic [ref=e622]: "{ MetricName: 'Calls', Value: stats.calls, Dimensions: [{ Name: 'Tool', Value: name }] },"
+                - generic [ref=e625]: "{ MetricName: 'Errors', Value: stats.errors, Dimensions: [{ Name: 'Tool', Value: name }] },"
+                - generic [ref=e628]: "],"
+                - generic [ref=e631]: "});"
+                - generic [ref=e634]: "}"
+              - button "Copy to clipboard" [ref=e636] [cursor=pointer]
+          - generic [ref=e639]:
+            - link "Previous OpenAI" [ref=e640] [cursor=pointer]:
+              - /url: /agentfootprint/integrations/openai/
+              - img [ref=e641]
+              - generic [ref=e643]:
+                - text: Previous
+                - text: OpenAI
+            - link "Next Bedrock AgentCore" [ref=e644] [cursor=pointer]:
+              - /url: /agentfootprint/integrations/agentcore/
+              - img [ref=e645]
+              - generic [ref=e647]:
+                - text: Next
+                - text: Bedrock AgentCore
+  - generic [ref=e650]:
+    - button "Menu" [ref=e651]:
+      - img [ref=e653]
+      - generic: Menu
+    - button "Inspect" [ref=e657]:
+      - img [ref=e659]
+      - generic: Inspect
+    - button "Audit" [ref=e661]:
+      - img [ref=e663]
+      - generic: Audit
+    - button "Settings" [ref=e666]:
+      - img [ref=e668]
+      - generic: Settings

@@ -1,0 +1,56 @@
+- generic [ref=e3]:
+  - button "☀" [ref=e4] [cursor=pointer]
+  - generic [ref=e5]:
+    - generic [ref=e6]: agentfootprint
+    - heading "Explainable AI Agents" [level=1] [ref=e7]
+    - paragraph [ref=e8]: Build → Run → Observe. Every turn, tool call, and decision documented automatically. Zero extra code.
+  - generic [ref=e9]:
+    - 'link "🧠 Concept Ladder 6 core concepts, each adds one capability: LLMCall → Agent → RAG → FlowChart → Swarm. Understand the architecture in 5 minutes. Learn the concepts →" [ref=e10] [cursor=pointer]':
+      - /url: "#/samples/simple-llm-call"
+      - generic [ref=e11]:
+        - generic [ref=e12]: 🧠
+        - generic [ref=e13]:
+          - generic [ref=e14]: Concept Ladder
+          - generic [ref=e15]: "6 core concepts, each adds one capability: LLMCall → Agent → RAG → FlowChart → Swarm. Understand the architecture in 5 minutes."
+        - generic [ref=e17]:
+          - text: Learn the concepts
+          - generic [ref=e18]: →
+    - link "⚡ Feature Playground Tools, memory, streaming, security, resilience, recorders, grounding — every feature with runnable code and Behind the Scenes. Explore features →" [ref=e19] [cursor=pointer]:
+      - /url: "#/samples/prompt-strategies"
+      - generic [ref=e20]:
+        - generic [ref=e21]: ⚡
+        - generic [ref=e22]:
+          - generic [ref=e23]: Feature Playground
+          - generic [ref=e24]: Tools, memory, streaming, security, resilience, recorders, grounding — every feature with runnable code and Behind the Scenes.
+        - generic [ref=e26]:
+          - text: Explore features
+          - generic [ref=e27]: →
+    - link "💬 Live Chat Pick a pattern, set your API key, and chat with a real LLM. Every turn shows the full execution trace. Try with your key →" [ref=e28] [cursor=pointer]:
+      - /url: "#/live"
+      - generic [ref=e29]:
+        - generic [ref=e30]: 💬
+        - generic [ref=e31]:
+          - generic [ref=e32]: Live Chat
+          - generic [ref=e33]: Pick a pattern, set your API key, and chat with a real LLM. Every turn shows the full execution trace.
+        - generic [ref=e35]:
+          - text: Try with your key
+          - generic [ref=e36]: →
+  - generic [ref=e37]:
+    - generic [ref=e38]: LLMCall
+    - generic [ref=e39]: →
+    - generic [ref=e40]: Agent
+    - generic [ref=e41]: →
+    - generic [ref=e42]: RAG
+    - generic [ref=e43]: →
+    - generic [ref=e44]: FlowChart
+    - generic [ref=e45]: →
+    - generic [ref=e46]: Swarm
+    - generic [ref=e47]: →
+    - generic [ref=e48]: Parallel
+  - generic [ref=e49]:
+    - link "GitHub" [ref=e50] [cursor=pointer]:
+      - /url: https://github.com/footprintjs/agentfootprint
+    - link "footprintjs" [ref=e51] [cursor=pointer]:
+      - /url: https://github.com/footprintjs/footPrint
+    - link "npm" [ref=e52] [cursor=pointer]:
+      - /url: https://www.npmjs.com/package/agentfootprint

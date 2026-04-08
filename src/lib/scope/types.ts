@@ -12,6 +12,8 @@
 
 export interface RecorderContext {
   stageName: string;
+  /** Stable stage identifier (matches spec node id). */
+  stageId: string;
   pipelineId: string;
   timestamp: number;
 }

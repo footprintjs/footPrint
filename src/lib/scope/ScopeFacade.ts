@@ -126,6 +126,7 @@ export class ScopeFacade {
   notifyStageStart(): void {
     this._invokeHook('onStageStart', {
       stageName: this._stageName,
+      stageId: this._stageContext.stageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
     });
@@ -135,6 +136,7 @@ export class ScopeFacade {
   notifyStageEnd(duration?: number): void {
     this._invokeHook('onStageEnd', {
       stageName: this._stageName,
+      stageId: this._stageContext.stageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       duration,
@@ -167,6 +169,7 @@ export class ScopeFacade {
   notifyCommit(mutations: CommitEvent['mutations']): void {
     this._invokeHook('onCommit', {
       stageName: this._stageName,
+      stageId: this._stageContext.stageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       mutations,
@@ -279,6 +282,7 @@ export class ScopeFacade {
 
       this._invokeHook('onRead', {
         stageName: this._stageName,
+        stageId: this._stageContext.stageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -333,6 +337,7 @@ export class ScopeFacade {
 
       this._invokeHook('onWrite', {
         stageName: this._stageName,
+        stageId: this._stageContext.stageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -376,6 +381,7 @@ export class ScopeFacade {
 
       this._invokeHook('onWrite', {
         stageName: this._stageName,
+        stageId: this._stageContext.stageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -399,6 +405,7 @@ export class ScopeFacade {
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
+        stageId: this._stageContext.stageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -543,6 +550,7 @@ export class ScopeFacade {
         if (hook !== 'onError') {
           this._invokeHook('onError', {
             stageName: this._stageName,
+            stageId: this._stageContext.stageId,
             pipelineId: this._stageContext.runId,
             timestamp: Date.now(),
             error: error as Error,

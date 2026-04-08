@@ -1,0 +1,240 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#_top"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - link "AGENT FOOTPRINT" [ref=e7] [cursor=pointer]:
+            - /url: /agentfootprint/
+            - img [ref=e8]
+            - generic [ref=e14]: AGENT
+            - generic [ref=e15]: FOOTPRINT
+          - navigation [ref=e16]:
+            - link "Docs" [ref=e17] [cursor=pointer]:
+              - /url: /agentfootprint/getting-started/quick-start/
+            - link "Playground" [ref=e18] [cursor=pointer]:
+              - /url: https://footprintjs.github.io/agent-playground/
+        - button "Search" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+          - generic [ref=e24]: Search
+          - generic [ref=e25]:
+            - generic [ref=e26]: ⌘
+            - generic [ref=e27]: K
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - link "GitHub" [ref=e30] [cursor=pointer]:
+              - /url: https://github.com/footprintjs/agentfootprint
+              - generic [ref=e31]: GitHub
+              - img [ref=e32]
+            - link "npm" [ref=e34] [cursor=pointer]:
+              - /url: https://www.npmjs.com/package/agentfootprint
+              - generic [ref=e35]: npm
+              - img [ref=e36]
+          - generic [ref=e39]:
+            - generic [ref=e40]: Select theme
+            - img
+            - combobox "Select theme" [ref=e41] [cursor=pointer]:
+              - option "Dark"
+              - option "Light"
+              - option "Auto" [selected]
+            - img
+    - main [ref=e45]:
+      - generic [ref=e47]:
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - heading "agentfootprint" [level=1] [ref=e51]
+            - generic [ref=e52]: Build agents that explain their reasoning. Every decision traced, every tool call documented.
+          - generic [ref=e53]:
+            - link "Quick Start" [ref=e54] [cursor=pointer]:
+              - /url: /agentfootprint/getting-started/quick-start/
+              - text: Quick Start
+              - img [ref=e55]
+            - link "Live Playground" [ref=e57] [cursor=pointer]:
+              - /url: https://footprintjs.github.io/agent-playground/
+              - text: Live Playground
+              - img [ref=e58]
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - heading "Why agentfootprint?" [level=2] [ref=e63]
+            - link "Section titled “Why agentfootprint?”" [ref=e64] [cursor=pointer]:
+              - /url: "#why-agentfootprint"
+              - img [ref=e66]
+              - generic [ref=e68]: Section titled “Why agentfootprint?”
+          - generic [ref=e69]:
+            - article [ref=e70]:
+              - paragraph [ref=e71]:
+                - img [ref=e72]
+                - generic [ref=e74]: Connected evidence
+              - paragraph [ref=e76]:
+                - text: Every tool call, every LLM decision, every response is captured in a
+                - strong [ref=e77]: structured trace
+                - text: — not disconnected logs. See exactly what happened, verify the LLM wasn’t hallucinating, and debug in minutes.
+            - article [ref=e78]:
+              - paragraph [ref=e79]:
+                - img [ref=e80]
+                - generic [ref=e82]: $0 test runs
+              - paragraph [ref=e84]:
+                - text: Write tests with
+                - code [ref=e85]: mock()
+                - text: . Deploy with
+                - code [ref=e86]: anthropic()
+                - text: . Same agent, same tools, same flowchart. Swap one line.
+            - article [ref=e87]:
+              - paragraph [ref=e88]:
+                - img [ref=e89]
+                - generic [ref=e91]: Conditional instructions
+              - paragraph [ref=e93]:
+                - code [ref=e94]: defineInstruction()
+                - text: injects into system prompt, tools, AND tool-result recency — driven by accumulated state. Progressive tool authorization, context-aware prompts, all declarative.
+            - article [ref=e95]:
+              - paragraph [ref=e96]:
+                - img [ref=e97]
+                - generic [ref=e99]: 6 concepts, one interface
+              - paragraph [ref=e101]:
+                - text: LLMCall, Agent, RAG, FlowChart, Swarm, Parallel. Each adds one capability. All share
+                - code [ref=e102]: .build()
+                - text: →
+                - code [ref=e103]: .run()
+                - text: →
+                - code [ref=e104]: .getNarrative()
+                - text: .
+          - generic [ref=e105]:
+            - heading "Connected evidence — see it in action" [level=2] [ref=e106]
+            - link "Section titled “Connected evidence — see it in action”" [ref=e107] [cursor=pointer]:
+              - /url: "#connected-evidence--see-it-in-action"
+              - img [ref=e109]
+              - generic [ref=e111]: Section titled “Connected evidence — see it in action”
+          - paragraph [ref=e112]:
+            - text: When an agent runs, agentfootprint captures
+            - strong [ref=e113]: every stage, every tool call, every LLM decision
+            - text: as structured narrative entries. Not logs. Not spans. Connected evidence with provenance.
+          - figure [ref=e115]:
+            - code [ref=e117]:
+              - generic [ref=e119]: "User: \"Check order ORD-1003 and help me with a refund\""
+              - generic [ref=e123]: "[Seed] Initialized agent state"
+              - generic [ref=e125]: "Messages: 1 (1 user)"
+              - generic [ref=e128]: "[Subflow: SystemPrompt] Preparing system prompt"
+              - generic [ref=e130]: "[Subflow: Messages] Preparing conversation history"
+              - generic [ref=e132]: "[Subflow: Tools] Resolving available tools"
+              - generic [ref=e134]: "Tools: [lookup_order, check_inventory, ask_human]"
+              - generic [ref=e137]: "[CallLLM] Called LLM"
+              - generic [ref=e139]: "LLM: claude-sonnet-4-20250514 (243in / 45out)"
+              - generic [ref=e142]: "→ tool_calls: [lookup_order]"
+              - generic [ref=e145]: "[ParseResponse] Parsed LLM response"
+              - generic [ref=e147]: "Parsed: tool_calls → [lookup_order({orderId: \"ORD-1003\"})]"
+              - generic [ref=e150]: "[ExecuteToolCalls] Executed tool calls"
+              - generic [ref=e152]: "Tool results: {\"orderId\":\"ORD-1003\",\"status\":\"cancelled\",\"amount\":299}"
+              - generic [ref=e155]: "[CallLLM] Called LLM"
+              - generic [ref=e157]: "LLM: claude-sonnet-4-20250514 (512in / 89out)"
+              - generic [ref=e160]: "Reasoning: \"The order is cancelled. I should offer a refund...\""
+              - generic [ref=e163]: "[Finalize] Extract final answer"
+              - generic [ref=e165]: "Result: \"Your order ORD-1003 was cancelled. I can process a refund of $299...\""
+            - button "Copy to clipboard" [ref=e168] [cursor=pointer]
+          - paragraph [ref=e170]:
+            - text: Every entry has
+            - code [ref=e171]: type
+            - text: ","
+            - code [ref=e172]: key
+            - text: ","
+            - code [ref=e173]: stageId
+            - text: ","
+            - code [ref=e174]: subflowId
+            - text: — use them for
+            - link "grounding analysis" [ref=e175] [cursor=pointer]:
+              - /url: /agentfootprint/guides/grounding/
+            - text: (hallucination detection), audit trails, or feeding to another LLM.
+          - link "Try it in the Playground" [ref=e177] [cursor=pointer]:
+            - /url: https://footprintjs.github.io/agent-playground/
+            - text: Try it in the Playground
+            - img [ref=e178]
+          - generic [ref=e181]:
+            - heading "Start simple, compose up" [level=2] [ref=e182]
+            - link "Section titled “Start simple, compose up”" [ref=e183] [cursor=pointer]:
+              - /url: "#start-simple-compose-up"
+              - img [ref=e185]
+              - generic [ref=e187]: Section titled “Start simple, compose up”
+          - figure [ref=e189]:
+            - code [ref=e191]:
+              - generic [ref=e193]: "import { Agent, defineTool, anthropic } from 'agentfootprint';"
+              - generic [ref=e197]: "const agent = Agent.create({ provider: anthropic('claude-sonnet-4-20250514') })"
+              - generic [ref=e199]: .system('You are a research assistant.')
+              - generic [ref=e201]: .tool(searchTool)
+              - generic [ref=e203]: .build();
+              - generic [ref=e207]: const result = await agent.run('Find AI trends');
+              - generic [ref=e209]: console.log(result.content);
+              - generic [ref=e211]: console.log(agent.getNarrative()); // connected execution trace
+            - button "Copy to clipboard" [ref=e213] [cursor=pointer]
+          - table [ref=e215]:
+            - rowgroup [ref=e216]:
+              - row "Concept What it adds Use case" [ref=e217]:
+                - columnheader "Concept" [ref=e218]
+                - columnheader "What it adds" [ref=e219]
+                - columnheader "Use case" [ref=e220]
+            - rowgroup [ref=e221]:
+              - row "LLMCall Single LLM invocation Summarization, classification" [ref=e222]:
+                - cell "LLMCall" [ref=e223]:
+                  - strong [ref=e224]: LLMCall
+                - cell "Single LLM invocation" [ref=e225]
+                - cell "Summarization, classification" [ref=e226]
+              - row "Agent + Tool use loop (ReAct) Research, code generation" [ref=e227]:
+                - cell "Agent" [ref=e228]:
+                  - strong [ref=e229]: Agent
+                - cell "+ Tool use loop (ReAct)" [ref=e230]
+                - cell "Research, code generation" [ref=e231]
+              - row "RAG + Retrieval Q&A over documents" [ref=e232]:
+                - cell "RAG" [ref=e233]:
+                  - strong [ref=e234]: RAG
+                - cell "+ Retrieval" [ref=e235]
+                - cell "Q&A over documents" [ref=e236]
+              - row "FlowChart + Sequential pipeline Approval flows, ETL" [ref=e237]:
+                - cell "FlowChart" [ref=e238]:
+                  - strong [ref=e239]: FlowChart
+                - cell "+ Sequential pipeline" [ref=e240]
+                - cell "Approval flows, ETL" [ref=e241]
+              - row "Swarm + LLM-driven routing Customer support, triage" [ref=e242]:
+                - cell "Swarm" [ref=e243]:
+                  - strong [ref=e244]: Swarm
+                - cell "+ LLM-driven routing" [ref=e245]
+                - cell "Customer support, triage" [ref=e246]
+              - row "Parallel + Concurrent execution Multi-perspective analysis" [ref=e247]:
+                - cell "Parallel" [ref=e248]:
+                  - strong [ref=e249]: Parallel
+                - cell "+ Concurrent execution" [ref=e250]
+                - cell "Multi-perspective analysis" [ref=e251]
+          - generic [ref=e252]:
+            - heading "Import what you need" [level=2] [ref=e253]
+            - link "Section titled “Import what you need”" [ref=e254] [cursor=pointer]:
+              - /url: "#import-what-you-need"
+              - img [ref=e256]
+              - generic [ref=e258]: Section titled “Import what you need”
+          - paragraph [ref=e259]: "Each capability is a subpath — import only what you use:"
+          - figure [ref=e261]:
+            - code [ref=e263]:
+              - generic [ref=e265]: "import { Agent, defineTool } from 'agentfootprint';"
+              - generic [ref=e267]: "import { anthropic } from 'agentfootprint/providers';"
+              - generic [ref=e269]: "import { defineInstruction } from 'agentfootprint/instructions';"
+              - generic [ref=e271]: "import { agentObservability } from 'agentfootprint/observe';"
+              - generic [ref=e273]: "import { withRetry } from 'agentfootprint/resilience';"
+              - generic [ref=e275]: "import { gatedTools } from 'agentfootprint/security';"
+              - generic [ref=e277]: "import { getGroundingSources } from 'agentfootprint/explain';"
+              - generic [ref=e279]: "import { SSEFormatter } from 'agentfootprint/stream';"
+            - button "Copy to clipboard" [ref=e281] [cursor=pointer]
+          - generic [ref=e283]:
+            - link "Get started" [ref=e284] [cursor=pointer]:
+              - /url: /agentfootprint/getting-started/quick-start/
+            - link "Explore guides" [ref=e285] [cursor=pointer]:
+              - /url: /agentfootprint/guides/agent/
+  - generic [ref=e289]:
+    - button "Menu" [ref=e290]:
+      - img [ref=e292]
+      - generic: Menu
+    - button "Inspect" [ref=e296]:
+      - img [ref=e298]
+      - generic: Inspect
+    - button "Audit" [ref=e300]:
+      - img [ref=e302]
+      - generic: Audit
+    - button "Settings" [ref=e305]:
+      - img [ref=e307]
+      - generic: Settings

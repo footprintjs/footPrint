@@ -1,0 +1,11 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - img [ref=e4]
+    - generic [ref=e10]: AGENTFOOTPRINT
+    - generic [ref=e11]: The explainable agent framework
+    - generic [ref=e12]:
+      - generic [ref=e13]: 6 Concepts
+      - generic [ref=e15]: Connected Evidence
+      - generic [ref=e17]: $0 Test Runs
+      - generic [ref=e19]: Grounding Analysis
+  - generic [ref=e21]: Built on footprintjs
