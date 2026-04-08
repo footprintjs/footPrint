@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0]
+
+### Added
+
+- **`stageId` on RecorderContext** — every recorder event (onRead, onWrite, onStageStart, onStageEnd, onCommit, onError) now carries the stable stage identifier alongside stageName
+- **`stageId` on CommitBundle** — every commit log entry carries stageId for data flow tracing and quality trace backtracking
+- **5 new tests** — stageId verified across linear chain, loop, decider, subflow, and commitLog patterns
+
+### Changed
+
+- **PauseEvent/ResumeEvent** — removed redundant `stageId` field (now inherited from RecorderContext)
+- **`notifyPause()`** — stageId sourced from StageContext instead of parameter; cleaned up caller
+
+### Fixed
+
+- **`.playwright-mcp/`** — gitignored, removed 20 accidentally committed browser session artifacts
+
 ## [4.4.1]
 
 ### Added
