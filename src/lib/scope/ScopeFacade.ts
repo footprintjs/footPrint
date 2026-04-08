@@ -127,6 +127,7 @@ export class ScopeFacade {
     this._invokeHook('onStageStart', {
       stageName: this._stageName,
       stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
     });
@@ -137,6 +138,7 @@ export class ScopeFacade {
     this._invokeHook('onStageEnd', {
       stageName: this._stageName,
       stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       duration,
@@ -148,6 +150,7 @@ export class ScopeFacade {
     this._invokeHook('onPause', {
       stageName: this._stageName,
       stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       pauseData,
@@ -159,6 +162,7 @@ export class ScopeFacade {
     this._invokeHook('onResume', {
       stageName: this._stageName,
       stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       hasInput,
@@ -170,6 +174,7 @@ export class ScopeFacade {
     this._invokeHook('onCommit', {
       stageName: this._stageName,
       stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       mutations,
@@ -283,6 +288,7 @@ export class ScopeFacade {
       this._invokeHook('onRead', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
+        runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -338,6 +344,7 @@ export class ScopeFacade {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
+        runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -382,6 +389,7 @@ export class ScopeFacade {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
+        runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -406,6 +414,7 @@ export class ScopeFacade {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
+        runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
@@ -551,6 +560,7 @@ export class ScopeFacade {
           this._invokeHook('onError', {
             stageName: this._stageName,
             stageId: this._stageContext.stageId,
+            runtimeStageId: this._stageContext.runtimeStageId,
             pipelineId: this._stageContext.runId,
             timestamp: Date.now(),
             error: error as Error,

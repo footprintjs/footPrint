@@ -36,6 +36,7 @@ import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
+import { buildRuntimeStageId } from '../runtimeStageId.js';
 import type {
   ExtractorError,
   HandlerDeps,
@@ -89,6 +90,8 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * Propagated to TraversalContext so narrative entries carry the correct subflowId.
    */
   parentSubflowId?: string;
+  /** Shared execution counter from parent traverser. Subflows continue the parent's numbering. */
+  executionCounter?: { value: number };
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -132,6 +135,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private _executeDepth = 0;
 
   /**
+   * Shared mutable execution counter — monotonic, incremented per stage execution.
+   * Shared with child traversers (subflows) so indices are globally unique within a run.
+   */
+  private readonly _executionCounter: { value: number };
+
+  /**
    * Per-instance maximum depth (set from TraverserOptions.maxDepth or the class default).
    */
   private readonly _maxDepth: number;
@@ -160,6 +169,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const maxDepth = opts.maxDepth ?? FlowchartTraverser.MAX_EXECUTE_DEPTH;
     if (maxDepth < 1) throw new Error('FlowchartTraverser: maxDepth must be >= 1');
     this._maxDepth = maxDepth;
+    this._executionCounter = opts.executionCounter ?? { value: 0 };
     this.root = opts.root;
     // Shallow-copy stageMap and subflows so that lazy-resolution mutations
     // (prefixed entries added during execution) stay scoped to THIS traverser
@@ -260,6 +270,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         signal: parentOpts.signal,
         maxDepth: this._maxDepth,
         parentSubflowId: subflowOpts.subflowId,
+        executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
       });
 
       return {
@@ -378,6 +389,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     context: StageContext,
     breakFn: () => void,
   ) {
+    // Assign runtimeStageId BEFORE scope creation — monotonic counter ensures uniqueness.
+    // node.id already includes subflow prefix (e.g., 'sf-inner/inner-a') from the builder,
+    // so we don't add parentSubflowId separately.
+    const idx = this._executionCounter.value++;
+    context.runtimeStageId = buildRuntimeStageId(node.id, idx);
     return this.stageRunner.run(node, stageFunc, context, breakFn);
   }
 
@@ -416,6 +432,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Build traversal context for recorder events — created once per stage, shared by all events
       const traversalContext: TraversalContext = {
         stageId: node.id ?? context.stageId,
+        runtimeStageId: context.runtimeStageId,
         stageName: node.name,
         parentStageId: context.parent?.stageId,
         subflowId: context.subflowId ?? this.parentSubflowId,

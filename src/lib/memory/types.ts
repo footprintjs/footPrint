@@ -27,6 +27,8 @@ export interface CommitBundle {
   stage: string;
   /** Stable stage identifier (matches spec node id). */
   stageId: string;
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
+  runtimeStageId: string;
   /** Chronological write log for deterministic replay. */
   trace: TraceEntry[];
   /** Paths that should be redacted in UI (sensitive data). */

@@ -22,7 +22,13 @@
  * ```
  */
 
-/** Build a runtimeStageId from its components. */
+/**
+ * Build a runtimeStageId from its components.
+ *
+ * Note: The traverser does NOT use the subflowPath parameter — node.id already
+ * includes the subflow prefix from the builder. This parameter exists for external
+ * consumers constructing IDs from parsed components (round-trip via parseRuntimeStageId).
+ */
 export function buildRuntimeStageId(stageId: string, executionIndex: number, subflowPath?: string): string {
   const prefix = subflowPath ? `${subflowPath}/` : '';
   return `${prefix}${stageId}#${executionIndex}`;

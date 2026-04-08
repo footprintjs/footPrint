@@ -24,6 +24,7 @@ import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
+import { buildRuntimeStageId } from '../engine/runtimeStageId.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
   type ExecutorResult,
@@ -116,6 +117,8 @@ export interface FlowChartExecutorOptions<TScope = any> {
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
+  /** Shared execution counter — survives pause/resume. Reset on fresh run(). */
+  private _executionCounter = { value: 0 };
   private narrativeEnabled = false;
   private narrativeOptions?: CombinedNarrativeRecorderOptions;
   private combinedRecorder: CombinedNarrativeRecorder | undefined;
@@ -328,6 +331,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       signal,
       executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
+      executionCounter: this._executionCounter,
       ...(maxDepth !== undefined && { maxDepth }),
     });
   }
@@ -494,6 +498,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const scopeResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
+      runtimeStageId: buildRuntimeStageId(pausedNode.id, this._executionCounter.value),
       hasInput,
       pipelineId: '',
       timestamp: Date.now(),
@@ -725,6 +730,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
 
     this.lastCheckpoint = undefined;
+    this._executionCounter = { value: 0 }; // Reset counter on fresh run
     this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
     try {
       return await this.traverser.execute();

@@ -99,6 +99,8 @@ export interface IControlFlowNarrative {
 export interface TraversalContext {
   /** Stable stage identifier from the builder (matches spec node id). */
   readonly stageId: string;
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
+  readonly runtimeStageId: string;
   /** Human-readable stage name. */
   readonly stageName: string;
   /** Parent stage ID — walk up to reconstruct the tree. Undefined at root. */

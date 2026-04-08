@@ -14,6 +14,8 @@ export interface RecorderContext {
   stageName: string;
   /** Stable stage identifier (matches spec node id). */
   stageId: string;
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
+  runtimeStageId: string;
   pipelineId: string;
   timestamp: number;
 }

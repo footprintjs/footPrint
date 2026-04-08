@@ -23,6 +23,8 @@ export class StageContext {
   public stageName = '';
   /** Unique stage identifier from the builder (matches spec node id). */
   public stageId: string;
+  /** Unique per-execution-step identifier. Set by traverser before stage execution. */
+  public runtimeStageId = '';
   public runId: string;
   public branchId?: string;
   public isDecider: boolean;
@@ -221,7 +223,12 @@ export class StageContext {
   commit(): void {
     const buf = this.getTransactionBuffer();
     const bundle = buf.commit();
-    const commitBundle = { ...bundle, stage: this.stageName, stageId: this.stageId };
+    const commitBundle = {
+      ...bundle,
+      stage: this.stageName,
+      stageId: this.stageId,
+      runtimeStageId: this.runtimeStageId,
+    };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
 
