@@ -52,12 +52,10 @@ export interface StageEvent extends RecorderContext {
 }
 
 export interface PauseEvent extends RecorderContext {
-  stageId: string;
   pauseData?: unknown;
 }
 
 export interface ResumeEvent extends RecorderContext {
-  stageId: string;
   hasInput: boolean;
 }
 

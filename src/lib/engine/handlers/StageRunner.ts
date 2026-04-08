@@ -95,7 +95,7 @@ export class StageRunner<TOut = any, TScope = any> {
       const pauseData = isPauseResult(result) ? (result as any).data : result;
       // Notify scope recorders before throwing
       if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
-        (rawScope as any).notifyPause(node.id, pauseData);
+        (rawScope as any).notifyPause(pauseData);
       }
       throw new PauseSignal(pauseData, node.id);
     }
