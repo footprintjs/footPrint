@@ -16,7 +16,7 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
-├── recorder/  → CompositeRecorder, KeyedRecorder<T> base class, composition primitives
+├── recorder/  → CompositeRecorder, KeyedRecorder<T>, SequenceRecorder<T>, composition primitives
 ├── pause/     → Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
@@ -27,7 +27,7 @@ Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- en
 
 Three entry points:
 - `import { ... } from 'footprintjs'` — public API
-- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, KeyedRecorder
+- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, KeyedRecorder, SequenceRecorder
 - `import { ... } from 'footprintjs/advanced'` — engine internals (also re-exports trace)
 
 ## Key API
@@ -266,26 +266,48 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
-| `KeyedRecorder<T>` | abstract class | Base for Map-based recorders |
+| `KeyedRecorder<T>` | abstract class | Base for 1:1 Map-based recorders |
+| `SequenceRecorder<T>` | abstract class | Base for 1:N ordered sequence recorders (has `getEntryRanges()` for O(1) time-travel) |
 
-**KeyedRecorder<T>** — abstract base class for recorders that store data as `Map<runtimeStageId, T>`:
+**Two recorder base classes** — choose based on data shape:
+
+| Base Class | Relationship | Use When |
+|------------|-------------|----------|
+| `KeyedRecorder<T>` | 1:1 Map | Each step produces one record (MetricRecorder, TokenRecorder) |
+| `SequenceRecorder<T>` | 1:N sequence + Map | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
 
 ```typescript
-import { KeyedRecorder } from 'footprintjs/trace';
+import { KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
 
-class MyRecorder extends KeyedRecorder<MyEntry> {
-  readonly id = 'my-recorder';  // required (abstract)
-  onSomeEvent(event) {
-    this.store(event.runtimeStageId, { ... });  // protected
-  }
+// KeyedRecorder: one entry per step
+class TokenRecorder extends KeyedRecorder<TokenEntry> {
+  readonly id = 'tokens';
+  onLLMCall(event) { this.store(event.runtimeStageId, { tokens: event.usage }); }
 }
-// Three operations on auto-collected data:
 recorder.getByKey('call-llm#5');                               // Translate: per-step value
-recorder.aggregate((sum, e) => sum + e.value, 0);              // Aggregate: grand total
-recorder.accumulate((sum, e) => sum + e.value, 0, visibleKeys); // Accumulate: progressive up to slider
-recorder.filterByKeys(visibleKeys);                             // Filter: entries up to slider
-recorder.getMap();                                              // Raw Map access
+recorder.aggregate((sum, e) => sum + e.tokens, 0);             // Aggregate: grand total
+recorder.accumulate((sum, e) => sum + e.tokens, 0, visibleKeys); // Accumulate: up to slider
+
+// SequenceRecorder: multiple entries per step, ordered
+class AuditRecorder extends SequenceRecorder<AuditEntry> {
+  readonly id = 'audit';
+  onRead(event) { this.emit({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key }); }
+  onDecision(event) { this.emit({ runtimeStageId: event.traversalContext?.runtimeStageId, ... }); }
+}
+recorder.getEntriesForStep('call-llm#5');                      // Translate: per-step entries
+recorder.aggregate((count, _) => count + 1, 0);                // Aggregate: grand total
+recorder.getEntriesUpTo(visibleKeys);                           // Progressive: up to slider
+recorder.getEntryRanges();                                      // Range index: O(1) slider sync
 ```
+
+**`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
+
+**`CombinedNarrativeEntry.direction`** — subflow entries carry `direction: 'entry' | 'exit'`. Use for programmatic subflow boundary detection instead of text scanning (which breaks with custom `NarrativeRenderer`).
+
+**`footprint-explainable-ui` narrative utilities** — for consumers building custom shells without `ExplainableShell`:
+- `buildEntryRangeIndex(entries)` — build range index from flat array (when no recorder access)
+- `computeRevealedEntryCount(entries, snapshots, idx, rangeIndex?)` — slider position → entry count
+- `extractSubflowNarrative(entries, subflowId)` — three-tier subflow entry extraction
 
 **How runtimeStageId is generated:** A counter starts at 0 and increments by 1 for each stage execution across the entire run, including subflow stages. Subflow child traversers share the parent counter so indices are globally unique. Stages inside subflows have stageIds already prefixed by the builder (e.g., `sf-tools/execute-tool-calls`), so `buildRuntimeStageId` just appends `#index`.
 

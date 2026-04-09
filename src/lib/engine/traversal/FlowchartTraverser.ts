@@ -389,11 +389,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     context: StageContext,
     breakFn: () => void,
   ) {
-    // Assign runtimeStageId BEFORE scope creation — monotonic counter ensures uniqueness.
-    // node.id already includes subflow prefix (e.g., 'sf-inner/inner-a') from the builder,
-    // so we don't add parentSubflowId separately.
-    const idx = this._executionCounter.value++;
-    context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    // runtimeStageId is assigned in executeNode() before traversalContext creation,
+    // ensuring scope events and flow events use the same value.
     return this.stageRunner.run(node, stageFunc, context, breakFn);
   }
 
@@ -428,6 +425,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Attach builder metadata to context for snapshot enrichment
       if (node.description) context.description = node.description;
       if (node.isSubflowRoot && node.subflowId) context.subflowId = node.subflowId;
+
+      // Assign runtimeStageId BEFORE traversalContext creation — ensures scope events
+      // (buffered by runtimeStageId) and flow events (flushed by traversalContext.runtimeStageId)
+      // use the same value. Must happen before executeStage AND before traversalContext.
+      const idx = this._executionCounter.value++;
+      context.runtimeStageId = buildRuntimeStageId(node.id, idx);
 
       // Build traversal context for recorder events — created once per stage, shared by all events
       const traversalContext: TraversalContext = {

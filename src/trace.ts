@@ -1,11 +1,11 @@
 /**
  * footprintjs/trace — Execution tracing, debugging, and backtracking utilities.
  *
- * Runtime stage IDs, commit log queries, and keyed recorder base class.
+ * Runtime stage IDs, commit log queries, and recorder base classes.
  *
  * @example
  * ```typescript
- * import { parseRuntimeStageId, findLastWriter, KeyedRecorder } from 'footprintjs/trace';
+ * import { parseRuntimeStageId, findLastWriter, KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
  *
  * // Parse a runtimeStageId
  * const { stageId, executionIndex } = parseRuntimeStageId('call-llm#5');
@@ -13,8 +13,11 @@
  * // Backtrack: who wrote 'systemPrompt' before stage at idx 8?
  * const writer = findLastWriter(commitLog, 'systemPrompt', 8);
  *
- * // Build a keyed recorder
+ * // Build a keyed recorder (1:1 — one entry per step)
  * class MyRecorder extends KeyedRecorder<MyEntry> { ... }
+ *
+ * // Build a sequence recorder (1:N — multiple entries per step, ordering matters)
+ * class AuditRecorder extends SequenceRecorder<AuditEntry> { ... }
  * ```
  */
 
@@ -25,5 +28,8 @@ export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from
 // Commit log queries — typed utilities for backtracking
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
-// KeyedRecorder — base class for Map-based recorders
+// KeyedRecorder — base class for 1:1 Map-based recorders
 export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
+
+// SequenceRecorder — base class for 1:N ordered sequence recorders with keyed index
+export { SequenceRecorder } from './lib/recorder/SequenceRecorder.js';

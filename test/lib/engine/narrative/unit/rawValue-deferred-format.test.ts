@@ -14,11 +14,22 @@ import { summarizeValue } from '../../../../../src/lib/scope/recorders/summarize
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeStageEvent(stageName: string, stageId?: string) {
+let _counter = 0;
+function nextId(stageId: string) {
+  return `${stageId}#${_counter++}`;
+}
+
+function makeStageEvent(stageName: string, stageId?: string, runtimeStageId?: string) {
+  const sid = stageId ?? stageName;
+  const rid = runtimeStageId ?? nextId(sid);
   return {
     stageName,
-    traversalContext: { stageId: stageId ?? stageName, stageName, depth: 0, parentStageId: undefined },
+    traversalContext: { stageId: sid, runtimeStageId: rid, stageName, depth: 0, parentStageId: undefined },
   };
+}
+
+function scopeEvent(stageName: string, runtimeStageId: string, extra: Record<string, unknown> = {}) {
+  return { stageName, stageId: stageName, runtimeStageId, pipelineId: 'p1', timestamp: Date.now(), ...extra };
 }
 
 // ── Unit: step entries include rawValue with actual value ────────────────────
@@ -26,24 +37,21 @@ function makeStageEvent(stageName: string, stageId?: string) {
 describe('raw value buffering — unit', () => {
   it('step entries include rawValue with actual value', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#0';
 
     // Simulate: stage writes name='Alice', then reads it
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'name',
       value: 'Alice',
       operation: 'set',
     });
     rec.onRead({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'name',
       value: 'Alice',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(2);
@@ -59,16 +67,15 @@ describe('raw value buffering — unit', () => {
 
   it('rawValue contains the actual array, not "(N items)"', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#1';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'items',
       value: ['x', 'y', 'z'],
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -85,16 +92,15 @@ describe('raw value buffering — unit', () => {
 describe('raw value buffering — boundary', () => {
   it('undefined rawValue: no crash, correct rendering', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#2';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'count',
       value: undefined,
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -104,16 +110,15 @@ describe('raw value buffering — boundary', () => {
 
   it('null rawValue: correct rendering', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#3';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'name',
       value: null,
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -123,16 +128,15 @@ describe('raw value buffering — boundary', () => {
 
   it('empty array rawValue: correct rendering', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#4';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'items',
       value: [],
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -142,16 +146,15 @@ describe('raw value buffering — boundary', () => {
 
   it('empty object rawValue: correct rendering', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#5';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'data',
       value: {},
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -170,24 +173,21 @@ describe('raw value buffering — scenario', () => {
         return String(value);
       },
     });
+    const rid = 'Init#6';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'items',
       value: ['a', 'b', 'c'],
       operation: 'set',
     });
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'name',
       value: 'Bob',
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const lines = rec.getNarrative();
     // Custom formatter shows [a, b, c] instead of (3 items)
@@ -204,16 +204,15 @@ describe('raw value buffering — scenario', () => {
 
   it('rawValue is present even when includeValues is false', () => {
     const rec = new CombinedNarrativeRecorder({ includeValues: false });
+    const rid = 'Init#7';
 
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'items',
       value: ['a', 'b'],
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(1);
@@ -232,17 +231,16 @@ describe('raw value buffering — scenario', () => {
         return summarizeValue(value, maxLen);
       },
     });
+    const rid = 'Init#8';
 
     const originalArray = [1, 2, 3];
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'nums',
       value: originalArray,
       operation: 'set',
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     // formatValue was called with the actual array, not a string
     expect(receivedValues).toHaveLength(1);
@@ -256,6 +254,7 @@ describe('raw value buffering — scenario', () => {
 describe('raw value buffering — property', () => {
   it('default formatting matches summarizeValue for any value', () => {
     const maxLen = 80;
+    let propCounter = 0;
 
     fc.assert(
       fc.property(
@@ -273,16 +272,15 @@ describe('raw value buffering — property', () => {
         ),
         (value) => {
           const rec = new CombinedNarrativeRecorder({ maxValueLength: maxLen });
+          const rid = `Test#prop-${propCounter++}`;
 
           rec.onWrite({
-            stageName: 'Test',
-            pipelineId: 'p1',
-            timestamp: Date.now(),
+            ...scopeEvent('Test', rid),
             key: 'val',
             value,
             operation: 'set',
           });
-          rec.onStageExecuted(makeStageEvent('Test'));
+          rec.onStageExecuted(makeStageEvent('Test', undefined, rid));
 
           const steps = rec.getEntries().filter((e) => e.type === 'step');
           const expected = summarizeValue(value, maxLen);
@@ -300,26 +298,23 @@ describe('raw value buffering — property', () => {
 describe('raw value buffering — security', () => {
   it('redacted values appear as [REDACTED] in rawValue', () => {
     const rec = new CombinedNarrativeRecorder();
+    const rid = 'Init#9';
 
     // ScopeFacade sends '[REDACTED]' as the value for redacted keys
     rec.onWrite({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'secret',
       value: '[REDACTED]',
       operation: 'set',
       redacted: true,
     });
     rec.onRead({
-      stageName: 'Init',
-      pipelineId: 'p1',
-      timestamp: Date.now(),
+      ...scopeEvent('Init', rid),
       key: 'secret',
       value: '[REDACTED]',
       redacted: true,
     });
-    rec.onStageExecuted(makeStageEvent('Init'));
+    rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(2);

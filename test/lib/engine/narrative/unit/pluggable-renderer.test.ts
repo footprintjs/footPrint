@@ -23,17 +23,32 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fireStage(rec: CombinedNarrativeRecorder, stageName: string, description?: string): void {
+let _counter = 0;
+function nextId(stageId: string) {
+  return `${stageId}#${_counter++}`;
+}
+
+function scopeEvent(stageName: string, runtimeStageId: string, extra: Record<string, unknown> = {}) {
+  return { stageName, stageId: `id-${stageName}`, runtimeStageId, pipelineId: 'p1', timestamp: Date.now(), ...extra };
+}
+
+function fireStage(
+  rec: CombinedNarrativeRecorder,
+  stageName: string,
+  description?: string,
+  runtimeStageId?: string,
+): void {
+  const rid = runtimeStageId ?? nextId(`id-${stageName}`);
   rec.onStageExecuted({
     stageName,
     description,
-    traversalContext: { stageId: `id-${stageName}`, subflowId: undefined } as any,
+    traversalContext: { stageId: `id-${stageName}`, runtimeStageId: rid, subflowId: undefined } as any,
   } as any);
 }
 
-function fireReadWrite(rec: CombinedNarrativeRecorder, stageName: string): void {
-  rec.onRead({ stageName, key: 'foo', value: 42 } as any);
-  rec.onWrite({ stageName, key: 'bar', value: 'hello', operation: 'set' } as any);
+function fireReadWrite(rec: CombinedNarrativeRecorder, stageName: string, runtimeStageId: string): void {
+  rec.onRead({ ...scopeEvent(stageName, runtimeStageId), key: 'foo', value: 42 } as any);
+  rec.onWrite({ ...scopeEvent(stageName, runtimeStageId), key: 'bar', value: 'hello', operation: 'set' } as any);
 }
 
 function fireDecision(
@@ -41,13 +56,15 @@ function fireDecision(
   decider: string,
   chosen: string,
   opts?: { description?: string; rationale?: string },
+  runtimeStageId?: string,
 ): void {
+  const rid = runtimeStageId ?? nextId(`id-${decider}`);
   rec.onDecision({
     decider,
     chosen,
     description: opts?.description,
     rationale: opts?.rationale,
-    traversalContext: { stageId: `id-${decider}`, subflowId: undefined } as any,
+    traversalContext: { stageId: `id-${decider}`, runtimeStageId: rid, subflowId: undefined } as any,
   } as any);
 }
 
@@ -86,8 +103,9 @@ describe('pluggable renderer — unit', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
-    fireReadWrite(rec, 'Stage1');
-    fireStage(rec, 'Stage1');
+    const rid = 'id-Stage1#0';
+    fireReadWrite(rec, 'Stage1', rid);
+    fireStage(rec, 'Stage1', undefined, rid);
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps[0].text).toBe('READ: foo');
@@ -199,11 +217,12 @@ describe('pluggable renderer — boundary', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
-    rec.onRead({ stageName: 'S1', key: '_internal_cache', value: {} } as any);
-    rec.onRead({ stageName: 'S1', key: 'name', value: 'Alice' } as any);
-    rec.onWrite({ stageName: 'S1', key: '_internal_flag', value: true, operation: 'set' } as any);
-    rec.onWrite({ stageName: 'S1', key: 'score', value: 95, operation: 'set' } as any);
-    fireStage(rec, 'S1');
+    const rid = 'id-S1#1';
+    rec.onRead({ ...scopeEvent('S1', rid), key: '_internal_cache', value: {} } as any);
+    rec.onRead({ ...scopeEvent('S1', rid), key: 'name', value: 'Alice' } as any);
+    rec.onWrite({ ...scopeEvent('S1', rid), key: '_internal_flag', value: true, operation: 'set' } as any);
+    rec.onWrite({ ...scopeEvent('S1', rid), key: 'score', value: 95, operation: 'set' } as any);
+    fireStage(rec, 'S1', undefined, rid);
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(2);
@@ -218,9 +237,10 @@ describe('pluggable renderer — boundary', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
-    rec.onRead({ stageName: 'S1', key: 'a', value: 1 } as any);
-    rec.onWrite({ stageName: 'S1', key: 'b', value: 2, operation: 'set' } as any);
-    fireStage(rec, 'S1');
+    const rid = 'id-S1#2';
+    rec.onRead({ ...scopeEvent('S1', rid), key: 'a', value: 1 } as any);
+    rec.onWrite({ ...scopeEvent('S1', rid), key: 'b', value: 2, operation: 'set' } as any);
+    fireStage(rec, 'S1', undefined, rid);
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(0);
@@ -236,8 +256,9 @@ describe('pluggable renderer — boundary', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
-    rec.onRead({ stageName: 'S1', key: 'x', value: 10 } as any);
-    fireStage(rec, 'S1');
+    const rid = 'id-S1#3';
+    rec.onRead({ ...scopeEvent('S1', rid), key: 'x', value: 10 } as any);
+    fireStage(rec, 'S1', undefined, rid);
     fireDecision(rec, 'Decide', 'yes');
 
     const entries = rec.getEntries();
@@ -269,8 +290,9 @@ describe('pluggable renderer — boundary', () => {
         },
       },
     });
-    rec.onWrite({ stageName: 'S1', key: 'score', value: 42, operation: 'set' } as any);
-    fireStage(rec, 'S1');
+    const rid = 'id-S1#4';
+    rec.onWrite({ ...scopeEvent('S1', rid), key: 'score', value: 42, operation: 'set' } as any);
+    fireStage(rec, 'S1', undefined, rid);
 
     expect(captured).toHaveLength(1);
     // valueSummary should use the custom formatValue, not the default summarizeValue
@@ -293,13 +315,14 @@ describe('pluggable renderer — scenario', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
+    const rid = 'id-Apply#5';
 
     // Simulate reads/writes including memory_* keys
-    rec.onRead({ stageName: 'Apply', key: 'memory_preparedMessages', value: ['msg1'] } as any);
-    rec.onRead({ stageName: 'Apply', key: 'userQuery', value: 'hello' } as any);
-    rec.onWrite({ stageName: 'Apply', key: 'memory_lastAccess', value: Date.now(), operation: 'set' } as any);
-    rec.onWrite({ stageName: 'Apply', key: 'response', value: 'world', operation: 'set' } as any);
-    fireStage(rec, 'Apply');
+    rec.onRead({ ...scopeEvent('Apply', rid), key: 'memory_preparedMessages', value: ['msg1'] } as any);
+    rec.onRead({ ...scopeEvent('Apply', rid), key: 'userQuery', value: 'hello' } as any);
+    rec.onWrite({ ...scopeEvent('Apply', rid), key: 'memory_lastAccess', value: Date.now(), operation: 'set' } as any);
+    rec.onWrite({ ...scopeEvent('Apply', rid), key: 'response', value: 'world', operation: 'set' } as any);
+    fireStage(rec, 'Apply', undefined, rid);
 
     const steps = rec.getEntries().filter((e) => e.type === 'step');
     expect(steps).toHaveLength(2);
@@ -322,8 +345,9 @@ describe('pluggable renderer — scenario', () => {
     const rec = new CombinedNarrativeRecorder({ renderer });
 
     // Fire all event types
-    rec.onRead({ stageName: 'S1', key: 'x', value: 1 } as any);
-    fireStage(rec, 'S1');
+    const ridS1 = 'id-S1#6';
+    rec.onRead({ ...scopeEvent('S1', ridS1), key: 'x', value: 1 } as any);
+    fireStage(rec, 'S1', undefined, ridS1);
     fireDecision(rec, 'D1', 'yes');
     rec.onFork({ children: ['A', 'B'], traversalContext: {} } as any);
     rec.onSelected({ selected: ['A'], total: 2, traversalContext: {} } as any);
@@ -382,6 +406,7 @@ describe('pluggable renderer — property', () => {
   });
 
   it('custom renderer receives all context fields', async () => {
+    let propCounter = 0;
     await fc.assert(
       fc.asyncProperty(
         fc.record({
@@ -398,8 +423,9 @@ describe('pluggable renderer — property', () => {
             },
           };
           const rec = new CombinedNarrativeRecorder({ renderer });
-          rec.onRead({ stageName, key, value } as any);
-          fireStage(rec, stageName);
+          const rid = `id-${stageName}#prop-${propCounter++}`;
+          rec.onRead({ ...scopeEvent(stageName, rid), key, value } as any);
+          fireStage(rec, stageName, undefined, rid);
 
           expect(captured).toHaveLength(1);
           expect(captured[0].key).toBe(key);
@@ -426,21 +452,22 @@ describe('pluggable renderer — security', () => {
       },
     };
     const rec = new CombinedNarrativeRecorder({ renderer });
+    const rid = 'id-Init#7';
 
     // Simulate redacted write — ScopeFacade dispatches event.value as '[REDACTED]'
     rec.onWrite({
-      stageName: 'Init',
+      ...scopeEvent('Init', rid),
       key: 'secret',
       value: '[REDACTED]',
       operation: 'set',
     } as any);
     rec.onWrite({
-      stageName: 'Init',
+      ...scopeEvent('Init', rid),
       key: 'public',
       value: 'visible',
       operation: 'set',
     } as any);
-    fireStage(rec, 'Init');
+    fireStage(rec, 'Init', undefined, rid);
 
     expect(captured).toHaveLength(2);
     // Redacted value should be '[REDACTED]', not the original

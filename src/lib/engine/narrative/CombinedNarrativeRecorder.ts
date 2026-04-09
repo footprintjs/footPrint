@@ -1,8 +1,9 @@
 /**
  * CombinedNarrativeRecorder — Inline narrative builder that merges flow + data during traversal.
  *
- * Replaces the post-processing CombinedNarrativeBuilder by implementing BOTH
- * FlowRecorder (control-flow events) and Recorder (scope data events).
+ * Extends SequenceRecorder<CombinedNarrativeEntry> for dual-indexed storage (ordered sequence
+ * + O(1) per-step lookup by runtimeStageId). Implements BOTH FlowRecorder (control-flow events)
+ * and Recorder (scope data events).
  *
  * Event ordering guarantees this works:
  *   1. Scope events (onRead, onWrite) fire DURING stage execution
@@ -13,6 +14,7 @@
  * emit the stage entry + flush the buffered ops in one pass.
  */
 
+import { SequenceRecorder } from '../../recorder/SequenceRecorder.js';
 import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
 import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types.js';
 import type {
@@ -66,17 +68,17 @@ export interface CombinedNarrativeRecorderOptions {
 
 // ── Recorder ───────────────────────────────────────────────────────────────
 
-export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
+export class CombinedNarrativeRecorder
+  extends SequenceRecorder<CombinedNarrativeEntry>
+  implements FlowRecorder, Recorder
+{
   readonly id: string;
 
-  private entries: CombinedNarrativeEntry[] = [];
   /**
-   * Pending scope ops keyed by stageName. Flushed in onStageExecuted/onDecision.
+   * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision.
    *
-   * Name collisions (two stages with the same name, different IDs) are prevented by
-   * the event ordering contract: scope events (onRead/onWrite) for stage N are always
-   * flushed by onStageExecuted for stage N before stage N+1's scope events begin.
-   * So the key is always uniquely bound to the currently-executing stage.
+   * Keying by runtimeStageId (not stageName) ensures correctness when parallel fork
+   * branches contain stages with the same name — each execution step has a unique ID.
    */
   private pendingOps = new Map<string, BufferedOp[]>();
   /** Per-subflow stage counters. Key '' = root flow. */
@@ -91,6 +93,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   private renderer?: NarrativeRenderer;
 
   constructor(options?: CombinedNarrativeRecorderOptions & { id?: string }) {
+    super();
     this.id = options?.id ?? 'combined-narrative';
     this.includeStepNumbers = options?.includeStepNumbers ?? true;
     this.includeValues = options?.includeValues ?? true;
@@ -103,7 +106,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   onRead(event: ReadEvent): void {
     if (!event.key) return;
-    this.bufferOp(event.stageName, {
+    this.bufferOp(event.runtimeStageId, {
       type: 'read',
       key: event.key,
       rawValue: event.value,
@@ -111,7 +114,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   }
 
   onWrite(event: WriteEvent): void {
-    this.bufferOp(event.stageName, {
+    this.bufferOp(event.runtimeStageId, {
       type: 'write',
       key: event.key,
       rawValue: event.value,
@@ -123,6 +126,7 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   onStageExecuted(event: FlowStageEvent): void {
     const stageId = event.traversalContext?.stageId;
+    const runtimeStageId = event.traversalContext?.runtimeStageId;
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
@@ -136,19 +140,21 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     const text = this.renderer?.renderStage?.(ctx) ?? this.defaultRenderStage(ctx);
 
     const sfId = event.traversalContext?.subflowId;
-    this.entries.push({
+    this.emit({
       type: 'stage',
       text,
       depth: 0,
       stageName: event.stageName,
       stageId,
+      runtimeStageId,
       subflowId: sfId,
     });
-    this.flushOps(event.stageName, sfId, stageId);
+    this.flushOps(runtimeStageId, sfId, stageId, event.stageName);
   }
 
   onDecision(event: FlowDecisionEvent): void {
-    const deciderStageIdEarly = event.traversalContext?.stageId;
+    const stageId = event.traversalContext?.stageId;
+    const runtimeStageId = event.traversalContext?.runtimeStageId;
 
     // Emit the decider stage entry (deciders don't fire onStageExecuted)
     const sfKey = event.traversalContext?.subflowId ?? '';
@@ -163,18 +169,18 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     };
     const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
 
-    this.entries.push({
+    this.emit({
       type: 'stage',
       text: stageText,
       depth: 0,
       stageName: event.decider,
-      stageId: deciderStageIdEarly,
+      stageId,
+      runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
-    this.flushOps(event.decider, event.traversalContext?.subflowId, deciderStageIdEarly);
+    this.flushOps(runtimeStageId, event.traversalContext?.subflowId, stageId, event.decider);
 
     // Emit the condition entry as a nested sub-item (depth 1) of the stage above.
-    // Decision outcome is a detail of the decider stage, not a separate top-level entry.
     const decisionCtx: DecisionRenderContext = {
       decider: event.decider,
       chosen: event.chosen,
@@ -183,29 +189,30 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       evidence: event.evidence,
     };
     const conditionText = this.renderer?.renderDecision?.(decisionCtx) ?? this.defaultRenderDecision(decisionCtx);
-    this.entries.push({
+    this.emit({
       type: 'condition',
       text: conditionText,
       depth: 1,
       stageName: event.decider,
-      stageId: deciderStageIdEarly,
+      stageId,
+      runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
 
   onNext(): void {
     // No-op. onStageExecuted already has the description for the next stage.
-    // For deciders (no onStageExecuted), onDecision handles the announcement.
   }
 
   onFork(event: FlowForkEvent): void {
     const ctx: ForkRenderContext = { children: event.children };
     const text = this.renderer?.renderFork?.(ctx) ?? this.defaultRenderFork(ctx);
-    this.entries.push({
+    this.emit({
       type: 'fork',
       text,
       depth: 0,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -217,17 +224,17 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       evidence: event.evidence,
     };
     const text = this.renderer?.renderSelected?.(ctx) ?? this.defaultRenderSelected(ctx);
-    this.entries.push({
+    this.emit({
       type: 'selector',
       text,
       depth: 0,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
-    // Reset stage counter for this subflow so stages start at "Stage 1" on re-entry
     const sfKey = event.subflowId ?? '';
     this.stageCounters.delete(sfKey);
     this.firstStageFlags.delete(sfKey);
@@ -238,13 +245,15 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       description: event.description,
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
-    this.entries.push({
+    this.emit({
       type: 'subflow',
       text,
       depth: 0,
       stageName: event.name,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
+      direction: 'entry',
     });
   }
 
@@ -254,13 +263,15 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       direction: 'exit',
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
-    this.entries.push({
+    this.emit({
       type: 'subflow',
       text,
       depth: 0,
       stageName: event.name,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
+      direction: 'exit',
     });
   }
 
@@ -271,11 +282,12 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       description: event.description,
     };
     const text = this.renderer?.renderLoop?.(ctx) ?? this.defaultRenderLoop(ctx);
-    this.entries.push({
+    this.emit({
       type: 'loop',
       text,
       depth: 0,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
@@ -283,57 +295,55 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
   onBreak(event: FlowBreakEvent): void {
     const ctx: BreakRenderContext = { stageName: event.stageName };
     const text = this.renderer?.renderBreak?.(ctx) ?? this.defaultRenderBreak(ctx);
-    this.entries.push({
+    this.emit({
       type: 'break',
       text,
       depth: 0,
       stageName: event.stageName,
       stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
     });
   }
 
   onPause(event: FlowPauseEvent | { stageName?: string; stageId?: string }): void {
-    // Only handle FlowPauseEvent (from FlowRecorder channel); ignore scope PauseEvent.
-    // FlowPauseEvent has 'subflowPath', scope PauseEvent has 'pipelineId'.
+    // CombinedNarrativeRecorder implements BOTH Recorder and FlowRecorder, so onPause fires
+    // from both channels. Discriminant: scope PauseEvent (extends RecorderContext) has 'pipelineId',
+    // FlowPauseEvent does not. Skip scope events to avoid duplicate entries.
     if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
     const flowEvent = event as FlowPauseEvent;
     if (!flowEvent.stageName || !flowEvent.stageId) return;
     const text = `Execution paused at ${flowEvent.stageName}.`;
-    this.entries.push({
+    this.emit({
       type: 'pause',
       text,
       depth: 0,
       stageName: flowEvent.stageName,
       stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
+      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
       subflowId: flowEvent.traversalContext?.subflowId,
     });
   }
 
   onResume(event: FlowResumeEvent | { stageName?: string; stageId?: string }): void {
-    // Only handle FlowResumeEvent (from FlowRecorder channel); ignore scope ResumeEvent.
+    // Same dual-interface discriminant as onPause — skip scope ResumeEvent (has pipelineId).
     if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
     const flowEvent = event as FlowResumeEvent;
     if (!flowEvent.stageName || !flowEvent.stageId) return;
     const suffix = flowEvent.hasInput ? ' with input.' : '.';
     const text = `Execution resumed at ${flowEvent.stageName}${suffix}`;
-    this.entries.push({
+    this.emit({
       type: 'resume',
       text,
       depth: 0,
       stageName: flowEvent.stageName,
       stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
+      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
       subflowId: flowEvent.traversalContext?.subflowId,
     });
   }
 
-  /**
-   * Handles errors from both channels:
-   * - FlowRecorder.onError (FlowErrorEvent with message + structuredError)
-   * - Recorder.onError (ErrorEvent from scope system — ignored for narrative)
-   */
   onError(event: FlowErrorEvent | { stageName?: string; message?: string }): void {
-    // Only handle flow errors (which have `message` and `structuredError`)
     if (typeof (event as FlowErrorEvent).message !== 'string') return;
     const flowEvent = event as FlowErrorEvent;
 
@@ -353,26 +363,24 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       validationIssues,
     };
     const text = this.renderer?.renderError?.(ctx) ?? this.defaultRenderError(ctx);
-    this.entries.push({
+    this.emit({
       type: 'error',
       text,
       depth: 0,
       stageName: flowEvent.stageName,
       stageId: flowEvent.traversalContext?.stageId,
+      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
       subflowId: flowEvent.traversalContext?.subflowId,
     });
   }
 
-  // ── Output ────────────────────────────────────────────────────────────
-
-  /** Returns structured entries for programmatic consumption. */
-  getEntries(): CombinedNarrativeEntry[] {
-    return [...this.entries];
-  }
+  // ── Output (narrative-specific) ───────────────────────────────────────
 
   /** Returns formatted narrative lines (same output as CombinedNarrativeBuilder.build). */
   getNarrative(indent = '  '): string[] {
-    return this.entries.map((entry) => `${indent.repeat(entry.depth)}${entry.text}`);
+    const lines: string[] = [];
+    this.forEachEntry((entry) => lines.push(`${indent.repeat(entry.depth)}${entry.text}`));
+    return lines;
   }
 
   /**
@@ -381,17 +389,17 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
    */
   getEntriesBySubflow(): Record<string, CombinedNarrativeEntry[]> {
     const result: Record<string, CombinedNarrativeEntry[]> = { '': [] };
-    for (const entry of this.entries) {
+    this.forEachEntry((entry) => {
       const key = entry.subflowId ?? '';
       if (!result[key]) result[key] = [];
       result[key].push(entry);
-    }
+    });
     return result;
   }
 
   /** Clears all state. Called automatically before each run. */
-  clear(): void {
-    this.entries = [];
+  override clear(): void {
+    super.clear();
     this.pendingOps.clear();
     this.stageCounters.clear();
     this.firstStageFlags.clear();
@@ -399,7 +407,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
   // ── Private helpers ───────────────────────────────────────────────────
 
-  /** Increment and return the stage counter for a given subflow ('' = root). */
   private incrementStageCounter(subflowKey: string): number {
     const current = this.stageCounters.get(subflowKey) ?? 0;
     const next = current + 1;
@@ -407,7 +414,6 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     return next;
   }
 
-  /** Returns true if this is the first stage for the given subflow, consuming the flag. */
   private consumeFirstStageFlag(subflowKey: string): boolean {
     if (!this.firstStageFlags.has(subflowKey)) {
       this.firstStageFlags.set(subflowKey, false);
@@ -416,17 +422,18 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
     return false;
   }
 
-  private bufferOp(stageName: string, op: Omit<BufferedOp, 'stepNumber'>): void {
-    let ops = this.pendingOps.get(stageName);
+  private bufferOp(runtimeStageId: string, op: Omit<BufferedOp, 'stepNumber'>): void {
+    let ops = this.pendingOps.get(runtimeStageId);
     if (!ops) {
       ops = [];
-      this.pendingOps.set(stageName, ops);
+      this.pendingOps.set(runtimeStageId, ops);
     }
     ops.push({ ...op, stepNumber: ops.length + 1 });
   }
 
-  private flushOps(stageName: string, subflowId?: string, stageId?: string): void {
-    const ops = this.pendingOps.get(stageName);
+  private flushOps(runtimeStageId: string | undefined, subflowId?: string, stageId?: string, stageName?: string): void {
+    if (runtimeStageId === undefined) return;
+    const ops = this.pendingOps.get(runtimeStageId);
     if (!ops || ops.length === 0) return;
 
     for (const op of ops) {
@@ -442,14 +449,15 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
 
       const text = this.renderer?.renderOp ? this.renderer.renderOp(opCtx) : this.defaultRenderOp(opCtx);
 
-      if (text == null) continue; // renderer excluded this op (null or undefined)
+      if (text == null) continue;
 
-      this.entries.push({
+      this.emit({
         type: 'step',
         text,
         depth: 1,
         stageName,
         stageId,
+        runtimeStageId,
         stepNumber: op.stepNumber,
         subflowId,
         key: op.key,
@@ -457,10 +465,10 @@ export class CombinedNarrativeRecorder implements FlowRecorder, Recorder {
       });
     }
 
-    this.pendingOps.delete(stageName);
+    this.pendingOps.delete(runtimeStageId);
   }
 
-  // ── Default renderers (used when no custom renderer is provided) ────
+  // ── Default renderers ─────────────────────────────────────────────────
 
   private defaultRenderStage(ctx: StageRenderContext): string {
     const inner = ctx.isFirst

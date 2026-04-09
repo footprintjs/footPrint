@@ -169,7 +169,7 @@ describe('runtimeStageId integration', () => {
     expect(ids[0]).toBe('outer-stage#0');
     // Subflow stage has sf- prefix from builder
     expect(ids[1]).toMatch(/sf-test\/inner-stage#\d+/);
-    expect(ids[2]).toBe('after-stage#2');
+    expect(ids[2]).toBe('after-stage#3');
     // Counter continues across subflow boundary
     const indices = ids.map((id) => parseInt(id.split('#')[1]));
     expect(indices[0]).toBeLessThan(indices[1]);

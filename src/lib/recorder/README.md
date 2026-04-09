@@ -49,7 +49,7 @@ executor.attachRecorder(new MetricRecorder());
 
 | Recorder | Strategy | Config | Purpose |
 |----------|----------|--------|---------|
-| `CombinedNarrativeRecorder` | Merge flow + data inline | `renderer`, `maxValueLength` | LLM-readable narrative |
+| `CombinedNarrativeRecorder` | Merge flow + data inline (extends `SequenceRecorder`) | `renderer`, `maxValueLength` | LLM-readable narrative |
 | `NarrativeFlowRecorder` | Full English sentences | — | Flow-only narrative |
 | `ManifestFlowRecorder` | Subflow tree + specs | — | Subflow catalog |
 | `SilentNarrativeFlowRecorder` | Suppress per-loop, summary at end | — | High-iteration loops |
@@ -111,12 +111,27 @@ executor.attachRecorder(agentObservability());
 }
 ```
 
-## KeyedRecorder<T> — Base Class for Map-Based Recorders
+## Recorder Base Classes
 
-Abstract base class that provides typed key-value storage keyed by `runtimeStageId`. Recorder implementations extend this and call `store()` from their event hooks.
+Two abstract base classes for building custom recorders, both keyed by `runtimeStageId`:
+
+| Base Class | Relationship | Data Shape | Use When |
+|------------|-------------|------------|----------|
+| **`KeyedRecorder<T>`** | 1:1 Map | One entry per step | Each step produces exactly one record (MetricRecorder, TokenRecorder) |
+| **`SequenceRecorder<T>`** | 1:N sequence + Map | Multiple entries per step, ordered | Each step produces multiple records or ordering matters (CombinedNarrativeRecorder) |
+
+Both are exported from `footprintjs/trace` and share the same three operations:
+
+| Operation | KeyedRecorder | SequenceRecorder |
+|-----------|--------------|-----------------|
+| **Translate** (per-step) | `getByKey(id)` → `T` | `getEntriesForStep(id)` → `T[]` |
+| **Aggregate** (reduce all) | `aggregate(fn, initial)` | `aggregate(fn, initial)` |
+| **Accumulate** (progressive) | `accumulate(fn, initial, keys?)` | `accumulate(fn, initial, keys?)` |
+
+### KeyedRecorder<T> — 1:1 Map-Based Recorders
 
 ```typescript
-import { KeyedRecorder } from 'footprintjs/advanced';
+import { KeyedRecorder } from 'footprintjs/trace';
 
 class TokenRecorder extends KeyedRecorder<LLMCallEntry> {
   readonly id = 'token-recorder';
@@ -125,13 +140,57 @@ class TokenRecorder extends KeyedRecorder<LLMCallEntry> {
     this.store(event.runtimeStageId, { model: event.model, tokens: event.usage });
   }
 
-  getStats() {
-    return { totalCalls: this.size, calls: this.values() };
+  getTotalTokens() {
+    return this.aggregate((sum, e) => sum + e.tokens, 0);
   }
 }
 ```
 
-Methods: `store(key, entry)`, `getByKey(key)`, `getMap()`, `values()`, `size`, `clear()`.
+Methods: `store(key, entry)`, `getByKey(key)`, `getMap()`, `values()`, `size`, `aggregate()`, `accumulate()`, `filterByKeys()`, `clear()`.
+
+### SequenceRecorder<T> — 1:N Ordered Sequence Recorders
+
+For recorders that implement **both** Recorder and FlowRecorder (merging data ops and control flow into a single interleaved sequence). Entries must satisfy `{ runtimeStageId?: string }`.
+
+```typescript
+import { SequenceRecorder } from 'footprintjs/trace';
+
+interface AuditEntry {
+  runtimeStageId?: string;
+  type: 'read' | 'write' | 'decision';
+  detail: string;
+}
+
+class AuditRecorder extends SequenceRecorder<AuditEntry> {
+  readonly id = 'audit';
+
+  // Scope hooks (fires during stage execution)
+  onRead(event: ReadEvent) {
+    this.emit({ runtimeStageId: event.runtimeStageId, type: 'read', detail: event.key });
+  }
+  onWrite(event: WriteEvent) {
+    this.emit({ runtimeStageId: event.runtimeStageId, type: 'write', detail: event.key });
+  }
+
+  // Flow hooks (fires after stage execution)
+  onDecision(event: FlowDecisionEvent) {
+    this.emit({
+      runtimeStageId: event.traversalContext?.runtimeStageId,
+      type: 'decision',
+      detail: `${event.decider} chose ${event.chosen}`,
+    });
+  }
+
+  // Time-travel: entries up to slider position
+  getAuditUpTo(visibleIds: ReadonlySet<string>) {
+    return this.getEntriesUpTo(visibleIds);
+  }
+}
+```
+
+Methods: `emit(entry)`, `getEntries()`, `getEntriesForStep(id)`, `getEntriesUpTo(visibleIds)`, `getEntryRanges()`, `entryCount`, `stepCount`, `aggregate()`, `accumulate()`, `forEachEntry()`, `clear()`.
+
+`getEntryRanges()` returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step lookups during time-travel slider scrubbing — same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
 
 ## Three Operations on Auto-Collected Data
 

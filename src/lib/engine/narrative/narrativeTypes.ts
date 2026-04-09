@@ -28,9 +28,16 @@ export interface CombinedNarrativeEntry {
   stageName?: string;
   /** Stable stage identifier from the builder (matches spec node id). Use for UI sync. */
   stageId?: string;
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex.
+   *  Links narrative entries to recorder Map entries for O(1) time-travel lookup.
+   *  Undefined only when TraversalContext is absent from the source event. */
+  runtimeStageId?: string;
   stepNumber?: number;
   /** Subflow ID when this entry was generated inside a subflow. Undefined for root-level. */
   subflowId?: string;
+  /** Direction for subflow entries: 'entry' when entering, 'exit' when leaving.
+   *  Only present on entries with type === 'subflow'. Use this instead of text scanning. */
+  direction?: 'entry' | 'exit';
   /** Scope key that was read or written. Only present on 'step' entries.
    *  Use this for structured data extraction (e.g., grounding analysis)
    *  instead of matching on rendered text strings. */
