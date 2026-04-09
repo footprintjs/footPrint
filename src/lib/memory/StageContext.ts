@@ -330,6 +330,7 @@ export class StageContext {
   getSnapshot(): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
+      runtimeStageId: this.runtimeStageId || undefined,
       name: this.stageName,
       isDecider: this.isDecider,
       isFork: this.isFork,

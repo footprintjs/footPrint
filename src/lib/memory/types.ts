@@ -60,6 +60,8 @@ export interface FlowMessage {
 /** Serialisable representation of a stage's state (for debugging / visualisation). */
 export type StageSnapshot = {
   id: string;
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
+  runtimeStageId?: string;
   name?: string;
   /** Human-readable description of what this stage does (from builder). */
   description?: string;
