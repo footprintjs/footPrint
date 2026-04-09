@@ -279,10 +279,12 @@ class MyRecorder extends KeyedRecorder<MyEntry> {
     this.store(event.runtimeStageId, { ... });  // protected
   }
 }
-recorder.getByKey('call-llm#5');  // O(1) lookup
-recorder.getMap();                // ReadonlyMap
-recorder.values();                // MyEntry[] in insertion order
-recorder.clear();                 // reset
+// Three operations on auto-collected data:
+recorder.getByKey('call-llm#5');                               // Translate: per-step value
+recorder.aggregate((sum, e) => sum + e.value, 0);              // Aggregate: grand total
+recorder.accumulate((sum, e) => sum + e.value, 0, visibleKeys); // Accumulate: progressive up to slider
+recorder.filterByKeys(visibleKeys);                             // Filter: entries up to slider
+recorder.getMap();                                              // Raw Map access
 ```
 
 **How runtimeStageId is generated:** A counter starts at 0 and increments by 1 for each stage execution across the entire run, including subflow stages. Subflow child traversers share the parent counter so indices are globally unique. Stages inside subflows have stageIds already prefixed by the builder (e.g., `sf-tools/execute-tool-calls`), so `buildRuntimeStageId` just appends `#index`.

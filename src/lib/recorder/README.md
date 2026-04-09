@@ -133,6 +133,33 @@ class TokenRecorder extends KeyedRecorder<LLMCallEntry> {
 
 Methods: `store(key, entry)`, `getByKey(key)`, `getMap()`, `values()`, `size`, `clear()`.
 
+## Three Operations on Auto-Collected Data
+
+Data is automatically collected during the single DFS traversal. The consumer chooses the operation at read time:
+
+| Operation | Method | Use case |
+|-----------|--------|----------|
+| **Translate** (raw) | `getByKey(id)` | Per-step value for time-travel detail |
+| **Accumulate** (progressive) | `accumulate(fn, initial, keys?)` | Running total up to slider position |
+| **Aggregate** (summary) | `aggregate(fn, initial)` | Grand total for dashboards/export |
+
+```typescript
+// Translate: what happened at this step?
+const step = recorder.getByKey('call-llm#5');
+
+// Accumulate: running total up to slider position
+const visibleKeys = collectKeysUpTo(snapshots, selectedIndex);
+const tokensUpToHere = recorder.accumulate((sum, e) => sum + e.tokens, 0, visibleKeys);
+
+// Aggregate: grand total
+const totalTokens = recorder.aggregate((sum, e) => sum + e.tokens, 0);
+
+// Filter: entries up to slider position (for display)
+const entries = recorder.filterByKeys(visibleKeys);
+```
+
+**How this differs from Prometheus/OTel:** They aggregate across thousands of requests (cross-request). We operate within a single request's execution steps (per-request). Our `aggregate()` produces ONE data point that feeds their collection pipeline via OTelRecorder.
+
 ## Custom Recorders
 
 ### Scope Recorder (data ops)
