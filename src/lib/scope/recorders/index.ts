@@ -10,5 +10,5 @@ export type {
 } from '../types.js';
 export type { DebugEntry, DebugRecorderOptions, DebugVerbosity } from './DebugRecorder.js';
 export { DebugRecorder } from './DebugRecorder.js';
-export type { AggregatedMetrics, StageMetrics } from './MetricRecorder.js';
+export type { AggregatedMetrics, StageMetrics, StepMetrics } from './MetricRecorder.js';
 export { MetricRecorder } from './MetricRecorder.js';

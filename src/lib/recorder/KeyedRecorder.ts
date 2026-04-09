@@ -64,7 +64,11 @@ export abstract class KeyedRecorder<T> {
 
   /** Reduce ALL entries to a single value. For dashboards, totals, summaries. */
   aggregate<R>(fn: (acc: R, entry: T, key: string) => R, initial: R): R {
-    return this.accumulate(fn, initial);
+    let acc = initial;
+    for (const [key, entry] of this.data) {
+      acc = fn(acc, entry, key);
+    }
+    return acc;
   }
 
   // ── Accumulate (progressive reduce) ───────────────────────

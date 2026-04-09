@@ -1,37 +1,57 @@
 /**
- * MetricRecorder — Production-focused recorder for timing and execution counts.
+ * MetricRecorder — per-step timing and execution counts, keyed by runtimeStageId.
  *
- * Tracks read/write/commit counts per stage and measures stage execution duration.
- *
- * Each instance gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...),
- * so multiple recorders with different configs coexist. Pass an explicit ID to
- * override a specific instance (e.g., a framework-attached recorder).
+ * Stores per-invocation data during traversal. Aggregated views computed on read.
+ * Extends KeyedRecorder<StepMetrics> for O(1) lookup and standard operations.
  *
  * @example
  * ```typescript
- * // Track all stages (default)
- * executor.attachRecorder(new MetricRecorder());
+ * const metric = new MetricRecorder();
+ * executor.attachRecorder(metric);
+ * await executor.run();
  *
- * // Track only LLM-related stages
- * executor.attachRecorder(new MetricRecorder({
- *   stageFilter: (name) => ['CallLLM', 'ParseResponse'].includes(name),
- * }));
+ * // Per-step (time-travel):
+ * metric.getByKey('call-llm#5');  // { stageName, readCount, writeCount, duration }
  *
- * // Two recorders: one for LLM timing, one for everything else
- * executor.attachRecorder(new MetricRecorder({
- *   stageFilter: (name) => name === 'CallLLM',
- * }));
- * executor.attachRecorder(new MetricRecorder({
- *   stageFilter: (name) => name !== 'CallLLM',
- * }));
+ * // Aggregated (backward compat):
+ * metric.getMetrics();  // { totalDuration, totalReads, stageMetrics: Map<stageName, aggregated> }
  *
- * // Override a framework-attached recorder by passing its well-known ID
- * executor.attachRecorder(new MetricRecorder({ id: 'metrics' }));
+ * // Progressive (slider):
+ * metric.accumulate((sum, m) => sum + m.duration, 0, visibleKeys);
  * ```
  */
 
+import { KeyedRecorder } from '../../recorder/KeyedRecorder.js';
 import type { CommitEvent, PauseEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
 
+/** Per-invocation metrics for a single execution step. */
+export interface StepMetrics {
+  /** Human-readable stage name. */
+  stageName: string;
+  /** Number of scope reads during this invocation. */
+  readCount: number;
+  /** Number of scope writes during this invocation. */
+  writeCount: number;
+  /** Number of commits during this invocation. */
+  commitCount: number;
+  /** Number of pauses during this invocation. */
+  pauseCount: number;
+  /** Duration in ms for this invocation. */
+  duration: number;
+}
+
+/** Aggregated metrics across all invocations (backward compatible). */
+export interface AggregatedMetrics {
+  totalDuration: number;
+  totalReads: number;
+  totalWrites: number;
+  totalCommits: number;
+  totalPauses: number;
+  /** Aggregated by stageName — sums across loop invocations. */
+  stageMetrics: Map<string, StageMetrics>;
+}
+
+/** Aggregated per-stageName (backward compatible with pre-runtimeStageId API). */
 export interface StageMetrics {
   stageName: string;
   readCount: number;
@@ -42,41 +62,24 @@ export interface StageMetrics {
   invocationCount: number;
 }
 
-export interface AggregatedMetrics {
-  totalDuration: number;
-  totalReads: number;
-  totalWrites: number;
-  totalCommits: number;
-  totalPauses: number;
-  stageMetrics: Map<string, StageMetrics>;
-}
-
-/** Options for MetricRecorder. All fields are optional. */
+/** Options for MetricRecorder. */
 export interface MetricRecorderOptions {
   /** Recorder ID. Defaults to auto-increment (`metrics-1`, `metrics-2`, ...). */
   id?: string;
-  /**
-   * Filter which stages are recorded. Return `true` to record, `false` to skip.
-   * When omitted, all stages are recorded.
-   *
-   * @example
-   * ```typescript
-   * // Only track stages that start with "Call"
-   * stageFilter: (name) => name.startsWith('Call')
-   * ```
-   */
+  /** Filter which stages are recorded. Return `true` to record, `false` to skip. */
   stageFilter?: (stageName: string) => boolean;
 }
 
-export class MetricRecorder implements Recorder {
+export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Recorder {
   private static _counter = 0;
 
   readonly id: string;
-  private metrics: Map<string, StageMetrics> = new Map();
-  private stageStartTimes: Map<string, number> = new Map();
+  private stageStartTimes = new Map<string, number>();
+  private currentRuntimeStageId = '';
   private stageFilter?: (stageName: string) => boolean;
 
   constructor(idOrOptions?: string | MetricRecorderOptions) {
+    super();
     if (typeof idOrOptions === 'string') {
       this.id = idOrOptions;
     } else {
@@ -89,76 +92,100 @@ export class MetricRecorder implements Recorder {
     return !this.stageFilter || this.stageFilter(stageName);
   }
 
-  onRead(event: ReadEvent): void {
-    if (!this.shouldRecord(event.stageName)) return;
-    this.getOrCreateStageMetrics(event.stageName).readCount++;
-  }
-
-  onWrite(event: WriteEvent): void {
-    if (!this.shouldRecord(event.stageName)) return;
-    this.getOrCreateStageMetrics(event.stageName).writeCount++;
-  }
-
-  onCommit(event: CommitEvent): void {
-    if (!this.shouldRecord(event.stageName)) return;
-    this.getOrCreateStageMetrics(event.stageName).commitCount++;
-  }
-
-  onPause(event: PauseEvent): void {
-    if (!this.shouldRecord(event.stageName)) return;
-    this.getOrCreateStageMetrics(event.stageName).pauseCount++;
+  /** Get or create the StepMetrics for the current stage. */
+  private current(): StepMetrics {
+    const key = this.currentRuntimeStageId;
+    let m = this.getByKey(key);
+    if (!m) {
+      m = { stageName: '', readCount: 0, writeCount: 0, commitCount: 0, pauseCount: 0, duration: 0 };
+      this.store(key, m);
+    }
+    return m;
   }
 
   onStageStart(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.stageStartTimes.set(event.stageName, event.timestamp);
-    this.getOrCreateStageMetrics(event.stageName).invocationCount++;
+    this.currentRuntimeStageId = event.runtimeStageId;
+    this.stageStartTimes.set(event.runtimeStageId, event.timestamp);
+    const m = this.current();
+    m.stageName = event.stageName;
+  }
+
+  onRead(event: ReadEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
+    this.current().readCount++;
+  }
+
+  onWrite(event: WriteEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
+    this.current().writeCount++;
+  }
+
+  onCommit(event: CommitEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
+    this.current().commitCount++;
+  }
+
+  onPause(event: PauseEvent): void {
+    if (!this.shouldRecord(event.stageName)) return;
+    this.current().pauseCount++;
   }
 
   onStageEnd(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    const stageMetrics = this.getOrCreateStageMetrics(event.stageName);
-    let duration: number;
+    const m = this.current();
     if (event.duration !== undefined) {
-      duration = event.duration;
+      m.duration = event.duration;
     } else {
-      const startTime = this.stageStartTimes.get(event.stageName);
-      duration = startTime !== undefined ? event.timestamp - startTime : 0;
+      const startTime = this.stageStartTimes.get(event.runtimeStageId);
+      m.duration = startTime !== undefined ? event.timestamp - startTime : 0;
     }
-    stageMetrics.totalDuration += duration;
-    this.stageStartTimes.delete(event.stageName);
+    this.stageStartTimes.delete(event.runtimeStageId);
   }
 
+  /** Aggregated metrics — computes totals on the fly from per-step data (backward compatible). */
   getMetrics(): AggregatedMetrics {
-    let totalDuration = 0;
-    let totalReads = 0;
-    let totalWrites = 0;
-    let totalCommits = 0;
-    let totalPauses = 0;
+    const byName = new Map<string, StageMetrics>();
 
-    for (const stageMetrics of this.metrics.values()) {
-      totalDuration += stageMetrics.totalDuration;
-      totalReads += stageMetrics.readCount;
-      totalWrites += stageMetrics.writeCount;
-      totalCommits += stageMetrics.commitCount;
-      totalPauses += stageMetrics.pauseCount;
+    const totalDuration = this.aggregate((sum, m) => sum + m.duration, 0);
+    const totalReads = this.aggregate((sum, m) => sum + m.readCount, 0);
+    const totalWrites = this.aggregate((sum, m) => sum + m.writeCount, 0);
+    const totalCommits = this.aggregate((sum, m) => sum + m.commitCount, 0);
+    const totalPauses = this.aggregate((sum, m) => sum + m.pauseCount, 0);
+
+    // Group by stageName for backward compat
+    for (const m of this.values()) {
+      const existing = byName.get(m.stageName);
+      if (existing) {
+        existing.readCount += m.readCount;
+        existing.writeCount += m.writeCount;
+        existing.commitCount += m.commitCount;
+        existing.pauseCount += m.pauseCount;
+        existing.totalDuration += m.duration;
+        existing.invocationCount++;
+      } else {
+        byName.set(m.stageName, {
+          stageName: m.stageName,
+          readCount: m.readCount,
+          writeCount: m.writeCount,
+          commitCount: m.commitCount,
+          pauseCount: m.pauseCount,
+          totalDuration: m.duration,
+          invocationCount: 1,
+        });
+      }
     }
 
-    return {
-      totalDuration,
-      totalReads,
-      totalWrites,
-      totalCommits,
-      totalPauses,
-      stageMetrics: new Map(this.metrics),
-    };
+    return { totalDuration, totalReads, totalWrites, totalCommits, totalPauses, stageMetrics: byName };
   }
 
+  /** Get aggregated metrics for a specific stage name (backward compatible). */
   getStageMetrics(stageName: string): StageMetrics | undefined {
-    const metrics = this.metrics.get(stageName);
-    return metrics ? { ...metrics } : undefined;
+    const metrics = this.getMetrics();
+    return metrics.stageMetrics.get(stageName);
   }
 
+  /** Snapshot for serialization (backward compatible format). */
   toSnapshot(): { name: string; data: unknown } {
     const metrics = this.getMetrics();
     return {
@@ -173,29 +200,15 @@ export class MetricRecorder implements Recorder {
     };
   }
 
-  reset(): void {
-    this.metrics.clear();
+  /** Clear all state — called by executor before each run(). */
+  override clear(): void {
+    super.clear();
     this.stageStartTimes.clear();
+    this.currentRuntimeStageId = '';
   }
 
-  clear(): void {
-    this.reset();
-  }
-
-  private getOrCreateStageMetrics(stageName: string): StageMetrics {
-    let stageMetrics = this.metrics.get(stageName);
-    if (!stageMetrics) {
-      stageMetrics = {
-        stageName,
-        readCount: 0,
-        writeCount: 0,
-        commitCount: 0,
-        pauseCount: 0,
-        totalDuration: 0,
-        invocationCount: 0,
-      };
-      this.metrics.set(stageName, stageMetrics);
-    }
-    return stageMetrics;
+  /** Alias for clear() (backward compat). */
+  reset(): void {
+    this.clear();
   }
 }
