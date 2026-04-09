@@ -11,18 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`stageId` on RecorderContext** — every recorder event (onRead, onWrite, onStageStart, onStageEnd, onCommit, onError) now carries the stable stage identifier alongside stageName
-- **`stageId` on CommitBundle** — every commit log entry carries stageId for data flow tracing and quality trace backtracking
-- **5 new tests** — stageId verified across linear chain, loop, decider, subflow, and commitLog patterns
+- **`runtimeStageId`** — unique per-execution-step identifier on every recorder event, commit log entry, and traversal context. Format: `[subflowPath/]stageId#executionIndex`. Monotonic counter shared across subflow traversers. Enables key-value recorder maps, quality trace backtracking, and distributed tracing correlation.
+- **`buildRuntimeStageId()` / `parseRuntimeStageId()`** — helper utilities for constructing and decomposing runtime IDs
+- **`stageId` on RecorderContext + CommitBundle** — stable stage identifier on every event and commit
+- **17 new tests** — runtimeStageId verified across linear chain, loop, decider, subflow, commitLog, and global uniqueness patterns
 
 ### Changed
 
 - **PauseEvent/ResumeEvent** — removed redundant `stageId` field (now inherited from RecorderContext)
-- **`notifyPause()`** — stageId sourced from StageContext instead of parameter; cleaned up caller
+- **`notifyPause()`** — stageId sourced from StageContext instead of parameter
+- **FlowChartExecutor** — execution counter stored on executor, reset on `run()`, preserved on `resume()`
 
 ### Fixed
 
-- **`.playwright-mcp/`** — gitignored, removed 20 accidentally committed browser session artifacts
+- **`.playwright-mcp/`** — gitignored, removed accidentally committed browser session artifacts
 
 ## [4.4.1]
 
