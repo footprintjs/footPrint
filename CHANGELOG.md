@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0]
+
+### Added
+
+- **`footprintjs/trace` subpath** — execution tracing utilities under a clean import path
+- **`KeyedRecorder<T>`** — abstract base class for Map-based recorders (`store`, `getByKey`, `getMap`, `values`, `clear`)
+- **`findCommit` / `findCommits` / `findLastWriter`** — typed commitLog query utilities for backtracking (no `(b: any)` casts)
+- 15 new tests (6 KeyedRecorder + 9 commitLogUtils)
+
+### Changed
+
+- CLAUDE.md + AGENTS.md — documented `footprintjs/trace` with use cases, return types, and examples
+
 ## [4.6.0]
 
 ### Added
