@@ -16,12 +16,13 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
 ├── decide/    → decide()/select() decision evidence capture
+├── recorder/  → CompositeRecorder, KeyedRecorder<T> base class
 ├── engine/    → DFS traversal + narrative + handlers
 ├── runner/    → FlowChartExecutor
 └── contract/  → I/O schema + OpenAPI
 ```
 
-Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
+Entry points: `footprintjs` (public), `footprintjs/trace` (execution tracing), `footprintjs/advanced` (internals).
 
 ## Key API — TypedScope (Recommended)
 
@@ -107,6 +108,21 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 - **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
 - 8 built-in FlowRecorder strategies
 - Narrative via `executor.recorder(narrative())` at runtime
+
+## Execution Tracing (`footprintjs/trace`)
+
+Every stage gets a unique `runtimeStageId`: `[subflowPath/]stageId#executionIndex` (e.g., `call-llm#5`, `sf-tools/execute-tool-calls#8`)
+
+Use for: debugging (which stage wrote what?), backtracking (who changed a value?), custom recorder storage.
+
+```typescript
+import { parseRuntimeStageId, findLastWriter, findCommit, KeyedRecorder } from 'footprintjs/trace';
+
+// commitLog from executor.getSnapshot().commitLog (CommitBundle[])
+// findCommit(commitLog, stageId, key?) → CommitBundle | undefined
+// findLastWriter(commitLog, key, beforeIdx?) → CommitBundle | undefined — search backwards
+// KeyedRecorder<T> — abstract base: store(runtimeStageId, entry), getByKey(), getMap(), values()
+```
 
 ## Rules
 

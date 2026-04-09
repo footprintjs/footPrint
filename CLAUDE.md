@@ -16,7 +16,7 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
-├── recorder/  → CompositeRecorder composition primitives (domain presets)
+├── recorder/  → CompositeRecorder, KeyedRecorder<T> base class, composition primitives
 ├── pause/     → Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
@@ -25,9 +25,10 @@ src/lib/
 
 Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- engine`, `builder (standalone) -> engine`, `contract <- schema`, `decide -> scope`
 
-Two entry points:
+Three entry points:
 - `import { ... } from 'footprintjs'` — public API
-- `import { ... } from 'footprintjs/advanced'` — internals
+- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, KeyedRecorder
+- `import { ... } from 'footprintjs/advanced'` — engine internals (also re-exports trace)
 
 ## Key API
 
@@ -217,6 +218,74 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 5. FlowRecorder.onStageExecuted — CombinedNarrativeRecorder flushes buffered ops
 6. FlowRecorder.onNext/onDecision/onFork — control flow continues
 ```
+
+## Execution Tracing (`footprintjs/trace`)
+
+Every stage execution gets a unique `runtimeStageId` — the universal key that links recorder events, commit log entries, and execution tree nodes.
+
+**When to use:** Debugging (which stage set a value to something unexpected?), audit trails (trace every write to its source stage), custom recorders (correlate events with specific execution steps), quality trace backtracking (walk backwards to find where data quality dropped).
+
+**Format:** `[subflowPath/]stageId#executionIndex`
+
+```
+seed#0                              — root stage
+call-llm#5                          — 5th execution step
+sf-tools/execute-tool-calls#8       — subflow stage
+call-llm#9                          — same stageId, different execution (loop)
+```
+
+**The commitLog:** An ordered array of `CommitBundle` — one per stage commit, recording what each stage wrote to shared state. Get it from `executor.getSnapshot().commitLog`.
+
+```typescript
+import { parseRuntimeStageId, findLastWriter, findCommit } from 'footprintjs/trace';
+
+// Parse a runtimeStageId into components
+parseRuntimeStageId('sf-tools/execute-tool-calls#8');
+// → { stageId: 'execute-tool-calls', executionIndex: 8, subflowPath: 'sf-tools' }
+
+// Get the commit log after execution
+const snapshot = executor.getSnapshot();
+const commitLog = snapshot.commitLog; // CommitBundle[]
+
+// Backtrack: who last wrote 'systemPrompt' before commitLog array index 8?
+// beforeIdx is the CommitBundle.idx (array position), NOT the executionIndex from runtimeStageId.
+const writer = findLastWriter(commitLog, 'systemPrompt', 8);
+// → CommitBundle | undefined (has .stage, .stageId, .runtimeStageId, .trace, .overwrite, .updates)
+
+// Find by stageId: use findCommit when you know the stage.
+// Use findLastWriter when you know the key but not which stage wrote it.
+const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
+```
+
+**Exports from `footprintjs/trace`:**
+
+| Export | Returns | Use |
+|--------|---------|-----|
+| `buildRuntimeStageId(stageId, idx, subflowPath?)` | `string` | Construct an ID from components |
+| `parseRuntimeStageId(id)` | `{ stageId, executionIndex, subflowPath }` | Decompose an ID |
+| `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
+| `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
+| `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
+| `KeyedRecorder<T>` | abstract class | Base for Map-based recorders |
+
+**KeyedRecorder<T>** — abstract base class for recorders that store data as `Map<runtimeStageId, T>`:
+
+```typescript
+import { KeyedRecorder } from 'footprintjs/trace';
+
+class MyRecorder extends KeyedRecorder<MyEntry> {
+  readonly id = 'my-recorder';  // required (abstract)
+  onSomeEvent(event) {
+    this.store(event.runtimeStageId, { ... });  // protected
+  }
+}
+recorder.getByKey('call-llm#5');  // O(1) lookup
+recorder.getMap();                // ReadonlyMap
+recorder.values();                // MyEntry[] in insertion order
+recorder.clear();                 // reset
+```
+
+**How runtimeStageId is generated:** A counter starts at 0 and increments by 1 for each stage execution across the entire run, including subflow stages. Subflow child traversers share the parent counter so indices are globally unique. Stages inside subflows have stageIds already prefixed by the builder (e.g., `sf-tools/execute-tool-calls`), so `buildRuntimeStageId` just appends `#index`.
 
 ## Anti-Patterns
 

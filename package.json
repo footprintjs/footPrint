@@ -82,6 +82,11 @@
       "types": "./dist/types/recorders.d.ts",
       "import": "./dist/esm/recorders.js",
       "require": "./dist/recorders.js"
+    },
+    "./trace": {
+      "types": "./dist/types/trace.d.ts",
+      "import": "./dist/esm/trace.js",
+      "require": "./dist/trace.js"
     }
   },
   "lint-staged": {

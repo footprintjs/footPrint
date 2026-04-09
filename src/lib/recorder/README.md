@@ -111,6 +111,28 @@ executor.attachRecorder(agentObservability());
 }
 ```
 
+## KeyedRecorder<T> — Base Class for Map-Based Recorders
+
+Abstract base class that provides typed key-value storage keyed by `runtimeStageId`. Recorder implementations extend this and call `store()` from their event hooks.
+
+```typescript
+import { KeyedRecorder } from 'footprintjs/advanced';
+
+class TokenRecorder extends KeyedRecorder<LLMCallEntry> {
+  readonly id = 'token-recorder';
+
+  onLLMCall(event: LLMCallEvent) {
+    this.store(event.runtimeStageId, { model: event.model, tokens: event.usage });
+  }
+
+  getStats() {
+    return { totalCalls: this.size, calls: this.values() };
+  }
+}
+```
+
+Methods: `store(key, entry)`, `getByKey(key)`, `getMap()`, `values()`, `size`, `clear()`.
+
 ## Custom Recorders
 
 ### Scope Recorder (data ops)
