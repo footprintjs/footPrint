@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.8.0]
+
+### Added
+
+- **`aggregate()` / `accumulate()` / `filterByKeys()`** on `KeyedRecorder<T>` — three standard operations on auto-collected traversal data: reduce all (dashboards), progressive reduce (time-travel slider), subset by keys
+- **MetricRecorder extends `KeyedRecorder<StepMetrics>`** — per-invocation metrics keyed by `runtimeStageId`. Time-travel compatible: `getByKey('call-llm#5')` returns per-step reads/writes/duration.
+- **`StepMetrics` type exported** — per-invocation entry type
+- **`runtimeStageId` in execution tree snapshot** — `StageContext.getSnapshot()` includes it on each node
+
+### Changed
+
+- **MetricRecorder `getMetrics()`** — now computes aggregates on the fly from per-step data (same return type, backward compatible)
+- **MetricRecorder `clear()`** — overrides `KeyedRecorder.clear()` to also reset `stageStartTimes` and `currentRuntimeStageId`
+
 ## [4.7.0]
 
 ### Added

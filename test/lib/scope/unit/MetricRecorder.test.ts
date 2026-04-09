@@ -137,4 +137,52 @@ describe('MetricRecorder', () => {
     expect(rec.accumulate((sum, m) => sum + m.writeCount, 0, atLLM)).toBe(2);
     expect(rec.accumulate((sum, m) => sum + m.duration, 0, atLLM)).toBe(15);
   });
+
+  it('stageFilter skips filtered stages', () => {
+    const rec = new MetricRecorder({ stageFilter: (name) => name === 'CallLLM' });
+    rec.onStageStart(ev('Seed', 'seed#0', 0));
+    rec.onWrite({ ...ev('Seed', 'seed#0', 1), key: 'x', value: 1, operation: 'set' });
+    rec.onStageEnd(ev('Seed', 'seed#0', 5));
+
+    rec.onStageStart(ev('CallLLM', 'call-llm#1', 10));
+    rec.onRead({ ...ev('CallLLM', 'call-llm#1', 11), key: 'msgs', value: [] });
+    rec.onStageEnd(ev('CallLLM', 'call-llm#1', 20));
+
+    // Seed was filtered — only CallLLM recorded
+    expect(rec.size).toBe(1);
+    expect(rec.getByKey('call-llm#1')).toBeDefined();
+    expect(rec.getByKey('seed#0')).toBeUndefined();
+    expect(rec.getMetrics().totalReads).toBe(1);
+    expect(rec.getMetrics().totalWrites).toBe(0);
+  });
+
+  it('stageFilter with loop — filtered stage ignored on all invocations', () => {
+    const rec = new MetricRecorder({ stageFilter: (name) => name !== 'Check' });
+    rec.onStageStart(ev('Step', 'step#0', 0));
+    rec.onStageEnd(ev('Step', 'step#0', 5));
+    rec.onStageStart(ev('Check', 'check#1', 10));
+    rec.onStageEnd(ev('Check', 'check#1', 15));
+    rec.onStageStart(ev('Step', 'step#2', 20));
+    rec.onStageEnd(ev('Step', 'step#2', 25));
+    rec.onStageStart(ev('Check', 'check#3', 30));
+    rec.onStageEnd(ev('Check', 'check#3', 35));
+
+    // Check was filtered — only Step entries
+    expect(rec.size).toBe(2);
+    expect(rec.getByKey('step#0')).toBeDefined();
+    expect(rec.getByKey('step#2')).toBeDefined();
+    expect(rec.getByKey('check#1')).toBeUndefined();
+    expect(rec.getByKey('check#3')).toBeUndefined();
+  });
+
+  it('onPause increments pauseCount', () => {
+    const rec = new MetricRecorder('m1');
+    rec.onStageStart(ev('Approve', 'approve#0', 0));
+    rec.onPause({ ...ev('Approve', 'approve#0', 5) });
+    rec.onStageEnd(ev('Approve', 'approve#0', 10));
+
+    const step = rec.getByKey('approve#0')!;
+    expect(step.pauseCount).toBe(1);
+    expect(rec.getMetrics().totalPauses).toBe(1);
+  });
 });
