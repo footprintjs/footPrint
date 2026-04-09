@@ -185,11 +185,12 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Record
     return metrics.stageMetrics.get(stageName);
   }
 
-  /** Snapshot for serialization (backward compatible format). */
-  toSnapshot(): { name: string; data: unknown } {
+  /** Snapshot for serialization. */
+  toSnapshot(): { name: string; description: string; data: unknown } {
     const metrics = this.getMetrics();
     return {
       name: 'Metrics',
+      description: 'Aggregator (KeyedRecorder) — per-step timing and I/O counts',
       data: {
         totalDuration: metrics.totalDuration,
         totalReads: metrics.totalReads,

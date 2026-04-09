@@ -140,4 +140,12 @@ export class DebugRecorder implements Recorder {
   clear(): void {
     this.entries = [];
   }
+
+  toSnapshot(): { name: string; description: string; data: unknown } {
+    return {
+      name: 'Debug',
+      description: 'Translator (Scope Recorder) — per-stage diagnostic entries',
+      data: this.entries,
+    };
+  }
 }

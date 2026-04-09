@@ -19,6 +19,8 @@ import type { CommitBundle, StageSnapshot } from '../memory/types.js';
 export interface RecorderSnapshot {
   id: string;
   name: string;
+  /** Recorder type and pattern description (e.g., "Translator (KeyedRecorder) — per-step token usage"). */
+  description?: string;
   data: unknown;
 }
 

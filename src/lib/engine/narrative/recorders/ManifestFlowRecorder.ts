@@ -100,8 +100,12 @@ export class ManifestFlowRecorder implements FlowRecorder {
     return Array.from(this.specs.keys());
   }
 
-  toSnapshot(): { name: string; data: unknown } {
-    return { name: 'Manifest', data: this.getManifest() };
+  toSnapshot(): { name: string; description: string; data: unknown } {
+    return {
+      name: 'Manifest',
+      description: 'Translator (FlowRecorder) — subflow catalog built during traversal',
+      data: this.getManifest(),
+    };
   }
 
   /** Clears state for reuse. */
