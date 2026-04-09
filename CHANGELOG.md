@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.9.0]
+
+### Added
+
+- **`SequenceRecorder<T>`** — abstract base class for 1:N ordered sequence recorders with keyed index by `runtimeStageId`. Sibling to `KeyedRecorder<T>` (1:1). Provides `getEntries`, `getEntriesForStep`, `getEntriesUpTo`, `getEntryRanges` (O(1) range index maintained during emit), `aggregate`, `accumulate`, `forEachEntry`.
+- **`CombinedNarrativeEntry.runtimeStageId`** — unique per-execution-step identifier on all 13 narrative entry types. Links entries to recorder Map entries for O(1) time-travel lookup.
+- **`CombinedNarrativeEntry.direction`** — `'entry' | 'exit'` on subflow entries. Use for programmatic subflow boundary detection instead of text scanning.
+- **`SequenceRecorder.getEntryRanges()`** — precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` for O(1) slider sync. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
+- Exported `SequenceRecorder` from `footprintjs/trace`.
+
+### Changed
+
+- **`CombinedNarrativeRecorder`** now extends `SequenceRecorder<CombinedNarrativeEntry>` — dual-index storage (flat array + Map) replaces single-array storage. All existing methods preserved.
+- **`pendingOps` keyed by `runtimeStageId`** (was `stageName`) — fork-safe buffering for parallel branches with identically-named stages.
+- **`runtimeStageId` counter assignment** moved from `executeStage` to `executeNode` — ensures scope events and flow events use the same value (traversalContext created after assignment).
+
 ## [4.8.0]
 
 ### Added
