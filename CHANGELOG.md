@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0]
+
+### Added
+
+- **`runtimeStageId`** — unique per-execution-step identifier (`[subflowPath/]stageId#executionIndex`). On every recorder event, commit log entry, and traversal context. Monotonic counter shared across subflow traversers.
+- **`buildRuntimeStageId()` / `parseRuntimeStageId()`** — helper utilities
+- **17 new tests** — runtimeStageId across linear, loop, decider, subflow, global uniqueness
+
+### Changed
+
+- **FlowChartExecutor** — execution counter stored on executor, reset on `run()`, preserved on `resume()`
+
 ## [4.5.0]
 
 ### Added
