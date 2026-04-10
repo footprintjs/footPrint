@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.10.1]
+
+### Added
+
+- **Interactive home page** — custom React-based landing page replaces Starlight splash at docs-site root. Features execution timeline with time-travel slider, syntax-highlighted code examples (proxy pattern + rules DSL), 4-step problem narrative, and navigation cards to API docs, Playground, Samples, GitHub, npm.
+- **SEO metadata** — Open Graph tags, Twitter Card, JSON-LD structured data (`schema.org/SoftwareSourceCode`) with author attribution.
+- **Dark/light theme** — full theme toggle with footprint logo branding (FOOTPRINT + yellow "js").
+
+### Changed
+
+- **Docs-site landing** — original Starlight splash page moved to `/overview/` in sidebar. Custom Astro page at `src/pages/index.astro` serves the new home page with pre-built React assets from `public/home/`.
+
 ## [4.10.0]
 
 ### Added

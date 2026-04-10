@@ -1,0 +1,81 @@
+---
+title: Documentation Overview
+description: The flowchart pattern for backend code. Self-explainable systems that AI can reason about.
+---
+
+import { Card, CardGrid, LinkButton } from '@astrojs/starlight/components';
+import HomeDiagram from '../../components/HomeDiagram.astro';
+
+## Why footprintjs?
+
+<CardGrid stagger>
+  <Card title="Self-documenting pipelines" icon="document">
+    Every stage writes its own narrative as it runs — no post-processing, no
+    log parsing. `chart.recorder(narrative()).run()` tells you exactly what
+    happened and why.
+  </Card>
+  <Card title="Typed from the start" icon="approve-check-circle">
+    Define your state as a TypeScript interface. `TypedScope<T>` gives you
+    full type inference inside every stage — no casts, no `getValue() as string`.
+  </Card>
+  <Card title="Decision evidence capture" icon="magnifier">
+    `decide()` and `select()` auto-capture which values matched which rules.
+    Narrative: *"creditScore 750 gt 700 ✓ → chose approved."*
+  </Card>
+  <Card title="Composable by design" icon="puzzle">
+    Subflows compose like functions. `getSubtreeSnapshot()` gives you
+    time-travel debugging at any depth. Works with MCP and OpenAPI out of the box.
+  </Card>
+</CardGrid>
+
+## How it works
+
+<HomeDiagram />
+
+## The 3-step pattern
+
+```ts
+import { flowChart, decide, narrative } from 'footprintjs';
+
+// 1. Define your state
+interface OrderState {
+  orderId: string;
+  total: number;
+  tier?: string;
+  status?: string;
+}
+
+// 2. Build your flowchart
+const chart = flowChart<OrderState>('Validate', async (scope) => {
+  scope.tier = scope.total > 100 ? 'premium' : 'standard';
+}, 'validate')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { tier: { eq: 'premium' } }, then: 'express', label: 'Premium order' },
+    ], 'standard');
+  }, 'route')
+  .addFunctionBranch('express', 'ExpressShip', async (scope) => {
+    scope.status = 'express-shipping';
+  })
+  .addFunctionBranch('standard', 'StandardShip', async (scope) => {
+    scope.status = 'standard-shipping';
+  })
+  .setDefault('standard')
+  .end()
+  .build();
+
+// 3. Run and observe
+const rec = narrative();
+await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 149 } });
+
+console.log(rec.lines().join('\n'));
+// Stage 1: The process began with Validate.
+// Stage 2: Next, it moved on to Route.
+// [Condition]: It evaluated Rule 0 "Premium order": tier "premium" eq "premium" ✓, and chose express.
+// Stage 3: Next, it moved on to ExpressShip.
+```
+
+<div style="display: flex; gap: 1rem; margin-top: 2rem;">
+  <LinkButton href="/footPrint/getting-started/quick-start/" variant="primary">Get started</LinkButton>
+  <LinkButton href="/footPrint/guides/building/" variant="secondary">Explore guides</LinkButton>
+</div>

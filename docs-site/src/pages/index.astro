@@ -1,0 +1,61 @@
+---
+// Custom home page — overrides Starlight's default index.
+// The React app is pre-built and served as static assets from /home/.
+// Starlight docs remain accessible via sidebar navigation.
+---
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>footprintjs — The flowchart pattern for backend code</title>
+    <meta name="description" content="Express your backend logic as stages, decisions, and subflows. Every read, write, and decision point is captured automatically. The trace generates itself — no manual logging, never stale. Created by Sanjay Krishna Anbalagan." />
+    <meta name="author" content="Sanjay Krishna Anbalagan" />
+    <meta name="keywords" content="footprintjs, flowchart, backend, orchestration, tracing, observability, recorder, narrative, TypeScript, Sanjay Krishna Anbalagan" />
+    <link rel="canonical" href="https://footprintjs.github.io/footPrint/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="footprintjs — The flowchart pattern for backend code" />
+    <meta property="og:description" content="Express your backend logic as stages, decisions, and subflows. Auto-generated causal traces eliminate manual logging. Created by Sanjay Krishna Anbalagan." />
+    <meta property="og:url" content="https://footprintjs.github.io/footPrint/" />
+    <meta property="og:site_name" content="footprintjs" />
+    <meta property="og:image" content="https://footprintjs.github.io/footPrint/og.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="footprintjs — The flowchart pattern for backend code" />
+    <meta name="twitter:description" content="Express your backend logic as stages, decisions, and subflows. Auto-generated causal traces. Created by Sanjay Krishna Anbalagan." />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareSourceCode",
+      "name": "footprintjs",
+      "description": "The flowchart pattern for backend code. Express logic as stages, decisions, and subflows with auto-generated causal traces.",
+      "author": {
+        "@type": "Person",
+        "name": "Sanjay Krishna Anbalagan",
+        "url": "https://github.com/sanjay1909"
+      },
+      "creator": {
+        "@type": "Person",
+        "name": "Sanjay Krishna Anbalagan"
+      },
+      "programmingLanguage": "TypeScript",
+      "runtimePlatform": "Node.js",
+      "codeRepository": "https://github.com/footprintjs/footPrint",
+      "url": "https://footprintjs.github.io/footPrint/",
+      "license": "https://opensource.org/licenses/MIT",
+      "version": "4.10.1"
+    }
+    </script>
+
+    <link rel="stylesheet" href={`${import.meta.env.BASE_URL}home/app.css`} />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src={`${import.meta.env.BASE_URL}home/app.js`}></script>
+  </body>
+</html>

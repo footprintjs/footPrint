@@ -50,6 +50,7 @@ export default defineConfig({
         },
       ],
       sidebar: [
+        { label: 'Overview', slug: 'overview' },
         {
           label: 'Getting Started',
           items: [
