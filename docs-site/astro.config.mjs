@@ -7,6 +7,11 @@ export default defineConfig({
   // or moved to a custom domain (e.g. base: '/', site: 'https://footprintjs.dev').
   site: 'https://footprintjs.github.io',
   base: '/footPrint',
+  // Allow importing from ../examples/ for code examples in docs
+  vite: {
+    resolve: { alias: { '@examples': new URL('../examples', import.meta.url).pathname } },
+    server: { fs: { allow: ['..'] } },
+  },
   redirects: {
     '/api/modules/main':      '/footPrint/api/modules/index.html',
     '/api/modules/recorders': '/footPrint/api/modules/recorders.html',

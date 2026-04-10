@@ -4,6 +4,8 @@ description: Build, run, and observe your first footprintjs pipeline in under 5 
 ---
 
 import PackageManagers from '../../../components/PackageManagers.astro';
+import { Code } from '@astrojs/starlight/components';
+import quickStart from '@examples/getting-started/quick-start.ts?raw';
 
 Get a self-documenting pipeline running in 3 steps.
 
@@ -11,47 +13,46 @@ Get a self-documenting pipeline running in 3 steps.
 
 <PackageManagers pkg="footprintjs" />
 
-### 1. Define your state
+## Full Example
 
-```ts
-interface OrderState {
-  orderId: string;
-  total: number;
-  status?: string;
+<Code code={quickStart} lang="ts" title="examples/getting-started/quick-start.ts" />
+
+Run it:
+
+```bash
+npx tsx examples/getting-started/quick-start.ts
+```
+
+Output:
+
+```
+=== Narrative ===
+
+Stage 1: The process began with ValidateOrder.
+  Step 1: Write status = "valid"
+Stage 2: Next, it moved on to ProcessPayment.
+  Step 1: Write status = "paid"
+
+=== Final State ===
+
+{
+  "orderId": "ORD-001",
+  "total": 49.99,
+  "status": "paid"
 }
 ```
 
-### 2. Build your flowchart
+**Zero manual logging.** The narrative generated itself from your code.
 
-```ts
-import { flowChart } from 'footprintjs';
+## What Just Happened?
 
-const chart = flowChart<OrderState>('ValidateOrder', async (scope) => {
-  scope.status = scope.total > 0 ? 'valid' : 'invalid';
-}, 'validate')
-  .addFunction('ProcessPayment', async (scope) => {
-    scope.status = 'paid';
-  }, 'process')
-  .build();
-```
+1. **`flowChart<OrderState>()`** — defined two stages with typed state
+2. **`enableNarrative()`** — turned on the auto-narrative recorder
+3. **`executor.run()`** — ran the DFS traversal, collecting data as a side effect
+4. **`getNarrative()`** — read the collected narrative (no post-processing)
 
-### 3. Run and observe
-
-```ts
-import { narrative } from 'footprintjs';
-
-const rec = narrative();
-await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 49.99 } });
-
-console.log(rec.lines().join('\n'));
-// Stage 1: The process began with ValidateOrder.
-//   Step 1: Write status = "valid"
-// Stage 2: Next, it moved on to ProcessPayment.
-//   Step 1: Write status = "paid"
-```
-
-## Next steps
+## Next Steps
 
 - [Key Concepts](/footPrint/getting-started/key-concepts/) — understand scope, recorders, and the observer pattern
-- [Building a flowchart](/footPrint/guides/building/) — all builder methods explained
-- [Interactive Playground](https://footprintjs.github.io/footprint-playground/) — run examples live
+- [Building Blocks](/footPrint/guides/building/) — all stage types: deciders, forks, selectors, subflows, loops
+- [Interactive Playground](https://footprintjs.github.io/footprint-playground/) — run examples live in the browser
