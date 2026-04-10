@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.11.0]
+
+### Added
+
+- **`examples/` directory** — 31 type-checked examples inside the library (getting-started, building-blocks, features, flow-recorders, errors). Each imports from `footprintjs` — same as consumer code. CI Gate 5b type-checks them before every release.
+- **`StageEvent`** exported from main entry — was missing, needed by custom recorder implementations.
+- **`npm run test:examples`** — type-checks all examples against library source.
+- **Docs import from `@examples/`** — Starlight docs pull code from type-checked examples via Vite alias. One source of truth.
+
+### Changed
+
+- **Release pipeline** — 9 gates (was 8). Gate 5b: examples type-check.
+- **Home page** — rebuilt with correct footprintjs API in all code snippets. Added loan rejection backtracking story, MCP tool generation, 4 badges (CI, npm, downloads, Try with LLM). Fixed asset path slash, syntax highlighter crash.
+- **Home page Docs link** → getting-started guide (was TypeDoc API reference).
+
 ## [4.10.1]
 
 ### Added
