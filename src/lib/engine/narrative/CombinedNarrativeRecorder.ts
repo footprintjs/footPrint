@@ -254,19 +254,41 @@ export class CombinedNarrativeRecorder
       mappedInput: event.mappedInput,
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
+    const rid = event.traversalContext?.runtimeStageId;
+    const sid = event.traversalContext?.stageId;
+    const sfId = event.traversalContext?.subflowId;
     this.emit({
       type: 'subflow',
       text,
       depth: 0,
       stageName: event.name,
-      stageId: event.traversalContext?.stageId,
-      runtimeStageId: event.traversalContext?.runtimeStageId,
-      subflowId: event.traversalContext?.subflowId,
+      stageId: sid,
+      runtimeStageId: rid,
+      subflowId: sfId,
       direction: 'entry',
     });
+    // Emit step entries listing input keys (values omitted — may contain PII before redaction)
+    if (event.mappedInput && Object.keys(event.mappedInput).length > 0) {
+      const keys = Object.keys(event.mappedInput);
+      this.emit({
+        type: 'step',
+        text: `Inputs: ${keys.join(', ')}`,
+        depth: 1,
+        stageName: event.name,
+        stageId: sid,
+        runtimeStageId: rid,
+        subflowId: sfId,
+      });
+    }
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
+    const rid = event.traversalContext?.runtimeStageId;
+    const sid = event.traversalContext?.stageId;
+    const sfId = event.traversalContext?.subflowId;
+    // NOTE: output state is NOT emitted as step entries because it may contain
+    // unredacted values from the subflow's internal scope. The subflow exit
+    // header is sufficient — drill into the subflow for details.
     const ctx: SubflowRenderContext = {
       name: event.name,
       direction: 'exit',
@@ -278,9 +300,9 @@ export class CombinedNarrativeRecorder
       text,
       depth: 0,
       stageName: event.name,
-      stageId: event.traversalContext?.stageId,
-      runtimeStageId: event.traversalContext?.runtimeStageId,
-      subflowId: event.traversalContext?.subflowId,
+      stageId: sid,
+      runtimeStageId: rid,
+      subflowId: sfId,
       direction: 'exit',
     });
   }
@@ -583,19 +605,9 @@ export class CombinedNarrativeRecorder
 
   private defaultRenderSubflow(ctx: SubflowRenderContext): string {
     if (ctx.direction === 'exit') {
-      if (ctx.outputState && Object.keys(ctx.outputState).length > 0) {
-        const summary = summarizeValue(ctx.outputState, this.maxValueLength);
-        return `Exiting ${ctx.name} → ${summary}`;
-      }
       return `Exiting the ${ctx.name} subflow.`;
     }
-    const inputSuffix =
-      ctx.mappedInput && Object.keys(ctx.mappedInput).length > 0
-        ? ` with ${summarizeValue(ctx.mappedInput, this.maxValueLength)}`
-        : '';
-    return ctx.description
-      ? `Entering ${ctx.name}${inputSuffix}: ${ctx.description}.`
-      : `Entering the ${ctx.name} subflow${inputSuffix}.`;
+    return ctx.description ? `Entering ${ctx.name}: ${ctx.description}.` : `Entering the ${ctx.name} subflow.`;
   }
 
   private defaultRenderLoop(ctx: LoopRenderContext): string {
