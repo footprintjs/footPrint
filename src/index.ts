@@ -84,6 +84,7 @@ export type {
   Recorder,
   RedactionPolicy,
   RedactionReport,
+  StageEvent,
   WriteEvent,
 } from './lib/scope/index.js';
 
