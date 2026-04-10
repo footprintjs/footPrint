@@ -55,7 +55,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Entering ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowEntry(subflowName, subflowId, node.description, parentTraversalContext);
 
     // ─── Input Mapping ───
     const mountOptions = node.subflowMountOptions;
@@ -74,6 +73,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         throw error;
       }
     }
+
+    // Narrative entry fires AFTER input mapping so it can include mapped values
+    this.deps.narrativeGenerator.onSubflowEntry(
+      subflowName,
+      subflowId,
+      node.description,
+      parentTraversalContext,
+      mappedInput,
+    );
 
     // Create isolated runtime via dynamic construction (avoids circular import)
     const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (
@@ -193,7 +201,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId, parentTraversalContext);
+    this.deps.narrativeGenerator.onSubflowExit(
+      subflowName,
+      subflowId,
+      parentTraversalContext,
+      subflowResult.treeContext?.globalContext,
+    );
 
     parentContext.commit();
 

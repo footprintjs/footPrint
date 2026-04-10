@@ -251,6 +251,7 @@ export class CombinedNarrativeRecorder
       name: event.name,
       direction: 'entry',
       description: event.description,
+      mappedInput: event.mappedInput,
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
     this.emit({
@@ -269,6 +270,7 @@ export class CombinedNarrativeRecorder
     const ctx: SubflowRenderContext = {
       name: event.name,
       direction: 'exit',
+      outputState: event.outputState,
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
     this.emit({
@@ -581,11 +583,19 @@ export class CombinedNarrativeRecorder
 
   private defaultRenderSubflow(ctx: SubflowRenderContext): string {
     if (ctx.direction === 'exit') {
+      if (ctx.outputState && Object.keys(ctx.outputState).length > 0) {
+        const summary = summarizeValue(ctx.outputState, this.maxValueLength);
+        return `Exiting ${ctx.name} → ${summary}`;
+      }
       return `Exiting the ${ctx.name} subflow.`;
     }
+    const inputSuffix =
+      ctx.mappedInput && Object.keys(ctx.mappedInput).length > 0
+        ? ` with ${summarizeValue(ctx.mappedInput, this.maxValueLength)}`
+        : '';
     return ctx.description
-      ? `Entering the ${ctx.name} subflow: ${ctx.description}.`
-      : `Entering the ${ctx.name} subflow.`;
+      ? `Entering ${ctx.name}${inputSuffix}: ${ctx.description}.`
+      : `Entering the ${ctx.name} subflow${inputSuffix}.`;
   }
 
   private defaultRenderLoop(ctx: LoopRenderContext): string {

@@ -521,9 +521,20 @@ describe('SubflowExecutor — property', () => {
     );
 
     // Entry event should always fire
-    expect(narrativeGen.onSubflowEntry).toHaveBeenCalledWith('NarrativeProp', 'sf-narrative', undefined, undefined);
+    expect(narrativeGen.onSubflowEntry).toHaveBeenCalledWith(
+      'NarrativeProp',
+      'sf-narrative',
+      undefined,
+      undefined,
+      expect.any(Object),
+    );
     // Exit event fires even on error (cleanup path)
-    expect(narrativeGen.onSubflowExit).toHaveBeenCalledWith('NarrativeProp', 'sf-narrative', undefined);
+    expect(narrativeGen.onSubflowExit).toHaveBeenCalledWith(
+      'NarrativeProp',
+      'sf-narrative',
+      undefined,
+      expect.any(Object),
+    );
   });
 
   it('factory receives isolated executionRuntime (not the parent)', async () => {

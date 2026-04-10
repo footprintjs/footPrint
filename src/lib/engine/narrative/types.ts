@@ -51,10 +51,16 @@ export interface IControlFlowNarrative {
     subflowId?: string,
     description?: string,
     traversalContext?: TraversalContext,
+    mappedInput?: Record<string, unknown>,
   ): void;
 
   /** Called when exiting a subflow. */
-  onSubflowExit(subflowName: string, subflowId?: string, traversalContext?: TraversalContext): void;
+  onSubflowExit(
+    subflowName: string,
+    subflowId?: string,
+    traversalContext?: TraversalContext,
+    outputState?: Record<string, unknown>,
+  ): void;
 
   /** Called when a dynamic subflow is registered during traversal. */
   onSubflowRegistered(subflowId: string, name: string, description?: string, specStructure?: unknown): void;
@@ -173,6 +179,10 @@ export interface FlowSubflowEvent {
   /** Build-time description of what this subflow does. */
   description?: string;
   traversalContext?: TraversalContext;
+  /** Mapped input values sent INTO the subflow (from inputMapper/inputKeys). Present on entry events. */
+  mappedInput?: Record<string, unknown>;
+  /** Subflow shared state at exit. Present on exit events. */
+  outputState?: Record<string, unknown>;
 }
 
 /** Event passed to FlowRecorder.onSubflowRegistered (dynamic subflow attachment). */

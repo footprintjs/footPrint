@@ -99,6 +99,10 @@ export interface SubflowRenderContext {
   name: string;
   direction: 'entry' | 'exit';
   description?: string;
+  /** Mapped input values sent into the subflow. Present on entry. */
+  mappedInput?: Record<string, unknown>;
+  /** Subflow shared state at exit. Present on exit. */
+  outputState?: Record<string, unknown>;
 }
 
 /** Context passed to renderLoop. */

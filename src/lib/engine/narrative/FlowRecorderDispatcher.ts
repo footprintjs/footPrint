@@ -129,9 +129,10 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     subflowId?: string,
     description?: string,
     traversalContext?: TraversalContext,
+    mappedInput?: Record<string, unknown>,
   ): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName, subflowId, description, traversalContext };
+    const event = { name: subflowName, subflowId, description, traversalContext, mappedInput };
     for (const r of this.recorders) {
       try {
         r.onSubflowEntry?.(event);
@@ -142,9 +143,14 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onSubflowExit(subflowName: string, subflowId?: string, traversalContext?: TraversalContext): void {
+  onSubflowExit(
+    subflowName: string,
+    subflowId?: string,
+    traversalContext?: TraversalContext,
+    outputState?: Record<string, unknown>,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { name: subflowName, subflowId, traversalContext };
+    const event = { name: subflowName, subflowId, traversalContext, outputState };
     for (const r of this.recorders) {
       try {
         r.onSubflowExit?.(event);
