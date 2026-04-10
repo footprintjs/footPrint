@@ -267,18 +267,24 @@ export class CombinedNarrativeRecorder
       subflowId: sfId,
       direction: 'entry',
     });
-    // Emit step entries listing input keys (values omitted — may contain PII before redaction)
+    // Emit per-key step entries for mapped inputs
+    // Values shown when includeValues=true — consumer responsible for redaction policy
+    // on the parent scope (redacted keys produce '[REDACTED]' via ScopeFacade).
     if (event.mappedInput && Object.keys(event.mappedInput).length > 0) {
-      const keys = Object.keys(event.mappedInput);
-      this.emit({
-        type: 'step',
-        text: `Inputs: ${keys.join(', ')}`,
-        depth: 1,
-        stageName: event.name,
-        stageId: sid,
-        runtimeStageId: rid,
-        subflowId: sfId,
-      });
+      for (const [key, value] of Object.entries(event.mappedInput)) {
+        const valueSummary = this.formatValue(value, this.maxValueLength);
+        this.emit({
+          type: 'step',
+          text: this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`,
+          depth: 1,
+          stageName: event.name,
+          stageId: sid,
+          runtimeStageId: rid,
+          subflowId: sfId,
+          key,
+          rawValue: value,
+        });
+      }
     }
   }
 

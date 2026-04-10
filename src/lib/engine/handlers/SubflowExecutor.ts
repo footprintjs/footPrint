@@ -74,13 +74,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
     }
 
-    // Narrative entry fires AFTER input mapping so it can include mapped values
+    // Narrative receives mapped input. inputMapper is a consumer function that may inject
+    // values not from the scope (bypassing redaction). The recorder renders per includeValues.
+    const narrativeInput = mappedInput;
     this.deps.narrativeGenerator.onSubflowEntry(
       subflowName,
       subflowId,
       node.description,
       parentTraversalContext,
-      mappedInput,
+      narrativeInput,
     );
 
     // Create isolated runtime via dynamic construction (avoids circular import)
