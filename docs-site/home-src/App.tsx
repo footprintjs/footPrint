@@ -123,7 +123,13 @@ function Hero() {
           <Github className="w-4 h-4" /> GitHub
         </a>
       </div>
-      <p className="mt-4 text-xs text-muted-foreground">MIT · TypeScript · Zero dependencies</p>
+      <div className="flex items-center justify-center gap-2 flex-wrap mt-6">
+        <a href="https://github.com/footprintjs/footPrint/actions"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+        <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg?style=flat" alt="npm" /></a>
+        <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg" alt="Downloads" /></a>
+        <a href="https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool"><img src="https://img.shields.io/badge/Try_with_LLM-Live_Demo-7c6cf0?style=flat" alt="Try with LLM" /></a>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">MIT · TypeScript · Zero dependencies</p>
     </section>
   );
 }
@@ -148,7 +154,7 @@ const chart = flowChart<OrderState>('Validate', async (scope) => {
   },
   {
     num: 2, title: "Decisions are declared, not buried",
-    body: "Instead of if/else chains, use decide() with rules. The engine evaluates them and records which matched and why.",
+    body: "Instead of if/else chains, use decide() with rules as data. The engine evaluates them and records which matched and why.",
     code: `import { decide } from 'footprintjs';
 
 chart.addDeciderFunction('Route', (scope) => {
@@ -162,7 +168,7 @@ chart.addDeciderFunction('Route', (scope) => {
   },
   {
     num: 3, title: "The trace writes itself",
-    body: "Enable the narrative recorder and run. Every stage, decision, and data operation produces a human-readable trace — automatically.",
+    body: "Enable the narrative recorder and run. Every stage, decision, and data operation produces a human-readable trace — zero manual logging.",
     code: `const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run({ input: { orderId: 'ORD-42', total: 249 } });
@@ -176,15 +182,36 @@ console.log(executor.getNarrative());
   },
   {
     num: 4, title: "AI reads the trace, not your code",
-    body: "The narrative is the contract. An LLM or monitoring tool reasons about what happened — without parsing source.",
-    code: `// What the AI sees (from executor.getNarrative()):
+    body: "The narrative is the contract. An LLM backtracks through the trace to explain decisions — no hallucination, no guessing.",
+    code: `// Loan pipeline rejects Bob. User asks: "Why was I rejected?"
 //
-// Stage 1: Validate — tier = "premium"
-// Decision: tier eq "premium" ✓ → express
-// Stage 3: ExpressShip — status = "shipped"
+// The trace shows exactly what happened:
+// Stage 1: Write creditScore = 580, dti = 0.6
+// Stage 2: Write riskTier = "high", riskFactors = (3 items)
+// [Condition]: riskTier "high" eq "high" ✓ → RejectApplication
+// Stage 4: Write decision = "REJECTED — below-average credit;
+//   DTI exceeds 43%; Self-employed < 2yr"
 //
-// Full causal chain. No log parsing. No guessing.
-// Copy for LLM: one click in the playground.`,
+// LLM backtracks: decision ← riskTier ← dti ← monthlyDebts
+// Answer comes from the trace, not imagination.`,
+  },
+  {
+    num: 5, title: "One line to expose as an AI tool",
+    body: "Any flowchart becomes an MCP tool automatically. The description, input schema, and step list are generated from the graph.",
+    code: `// Auto-generate MCP tool from any flowchart
+const tool = chart.toMCPTool();
+// {
+//   name: 'assesscredit',
+//   description: '1. AssessCredit 2. EvalRisk 3. Route ...',
+//   inputSchema: { type: 'object', properties: { ... } }
+// }
+
+// Register with any MCP server or Anthropic SDK:
+const anthropicTool = {
+  name: tool.name,
+  description: tool.description,
+  input_schema: tool.inputSchema,
+};`,
   },
 ];
 
