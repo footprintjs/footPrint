@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.10.0]
+
+### Added
+
+- **`RecorderOperation`** — const object + type union (`translate | accumulate | aggregate`) for declaring preferred UI operation on recorders. Exported from main entry.
+- **`preferredOperation`** on `RecorderSnapshot` and `toSnapshot()` interface — hints UI about which operation to show prominently. MetricRecorder defaults to `aggregate`, DebugRecorder to `translate`.
+- **`description`** on `toSnapshot()` — recorder type and pattern description (e.g., "Aggregator (KeyedRecorder) — per-step timing and I/O counts"). All built-in recorders provide it.
+- **`StageRenderContext.loopIteration`** — loop iteration number for custom `NarrativeRenderer`. Narrative now says "Looped back to X (pass N)" instead of "Next, it moved on to X" for loop iterations.
+- **Subflow narrative input step entries** — `onSubflowEntry` carries `mappedInput` from `inputMapper`/`inputKeys`. Each input key rendered as a step entry: "Input: amount = 129.99". `onSubflowExit` carries `outputState`.
+- **`FlowSubflowEvent.mappedInput`** / **`FlowSubflowEvent.outputState`** — subflow I/O values on flow recorder events.
+- **`SubflowRenderContext.mappedInput`** / **`SubflowRenderContext.outputState`** — for custom subflow renderers.
+- **MetricRecorder `toSnapshot()`** now includes per-step Map (`steps` keyed by runtimeStageId) alongside aggregated totals. Supports time-travel UI.
+- **`numericField` + `grandTotal`** in recorder snapshot data — tells UI which field to display and the pre-computed total (no heuristics).
+
+### Changed
+
+- **`toSnapshot()` interface** widened on both `Recorder` and `FlowRecorder` — now includes `description?` and `preferredOperation?`. No more `as` casts in FlowChartExecutor snapshot collection.
+
 ## [4.9.0]
 
 ### Added
