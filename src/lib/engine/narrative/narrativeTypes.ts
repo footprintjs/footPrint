@@ -65,6 +65,8 @@ export interface StageRenderContext {
   stageNumber: number;
   isFirst: boolean;
   description?: string;
+  /** Loop iteration number (1-based). Present when this stage is visited via loopTo(). */
+  loopIteration?: number;
 }
 
 /** Context passed to renderOp. Return null to exclude the entry. */

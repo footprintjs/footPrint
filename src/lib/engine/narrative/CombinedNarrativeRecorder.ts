@@ -85,6 +85,8 @@ export class CombinedNarrativeRecorder
   private stageCounters = new Map<string, number>();
   /** Per-subflow first-stage flags. Key '' = root flow. */
   private firstStageFlags = new Map<string, boolean>();
+  /** Visit count per stageId — detects loop iterations (count > 1 = loop). */
+  private stageVisitCounts = new Map<string, number>();
 
   private includeStepNumbers: boolean;
   private includeValues: boolean;
@@ -131,11 +133,17 @@ export class CombinedNarrativeRecorder
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
 
+    // Track visit count per stageId to detect loop iterations
+    const visitKey = stageId ?? event.stageName;
+    const visitCount = (this.stageVisitCounts.get(visitKey) ?? 0) + 1;
+    this.stageVisitCounts.set(visitKey, visitCount);
+
     const ctx: StageRenderContext = {
       stageName: event.stageName,
       stageNumber: stageNum,
       isFirst,
       description: event.description,
+      loopIteration: visitCount > 1 ? visitCount - 1 : undefined,
     };
     const text = this.renderer?.renderStage?.(ctx) ?? this.defaultRenderStage(ctx);
 
@@ -403,6 +411,7 @@ export class CombinedNarrativeRecorder
     this.pendingOps.clear();
     this.stageCounters.clear();
     this.firstStageFlags.clear();
+    this.stageVisitCounts.clear();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
@@ -471,13 +480,16 @@ export class CombinedNarrativeRecorder
   // ── Default renderers ─────────────────────────────────────────────────
 
   private defaultRenderStage(ctx: StageRenderContext): string {
-    const inner = ctx.isFirst
-      ? ctx.description
-        ? `The process began: ${ctx.description}.`
-        : `The process began with ${ctx.stageName}.`
-      : ctx.description
-      ? `Next step: ${ctx.description}.`
-      : `Next, it moved on to ${ctx.stageName}.`;
+    let inner: string;
+    if (ctx.isFirst) {
+      inner = ctx.description ? `The process began: ${ctx.description}.` : `The process began with ${ctx.stageName}.`;
+    } else if (ctx.loopIteration && ctx.loopIteration > 0) {
+      inner = ctx.description
+        ? `Looped back: ${ctx.description} (pass ${ctx.loopIteration}).`
+        : `Looped back to ${ctx.stageName} (pass ${ctx.loopIteration}).`;
+    } else {
+      inner = ctx.description ? `Next step: ${ctx.description}.` : `Next, it moved on to ${ctx.stageName}.`;
+    }
     return `Stage ${ctx.stageNumber}: ${inner}`;
   }
 
