@@ -22,6 +22,7 @@
  */
 
 import { KeyedRecorder } from '../../recorder/KeyedRecorder.js';
+import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
 import type { CommitEvent, PauseEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
 
 /** Per-invocation metrics for a single execution step. */
@@ -68,12 +69,15 @@ export interface MetricRecorderOptions {
   id?: string;
   /** Filter which stages are recorded. Return `true` to record, `false` to skip. */
   stageFilter?: (stageName: string) => boolean;
+  /** Preferred UI operation. Defaults to 'aggregate' (dashboard totals). */
+  preferredOperation?: RecorderOperation;
 }
 
 export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Recorder {
   private static _counter = 0;
 
   readonly id: string;
+  readonly preferredOperation: RecorderOperation;
   private stageStartTimes = new Map<string, number>();
   private currentRuntimeStageId = '';
   private stageFilter?: (stageName: string) => boolean;
@@ -82,9 +86,11 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Record
     super();
     if (typeof idOrOptions === 'string') {
       this.id = idOrOptions;
+      this.preferredOperation = 'aggregate';
     } else {
       this.id = idOrOptions?.id ?? `metrics-${++MetricRecorder._counter}`;
       this.stageFilter = idOrOptions?.stageFilter;
+      this.preferredOperation = idOrOptions?.preferredOperation ?? 'aggregate';
     }
   }
 
@@ -185,18 +191,27 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Record
     return metrics.stageMetrics.get(stageName);
   }
 
-  /** Snapshot for serialization. */
-  toSnapshot(): { name: string; description: string; data: unknown } {
+  toSnapshot() {
     const metrics = this.getMetrics();
+    // Expose per-step data keyed by runtimeStageId (for time-travel UI)
+    // alongside the aggregated totals
+    const steps: Record<string, unknown> = {};
+    for (const [key, value] of this.getMap()) {
+      steps[key] = value;
+    }
     return {
       name: 'Metrics',
       description: 'Aggregator (KeyedRecorder) — per-step timing and I/O counts',
+      preferredOperation: this.preferredOperation,
       data: {
+        numericField: 'readCount',
+        grandTotal: metrics.totalReads,
         totalDuration: metrics.totalDuration,
         totalReads: metrics.totalReads,
         totalWrites: metrics.totalWrites,
         totalCommits: metrics.totalCommits,
-        stages: Object.fromEntries(metrics.stageMetrics),
+        totalPauses: metrics.totalPauses,
+        steps,
       },
     };
   }

@@ -5,6 +5,7 @@
  * and stage lifecycle events for troubleshooting.
  */
 
+import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, Recorder, ResumeEvent, StageEvent, WriteEvent } from '../types.js';
 
 export type DebugVerbosity = 'minimal' | 'verbose';
@@ -19,6 +20,8 @@ export interface DebugEntry {
 export interface DebugRecorderOptions {
   id?: string;
   verbosity?: DebugVerbosity;
+  /** Preferred UI operation. Defaults to 'translate' (per-step diagnostic detail). */
+  preferredOperation?: RecorderOperation;
 }
 
 /**
@@ -40,12 +43,14 @@ export class DebugRecorder implements Recorder {
   private static _counter = 0;
 
   readonly id: string;
+  readonly preferredOperation: RecorderOperation;
   private entries: DebugEntry[] = [];
   private verbosity: DebugVerbosity;
 
   constructor(options?: DebugRecorderOptions) {
     this.id = options?.id ?? `debug-${++DebugRecorder._counter}`;
     this.verbosity = options?.verbosity ?? 'verbose';
+    this.preferredOperation = options?.preferredOperation ?? 'translate';
   }
 
   onRead(event: ReadEvent): void {
@@ -141,10 +146,11 @@ export class DebugRecorder implements Recorder {
     this.entries = [];
   }
 
-  toSnapshot(): { name: string; description: string; data: unknown } {
+  toSnapshot() {
     return {
       name: 'Debug',
       description: 'Translator (Scope Recorder) — per-stage diagnostic entries',
+      preferredOperation: this.preferredOperation,
       data: this.entries,
     };
   }

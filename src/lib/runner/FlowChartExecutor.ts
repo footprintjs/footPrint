@@ -771,13 +771,25 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     for (const r of this.scopeRecorders) {
       if (r.toSnapshot) {
         const snap = r.toSnapshot();
-        recorderSnapshots.push({ id: r.id, name: snap.name, description: (snap as any).description, data: snap.data });
+        recorderSnapshots.push({
+          id: r.id,
+          name: snap.name,
+          description: snap.description,
+          preferredOperation: snap.preferredOperation,
+          data: snap.data,
+        });
       }
     }
     for (const r of this.flowRecorders) {
       if (r.toSnapshot) {
         const snap = r.toSnapshot();
-        recorderSnapshots.push({ id: r.id, name: snap.name, description: (snap as any).description, data: snap.data });
+        recorderSnapshots.push({
+          id: r.id,
+          name: snap.name,
+          description: snap.description,
+          preferredOperation: snap.preferredOperation,
+          data: snap.data,
+        });
       }
     }
     if (recorderSnapshots.length > 0) {

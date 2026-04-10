@@ -124,5 +124,10 @@ export interface Recorder {
   /** Reset state before each executor.run() — prevents cross-run accumulation. */
   clear?(): void;
   /** Expose collected data for inclusion in executor.getSnapshot().recorders. */
-  toSnapshot?(): { name: string; data: unknown };
+  toSnapshot?(): {
+    name: string;
+    description?: string;
+    preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
+    data: unknown;
+  };
 }

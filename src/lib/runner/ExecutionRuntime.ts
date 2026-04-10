@@ -21,6 +21,8 @@ export interface RecorderSnapshot {
   name: string;
   /** Recorder type and pattern description (e.g., "Translator (KeyedRecorder) — per-step token usage"). */
   description?: string;
+  /** Preferred read-time operation — hints the UI about which view to show prominently. */
+  preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
   data: unknown;
 }
 

@@ -93,6 +93,9 @@ export { MetricRecorder } from './lib/scope/index.js';
 /** @category Observe — Data */
 export { DebugRecorder } from './lib/scope/index.js';
 
+/** @category Observe — Operation */
+export { RecorderOperation } from './lib/recorder/index.js';
+
 // ============================================================================
 // Observe — Flow (FlowRecorder, fires after stage execution)
 // ============================================================================

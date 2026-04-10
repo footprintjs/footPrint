@@ -268,5 +268,10 @@ export interface FlowRecorder {
   /** Called before each run to reset per-run state. Implement for stateful recorders. */
   clear?(): void;
   /** Optional: expose collected data for inclusion in snapshots. */
-  toSnapshot?(): { name: string; data: unknown };
+  toSnapshot?(): {
+    name: string;
+    description?: string;
+    preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
+    data: unknown;
+  };
 }
