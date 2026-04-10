@@ -73,7 +73,8 @@ function SyntaxBlock({ children, className }: { children: string; className?: st
     for (const m of code.matchAll(combined)) {
       if (m.index! > last) result.push(code.slice(last, m.index));
       const idx = m.slice(1).findIndex((g) => g !== undefined);
-      result.push(<span key={key++} className={rules[idx][1]}>{m[0]}</span>);
+      const cls = idx >= 0 && idx < rules.length ? rules[idx][1] : "";
+      result.push(<span key={key++} className={cls}>{m[0]}</span>);
       last = m.index! + m[0].length;
     }
     if (last < code.length) result.push(code.slice(last));
