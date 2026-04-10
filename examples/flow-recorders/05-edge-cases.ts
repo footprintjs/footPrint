@@ -66,7 +66,7 @@ function buildNoLoopChart() {
   console.log('=== 1. Zero Loops (linear chart, no loop events) ===\n');
 
   const windowed = new WindowedNarrativeFlowRecorder(3, 2);
-  let executor = new FlowChartExecutor(buildNoLoopChart());
+  let executor: FlowChartExecutor = new FlowChartExecutor(buildNoLoopChart());
   executor.attachFlowRecorder(windowed);
   await executor.run();
 

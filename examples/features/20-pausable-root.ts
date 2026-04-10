@@ -30,9 +30,10 @@ const approvalGate: PausableHandler<any> = {
     // Return data = pause. Return void = continue.
     return { question: `Approve refund of $${scope.amount} for ${scope.item}?` };
   },
-  resume: async (scope, input: { approved: boolean }) => {
-    scope.approved = input.approved;
-    scope.result = input.approved ? 'Refund processed' : 'Refund denied';
+  resume: async (scope, input) => {
+    const data = input as { approved: boolean };
+    scope.approved = data.approved;
+    scope.result = data.approved ? 'Refund processed' : 'Refund denied';
   },
 };
 
@@ -48,6 +49,7 @@ const chart = flowChart<ApprovalState>(
 
 // ── Run ─────────────────────────────────────────────────────
 
+(async () => {
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 
@@ -63,5 +65,4 @@ console.log('\nNarrative:');
 for (const line of executor.getNarrative()) {
   console.log(' ', line);
 }
-
-export { chart, executor };
+})().catch(console.error);

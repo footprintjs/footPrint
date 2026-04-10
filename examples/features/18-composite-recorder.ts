@@ -147,7 +147,6 @@ interface PaymentState {
         scope.riskScore = scope.amount > 5000 ? 0.85 : 0.12;
       },
       'fraud-check',
-      undefined,
       'Run fraud detection model',
     )
     .addFunction(
@@ -159,7 +158,6 @@ interface PaymentState {
           : `Rejected: fraud score ${scope.riskScore}`;
       },
       'approve',
-      undefined,
       'Make approval decision',
     )
     .build();

@@ -106,6 +106,12 @@ const chart = flowChart<RefundState>(
 // The pipeline will pause at ManagerApproval.
 // The playground shows a Resume panel — edit the JSON and click Resume.
 
+(async () => {
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
+
+if (executor.isPaused()) {
+  console.log('Pipeline paused. Checkpoint:', JSON.stringify(executor.getCheckpoint()));
+}
+})().catch(console.error);
