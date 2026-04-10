@@ -56,6 +56,11 @@ npm run build
 echo "==> Running full test suite..."
 npm test
 
+# ── Gate 5b: Examples type-check ────────────────────────────────────────
+echo "==> Type-checking examples/..."
+npm run test:examples
+echo "  Examples type-check passed."
+
 # ── Gate 6: Sample projects ─────────────────────────────────────────────
 if [[ -n "$SAMPLES_DIR" && -d "$SAMPLES_DIR" ]]; then
   echo "==> Running sample projects ($SAMPLES_DIR)..."
@@ -136,13 +141,14 @@ echo "==> Released v$VERSION"
 echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
 echo ""
-echo "Release pipeline passed all 8 gates:"
+echo "Release pipeline passed all 9 gates:"
 echo "  1. Clean tree               ✓"
 echo "  2. Doc check                ✓  (0 stale API refs)"
 echo "  2.5 Dup type check          ✓  (no duplicate exported type names)"
 echo "  3. API conformance          ✓  (47 design contract tests)"
 echo "  4. Build                    ✓  (CJS + ESM)"
 echo "  5. Full test suite          ✓"
+echo "  5b. Examples type-check     ✓  (all examples compile)"
 echo "  6a. Sample integration      ✓  (snapshot assertions)"
 echo "  6b. Sample projects         ✓  (all runnable samples)"
 echo "  7. CHANGELOG                ✓"
