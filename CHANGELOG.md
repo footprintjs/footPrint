@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.12.0]
+
+### Added
+
+- **`causalChain()`** — Backward program slicing (Weiser 1984, thin-slice variant) on the commit log. BFS walks read→write dependencies to build a causal DAG answering "what stages contributed data to this result?" Exported from `footprintjs/trace`.
+- **Staged optimization** — `causalChain()` automatically selects linear scan (≤ 256 commits) or reverse-index binary search (> 256 commits). Like a query optimizer choosing between sequential scan and index scan — the caller never sees the strategy.
+- **`flattenCausalDAG()`** — BFS-ordered flat list from a causal DAG. **`formatCausalChain()`** — human-readable indented output with `← via key` annotations.
+- **`QualityRecorder`** — Per-step quality scoring via custom `QualityScoringFn`, extending `KeyedRecorder<QualityEntry>`. Tracks `keysRead`/`keysWritten` per step for backtracking. `getOverallScore()`, `getLowest()`, `getScoreUpTo()` for progressive views.
+- **`qualityTrace()`** — Quality Stack Trace: decorates `causalChain()` with quality scores to find root cause of quality drops. **`formatQualityTrace()`** for human-readable output.
+- **`algorithm.md`** — Full algorithm reference for backward causal chain with Weiser/Sridharan citations, complexity tables, staged optimization decision tree.
+- **47 examples** across 5 categories (building-blocks, features, flow-recorders, errors, integrations). Playground symlinked to library examples as single source of truth.
+
+### Changed
+
+- **Playground reorganized** into 3 categories: Building Blocks (9), Features (24), Use Cases (6). Was 7 categories.
+- **`qualityTrace()`** now uses `causalChain()` as foundation — returns DAG-aware frames instead of linear list.
+
 ## [4.11.1]
 
 ### Added
