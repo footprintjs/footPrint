@@ -1,14 +1,12 @@
 /**
- * Pause/Resume — Conditional Pause After Decider
+ * Pause/Resume — Pausable Branch Inside a Decider
  *
- * The decider routes to 'high' or 'low'. A pausable stage after the
- * decider conditionally pauses based on the chosen tier. This pattern
- * works because execute() can return void (no pause) or data (pause).
+ * Uses addPausableFunctionBranch to put the pause directly inside
+ * the decider's branch. When the decider chooses 'manual', the
+ * pausable branch executes and pauses. Low-value orders take the
+ * 'auto' branch and skip the pause entirely.
  *
- * High-value: pauses for manager review.
- * Low-value: auto-approves (execute returns void → no pause).
- *
- * Pipeline: Seed → Route(decide) → Approval(conditional PAUSE) → Done
+ * Pipeline: Seed → Route(decide) → [manual: Approval(PAUSE)] / [auto: AutoApprove]
  *
  * Run: npx tsx examples/runtime-features/pause-resume/02-decider.ts
  */
@@ -18,44 +16,36 @@ import type { PausableHandler } from 'footprintjs';
 
 interface State {
   amount: number;
-  tier?: string;
   approved?: boolean;
-  result?: string;
+  approver?: string;
 }
 
-const conditionalApproval: PausableHandler<any> = {
+const approvalGate: PausableHandler<any> = {
   execute: async (scope) => {
-    if (scope.tier === 'high') {
-      return { question: `Manager: approve $${scope.amount}?` };
-    }
-    // Low tier → auto-approve, no pause
-    scope.approved = true;
+    return { question: `Manager: approve $${scope.amount}?` };
   },
   resume: async (scope, input) => {
-    scope.approved = (input as { approved: boolean }).approved;
+    const decision = input as { approved: boolean; approver: string };
+    scope.approved = decision.approved;
+    scope.approver = decision.approver;
   },
 };
 
 const chart = flowChart<State>('Seed', async (scope) => {
-  scope.amount = 750; // Change to 50 to test auto-approve path
+  scope.amount = 750;
 }, 'seed')
   .addDeciderFunction('Route', (scope) => {
     return decide(scope, [
-      { when: { amount: { gt: 500 } }, then: 'high', label: 'High value' },
-    ], 'low');
+      { when: { amount: { gt: 500 } }, then: 'manual', label: 'High value' },
+    ], 'auto');
   }, 'route')
-    .addFunctionBranch('high', 'HighPath', async (scope) => {
-      scope.tier = 'high';
+    .addPausableFunctionBranch('manual', 'ManagerApproval', approvalGate, 'Pause for manager review')
+    .addFunctionBranch('auto', 'AutoApprove', async (scope) => {
+      scope.approved = true;
+      scope.approver = 'auto';
     })
-    .addFunctionBranch('low', 'LowPath', async (scope) => {
-      scope.tier = 'low';
-    })
-    .setDefault('low')
+    .setDefault('auto')
     .end()
-  .addPausableFunction('Approval', conditionalApproval, 'approval')
-  .addFunction('Done', async (scope) => {
-    scope.result = scope.approved ? 'processed' : 'rejected';
-  }, 'done')
   .build();
 
 (async () => {
@@ -65,11 +55,15 @@ const chart = flowChart<State>('Seed', async (scope) => {
 
   if (executor.isPaused()) {
     console.log('Paused for manager review (high value)');
-    await executor.resume(executor.getCheckpoint()!, { approved: true });
-    console.log('Resumed → result:', executor.getSnapshot().sharedState?.result);
+    await executor.resume(executor.getCheckpoint()!, { approved: true, approver: 'Sarah' });
+
+    const snap = executor.getSnapshot();
+    console.log(`Approved: ${snap.sharedState?.approved}, Approver: ${snap.sharedState?.approver}`);
   } else {
-    console.log('Auto-approved (low value) → result:', executor.getSnapshot().sharedState?.result);
+    const snap = executor.getSnapshot();
+    console.log(`Auto-approved: ${snap.sharedState?.approved}`);
   }
 
+  console.log('Narrative:');
   executor.getNarrative().forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

@@ -109,6 +109,47 @@ export class DeciderList<TOut = any, TScope = any> {
     return this;
   }
 
+  /**
+   * Add a pausable stage as a decider branch.
+   *
+   * When this branch is chosen, the handler's `execute` runs. If it returns
+   * data, the pipeline pauses. On resume, `handler.resume` runs with the
+   * human's input. If `execute` returns void, the stage continues normally
+   * (conditional pause).
+   */
+  addPausableFunctionBranch(
+    id: string,
+    name: string,
+    handler: PausableHandler<TScope>,
+    description?: string,
+  ): DeciderList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    const node: StageNode<TOut, TScope> = {
+      name: name ?? id,
+      id,
+      branchId: id,
+      fn: handler.execute as StageFunction<TOut, TScope>,
+      isPausable: true,
+      resumeFn: handler.resume,
+    };
+    if (description) node.description = description;
+    this.b._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
+
+    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
+    if (description) spec.description = description;
+    spec = this.b._applyExtractorToNode(spec);
+
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+
+    this.branchDescInfo.push({ id, description });
+    return this;
+  }
+
   addSubFlowChartBranch(
     id: string,
     subflow: FlowChart<any, any>,
@@ -328,6 +369,46 @@ export class SelectorFnList<TOut = any, TScope = any> {
     }
 
     let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
+    if (description) spec.description = description;
+    spec = this.b._applyExtractorToNode(spec);
+
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+
+    this.branchDescInfo.push({ id, description });
+    return this;
+  }
+
+  /**
+   * Add a pausable stage as a selector branch.
+   *
+   * When this branch is selected, the handler's `execute` runs. If it returns
+   * data, the pipeline pauses. On resume, `handler.resume` runs with the
+   * human's input. If `execute` returns void, the stage continues normally.
+   */
+  addPausableFunctionBranch(
+    id: string,
+    name: string,
+    handler: PausableHandler<TScope>,
+    description?: string,
+  ): SelectorFnList<TOut, TScope> {
+    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    this.branchIds.add(id);
+
+    const node: StageNode<TOut, TScope> = {
+      name: name ?? id,
+      id,
+      branchId: id,
+      fn: handler.execute as StageFunction<TOut, TScope>,
+      isPausable: true,
+      resumeFn: handler.resume,
+    };
+    if (description) node.description = description;
+    this.b._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
+
+    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
     spec = this.b._applyExtractorToNode(spec);
 
