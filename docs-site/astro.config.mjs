@@ -47,11 +47,55 @@ export default defineConfig({
       head: [
         {
           tag: 'meta',
+          attrs: { name: 'author', content: 'Sanjay Krishna Anbalagan' },
+        },
+        {
+          tag: 'meta',
+          attrs: { name: 'keywords', content: 'footprintjs, flowchart, backend, orchestration, tracing, observability, recorder, narrative, TypeScript, AI, LLM, explainability, Sanjay Krishna Anbalagan' },
+        },
+        {
+          tag: 'meta',
           attrs: { property: 'og:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
         },
         {
           tag: 'meta',
+          attrs: { property: 'og:image:width', content: '1200' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image:height', content: '630' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image:alt', content: 'footprintjs — The flowchart pattern for backend code' },
+        },
+        {
+          tag: 'meta',
           attrs: { name: 'twitter:card', content: 'summary_large_image' },
+        },
+        {
+          tag: 'meta',
+          attrs: { name: 'twitter:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'article:author', content: 'Sanjay Krishna Anbalagan' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'article:publisher', content: 'https://www.linkedin.com/in/sanjay-krishna-anbalagan/' },
+        },
+        {
+          tag: 'script',
+          attrs: { type: 'application/ld+json' },
+          content: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'TechArticle',
+            author: { '@type': 'Person', name: 'Sanjay Krishna Anbalagan', url: 'https://github.com/sanjay1909', sameAs: ['https://www.linkedin.com/in/sanjay-krishna-anbalagan/', 'https://github.com/sanjay1909'] },
+            creator: { '@type': 'Person', name: 'Sanjay Krishna Anbalagan', url: 'https://www.linkedin.com/in/sanjay-krishna-anbalagan/' },
+            publisher: { '@type': 'Organization', name: 'footprintjs', url: 'https://footprintjs.github.io/footPrint/' },
+            isPartOf: { '@type': 'WebSite', name: 'footprintjs', url: 'https://footprintjs.github.io/footPrint/' },
+          }),
         },
       ],
       sidebar: [
@@ -65,13 +109,28 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Guides',
+          label: 'Building Blocks',
           items: [
-            { label: 'Building a flowchart', slug: 'guides/building' },
-            { label: 'Decision branching', slug: 'guides/decision-branching' },
-            { label: 'Observing with recorders', slug: 'guides/recording' },
-            { label: 'Subflows & composition', slug: 'guides/subflows' },
-            { label: 'Self-describing APIs', slug: 'guides/self-describing' },
+            { label: 'Stages & flowcharts', slug: 'guides/building-blocks/stages' },
+            { label: 'Decision branching', slug: 'guides/building-blocks/decisions' },
+            { label: 'Subflows & composition', slug: 'guides/building-blocks/subflows' },
+          ],
+        },
+        {
+          label: 'Features',
+          items: [
+            { label: 'Observing with recorders', slug: 'guides/features/recorders' },
+            { label: 'Self-describing APIs', slug: 'guides/features/self-describing' },
+            { label: 'Redaction & PII', slug: 'guides/features/redaction' },
+            { label: 'Pause & resume', slug: 'guides/features/pause-resume' },
+            { label: 'Streaming stages', slug: 'guides/features/streaming' },
+          ],
+        },
+        {
+          label: 'Patterns',
+          items: [
+            { label: 'Loops & retry', slug: 'guides/patterns/loops-and-retry' },
+            { label: 'Error handling', slug: 'guides/patterns/error-handling' },
           ],
         },
         {

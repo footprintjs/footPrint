@@ -1,0 +1,92 @@
+---
+title: Pause & resume
+description: Human-in-the-loop approval gates with serializable checkpoints.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Pausable stages stop execution and create a JSON-serializable checkpoint. Store it in Redis, Postgres, or a file — then resume hours later on any server.
+
+## Defining a pausable stage
+
+A `PausableHandler` has two methods: `execute` runs first and optionally pauses (by returning data), `resume` continues after the human responds.
+
+```ts
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import type { PausableHandler } from 'footprintjs';
+
+interface RefundState {
+  orderId: string;
+  amount: number;
+  riskLevel?: string;
+  approved?: boolean;
+  approver?: string;
+  refundId?: string;
+}
+
+const approvalGate: PausableHandler<any> = {
+  execute: async (scope) => {
+    scope.riskLevel = scope.amount > 500 ? 'high' : scope.amount > 100 ? 'medium' : 'low';
+
+    // Return data = pause. Return nothing = continue.
+    return {
+      question: `Approve $${scope.amount} refund for ${scope.orderId}?`,
+      riskLevel: scope.riskLevel,
+    };
+  },
+  resume: async (scope, input) => {
+    const decision = input as { approved: boolean; approver: string };
+    scope.approved = decision.approved;
+    scope.approver = decision.approver;
+  },
+};
+```
+
+## Using it in a chart
+
+```ts
+const chart = flowChart<RefundState>('ReceiveRequest', async (scope) => {
+  scope.orderId = 'ORD-2024-7891';
+  scope.amount = 299;
+}, 'receive-request')
+  .addPausableFunction('ManagerApproval', approvalGate, 'manager-approval')
+  .addFunction('ProcessRefund', async (scope) => {
+    if (scope.approved) {
+      scope.refundId = 'REF-' + Date.now();
+    }
+  }, 'process-refund')
+  .build();
+```
+
+## Run → Pause → Resume
+
+```ts
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run();
+
+if (executor.isPaused()) {
+  const checkpoint = executor.getCheckpoint(); // JSON-safe, store anywhere
+
+  // Later (hours, different server):
+  await executor.resume(checkpoint, { approved: true, approver: 'Sarah' });
+}
+
+// Narrative spans both run + resume
+executor.getNarrative().forEach((line) => console.log(line));
+```
+
+## Key properties
+
+- **`execute` returns data → pauses.** Returns void → continues normally (conditional pause).
+- **Checkpoint is JSON-serializable** — no functions, no class instances. Store in any persistence layer.
+- **`resume()` reuses the execution runtime** — narrative, metrics, and execution tree all accumulate across the pause boundary.
+- **FlowRecorder/Recorder** both fire `onPause`/`onResume` events.
+
+<Aside>
+  Pausable stages can also be the root stage of a flowchart. Use `flowChart('Approve', handler, 'approve').build()` for single-stage approval gates.
+</Aside>
+
+## Try it live
+
+- [Pause/Resume](https://footprintjs.github.io/footprint-playground/samples/pause-resume) — manager approval gate with live resume panel

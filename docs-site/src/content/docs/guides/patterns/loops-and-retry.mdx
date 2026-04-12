@@ -1,0 +1,118 @@
+---
+title: Loops & retry patterns
+description: loopTo(), $break(), and retry patterns for polling, pagination, and iterative refinement.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`.loopTo(targetStageName)` creates a back-edge to any earlier stage. The loop continues until a stage calls `scope.$break()`. This enables polling, pagination, retry, and iterative refinement patterns.
+
+## Basic loop
+
+```ts
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const chart = flowChart<{ counter: number; target: number }>('Init', async (scope) => {
+  scope.counter = 0;
+  scope.target = 5;
+}, 'init')
+  .addFunction('Increment', async (scope) => {
+    scope.counter += 1;
+    if (scope.counter >= scope.target) scope.$break();
+  }, 'increment')
+  .loopTo('Increment')
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run();
+// Narrative: "Looped back to Increment (pass 2)" ... "Looped back to Increment (pass 5)"
+```
+
+## Retry with backoff
+
+```ts
+interface RetryState {
+  attempt: number;
+  maxAttempts: number;
+  result?: string;
+}
+
+const chart = flowChart<RetryState>('Init', async (scope) => {
+  scope.attempt = 0;
+  scope.maxAttempts = 3;
+}, 'init')
+  .addFunction('CallAPI', async (scope) => {
+    scope.attempt += 1;
+    try {
+      // Simulate flaky API
+      if (Math.random() < 0.5) throw new Error('timeout');
+      scope.result = 'success';
+      scope.$break();
+    } catch {
+      if (scope.attempt >= scope.maxAttempts) {
+        scope.result = 'failed after retries';
+        scope.$break();
+      }
+      // Wait before retry
+      await new Promise((r) => setTimeout(r, scope.attempt * 100));
+    }
+  }, 'call-api')
+  .loopTo('CallAPI')
+  .build();
+```
+
+## Pagination
+
+```ts
+interface PaginationState {
+  page: number;
+  allItems: string[];
+  hasMore: boolean;
+}
+
+const chart = flowChart<PaginationState>('Init', async (scope) => {
+  scope.page = 0;
+  scope.allItems = [];
+  scope.hasMore = true;
+}, 'init')
+  .addFunction('FetchPage', async (scope) => {
+    scope.page += 1;
+    const items = await fetchPage(scope.page); // your API call
+    scope.allItems = [...scope.allItems, ...items];
+    scope.hasMore = items.length > 0;
+    if (!scope.hasMore) scope.$break();
+  }, 'fetch-page')
+  .loopTo('FetchPage')
+  .build();
+```
+
+## Narrative strategies for loops
+
+When loops run many iterations, the narrative grows. Use loop-aware strategies to control output:
+
+```ts
+import {
+  WindowedNarrativeFlowRecorder,
+  AdaptiveNarrativeFlowRecorder,
+  SilentNarrativeFlowRecorder,
+} from 'footprintjs';
+
+// Keep first 3 + last 2 iterations
+executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
+
+// Full for first 3, then every 5th
+executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(3, 5));
+
+// Summary only — "Looped 50 times"
+executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
+```
+
+<Aside>
+  The narrative shows "Looped back to X (pass N)" for each iteration, with `stageVisitCounts` tracking how many times each stage has been visited. This context is available to recorders for custom reporting.
+</Aside>
+
+## Try it live
+
+- [Loops](https://footprintjs.github.io/footprint-playground/samples/loops) — `loopTo()` + `$break()`
+- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 6 loop narrative strategies

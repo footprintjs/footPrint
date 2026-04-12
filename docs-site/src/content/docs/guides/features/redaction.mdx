@@ -1,0 +1,100 @@
+---
+title: Redaction & PII protection
+description: RedactionPolicy — declarative, config-driven PII protection for narratives and snapshots.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`RedactionPolicy` lets you redact sensitive values from narratives and snapshots without changing business logic. Recorders see `[REDACTED]`, runtime gets real values.
+
+## Setting a policy
+
+Call `executor.setRedactionPolicy()` before `run()`. One config covers three dimensions:
+
+```ts
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+interface RegistrationState {
+  ssn: string;
+  email: string;
+  dbPassword: string;
+  authToken: string;
+  patient: {
+    name: string;
+    ssn: string;
+    dob: string;
+    bloodType: string;
+    address: { street: string; city: string; zip: string };
+  };
+  verified?: boolean;
+}
+
+const chart = flowChart<RegistrationState>('Register', async (scope) => {
+  scope.ssn = '999-88-7777';
+  scope.email = 'alice@example.com';
+  scope.dbPassword = 'hunter2';
+  scope.authToken = 'bearer-xyz-789';
+  scope.patient = {
+    name: 'Alice Johnson',
+    ssn: '999-88-7777',
+    dob: '1990-05-15',
+    bloodType: 'O+',
+    address: { street: '123 Main St', city: 'LA', zip: '90210' },
+  };
+}, 'register')
+  .addFunction('Process', async (scope) => {
+    // Runtime gets real values — business logic works normally
+    scope.verified = scope.ssn.length > 0;
+  }, 'process')
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+
+executor.setRedactionPolicy({
+  keys: ['ssn'],                                // exact key match
+  patterns: [/password|token|secret/i],          // regex pattern match
+  fields: { patient: ['ssn', 'dob', 'address.zip'] }, // nested field scrubbing
+});
+
+executor.enableNarrative();
+await executor.run();
+```
+
+## Three dimensions
+
+| Dimension | Config | What it matches |
+|-----------|--------|----------------|
+| `keys` | `['ssn', 'password']` | Exact top-level key names |
+| `patterns` | `[/token|secret/i]` | Regex against key names |
+| `fields` | `{ patient: ['ssn', 'dob'] }` | Specific nested paths within objects |
+
+## What gets redacted
+
+- **Narrative** — writes show `[REDACTED]` instead of the value
+- **Snapshots** — `getSnapshot()` scrubs redacted keys
+- **Recorders** — all recorder hooks receive redacted values
+
+Runtime code (`scope.ssn`, `scope.patient.dob`) still gets the real value. Redaction is an observation-layer concern.
+
+## Redaction report
+
+After execution, `executor.getRedactionReport()` returns a compliance-friendly audit trail:
+
+```ts
+const report = executor.getRedactionReport();
+console.log(report.redactedKeys);     // ['ssn']
+console.log(report.fieldRedactions);  // { patient: ['ssn', 'dob', 'address.zip'] }
+console.log(report.patterns);         // [/password|token|secret/i]
+```
+
+## Subflow redaction
+
+Redaction policies propagate to subflows automatically. See [examples/features/17-subflow-redaction.ts](https://github.com/footprintjs/footPrint/blob/main/examples/features/17-subflow-redaction.ts) for a working example.
+
+<Aside>
+  Redaction is declarative and config-driven — zero per-call flags. Define one policy at the executor level and it covers the entire execution tree.
+</Aside>
+
+## Try it live
+
+- [Redaction](https://footprintjs.github.io/footprint-playground/samples/redaction) — keys, patterns, and field-level scrubbing

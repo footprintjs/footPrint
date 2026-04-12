@@ -1,0 +1,108 @@
+---
+title: Error handling
+description: InputValidationError, structured errors, and error observation with FlowRecorder.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+footprintjs preserves structured error information through the recorder pipeline. When a stage throws, the error flows to both the narrative and any attached FlowRecorder — with field-level details intact.
+
+## InputValidationError
+
+When a `.contract()` input schema fails validation, footprintjs throws `InputValidationError` with field-level issues:
+
+```ts
+import { flowChart, FlowChartExecutor, InputValidationError } from 'footprintjs';
+import { z } from 'zod';
+
+const chart = flowChart<{ name: string; age: number }>('Process', async (scope) => {
+  console.log(scope.name, scope.age);
+}, 'process')
+  .contract({
+    input: z.object({
+      name: z.string().min(1),
+      age: z.number().positive(),
+    }),
+  })
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+
+try {
+  await executor.run({ input: { name: '', age: -5 } });
+} catch (err) {
+  if (err instanceof InputValidationError) {
+    console.log(err.issues);
+    // [{ path: ['name'], message: 'String must contain at least 1 character(s)', code: 'too_small' },
+    //  { path: ['age'], message: 'Number must be greater than 0', code: 'too_small' }]
+  }
+}
+```
+
+## Throwing InputValidationError manually
+
+You can also throw `InputValidationError` from any stage for custom validation:
+
+```ts
+.addFunction('Validate', async (scope) => {
+  const issues = [];
+  if (scope.total < 0) {
+    issues.push({ path: ['total'], message: 'Must be positive', code: 'too_small' });
+  }
+  if (issues.length > 0) {
+    throw new InputValidationError('Order validation failed', issues);
+  }
+}, 'validate')
+```
+
+## Observing errors with FlowRecorder
+
+`FlowRecorder.onError` receives a `FlowErrorEvent` with structured details — including field-level issues for validation errors:
+
+```ts
+import type { FlowRecorder, FlowErrorEvent } from 'footprintjs';
+
+const errorObserver: FlowRecorder = {
+  id: 'error-observer',
+  onError(event: FlowErrorEvent) {
+    console.log(`Error at: ${event.stageName}`);
+    console.log(`Type: ${event.structuredError.name}`);
+    console.log(`Code: ${event.structuredError.code}`);
+
+    if (event.structuredError.issues) {
+      for (const issue of event.structuredError.issues) {
+        console.log(`  ${issue.path.join('.')}: ${issue.message}`);
+      }
+    }
+  },
+};
+
+executor.attachFlowRecorder(errorObserver);
+```
+
+## Error utilities
+
+`extractErrorInfo` and `formatErrorInfo` normalize any thrown value into a consistent structure:
+
+```ts
+import { extractErrorInfo, formatErrorInfo } from 'footprintjs';
+
+const info = extractErrorInfo(error);
+// { name: 'InputValidationError', code: 'VALIDATION', message: '...', issues: [...] }
+
+console.log(formatErrorInfo(info));
+// InputValidationError [VALIDATION]: Order validation failed
+//   total: Must be positive [too_small]
+//   email: Required [invalid_type]
+```
+
+Works with `InputValidationError`, standard `Error`, Node.js errors with `.code`, and even non-Error thrown values.
+
+<Aside>
+  Errors in the narrative include field-level details automatically. The narrative sentence for a validation error lists the specific fields and messages — no extra configuration needed.
+</Aside>
+
+## Try it live
+
+- [Structured Errors](https://footprintjs.github.io/footprint-playground/samples/structured-errors) — FlowRecorder error observation
+- [Input Safety](https://footprintjs.github.io/footprint-playground/samples/input-safety) — contract validation

@@ -1,0 +1,79 @@
+---
+title: Streaming stages
+description: Emit tokens incrementally from LLM calls or other streaming sources.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Streaming stages emit tokens incrementally via `StreamHandlers` callbacks. Use them for LLM responses, file processing, or any incremental output.
+
+## Adding a streaming stage
+
+`.addStreamingFunction(name, fn, id?, streamId?)` adds a stage that receives a `streamCallback` in its third argument:
+
+```ts
+import { flowChart, FlowChartExecutor, type StreamHandlers } from 'footprintjs';
+
+interface SummaryState {
+  patientName: string;
+  temperature: number;
+  summary?: string;
+}
+
+const chart = flowChart<SummaryState>('PrepareContext', async (scope) => {
+  scope.patientName = 'Jane Doe';
+  scope.temperature = 102.6;
+}, 'prepare-context')
+  .addStreamingFunction(
+    'GenerateSummary',
+    async (scope, _breakFn, streamCallback) => {
+      const tokens = ['The ', 'patient ', 'has ', 'a ', 'fever.'];
+      for (const token of tokens) {
+        await new Promise((r) => setTimeout(r, 30));
+        streamCallback?.(token);
+      }
+      scope.summary = tokens.join('');
+    },
+    'generate-summary',
+    'llm-summary',  // streamId for the handlers
+  )
+  .addFunction('SaveReport', async (scope) => {
+    console.log('Summary:', scope.summary);
+  }, 'save-report')
+  .build();
+```
+
+## Stream handlers
+
+Pass `StreamHandlers` when constructing the executor. All three hooks are optional:
+
+```ts
+const streamHandlers: StreamHandlers = {
+  onStart: (streamId) => {
+    console.log(`[${streamId}] started`);
+  },
+  onToken: (streamId, token) => {
+    process.stdout.write(token);
+  },
+  onEnd: (streamId, fullText) => {
+    console.log(`\n[${streamId}] done: ${fullText?.length} chars`);
+  },
+};
+
+const executor = new FlowChartExecutor(chart, { streamHandlers });
+await executor.run();
+```
+
+| Hook | Fires when |
+|------|-----------|
+| `onStart(streamId)` | First `streamCallback()` call |
+| `onToken(streamId, token)` | Each `streamCallback(token)` call |
+| `onEnd(streamId, fullText)` | Stage completes; `fullText` is concatenated tokens |
+
+<Aside>
+  The `streamId` (4th arg to `addStreamingFunction`) lets you identify which streaming stage is emitting. Multiple streaming stages in the same chart get distinct IDs.
+</Aside>
+
+## Try it live
+
+- [Streaming](https://footprintjs.github.io/footprint-playground/samples/streaming) — simulated LLM token streaming
