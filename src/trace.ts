@@ -28,6 +28,10 @@ export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from
 // Commit log queries — typed utilities for backtracking
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
+// Causal chain — backward program slicing on commit log (DAG)
+export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';
+export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';
+
 // KeyedRecorder — base class for 1:1 Map-based recorders
 export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
 

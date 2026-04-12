@@ -244,3 +244,20 @@ These are tested and passing — not theoretical limits, but what the test suite
 | Commit determinism | **random inputs × 50 runs** | Property test: N random commits replayed = same state every time ✓ |
 | Namespace isolation | **random inputs × 50 runs** | Property test: N runs writing same key never interfere ✓ |
 | Empty inputs | **all primitives** | No constructor args, no writes, no defaults — nothing crashes ✓ |
+
+---
+
+## Backward Causal Chain (backtrack.ts)
+
+`causalChain()` implements backward program slicing to answer **"what stages contributed data to this result?"** See [algorithm.md](./algorithm.md) for the full algorithm reference, complexity analysis, staged optimization strategy, and academic references.
+
+### Staged Optimization
+
+`causalChain()` automatically selects the optimal writer-lookup strategy:
+
+| Commit log size | Strategy | Per-lookup cost |
+|----------------|----------|-----------------|
+| ≤ 256 | Linear scan | O(N) — zero setup |
+| > 256 | Reverse index + binary search | O(log N) — O(N×U) setup amortized |
+
+The consumer never sees this — like a database query optimizer choosing between sequential scan and index scan.
