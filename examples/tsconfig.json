@@ -13,5 +13,6 @@
       "footprintjs/advanced": ["../src/advanced.ts"]
     }
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  "exclude": ["integrations/**"]
 }

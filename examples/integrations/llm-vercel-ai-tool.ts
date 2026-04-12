@@ -108,7 +108,7 @@ const creditTool = tool({
     monthlyDebts: z.number().describe('Total monthly debt payments in USD'),
     applicantName: z.string().describe('Full name of the applicant'),
   }),
-  execute: async ({ creditScore, monthlyIncome, monthlyDebts, applicantName }) => {
+  execute: async ({ creditScore, monthlyIncome, monthlyDebts, applicantName }: { creditScore: number; monthlyIncome: number; monthlyDebts: number; applicantName: string }) => {
     const executor = new FlowChartExecutor(creditDecision);
     executor.enableNarrative();
     await executor.run({ input: { creditScore, monthlyIncome, monthlyDebts, applicantName } });
@@ -136,7 +136,7 @@ const creditTool = tool({
   });
 
   // Find the tool call step to surface the causal trace
-  const toolStep = steps.find((s) => s.toolCalls && s.toolCalls.length > 0);
+  const toolStep = steps.find((s: any) => s.toolCalls && s.toolCalls.length > 0);
   if (toolStep) {
     const toolResult = toolStep.toolResults?.[0];
     if (toolResult && 'result' in toolResult) {

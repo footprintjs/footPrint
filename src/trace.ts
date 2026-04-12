@@ -33,3 +33,11 @@ export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
 
 // SequenceRecorder — base class for 1:N ordered sequence recorders with keyed index
 export { SequenceRecorder } from './lib/recorder/SequenceRecorder.js';
+
+// QualityRecorder — per-step quality scoring with backtracking
+export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';
+export { QualityRecorder } from './lib/recorder/QualityRecorder.js';
+
+// qualityTrace — Quality Stack Trace (backtrack from low-scoring steps)
+export type { QualityFrame, QualityStackTrace } from './lib/recorder/qualityTrace.js';
+export { formatQualityTrace, qualityTrace } from './lib/recorder/qualityTrace.js';
