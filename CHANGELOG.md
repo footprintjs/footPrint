@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.11.1]
+
+### Added
+
+- **Home page Radix UI upgrade** — 4-tab narrative ("The Code" → "The Logs Problem" → "The Cost Problem" → "The Pattern") with token cost comparison. Radix Slider execution timeline with colored bars and stats. Radix Accordion quick start. Vite build pipeline for `docs-site/home-src/`.
+- **Docs guide restructure** — guides split into three categories: Building Blocks (stages, decisions, subflows), Features (recorders, self-describing, redaction, pause/resume, streaming), Patterns (error handling, loops & retry). 5 new guide pages.
+- **SEO on all 28 Starlight pages** — meta author, keywords, `article:author`, `article:publisher`, `og:image` with width/height/alt for LinkedIn card previews, `twitter:image`, JSON-LD `TechArticle` with `sameAs` linking GitHub + LinkedIn.
+
 ## [4.11.0]
 
 ### Added
