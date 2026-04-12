@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.12.1]
+
+### Added
+
+- **`addPausableFunctionBranch()`** on `DeciderList` and `SelectorFnList` — pausable stages directly inside decider/selector branches. No engine changes needed; `StageRunner` already handles `isPausable` on any node.
+- **15 integration examples** in `runtime-features/` and `post-execution/` — cross-coverage testing features × building blocks (streaming+subflow, streaming+loop, pause+decider, pause+subflow, break+subflow, metrics+subflow, metrics+loop, causal-chain×5).
+- **`examples/DESIGN.md`** — coverage matrix, gap analysis, folder structure plan for integration test layer.
+
 ## [4.12.0]
 
 ### Added
