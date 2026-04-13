@@ -117,6 +117,17 @@ export class DeciderHandler<TOut = any, TScope = any> {
     );
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
-    return executeNode(chosen, branchContext, breakFlag, branchPath);
+
+    try {
+      return await executeNode(chosen, branchContext, breakFlag, branchPath);
+    } catch (error: unknown) {
+      // Stamp invoker context on PauseSignal during bubble-up.
+      // The decider (node) is the invoker; its .next is the continuation target.
+      if (isPauseSignal(error)) {
+        error.setInvoker(node.id!, node.next?.id);
+        throw error;
+      }
+      throw error;
+    }
   }
 }

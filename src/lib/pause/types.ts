@@ -34,6 +34,20 @@ export class PauseSignal extends Error {
   /** Path through subflows to the paused stage. Built during bubble-up. */
   private _subflowPath: string[];
 
+  /**
+   * Invoker context — enriched during bubble-up when a PauseSignal passes
+   * through a decider, selector, or fork handler.
+   *
+   * The invoker is the stage that called executeNode() on the paused child.
+   * Captured during traversal (not reconstructed from the tree).
+   *
+   * `continuationStageId` is the invoker's `.next` node — where execution
+   * should continue after resume. Without this, branch children have no
+   * `.next` pointer and resume would terminate early.
+   */
+  private _invokerStageId?: string;
+  private _continuationStageId?: string;
+
   constructor(data: unknown, stageId: string) {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -51,6 +65,28 @@ export class PauseSignal extends Error {
   /** Prepend a subflow ID to the path (called during bubble-up). */
   prependSubflow(subflowId: string): void {
     this._subflowPath.unshift(subflowId);
+  }
+
+  /** The stage that invoked the paused child (decider, selector, fork). */
+  get invokerStageId(): string | undefined {
+    return this._invokerStageId;
+  }
+
+  /** Where execution should continue after resume (invoker's next node). */
+  get continuationStageId(): string | undefined {
+    return this._continuationStageId;
+  }
+
+  /**
+   * Stamp the invoker context during bubble-up.
+   * Called by decider/selector/fork handlers when catching a child's PauseSignal.
+   * First invoker wins (innermost) — subsequent calls are no-ops.
+   */
+  setInvoker(invokerStageId: string, continuationStageId?: string): void {
+    if (!this._invokerStageId) {
+      this._invokerStageId = invokerStageId;
+      this._continuationStageId = continuationStageId;
+    }
   }
 }
 
@@ -134,6 +170,12 @@ export interface FlowchartCheckpoint {
 
   /** Subflow results collected before the pause. */
   readonly subflowResults?: Record<string, unknown>;
+
+  /** Stage that invoked the paused child (decider, selector, fork). Absent for linear pauses. */
+  readonly invokerStageId?: string;
+
+  /** Where to continue after resume — the invoker's next node ID. Absent for linear pauses. */
+  readonly continuationStageId?: string;
 
   /** Timestamp of when the pause occurred. */
   readonly pausedAt: number;

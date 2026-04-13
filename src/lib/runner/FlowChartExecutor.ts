@@ -457,19 +457,27 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
-    // Build a synthetic resume node: calls resumeFn with resumeInput, then continues to original next.
+    // Build a synthetic resume node: calls resumeFn with resumeInput, then continues.
     // resumeFn signature is (scope, input) per PausableHandler — wrap to match StageFunction(scope, breakFn).
     const resumeFn = pausedNode.resumeFn;
     const resumeStageFn = (scope: TScope) => {
       return resumeFn(scope, resumeInput);
     };
 
+    // Determine continuation: for branch children (decider/selector), pausedNode.next
+    // is undefined. The checkpoint's continuationStageId (collected during traversal
+    // bubble-up) points to the invoker's next node.
+    let continuationNext = pausedNode.next;
+    if (!continuationNext && checkpoint.continuationStageId) {
+      continuationNext = this.findNodeInGraph(checkpoint.continuationStageId, []);
+    }
+
     const resumeNode: StageNode<TOut, TScope> = {
       name: pausedNode.name,
       id: pausedNode.id,
       description: pausedNode.description,
       fn: resumeStageFn,
-      next: pausedNode.next,
+      next: continuationNext,
     };
 
     // Don't clear recorders — resume continues from previous state.
@@ -518,6 +526,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           subflowPath: error.subflowPath,
           pauseData: error.pauseData,
           ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+          ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),
+          ...(error.continuationStageId && { continuationStageId: error.continuationStageId }),
           pausedAt: Date.now(),
         };
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
@@ -746,6 +756,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           subflowPath: error.subflowPath,
           pauseData: error.pauseData,
           ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+          // Invoker context — collected during traversal bubble-up (not tree-walked)
+          ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),
+          ...(error.continuationStageId && { continuationStageId: error.continuationStageId }),
           pausedAt: Date.now(),
         };
         // Return a PauseResult-shaped value so callers can check without try/catch

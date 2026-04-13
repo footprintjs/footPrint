@@ -141,6 +141,21 @@ export class SelectorHandler<TOut = any, TScope = any> {
       id: 'selector-temp',
       children: selectedChildren,
     };
-    return await this.childrenExecutor.executeNodeChildren(tempNode, context, undefined, branchPath, traversalContext);
+    try {
+      return await this.childrenExecutor.executeNodeChildren(
+        tempNode,
+        context,
+        undefined,
+        branchPath,
+        traversalContext,
+      );
+    } catch (error: unknown) {
+      // Stamp invoker context on PauseSignal during bubble-up.
+      if (isPauseSignal(error)) {
+        error.setInvoker(node.id!, node.next?.id);
+        throw error;
+      }
+      throw error;
+    }
   }
 }
