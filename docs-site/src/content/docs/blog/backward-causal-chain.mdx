@@ -1,0 +1,185 @@
+---
+title: "Backward Causal Chain: Error Stack Traces for Data Quality"
+description: "How footprintjs answers 'why did quality drop?' with a BFS backward slice — the same algorithm class as program slicing, applied to execution commit logs."
+date: 2026-04-13
+authors:
+  - sanjay
+excerpt: "When your agent produces a bad answer, you need to know which stage caused it — not just that it happened. causalChain() walks the dependency graph backward to find the root cause."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The problem: "Why is the answer bad?"
+
+Your loan pipeline runs 5 stages. The final decision is **rejected**, but the quality score is 0.2 — something went wrong. Which stage caused it?
+
+You could read the narrative top to bottom. But in an agent loop with 15 iterations, 3 tool calls each, that's 45 stages of output. You need a **stack trace for quality** — not for crashes, but for data quality degradation.
+
+```
+Quality Trace (score: 0.20 at reject#4):
+  at reject#4                  score=0.20  — rejection decision
+  at eval-risk#2               score=0.40 (via riskTier)  — high risk assigned
+  at seed#0                    score=1.00 (via creditScore)  — input data
+
+Root cause: quality dropped at reject#4 (0.40 → 0.20, Δ0.20)
+```
+
+This is `causalChain()` — backward program slicing on the commit log.
+
+---
+
+## The algorithm
+
+Every stage in footprintjs writes through a transactional buffer. The **commit log** records what each stage wrote. Every recorder tracks what each stage read. Together, they form an implicit dependency graph:
+
+```
+Seed wrote creditScore, dti
+  ↓ (EvalRisk reads creditScore, dti)
+EvalRisk wrote riskTier
+  ↓ (Route reads riskTier)
+Route → chose reject branch
+  ↓ (Reject reads riskTier)
+Reject wrote decision
+```
+
+`causalChain()` walks this graph **backward** from any starting point. The algorithm is **BFS backward thin-slicing** — a simplified form of program slicing (Weiser 1984, Sridharan et al. 2007):
+
+1. Start at the target step (e.g., `reject#4`)
+2. Get what it read via the `getKeysRead` callback
+3. For each key read, find who last wrote it (`findLastWriter`)
+4. Create a parent node, enqueue it
+5. Repeat until no more dependencies
+
+The output is a **DAG** (not a linked list). If a stage reads `creditScore` AND `dti` from different writers, it has two parents:
+
+```
+       Seed
+      /    \
+  EvalRisk  (also writes dti)
+      \
+     Route
+      |
+    Reject
+```
+
+---
+
+## Staged optimization: the query optimizer trick
+
+For small pipelines (≤ 256 commits), `findLastWriter` scans the log backward — O(N) per lookup, zero setup cost. Fast enough.
+
+For agent loops with 500+ iterations, that's expensive. So `causalChain()` automatically switches to a **reverse index**: a prebuilt `Map<key, sortedWriterIndices[]>` that enables O(log N) binary search per lookup.
+
+The consumer never sees this. It's chosen internally — like a database query optimizer selecting between sequential scan and index scan based on table size.
+
+| Pipeline Size | Strategy | Per-Lookup Cost |
+|---|---|---|
+| ≤ 256 commits | Linear scan | O(N) — zero setup |
+| > 256 commits | Reverse index + binary search | O(log N) — O(N×U) setup amortized |
+
+---
+
+## Built on recorder operations
+
+This is where the [recorder operations](/footPrint/blog/recorder-operations/) become the foundation:
+
+```typescript
+import { causalChain, flattenCausalDAG, formatCausalChain } from 'footprintjs/trace';
+import { QualityRecorder, qualityTrace, formatQualityTrace } from 'footprintjs/trace';
+
+// 1. Collect quality scores during traversal (Translate pattern)
+const quality = new QualityRecorder((id, ctx) => {
+  if (ctx.keysWritten.includes('decision')) return { score: 0.2, factors: ['rejection'] };
+  if (ctx.keysWritten.includes('riskTier')) return { score: 0.4, factors: ['high risk'] };
+  return { score: 1.0 };
+});
+
+executor.attachRecorder(quality);
+await executor.run();
+
+// 2. Find the lowest-scoring step (Aggregate pattern)
+const lowest = quality.getLowest();
+
+// 3. Backtrack through the causal chain
+const trace = qualityTrace(
+  executor.getSnapshot().commitLog,
+  quality,
+  lowest.runtimeStageId,
+);
+
+console.log(formatQualityTrace(trace));
+```
+
+The `QualityRecorder` uses **Translate** (per-step scores), **Accumulate** (progressive quality up to slider), and **Aggregate** (overall score). The `causalChain()` utility reads from the commit log — which was built during the same traversal, zero post-processing.
+
+**Everything is collected during the single DFS pass.** The backtracking is a post-execution query over data that was already captured.
+
+---
+
+## The ROI
+
+### Time saved
+
+| Scenario | Without causal chain | With causal chain |
+|---|---|---|
+| Debug low-quality agent response | 30 min reading logs | 10 seconds reading trace |
+| Root cause analysis | Senior eng required | Any engineer (or the LLM itself) |
+| SLA investigation | "We'll look into it" | Immediate root cause ID |
+
+At 5 quality incidents per week, 20 minutes saved each: **~8.7 hours/month** of senior eng time returned.
+
+### Cost saved
+
+The causal chain is **LLM context** — instead of the LLM reasoning across scattered data, it reads the pre-computed dependency graph:
+
+| Approach | Tokens | Model Required | Cost/1M |
+|---|---|---|---|
+| LLM reasons across logs | ~2,500 | Reasoning model | $15.00 |
+| LLM reads causal chain | ~200 | Any model | $0.25 |
+
+At 10,000 queries/day: **$2,190/day savings**.
+
+### Quality improvement
+
+When you can see exactly where quality dropped, you fix the right thing:
+- System prompt too vague? → Fix the prompt, not the model
+- Tool returned bad data? → Fix the tool, not the agent loop
+- Context window too large? → Trim the right messages
+
+Without the causal chain, teams throw money at bigger models hoping it fixes quality. With it, they make targeted fixes.
+
+---
+
+## The dependency DAG
+
+```
+memory/backtrack.ts    → causalChain() — pure algorithm, leaf node
+                         depends on: memory/types, memory/commitLogUtils
+                         
+recorder/QualityRecorder.ts → scoring during traversal
+                              depends on: recorder/KeyedRecorder
+
+recorder/qualityTrace.ts → decorates causalChain with quality scores
+                           depends on: memory/backtrack + recorder/QualityRecorder
+```
+
+Clean lib-of-libs layering. The backtracking algorithm knows nothing about quality. The quality layer knows nothing about how the DAG is built. They compose.
+
+---
+
+## Try it
+
+```bash
+npx tsx examples/post-execution/causal-chain/05-diamond.ts
+npx tsx examples/post-execution/quality-trace/02-root-cause.ts
+```
+
+Or explore in the [interactive playground](https://footprintjs.github.io/footprint-playground/).
+
+<Aside>
+  `causalChain()` is exported from `footprintjs/trace`. It works with any recorder that tracks `keysRead` — not just `QualityRecorder`. Build your own: error trackers, cost trackers, latency trackers — all backtrackable.
+</Aside>

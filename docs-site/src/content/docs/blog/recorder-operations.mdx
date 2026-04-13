@@ -1,0 +1,123 @@
+---
+title: "Three Operations on Auto-Collected Data: The Recorder Pattern That Saves You $15/1M Tokens"
+description: "Translate, Accumulate, Aggregate — how footprintjs recorders turn execution data into LLM-ready context at 60x less cost than reasoning models."
+date: 2026-04-13
+authors:
+  - sanjay
+excerpt: "Your agent makes 8 tool calls. The LLM spends 2,500 tokens reasoning across scattered logs to answer one question. With recorder operations, it spends 200."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**April 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The $15 question
+
+A user asks: **"Why was my loan rejected?"**
+
+Your agent has the data. Credit score, DTI ratio, employment history — all computed across 8 pipeline stages. The LLM needs to answer.
+
+**Without recorder operations:**
+The LLM retrieves scattered logs. Makes 4 tool calls. Spends 4 reasoning steps connecting disconnected data points. Total: ~2,500 tokens, requires an expensive reasoning model ($15/1M tokens).
+
+**With recorder operations:**
+The recorder already has the causal chain. One read. The LLM sees the connected trace. Total: ~200 tokens, any lightweight model works ($0.25/1M tokens).
+
+That's **60x cost reduction per question**. At 10,000 questions/day, that's **$2,190/day** in savings.
+
+---
+
+## The three operations
+
+Every recorder in footprintjs collects data during the single DFS traversal — no post-processing, never stale. The consumer chooses how to read that data at query time:
+
+### 1. Translate — "What happened at this step?"
+
+Per-step raw value. O(1) lookup by `runtimeStageId`.
+
+```typescript
+import { QualityRecorder } from 'footprintjs/trace';
+
+// What was the quality score at step call-llm#5?
+const entry = quality.getByKey('call-llm#5');
+// → { score: 0.3, factors: ['response hallucinated'], keysRead: ['systemPrompt'] }
+```
+
+**Use case:** Time-travel debugger. Click a stage in the UI → see its data. The explainable-ui slider calls `getByKey()` at each position.
+
+**ROI:** Developer debugging time drops from "read 500 log lines" to "click the stage." At $150/hr senior eng rate, even 10 minutes saved per debug session × 5 sessions/day = **$125/day**.
+
+### 2. Accumulate — "What happened up to this point?"
+
+Progressive running total filtered by a set of visible keys. For time-travel sliders where you scrub forward/backward.
+
+```typescript
+// Quality score up to the slider position
+const visibleKeys = new Set(['seed#0', 'classify#1', 'call-llm#2']);
+const scoreUpTo = quality.accumulate(
+  (sum, entry) => sum + entry.score,
+  0,
+  visibleKeys,
+);
+// → 2.1 (sum of scores for first 3 steps)
+```
+
+**Use case:** Progressive metrics in the UI. As the slider moves, the dashboard updates: "Duration so far: 120ms, Reads: 5, Writes: 3, Quality: 0.7."
+
+**ROI:** Users understand performance characteristics without reading code. Support tickets drop because the UI *shows* what happened instead of requiring a human to explain it.
+
+### 3. Aggregate — "What's the grand total?"
+
+Reduce all entries to a single value. For dashboards, SLA checks, billing.
+
+```typescript
+// Overall pipeline quality
+const overallScore = quality.aggregate(
+  (sum, entry) => sum + entry.score,
+  0,
+) / quality.size;
+// → 0.65
+
+// Total cost across all LLM calls
+const totalCost = costRecorder.aggregate(
+  (sum, entry) => sum + entry.cost,
+  0,
+);
+// → $0.0042
+```
+
+**Use case:** SLA monitoring. "Average quality this hour: 0.82. Cost per request: $0.004." These numbers go to Grafana/Datadog dashboards.
+
+**ROI:** You catch quality degradation before users report it. One prevented outage saves more than a year of infrastructure cost.
+
+---
+
+## The foundation for everything
+
+These three operations aren't just a nice API. They're the **foundation** for the backward causal chain — footprintjs's answer to "why did quality drop?"
+
+When `qualityTrace()` backtracks from a low-scoring step:
+- It uses **Translate** to read the quality at each step
+- It uses **Accumulate** to compute progressive quality up to the drop point  
+- It uses **Aggregate** to compute the overall pipeline score
+
+The `KeyedRecorder<T>` base class provides all three operations. Every built-in recorder (`MetricRecorder`, `QualityRecorder`, `TokenRecorder`, `CostRecorder`) inherits them. Your custom recorders get them for free.
+
+```typescript
+// All three operations on auto-collected data:
+metric.getByKey('call-llm#5');                           // Translate
+metric.accumulate((sum, m) => sum + m.duration, 0, keys); // Accumulate
+metric.aggregate((sum, m) => sum + m.duration, 0);         // Aggregate
+```
+
+**One interface. Three operations. Collected during traversal. Never stale.**
+
+In the [next post](/footPrint/blog/backward-causal-chain/), we'll show how these operations power the backward causal chain — an algorithm that answers "why did quality drop at step 5?" by walking the dependency graph backward.
+
+---
+
+<Aside>
+  Try the recorder operations in the [interactive playground](https://footprintjs.github.io/footprint-playground/). The "Recorder Operations" sample lets you switch between translate, accumulate, and aggregate views on the same data.
+</Aside>
