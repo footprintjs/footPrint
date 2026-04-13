@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.12.2]
+
+### Fixed
+
+- **Post-decider/selector stages run after branch-level resume.** When a pausable branch inside a decider/selector paused, resume completed the branch but never continued to post-decider stages. Fixed via invoker context on `PauseSignal` — collected during traversal bubble-up (same pattern as `prependSubflow`), no tree walking.
+
+### Added
+
+- **`PauseSignal.setInvoker()`** — stamps invoker stage ID and continuation stage ID during DFS bubble-up. `DeciderHandler` and `SelectorHandler` catch-enrich-rethrow when a branch child pauses.
+- **`FlowchartCheckpoint.invokerStageId`** and **`continuationStageId`** — optional fields carrying the invoker context. Absent for linear pauses (backward compatible).
+- **5 pause/resume examples** — decider branch, selector branch, no-continuation edge case (in `runtime-features/pause-resume/`).
+
 ## [4.12.1]
 
 ### Added
