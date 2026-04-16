@@ -187,7 +187,7 @@ describe('RuntimeStructureManager', () => {
     const node: StageNode = {
       name: 'withSubflow',
       id: 'ws-1',
-      subflowDef: { buildTimeStructure: subStructure },
+      subflowDef: { root: { name: 'inner', id: 'inner-1' }, buildTimeStructure: subStructure },
     };
     const result = mgr.stageNodeToStructure(node);
     expect(result.subflowStructure).toBeDefined();

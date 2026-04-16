@@ -52,13 +52,13 @@ describe('isStageNodeReturn', () => {
     expect(isStageNodeReturn({ name: 'stage1', deciderFn: true })).toBe(false);
   });
 
-  it('returns true for node with isSubflowRoot (structural subflow)', () => {
+  it('returns true for node with isSubflowRoot', () => {
     expect(
       isStageNodeReturn({
         name: 'HANDLER',
         isSubflowRoot: true,
         subflowId: 'create-grade',
-        subflowDef: { buildTimeStructure: { name: 'root' } },
+        subflowDef: { root: { name: 'inner' } },
       }),
     ).toBe(true);
   });

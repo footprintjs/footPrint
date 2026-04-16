@@ -107,12 +107,9 @@ export type StageNode<TOut = any, TScope = any> = {
    */
   isLoopRef?: boolean;
 
-  /** Inline subflow definition for dynamic subflow attachment.
-   *  When `root` is omitted, the subflow is structural-only:
-   *  the engine attaches `buildTimeStructure` for visualization
-   *  without executing any subflow stages (pre-executed subflow pattern). */
+  /** Inline subflow definition for dynamic subflow attachment. */
   subflowDef?: {
-    root?: StageNode;
+    root: StageNode;
     stageMap?: Map<string, StageFunction<TOut, TScope>>;
     buildTimeStructure?: unknown;
     subflows?: Record<string, { root: StageNode }>;
@@ -139,8 +136,7 @@ export type StageNode<TOut = any, TScope = any> = {
  * Uses duck-typing: must have `name` (string) AND at least one continuation
  * property (non-empty children, next, nextNodeSelector, or isSubflowRoot).
  *
- * `isSubflowRoot` counts as continuation because subflow execution (or
- * structural annotation for pre-executed subflows) is a form of continuation.
+ * `isSubflowRoot` counts as continuation because subflow execution is a form of continuation.
  *
  * Safely handles proxy objects (e.g., Zod scope) that may throw on property access.
  */
