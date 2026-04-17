@@ -25,6 +25,7 @@ import type {
   SubflowTraverserHandle,
 } from '../types.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
+import type { BreakFlag } from './types.js';
 
 export class SubflowExecutor<TOut = any, TScope = any> {
   constructor(
@@ -44,7 +45,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
   async executeSubflow(
     node: StageNode<TOut, TScope>,
     parentContext: StageContext,
-    breakFlag: { shouldBreak: boolean },
+    breakFlag: BreakFlag,
     branchPath: string | undefined,
     subflowResultsMap: Map<string, SubflowResult>,
     parentTraversalContext?: TraversalContext,
@@ -149,6 +150,35 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (traverserHandle) {
       for (const [key, value] of traverserHandle.getSubflowResults()) {
         subflowResultsMap.set(key, value);
+      }
+    }
+
+    // ─── Break propagation (opt-in via SubflowMountOptions.propagateBreak) ──
+    //
+    // If the subflow's inner traversal broke (because a stage called
+    // `scope.$break(reason)`) AND the mount declared `propagateBreak: true`,
+    // forward the break state to the PARENT's breakFlag. The parent
+    // traverser will see `shouldBreak` on its next step and stop.
+    //
+    // Without this, inner breaks are locally scoped to the subflow — the
+    // parent continues as if the subflow returned normally.
+    //
+    // IMPORTANT: this runs BEFORE `outputMapping` below, intentionally. The
+    // outputMapper still executes, so the subflow's partial result still
+    // lands in the parent scope. Consumers who need to suppress output on
+    // break check the break state inside their outputMapper and early-return.
+    // See `SubflowMountOptions.propagateBreak` JSDoc for rationale.
+    if (traverserHandle && mountOptions?.propagateBreak === true) {
+      const innerBreak = traverserHandle.getBreakState();
+      if (innerBreak.shouldBreak) {
+        breakFlag.shouldBreak = true;
+        if (innerBreak.reason !== undefined && breakFlag.reason === undefined) {
+          breakFlag.reason = innerBreak.reason;
+        }
+        // Raise a parent-level onBreak event so recorders can distinguish
+        // the inner originating break (fired inside the subflow) from this
+        // propagated one (fired at the mount level on the parent).
+        this.deps.narrativeGenerator.onBreak(subflowName, parentTraversalContext, innerBreak.reason, subflowId);
       }
     }
 

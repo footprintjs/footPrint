@@ -47,6 +47,9 @@ export interface ReactiveTarget {
   addErrorInfo(key: string, value: unknown): void;
   addMetric(name: string, value: unknown): void;
   addEval(name: string, value: unknown): void;
+
+  // Emit channel (Phase 3) — structured user-authored events to EmitRecorders.
+  emitEvent(name: string, payload?: unknown): void;
 }
 
 // -- ScopeMethods ------------------------------------------------------------
@@ -66,7 +69,22 @@ export interface ScopeMethods {
   $getArgs<T = Record<string, unknown>>(): T;
   $getEnv(): Readonly<ExecutionEnv>;
 
-  // Observability
+  // Observability — legacy diagnostic primitives.
+  //
+  // As of Phase 3 these ALSO dispatch on the emit channel (in addition to
+  // their existing `DiagnosticCollector` side-bag writes for snapshot
+  // inclusion). Any attached `EmitRecorder` will see these events with
+  // the corresponding namespaced names:
+  //
+  //   $debug(key, value)    -> emits `log.debug.${key}`
+  //   $error(key, value)    -> emits `log.error.${key}`
+  //   $metric(name, value)  -> emits `metric.${name}`
+  //   $eval (name, value)   -> emits `eval.${name}`
+  //   $log(value)           -> emits `log.debug.messages`
+  //
+  // This makes the calls observable in real time — no loss of backward
+  // compat; the side bag continues to populate for consumers that inspect
+  // the snapshot directly.
   $debug(key: string, value: unknown): void;
   $log(value: unknown): void;
   $error(key: string, value: unknown): void;
@@ -114,8 +132,63 @@ export interface ScopeMethods {
    */
   $batchArray(key: string, fn: (arr: unknown[]) => void): void;
 
+  // Observability — Emit channel (Phase 3)
+  /**
+   * Fire a structured event to every attached recorder implementing
+   * `onEmit`. The primary primitive for consumer-authored observability
+   * events (LLM tokens, billing metrics, domain milestones, etc.) that
+   * shouldn't live in scope state.
+   *
+   * Synchronous, pass-through — delivered to recorders immediately, in
+   * call order. Zero-allocation when no recorders are attached.
+   *
+   * ## Naming convention
+   *
+   * Use hierarchical dotted names: `'<namespace>.<category>.<event>'`.
+   * Examples:
+   *   - `'agentfootprint.llm.tokens'`
+   *   - `'myapp.billing.spend'`
+   *   - `'auth.check.denied'`
+   *
+   * The library stays vocabulary-agnostic — no central registry, no
+   * reserved prefixes. Namespace prefixes prevent collisions across
+   * libraries and apps naturally.
+   *
+   * ## Redaction
+   *
+   * If `RedactionPolicy.emitPatterns` matches the name, the payload is
+   * replaced with `'[REDACTED]'` before dispatch. No recorder ever sees
+   * the raw value for redacted event names.
+   *
+   * @param name - Consumer-chosen event identifier (see naming convention).
+   * @param payload - Structured data to attach. Shape is up to the
+   *   consumer; library treats it as opaque.
+   *
+   * @example
+   * ```typescript
+   * scope.$emit('agentfootprint.llm.tokens', { input: 100, output: 50 });
+   * scope.$emit('myapp.decision', { branch: 'approved', confidence: 0.92 });
+   * ```
+   */
+  $emit(name: string, payload?: unknown): void;
+
   // Pipeline control
-  $break(): void;
+  /**
+   * Stop the current execution context.
+   *
+   * - **In a top-level chart:** the traverser exits cleanly after this stage
+   *   completes.
+   * - **Inside a subflow:** by default, only the subflow's own execution
+   *   stops; control returns to the parent as normal. If the subflow is
+   *   mounted with `propagateBreak: true`, the break signal (and its
+   *   optional reason) propagates up to the parent scope, terminating the
+   *   outer loop too. See `SubflowMountOptions.propagateBreak`.
+   *
+   * @param reason - Optional free-form string describing why the break
+   *   happened. Propagates to `FlowBreakEvent.reason` so recorders and
+   *   custom narratives can surface it. Defaults to undefined.
+   */
+  $break(reason?: string): void;
 
   // Escape hatch -- unwrap to underlying ReactiveTarget
   $toRaw(): ReactiveTarget;
@@ -131,8 +204,12 @@ export type TypedScope<T extends object = Record<string, unknown>> = T & ScopeMe
 // Configuration passed to createTypedScope.
 
 export interface ReactiveOptions {
-  /** Pipeline break function -- injected by StageRunner after scope creation. */
-  breakPipeline?: () => void;
+  /**
+   * Pipeline break function — injected by StageRunner after scope creation.
+   * Accepts an optional reason string that propagates to `FlowBreakEvent`
+   * and (when `propagateBreak` is set on a mount) up to the parent scope.
+   */
+  breakPipeline?: (reason?: string) => void;
 }
 
 // -- Internal: $-method name set ---------------------------------------------
@@ -156,6 +233,7 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$getRecorders',
   '$batchArray',
   '$break',
+  '$emit',
   '$toRaw',
 ]);
 

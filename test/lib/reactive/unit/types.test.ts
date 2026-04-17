@@ -125,6 +125,7 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
     '$getRecorders',
     '$batchArray',
     '$break',
+    '$emit',
     '$toRaw',
   ];
 

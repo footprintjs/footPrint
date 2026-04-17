@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.0]
+
+### Added
+
+- **Emit channel — third observer stream.** `scope.$emit(name, payload)` + `EmitRecorder.onEmit(event)` alongside existing `Recorder` (data-flow) and `FlowRecorder` (control-flow). Pass-through semantics (see [ADR-001](docs/internals/adr-001-emit-channel-pass-through.md)): synchronous, in-call-order, zero-allocation when no recorder attached. Events auto-enriched with `stageName`, `runtimeStageId`, `subflowPath`, `pipelineId`, `timestamp`. Error-isolated dispatch — a throwing `onEmit` routes to other recorders' `onError` without stopping the loop.
+- **`CombinedRecorder`** — unified observer covering all three channels (`Partial<Recorder> & Partial<FlowRecorder> & Partial<EmitRecorder>`). One object, one `attachCombinedRecorder()` call; the library routes to channels via runtime method-shape detection. Detection counts only OWN methods (prototype walkers ignored, preventing `Object.prototype` pollution).
+- **`FlowChartExecutor.attachEmitRecorder()` / `detachEmitRecorder()` / `getEmitRecorders()`** — attach/detach convenience mirroring the existing recorder APIs. Emit recorders share the scope-recorder channel internally.
+- **`NarrativeFormatter.renderEmit(ctx)`** hook — consumers customize how emit events render in the combined narrative. Returns `string` to use, `null` to skip, `undefined` to fall back to `[emit] name: payloadSummary` default.
+- **`RedactionPolicy.emitPatterns: RegExp[]`** — matched event names have their payload replaced with `'[REDACTED]'` before dispatch (scrubbed at origin, never reaches recorders).
+- **Legacy primitives now dispatch on the emit channel in addition to their existing snapshot side-bags:** `$debug` → `log.debug.${key}`, `$error` → `log.error.${key}`, `$metric` → `metric.${name}`, `$eval` → `eval.${name}`, `$log.messages` → `log.debug.messages`. Closes the long-standing gap where `$metric`/`$debug` calls landed in collectors no recorder observed. Backward-compatible — side-bags still populate for snapshot-based consumers.
+- **`$break(reason?)`** with optional reason string surfaced on `FlowBreakEvent.reason`.
+- **`SubflowMountOptions.propagateBreak: true`** — opt-in propagation of `$break` from inner subflow to parent. Default (false) preserves current behavior: inner `$break` stops only the subflow. `outputMapper` still runs before propagation; nested chains propagate through every hop that opted in; parallel/fan-out: breaks only when all fork children broke.
+- **ADR-001** documenting pass-through choice for emit channel — seven-perspective review rationale preserved at `docs/internals/adr-001-emit-channel-pass-through.md`.
+- **Examples**: `examples/runtime-features/emit/01-custom-events.ts` (emit basics + regression guard), `examples/runtime-features/break/04-subflow-propagate.ts`, `examples/runtime-features/combined-recorder/05-custom-renderer-subflow-inputs.ts`.
+
+### Fixed
+
+- **`CombinedNarrativeRecorder` subflow-input ordering.** Subflow-input lines now route through `renderer.renderOp` at flush time (same as other reads/writes), preserving narrative order and respecting custom renderers. Previously bypassed the formatter, appearing out of order with custom renderings.
+
 ## [4.12.2]
 
 ### Fixed

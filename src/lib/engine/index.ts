@@ -20,7 +20,13 @@ export * from './types.js';
 export * from './handlers/index.js';
 
 // Narrative generation
-export type { CombinedNarrativeEntry, CombinedNarrativeOptions } from './narrative/narrativeTypes.js';
+export type {
+  CombinedNarrativeEntry,
+  CombinedNarrativeOptions,
+  EmitRenderContext,
+  NarrativeFormatter,
+  NarrativeRenderer,
+} from './narrative/narrativeTypes.js';
 export { NullControlFlowNarrativeGenerator } from './narrative/NullControlFlowNarrativeGenerator.js';
 export type { IControlFlowNarrative } from './narrative/types.js';
 

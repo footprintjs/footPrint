@@ -159,8 +159,36 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **Transactional State** | Atomic commits, safe merges, time-travel replay |
 | **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
 | **Flow Recorders** | 8 narrative strategies for loop compression |
+| **Combined Recorders** | Single-hook observers that span data-flow + control-flow &mdash; `executor.attachCombinedRecorder(r)` |
 | **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 + MCP tool generation |
-| **Cancellation** | AbortSignal, timeout, early termination via `scope.$break()` |
+| **Cancellation** | AbortSignal, timeout, early termination via `scope.$break(reason?)` with optional reason |
+| **Subflow break propagation** | Mount a subflow with `propagateBreak: true` &mdash; inner `$break` terminates the parent loop, with drill-down preserved |
+| **Emit channel** | `scope.$emit(name, payload)` &mdash; user-authored structured events to `EmitRecorder`, pass-through, zero-allocation when no recorder attached, redactable via `emitPatterns` |
+
+---
+
+## Dev Mode
+
+footprintjs ships with developer-only diagnostics that are OFF in production (zero overhead). Turn them on during development to catch mistakes early:
+
+```ts
+import { enableDevMode } from 'footprintjs';
+
+if (process.env.NODE_ENV !== 'production') {
+  enableDevMode();
+}
+```
+
+One flag gates every library dev-only check:
+
+| Check | What it warns about |
+|---|---|
+| Circular refs | `scope.setValue(...)` called with an object that references itself |
+| Empty recorders | `attachCombinedRecorder(r)` with `r` that has no `on*` handler (likely mistake) |
+| Suspicious predicates | `decide()` / `select()` rules with shapes that probably won't match |
+| Snapshot integrity | `getSubtreeSnapshot()` asked for a path that doesn't exist |
+
+All dev warnings are `console.warn`. Use `disableDevMode()` to silence them at runtime.
 
 ---
 

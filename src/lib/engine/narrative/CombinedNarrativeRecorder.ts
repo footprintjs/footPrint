@@ -2,8 +2,8 @@
  * CombinedNarrativeRecorder — Inline narrative builder that merges flow + data during traversal.
  *
  * Extends SequenceRecorder<CombinedNarrativeEntry> for dual-indexed storage (ordered sequence
- * + O(1) per-step lookup by runtimeStageId). Implements BOTH FlowRecorder (control-flow events)
- * and Recorder (scope data events).
+ * + O(1) per-step lookup by runtimeStageId). Implements `CombinedRecorder` — the library's
+ * first-class abstraction for observers that span both data-flow and control-flow streams.
  *
  * Event ordering guarantees this works:
  *   1. Scope events (onRead, onWrite) fire DURING stage execution
@@ -14,13 +14,17 @@
  * emit the stage entry + flush the buffered ops in one pass.
  */
 
+import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
+import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
+import type { EmitEvent } from '../../recorder/EmitRecorder.js';
 import { SequenceRecorder } from '../../recorder/SequenceRecorder.js';
 import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
-import type { ReadEvent, Recorder, WriteEvent } from '../../scope/types.js';
+import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import type {
   BreakRenderContext,
   CombinedNarrativeEntry,
   DecisionRenderContext,
+  EmitRenderContext,
   ErrorRenderContext,
   ForkRenderContext,
   LoopRenderContext,
@@ -37,7 +41,6 @@ import type {
   FlowForkEvent,
   FlowLoopEvent,
   FlowPauseEvent,
-  FlowRecorder,
   FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
@@ -47,11 +50,14 @@ import type {
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface BufferedOp {
-  type: 'read' | 'write';
+  type: 'read' | 'write' | 'emit';
+  /** For read/write: scope key. For emit: the event name. */
   key: string;
   rawValue: unknown;
   operation?: 'set' | 'update' | 'delete';
   stepNumber: number;
+  /** Only set for type='emit' — carries the full EmitEvent for rendering. */
+  emitEvent?: EmitEvent;
 }
 
 export interface CombinedNarrativeRecorderOptions {
@@ -68,10 +74,19 @@ export interface CombinedNarrativeRecorderOptions {
 
 // ── Recorder ───────────────────────────────────────────────────────────────
 
-export class CombinedNarrativeRecorder
-  extends SequenceRecorder<CombinedNarrativeEntry>
-  implements FlowRecorder, Recorder
-{
+/**
+ * Implements `CombinedRecorder` — the library's first-class abstraction for
+ * observers that span both data-flow (`Recorder`) and control-flow
+ * (`FlowRecorder`) streams. One `id`, routed to both channels via
+ * `executor.attachCombinedRecorder(...)` (or equivalently via
+ * `executor.enableNarrative(...)` which auto-creates an instance).
+ *
+ * For shared-method-name events (`onError`, `onPause`, `onResume`) the
+ * handler accepts the union payload type; we discriminate via `isFlowEvent`.
+ * Scope variants of these events are deliberately ignored here — the
+ * narrative only surfaces control-flow lifecycle events.
+ */
+export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativeEntry> implements CombinedRecorder {
   readonly id: string;
 
   /**
@@ -267,15 +282,62 @@ export class CombinedNarrativeRecorder
       subflowId: sfId,
       direction: 'entry',
     });
-    // Emit per-key step entries for mapped inputs
-    // Values shown when includeValues=true — consumer responsible for redaction policy
-    // on the parent scope (redacted keys produce '[REDACTED]' via ScopeFacade).
+    // Emit per-key step entries for mapped inputs.
+    //
+    // Route EACH key through the consumer's `renderer.renderOp` hook before
+    // falling back to the hardcoded `Input: ${key} = ${valueSummary}`
+    // template. Without this routing, a consumer that provided a
+    // domain-aware `renderer.renderOp` (to render e.g. `parsedResponse`
+    // objects semantically) would see beautiful output for scope writes
+    // but get the generic key-list fallback for subflow inputs — the
+    // library's "combined narrative" promise (one renderer controls the
+    // whole narrative) would silently break. We honour it here.
+    //
+    // The OpRenderContext is built with `type: 'write'` because semantically
+    // the subflow's initial scope IS being written via the parent's
+    // inputMapper. `operation: 'set'` likewise — this is the subflow's
+    // first sight of the key.
+    //
+    // Values shown when includeValues=true — consumer responsible for
+    // redaction policy on the parent scope (redacted keys produce
+    // '[REDACTED]' via ScopeFacade).
     if (event.mappedInput && Object.keys(event.mappedInput).length > 0) {
+      let stepNumber = 0;
       for (const [key, value] of Object.entries(event.mappedInput)) {
         const valueSummary = this.formatValue(value, this.maxValueLength);
+        const opCtx: OpRenderContext = {
+          type: 'write',
+          key,
+          rawValue: value,
+          valueSummary,
+          operation: 'set',
+          stepNumber: ++stepNumber,
+        };
+
+        // If the consumer supplied `renderer.renderOp`, use its return value:
+        //   - string → use as the narrative line
+        //   - null   → deliberately exclude this entry (same semantics as
+        //              `flushOps` above at line ~540)
+        //   - undefined → renderer does not handle this op → fall through
+        //                 to the hardcoded template
+        // If no renderer at all, use the hardcoded template.
+        let text: string | null;
+        if (this.renderer?.renderOp) {
+          const customText = this.renderer.renderOp(opCtx);
+          if (customText === null) continue; // excluded on purpose
+          text =
+            customText !== undefined
+              ? customText
+              : this.includeValues
+              ? `Input: ${key} = ${valueSummary}`
+              : `Input: ${key}`;
+        } else {
+          text = this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`;
+        }
+
         this.emit({
           type: 'step',
-          text: this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`,
+          text,
           depth: 1,
           stageName: event.name,
           stageId: sid,
@@ -344,50 +406,50 @@ export class CombinedNarrativeRecorder
     });
   }
 
-  onPause(event: FlowPauseEvent | { stageName?: string; stageId?: string }): void {
-    // CombinedNarrativeRecorder implements BOTH Recorder and FlowRecorder, so onPause fires
-    // from both channels. Discriminant: scope PauseEvent (extends RecorderContext) has 'pipelineId',
-    // FlowPauseEvent does not. Skip scope events to avoid duplicate entries.
-    if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
-    const flowEvent = event as FlowPauseEvent;
-    if (!flowEvent.stageName || !flowEvent.stageId) return;
-    const text = `Execution paused at ${flowEvent.stageName}.`;
+  onPause(event: PauseEvent | FlowPauseEvent): void {
+    // Both channels fire onPause with different payload shapes. Narrative only
+    // surfaces the control-flow variant (which has stageName/stageId). Data
+    // channel's PauseEvent is ignored to avoid duplicate entries.
+    if (!isFlowEvent(event)) return;
+    if (!event.stageName || !event.stageId) return;
+    const text = `Execution paused at ${event.stageName}.`;
     this.emit({
       type: 'pause',
       text,
       depth: 0,
-      stageName: flowEvent.stageName,
-      stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
-      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
-      subflowId: flowEvent.traversalContext?.subflowId,
+      stageName: event.stageName,
+      stageId: event.traversalContext?.stageId ?? event.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
+      subflowId: event.traversalContext?.subflowId,
     });
   }
 
-  onResume(event: FlowResumeEvent | { stageName?: string; stageId?: string }): void {
-    // Same dual-interface discriminant as onPause — skip scope ResumeEvent (has pipelineId).
-    if (Object.prototype.hasOwnProperty.call(event, 'pipelineId')) return;
-    const flowEvent = event as FlowResumeEvent;
-    if (!flowEvent.stageName || !flowEvent.stageId) return;
-    const suffix = flowEvent.hasInput ? ' with input.' : '.';
-    const text = `Execution resumed at ${flowEvent.stageName}${suffix}`;
+  onResume(event: ResumeEvent | FlowResumeEvent): void {
+    // Same isFlowEvent discriminant as onPause — ignore scope ResumeEvent.
+    if (!isFlowEvent(event)) return;
+    if (!event.stageName || !event.stageId) return;
+    const suffix = event.hasInput ? ' with input.' : '.';
+    const text = `Execution resumed at ${event.stageName}${suffix}`;
     this.emit({
       type: 'resume',
       text,
       depth: 0,
-      stageName: flowEvent.stageName,
-      stageId: flowEvent.traversalContext?.stageId ?? flowEvent.stageId,
-      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
-      subflowId: flowEvent.traversalContext?.subflowId,
+      stageName: event.stageName,
+      stageId: event.traversalContext?.stageId ?? event.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
+      subflowId: event.traversalContext?.subflowId,
     });
   }
 
-  onError(event: FlowErrorEvent | { stageName?: string; message?: string }): void {
-    if (typeof (event as FlowErrorEvent).message !== 'string') return;
-    const flowEvent = event as FlowErrorEvent;
+  onError(event: ErrorEvent | FlowErrorEvent): void {
+    // Narrative only surfaces the control-flow variant of errors (has
+    // stageName + message). Scope-level ErrorEvent is captured elsewhere.
+    if (!isFlowEvent(event)) return;
+    if (typeof event.message !== 'string') return;
 
     let validationIssues: string | undefined;
-    if (flowEvent.structuredError?.issues?.length) {
-      validationIssues = flowEvent.structuredError.issues
+    if (event.structuredError?.issues?.length) {
+      validationIssues = event.structuredError.issues
         .map((issue) => {
           const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
           return `${path}: ${issue.message}`;
@@ -396,8 +458,8 @@ export class CombinedNarrativeRecorder
     }
 
     const ctx: ErrorRenderContext = {
-      stageName: flowEvent.stageName,
-      message: flowEvent.message,
+      stageName: event.stageName,
+      message: event.message,
       validationIssues,
     };
     const text = this.renderer?.renderError?.(ctx) ?? this.defaultRenderError(ctx);
@@ -405,11 +467,40 @@ export class CombinedNarrativeRecorder
       type: 'error',
       text,
       depth: 0,
-      stageName: flowEvent.stageName,
-      stageId: flowEvent.traversalContext?.stageId,
-      runtimeStageId: flowEvent.traversalContext?.runtimeStageId,
-      subflowId: flowEvent.traversalContext?.subflowId,
+      stageName: event.stageName,
+      stageId: event.traversalContext?.stageId,
+      runtimeStageId: event.traversalContext?.runtimeStageId,
+      subflowId: event.traversalContext?.subflowId,
     });
+  }
+
+  // ── Emit channel (Phase 3) ────────────────────────────────────────────
+
+  /**
+   * Receive a consumer-emitted event from `scope.$emit(name, payload)`.
+   *
+   * Buffered alongside `onRead`/`onWrite` per-stage so that the final
+   * narrative preserves ordering:
+   *
+   *   1. stage header (emitted by `onStageExecuted` / `onDecision`)
+   *   2. buffered ops for that stage — in call order — flushed right after
+   *
+   * Without buffering, emit events would fire BEFORE the stage header
+   * (which only lands at `onStageExecuted`), producing out-of-order
+   * narrative entries. Flush happens in `flushOps` which routes `emit`-
+   * typed buffered ops through `renderEmit` instead of `renderOp`.
+   */
+  onEmit(event: EmitEvent): void {
+    this.bufferOp(event.runtimeStageId, {
+      type: 'emit',
+      key: event.name,
+      rawValue: event.payload,
+      emitEvent: event,
+    });
+  }
+
+  private defaultRenderEmit(ctx: EmitRenderContext): string {
+    return `[emit] ${ctx.name}: ${ctx.payloadSummary}`;
   }
 
   // ── Output (narrative-specific) ───────────────────────────────────────
@@ -476,9 +567,56 @@ export class CombinedNarrativeRecorder
     if (!ops || ops.length === 0) return;
 
     for (const op of ops) {
+      // ── Emit events take a different render path ───────────────────────
+      //
+      // Emit events are buffered alongside reads/writes (so they appear
+      // under their owning stage's header in narrative order, not inline
+      // at call time). At flush, they route through `renderEmit` instead
+      // of `renderOp` — consumers wanting custom emit rendering implement
+      // the dedicated hook. Unhandled / missing renderer falls back to
+      // the same compact `[emit] name: payloadSummary` default used by
+      // the pre-buffering onEmit path.
+      if (op.type === 'emit' && op.emitEvent) {
+        const e = op.emitEvent;
+        const payloadSummary = this.formatValue(e.payload, this.maxValueLength);
+        const emitCtx: EmitRenderContext = {
+          name: e.name,
+          payload: e.payload,
+          stageName: e.stageName,
+          runtimeStageId: e.runtimeStageId,
+          subflowPath: e.subflowPath,
+          pipelineId: e.pipelineId,
+          timestamp: e.timestamp,
+          payloadSummary,
+        };
+        let emitText: string;
+        if (this.renderer?.renderEmit) {
+          const custom = this.renderer.renderEmit(emitCtx);
+          if (custom === null) continue; // deliberately excluded
+          emitText = custom !== undefined ? custom : this.defaultRenderEmit(emitCtx);
+        } else {
+          emitText = this.defaultRenderEmit(emitCtx);
+        }
+        this.emit({
+          type: 'emit',
+          text: emitText,
+          depth: 1,
+          stageName,
+          stageId,
+          runtimeStageId,
+          stepNumber: op.stepNumber,
+          subflowId,
+        });
+        continue;
+      }
+
+      // At this point op.type is narrowed to 'read' | 'write' (emit branch
+      // above uses `continue`). TypeScript can't follow that narrowing
+      // through the continue, so we assert at render time.
+      const opType = op.type as 'read' | 'write';
       const valueSummary = this.formatValue(op.rawValue, this.maxValueLength);
       const opCtx: OpRenderContext = {
-        type: op.type,
+        type: opType,
         key: op.key,
         rawValue: op.rawValue,
         valueSummary,

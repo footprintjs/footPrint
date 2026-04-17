@@ -14,7 +14,7 @@ import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js'
 import { isDevMode } from '../../scope/detectCircular.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
-import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
+import type { FlowBreakEvent, FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];
@@ -186,9 +186,19 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     }
   }
 
-  onBreak(stageName: string, traversalContext?: TraversalContext): void {
+  onBreak(
+    stageName: string,
+    traversalContext?: TraversalContext,
+    reason?: string,
+    propagatedFromSubflow?: string,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, traversalContext };
+    const event: FlowBreakEvent = {
+      stageName,
+      ...(traversalContext && { traversalContext }),
+      ...(reason !== undefined && { reason }),
+      ...(propagatedFromSubflow !== undefined && { propagatedFromSubflow }),
+    };
     for (const r of this.recorders) {
       try {
         r.onBreak?.(event);

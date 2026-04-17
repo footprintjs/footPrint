@@ -97,6 +97,27 @@ export { DebugRecorder } from './lib/scope/index.js';
 /** @category Observe — Operation */
 export { RecorderOperation } from './lib/recorder/index.js';
 
+/** @category Observe — Combined (both data-flow and control-flow) */
+export type { CombinedRecorder } from './lib/recorder/index.js';
+/** @category Observe — Combined (both data-flow and control-flow) */
+export {
+  hasEmitRecorderMethods,
+  hasFlowRecorderMethods,
+  hasRecorderMethods,
+  isFlowEvent,
+} from './lib/recorder/index.js';
+
+/**
+ * @category Observe — Emit (user-authored structured events)
+ *
+ * Third observer channel (alongside `Recorder` and `FlowRecorder`). Consumer
+ * code calls `scope.$emit(name, payload)` from inside a stage; every attached
+ * `EmitRecorder.onEmit(event)` fires synchronously with stage-context
+ * enrichment. Pass-through — no buffering, zero allocation when no recorder
+ * is attached.
+ */
+export type { EmitEvent, EmitRecorder } from './lib/recorder/index.js';
+
 // ============================================================================
 // Observe — Flow (FlowRecorder, fires after stage execution)
 // ============================================================================
@@ -119,6 +140,16 @@ export type {
 
 /** @category Observe — Flow */
 export type { CombinedNarrativeEntry } from './lib/engine/index.js';
+
+/**
+ * @category Observe — Flow
+ *
+ * `NarrativeFormatter` — pluggable formatter that converts event context
+ * objects into the text lines of the narrative. Prefer this name in new
+ * code; `NarrativeRenderer` is a deprecated alias that will be removed in
+ * the next major release.
+ */
+export type { NarrativeFormatter, NarrativeRenderer } from './lib/engine/index.js';
 
 /** @category Observe — Flow */
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
@@ -231,8 +262,19 @@ export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
 // Dev Tools — Mode flags and Zod scope utilities
 // ============================================================================
 
-/** @category Dev Tools */
-export { disableDevMode, enableDevMode } from './lib/scope/detectCircular.js';
+/**
+ * @category Dev Tools
+ *
+ * Global dev-mode flag. Call `enableDevMode()` at application startup to
+ * turn on developer-only diagnostics across the library — circular-reference
+ * detection in scope writes, warnings when a recorder has no observer
+ * methods, suspicious-predicate warnings in decide/select, structural
+ * checks in `getSubtreeSnapshot`, and any future dev-only diagnostic.
+ *
+ * Production leaves it OFF by default (zero overhead). See the JSDoc on
+ * `enableDevMode` for the full list and usage example.
+ */
+export { disableDevMode, enableDevMode, isDevMode } from './lib/scope/detectCircular.js';
 
 /** @category Dev Tools */
 export { defineScopeFromZod } from './lib/scope/index.js';

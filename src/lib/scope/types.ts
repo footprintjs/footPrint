@@ -85,6 +85,18 @@ export interface RedactionPolicy {
   /** Field-level redaction within objects — key → array of fields to scrub.
    *  Supports dot-notation for nested paths (e.g. 'address.zip'). */
   fields?: Record<string, string[]>;
+  /**
+   * Regex patterns matched against `EmitEvent.name` for `scope.$emit(...)`
+   * calls. Any emit event whose name matches has its payload replaced with
+   * the string `'[REDACTED]'` before dispatch to recorders.
+   *
+   * Example:
+   * ```ts
+   * { emitPatterns: [/\.auth\./, /\.billing\./] }
+   * // Hides payloads of events like 'myapp.auth.check' and 'myapp.billing.spend'
+   * ```
+   */
+  emitPatterns?: RegExp[];
 }
 
 /**
@@ -121,6 +133,15 @@ export interface Recorder {
   onStageEnd?(event: StageEvent): void;
   onPause?(event: PauseEvent): void;
   onResume?(event: ResumeEvent): void;
+  /**
+   * Fires for every `scope.$emit(name, payload)` call during a stage.
+   * Optional — implement only if you want to observe consumer-emitted
+   * structured events. See `EmitRecorder` for the focused interface
+   * (structurally compatible; this field is the same shape).
+   *
+   * @see EmitRecorder in `src/lib/recorder/EmitRecorder.ts`
+   */
+  onEmit?(event: import('../recorder/EmitRecorder.js').EmitEvent): void;
   /** Reset state before each executor.run() — prevents cross-run accumulation. */
   clear?(): void;
   /** Expose collected data for inclusion in executor.getSnapshot().recorders. */

@@ -42,6 +42,10 @@ import {
 } from '../engine/types.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
+import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
+import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
+import type { EmitRecorder } from '../recorder/EmitRecorder.js';
+import { isDevMode } from '../scope/detectCircular.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { Recorder, RedactionPolicy, RedactionReport } from '../scope/types.js';
@@ -649,6 +653,137 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** Returns a defensive copy of attached FlowRecorders. */
   getFlowRecorders(): FlowRecorder[] {
     return [...this.flowRecorders];
+  }
+
+  // ─── Combined Recorder Management ───
+
+  /**
+   * Attach a recorder that may observe multiple event streams (scope
+   * data-flow, control-flow, or both). Detects at runtime which streams the
+   * recorder has methods for and routes it to the correct internal channels.
+   *
+   * Preferred over calling `attachRecorder` and `attachFlowRecorder`
+   * separately, because forgetting one of the two is a silent foot-gun —
+   * half your events never fire and there is no runtime warning. With
+   * `attachCombinedRecorder` the library guarantees the recorder's declared
+   * methods all fire, and adds no overhead versus two explicit calls.
+   *
+   * ## Idempotency
+   *
+   * Idempotent by `id` across ALL channels — re-attaching with the same `id`
+   * replaces the previous instance everywhere it was registered. Mixing
+   * `attachCombinedRecorder(x)` with a prior `attachRecorder(y)` or
+   * `attachFlowRecorder(y)` that share `x.id === y.id` is also safe: the
+   * combined attach replaces the single-channel registration on whichever
+   * channel(s) `x` has methods for. No duplicate firings occur.
+   *
+   * ## Narrative activation
+   *
+   * If the recorder has any control-flow methods, `enableNarrative()` is
+   * called as a side effect (the narrative subsystem is required to emit
+   * control-flow events). Data-flow-only recorders do NOT activate the
+   * narrative.
+   *
+   * ## Detection rule
+   *
+   * Only **own** event methods count (see `hasRecorderMethods`). Methods
+   * inherited via the prototype chain are ignored — this protects against
+   * accidental `Object.prototype` pollution attaching handlers you never
+   * declared. A recorder that provides only `clear`/`toSnapshot` is a
+   * no-op and emits a dev-mode warning to surface the likely mistake.
+   *
+   * @example
+   * ```typescript
+   * const audit: CombinedRecorder = {
+   *   id: 'audit',
+   *   onWrite: (e) => log('scope write', e.key),
+   *   onDecision: (e) => log('routed to', e.chosen),
+   * };
+   * executor.attachCombinedRecorder(audit);
+   * ```
+   */
+  attachCombinedRecorder(recorder: CombinedRecorder): void {
+    const hasData = hasRecorderMethods(recorder);
+    const hasFlow = hasFlowRecorderMethods(recorder);
+    const hasEmit = hasEmitRecorderMethods(recorder);
+
+    // Emit recorders live on the SAME channel as data-flow recorders
+    // (ScopeFacade iterates `_recorders` for onEmit dispatch). So
+    // attachEmitRecorder internally calls attachRecorder — but we want to
+    // avoid double-attach when the recorder implements BOTH onEmit AND
+    // other Recorder methods. Short-circuit: if hasData OR hasEmit, the
+    // recorder lands on the scope-recorder list exactly once.
+    if (hasData || hasEmit) this.attachRecorder(recorder as Recorder);
+    if (hasFlow) this.attachFlowRecorder(recorder as FlowRecorder);
+
+    if (!hasData && !hasFlow && !hasEmit && isDevMode()) {
+      // Dev-mode only: silent skips are invisible and produce hard-to-debug
+      // "why didn't my recorder fire" reports. Per library convention, gated
+      // on the central isDevMode() flag (not process.env) so consumers can
+      // control dev tooling centrally via enableDevMode()/disableDevMode().
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprintjs] attachCombinedRecorder: recorder '${recorder.id}' has ` +
+          'no observer event methods — nothing to attach. Did you forget to ' +
+          'add an on* handler (onWrite, onDecision, onSubflowEntry, ...)? ' +
+          'Note: only OWN properties count; methods on the prototype chain ' +
+          'are ignored on purpose.',
+      );
+    }
+  }
+
+  /**
+   * Detach a combined recorder from all channels it was attached to.
+   * Safe to call if the recorder was only on one channel or never attached.
+   */
+  detachCombinedRecorder(id: string): void {
+    this.detachRecorder(id);
+    this.detachFlowRecorder(id);
+  }
+
+  // ─── Emit Recorder Management (Phase 3) ───
+
+  /**
+   * Attach an `EmitRecorder` — an observer for consumer-emitted structured
+   * events fired via `scope.$emit(name, payload)`.
+   *
+   * Internally, emit recorders share the scope-recorder channel because
+   * emit events fire from inside `ScopeFacade` during stage execution,
+   * same timing as `onRead`/`onWrite`. This method is a convenience that
+   * delegates to `attachRecorder` — consumers can also use
+   * `attachRecorder` directly for a recorder that implements BOTH
+   * `onWrite` and `onEmit`. Either approach places the recorder on the
+   * same underlying list, so `onEmit` fires exactly once per event.
+   *
+   * **Idempotent by `id`:** replaces existing recorder with same `id`.
+   *
+   * @example
+   * ```typescript
+   * executor.attachEmitRecorder({
+   *   id: 'token-meter',
+   *   onEmit: (e) => {
+   *     if (e.name === 'agentfootprint.llm.tokens') trackTokens(e.payload);
+   *   },
+   * });
+   * ```
+   */
+  attachEmitRecorder(recorder: EmitRecorder): void {
+    this.attachRecorder(recorder as Recorder);
+  }
+
+  /** Detach an `EmitRecorder` by id. Safe to call if never attached. */
+  detachEmitRecorder(id: string): void {
+    this.detachRecorder(id);
+  }
+
+  /**
+   * Returns a defensive copy of attached recorders filtered to those that
+   * implement `onEmit`. Useful for inspection during testing.
+   */
+  getEmitRecorders(): EmitRecorder[] {
+    return this.scopeRecorders.filter(
+      (r): r is EmitRecorder => typeof (r as { onEmit?: unknown }).onEmit === 'function',
+    );
   }
 
   /**

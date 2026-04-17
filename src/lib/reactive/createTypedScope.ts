@@ -74,10 +74,13 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
     // One setValue — fires onWrite once with the final array
     t.setValue(key, clone);
   },
-  $break: (_t, opts) => () => {
+  $break: (_t, opts) => (reason?: string) => {
     if (!opts.breakFn) throw new Error('$break() is not available outside stage execution');
-    opts.breakFn();
+    opts.breakFn(reason);
   },
+  // Observability — Emit channel (Phase 3). Routes to ScopeFacade.emitEvent
+  // which handles fast-path, enrichment, redaction, and error isolation.
+  $emit: (t) => t.emitEvent.bind(t),
   $toRaw: (t) => () => t,
 };
 
@@ -95,7 +98,7 @@ const GUARD_PROPS: Record<string | symbol, unknown> = {
 // -- Mutable state per proxy instance ----------------------------------------
 
 interface ReactiveState {
-  breakFn?: () => void;
+  breakFn?: (reason?: string) => void;
   /** Cache: top-level key -> { raw object ref, child proxy } */
   childCache: Map<string, { ref: object; proxy: object }>;
 }

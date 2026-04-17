@@ -32,6 +32,7 @@ import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js'
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
+import type { BreakFlag } from '../handlers/types.js';
 import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
@@ -276,6 +277,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       return {
         execute: () => traverser.execute(),
         getSubflowResults: () => traverser.getSubflowResults(),
+        getBreakState: () => traverser.getBreakState(),
       };
     };
   }
@@ -300,9 +302,29 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   // ─────────────────────── Public API ───────────────────────
 
+  /**
+   * Holds the top-level break flag for the duration of `execute()`. Kept as
+   * a field (not a local) so `getBreakState()` can surface the final state
+   * for callers like `SubflowExecutor` that implement `propagateBreak`.
+   */
+  private _topBreakFlag: { shouldBreak: boolean; reason?: string } = { shouldBreak: false };
+
   async execute(branchPath?: string): Promise<TraversalResult> {
     const context = this.executionRuntime.rootStageContext;
-    return await this.executeNode(this.root, context, { shouldBreak: false }, branchPath ?? '');
+    this._topBreakFlag = { shouldBreak: false };
+    return await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+  }
+
+  /**
+   * Break state captured at the top-level of the most recent `execute()`.
+   * `shouldBreak` is true when a stage called `scope.$break(reason)`; the
+   * optional `reason` carries the string passed to `$break`.
+   *
+   * Used by `SubflowExecutor` to propagate an inner subflow's break up to
+   * the parent traverser when the mount sets `propagateBreak: true`.
+   */
+  getBreakState(): { shouldBreak: boolean; reason?: string } {
+    return { ...this._topBreakFlag };
   }
 
   getRuntimeStructure(): SerializedPipelineStructure | undefined {
@@ -401,7 +423,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private async executeNode(
     node: StageNode<TOut, TScope>,
     context: StageContext,
-    breakFlag: { shouldBreak: boolean },
+    breakFlag: BreakFlag,
     branchPath?: string,
   ): Promise<any> {
     // ─── Recursion depth guard ───
@@ -508,6 +530,14 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const hasChildren = Boolean(node.children && node.children.length > 0);
         const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
+        // ─── Break-flag check AFTER subflow returns ───
+        // If the subflow was mounted with `propagateBreak: true` and broke
+        // internally, `SubflowExecutor` has already flipped our breakFlag.
+        // Stop the outer traversal here — do not run the next linear stage.
+        if (breakFlag.shouldBreak) {
+          return subflowOutput;
+        }
+
         if (node.next && shouldExecuteContinuation) {
           const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
           return await this.executeNode(node.next, nextCtx, breakFlag, branchPath);
@@ -548,7 +578,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         else if (hasChildren) context.setAsFork();
       }
 
-      const breakFn = () => (breakFlag.shouldBreak = true);
+      // Break handler wired to the scope. Captures the optional reason
+      // passed via `scope.$break(reason)` and parks it on the breakFlag so
+      // downstream code (FlowRecorder.onBreak, subflow propagation) can
+      // surface it. A second $break call in the same stage keeps the FIRST
+      // reason — first-break-wins — matching the "execution stopped" story.
+      const breakFn = (reason?: string) => {
+        breakFlag.shouldBreak = true;
+        if (reason !== undefined && breakFlag.reason === undefined) {
+          breakFlag.reason = reason;
+        }
+      };
 
       // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
       if (isScopeBasedSelector) {
@@ -670,8 +710,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext);
 
         if (breakFlag.shouldBreak) {
-          this.narrativeGenerator.onBreak(node.name, traversalContext);
-          this.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
+          // Forward the optional reason captured on breakFlag — set by the
+          // stage's $break(reason) call OR by a subflow's propagateBreak.
+          this.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
+          const reasonSuffix = breakFlag.reason ? ` (reason: ${breakFlag.reason})` : '';
+          this.logger.info(
+            `Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition${reasonSuffix}.`,
+          );
           return stageOutput;
         }
 

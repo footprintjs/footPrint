@@ -68,8 +68,21 @@ export interface IControlFlowNarrative {
   /** Called on loop iteration (back-edge traversal). */
   onLoop(targetStage: string, iteration: number, description?: string, traversalContext?: TraversalContext): void;
 
-  /** Called when a stage triggers break (early termination). */
-  onBreak(stageName: string, traversalContext?: TraversalContext): void;
+  /**
+   * Called when a stage triggers break (early termination).
+   *
+   * @param reason - Optional string passed to `scope.$break(reason)`.
+   * @param propagatedFromSubflow - When set, this break was raised on the
+   *   parent because an inner subflow (this id) broke with `propagateBreak`
+   *   enabled. Used by recorders to distinguish originating vs propagated
+   *   breaks and render them accordingly.
+   */
+  onBreak(
+    stageName: string,
+    traversalContext?: TraversalContext,
+    reason?: string,
+    propagatedFromSubflow?: string,
+  ): void;
 
   /** Called when a stage throws an error. Raw error is extracted into structured details. */
   onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
@@ -210,6 +223,20 @@ export interface FlowLoopEvent {
 export interface FlowBreakEvent {
   stageName: string;
   traversalContext?: TraversalContext;
+  /**
+   * Optional free-form reason supplied by `scope.$break(reason)`. Absent
+   * when the stage invoked `$break()` without an argument. Propagates when
+   * a subflow is mounted with `propagateBreak: true` — the outer break
+   * event carries the inner break's reason too.
+   */
+  reason?: string;
+  /**
+   * When true, this break event was raised on the PARENT because an inner
+   * subflow's break propagated up (via `SubflowMountOptions.propagateBreak`).
+   * The originating inner break fires its own `onBreak` event separately
+   * — this flag lets recorders distinguish the two.
+   */
+  propagatedFromSubflow?: string;
 }
 
 /** Event passed to FlowRecorder.onError. */

@@ -22,7 +22,8 @@ export interface CombinedNarrativeEntry {
     | 'break'
     | 'error'
     | 'pause'
-    | 'resume';
+    | 'resume'
+    | 'emit';
   text: string;
   depth: number;
   stageName?: string;
@@ -133,11 +134,43 @@ export interface ErrorRenderContext {
 }
 
 /**
- * Pluggable renderer for customizing narrative output.
+ * Context passed to `NarrativeFormatter.renderEmit` — fires for every
+ * consumer-emitted event (`scope.$emit(name, payload)`). Carries the full
+ * `EmitEvent` shape so formatters can render name + payload with full
+ * context.
+ */
+export interface EmitRenderContext {
+  name: string;
+  payload: unknown;
+  stageName: string;
+  runtimeStageId: string;
+  subflowPath: readonly string[];
+  pipelineId: string;
+  timestamp: number;
+  /** Summary string — the library's default truncated payload preview. */
+  payloadSummary: string;
+}
+
+/**
+ * Pluggable formatter for narrative output. Turns structured event context
+ * objects into the text lines that make up the narrative array.
+ *
+ * ## Why "Formatter", not "Renderer"
+ *
+ * In web terminology "renderer" usually means "turn data into a visible UI"
+ * (pixels, DOM, HTML). This interface does something smaller: it converts
+ * event context into a text string. That is more accurately called a
+ * *formatter* — hence the new name. The legacy alias `NarrativeRenderer`
+ * is preserved for backward compatibility and marked `@deprecated`; it will
+ * be removed in the next major release.
+ *
+ * ## Behaviour
  *
  * Each method is optional — unimplemented methods fall back to the default
- * English renderer. Return null from renderOp to exclude an entry entirely.
+ * English formatter. Return `null` from `renderOp` to exclude that entry
+ * from the narrative entirely.
  *
+ * @example
  * ```typescript
  * const rec = narrative({
  *   renderer: {
@@ -149,10 +182,21 @@ export interface ErrorRenderContext {
  * });
  * ```
  */
-export interface NarrativeRenderer {
+export interface NarrativeFormatter {
   renderStage?(ctx: StageRenderContext): string;
-  /** Return null to exclude the op from the narrative. */
-  renderOp?(ctx: OpRenderContext): string | null;
+  /**
+   * Format an op (scope read/write, or subflow-input key) into a narrative line.
+   *
+   *   - `string`    → use as the narrative line
+   *   - `null`      → deliberately exclude this entry from the narrative
+   *   - `undefined` → this formatter does not handle this op; fall back to
+   *                   the library's default template
+   *
+   * The `undefined` return lets a domain-aware formatter handle only the
+   * keys it knows about and leave the rest to the library default — without
+   * having to re-implement the whole default inline.
+   */
+  renderOp?(ctx: OpRenderContext): string | null | undefined;
   renderDecision?(ctx: DecisionRenderContext): string;
   renderFork?(ctx: ForkRenderContext): string;
   renderSelected?(ctx: SelectedRenderContext): string;
@@ -160,4 +204,27 @@ export interface NarrativeRenderer {
   renderLoop?(ctx: LoopRenderContext): string;
   renderBreak?(ctx: BreakRenderContext): string;
   renderError?(ctx: ErrorRenderContext): string;
+  /**
+   * Format a consumer-emitted event (from `scope.$emit(name, payload)`)
+   * into a narrative line.
+   *
+   *   - `string`    → use as the narrative line
+   *   - `null`      → deliberately exclude this entry
+   *   - `undefined` → this formatter does not handle this emit; fall back
+   *                   to the library's default template
+   *
+   * Typical pattern: switch on `ctx.name` (or a prefix of it) and return a
+   * domain-specific text line for the event types you care about; return
+   * `undefined` for everything else so the default template handles it.
+   */
+  renderEmit?(ctx: EmitRenderContext): string | null | undefined;
 }
+
+/**
+ * @deprecated Renamed to `NarrativeFormatter` for clarity — this interface
+ * formats event context into text lines, not "render to UI". Legacy alias
+ * kept for backward compatibility; will be removed in the next major
+ * release. Migrate by replacing `NarrativeRenderer` with
+ * `NarrativeFormatter` at imports — no behavioural change.
+ */
+export type NarrativeRenderer = NarrativeFormatter;

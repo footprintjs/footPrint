@@ -24,6 +24,13 @@ import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');
 
+  /**
+   * Shared sentinel returned by `_getSubflowPath()` for root-level stages
+   * (no subflow nesting). Avoids per-call allocation of a fresh
+   * `Object.freeze([])` on every `emitEvent` in the common no-subflow case.
+   */
+  private static readonly _EMPTY_SUBFLOW_PATH: readonly string[] = Object.freeze([]);
+
   protected _stageContext: StageContext;
   protected _stageName: string;
   protected readonly _readOnlyValues?: unknown;
@@ -215,25 +222,135 @@ export class ScopeFacade {
   }
 
   // ── Debug / Diagnostics ──────────────────────────────────────────────────
+  //
+  // These legacy methods still write to the `StageContext` diagnostic
+  // side bags (logContext / errorContext / metricContext / evalContext) for
+  // snapshot inclusion. They ALSO fire through the Emit channel so any
+  // attached `EmitRecorder` sees them in real time — closing the
+  // long-standing gap where `$debug`/`$metric` went to unobserved bags.
 
   addDebugInfo(key: string, value: unknown) {
     this._stageContext.addLog(key, value);
+    this.emitEvent(`log.debug.${key}`, { key, value, level: 'debug' });
   }
 
   addDebugMessage(value: unknown) {
     this._stageContext.addLog('messages', [value]);
+    this.emitEvent('log.debug.messages', { value, level: 'debug' });
   }
 
   addErrorInfo(key: string, value: unknown) {
     this._stageContext.addError(key, value);
+    this.emitEvent(`log.error.${key}`, { key, value, level: 'error' });
   }
 
   addMetric(metricName: string, value: unknown) {
     this._stageContext.addMetric(metricName, value);
+    this.emitEvent(`metric.${metricName}`, { name: metricName, value });
   }
 
   addEval(metricName: string, value: unknown) {
     this._stageContext.addEval(metricName, value);
+    this.emitEvent(`eval.${metricName}`, { name: metricName, value });
+  }
+
+  // ── Emit — Phase 3 primary primitive ─────────────────────────────────────
+
+  /**
+   * Fire a structured event to every attached recorder implementing
+   * `onEmit`. Synchronous, in-order, pass-through — no buffering.
+   *
+   * - **Fast-path**: zero allocation + zero cost when no recorders are
+   *   attached (early return on empty list).
+   * - **Enrichment**: library auto-adds `stageName`, `runtimeStageId`,
+   *   `subflowPath`, `pipelineId`, `timestamp` to the event.
+   * - **Redaction**: `RedactionPolicy.emitPatterns` regexes are matched
+   *   against `name` — matched events have their payload replaced with
+   *   `'[REDACTED]'` before dispatch.
+   * - **Error isolation**: a throwing `onEmit` does not propagate — it is
+   *   caught and routed to `onError` on remaining recorders, matching the
+   *   pattern used by other scope events.
+   *
+   * Consumers call this via the `scope.$emit(name, payload)` scope method;
+   * the method routes here via `createTypedScope`.
+   */
+  emitEvent(name: string, payload: unknown): void {
+    // Fast-path: zero work when no recorders are attached.
+    if (this._recorders.length === 0) return;
+
+    // Redaction: if the event name matches any emitPattern, replace payload
+    // with '[REDACTED]' BEFORE constructing the event (no leak through
+    // copy-on-write, no way for recorders to see the raw value).
+    let finalPayload: unknown = payload;
+    const patterns = this._redactionPolicy?.emitPatterns;
+    if (patterns && patterns.length > 0) {
+      for (const pattern of patterns) {
+        if (pattern.test(name)) {
+          finalPayload = '[REDACTED]';
+          break;
+        }
+      }
+    }
+
+    // Build the enriched event once; pass the same reference to all
+    // recorders. Since EmitEvent is `readonly`, sharing is safe.
+    const event = {
+      name,
+      payload: finalPayload,
+      stageName: this._stageName,
+      runtimeStageId: this._stageContext.runtimeStageId,
+      subflowPath: this._getSubflowPath(),
+      pipelineId: this._stageContext.runId,
+      timestamp: Date.now(),
+    } as const;
+
+    // Dispatch with error isolation — same pattern as _invokeHook uses for
+    // other scope events. A throwing recorder's error is surfaced via
+    // onError on the other recorders; the emit loop continues unaffected.
+    for (const recorder of this._recorders) {
+      const onEmit = recorder.onEmit;
+      if (typeof onEmit !== 'function') continue;
+      try {
+        onEmit.call(recorder, event);
+      } catch (error) {
+        this._invokeHook('onError', {
+          stageName: this._stageName,
+          stageId: this._stageContext.stageId,
+          runtimeStageId: this._stageContext.runtimeStageId,
+          pipelineId: this._stageContext.runId,
+          timestamp: Date.now(),
+          error: error as Error,
+          operation: 'write',
+        });
+      }
+    }
+  }
+
+  /**
+   * Build the subflowPath (outer → inner) for event enrichment.
+   *
+   * Parses from `runtimeStageId` which has the format
+   * `[subflowPath/]stageId#executionIndex` (see `lib/engine/runtimeStageId.ts`).
+   * Subflow isolation prevents walking the parent-chain across boundaries,
+   * so the runtimeStageId — globally unique, includes full path — is the
+   * canonical source of truth for the subflow hierarchy at emit time.
+   *
+   * Examples:
+   *   'seed#0'                 → []                    (root)
+   *   'sf-inner/inner#5'       → ['sf-inner']
+   *   'sf-a/sf-b/stage#3'      → ['sf-a', 'sf-b']      (nested)
+   */
+  private _getSubflowPath(): readonly string[] {
+    const rtid = this._stageContext.runtimeStageId;
+    if (!rtid) return ScopeFacade._EMPTY_SUBFLOW_PATH;
+    // Strip the trailing `#executionIndex` to isolate the path portion.
+    const hashIdx = rtid.lastIndexOf('#');
+    const pathPortion = hashIdx >= 0 ? rtid.slice(0, hashIdx) : rtid;
+    // pathPortion is now `[subflowPath/]stageId`. Split on '/' and drop the
+    // last segment (stageId) — what remains is the subflow path.
+    const segments = pathPortion.split('/');
+    if (segments.length <= 1) return ScopeFacade._EMPTY_SUBFLOW_PATH;
+    return Object.freeze(segments.slice(0, -1));
   }
 
   // ── Non-Tracking State Inspection (for TypedScope proxy internals) ──────

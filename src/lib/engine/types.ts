@@ -138,6 +138,58 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    * @default ArrayMergeMode.Concat
    */
   arrayMerge?: ArrayMergeMode;
+
+  /**
+   * When `true`, an inner `scope.$break(reason)` call inside this subflow
+   * propagates up to the parent — i.e., the parent's `breakFlag` is set
+   * after the subflow exits, terminating the parent's outer loop too.
+   *
+   * **Default: `false`** (current behaviour — inner break stops only the
+   * subflow; parent continues).
+   *
+   * ## When to use
+   *
+   * Set `propagateBreak: true` on subflow mounts that represent
+   * **terminal** branches — "if this subflow fires, the outer loop is
+   * done". Examples:
+   *
+   * - A human-review runner that takes over from an agent's tool-calling
+   *   loop and produces the final response.
+   * - A safety-gate subflow that halts the outer workflow when a policy
+   *   violation is detected.
+   * - An error-recovery subflow that restores state and then terminates.
+   *
+   * ## Semantics
+   *
+   * 1. Inside the subflow, a stage calls `scope.$break(reason)`.
+   * 2. The subflow's own execution stops (normal `$break` behaviour).
+   * 3. `SubflowExecutor` inspects the subflow's exit state. If
+   *    `propagateBreak === true` AND the inner break fired, it forwards
+   *    the break (and its reason) to the parent's `breakFlag`.
+   * 4. The parent traverser sees `shouldBreak` on its next step and exits.
+   * 5. A `FlowRecorder.onBreak` event fires at the parent-mount level with
+   *    `propagatedFromSubflow` = the subflow's id and the inner reason.
+   *
+   * ## Parallel/fan-out
+   *
+   * Follows the existing library rule in `ChildrenExecutor`: the parent
+   * breaks only when **every** child of a fork broke. A single
+   * `propagateBreak: true` subflow contributing its break to the count
+   * does not on its own terminate the parent fan-out.
+   *
+   * ## outputMapper still runs
+   *
+   * The subflow's `outputMapper` (if supplied) ALWAYS runs before the
+   * break propagates, so the subflow's partial state is still written to
+   * the parent scope. This is intentional — the typical use case is an
+   * "escalation" subflow whose output IS the final answer that needs to
+   * land in the parent scope before the outer loop terminates. If you
+   * want to suppress output mapping on break, check the break state
+   * inside your `outputMapper` and return `{}` early.
+   *
+   * @default false
+   */
+  propagateBreak?: boolean;
 }
 
 export interface SubflowResult {
@@ -187,6 +239,18 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
   execute(): Promise<TraversalResult>;
   /** Collect nested subflow results (from subflows mounted inside this subflow). */
   getSubflowResults(): Map<string, SubflowResult>;
+  /**
+   * Final break state of the subflow after `execute()` returns.
+   *
+   *   - `shouldBreak: true`  → a stage inside the subflow called
+   *     `scope.$break(reason)`, stopping the subflow's own traversal.
+   *   - `reason`             → the optional string passed to `$break`.
+   *
+   * Used by `SubflowExecutor` to implement `SubflowMountOptions.propagateBreak`:
+   * if the mount opts in AND the subflow broke, the parent's break flag is
+   * forwarded.
+   */
+  getBreakState(): { shouldBreak: boolean; reason?: string };
 }
 
 // ---------------------------------------------------------------------------

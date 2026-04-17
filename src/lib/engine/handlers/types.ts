@@ -10,11 +10,30 @@ import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { StageFunction } from '../types.js';
 
+/**
+ * Traverser break flag — mutable struct passed through the traversal recursion.
+ *
+ * `shouldBreak` flips when any stage calls `scope.$break()`. The traverser
+ * checks this before scheduling the next node; when set, the stack unwinds
+ * cleanly without running subsequent stages.
+ *
+ * `reason` is the optional string argument passed to `$break(reason)`. It
+ * travels alongside `shouldBreak` so downstream code (FlowRecorder onBreak
+ * events, subflow-propagation to parent scope) can surface the reason.
+ *
+ * Adding fields here is backward compatible — existing callers only read
+ * `shouldBreak`, and `reason` is optional.
+ */
+export interface BreakFlag {
+  shouldBreak: boolean;
+  reason?: string;
+}
+
 /** Recursive node execution — avoids circular dep with FlowchartTraverser. */
 export type ExecuteNodeFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   context: StageContext,
-  breakFlag: { shouldBreak: boolean },
+  breakFlag: BreakFlag,
   branchPath?: string,
 ) => Promise<any>;
 

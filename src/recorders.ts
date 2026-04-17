@@ -30,9 +30,11 @@ import type {
   BreakRenderContext,
   CombinedNarrativeEntry,
   DecisionRenderContext,
+  EmitRenderContext,
   ErrorRenderContext,
   ForkRenderContext,
   LoopRenderContext,
+  NarrativeFormatter,
   NarrativeRenderer,
   OpRenderContext,
   SelectedRenderContext,
@@ -44,6 +46,7 @@ import type { ManifestEntry } from './lib/engine/narrative/recorders/ManifestFlo
 import { ManifestFlowRecorder } from './lib/engine/narrative/recorders/ManifestFlowRecorder.js';
 import { MilestoneNarrativeFlowRecorder } from './lib/engine/narrative/recorders/MilestoneNarrativeFlowRecorder.js';
 import { WindowedNarrativeFlowRecorder } from './lib/engine/narrative/recorders/WindowedNarrativeFlowRecorder.js';
+import type { EmitEvent, EmitRecorder } from './lib/recorder/EmitRecorder.js';
 import type { DebugEntry, DebugRecorderOptions } from './lib/scope/recorders/DebugRecorder.js';
 import { DebugRecorder } from './lib/scope/recorders/DebugRecorder.js';
 import type { AggregatedMetrics, MetricRecorderOptions, StageMetrics } from './lib/scope/recorders/MetricRecorder.js';
@@ -142,9 +145,13 @@ export type {
   BreakRenderContext,
   CombinedNarrativeRecorderOptions,
   DecisionRenderContext,
+  EmitEvent,
+  EmitRecorder,
+  EmitRenderContext,
   ErrorRenderContext,
   ForkRenderContext,
   LoopRenderContext,
+  NarrativeFormatter,
   NarrativeRenderer,
   OpRenderContext,
   SelectedRenderContext,

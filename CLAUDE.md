@@ -311,6 +311,117 @@ recorder.getEntryRanges();                                      // Range index: 
 
 **How runtimeStageId is generated:** A counter starts at 0 and increments by 1 for each stage execution across the entire run, including subflow stages. Subflow child traversers share the parent counter so indices are globally unique. Stages inside subflows have stageIds already prefixed by the builder (e.g., `sf-tools/execute-tool-calls`), so `buildRuntimeStageId` just appends `#index`.
 
+## Dev Mode
+
+One global flag (`enableDevMode()` / `disableDevMode()` / `isDevMode()`) controls every developer-only diagnostic across the library. OFF by default — production pays zero overhead.
+
+```ts
+import { enableDevMode } from 'footprintjs';
+if (process.env.NODE_ENV !== 'production') enableDevMode();
+```
+
+Gated diagnostics:
+- **Circular-ref detection** in `ScopeFacade.setValue()` — O(n) WeakSet traversal per write
+- **Empty-recorder warning** in `attachCombinedRecorder(r)` — catches `r` with no `on*` handler
+- **Suspicious predicates** in `decide()` / `select()`
+- **Snapshot integrity** in `getSubtreeSnapshot()`
+
+Convention: when adding a new dev-only check, gate on `isDevMode()` (from `scope/detectCircular.ts`). Do NOT use `process.env.NODE_ENV` inline — consumers control dev tooling centrally via `enableDevMode()`/`disableDevMode()`, and inline env checks break that contract.
+
+## Break + Propagation
+
+`scope.$break(reason?)` takes an optional free-form reason string that surfaces on `FlowBreakEvent.reason`. Recorders and narrative consumers see it.
+
+By default, an inner subflow's `$break` stops ONLY the subflow; the parent continues. Opt into propagation via `SubflowMountOptions.propagateBreak: true`:
+
+```ts
+builder.addSubFlowChartNext('sf-escalate', escalateChart, 'Escalate', {
+  inputMapper: ..., outputMapper: ...,
+  propagateBreak: true,  // ← inner $break → parent $break, with reason
+});
+```
+
+Semantics:
+- **Linear chain:** inner `$break(reason)` → parent's `breakFlag` flips → next parent stage does NOT run → `FlowBreakEvent` fires at parent-mount level with `propagatedFromSubflow` + reason.
+- **Nested chain:** propagates through every hop that opted in. Reason survives.
+- **outputMapper still runs** before propagation — subflow's partial state lands in parent before the break. Escape hatch: early-return `{}` from outputMapper when the break state is set.
+- **Parallel/fan-out:** existing ChildrenExecutor rule applies — parent breaks only when ALL fork children broke. `propagateBreak: true` on a single child contributes to that count; doesn't terminate the fork alone.
+
+Example: [examples/runtime-features/break/04-subflow-propagate.ts](examples/runtime-features/break/04-subflow-propagate.ts).
+
+## Emit Channel (Phase 3)
+
+Third observer channel alongside `Recorder` (data-flow) and `FlowRecorder` (control-flow). Consumer stage code emits structured events; `EmitRecorder.onEmit(event)` fires synchronously with auto-enriched context.
+
+```ts
+import type { EmitRecorder, EmitEvent } from 'footprintjs';
+
+// Inside a stage:
+scope.$emit('myapp.llm.tokens', { input: 100, output: 50 });
+
+// Recorder observes:
+const rec: EmitRecorder = {
+  id: 'token-meter',
+  onEmit: (e) => { if (e.name === 'myapp.llm.tokens') tally(e.payload); },
+};
+executor.attachEmitRecorder(rec);
+```
+
+### Semantics
+- **Pass-through.** Delivered synchronously, in call order. Zero allocation when no recorder attached (fast-path in `ScopeFacade.emitEvent`).
+- **Auto-enriched.** Events carry `stageName`, `runtimeStageId`, `subflowPath`, `pipelineId`, `timestamp` — parsed from `runtimeStageId` for subflow context.
+- **Error-isolated.** A throwing `onEmit` doesn't propagate; errors route to `onError` on other recorders.
+- **Redactable.** `RedactionPolicy.emitPatterns: RegExp[]` matches `event.name`; matched payloads become `'[REDACTED]'` before dispatch.
+- **Buffered in narrative.** `CombinedNarrativeRecorder.onEmit` buffers alongside reads/writes; flushed in `flushOps` so emit entries appear AFTER the stage header in ordered narrative.
+
+### Naming convention
+Hierarchical dotted names — `<namespace>.<category>.<event>`. Examples:
+- `'agentfootprint.llm.tokens'`, `'agentfootprint.llm.request'`
+- `'myapp.billing.spend'`, `'myapp.auth.check'`
+
+### Legacy primitives route through this channel
+`$debug`, `$metric`, `$error`, `$eval`, `$log` also dispatch on the emit channel (in addition to their existing `DiagnosticCollector` side-bag writes for snapshot inclusion):
+
+```
+$debug(key, value)    → emits 'log.debug.${key}'
+$error(key, value)    → emits 'log.error.${key}'
+$metric(name, value)  → emits 'metric.${name}'
+$eval (name, value)   → emits 'eval.${name}'
+```
+
+This closes the long-standing gap where `$metric` / `$debug` went to side bags no recorder observed. Backward-compat: the side bags still populate for consumers that inspect snapshots directly.
+
+### Customizing narrative rendering
+`NarrativeFormatter.renderEmit?(ctx)` hook renders an emit event into a narrative line. Return `string` to use, `null` to exclude, `undefined` to fall back to the default `[emit] name: payloadSummary`.
+
+Example: [examples/runtime-features/emit/01-custom-events.ts](examples/runtime-features/emit/01-custom-events.ts).
+
+## Combined Recorder
+
+A `CombinedRecorder` is an observer that hooks into multiple event streams (scope data-flow, control-flow, AND emit — all three channels). One object, one `id`, one `attachCombinedRecorder()` call — the library routes to the right channels via runtime method-shape detection.
+
+```ts
+import type { CombinedRecorder } from 'footprintjs';
+import { isFlowEvent } from 'footprintjs';
+
+const audit: CombinedRecorder = {
+  id: 'audit',
+  onWrite: (e) => log('scope write', e.key),       // Recorder stream
+  onDecision: (e) => log('routed to', e.chosen),   // FlowRecorder stream
+  onError: (e) => {
+    // Shared method — union payload. Discriminate with isFlowEvent():
+    if (isFlowEvent(e)) log('flow error in', e.stageName);
+    else log('scope error during', e.operation);
+  },
+};
+
+executor.attachCombinedRecorder(audit);
+```
+
+Built on `CombinedRecorder`: `CombinedNarrativeRecorder` (the `executor.enableNarrative()` default). Consumers implement ONLY the events they care about — `Partial<Recorder> & Partial<FlowRecorder>` under the hood.
+
+**Detection rule:** only OWN event-method properties count (prototype methods are ignored for security — prevents accidental `Object.prototype` pollution from attaching handlers).
+
 ## Anti-Patterns
 
 - Never post-process the tree — use recorders
