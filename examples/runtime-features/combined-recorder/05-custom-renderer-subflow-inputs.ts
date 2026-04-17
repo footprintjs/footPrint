@@ -22,7 +22,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import type { NarrativeFormatter, OpRenderContext } from 'footprintjs';
+import type { NarrativeFormatter, OpRenderContext } from 'footprintjs/recorders';
 
 // ── State shapes ────────────────────────────────────────────────────────────
 
