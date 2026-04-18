@@ -331,8 +331,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return this.structureManager.getStructure();
   }
 
-  getSnapshot() {
-    return this.executionRuntime.getSnapshot();
+  getSnapshot(options?: { redact?: boolean }) {
+    return this.executionRuntime.getSnapshot(options);
   }
 
   getRuntime() {

@@ -17,6 +17,19 @@ import { redactPatch } from './utils.js';
 
 export class StageContext {
   private sharedMemory: SharedMemory;
+  /**
+   * Parallel redacted mirror of `sharedMemory`. Populated in `commit()` with
+   * the already-computed redacted patches (the same ones fed to `eventLog`).
+   * Present **only** when the executor has been told to maintain a redacted
+   * view — i.e. when a `RedactionPolicy` is configured. Otherwise undefined,
+   * zero extra work per commit.
+   *
+   * The mirror is read via `FlowChartExecutor.getSnapshot({ redact: true })`
+   * and is the foundation for the "export trace" / paste-into-viewer feature
+   * — consumers share the redacted view externally without leaking raw PII
+   * through `sharedState`.
+   */
+  private redactedSharedMemory?: SharedMemory;
   private buffer?: TransactionBuffer;
   private eventLog?: EventLog;
 
@@ -73,6 +86,23 @@ export class StageContext {
   /** Returns the SharedMemory instance (needed by scope layer). */
   getSharedMemory(): SharedMemory {
     return this.sharedMemory;
+  }
+
+  /**
+   * Install a parallel redacted mirror. Subsequent `commit()` calls will
+   * apply the already-computed redacted patches to this mirror in addition
+   * to the raw `sharedMemory` + `eventLog`. Child / next contexts inherit
+   * the mirror via `createNext` / `createChild`.
+   *
+   * Called once at the root context by `ExecutionRuntime.enableRedactedMirror()`.
+   */
+  useRedactedMirror(mirror: SharedMemory): void {
+    this.redactedSharedMemory = mirror;
+  }
+
+  /** Returns the redacted mirror if installed, else undefined. */
+  getRedactedSharedMemory(): SharedMemory | undefined {
+    return this.redactedSharedMemory;
   }
 
   /** Lazily creates the transaction buffer (pay clone cost only if stage writes). */
@@ -232,8 +262,16 @@ export class StageContext {
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
 
+    // Already-computed redacted patches feed three consumers:
+    //   1. the parallel redacted mirror (if enabled)
+    //   2. the event log (persisted trace)
+    //   3. (future) anything else that wants a scrubbed view at commit time
+    // Computing once keeps cost linear in the commit size; no post-pass walk.
     const redactedOverwrite = redactPatch(commitBundle.overwrite, commitBundle.redactedPaths);
     const redactedUpdates = redactPatch(commitBundle.updates, commitBundle.redactedPaths);
+
+    this.redactedSharedMemory?.applyPatch(redactedOverwrite, redactedUpdates, commitBundle.trace);
+
     this.eventLog?.record({
       ...commitBundle,
       redactedPaths: Array.from(commitBundle.redactedPaths.values()),
@@ -253,6 +291,9 @@ export class StageContext {
     if (!this.next) {
       this.next = new StageContext(path, stageName, stageId, this.sharedMemory, '', this.eventLog, isDecider);
       this.next.parent = this;
+      // Propagate the redacted mirror down the context tree so every commit
+      // in the run writes to both views.
+      if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
     }
     return this.next;
   }
@@ -263,6 +304,7 @@ export class StageContext {
     }
     const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
     child.parent = this;
+    if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
     this.children.push(child);
     return child;
   }

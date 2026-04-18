@@ -267,7 +267,7 @@ export interface IExecutionRuntime {
   globalStore: { getState(): Record<string, unknown> };
   rootStageContext: StageContext;
   executionHistory: { list(): unknown[] };
-  getSnapshot(): {
+  getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;
     executionTree: unknown;
     commitLog: unknown[];

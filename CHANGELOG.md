@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.14.0]
+
+### Added
+
+- **Redacted snapshot mirror.** `FlowChartExecutor.getSnapshot({ redact: true })` returns a scrubbed `sharedState` — keys listed in `RedactionPolicy.keys` / matched by `RedactionPolicy.patterns` are replaced with `'REDACTED'`. Default / `{ redact: false }` continues to return the raw working memory (required for pause/resume, scope reads).
+- **How it works.** When a `RedactionPolicy` is configured, `ExecutionRuntime` maintains a **parallel `SharedMemory` mirror** populated during traversal via the already-computed redacted patches from each commit (same ones fed to the event log). No post-pass, no walk over the final state — collection happens during traversal, matching the library's core principle. Zero allocation when no policy is set.
+- **Why this matters.** Until now, `snapshot.sharedState` retained raw values even for keys known to be redacted — a real leak when exporting traces externally (paste into a viewer, share with support). The commit log was already redacted at write-time; the snapshot is now the last piece. See [docs/internals/adr-002-redacted-mirror.md](docs/internals/adr-002-redacted-mirror.md) for design rationale.
+- **`ExecutionRuntime.enableRedactedMirror()`** — opt-in method called automatically by `FlowChartExecutor` when a policy is set. Exposed for advanced consumers driving the runtime directly.
+- **13 new tests** across 5 patterns (unit/boundary/scenario/property/security) covering keys, patterns, mirror lazy creation, commit-log consistency, and the raw-secret-never-leaks invariant.
+
+### Known limitations
+
+- **`policy.fields: { key: [fieldNames] }` not yet reflected in the redacted mirror.** Field-level redaction still scrubs recorder dispatch (`onWrite` event value) but does not propagate into `getSnapshot({ redact: true })`. Pinned by a regression test. Workarounds: split sensitive fields into their own top-level keys, scrub user-side before exporting, or wait for a follow-up that extends the mirror to honor `fields` policy.
+
 ## [4.13.0]
 
 ### Added

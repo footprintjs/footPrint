@@ -317,6 +317,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
+    // When a redaction policy is configured, maintain a parallel redacted
+    // mirror of `globalStore` during traversal. Each commit applies the
+    // already-computed redacted patches — same ones fed to the event log —
+    // so `getSnapshot({ redact: true })` returns a scrubbed sharedState at
+    // zero post-pass cost. Skipped when no policy exists (zero allocation).
+    if (this.redactionPolicy) {
+      runtime.enableRedactedMirror();
+    }
+
     return new FlowchartTraverser<TOut, TScope>({
       root: effectiveRoot,
       stageMap: fc.stageMap,
@@ -907,8 +916,21 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   // ─── Introspection ───
 
-  getSnapshot(): RuntimeSnapshot {
-    const snapshot = this.traverser.getSnapshot() as RuntimeSnapshot;
+  /**
+   * Returns the runtime snapshot.
+   *
+   * @param options.redact  When `true`, `sharedState` comes from the parallel
+   *   redacted mirror (if maintained — see `setRedactionPolicy`). This is
+   *   the safe view for exporting traces externally (paste into a viewer,
+   *   share with support). When no redaction policy is configured the
+   *   redacted mirror is not maintained, so this flag is a no-op —
+   *   `sharedState` is the raw working memory either way. Default `false`.
+   *
+   *   The commit log is already redacted at write-time regardless of this
+   *   flag, and the execution tree carries only structural metadata.
+   */
+  getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
+    const snapshot = this.traverser.getSnapshot(options) as RuntimeSnapshot;
     const sfResults = this.traverser.getSubflowResults();
     if (sfResults.size > 0) {
       snapshot.subflowResults = Object.fromEntries(sfResults);
