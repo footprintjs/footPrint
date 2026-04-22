@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.0]
+
+### Added
+
+- **`TopologyRecorder`** — new primitive in `footprintjs/trace`. Reconstructs a live, queryable mini-flowchart of what your run actually traced, built from the three primitive recorder channels (Recorder / FlowRecorder / EmitRecorder). Fills the asymmetry between post-run consumers (walk `executor.getSnapshot()`) and streaming consumers (see only events).
+
+- **Three node kinds — complete composition coverage:**
+  - `'subflow'` — via `onSubflowEntry` (mounted subflow boundary)
+  - `'fork-branch'` — via `onFork` (synthesized one per child)
+  - `'decision-branch'` — via `onDecision` (synthesized for chosen target)
+  When a fork/decision target is also a subflow, the subsequent `onSubflowEntry` nests as a child — layered shape preserves both "who branched" and "what the branch ran."
+
+- **Query API:** `getTopology()` returns `{ nodes, edges, activeNodeId, rootId }`. Convenience: `getChildren(id)`, `getByKind(kind)`, `getSubflowNodes()`, `getParallelSiblings(id)`. Every edge carries `at: runtimeStageId` for time correlation.
+
+- **Exports from `footprintjs/trace`:** `topologyRecorder()` factory + `TopologyRecorder` class + types `Topology` / `TopologyNode` / `TopologyEdge` / `TopologyIncomingKind` / `TopologyNodeKind` / `TopologyRecorderOptions`.
+
+- **Re-entry disambiguation.** Same `subflowId` re-entered (e.g., loop body) gets `id#n` suffix — consumers correlate via base id.
+
+- **16 pattern tests + 1 integration test** covering 5 canonical compositions × 2 variants (plain-stage / subflow target for fork + decision), pending-state scope guard, lifecycle, real executor integration.
+
+- **Example:** [examples/flow-recorders/06-topology-recorder.ts](examples/flow-recorders/06-topology-recorder.ts).
+
+### Why this matters
+
+Downstream domain libraries (agentfootprint, future X) compose `TopologyRecorder` instead of re-implementing subflow-stack + fork-map + decision-tracker bookkeeping. One primitive, many consumers, same accurate shape. `agentfootprint`'s `agentTimeline()` is the canonical reference.
+
+### Non-breaking
+
+Purely additive release. No existing APIs changed.
+
 ## [4.14.0]
 
 ### Added
