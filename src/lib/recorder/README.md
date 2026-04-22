@@ -52,12 +52,83 @@ executor.attachRecorder(new MetricRecorder());
 | `CombinedNarrativeRecorder` | Merge flow + data inline (extends `SequenceRecorder`) | `renderer`, `maxValueLength` | LLM-readable narrative |
 | `NarrativeFlowRecorder` | Full English sentences | — | Flow-only narrative |
 | `ManifestFlowRecorder` | Subflow tree + specs | — | Subflow catalog |
+| `TopologyRecorder` | Composition graph (nodes + edges) | `id` | Live sub-flow topology for streaming UIs |
 | `SilentNarrativeFlowRecorder` | Suppress per-loop, summary at end | — | High-iteration loops |
 | `WindowedNarrativeFlowRecorder` | First N + last M iterations | `head`, `tail` | Bounded loop detail |
 | `AdaptiveNarrativeFlowRecorder` | Full detail then sample | `threshold`, `sampleRate` | Convergence loops |
 | `ProgressiveNarrativeFlowRecorder` | Exponential intervals | `base` | Geometric taper |
 | `MilestoneNarrativeFlowRecorder` | Every Nth iteration | `interval` | Progress markers |
 | `RLENarrativeFlowRecorder` | Run-length compress | — | Collapse consecutive loops |
+
+## TopologyRecorder (exported from `footprintjs/trace`)
+
+**One-liner:** reconstructs a live, queryable mini-flowchart of what your run actually traced, built from the 3 primitive recorder channels during traversal.
+
+**Mental model:**
+
+```
+flowChart() builder      →  STATIC flowchart (design-time)
+                                       │
+                                       ▼ executor runs it
+                         Traversal emits events on 3 channels:
+                            Recorder · FlowRecorder · EmitRecorder
+                                       │
+                                       ▼ TopologyRecorder listens
+                         DYNAMIC flowchart (runtime shape):
+                            Nodes = composition points
+                            Edges = transitions
+                            Queryable during or after run
+```
+
+**What it IS:** live composition graph derived from 3 primitive channels. Each node = one composition-significant moment. Each edge = a control-flow transition with a `runtimeStageId` timestamp. Works identically during or after a run.
+
+**What it ISN'T:** not a full execution tree (that's `StageContext` / `executor.getSnapshot()`), not per-stage data (that's `MetricRecorder`), not agent-specific (agentfootprint composes it, footprintjs owns it).
+
+**Why live consumers need it:** the executor already has the topology internally. But streaming consumers can't access that mid-run — they only see events. `TopologyRecorder` is "the tree, reconstructed from events, live-queryable."
+
+Fills the gap for **streaming / live consumers** (agent UIs, in-flight visualizers) that don't have post-run snapshot access. Listens to `onSubflowEntry/Exit`, `onFork`, `onDecision`, `onLoop` and builds a queryable composition graph as events fire. Post-run consumers can walk `executor.getSnapshot()` directly; this recorder is for the streaming case (and works identically post-run).
+
+```typescript
+import { topologyRecorder } from 'footprintjs/trace';
+
+const topo = topologyRecorder();
+executor.attachCombinedRecorder(topo); // auto-routes to FlowRecorder channel
+
+await executor.run({ input });
+
+const { nodes, edges, activeNodeId, rootId } = topo.getTopology();
+topo.getSubflowNodes();          // agent-centric filter
+topo.getByKind('fork-branch');   // all parallel branches across the run
+topo.getParallelSiblings(id);    // all fork-branches sharing a fork parent
+```
+
+### Three node kinds — complete composition coverage
+
+| Kind | Synthesized from | Represents |
+|---|---|---|
+| `subflow` | `onSubflowEntry` | Mounted subflow boundary (with stable `subflowId`) |
+| `fork-branch` | `onFork` (one per child) | One branch of a parallel fork — works for plain stages AND subflows |
+| `decision-branch` | `onDecision` (chosen only) | The chosen branch of a conditional |
+
+Fork-branch and decision-branch nodes are synthesized **immediately** when their events fire, regardless of whether the branch target is a subflow. If the target IS a subflow, the subsequent `onSubflowEntry` nests under the synthetic node — so the graph carries both "who branched" and "what the branch ran."
+
+### Correlation rules
+
+- `onFork({ parent, children })` — N `fork-branch` nodes created up-front. A `pendingFork` map tracks childName → synthetic nodeId. Subsequent `onSubflowEntry` with a matching name nests under the right fork-branch.
+- `onDecision({ decider, chosen, rationale })` — `decision-branch` node created immediately. Metadata carries decider + rationale.
+- `onSubflowExit` — clears pending fork/decision state so stale correlations don't leak across sibling scopes.
+- `onLoop` — self-edge on the currently-active subflow. Synthetic nodes are instantaneous, so they don't participate in loop edges.
+- Re-entry of same `subflowId` (e.g. loop body re-enters the same subflow) disambiguates via `id#n` suffix.
+
+### Not tracked
+
+Plain sequential stages are not topology nodes. Topology is a graph of control-flow branching points, not a full execution tree. Use `MetricRecorder` or `StageContext` for per-stage data.
+
+### For downstream libraries (agentfootprint, etc.)
+
+**Compose — don't duplicate.** Wrap `topologyRecorder()` inside your agent-shaped recorder and translate topology nodes into agent semantics. Without this, every domain library that needs "what's the shape of this run?" re-implements subflow-stack + fork-map + decision-tracker — slightly wrong in different ways each time.
+
+Example: [examples/flow-recorders/06-topology-recorder.ts](../../../examples/flow-recorders/06-topology-recorder.ts)
 
 ## CompositeRecorder
 

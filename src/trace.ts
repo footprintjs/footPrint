@@ -38,6 +38,16 @@ export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
 // SequenceRecorder — base class for 1:N ordered sequence recorders with keyed index
 export { SequenceRecorder } from './lib/recorder/SequenceRecorder.js';
 
+// TopologyRecorder — composition graph accumulator (subflows + control-flow edges)
+export type {
+  Topology,
+  TopologyEdge,
+  TopologyIncomingKind,
+  TopologyNode,
+  TopologyRecorderOptions,
+} from './lib/recorder/TopologyRecorder.js';
+export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecorder.js';
+
 // QualityRecorder — per-step quality scoring with backtracking
 export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';
 export { QualityRecorder } from './lib/recorder/QualityRecorder.js';
