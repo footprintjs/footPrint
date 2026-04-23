@@ -137,7 +137,7 @@ async function demoNarrativeEnrichment() {
 
   // getNarrative() automatically includes field-level validation details
   console.log('  Combined narrative:');
-  for (const line of executor.getNarrative()) {
+  for (const line of executor.getNarrativeEntries().map(e => e.text)) {
     console.log(`    ${line}`);
   }
 }

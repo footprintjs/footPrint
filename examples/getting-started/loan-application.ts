@@ -169,6 +169,6 @@ executor.enableNarrative();
 await executor.run({ input });
 
 console.log('=== Loan Application — Causal Trace ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log();
 })().catch(console.error);

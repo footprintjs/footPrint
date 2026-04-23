@@ -108,5 +108,5 @@ executor.enableNarrative();
 await executor.run();
 
 console.log('\n=== Selector with select() ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

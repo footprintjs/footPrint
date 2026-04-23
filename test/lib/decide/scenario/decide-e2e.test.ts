@@ -77,7 +77,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // Should contain evidence-based sentence with operators and thresholds
     const decisionLine = narrative.find((line) => line.includes('evaluated'));
@@ -143,7 +143,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // Function evidence uses "examined" wording with key=value
     const decisionLine = narrative.find((line) => line.includes('examined'));
@@ -206,7 +206,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // Should mention default fallback — narrative uses display name "Reject"
     const decisionLine = narrative.find((line) => line.includes('default'));
@@ -255,7 +255,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // Narrative should show 2 of 3 selected
     const selectionLine = narrative.find((line) => line.includes('selected'));
@@ -315,7 +315,7 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // No spurious "getValue" reads in narrative
     const spurious = narrative.filter((line) => line.includes('getValue'));

@@ -217,7 +217,6 @@ describe('API Contract: Run Phase', () => {
     const result = await chart.run();
     expect(result.state).toBeDefined();
     expect(result.output).toBeDefined();
-    expect(result.narrative).toBeDefined();
   });
 
   it('chart.recorder(r) returns RunContext (not FlowChart)', async () => {
@@ -287,8 +286,8 @@ describe('API Contract: Run Phase', () => {
     expect(result.output).toEqual({ greeting: 'Hi Bob' });
   });
 
-  it('result.narrative contains narrative lines', async () => {
-    const { flowChart } = await import('../../src/index');
+  it('executor.getNarrativeEntries() contains narrative entries', async () => {
+    const { flowChart, FlowChartExecutor } = await import('../../src/index');
     const chart = flowChart(
       'Test',
       async (scope: any) => {
@@ -296,8 +295,10 @@ describe('API Contract: Run Phase', () => {
       },
       'test',
     ).build();
-    const result = await chart.run();
-    expect(Array.isArray(result.narrative)).toBe(true);
+    const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
+    await executor.run();
+    expect(Array.isArray(executor.getNarrativeEntries())).toBe(true);
   });
 });
 
@@ -341,17 +342,11 @@ describe('API Contract: Recorder Factories', () => {
     expect(typeof mod.windowed).toBe('function');
   });
 
-  it('narrative().lines() returns string[]', async () => {
+  it('narrative().getEntries() returns structured entries', async () => {
     const { narrative } = await import('../../src/recorders');
     const trace = narrative();
-    expect(typeof trace.lines).toBe('function');
-    expect(Array.isArray(trace.lines())).toBe(true);
-  });
-
-  it('narrative().structured() returns entries', async () => {
-    const { narrative } = await import('../../src/recorders');
-    const trace = narrative();
-    expect(typeof trace.structured).toBe('function');
+    expect(typeof trace.getEntries).toBe('function');
+    expect(Array.isArray(trace.getEntries())).toBe(true);
   });
 
   it('metrics().reads() returns number', async () => {
@@ -434,7 +429,7 @@ describe('API Contract: End-to-End v2 Workflow', () => {
     // READ
     expect(result.state.decision).toBe('Yes');
     expect(result.output).toEqual({ decision: 'Yes' });
-    expect(trace.lines().length).toBeGreaterThan(0);
+    expect(trace.getEntries().length).toBeGreaterThan(0);
     expect(perf.writes()).toBeGreaterThan(0);
   });
 });

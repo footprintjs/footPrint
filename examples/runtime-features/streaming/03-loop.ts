@@ -64,5 +64,5 @@ const chart = flowChart<AgentState>('Init', async (scope) => {
   console.log(`Stream lifecycle calls: ${startCount} starts, ${endCount} ends`);
   console.log(`Total tokens across all iterations: ${allTokens.length}`);
   console.log('Narrative:');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

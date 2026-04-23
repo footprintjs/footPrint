@@ -455,7 +455,7 @@ describe('Nested subflow continuation — scenario', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // Should see both subflow entries
     expect(narrative.some((s) => s.includes('OuterFlow subflow'))).toBe(true);

@@ -61,5 +61,5 @@ const chart = flowChart<State>('Seed', async (scope) => {
     console.log(`Result: ${snap.sharedState?.result}`); // 'reviewed-ok'
   }
 
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

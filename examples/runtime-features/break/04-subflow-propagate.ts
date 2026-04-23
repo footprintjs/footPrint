@@ -111,7 +111,7 @@ const chart = flowChart<ParentState>(
   console.log('  finalized: ', state.finalized);
 
   console.log('\nNarrative:');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // ── Regression guards — fail the example if Phase 2 semantics break ──
   if (state.finalized === true) {

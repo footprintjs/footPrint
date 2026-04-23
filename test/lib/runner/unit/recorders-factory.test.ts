@@ -34,13 +34,13 @@ function buildChart() {
 // -- Unit ------------------------------------------------------------------
 
 describe('Recorder Factories — Unit', () => {
-  it('narrative() creates recorder with .lines() and .entries()', async () => {
+  it('narrative() creates recorder with .entries()', async () => {
     const trace = narrative();
     const chart = buildChart();
     await chart.recorder(trace).run();
 
-    expect(trace.lines().length).toBeGreaterThan(0);
-    expect(trace.structured().length).toBeGreaterThan(0);
+    expect(trace.getEntries().map((e) => e.text).length).toBeGreaterThan(0);
+    expect(trace.getEntries().length).toBeGreaterThan(0);
     expect(trace.id).toBeDefined();
   });
 
@@ -101,11 +101,11 @@ describe('Recorder Factories — Unit', () => {
     const trace = narrative();
     const chart = buildChart();
     await chart.recorder(trace).run();
-    expect(trace.lines().length).toBeGreaterThan(0);
+    expect(trace.getEntries().map((e) => e.text).length).toBeGreaterThan(0);
 
     trace.clear();
-    expect(trace.lines()).toEqual([]);
-    expect(trace.structured()).toEqual([]);
+    expect(trace.getEntries().map((e) => e.text)).toEqual([]);
+    expect(trace.getEntries()).toEqual([]);
   });
 
   it('metrics().clear() resets accumulated data', async () => {
@@ -130,7 +130,7 @@ describe('Recorder Factories — Scenario', () => {
 
     await chart.recorder(trace).recorder(perf).run();
 
-    expect(trace.lines().length).toBeGreaterThan(0);
+    expect(trace.getEntries().map((e) => e.text).length).toBeGreaterThan(0);
     expect(perf.reads()).toBeGreaterThan(0);
   });
 
@@ -139,7 +139,7 @@ describe('Recorder Factories — Scenario', () => {
     const chart = buildChart();
     await chart.recorder(trace).run();
 
-    const lines = trace.lines();
+    const lines = trace.getEntries().map((e) => e.text);
     expect(lines.some((l) => l.includes('Start'))).toBe(true);
     expect(lines.some((l) => l.includes('Process'))).toBe(true);
   });
@@ -149,7 +149,7 @@ describe('Recorder Factories — Scenario', () => {
     const chart = buildChart();
     await chart.recorder(trace).run();
 
-    const lines = trace.lines();
+    const lines = trace.getEntries().map((e) => e.text);
     expect(lines.some((l) => l.includes('name') && l.includes('Alice'))).toBe(true);
   });
 });
@@ -167,7 +167,7 @@ describe('Recorder Factories — Boundary', () => {
       'only',
     ).build();
     await chart.recorder(trace).run();
-    expect(trace.lines().length).toBeGreaterThan(0);
+    expect(trace.getEntries().map((e) => e.text).length).toBeGreaterThan(0);
   });
 
   it('metrics on chart with no reads (write-only)', async () => {
@@ -210,7 +210,7 @@ describe('Recorder Factories — Security', () => {
       .redact({ keys: ['secret'] })
       .run();
 
-    const lines = trace.lines();
+    const lines = trace.getEntries().map((e) => e.text);
     const secretLines = lines.filter((l) => l.includes('secret'));
     for (const line of secretLines) {
       expect(line).not.toContain('hunter2');
@@ -228,7 +228,10 @@ describe('Recorder Factories — ML/AI', () => {
     await chart.recorder(trace).run();
 
     // ML engineer gets causal trace in one line
-    const causalTrace = trace.lines().join('\n');
+    const causalTrace = trace
+      .getEntries()
+      .map((e) => e.text)
+      .join('\n');
     expect(causalTrace).toContain('name');
     expect(causalTrace).toContain('Alice');
     expect(causalTrace.length).toBeGreaterThan(0);

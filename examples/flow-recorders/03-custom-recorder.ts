@@ -140,7 +140,9 @@ function buildChart() {
   executor.attachFlowRecorder(every7th);
   await executor.run();
 
-  const sentences = executor.getFlowNarrative();
+  const sentences = executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text);
   sentences.forEach((line) => console.log(`  ${line}`));
   console.log(`\n  Emitted: ${sentences.filter(s => s.includes('pass')).length}`);
   console.log(`  Suppressed: ${every7th.getSuppressed()}`);

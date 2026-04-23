@@ -44,5 +44,5 @@ const chart = flowChart<State>('Seed', async (scope) => {
   const snap = executor.getSnapshot();
   console.log(`Aborted: ${snap.sharedState?.aborted}`);
   console.log(`Done ran: ${snap.sharedState?.doneRan ?? false}`);
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

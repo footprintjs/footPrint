@@ -57,5 +57,5 @@ const chart = flowChart<RefundState>('ReceiveRequest', async (scope) => {
   }
 
   console.log('Narrative (spans pause boundary):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

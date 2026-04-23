@@ -478,23 +478,11 @@ export interface SerializedPipelineNode {
 }
 
 // ---------------------------------------------------------------------------
-// FlowChart (compiled output of FlowChartBuilder)
+// FlowChart is defined in `../builder/types.ts`. The engine layer consumes it
+// via import from there. A duplicate minimal definition previously lived here
+// and caused TS confusion at composition boundaries (ComposableRunner vs
+// addSubFlowChart parameter). Single source of truth now lives in builder/.
 // ---------------------------------------------------------------------------
-
-export type FlowChart<TOut = any, TScope = any> = {
-  root: StageNode<TOut, TScope>;
-  stageMap: Map<string, StageFunction<TOut, TScope>>;
-  extractor?: TraversalExtractor;
-  subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
-  enrichSnapshots?: boolean;
-  enableNarrative?: boolean;
-  logger?: ILogger;
-  buildTimeStructure?: SerializedPipelineStructure;
-  /** Input schema (Zod or JSON Schema) — used for runtime input validation. */
-  inputSchema?: unknown;
-  /** Scope factory — auto-embedded by flowChart<T>(). Executor reads this if no factory param. */
-  scopeFactory?: ScopeFactory<TScope>;
-};
 
 /** Alias for SerializedPipelineNode used as full structure */
 export type SerializedPipelineStructure = SerializedPipelineNode & {

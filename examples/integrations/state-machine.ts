@@ -72,7 +72,7 @@ async function runAndCollect(chart: any): Promise<void> {
   const executor = new FlowChartExecutor(chart);
   executor.enableNarrative();
   await executor.run();
-  allNarrativeLines.push(...executor.getNarrative());
+  allNarrativeLines.push(...executor.getNarrativeEntries().map(e => e.text));
 }
 
 // ── State types for each flowchart ─────────────────────────────────────

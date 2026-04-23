@@ -115,7 +115,7 @@ const creditTool = tool({
 
     const snapshot = executor.getSnapshot();
     const decision = (snapshot.sharedState as unknown as CreditState).decision;
-    const trace = executor.getNarrative();
+    const trace = executor.getNarrativeEntries().map(e => e.text);
 
     return { decision, trace };
   },

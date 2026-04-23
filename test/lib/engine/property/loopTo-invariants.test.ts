@@ -146,7 +146,7 @@ describe('Property: loopTo invariants', () => {
     executor.enableNarrative();
     await executor.run({ input: {} });
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     // Each iteration should generate narrative — more iterations = more entries
     expect(narrative.length).toBeGreaterThanOrEqual(3);
 

@@ -193,5 +193,5 @@ const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
   await executor.run();
 
   console.log('\n--- Execution complete ---');
-  console.log('Narrative:', executor.getNarrative().join('\n  '));
+  console.log('Narrative:', executor.getNarrativeEntries().map(e => e.text).join('\n  '));
 })().catch(console.error);

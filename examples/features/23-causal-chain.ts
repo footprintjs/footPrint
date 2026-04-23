@@ -98,7 +98,7 @@ const quality = new QualityRecorder((id, ctx) => {
 
   // 1. Show narrative
   console.log('=== Narrative ===\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // 2. Raw causal chain — no quality scores, just data lineage
   console.log('\n=== Causal Chain (from Reject stage) ===\n');

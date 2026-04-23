@@ -85,7 +85,7 @@ describe('TypedScope integration -- narrative', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // Should mention the writes
     const joined = narrative.join('\n');

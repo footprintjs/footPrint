@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.16.0]
+
+### Fixed
+
+- **`FlowChart` type duplication eliminated.** Previously, two types named `FlowChart` existed side-by-side — one in `lib/engine/types.ts` (used by `ComposableRunner.toFlowChart()` return type, `FlowChartExecutor` constructor, `RunContext`) and one in `lib/builder/types.ts` (used by `addSubFlowChart` parameter and produced by `FlowChartBuilder.build()`). The two had different required fields (builder required `description` + `stageDescriptions`; engine didn't), which made the documented composition pattern `parentBuilder.addSubFlowChart(runner.toFlowChart())` fail TypeScript. `FlowChart` now has a **single definition** in `lib/builder/types.ts`; all engine-side consumers import from there. Downstream libraries (e.g., `agentfootprint` v2 compositions) can now type `runner.toFlowChart()` into `addSubFlowChart()` without casts.
+
+- **Dead `enrichSnapshots` field removed from the `FlowChart` type.** The field was read by `FlowChartExecutor` (`fc.enrichSnapshots`) but never assigned anywhere on the chart itself — `flowChart().build()` produces a chart with no such field. `FlowChartExecutor` now reads `enrichSnapshots` solely from constructor options / `run({ enrichSnapshots })`, which was already the working path.
+
+- **Dead UI dependencies removed from `package.json`.** Previously, `footprintjs` declared 5 runtime `dependencies` (`highlight.js`, `react-markdown`, `react-resizable-panels`, `rehype-highlight`, `remark-gfm`) that were never imported anywhere in the library source or the documentation site (which uses Astro + Starlight with built-in Shiki highlighting). Removed — every consumer of `footprintjs` no longer pulls ~50 MB of unused React + markdown parsing libraries transitively.
+
+### Added
+
+- **`TopologyRecorder` — sibling-to-sibling `next` edges.** When subflows are mounted sequentially via `.addSubFlowChartNext(A).addSubFlowChartNext(B)`, the topology graph now emits an `A → B` edge with `kind: 'next'`. Previously, the recorder only emitted parent→child edges, leaving the sequential transition between siblings invisible. Consumers rendering execution topology (agentfootprint-lens pipeline view, etc.) now see the real `A → B → C` flow without reconstructing sibling ordering themselves. Purely additive — no existing edges removed.
+
+### Changed — BREAKING
+
+- **`narrative()` factory no longer decorates the recorder with `.lines()` / `.structured()` methods.** These were convenience aliases for `.getNarrative()` / `.getEntries()` on `CombinedNarrativeRecorder`. Callers now invoke those methods directly.
+
+  Migration:
+  ```typescript
+  // Before
+  const rec = narrative();
+  const lines = rec.lines();
+  const entries = rec.structured();
+
+  // After
+  const rec = narrative();
+  const lines = rec.getNarrative();
+  const entries = rec.getEntries();
+  ```
+
+### Non-breaking overall behavior
+
+- All composition patterns (sequential subflow chains, parallel fan-out with merge, agent ReAct loops) continue to execute identically.
+- `FlowChart` type change is an internal consolidation — the public `FlowChart` export from `'./lib/builder/index.js'` (and the top-level `footprintjs` entry) is unchanged. Only deep-import consumers from the non-public `'footprintjs/lib/engine/types'` path would observe a difference, and that import path is not part of the supported public surface.
+- Dead UI deps removal is transparent to consumers (they were never imported) — only the install footprint shrinks.
+
 ## [4.15.0]
 
 ### Added

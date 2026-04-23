@@ -68,7 +68,7 @@ interface RegistrationState {
   await executor.run();
 
   console.log('Narrative (policy auto-redacts):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // Audit trail — compliance-friendly, never includes values
   const report = executor.getRedactionReport();

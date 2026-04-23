@@ -17,9 +17,9 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
+import type { FlowChart } from '../builder/types.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
-import { NarrativeFlowRecorder } from '../engine/narrative/NarrativeFlowRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
@@ -29,7 +29,6 @@ import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
   type ExecutorResult,
   type ExtractorError,
-  type FlowChart,
   type PausedResult,
   type RunOptions,
   type ScopeFactory,
@@ -337,7 +336,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       extractor: fc.extractor,
       scopeProtectionMode: args.scopeProtectionMode,
       subflows: fc.subflows,
-      enrichSnapshots: args.enrichSnapshots ?? fc.enrichSnapshots,
+      enrichSnapshots: args.enrichSnapshots,
       narrativeEnabled: narrativeFlag,
       buildTimeStructure: fc.buildTimeStructure,
       logger: fc.logger ?? defaultLogger,
@@ -796,24 +795,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Returns the execution narrative.
-   *
-   * When using ScopeFacade-based scopes, returns a combined narrative that
-   * interleaves flow events (stages, decisions, forks) with data operations
-   * (reads, writes, updates). For plain scopes without attachRecorder support,
-   * returns flow-only narrative sentences.
-   */
-  getNarrative(): string[] {
-    // Combined recorder builds the narrative inline during traversal — just read it
-    if (this.combinedRecorder) {
-      return this.combinedRecorder.getNarrative();
-    }
-    return this.traverser.getNarrative();
-  }
-
-  /**
-   * Returns structured narrative entries for programmatic consumption.
-   * Each entry has a type (stage, step, condition, fork, etc.), text, and depth.
+   * Returns structured narrative entries — the single public narrative API.
+   * Each entry has a type (stage, step, condition, fork, etc.), text, and
+   * depth. Consumers render however they want; call `.map(e => e.text)`
+   * if a flat `string[]` is needed locally.
    */
   getNarrativeEntries(): CombinedNarrativeEntry[] {
     if (this.combinedRecorder) {
@@ -824,33 +809,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Returns the combined FlowRecorders list. When narrative is enabled, includes:
-   * - CombinedNarrativeRecorder (builds merged flow+data narrative inline)
-   * - NarrativeFlowRecorder (keeps flow-only sentences for getFlowNarrative())
-   * Plus any user-attached recorders.
+   * Returns the combined FlowRecorders list. When narrative is enabled,
+   * includes the CombinedNarrativeRecorder (which builds merged flow+data
+   * entries inline). Plus any user-attached recorders.
    */
   private buildFlowRecordersList(): FlowRecorder[] | undefined {
     const recorders: FlowRecorder[] = [];
     if (this.combinedRecorder) {
       recorders.push(this.combinedRecorder);
-      // Keep the default NarrativeFlowRecorder so getFlowNarrative() still works
-      recorders.push(new NarrativeFlowRecorder());
     }
     recorders.push(...this.flowRecorders);
     return recorders.length > 0 ? recorders : undefined;
-  }
-
-  /**
-   * Returns flow-only narrative sentences (without data operations).
-   * Use this when you only want control flow descriptions.
-   *
-   * Sentences come from `NarrativeFlowRecorder` (a dedicated flow-only recorder automatically
-   * attached when narrative is enabled). It emits both `onStageExecuted` sentences (one per
-   * stage) AND `onNext` transition sentences (one per stage-to-stage transition), so for a
-   * chart with N stages you will typically get more entries here than from `getNarrative()`.
-   */
-  getFlowNarrative(): string[] {
-    return this.traverser.getNarrative();
   }
 
   async run(options?: RunOptions): Promise<ExecutorResult> {

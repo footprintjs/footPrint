@@ -193,13 +193,13 @@ describe('Narrative pause/resume — scenario', () => {
 
     // Run until pause
     await executor.run();
-    const pauseNarrative = executor.getNarrative();
+    const pauseNarrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(pauseNarrative.some((s) => s.includes('paused'))).toBe(true);
 
     // Resume
     const cp = executor.getCheckpoint()!;
     await executor.resume(cp, { approved: true });
-    const resumeNarrative = executor.getNarrative();
+    const resumeNarrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(resumeNarrative.some((s) => s.includes('resumed'))).toBe(true);
   });
 });
@@ -264,7 +264,7 @@ describe('Narrative pause/resume — security', () => {
     await executor.run();
 
     // pauseData is in the event object (for programmatic use), but NOT in the text
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     const allText = narrative.join(' ');
     expect(allText).not.toContain('API_KEY_123');
     expect(allText).not.toContain('secret');

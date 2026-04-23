@@ -70,7 +70,7 @@ describe('Scenario: Subflow internal narrative events', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
 
     // The narrative should mention transitions between subflow stages
     const entries = executor.getNarrativeEntries();
@@ -82,7 +82,17 @@ describe('Scenario: Subflow internal narrative events', () => {
     expect(subflowStageEntries.length).toBe(3);
 
     // Flow narrative should contain next-step references
-    const flowNarrative = executor.getFlowNarrative();
+    const flowNarrative = executor
+      .getNarrativeEntries()
+      .filter(
+        (e) =>
+          e.type === 'stage' ||
+          e.type === 'subflow' ||
+          e.type === 'decision' ||
+          e.type === 'fork' ||
+          e.type === 'selector',
+      )
+      .map((e) => e.text);
     expect(flowNarrative.length).toBeGreaterThan(0);
 
     // Should mention Step2 and Step3 as destinations (from onNext calls)

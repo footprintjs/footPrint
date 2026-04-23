@@ -103,5 +103,5 @@ executor.enableNarrative();
 await executor.run();
 
 console.log('=== Fork (Parallel Branches) ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

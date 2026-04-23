@@ -180,7 +180,7 @@ describe('Scenario: Subflow Execution', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.some((s) => s.includes('MySubFlow'))).toBe(true);
   });
 

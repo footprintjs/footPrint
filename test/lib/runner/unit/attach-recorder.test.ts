@@ -115,7 +115,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     await executor.run();
 
     // Narrative still works
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // MetricRecorder also got events
     expect(metrics.getMetrics().totalWrites).toBeGreaterThanOrEqual(1);

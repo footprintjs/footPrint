@@ -88,7 +88,7 @@ const quality = new QualityRecorder((runtimeStageId, ctx) => {
 
   // Show narrative
   console.log('=== Narrative ===\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // Show quality scores
   console.log('\n=== Quality Scores ===\n');

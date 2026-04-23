@@ -101,13 +101,13 @@ describe('Resume continuity — unit', () => {
     executor.enableNarrative();
 
     await executor.run();
-    const pauseNarrative = executor.getNarrative();
+    const pauseNarrative = executor.getNarrativeEntries().map((e) => e.text);
     const pauseEntryCount = executor.getNarrativeEntries().length;
 
     const cp = executor.getCheckpoint()!;
     await executor.resume(cp, { approved: true });
 
-    const fullNarrative = executor.getNarrative();
+    const fullNarrative = executor.getNarrativeEntries().map((e) => e.text);
     const fullEntryCount = executor.getNarrativeEntries().length;
 
     // Full narrative is longer than pause-only narrative

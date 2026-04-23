@@ -54,20 +54,17 @@ import { MetricRecorder } from './lib/scope/recorders/MetricRecorder.js';
 
 // ---- Narrative ----
 
-export type NarrativeInstance = CombinedNarrativeRecorder & {
-  lines(): string[];
-  structured(): CombinedNarrativeEntry[];
-};
+/**
+ * Recorder factory for combined flow+data narrative.
+ *
+ * The returned recorder is a `CombinedNarrativeRecorder` — attach it to a
+ * chart/executor, then read structured entries via `.getEntries()` after
+ * the run. For flat strings, call `.getEntries().map(e => e.text)` locally.
+ */
+export type NarrativeInstance = CombinedNarrativeRecorder;
 
 export function narrative(options?: CombinedNarrativeRecorderOptions): NarrativeInstance {
-  const rec = new CombinedNarrativeRecorder(options) as NarrativeInstance;
-  rec.lines = function (this: CombinedNarrativeRecorder) {
-    return this.getNarrative();
-  };
-  rec.structured = function (this: CombinedNarrativeRecorder) {
-    return this.getEntries();
-  };
-  return rec;
+  return new CombinedNarrativeRecorder(options);
 }
 
 // ---- Metrics ----

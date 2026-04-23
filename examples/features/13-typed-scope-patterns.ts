@@ -49,7 +49,7 @@ await executor1.run();
 
 console.log('  Result:', executor1.getSnapshot().sharedState.status);
 console.log('  Narrative:');
-executor1.getNarrative().forEach((line) => console.log(`    ${line}`));
+executor1.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`    ${line}`));
 
 // ── Pattern 2: FlowChartBuilder + TypedScope<T> ────────────
 

@@ -91,7 +91,7 @@ declare const INPUT: { userQuery: string } | undefined;
   await executor.run();
 
   console.log('=== Agent Loop (Pure FootPrint) ===\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const { sharedState } = executor.getSnapshot();
   console.log(`\nFinal answer: ${sharedState.finalAnswer}`);

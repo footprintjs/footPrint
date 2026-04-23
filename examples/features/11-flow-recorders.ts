@@ -62,14 +62,17 @@ function buildLoopChart(iterations = 20) {
   executor.attachFlowRecorder(narrator1);
   executor.attachFlowRecorder(metrics);
   await executor.run();
-  console.log(`\n  Flow narrative: ${executor.getFlowNarrative().length} sentences\n`);
+  console.log(`\n  Flow narrative: ${executor.getNarrativeEntries().filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector').length} sentences\n`);
 
   console.log('=== 2. Windowed Strategy (first 3 + last 2) ===\n');
 
   executor = new FlowChartExecutor(buildLoopChart(20));
   executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
   await executor.run();
-  executor.getFlowNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`  ${line}`));
   console.log();
 
   console.log('=== 3. Silent Strategy (summary only) ===\n');
@@ -77,7 +80,10 @@ function buildLoopChart(iterations = 20) {
   executor = new FlowChartExecutor(buildLoopChart(20));
   executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
   await executor.run();
-  executor.getFlowNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`  ${line}`));
   console.log();
 
   console.log('=== 4. Adaptive Strategy (full for 3, then every 5th) ===\n');
@@ -85,7 +91,10 @@ function buildLoopChart(iterations = 20) {
   executor = new FlowChartExecutor(buildLoopChart(20));
   executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(3, 5));
   await executor.run();
-  executor.getFlowNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`  ${line}`));
   console.log();
 
   console.log('=== 5. Separate Strategy (main + loop detail channels) ===\n');
@@ -96,7 +105,10 @@ function buildLoopChart(iterations = 20) {
   await executor.run();
 
   console.log('  Main narrative:');
-  executor.getFlowNarrative().forEach((line) => console.log(`    ${line}`));
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`    ${line}`));
   console.log(`\n  Loop detail (${separate.getLoopSentences().length} sentences):`);
   separate.getLoopSentences().slice(0, 3).forEach((line) => console.log(`    ${line}`));
   if (separate.getLoopSentences().length > 3) console.log('    ...');

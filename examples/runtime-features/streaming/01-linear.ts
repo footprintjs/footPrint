@@ -54,5 +54,5 @@ const chart = flowChart<SummaryState>('PrepareContext', async (scope) => {
 
   console.log(`Tokens collected: ${collected.length}`);
   console.log('Narrative:');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

@@ -262,7 +262,7 @@ describe('getSubtreeSnapshot', () => {
     expect(subtree!.executionTree).toBeDefined();
 
     // Narrative should contain subflow entry/exit
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     const hasSubflowMention = narrative.some(
       (line) => line.toLowerCase().includes('processor') || line.toLowerCase().includes('subflow'),

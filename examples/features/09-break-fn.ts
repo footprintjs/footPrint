@@ -64,7 +64,7 @@ const executor1 = new FlowChartExecutor(validationChart);
 executor1.enableNarrative();
 await executor1.run();
 
-executor1.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor1.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\n  ProcessPayment and SendConfirmation never ran.\n');
 
 // ── Scenario 2: Budget limit — stop when cost threshold is reached ──────
@@ -122,7 +122,7 @@ const executor2 = new FlowChartExecutor(budgetChart);
 executor2.enableNarrative();
 await executor2.run();
 
-executor2.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor2.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\n  BuyItem4 never ran — budget of $100 reached at $125.\n');
 
 })().catch(console.error);

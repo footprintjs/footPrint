@@ -52,5 +52,5 @@ const chart = flowChart<ParentState>('Seed', async (scope) => {
   const snap = executor.getSnapshot();
   console.log(`Post-subflow ran: ${snap.sharedState?.postSubflowRan}`);
   console.log('Narrative:');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

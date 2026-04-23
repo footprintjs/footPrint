@@ -49,5 +49,5 @@ const chart = flowChart<LoanState>('Load', async (scope) => {
 
   console.log('Decision:', executor.getSnapshot().sharedState?.decision);
   console.log('\nNarrative (with evidence):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

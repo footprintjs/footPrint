@@ -103,7 +103,7 @@ function printManifest(entries: ManifestEntry[], indent = 0) {
 printManifest(manifest.getManifest());
 
 console.log('\n=== Narrative ===\n');
-for (const line of executor.getNarrative()) {
+for (const line of executor.getNarrativeEntries().map(e => e.text)) {
   console.log(`  ${line}`);
 }
 

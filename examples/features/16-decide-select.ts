@@ -77,7 +77,7 @@ loanExecutor.enableNarrative();
 await loanExecutor.run();
 
 console.log('Narrative (filter evidence shows operators + thresholds):');
-loanExecutor.getNarrative().forEach((line) => console.log(`  ${line}`));
+loanExecutor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
 // ── Scenario 2: decide() with function rules ────────────────────────────
 
@@ -115,7 +115,7 @@ fnExecutor.enableNarrative();
 await fnExecutor.run();
 
 console.log('Narrative (function evidence shows which keys were read):');
-fnExecutor.getNarrative().forEach((line) => console.log(`  ${line}`));
+fnExecutor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
 // ── Scenario 3: select() for multi-match ────────────────────────────────
 
@@ -156,7 +156,7 @@ screeningExecutor.enableNarrative();
 await screeningExecutor.run();
 
 console.log('\nNarrative:');
-screeningExecutor.getNarrative().forEach((line) => console.log(`  ${line}`));
+screeningExecutor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
 console.log('\n=== Summary ===');
 console.log('  decide(): first-match, auto-captures decision evidence');

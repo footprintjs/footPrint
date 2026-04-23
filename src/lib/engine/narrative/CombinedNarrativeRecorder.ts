@@ -505,13 +505,6 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
 
   // ── Output (narrative-specific) ───────────────────────────────────────
 
-  /** Returns formatted narrative lines (same output as CombinedNarrativeBuilder.build). */
-  getNarrative(indent = '  '): string[] {
-    const lines: string[] = [];
-    this.forEachEntry((entry) => lines.push(`${indent.repeat(entry.depth)}${entry.text}`));
-    return lines;
-  }
-
   /**
    * Returns entries grouped by subflowId for structured access.
    * Root-level entries have subflowId = undefined.

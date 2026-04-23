@@ -96,5 +96,5 @@ executor.enableNarrative();
 await executor.run();
 
 console.log('\n=== Loops (Retry with Backoff) ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

@@ -47,6 +47,6 @@ executor.enableNarrative();
 await executor.run();
 
 console.log('=== TypedScope — Typed Property Access ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\nNo casts. No getValue/setValue. Just typed properties.');
 })().catch(console.error);

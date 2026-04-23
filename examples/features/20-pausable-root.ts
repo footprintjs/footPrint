@@ -62,7 +62,7 @@ await executor.resume(checkpoint, { approved: true });
 
 console.log('Result:', executor.getSnapshot()?.sharedState?.result);
 console.log('\nNarrative:');
-for (const line of executor.getNarrative()) {
+for (const line of executor.getNarrativeEntries().map(e => e.text)) {
   console.log(' ', line);
 }
 })().catch(console.error);

@@ -42,7 +42,7 @@ await executor.run({ input: { orderId: 'ORD-001', total: 49.99 } });
 
 // The narrative generates itself — no manual logging
 console.log('=== Narrative ===\n');
-for (const line of executor.getNarrative()) {
+for (const line of executor.getNarrativeEntries().map(e => e.text)) {
   console.log(line);
 }
 

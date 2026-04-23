@@ -121,7 +121,7 @@ const chart = flowChart<CheckoutState>(
   await executor.run();
 
   console.log('Narrative (cardNumber auto-redacted throughout):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const report = executor.getRedactionReport();
   console.log(`\nRedaction report — keys redacted: [${report.redactedKeys.join(', ')}]`);

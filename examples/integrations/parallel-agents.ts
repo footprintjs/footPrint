@@ -63,5 +63,5 @@ const writingRunner = {
   console.log(result.content);
 
   console.log('\n--- Narrative ---');
-  parallel.getNarrative().forEach((line) => console.log(`  ${line}`));
+  parallel.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

@@ -109,12 +109,12 @@ const chart = flowChart<ParentState>(
   await executor.run();
 
   console.log('Narrative (custom renderer takes effect everywhere):\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // Regression-guard assertion: the domain-aware line MUST appear at least
   // twice — once for the scope write in Seed, once for the subflow input
   // in ExecuteTools' entry. Before the fix, only the first one appeared.
-  const narrative = executor.getNarrative();
+  const narrative = executor.getNarrativeEntries().map(e => e.text);
   const matches = narrative.filter((line) =>
     line.includes('Parsed: tool_calls → [calculator({})]'),
   );

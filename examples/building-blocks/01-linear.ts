@@ -66,7 +66,7 @@ executor.enableNarrative();
 await executor.run({ input });
 
 console.log('=== Linear Pipeline ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\n--- Email Log ---');
 emailLog.forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

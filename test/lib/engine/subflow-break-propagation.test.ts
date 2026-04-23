@@ -306,7 +306,7 @@ describe('subflow break propagation — scenario', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const lines = executor.getNarrative();
+    const lines = executor.getNarrativeEntries().map((e) => e.text);
     // At least one entry should reference the break — default narrative
     // renderer may include text like "Execution stopped at X". We don't
     // assert exact wording (renderer implementation detail), only that a

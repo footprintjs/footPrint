@@ -189,7 +189,7 @@ describe('raw value buffering — scenario', () => {
     });
     rec.onStageExecuted(makeStageEvent('Init', undefined, rid));
 
-    const lines = rec.getNarrative();
+    const lines = rec.getEntries().map((e) => e.text);
     // Custom formatter shows [a, b, c] instead of (3 items)
     const itemsLine = lines.find((l) => l.includes('items'));
     expect(itemsLine).toBeDefined();

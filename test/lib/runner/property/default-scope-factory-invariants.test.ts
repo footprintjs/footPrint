@@ -77,7 +77,7 @@ describe('FlowChartExecutor — default scopeFactory (property)', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     // Each property set should produce a Write step
     const writeSteps = narrative.filter((s) => s.includes('Write'));
     expect(writeSteps.length).toBe(3);

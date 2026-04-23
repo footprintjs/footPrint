@@ -41,5 +41,5 @@ const chart = flowChart<PaginationState>('Init', async (scope) => {
   const snap = executor.getSnapshot();
   console.log(`Pages fetched: ${snap.sharedState?.page}`);
   console.log(`Items: ${(snap.sharedState?.allItems as string[]).join(', ')}`);
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

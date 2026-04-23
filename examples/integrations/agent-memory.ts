@@ -46,7 +46,7 @@ console.log();
 
 // ── Inspect narrative after turn 1 ───────────────────────────────────────────
 // The narrative shows PrepareMemory loading history and CommitMemory saving it
-const narrative1 = agent.getNarrative();
+const narrative1 = agent.getNarrativeEntries().map(e => e.text);
 console.log('=== Narrative (Turn 1) ===');
 narrative1.forEach(line => console.log(' ', line));
 console.log();

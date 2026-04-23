@@ -87,7 +87,7 @@ interface OrderState {
     input: { item: 'Widget Pro', quantity: 3, unitPrice: 29.99 },
   });
 
-  const narrative = executor.getNarrative();
+  const narrative = executor.getNarrativeEntries().map(e => e.text);
   console.log('Narrative:');
   narrative.forEach((line) => console.log(`  ${line}`));
 

@@ -150,6 +150,20 @@ export class TopologyRecorder implements FlowRecorder {
   private readonly pendingForkByName = new Map<string, PendingChild>();
   /** Pending decision-branch synthetic node, consumed by a matching entry. */
   private pendingDecision?: { name: string } & PendingChild;
+  /**
+   * The previous subflow that just finished, keyed by scope (parentId,
+   * or '' for root). When a new subflow enters in the same scope via
+   * the normal next-chained path (not fork/decision), we emit a `next`
+   * edge from the previous subflow to the new one — matching how the
+   * builder actually wired them: `.addSubFlowChartNext(A).addSubFlowChartNext(B)`
+   * means A → B, one after the other.
+   *
+   * Without this, consumers only see parent→child edges (A, B, C all
+   * children of their common ancestor) with no record of the actual
+   * A → B → C sequential chain that ran — which is exactly what
+   * TopologyRecorder is supposed to expose.
+   */
+  private readonly previousSubflowInScope = new Map<string, { nodeId: string; exitedAt: string }>();
 
   constructor(options: TopologyRecorderOptions = {}) {
     this.id = options.id ?? `topology-${++_counter}`;
@@ -216,6 +230,33 @@ export class TopologyRecorder implements FlowRecorder {
       });
     }
 
+    // Next-chained edge from the PREVIOUS subflow in this scope.
+    //
+    // `.addSubFlowChartNext(A).addSubFlowChartNext(B).addSubFlowChartNext(C)`
+    // runs as: A enters → A exits → B enters → B exits → C enters. At
+    // B's entry the stack has returned to the scope it was in before A
+    // entered (root, or the shared ancestor). Without this edge we'd
+    // see nodes {A, B, C} but no record that A ran BEFORE B which ran
+    // BEFORE C — and downstream consumers would have to reconstruct
+    // sequential ordering themselves.
+    //
+    // Only emit on the regular-entry path. Fork/decision entries have
+    // their own edge mechanics (parent→fork-branch, parent→decision-
+    // branch) that carry the branching semantics.
+    if (incomingKind === 'next' || incomingKind === 'root') {
+      const scopeKey = parentId ?? '';
+      const previous = this.previousSubflowInScope.get(scopeKey);
+      if (previous) {
+        this.edges.push({
+          from: previous.nodeId,
+          to: nodeId,
+          kind: 'next',
+          at: enteredAt,
+        });
+        this.previousSubflowInScope.delete(scopeKey);
+      }
+    }
+
     this.subflowStack.push(nodeId);
   }
 
@@ -223,13 +264,26 @@ export class TopologyRecorder implements FlowRecorder {
     const nodeId = this.subflowStack.pop();
     if (!nodeId) return;
     const node = this.nodesById.get(nodeId);
+    const exitedAt = event.traversalContext?.runtimeStageId ?? '';
     if (node) {
-      node.exitedAt = event.traversalContext?.runtimeStageId ?? '';
+      node.exitedAt = exitedAt;
+      // Remember this node as the "previous subflow" in its scope.
+      // Whatever subflow enters NEXT in the same scope (normal-entry
+      // path, not fork/decision) gets a `next` edge drawn from here
+      // — this is the real sequential A → B transition that the
+      // `.addSubFlowChartNext()` builder produced.
+      const scopeKey = node.parentId ?? '';
+      this.previousSubflowInScope.set(scopeKey, { nodeId, exitedAt });
     }
-    // A subflow exit implies no more children are pending for this scope —
-    // clear stale pending state that belonged to the scope we just left.
-    this.pendingForkByName.clear();
+    // Clear pendingDecision on exit — a decision identifies exactly ONE
+    // target. If the chosen goes to a plain stage (not a subflow), the
+    // pending entry would otherwise linger and falsely match an
+    // unrelated subflow later in a different scope.
     this.pendingDecision = undefined;
+    // Deliberately NOT clearing pendingForkByName — fork siblings need
+    // their pending entries to survive scope exits of earlier siblings
+    // (e.g. Alpha's inner sf-messages exits before Beta enters). Fork
+    // pending entries are cleared on new `onFork` or consumed on match.
   }
 
   onFork(event: FlowForkEvent): void {
@@ -312,6 +366,7 @@ export class TopologyRecorder implements FlowRecorder {
     this.edges.length = 0;
     this.subflowStack.length = 0;
     this.pendingForkByName.clear();
+    this.previousSubflowInScope.clear();
     this.pendingDecision = undefined;
   }
 

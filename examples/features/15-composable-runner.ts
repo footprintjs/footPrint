@@ -122,7 +122,7 @@ const snapshot = executor.getSnapshot();
 // ── 3. Results ──────────────────────────────────────────────────────────
 
 console.log('=== Full Order Narrative ===\n');
-for (const line of executor.getNarrative()) {
+for (const line of executor.getNarrativeEntries().map(e => e.text)) {
   console.log(`  ${line}`);
 }
 

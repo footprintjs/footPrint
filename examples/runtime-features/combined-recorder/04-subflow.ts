@@ -34,7 +34,7 @@ const chart = flowChart<State>('Seed', async (scope) => {
   await executor.run();
 
   console.log('Narrative (with subflow entry/exit):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   console.log('\nStructured entries:');
   const entries = executor.getNarrativeEntries();

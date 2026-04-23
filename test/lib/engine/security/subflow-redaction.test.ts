@@ -97,7 +97,10 @@ describe('Security: subflow PII boundary — redaction via outputMapper', () => 
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative().join('\n');
+    const narrative = executor
+      .getNarrativeEntries()
+      .map((e) => e.text)
+      .join('\n');
     // After the subflow stage marks cardNumber as redacted, all subsequent
     // reads/writes of cardNumber show [REDACTED] — both inside the subflow
     // and in the parent's output mapping.
@@ -123,7 +126,10 @@ describe('Security: subflow PII boundary — redaction via outputMapper', () => 
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative().join('\n');
+    const narrative = executor
+      .getNarrativeEntries()
+      .map((e) => e.text)
+      .join('\n');
     // transactionId is not redacted — should appear in narrative
     expect(narrative).toContain('TXN-SAFE');
     // status is not redacted

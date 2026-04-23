@@ -30,8 +30,8 @@ const chart = flowChart<State>('Seed', async (scope) => {
   await executor.run();
 
   // 1. String array — for display
-  console.log('=== getNarrative() ===');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  console.log('=== getNarrativeEntries().map(e => e.text) ===');
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   // 2. Structured entries — for programmatic access
   console.log('\n=== getNarrativeEntries() ===');
@@ -40,6 +40,9 @@ const chart = flowChart<State>('Seed', async (scope) => {
   }
 
   // 3. Flow-only narrative — control flow without data ops
-  console.log('\n=== getFlowNarrative() ===');
-  executor.getFlowNarrative().forEach((line) => console.log(`  ${line}`));
+  console.log('\n=== flow-only entries ===');
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

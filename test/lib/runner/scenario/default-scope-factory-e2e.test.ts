@@ -31,7 +31,7 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // Default scopeFactory supports attachRecorder, so combined narrative includes writes
     expect(narrative.some((s) => s.includes('Write'))).toBe(true);
@@ -83,14 +83,14 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
     const exec1 = new FlowChartExecutor(typedChart);
     exec1.enableNarrative();
     const result1 = await exec1.run();
-    const narrative1 = exec1.getNarrative();
+    const narrative1 = exec1.getNarrativeEntries().map((e) => e.text);
 
     // With explicit scopeFactory (ScopeFacade)
     const explicitFactory = (ctx: any, stageName: string) => new ScopeFacade(ctx, stageName);
     const exec2 = new FlowChartExecutor(facadeChart, explicitFactory);
     exec2.enableNarrative();
     const result2 = await exec2.run();
-    const narrative2 = exec2.getNarrative();
+    const narrative2 = exec2.getNarrativeEntries().map((e) => e.text);
 
     expect(result1).toBe(result2);
     expect(narrative1.length).toBe(narrative2.length);

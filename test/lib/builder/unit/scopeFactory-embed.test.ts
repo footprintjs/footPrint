@@ -62,7 +62,7 @@ describe('scopeFactory embed — Unit', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     expect(narrative.some((line) => line.includes('name'))).toBe(true);
   });
@@ -152,7 +152,7 @@ describe('scopeFactory embed — Scenario', () => {
     await executor.run();
 
     expect(executor.getSnapshot().sharedState.tier).toBe('premium');
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.some((line) => line.includes('High score'))).toBe(true);
   });
 });

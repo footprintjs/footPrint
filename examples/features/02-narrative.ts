@@ -45,7 +45,7 @@ executor.enableNarrative();
 await executor.run();
 
 console.log('=== Auto-generated Narrative ===\n');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\nNo casts, no scopeFactory boilerplate.');
 console.log('Just flowChart<T>() + enableNarrative() + getNarrative().');
 })().catch(console.error);

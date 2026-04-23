@@ -70,9 +70,12 @@ function buildNoLoopChart() {
   executor.attachFlowRecorder(windowed);
   await executor.run();
 
-  console.log(`  Sentences: ${executor.getFlowNarrative().length}`);
+  const flowEntries1 = executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text);
+  console.log(`  Sentences: ${flowEntries1.length}`);
   console.log(`  Suppressed loops: ${windowed.getSuppressedCount()}`);
-  executor.getFlowNarrative().forEach((line) => console.log(`    ${line}`));
+  flowEntries1.forEach((line) => console.log(`    ${line}`));
   console.log();
 
   // ── 2. Single iteration ────────────────────────────────────────────────
@@ -91,7 +94,10 @@ function buildNoLoopChart() {
     executor = new FlowChartExecutor(buildLoopChart(2)); // 1 loop iteration
     executor.attachFlowRecorder(recorder);
     await executor.run();
-    const loopSentences = executor.getFlowNarrative().filter(s => s.includes('pass') || s.includes('Looped'));
+    const loopSentences = executor.getNarrativeEntries()
+      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+      .map(e => e.text)
+      .filter(s => s.includes('pass') || s.includes('Looped'));
     console.log(`  ${name}: ${loopSentences.length} loop sentence(s) -> ${loopSentences[0] ?? '(none)'}`);
   }
   console.log();
@@ -114,7 +120,9 @@ function buildNoLoopChart() {
     const start = performance.now();
     await executor.run();
     const elapsed = (performance.now() - start).toFixed(1);
-    const sentences = executor.getFlowNarrative();
+    const sentences = executor.getNarrativeEntries()
+      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+      .map(e => e.text);
     console.log(`  ${name}: ${sentences.length} sentences in ${elapsed}ms`);
   }
   console.log();

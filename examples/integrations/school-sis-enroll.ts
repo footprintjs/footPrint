@@ -178,7 +178,7 @@ declare const INPUT: EnrollmentRequest | undefined;
   await executor.run();
 
   console.log('=== School SIS — Enroll Student ===\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const { sharedState } = executor.getSnapshot();
   console.log(`\nDecision: ${sharedState.decision?.toUpperCase()}`);

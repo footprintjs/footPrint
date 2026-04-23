@@ -66,7 +66,10 @@ function buildLoopChart(iterations: number) {
   await executor.run();
 
   console.log('  Narrative (silent):');
-  executor.getFlowNarrative().forEach((line) => console.log(`    ${line}`));
+  executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text)
+    .forEach((line) => console.log(`    ${line}`));
   console.log(`  Timing recorder captured: ${loopTimings.length} loop timings`);
   console.log();
 
@@ -85,7 +88,7 @@ function buildLoopChart(iterations: number) {
   console.log(`  After detach('debug'): ${executor.getFlowRecorders().map(r => r.id).join(', ')}`);
 
   await executor.run();
-  console.log(`  Narrative sentences: ${executor.getFlowNarrative().length}`);
+  console.log(`  Narrative sentences: ${executor.getNarrativeEntries().filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector').length}`);
   console.log();
 
   // ── 3. Error isolation ─────────────────────────────────────────────────
@@ -106,7 +109,10 @@ function buildLoopChart(iterations: number) {
   await executor.run();
 
   console.log('  Broken recorder threw errors, but execution continued.');
-  console.log(`  Good recorder captured: ${executor.getFlowNarrative().length} sentences`);
-  executor.getFlowNarrative().forEach((line) => console.log(`    ${line}`));
+  const goodSentences = executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text);
+  console.log(`  Good recorder captured: ${goodSentences.length} sentences`);
+  goodSentences.forEach((line) => console.log(`    ${line}`));
 
 })().catch(console.error);

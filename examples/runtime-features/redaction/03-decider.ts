@@ -39,7 +39,7 @@ const chart = flowChart<State>('Seed', async (scope) => {
   await executor.run();
 
   console.log('Narrative (ssn redacted in premium branch):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const report = executor.getRedactionReport();
   console.log(`\nRedacted keys: ${report.redactedKeys.join(', ')}`);

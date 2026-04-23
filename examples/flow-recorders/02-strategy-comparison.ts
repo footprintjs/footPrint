@@ -180,7 +180,9 @@ class EveryFailureRecorder extends NarrativeFlowRecorder {
     executor.attachFlowRecorder(recorder);
     await executor.run();
 
-    const sentences = executor.getFlowNarrative();
+    const sentences = executor.getNarrativeEntries()
+      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+      .map(e => e.text);
     console.log(`── ${name} ── (${note})`);
     console.log(`   ${sentences.length} sentence(s):\n`);
     sentences.forEach((line) => console.log(`     ${line}`));
@@ -196,7 +198,9 @@ class EveryFailureRecorder extends NarrativeFlowRecorder {
   executor.attachFlowRecorder(separate);
   await executor.run();
 
-  const mainSentences = executor.getFlowNarrative();
+  const mainSentences = executor.getNarrativeEntries()
+    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .map(e => e.text);
   console.log(`   Main narrative (${mainSentences.length} sentences):`);
   mainSentences.forEach((line) => console.log(`     ${line}`));
   console.log(

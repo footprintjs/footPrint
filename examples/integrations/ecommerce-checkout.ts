@@ -140,7 +140,7 @@ declare const INPUT: { orderId?: string; customerId?: string; items?: { sku: str
   await executor.run();
 
   console.log('=== E-commerce Checkout ===\n');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const { sharedState } = executor.getSnapshot();
   console.log(`\nOrder ${sharedState.orderId}: ${sharedState.status}`);

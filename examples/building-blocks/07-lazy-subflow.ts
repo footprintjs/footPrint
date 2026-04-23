@@ -200,7 +200,7 @@ await executor.run();
 console.log(`\nResolvers called: [${resolverLog.join(', ')}] (notification was NOT called)`);
 
 console.log('\nNarrative:');
-executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
 const snap = executor.getSnapshot();
 console.log('\nScope (selected services wrote their data):');

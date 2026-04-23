@@ -78,5 +78,5 @@ const chart = flowChart<State>('Seed', async (scope) => {
   }
 
   console.log('\nNarrative (spans pause boundary):');
-  executor.getNarrative().forEach((line) => console.log(`  ${line}`));
+  executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

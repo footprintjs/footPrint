@@ -163,7 +163,7 @@ const testApplicant = {
 
   const snapshot = executor.getSnapshot();
   const decision = (snapshot.sharedState as unknown as CreditState).decision;
-  const narrative = executor.getNarrative();
+  const narrative = executor.getNarrativeEntries().map(e => e.text);
 
   console.log('Decision:', decision);
   console.log('\nCausal trace (captured by FootPrint):');

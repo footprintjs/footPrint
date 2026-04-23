@@ -179,7 +179,7 @@ executor.attachRecorder(metricsRecorder);
 executor.attachRecorder(debugRecorder);
 await executor.run({ input: toolUse.input });
 
-const narrativeLines = executor.getNarrative();
+const narrativeLines = executor.getNarrativeEntries().map(e => e.text);
 const snapshot = executor.getSnapshot();
 const decision = (snapshot.sharedState as any).decision;
 

@@ -102,7 +102,7 @@ console.log();
 // ── Show narrative — the decider decisions are visible ───────────────────
 
 console.log('=== Narrative ===');
-const narrative = agent.getNarrative();
+const narrative = agent.getNarrativeEntries().map(e => e.text);
 narrative.forEach(line => console.log(' ', line));
 console.log();
 

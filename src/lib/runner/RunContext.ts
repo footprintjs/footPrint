@@ -8,8 +8,9 @@
  * The chart is immutable. RunContext is ephemeral per-run config.
  */
 
+import type { FlowChart } from '../builder/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { FlowChart, RunOptions } from '../engine/types.js';
+import type { RunOptions } from '../engine/types.js';
 import type { Recorder, RedactionPolicy } from '../scope/types.js';
 import { FlowChartExecutor } from './FlowChartExecutor.js';
 
@@ -19,8 +20,6 @@ export interface RunResult {
   state: Record<string, unknown>;
   /** Mapped output via contract mapper (if declared). */
   output: unknown;
-  /** Narrative lines (if narrative was enabled). */
-  narrative: string[];
   /** Full execution tree for debugging. */
   executionTree: unknown;
   /** Commit log for time-travel. */
@@ -100,7 +99,6 @@ export class RunContext<TOut = any, TScope = any> {
     return {
       state: snapshot.sharedState || {},
       output,
-      narrative: executor.getNarrative(),
       executionTree: snapshot.executionTree,
       commitLog: snapshot.commitLog || [],
     };

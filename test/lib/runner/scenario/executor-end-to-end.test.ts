@@ -339,7 +339,7 @@ describe('FlowChartExecutor — end-to-end', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     expect(narrative[0]).toContain('validate');
   });
@@ -353,11 +353,11 @@ describe('FlowChartExecutor — end-to-end', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
   });
 
-  it('getNarrative() returns flow-only for plain scopes', async () => {
+  it('getNarrativeEntries() returns flow-only for plain scopes', async () => {
     const chart = flowChart('validate', () => {}, 'validate')
       .addFunction('process', () => {}, 'process')
       .build();
@@ -366,7 +366,7 @@ describe('FlowChartExecutor — end-to-end', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // Plain scopes don't support attachRecorder, so no data steps
     expect(narrative.some((s) => s.includes('Write'))).toBe(false);
@@ -538,7 +538,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     expect(result).toBe('Alice');
   });
 
-  it('getNarrative() returns combined narrative with data operations', async () => {
+  it('getNarrativeEntries() returns combined narrative with data operations', async () => {
     const scopeFactory = toScopeFactory(TestScope);
     const chart = flowChart(
       'write',
@@ -560,7 +560,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // Combined narrative includes data operations
     expect(narrative.some((s) => s.includes('Write'))).toBe(true);
@@ -568,7 +568,7 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     expect(narrative.some((s) => s.includes('Alice'))).toBe(true);
   });
 
-  it('getFlowNarrative() returns flow-only sentences', async () => {
+  it('getNarrativeEntries() returns flow-only sentences', async () => {
     const scopeFactory = toScopeFactory(TestScope);
     const chart = flowChart(
       'write',
@@ -582,7 +582,17 @@ describe('FlowChartExecutor — ScopeFacade integration', () => {
     executor.enableNarrative();
     await executor.run();
 
-    const flow = executor.getFlowNarrative();
+    const flow = executor
+      .getNarrativeEntries()
+      .filter(
+        (e) =>
+          e.type === 'stage' ||
+          e.type === 'subflow' ||
+          e.type === 'decision' ||
+          e.type === 'fork' ||
+          e.type === 'selector',
+      )
+      .map((e) => e.text);
     expect(flow.length).toBeGreaterThan(0);
     // Flow-only should NOT contain data step details
     expect(flow.some((s) => s.includes('Write'))).toBe(false);

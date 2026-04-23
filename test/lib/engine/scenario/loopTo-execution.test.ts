@@ -112,7 +112,7 @@ describe('Scenario: loopTo runtime execution', () => {
     executor.enableNarrative();
     await executor.run({ input: {} });
 
-    const narrative = executor.getNarrative();
+    const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
     // Should mention Counter stage multiple times
     const counterMentions = narrative.filter((s) => s.includes('Counter'));
