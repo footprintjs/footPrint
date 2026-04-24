@@ -34,6 +34,11 @@ describe('Scenario: Subflow manifest collection', () => {
     expect(entries[0].subflowId).toBe('sf-sub');
     expect(entries[0].name).toBe('MySubflow');
     expect(entries[0].children).toEqual([]);
+    // `FlowSubflowEvent.description` must propagate from the inner subflow
+    // root — not the parent mount node. Downstream consumers (agentfootprint,
+    // Lens) set taxonomy markers on the subflow root (e.g. `'Agent: ReAct loop'`)
+    // and read them off this field to classify the subflow kind.
+    expect(entries[0].description).toBe('Subflow entry point');
   });
 
   it('collects nested manifest for subflow within decider branch', async () => {

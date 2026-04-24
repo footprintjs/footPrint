@@ -78,10 +78,16 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // Narrative receives mapped input. inputMapper is a consumer function that may inject
     // values not from the scope (bypassing redaction). The recorder renders per includeValues.
     const narrativeInput = mappedInput;
+    // `FlowSubflowEvent.description` is semantically "what this subflow does" — sourced from
+    // the subflow's own root stage, not the parent mount point. The mount node never carries
+    // a description (builders don't copy it), so reading `node.description` here returns
+    // `undefined` and taxonomy markers set on the subflow root (e.g. agentfootprint's
+    // `'Agent: ReAct loop'` / `'LLMCall: one-shot'`) never reach downstream consumers.
+    const rootDescription = this.deps.subflows?.[subflowId]?.root?.description;
     this.deps.narrativeGenerator.onSubflowEntry(
       subflowName,
       subflowId,
-      node.description,
+      rootDescription ?? node.description,
       parentTraversalContext,
       narrativeInput,
     );
