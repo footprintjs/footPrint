@@ -48,9 +48,10 @@ export type {
 } from './lib/recorder/TopologyRecorder.js';
 export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecorder.js';
 
-// BoundaryRecorder — subflow boundary stream (entry/exit pairs with mapper payloads)
-export type { BoundaryPhase, BoundaryRecorderOptions, StepBoundary } from './lib/recorder/BoundaryRecorder.js';
-export { BoundaryRecorder, boundaryRecorder } from './lib/recorder/BoundaryRecorder.js';
+// InOutRecorder — chart in/out stream (entry/exit pairs at every chart boundary,
+// including the top-level run and every subflow)
+export type { InOutEntry, InOutPhase, InOutRecorderOptions } from './lib/recorder/InOutRecorder.js';
+export { InOutRecorder, inOutRecorder, ROOT_RUNTIME_STAGE_ID, ROOT_SUBFLOW_ID } from './lib/recorder/InOutRecorder.js';
 
 // QualityRecorder — per-step quality scoring with backtracking
 export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';

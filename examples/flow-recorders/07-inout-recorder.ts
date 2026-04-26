@@ -1,5 +1,5 @@
 /**
- * BoundaryRecorder — captures subflow entry/exit pairs with mapper payloads.
+ * InOutRecorder — captures subflow entry/exit pairs with mapper payloads.
  *
  * Why it exists:
  *   Every subflow execution has two natural step boundaries baked into the
@@ -7,7 +7,7 @@
  *   pair brackets the subflow's body in time AND carries the data crossing
  *   the boundary.
  *
- *   `TopologyRecorder` captures the SHAPE of composition. `BoundaryRecorder`
+ *   `TopologyRecorder` captures the SHAPE of composition. `InOutRecorder`
  *   captures the PAYLOADS at each boundary. Together they're the universal
  *   "step" primitive that downstream layers (Lens, custom dashboards)
  *   project — all bound by `runtimeStageId`.
@@ -19,10 +19,10 @@
  *     stream (`getBoundaries`)
  *   - Nested subflow case (path decomposition)
  *
- * Run:  npx tsx examples/flow-recorders/07-boundary-recorder.ts
+ * Run:  npx tsx examples/flow-recorders/07-inout-recorder.ts
  */
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { boundaryRecorder } from 'footprintjs/trace';
+import { inOutRecorder } from 'footprintjs/trace';
 
 // ── A small subflow that computes a doubling ─────────────────────────
 interface Doubler {
@@ -60,27 +60,27 @@ const outerChart = flowChart<Outer>(
 async function basicExample() {
   console.log('── Basic example: one subflow with mappers ──');
   const executor = new FlowChartExecutor(outerChart);
-  const boundaries = boundaryRecorder();
+  const inOut = inOutRecorder();
   executor.attachCombinedRecorder(boundaries);
 
   await executor.run({ input: {} });
 
   // Timeline projection: just the entry phases, in execution order.
   console.log('\nSteps (timeline):');
-  for (const step of boundaries.getSteps()) {
+  for (const step of inOut.getSteps()) {
     console.log(`  ${step.subflowId.padEnd(20)} runtime=${step.runtimeStageId}  payload=${JSON.stringify(step.payload)}`);
   }
 
   // Per-step pair lookup: input + output for one execution.
   console.log('\nBoundary pair for the doubling subflow:');
-  const step = boundaries.getSteps()[0];
-  const pair = boundaries.getBoundary(step.runtimeStageId);
+  const step = inOut.getSteps()[0];
+  const pair = inOut.getBoundary(step.runtimeStageId);
   console.log(`  entry payload (inputMapper): ${JSON.stringify(pair.entry?.payload)}`);
   console.log(`  exit payload (subflow shared state): ${JSON.stringify(pair.exit?.payload)}`);
 
   // Full interleaved stream.
   console.log('\nFull boundary stream:');
-  for (const b of boundaries.getBoundaries()) {
+  for (const b of inOut.getBoundaries()) {
     console.log(`  ${b.phase.padEnd(5)}  ${b.subflowId}  @ ${b.runtimeStageId}`);
   }
 }
@@ -134,12 +134,12 @@ async function nestedExample() {
     .build();
 
   const executor = new FlowChartExecutor(root);
-  const boundaries = boundaryRecorder();
+  const inOut = inOutRecorder();
   executor.attachCombinedRecorder(boundaries);
   await executor.run({ input: {} });
 
   console.log('\nSteps (with subflowPath):');
-  for (const step of boundaries.getSteps()) {
+  for (const step of inOut.getSteps()) {
     const indent = '  '.repeat(step.depth);
     console.log(`${indent}- depth=${step.depth} subflowId=${step.subflowId.padEnd(22)} path=${JSON.stringify(step.subflowPath)} payload=${JSON.stringify(step.payload)}`);
   }
@@ -148,10 +148,10 @@ async function nestedExample() {
 // ── In-progress / paused: entry without exit ─────────────────────────
 function inProgressExample() {
   console.log('\n\n── In-progress example: entry without matching exit ──');
-  // BoundaryRecorder is robust to entry-only events. Useful when a subflow
+  // InOutRecorder is robust to entry-only events. Useful when a subflow
   // pauses (PauseSignal) — exit doesn't fire until resume completes.
-  const boundaries = boundaryRecorder();
-  boundaries.onSubflowEntry!({
+  const inOut = inOutRecorder();
+  inOut.onSubflowEntry!({
     name: 'AwaitingApproval',
     subflowId: 'sf-pause',
     traversalContext: {
@@ -163,10 +163,10 @@ function inProgressExample() {
     mappedInput: { question: 'Approve $50,000?' },
   });
 
-  const pair = boundaries.getBoundary('sf-pause#0');
+  const pair = inOut.getBoundary('sf-pause#0');
   console.log(`  entry: ${pair.entry ? 'present' : 'missing'}`);
   console.log(`  exit:  ${pair.exit ? 'present' : 'missing (in-progress / paused)'}`);
-  console.log(`  step still appears in timeline: getSteps() length = ${boundaries.getSteps().length}`);
+  console.log(`  step still appears in timeline: getSteps() length = ${inOut.getSteps().length}`);
 }
 
 async function main() {

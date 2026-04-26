@@ -99,6 +99,21 @@ export interface IControlFlowNarrative {
   /** Called when a paused stage is resumed. */
   onResume(stageName: string, stageId: string, hasInput: boolean, traversalContext?: TraversalContext): void;
 
+  /**
+   * Called once per top-level `executor.run()`, BEFORE the first stage executes.
+   * `input` is the value passed via `run({input})` (after schema validation).
+   * Subflow-traversers do NOT fire this event — they fire `onSubflowEntry`.
+   */
+  onRunStart(input: unknown, traversalContext?: TraversalContext): void;
+
+  /**
+   * Called once per top-level `executor.run()`, AFTER the last stage commits.
+   * `output` is the value the chart returned. NOT fired on pause (the run
+   * didn't end; it suspended) or on uncaught error. Subflow-traversers do
+   * NOT fire this event — they fire `onSubflowExit`.
+   */
+  onRunEnd(output: unknown, traversalContext?: TraversalContext): void;
+
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
 }
@@ -269,6 +284,24 @@ export interface FlowResumeEvent {
 }
 
 /**
+ * Event passed to FlowRecorder.onRunStart / onRunEnd.
+ *
+ * Brackets the top-level `executor.run()` call. Subflows have their own
+ * pair (`onSubflowEntry` / `onSubflowExit`); the run pair is the OUTERMOST
+ * boundary, so consumers building "every step has an in/out" views can
+ * close the chain at the top level.
+ *
+ *   - `onRunStart` payload → the input passed to `run({input})`
+ *   - `onRunEnd`   payload → the chart's return value
+ */
+export interface FlowRunEvent {
+  /** On `onRunStart`: the input from `run({input})` after schema validation.
+   *  On `onRunEnd`: the value returned by the chart. Undefined if neither. */
+  payload?: unknown;
+  traversalContext?: TraversalContext;
+}
+
+/**
  * FlowRecorder — Pluggable observer for control flow events.
  *
  * Mirrors the scope-level Recorder pattern for the engine layer.
@@ -302,6 +335,17 @@ export interface FlowRecorder {
   onError?(event: FlowErrorEvent): void;
   onPause?(event: FlowPauseEvent): void;
   onResume?(event: FlowResumeEvent): void;
+  /**
+   * Called once per top-level `executor.run()` BEFORE traversal begins.
+   * Carries `event.payload = run({input})`. Subflow-traversers don't fire it.
+   */
+  onRunStart?(event: FlowRunEvent): void;
+  /**
+   * Called once per top-level `executor.run()` AFTER traversal completes
+   * cleanly. Carries `event.payload = chart's return value`. NOT fired on
+   * pause (the run didn't end) or uncaught error.
+   */
+  onRunEnd?(event: FlowRunEvent): void;
   /** Called before each run to reset per-run state. Implement for stateful recorders. */
   clear?(): void;
   /** Optional: expose collected data for inclusion in snapshots. */

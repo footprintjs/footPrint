@@ -269,7 +269,7 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `KeyedRecorder<T>` | abstract class | Base for 1:1 Map-based recorders |
 | `SequenceRecorder<T>` | abstract class | Base for 1:N ordered sequence recorders (has `getEntryRanges()` for O(1) time-travel) |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
-| `boundaryRecorder()` / `BoundaryRecorder` | factory / class | Subflow boundary stream — `entry`/`exit` pairs with `inputMapper`/`outputMapper` payloads |
+| `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
 
 ### TopologyRecorder — Composition Graph for Streaming Consumers
 
@@ -347,67 +347,79 @@ When a fork-branch or decision-branch target is also a subflow, the subsequent `
 
 Example: [examples/flow-recorders/06-topology-recorder.ts](examples/flow-recorders/06-topology-recorder.ts)
 
-### BoundaryRecorder — Subflow Boundary Stream (entry/exit pairs with payloads)
+### InOutRecorder — Chart In/Out Stream (every chart boundary, root + subflows)
 
-**One-liner:** captures every subflow execution as an `entry`/`exit` boundary pair, attaching the `inputMapper` payload at entry and the `outputMapper` payload at exit. Together with `TopologyRecorder` (composition shape) this gives downstream layers the universal "step" primitive — `runtimeStageId` binds them.
+**One-liner:** captures every chart execution (top-level run AND every subflow) as an `entry`/`exit` boundary pair, with the `inputMapper`/`outputMapper` payloads attached. Combined with `TopologyRecorder` (composition shape) this gives downstream layers the universal "step" primitive — `runtimeStageId` binds them.
 
 **Mental model:**
 
 ```
-                inputMapper           outputMapper
-                    │                      │
-   parent → ───────►│  (subflow body)      │────► parent
-                    │                      │
-                    └─── runtimeStageId ───┘
-                         (entry/exit share key)
+   user input ─►┌───────────────── run ─────────────────┐ ◄─ user output
+                │  __root__#0   onRunStart / onRunEnd   │
+                │                                        │
+                │   inputMapper          outputMapper    │
+                │       │                     │          │
+                │  parent ──►┤ subflow ├──► parent       │
+                │       │                     │          │
+                │       └── runtimeStageId ───┘          │
+                │                                        │
+                └────────────────────────────────────────┘
 ```
 
-Each subflow execution → 2 boundaries: `phase: 'entry'` (after `inputMapper`) + `phase: 'exit'` (after `outputMapper`). Loop re-entry produces distinct pairs because the parent stage's executionIndex increments.
+Each chart execution → 2 boundaries:
+- **Root** — `onRunStart` / `onRunEnd` fire ONCE per `executor.run()`. `subflowId: '__root__'`, `depth: 0`, `isRoot: true`.
+- **Subflow** — `onSubflowEntry` / `onSubflowExit` fire once per mounted subflow. Nested under root in the path tree (`['__root__', 'sf-x']`, depth 1+).
+
+Loop re-entry produces distinct pairs because the parent stage's executionIndex increments.
 
 **What it IS:**
-- `SequenceRecorder<StepBoundary>` — flat ordered list + per-`runtimeStageId` index
-- Captures the **payloads** at every subflow boundary (what flowed IN and OUT)
-- Path-aware: `subflowPath` is decomposed from the engine's path-prefixed `subflowId`
+- `SequenceRecorder<InOutEntry>` — flat ordered list + per-`runtimeStageId` index
+- Captures the **payloads** at every chart boundary (what flowed IN and OUT)
+- Path-aware: `subflowPath` is decomposed from the engine's path-prefixed `subflowId` and rooted under `__root__`
 - Domain-agnostic — knows nothing about LLMs, tools, agents
 
 **What it ISN'T:**
 - Not a composition graph — that's `TopologyRecorder` (shape) vs this (data crossing each boundary)
 - Not a full execution tree — that's `StageContext`
-- Not agent-specific — agentfootprint composes it for `StepGraph`; footprintjs owns it
+- Not agent-specific — domain libraries (e.g. agentfootprint) compose it; footprintjs owns it
 
 ```typescript
-import { boundaryRecorder } from 'footprintjs/trace';
+import { inOutRecorder, ROOT_SUBFLOW_ID } from 'footprintjs/trace';
 
-const boundaries = boundaryRecorder();
-executor.attachCombinedRecorder(boundaries);
+const inOut = inOutRecorder();
+executor.attachCombinedRecorder(inOut);
 
 await executor.run({ input });
 
-boundaries.getSteps();                    // entry boundaries (timeline projection)
-boundaries.getBoundary(runtimeStageId);   // { entry, exit } pair for one execution
-boundaries.getBoundaries();               // flat list (entry+exit interleaved)
-boundaries.getEntryRanges();              // O(1) per-step range index for time-travel
+inOut.getSteps();                    // entry boundaries (timeline; root is first step)
+inOut.getBoundary(runtimeStageId);   // { entry, exit } pair for one execution
+inOut.getRootBoundary();             // { entry, exit } for the top-level run
+inOut.getBoundaries();               // flat list (entry+exit interleaved)
+inOut.getEntryRanges();              // O(1) per-step range index for time-travel
 ```
 
-**`StepBoundary` shape:**
+**`InOutEntry` shape:**
 
 | Field | Description |
 |---|---|
-| `runtimeStageId` | Same value for the entry/exit pair of one execution |
-| `subflowId` | Path-prefixed engine id (e.g. `'sf-outer/sf-inner'`) |
+| `runtimeStageId` | Same value for the entry/exit pair of one execution. Top-level run uses `'__root__#0'`. |
+| `subflowId` | Path-prefixed engine id. Top-level → `'__root__'`. Subflow → `'sf-outer'` or `'sf-outer/sf-inner'`. |
 | `localSubflowId` | Last segment of `subflowId` |
-| `subflowName` | Human-readable display name (from builder) |
-| `description` | Build-time description from the subflow's root stage (carries taxonomy markers like `'Agent: ReAct loop'`) |
-| `subflowPath` | Decomposition of `subflowId` into segments — `['sf-outer', 'sf-inner']` |
-| `depth` | 0 = top-level subflow under run root |
+| `subflowName` | Human-readable display name (`'Run'` for the top-level run) |
+| `description` | Build-time description (carries taxonomy markers like `'Agent: ReAct loop'`). Undefined for root. |
+| `subflowPath` | Decomposition of `subflowId` rooted under `__root__`: `['__root__']` for root, `['__root__', 'sf-x']` for top-level subflow |
+| `depth` | Root → 0. First-level subflow → 1. |
 | `phase` | `'entry'` or `'exit'` |
-| `payload` | `entry`: `inputMapper` result; `exit`: subflow shared state at exit |
+| `payload` | `entry`: `inputMapper` result (subflow) or `run({input})` (root); `exit`: shared state at exit (subflow) or chart return value (root) |
+| `isRoot` | True only for the synthetic root pair from `onRunStart` / `onRunEnd` |
 
-**Pause semantics:** when a stage pauses inside a subflow, the engine re-throws without firing `onSubflowExit`. The subflow has an `entry` with no matching `exit` until resume completes. `getBoundary()` returns `{ entry, exit: undefined }` in that case.
+**Pause semantics:** when a stage pauses inside a subflow, the engine re-throws without firing `onSubflowExit` (or `onRunEnd`). The chart has an `entry` with no matching `exit` until resume completes. `getBoundary()` returns `{ entry, exit: undefined }` in that case.
 
-**For downstream libraries:** compose, don't duplicate. A domain-flavored step graph (e.g., agentfootprint's `StepGraph`) should consume `BoundaryRecorder` output and label each boundary by inspecting the payload through domain semantics — not re-walk subflow events.
+**Engine events:** `FlowRecorder.onRunStart(event)` and `onRunEnd(event)` carry `event.payload` (the run's input or output). Fire ONCE per top-level `executor.run()` — not for subflow traversers (those fire `onSubflowEntry`/`onSubflowExit` instead). Available on the `IControlFlowNarrative` interface and the `FlowRecorderDispatcher`.
 
-Example: [examples/flow-recorders/07-boundary-recorder.ts](examples/flow-recorders/07-boundary-recorder.ts)
+**For downstream libraries:** compose, don't duplicate. A domain-flavored step graph (e.g., agentfootprint's `StepGraph`) should consume `InOutRecorder` output and label each entry by inspecting the payload through domain semantics — not re-walk subflow events.
+
+Example: [examples/flow-recorders/07-inout-recorder.ts](examples/flow-recorders/07-inout-recorder.ts)
 
 **Two recorder base classes** — choose based on data shape:
 

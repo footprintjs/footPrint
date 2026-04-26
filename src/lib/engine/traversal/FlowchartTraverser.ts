@@ -103,6 +103,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly logger: ILogger;
   private readonly signal?: AbortSignal;
   private readonly parentSubflowId?: string;
+  /** Frozen value passed via `run({input})`. Surfaced on `onRunStart` at the
+   *  top-level traversal so consumers (e.g. `InOutRecorder`) can bracket
+   *  the run with the same payload shape that subflows already have. */
+  private readonly readOnlyContext?: unknown;
 
   // Handler modules
   private readonly nodeResolver: NodeResolver<TOut, TScope>;
@@ -183,6 +187,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.logger = opts.logger;
     this.signal = opts.signal;
     this.parentSubflowId = opts.parentSubflowId;
+    this.readOnlyContext = opts.readOnlyContext;
 
     // Structure manager (deep-clones build-time structure)
     this.structureManager = new RuntimeStructureManager();
@@ -312,7 +317,25 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   async execute(branchPath?: string): Promise<TraversalResult> {
     const context = this.executionRuntime.rootStageContext;
     this._topBreakFlag = { shouldBreak: false };
-    return await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+
+    // Fire onRunStart ONLY at the top-level traversal — subflow traversers
+    // already produce onSubflowEntry/onSubflowExit pairs, so emitting run
+    // events for them would double-bracket the boundary stream. The
+    // top-level traverser is the one without a parentSubflowId.
+    const isTopLevel = this.parentSubflowId === undefined;
+    if (isTopLevel) {
+      // `readOnlyContext` is the engine's view of `run({input})` — passed
+      // through from `FlowChartExecutor.run()` as the validated input.
+      this.narrativeGenerator.onRunStart(this.readOnlyContext);
+    }
+
+    const result = await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+
+    if (isTopLevel) {
+      this.narrativeGenerator.onRunEnd(result);
+    }
+
+    return result;
   }
 
   /**
