@@ -48,6 +48,10 @@ export type {
 } from './lib/recorder/TopologyRecorder.js';
 export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecorder.js';
 
+// BoundaryRecorder — subflow boundary stream (entry/exit pairs with mapper payloads)
+export type { BoundaryPhase, BoundaryRecorderOptions, StepBoundary } from './lib/recorder/BoundaryRecorder.js';
+export { BoundaryRecorder, boundaryRecorder } from './lib/recorder/BoundaryRecorder.js';
+
 // QualityRecorder — per-step quality scoring with backtracking
 export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';
 export { QualityRecorder } from './lib/recorder/QualityRecorder.js';
