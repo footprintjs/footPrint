@@ -345,7 +345,7 @@ When a fork-branch or decision-branch target is also a subflow, the subsequent `
 
 **For downstream libraries:** compose, don't duplicate. An agent-shaped recorder should wrap a `topologyRecorder()` internally and translate topology nodes into agent semantics — not re-implement subflow-stack + fork + decision tracking.
 
-Example: [examples/flow-recorders/06-topology-recorder.ts](examples/flow-recorders/06-topology-recorder.ts)
+Example: [examples/runtime-features/flow-recorder/06-topology.ts](examples/runtime-features/flow-recorder/06-topology.ts)
 
 ### InOutRecorder — Chart In/Out Stream (every chart boundary, root + subflows)
 
@@ -419,7 +419,7 @@ inOut.getEntryRanges();              // O(1) per-step range index for time-trave
 
 **For downstream libraries:** compose, don't duplicate. A domain-flavored step graph (e.g., agentfootprint's `StepGraph`) should consume `InOutRecorder` output and label each entry by inspecting the payload through domain semantics — not re-walk subflow events.
 
-Example: [examples/flow-recorders/07-inout-recorder.ts](examples/flow-recorders/07-inout-recorder.ts)
+Example: [examples/runtime-features/flow-recorder/07-inout.ts](examples/runtime-features/flow-recorder/07-inout.ts)
 
 **Two recorder base classes** — choose based on data shape:
 

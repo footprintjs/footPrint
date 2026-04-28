@@ -6,7 +6,7 @@
  * commit log to produce a "Quality Stack Trace" — like an error
  * stack trace, but for data quality.
  *
- * Run:  npx tsx examples/features/22-quality-trace.ts
+ * Run:  npx tsx examples/post-execution/quality-trace/01-basic.ts
  */
 
 import {

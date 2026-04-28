@@ -19,7 +19,7 @@
  *     stream (`getBoundaries`)
  *   - Nested subflow case (path decomposition)
  *
- * Run:  npx tsx examples/flow-recorders/07-inout-recorder.ts
+ * Run:  npx tsx examples/runtime-features/flow-recorder/07-inout.ts
  */
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { inOutRecorder } from 'footprintjs/trace';
@@ -61,7 +61,7 @@ async function basicExample() {
   console.log('── Basic example: one subflow with mappers ──');
   const executor = new FlowChartExecutor(outerChart);
   const inOut = inOutRecorder();
-  executor.attachCombinedRecorder(boundaries);
+  executor.attachCombinedRecorder(inOut);
 
   await executor.run({ input: {} });
 
@@ -135,7 +135,7 @@ async function nestedExample() {
 
   const executor = new FlowChartExecutor(root);
   const inOut = inOutRecorder();
-  executor.attachCombinedRecorder(boundaries);
+  executor.attachCombinedRecorder(inOut);
   await executor.run({ input: {} });
 
   console.log('\nSteps (with subflowPath):');

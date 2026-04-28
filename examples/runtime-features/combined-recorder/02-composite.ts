@@ -10,7 +10,7 @@
  * With CompositeRecorder, the platform team ships a "paymentObservability()"
  * preset — one call, all concerns covered.
  *
- * Run:  npx tsx examples/features/18-composite-recorder.ts
+ * Run:  npx tsx examples/runtime-features/combined-recorder/02-composite.ts
  */
 
 import {

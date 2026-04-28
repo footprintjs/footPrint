@@ -128,7 +128,7 @@ Plain sequential stages are not topology nodes. Topology is a graph of control-f
 
 **Compose — don't duplicate.** Wrap `topologyRecorder()` inside your agent-shaped recorder and translate topology nodes into agent semantics. Without this, every domain library that needs "what's the shape of this run?" re-implements subflow-stack + fork-map + decision-tracker — slightly wrong in different ways each time.
 
-Example: [examples/flow-recorders/06-topology-recorder.ts](../../../examples/flow-recorders/06-topology-recorder.ts)
+Example: [examples/runtime-features/flow-recorder/06-topology.ts](../../../examples/runtime-features/flow-recorder/06-topology.ts)
 
 ## CompositeRecorder
 

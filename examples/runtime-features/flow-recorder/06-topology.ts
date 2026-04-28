@@ -19,7 +19,7 @@
  * subsequent onSubflowEntry attaches as a child of the synthetic node —
  * the layered shape preserves both "who branched" and "what the branch ran."
  *
- * Run:  npx tsx examples/flow-recorders/06-topology-recorder.ts
+ * Run:  npx tsx examples/runtime-features/flow-recorder/06-topology.ts
  */
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { topologyRecorder } from 'footprintjs/trace';
