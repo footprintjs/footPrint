@@ -1,6 +1,6 @@
 # Examples — Design & Coverage Plan
 
-Examples serve as **integration tests**. Every `npm run test:examples` type-checks them. The footprint-samples repo runs them with snapshot assertions. If a contributor's PR breaks an example, CI catches it before merge.
+Examples serve as **integration tests**. Every `npm run test:examples` type-checks them against the library source via path mapping. If a contributor's PR breaks an example, CI catches it before merge.
 
 ## Folder Structure
 
@@ -252,13 +252,8 @@ Each example maps to a playground sample via the `catalog.ts` registry. The thre
 ## CI Integration
 
 ```
-Gate 5b: npm run test:examples
+Gate 6: npm run test:examples
   → tsc -p examples/tsconfig.json
-  → Type-checks all examples against library source
+  → Type-checks all examples against library source via path mapping
   → Excludes integrations/ (external SDK deps)
-
-Gate 6a: npm test (in footprint-samples)
-  → Runs examples with snapshot assertions
-  → Verifies narrative output matches golden files
-  → Catches behavior changes before release
 ```

@@ -4,15 +4,14 @@ set -euo pipefail
 # Release script — keeps package.json, git tag, and GitHub releases in sync.
 # npm publish is handled by GitHub Actions (with provenance).
 #
-# Release pipeline (8 gates before version bump):
+# Release pipeline (gates before version bump):
 #   1. Clean working tree
 #   2. Documentation check (no stale API refs in .md files)
 #   2.5 Duplicate type check (no same type name defined in two files)
 #   3. API conformance tests (47 design contract tests)
 #   4. Build (CJS + ESM)
 #   5. Full test suite (1874+ tests)
-#   6a. Sample integration tests (snapshot assertions — narrative output)
-#   6b. Sample projects (run all samples to verify real-world usage)
+#   6. Examples type-check (npm run test:examples)
 #   7. CHANGELOG entry exists
 #   Then: version bump → commit + tag + push → GitHub release → CI npm publish
 #
@@ -24,7 +23,6 @@ set -euo pipefail
 BUMP="${1:?Usage: release.sh <patch|minor|major>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SAMPLES_DIR="$(cd "$PROJECT_DIR/../footprint-samples" 2>/dev/null && pwd || echo "")"
 
 # ── Gate 1: Clean working tree ──────────────────────────────────────────
 if [[ "$BUMP" != "patch" && "$BUMP" != "minor" && "$BUMP" != "major" ]]; then
@@ -60,38 +58,6 @@ npm test
 echo "==> Type-checking examples/..."
 npm run test:examples
 echo "  Examples type-check passed."
-
-# ── Gate 6: Sample projects ─────────────────────────────────────────────
-if [[ -n "$SAMPLES_DIR" && -d "$SAMPLES_DIR" ]]; then
-  echo "==> Running sample projects ($SAMPLES_DIR)..."
-
-  # Install latest local build (--legacy-peer-deps: LLM SDK devDeps have zod v3/v4 peer conflicts)
-  (cd "$SAMPLES_DIR" && npm install --legacy-peer-deps 2>&1 | tail -1)
-
-  # Run integration snapshot tests (verifies narrative output against golden snapshots)
-  echo "==> Running sample integration tests (snapshot assertions)..."
-  if (cd "$SAMPLES_DIR" && npm test 2>&1 | tail -5); then
-    echo "  Sample integration tests passed."
-  else
-    echo ""
-    echo "Error: Sample integration tests failed."
-    echo "Run 'npm run test:update' in footprint-samples to update snapshots if intentional."
-    exit 1
-  fi
-
-  # Run all samples defined in package.json "all" script
-  if (cd "$SAMPLES_DIR" && npm run all 2>&1 | tail -3); then
-    echo "  All samples passed."
-  else
-    echo ""
-    echo "Error: Sample projects failed."
-    echo "Fix the samples before releasing — these are what developers copy-paste."
-    exit 1
-  fi
-else
-  echo "==> Skipping samples (../footprint-samples not found)."
-  echo "    To enable: clone footprint-samples next to footPrint."
-fi
 
 # ── Version bump ────────────────────────────────────────────────────────
 npm version "$BUMP" --no-git-tag-version

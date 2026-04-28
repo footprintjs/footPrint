@@ -152,8 +152,8 @@ export default defineConfig({
               attrs: { target: '_blank', rel: 'noopener' },
             },
             {
-              label: 'Samples on GitHub',
-              link: 'https://github.com/footprintjs/footprint-samples',
+              label: 'Examples on GitHub',
+              link: 'https://github.com/footprintjs/footPrint/tree/main/examples',
               attrs: { target: '_blank', rel: 'noopener' },
             },
           ],
