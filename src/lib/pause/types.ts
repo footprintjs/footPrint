@@ -48,6 +48,20 @@ export class PauseSignal extends Error {
   private _invokerStageId?: string;
   private _continuationStageId?: string;
 
+  /**
+   * Subflow scope capture — populated during bubble-up by
+   * `SubflowExecutor` right before re-throw. Each entry is one
+   * subflow's pre-pause shared state, keyed by the path-prefixed
+   * subflow id (matches `subflowPath`).
+   *
+   * Without this, the nested `SharedMemory` is garbage-collected
+   * before the checkpoint is built. On resume, the inner runtime is
+   * re-created empty and resume handlers reading pre-pause scope
+   * (e.g., an Agent's `scope.history`, `scope.pausedToolCallId`)
+   * crash with "X is not iterable" / undefined.
+   */
+  private _subflowStates: Record<string, Record<string, unknown>> = {};
+
   constructor(data: unknown, stageId: string) {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -87,6 +101,29 @@ export class PauseSignal extends Error {
       this._invokerStageId = invokerStageId;
       this._continuationStageId = continuationStageId;
     }
+  }
+
+  /**
+   * Capture a subflow's isolated SharedMemory at the moment its
+   * traversal threw. Called by `SubflowExecutor` once per subflow
+   * boundary on the bubble-up path. Each capture is keyed by the
+   * path-prefixed subflow id (the same id used in `subflowPath`).
+   *
+   * Innermost-first: a deep `Sequence(Agent(...))` pause captures the
+   * agent's subflow first, then its parent's, all the way to the root
+   * mount. The full nest survives into `checkpoint.subflowStates`.
+   */
+  captureSubflowScope(subflowId: string, state: Record<string, unknown>): void {
+    // Defensive shallow clone so later mutations on the source don't
+    // bleed into the captured snapshot. Deep cloning is the consumer's
+    // responsibility (the resume target may not even be on this
+    // process); SharedMemory values are conventionally JSON-friendly.
+    this._subflowStates[subflowId] = { ...state };
+  }
+
+  /** Captured subflow scopes (read-only view). */
+  get subflowStates(): Readonly<Record<string, Record<string, unknown>>> {
+    return this._subflowStates;
   }
 }
 
@@ -170,6 +207,19 @@ export interface FlowchartCheckpoint {
 
   /** Subflow results collected before the pause. */
   readonly subflowResults?: Record<string, unknown>;
+
+  /**
+   * Subflow scope capture — one entry per subflow boundary on the path
+   * to the paused stage. Keyed by path-prefixed subflow id (matches
+   * `subflowPath` entries). Each value is the subflow's pre-pause
+   * shared state.
+   *
+   * Always present (empty `{}` for root-level pauses where no subflows
+   * were entered). On resume, `SubflowExecutor` seeds each nested runtime
+   * from this map (and skips the inputMapper) so resume handlers see
+   * pre-pause scope across same-executor AND cross-executor restarts.
+   */
+  readonly subflowStates: Record<string, Record<string, unknown>>;
 
   /** Stage that invoked the paused child (decider, selector, fork). Absent for linear pauses. */
   readonly invokerStageId?: string;

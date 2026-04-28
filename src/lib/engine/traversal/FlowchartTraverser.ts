@@ -93,6 +93,13 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   parentSubflowId?: string;
   /** Shared execution counter from parent traverser. Subflows continue the parent's numbering. */
   executionCounter?: { value: number };
+  /**
+   * Per-subflow scope captures from a checkpoint, on the resume path.
+   * Forwarded to `HandlerDeps.subflowStatesForResume` so SubflowExecutor
+   * can re-seed nested runtimes from pre-pause state instead of running
+   * the inputMapper. Undefined on normal `run()` paths.
+   */
+  subflowStatesForResume?: Record<string, Record<string, unknown>>;
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -277,6 +284,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         maxDepth: this._maxDepth,
         parentSubflowId: subflowOpts.subflowId,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
+        // Forward the resume-only subflow scope captures so nested
+        // SubflowExecutors can re-seed deeper-nested runtimes (e.g.
+        // Sequence(Agent(...)) where the inner Agent subflow paused).
+        ...(parentOpts.subflowStatesForResume && {
+          subflowStatesForResume: parentOpts.subflowStatesForResume,
+        }),
       });
 
       return {
@@ -302,6 +315,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
       signal: opts.signal,
+      ...(opts.subflowStatesForResume && {
+        subflowStatesForResume: opts.subflowStatesForResume,
+      }),
     };
   }
 

@@ -131,6 +131,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
+  /**
+   * `true` once `run()` (or a previous `resume()`) has executed on
+   * this instance. `resume()` branches on it:
+   *
+   *   • true  → reuse the constructor-time runtime (same-executor
+   *             continuity: execution tree, recorders, narrative
+   *             accumulate across pause/resume cycles)
+   *   • false → seed a fresh runtime from `checkpoint.sharedState`
+   *             (cross-executor / cross-process resume: new instance
+   *             reconstructed from a serialized checkpoint)
+   *
+   * Without this flag, fresh executors silently discarded the
+   * checkpoint's sharedState and resume handlers couldn't read pre-pause
+   * scope. See `test/lib/pause/cross-executor-resume.test.ts`.
+   */
+  private _hasRunBefore = false;
 
   // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
   // AND be assigned in the constructor's options-resolution block (the `else if` branch).
@@ -216,6 +232,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       initialContext?: unknown;
       preserveRecorders?: boolean;
       existingRuntime?: InstanceType<typeof ExecutionRuntime>;
+      /** Per-subflow scope captures from a checkpoint — passed through
+       *  to HandlerDeps so SubflowExecutor can re-seed nested runtimes
+       *  on the resume path. Undefined on normal run() paths. */
+      subflowStatesForResume?: Record<string, Record<string, unknown>>;
+      /** Resume-only override of the subflows dict — substitutes the
+       *  leaf subflow's root with a resume chain so the subflow body
+       *  picks up at the pause point. Other entries pass through
+       *  unchanged. */
+      subflowsOverride?: Record<string, { root: StageNode<TOut, TScope> }>;
     },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
@@ -344,6 +369,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
       executionCounter: this._executionCounter,
+      ...(overrides?.subflowsOverride && { subflows: overrides.subflowsOverride }),
+      ...(overrides?.subflowStatesForResume && {
+        subflowStatesForResume: overrides.subflowStatesForResume,
+      }),
       ...(maxDepth !== undefined && { maxDepth }),
     });
   }
@@ -476,15 +505,34 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return resumeFn(scope, resumeInput);
     };
 
-    // Determine continuation: for branch children (decider/selector), pausedNode.next
-    // is undefined. The checkpoint's continuationStageId (collected during traversal
-    // bubble-up) points to the invoker's next node.
+    // Determine continuation: for branch children (decider/selector),
+    // pausedNode.next is undefined. The checkpoint's
+    // continuationStageId (collected during traversal bubble-up)
+    // points to the invoker's next node.
+    //
+    // For pauses inside a subflow, the continuation lives INSIDE the
+    // leaf subflow (e.g., the loop target back to `messages`). Search
+    // the leaf subflow first; fall back to top-level for root-level
+    // pauses.
+    const sfStates = checkpoint.subflowStates;
+    const leafSubflowId =
+      checkpoint.subflowPath.length > 0 ? checkpoint.subflowPath[checkpoint.subflowPath.length - 1] : undefined;
     let continuationNext = pausedNode.next;
     if (!continuationNext && checkpoint.continuationStageId) {
-      continuationNext = this.findNodeInGraph(checkpoint.continuationStageId, []);
+      // Search leaf subflow first (loop targets / branch joins live there),
+      // then fall back to top level.
+      continuationNext = leafSubflowId
+        ? this.findNodeInGraph(checkpoint.continuationStageId, checkpoint.subflowPath)
+        : undefined;
+      if (!continuationNext) {
+        continuationNext = this.findNodeInGraph(checkpoint.continuationStageId, []);
+      }
     }
 
-    const resumeNode: StageNode<TOut, TScope> = {
+    // The "inner" resume chain: resumeFn → continuation. This is what
+    // runs INSIDE the leaf subflow's body. For a root-level pause
+    // (subflowPath empty), this is also the top-level resume root.
+    const innerResumeChain: StageNode<TOut, TScope> = {
       name: pausedNode.name,
       id: pausedNode.id,
       description: pausedNode.description,
@@ -494,15 +542,76 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     // Don't clear recorders — resume continues from previous state.
     // Narrative, metrics, debug entries accumulate across pause/resume.
+    //
+    // Two-mode resume:
+    //   • Same-executor (run() previously called on THIS instance):
+    //     reuse the existing runtime so the execution tree continues
+    //     from the pause point and recorders/narrative accumulate.
+    //   • Cross-executor (fresh executor reconstructed from a stored
+    //     checkpoint): seed a NEW runtime from `checkpoint.sharedState`
+    //     so resume handlers can read pre-pause scope. The execution
+    //     tree starts at the resume node — we don't have the previous
+    //     traversal's tree on a fresh process anyway.
+    const sameExecutor = this._hasRunBefore;
+    const existingRuntime = sameExecutor
+      ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
+      : undefined;
+    this._hasRunBefore = true; // any path that resumes counts as a run
 
-    // Reuse the existing runtime so the execution tree continues from the pause point.
-    // preserveRecorders keeps the CombinedNarrativeRecorder so narrative accumulates.
-    const existingRuntime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>;
+    // Pick the resume root + initial context.
+    //
+    //   ROOT-LEVEL PAUSE (subflowPath empty):
+    //     resume root = innerResumeChain (run resumeFn at top level).
+    //     initialContext = checkpoint.sharedState.
+    //
+    //   SUBFLOW-NESTED PAUSE (subflowPath non-empty):
+    //     The pause was INSIDE a subflow's body. To run the subflow's
+    //     outputMapper and the parent's continuation, we have to enter
+    //     through the OUTER MOUNT (the parent's node that mounts the
+    //     leaf subflow). We swap the leaf subflow's root with
+    //     innerResumeChain so SubflowExecutor:
+    //       1. enters the subflow boundary,
+    //       2. seeds the nested runtime from subflowStates[leaf]
+    //          (skipping the inputMapper — see SubflowExecutor.ts),
+    //       3. runs the resumeFn → continuation chain,
+    //       4. runs the outputMapper at exit,
+    //       5. parent traversal continues normally.
+    //
+    //     Cross-executor: initialContext = checkpoint.sharedState (the
+    //       parent's view at pause time — outputMapper writes back into it).
+    //     Same-executor: existingRuntime is reused; initialContext is moot
+    //       for the subflow frame (already in the runtime stack), but we
+    //       still pass sharedState for consistency.
+    const fc = this.flowChartArgs.flowChart;
+    let resumeRoot: StageNode<TOut, TScope> = innerResumeChain;
+    let subflowsOverride: Record<string, { root: StageNode<TOut, TScope> }> | undefined;
+    if (leafSubflowId !== undefined) {
+      // Find the OUTER mount node for the FIRST entry on the path.
+      // For single-level pauses, this is the only mount we need to
+      // enter through. For nested mounts the pattern would extend, but
+      // single-level covers all current use cases (Sequence(Agent),
+      // Conditional(Agent), Parallel branches with paused agents).
+      const outerSubflowId = checkpoint.subflowPath[0];
+      const outerMount = this.findMountInGraph(fc.root, outerSubflowId);
+      if (outerMount) {
+        resumeRoot = outerMount;
+      }
+      // Replace the leaf subflow's root with the resume chain so the
+      // body runs from the pause point forward.
+      subflowsOverride = { ...(fc.subflows ?? {}) };
+      subflowsOverride[leafSubflowId] = { root: innerResumeChain };
+    }
+    const resumeInitialContext = checkpoint.sharedState;
+
     this.traverser = this.createTraverser(options?.signal, undefined, options?.env, options?.maxDepth, {
-      root: resumeNode,
-      initialContext: checkpoint.sharedState,
+      root: resumeRoot,
+      initialContext: resumeInitialContext,
       preserveRecorders: true,
-      existingRuntime,
+      ...(existingRuntime ? { existingRuntime } : {}),
+      // Hand the per-subflow scope captures down to SubflowExecutor.
+      // Always present on a checkpoint — empty `{}` for root pauses.
+      subflowStatesForResume: sfStates,
+      ...(subflowsOverride && { subflowsOverride }),
     });
 
     // Fire onResume event on all recorders (flow + scope)
@@ -537,6 +646,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           pausedStageId: error.stageId,
           subflowPath: error.subflowPath,
           pauseData: error.pauseData,
+          subflowStates: error.subflowStates,
           ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
           ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),
           ...(error.continuationStageId && { continuationStageId: error.continuationStageId }),
@@ -569,6 +679,33 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
     if (!subflowRoot) return undefined;
     return this.dfsFind(subflowRoot, stageId);
+  }
+
+  /**
+   * Find the mount node (the node that mounts a subflow boundary)
+   * for a given subflowId, by DFS from `start`. Used by `resume()` to
+   * locate the OUTER node we have to enter through so the subflow's
+   * outputMapper and parent continuation execute.
+   *
+   * Cycle-safe via visited set. Returns the first match (DFS order).
+   */
+  private findMountInGraph(
+    start: StageNode<TOut, TScope>,
+    subflowId: string,
+    visited = new Set<string>(),
+  ): StageNode<TOut, TScope> | undefined {
+    if (start.isLoopRef) return undefined;
+    if (visited.has(start.id)) return undefined;
+    visited.add(start.id);
+    if (start.subflowId === subflowId) return start;
+    if (start.children) {
+      for (const child of start.children) {
+        const found = this.findMountInGraph(child, subflowId, visited);
+        if (found) return found;
+      }
+    }
+    if (start.next) return this.findMountInGraph(start.next, subflowId, visited);
+    return undefined;
   }
 
   /** DFS search for a node by ID in the StageNode graph. Cycle-safe via visited set. */
@@ -854,6 +991,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     this.lastCheckpoint = undefined;
     this._executionCounter = { value: 0 }; // Reset counter on fresh run
+    this._hasRunBefore = true; // mark so a later resume() takes the
+    // same-executor branch (reuse runtime, accumulate execution tree).
     this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
     try {
       return await this.traverser.execute();
@@ -862,12 +1001,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         // Build checkpoint from current execution state
         const snapshot = this.traverser.getSnapshot();
         const sfResults = this.traverser.getSubflowResults();
+        // Subflow scope capture survives ONLY on the signal — the
+        // nested runtimes are GC'd as the stack unwinds. Promote to
+        // the checkpoint here so cross-executor resume can restore
+        // pre-pause subflow scope (e.g. an Agent's `scope.history`).
+        // Empty `{}` for root-level pauses (no subflows entered).
         this.lastCheckpoint = {
           sharedState: snapshot.sharedState,
           executionTree: snapshot.executionTree,
           pausedStageId: error.stageId,
           subflowPath: error.subflowPath,
           pauseData: error.pauseData,
+          subflowStates: error.subflowStates,
           ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
           // Invoker context — collected during traversal bubble-up (not tree-walked)
           ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),

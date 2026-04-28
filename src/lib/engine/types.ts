@@ -328,6 +328,19 @@ export interface HandlerDeps<TOut = any, TScope = any> {
   narrativeGenerator: IControlFlowNarrative;
   logger: ILogger;
   signal?: AbortSignal;
+  /**
+   * On resume, the per-subflow scope captures from the checkpoint.
+   * Keyed by path-prefixed `subflowId` (matches `PauseSignal.subflowPath`).
+   *
+   * `SubflowExecutor` consults this on entry: if a key matches the
+   * current subflow id, the nested runtime is seeded from this state
+   * and the inputMapper is SKIPPED (the captured state already
+   * reflects post-input pre-pause memory). This is what makes
+   * cross-executor resume work for pauses INSIDE a subflow.
+   *
+   * Undefined on normal `run()` paths — only the resume path sets it.
+   */
+  subflowStatesForResume?: Record<string, Record<string, unknown>>;
 }
 
 /** Options for FlowChartExecutor.run(). */

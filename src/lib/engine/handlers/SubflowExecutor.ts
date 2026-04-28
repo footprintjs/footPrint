@@ -58,10 +58,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     });
 
     // ─── Input Mapping ───
+    //
+    // RESUME PATH NOTE: when `deps.subflowStatesForResume` carries a
+    // capture for THIS subflow id, we SKIP the inputMapper entirely.
+    // The capture is the post-input pre-pause memory — running the
+    // mapper again would clobber post-input writes (history,
+    // pausedToolCallId, etc.) with the parent's start-of-subflow view.
     const mountOptions = node.subflowMountOptions;
     let mappedInput: Record<string, unknown> = {};
+    const resumeCapture = this.deps.subflowStatesForResume?.[subflowId];
+    const isResumeForThisSubflow = resumeCapture !== undefined;
 
-    if (mountOptions) {
+    if (mountOptions && !isResumeForThisSubflow) {
       try {
         const parentScope = parentContext.getScope();
         mappedInput = getInitialScopeValues(parentScope, mountOptions);
@@ -100,9 +108,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const nestedRuntime = new ExecutionRuntimeClass(node.name, node.id);
     let nestedRootContext = nestedRuntime.rootStageContext;
 
-    // Seed GlobalStore with input
-    if (Object.keys(mappedInput).length > 0) {
-      seedSubflowGlobalStore(nestedRuntime, mappedInput);
+    // Seed GlobalStore with the right shape for the path:
+    //   • Resume into THIS subflow → seed from the captured pre-pause
+    //     scope so resume handlers see history, pausedToolCallId, etc.
+    //   • Normal entry → seed from the inputMapper's mappedInput.
+    const seedValues: Record<string, unknown> = isResumeForThisSubflow ? resumeCapture! : mappedInput;
+    if (Object.keys(seedValues).length > 0) {
+      seedSubflowGlobalStore(nestedRuntime, seedValues);
       // Refresh rootStageContext so WriteBuffer sees committed data
       const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
       nestedRootContext = new StageContextClass(
@@ -116,12 +128,22 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRuntime.rootStageContext = nestedRootContext;
     }
 
-    // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation
-    const hasChildren = Boolean(node.children && node.children.length > 0);
+    // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
+    //
+    // PRESERVE `next`. Earlier revisions stripped `next` whenever the
+    // subflow root had children, on the assumption that `next` was
+    // always the OUTER mount's continuation leaking into the inner
+    // tree. That assumption was wrong: the resolved subflow root's
+    // `next` is the INNER join stage (e.g., Parallel's Merge after a
+    // fan-out, ToT's Pruner). Stripping it broke composite subflows —
+    // the join stage never ran, so the subflow returned partial state.
+    //
+    // The outer mount's post-subflow continuation is handled separately
+    // by the parent traverser via `parentContext.nextNode` and is never
+    // conflated with the inner subflow's `next` chain.
     const subflowNode: StageNode<TOut, TScope> = {
       ...node,
       isSubflowRoot: false,
-      next: hasChildren ? undefined : node.next,
     };
 
     // ─── Execute via factory traverser ───
@@ -141,9 +163,30 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       subflowOutput = await traverserHandle.execute();
     } catch (error: any) {
-      // PauseSignal is not an error — prepend subflow ID and re-throw immediately.
-      // No error logging, no subflowResult recording — the pause is control flow.
+      // PauseSignal is not an error — prepend subflow ID and re-throw
+      // immediately. No error logging, no subflowResult recording —
+      // the pause is control flow.
+      //
+      // BEFORE re-throw, snapshot the nested runtime's `sharedState`
+      // onto the signal. This is the only chance — once we re-throw,
+      // the outer traverser unwinds and the nested runtime is GC'd. On
+      // resume, we'll re-seed a fresh nested runtime from this capture
+      // so resume handlers can read the pre-pause subflow scope.
+      //
+      // Capture is keyed by the SAME path-prefixed `subflowId` used in
+      // `subflowPath`, so resume can look up "scope for sf-foo" by id.
       if (isPauseSignal(error)) {
+        try {
+          const snap = nestedRuntime.getSnapshot();
+          // `sharedState` is the subflow's working memory at pause
+          // time (after every committed write up to the pause). Cast
+          // is safe — SharedMemory snapshot returns a plain object.
+          error.captureSubflowScope(subflowId, snap.sharedState as Record<string, unknown>);
+        } catch {
+          // Snapshot failure shouldn't mask the pause — let the pause
+          // bubble up; resume will fall back to checkpoint.sharedState
+          // (the parent scope) for this subflow's keys.
+        }
         error.prependSubflow(subflowId);
         throw error;
       }

@@ -320,7 +320,14 @@ describe('SubflowExecutor — boundary', () => {
     expect(parentOfBranch.commit).toHaveBeenCalled();
   });
 
-  it('strips next when node has children (subflow root node setup)', async () => {
+  it('preserves next when subflow root has both fan-out children and a join stage', async () => {
+    // Regression guard (4.17.0): earlier code stripped `next` whenever the
+    // subflow root had children, on the assumption that `next` was always
+    // the OUTER mount's continuation leaking in. That assumption was wrong
+    // — the resolved subflow root's `next` is the INNER join stage (e.g.,
+    // Parallel's Merge after a fan-out). Dropping it broke composite
+    // subflows. The outer mount's post-subflow continuation is handled
+    // separately by the parent traverser and never conflated here.
     const deps = makeDeps();
     const { factory, getLastOptions } = makeFactory();
     const executor = new SubflowExecutor(deps, factory);
@@ -330,16 +337,15 @@ describe('SubflowExecutor — boundary', () => {
       subflowId: 'sf-children',
       isSubflowRoot: false,
       children: [{ name: 'child-1', id: 'c1' }],
-      next: { name: 'shouldBeStripped', id: 'stripped' },
+      next: { name: 'joinStage', id: 'join' },
     };
     const context = makeContext();
     const resultsMap = new Map<string, SubflowResult>();
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-    // next should be stripped when children present
-    expect(getLastOptions().root.next).toBeUndefined();
     expect(getLastOptions().root.children).toBeDefined();
+    expect(getLastOptions().root.next).toEqual({ name: 'joinStage', id: 'join' });
   });
 
   it('keeps next when node has no children', async () => {
