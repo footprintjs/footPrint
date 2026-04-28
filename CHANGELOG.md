@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`TopologyRecorder` — sibling-to-sibling `next` edges.** When subflows are mounted sequentially via `.addSubFlowChartNext(A).addSubFlowChartNext(B)`, the topology graph now emits an `A → B` edge with `kind: 'next'`. Previously, the recorder only emitted parent→child edges, leaving the sequential transition between siblings invisible. Consumers rendering execution topology (agentfootprint-lens pipeline view, etc.) now see the real `A → B → C` flow without reconstructing sibling ordering themselves. Purely additive — no existing edges removed.
 
+- **`InOutRecorder` — chart in/out stream with mapper payloads.** New `SequenceRecorder` in `footprintjs/trace` that captures every chart execution (top-level `run()` AND every subflow) as an `entry`/`exit` boundary pair. Each entry carries the `inputMapper` payload (subflow) or run input (root); each exit carries the `outputMapper` payload (subflow) or chart output (root). Combined with `TopologyRecorder` (composition shape), this gives downstream layers (Lens, agentfootprint StepGraph) the universal "step" primitive — `runtimeStageId` binds shape to data. Path-aware via `subflowPath` decomposition (`['__root__']` → `['__root__', 'sf-x']` → ...). Exposed as `inOutRecorder()` factory + `InOutRecorder` class + `ROOT_SUBFLOW_ID` constant.
+
+- **`FlowRecorder.onRunStart` / `onRunEnd` events.** Fire ONCE per top-level `executor.run()`, carrying `event.payload` (run input on start, chart output on end). Distinct from `onSubflowEntry`/`onSubflowExit` (which fire per subflow boundary). Available on `IControlFlowNarrative` and `FlowRecorderDispatcher`. Enables `InOutRecorder` to bracket the root run as `__root__#0` with `isRoot: true` and `depth: 0`.
+
+- **Cross-executor `resume()`.** A fresh `FlowChartExecutor` (no prior `run()` on the instance) can now `resume(checkpoint, input)` from a serialized checkpoint — Redis / Postgres / S3 round-trip pattern. Previously the resume path implicitly required same-executor continuity and silently discarded `checkpoint.sharedState`, so resume handlers came back to an empty scope. The executor now branches on a `_hasRunBefore` flag: same-executor reuses the runtime; fresh-executor seeds a new runtime from the checkpoint. Same-executor behavior is preserved (execution tree + recorders + narrative still accumulate across pause/resume). Example: [examples/runtime-features/pause-resume/07-cross-executor.ts](examples/runtime-features/pause-resume/07-cross-executor.ts).
+
+- **Subflow scope survival across pauses.** A pause inside a subflow (e.g. `Sequence(Agent-that-pauses)`) used to lose the subflow's isolated `SharedMemory` — it was GC'd as the stack unwound, before the checkpoint was built. On resume, the inner runtime came back empty and resume handlers reading pre-pause subflow scope (e.g. an Agent's `scope.history`, `scope.pausedToolCallId`) crashed with `undefined`. Fix is three-part: (1) `PauseSignal.captureSubflowScope(id, state)` — `SubflowExecutor` snapshots inner shared memory innermost-first on the bubble-up path; (2) new required `FlowchartCheckpoint.subflowStates: Record<subflowId, scope>` field — JSON-safe, always present (empty `{}` for root pauses); (3) `HandlerDeps.subflowStatesForResume` propagates through `FlowchartTraverser` → `SubflowExecutor`, which re-seeds nested runtimes from the map and skips the inputMapper to preserve pre-pause state.
+
+### Fixed — Pause/Resume
+
+- **Subflow-root description propagation.** `SubflowExecutor` was passing the parent mount node's `description` to `FlowSubflowEvent.description`, which is virtually always `undefined`. Downstream consumers (agentfootprint, Lens) couldn't distinguish Agent subflows from LLMCall subflows by reading taxonomy markers (`'Agent: ReAct loop'` / `'LLMCall: one-shot'`) on the subflow root. Fix: `SubflowExecutor` now reads `deps.subflows[subflowId].root.description` first, falling back to `node.description`.
+
 ### Changed — BREAKING
 
 - **`narrative()` factory no longer decorates the recorder with `.lines()` / `.structured()` methods.** These were convenience aliases for `.getNarrative()` / `.getEntries()` on `CombinedNarrativeRecorder`. Callers now invoke those methods directly.
@@ -38,9 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   const entries = rec.getEntries();
   ```
 
+- **`BoundaryRecorder` renamed to `InOutRecorder`.** The recorder shipped briefly under the `BoundaryRecorder` name; rename clarifies what it captures (chart in/out boundaries with payloads). No consumers in the wild — this is a same-cycle rename.
+
+- **`FlowchartCheckpoint.subflowStates` is now required (was optional).** Always present — empty `{}` for root-level pauses. Tightening removes the absent-field branch in resume code; consumers reading `checkpoint.subflowStates` no longer need optional-chaining. No consumers in the wild for this field — feature shipped this same release.
+
+### Examples — Restructured
+
+- **Examples folder consolidated into a canonical tree.** The legacy flat `examples/features/*` and `examples/flow-recorders/*` directories have been redistributed into a structured hierarchy: `building-blocks/`, `runtime-features/{streaming,pause-resume,break,redaction,data-recorder,flow-recorder,combined-recorder,emit}/`, `build-time-features/{contract,self-describing,decide-select}/`, `post-execution/{causal-chain,quality-trace,snapshot,narrative-query}/`, `errors/`, `getting-started/`, `integrations/`. Every file in `examples/` is now type-checked on every PR via `npm run test:examples`. The structure mirrors `examples/DESIGN.md`'s coverage matrix; gaps in the matrix have been filled (6 new examples covering `contract/03-mapper`, `self-describing/04-spec`, `decide-select/{02-function-rules,03-mixed-rules,04-select-parallel}`, and `narrative-query/{02-entries,03-flow-narrative}`). The `footprint-playground` symlink already points at this tree, so playground samples track the canonical examples one-to-one.
+
 ### Non-breaking overall behavior
 
 - All composition patterns (sequential subflow chains, parallel fan-out with merge, agent ReAct loops) continue to execute identically.
+- Same-executor `pause()`/`resume()` semantics preserved — execution tree, narrative, and recorders accumulate across cycles as before.
 - `FlowChart` type change is an internal consolidation — the public `FlowChart` export from `'./lib/builder/index.js'` (and the top-level `footprintjs` entry) is unchanged. Only deep-import consumers from the non-public `'footprintjs/lib/engine/types'` path would observe a difference, and that import path is not part of the supported public surface.
 - Dead UI deps removal is transparent to consumers (they were never imported) — only the install footprint shrinks.
 

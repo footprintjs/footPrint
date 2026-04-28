@@ -14,8 +14,9 @@
  *   1. `PauseSignal.captureSubflowScope(id, state)` — invoked by
  *      `SubflowExecutor` right before re-throw to snapshot the isolated
  *      `SharedMemory`.
- *   2. `FlowchartCheckpoint.subflowStates` — new optional field that
- *      serializes the captured scopes per subflow id.
+ *   2. `FlowchartCheckpoint.subflowStates` — required field (always
+ *      present, empty `{}` for root pauses) that serializes the
+ *      captured scopes per subflow id.
  *   3. `HandlerDeps.subflowStatesForResume` → `SubflowExecutor` seeds
  *      each nested runtime from the map on resume and skips the
  *      inputMapper to preserve pre-pause state.
