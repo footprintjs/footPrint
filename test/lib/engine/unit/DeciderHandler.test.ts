@@ -172,10 +172,7 @@ describe('DeciderHandler', () => {
       );
 
       expect(result).toBe('child-a');
-      // executeNode should NOT be called when break is set
       expect(executeNode).not.toHaveBeenCalled();
-      // Logger should log the break
-      expect(deps.logger.info).toHaveBeenCalledWith(expect.stringContaining('break condition'));
     });
   });
 

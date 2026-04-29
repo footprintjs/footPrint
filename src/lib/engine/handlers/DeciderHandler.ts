@@ -70,7 +70,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     callExtractor(node, context, getStagePath(node, branchPath, context.stageName), branchId);
 
     if (breakFlag.shouldBreak) {
-      this.deps.logger.info(`Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition.`);
       return branchId;
     }
 

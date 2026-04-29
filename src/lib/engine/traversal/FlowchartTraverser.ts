@@ -752,10 +752,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           // Forward the optional reason captured on breakFlag — set by the
           // stage's $break(reason) call OR by a subflow's propagateBreak.
           this.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
-          const reasonSuffix = breakFlag.reason ? ` (reason: ${breakFlag.reason})` : '';
-          this.logger.info(
-            `Execution stopped in pipeline (${branchPath}) after ${node.name} due to break condition${reasonSuffix}.`,
-          );
           return stageOutput;
         }
 
