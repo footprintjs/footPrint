@@ -10,7 +10,8 @@
     "paths": {
       "footprintjs": ["../src/index.ts"],
       "footprintjs/trace": ["../src/trace.ts"],
-      "footprintjs/advanced": ["../src/advanced.ts"]
+      "footprintjs/advanced": ["../src/advanced.ts"],
+      "footprintjs/detach": ["../src/detach.ts"]
     }
   },
   "include": ["**/*.ts"],

@@ -50,6 +50,21 @@ export interface ReactiveTarget {
 
   // Emit channel (Phase 3) — structured user-authored events to EmitRecorders.
   emitEvent(name: string, payload?: unknown): void;
+
+  // Detach (T4) — fire-and-forget child flowcharts. ScopeFacade
+  // delegates to `detach/spawn`, minting refIds from this stage's
+  // runtimeStageId for diagnostic correlation.
+  detachAndJoinLater(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): import('../detach/types.js').DetachHandle;
+
+  detachAndForget(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): void;
 }
 
 // -- ScopeMethods ------------------------------------------------------------
@@ -172,6 +187,35 @@ export interface ScopeMethods {
    */
   $emit(name: string, payload?: unknown): void;
 
+  // Detach — fire-and-forget child flowchart execution.
+  //
+  // `$detachAndJoinLater(driver, child, input?)` schedules the child via
+  // the given driver and returns a `DetachHandle` the consumer can read
+  // synchronously (`.status`) or await (`.wait()`). The parent stage
+  // does NOT block on the child — it returns to the agent loop the
+  // moment the driver's `schedule()` returns (passive recorder rule).
+  //
+  // `$detachAndForget(driver, child, input?)` discards the handle —
+  // useful for fire-and-forget telemetry where the caller never needs
+  // to know how the child finished. Errors still land on the (now-
+  // dropped) handle and go silent unless an observer surfaces them.
+  //
+  // Driver is REQUIRED — there's no library-default. Pass e.g.
+  // `microtaskBatchDriver` (from 'footprintjs/detach') or your own
+  // custom driver. Explicit passing avoids global state and keeps the
+  // engine free of driver imports.
+  $detachAndJoinLater(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): import('../detach/types.js').DetachHandle;
+
+  $detachAndForget(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): void;
+
   // Pipeline control
   /**
    * Stop the current execution context.
@@ -234,6 +278,8 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$batchArray',
   '$break',
   '$emit',
+  '$detachAndJoinLater',
+  '$detachAndForget',
   '$toRaw',
 ]);
 

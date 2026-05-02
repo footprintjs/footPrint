@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.17.0]
+
+### Added
+
+- **`footprintjs/detach` subpath — fire-and-forget child flowchart execution.** A new pluggable-driver primitive for scheduling child charts off the parent's hot path: telemetry exports, parallel evaluations, audit log shipping, cache warm-up. Two semantics × two surfaces × six drivers.
+
+  - **Semantics:** `detachAndJoinLater(driver, child, input)` returns a `DetachHandle` (poll `.status` sync, `wait()` for Promise). `detachAndForget(driver, child, input)` discards the handle for pure fire-and-forget.
+  - **Surfaces:** scope methods `scope.$detachAndJoinLater(...)` / `scope.$detachAndForget(...)` (refIds tagged with the calling stage's `runtimeStageId` for diagnostic correlation), and bare-executor methods `executor.detachAndJoinLater(...)` / `executor.detachAndForget(...)` (refIds tagged `__executor__:detach:N`).
+  - **Builder-native composition:** `addDetachAndForget(id, child, options)` and `addDetachAndJoinLater(id, child, options)` add detach as a labeled chart stage so it shows up in narrative + visualizations. Pure sugar over `addFunction` — zero engine changes.
+  - **Six built-in drivers:**
+    - `microtaskBatchDriver` — coalesces N detaches into one `queueMicrotask` flush. Cross-runtime (browser / Node / edge). Default for in-process detach.
+    - `immediateDriver` — sync execution inside `schedule()`. Test fixture + tiny-payload aid.
+    - `setImmediateDriver` — Node-only. `setImmediate`-based deferral. Yields to I/O before running.
+    - `setTimeoutDriver` — cross-runtime. Configurable delay via `createSetTimeoutDriver({ delayMs })`.
+    - `sendBeaconDriver` — browser-only. Survives page-unload via `navigator.sendBeacon`. Required `url` factory option.
+    - `workerThreadDriver` — Node Worker Threads / browser Web Workers. CPU-isolated execution.
+  - Each driver advertises `capabilities: { browserSafe?, nodeSafe?, edgeSafe?, survivesUnload?, cpuIsolated? }` so consumers can pick by environment. Drivers are passed explicitly as the first argument; no library-default keeps the engine free of driver imports.
+  - **Custom drivers:** consumers implement the `DetachDriver` interface or use the `createXxxDriver(runChild)` factories with a custom `ChildRunner`.
+  - **Handle is NOT Promise-shaped.** No `.then()` — defeats fire-and-forget. Status is a sync property; `wait()` returns a CACHED Promise on every call.
+  - **`flushAllDetached(opts?)` — graceful shutdown helper.** Drains every in-flight handle to terminal across the process. Returns `{ done, failed, pending }`. Useful for SIGTERM handlers and test cleanup.
+  - **8 runnable examples** under `examples/runtime-features/detach/` covering telemetry, fan-out, bare-executor, immediate driver, error handling, status polling, graceful shutdown, builder-native composition. Each example has a `.md` companion + regression guards. All examples run automatically as integration tests.
+  - **159 detach tests** following the 7-pattern matrix (Unit / Boundary / Scenario / Property / Security / Performance / ROI) with 7-panel reviews per task.
+
+  See [docs/guides/patterns/detach](https://footprintjs.github.io/footPrint/guides/patterns/detach/) for the full pattern guide.
+
+### Fixed
+
+- **`tsconfig.json` lib references corrected.** `target` upgraded `ES2018 → ES2022`; `lib` set to `["ES2022", "DOM"]`. Resolves long-standing build errors for `console`, `setTimeout`, `AbortSignal`, `structuredClone`, `Object.fromEntries`, `Promise.allSettled`, `queueMicrotask`, `Map`, etc. The library has used these globals for a while; the lib references just hadn't been updated to match. Build is now error-free.
+
+- **Zod v3 schema conversion in `contract/schema.ts`.** The Zod-internals converter only handled v4-shape (`def.type: 'string'`) but the project's installed Zod is v3.x (which uses `_def.typeName: 'ZodString'`). Added a `normalizeV3Def()` helper that maps v3 field names (`typeName`, `value` → `values`, `values` → `entries`, function-form `shape`/`defaultValue`) to the v4-shape the rest of the converter expects. Fixes 19 failing `zodToJsonSchema` tests.
+
+- **Zod schema unwrapping in `scope/state/zod/utils/validateHelper.ts`.** The `unwrap()` helper followed `_def.type` as if it were always an inner-schema reference — true for v3 `ZodEffects` / `ZodPipeline` but **wrong** for `ZodArray` (where `_def.type` IS the element schema). `unwrap(z.array(z.string()))` was incorrectly returning `ZodString` instead of `ZodArray`, which broke array detection in `analyze()` and made `proxy.items.set([...])` fail validation. Now gates descent on a known-wrapper allowlist (`Optional`, `Default`, `Nullable`, `Readonly`, `Branded`, `Catch`, `Effects`, `Pipeline`, `Lazy`). Fixes 4 failing zod-scope tests.
+
 ## [4.16.0]
 
 ### Fixed

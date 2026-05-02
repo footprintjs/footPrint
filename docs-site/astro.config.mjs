@@ -131,6 +131,7 @@ export default defineConfig({
           items: [
             { label: 'Loops & retry', slug: 'guides/patterns/loops-and-retry' },
             { label: 'Error handling', slug: 'guides/patterns/error-handling' },
+            { label: 'Detach (fire-and-forget)', slug: 'guides/patterns/detach' },
           ],
         },
         {

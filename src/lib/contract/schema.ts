@@ -29,11 +29,114 @@ function getDef(zodSchema: Record<string, unknown>): Record<string, unknown> | u
   if (zodSchema.def && typeof zodSchema.def === 'object') {
     return zodSchema.def as Record<string, unknown>;
   }
-  // Nested via _def (e.g., when accessing directly)
+  // Zod v3 (and Zod v4 inner types): `._def` property. v3 uses
+  // `typeName: 'ZodString'` etc.; we normalize to v4-shape `type:
+  // 'string'` so the rest of the converter doesn't have to branch.
   if (zodSchema._def && typeof zodSchema._def === 'object') {
-    return zodSchema._def as Record<string, unknown>;
+    return normalizeV3Def(zodSchema._def as Record<string, unknown>);
   }
   return undefined;
+}
+
+// Map Zod v3 typeName ('ZodString', 'ZodArray', ...) to Zod v4 type tag
+// ('string', 'array', ...). Idempotent — if def already has v4-shape
+// `.type`, returns as-is. New v3 typeNames added here as needed.
+const V3_TYPE_TAG: Record<string, string> = {
+  ZodString: 'string',
+  ZodNumber: 'number',
+  ZodBoolean: 'boolean',
+  ZodLiteral: 'literal',
+  ZodEnum: 'enum',
+  ZodNativeEnum: 'enum',
+  ZodArray: 'array',
+  ZodObject: 'object',
+  ZodOptional: 'optional',
+  ZodDefault: 'default',
+  ZodNullable: 'nullable',
+  ZodUnion: 'union',
+  ZodRecord: 'record',
+  ZodEffects: 'transform',
+  ZodPipeline: 'pipe',
+};
+
+function normalizeV3Def(def: Record<string, unknown>): Record<string, unknown> {
+  // Already v4-shape? Pass through.
+  if (typeof def.type === 'string') return def;
+
+  const tn = def.typeName as string | undefined;
+  if (!tn) return def;
+  const v4Type = V3_TYPE_TAG[tn];
+  if (!v4Type) return def;
+
+  // For ZodArray: in v3, `def.type` IS the element schema. We must
+  // CAPTURE it as `def.element` BEFORE spreading, otherwise our
+  // overwrite of `type` (to the v4 tag) destroys it.
+  const out: Record<string, unknown> = { ...def };
+  if (tn === 'ZodArray' && def.type && typeof def.type === 'object') {
+    out.element = def.type;
+  }
+  out.type = v4Type;
+
+  switch (tn) {
+    case 'ZodLiteral': {
+      // v3 `value` (single) → v4 `values` (array).
+      if (Object.hasOwn(def, 'value') && !Object.hasOwn(def, 'values')) out.values = [def.value];
+      break;
+    }
+    case 'ZodEnum': {
+      // v3 `values: string[]` → v4 `entries: { key: value }`.
+      const values = def.values as unknown[] | undefined;
+      if (values && Array.isArray(values) && !Object.hasOwn(def, 'entries')) {
+        out.entries = Object.fromEntries(values.map((v) => [String(v), v]));
+      }
+      break;
+    }
+    case 'ZodNativeEnum': {
+      const values = def.values as Record<string, unknown> | undefined;
+      if (values && typeof values === 'object' && !Object.hasOwn(def, 'entries')) out.entries = values;
+      break;
+    }
+    case 'ZodObject': {
+      // v3 `shape: () => Record<string, ZodType>` → v4 `shape: Record`.
+      if (typeof def.shape === 'function') {
+        out.shape = (def.shape as () => Record<string, unknown>)();
+      }
+      break;
+    }
+    case 'ZodEffects': {
+      // v3 `schema` → v4 `inner` / `innerType`.
+      if (Object.hasOwn(def, 'schema') && !Object.hasOwn(def, 'innerType') && !Object.hasOwn(def, 'inner')) {
+        out.innerType = def.schema;
+        out.inner = def.schema;
+      }
+      break;
+    }
+    case 'ZodDefault': {
+      // v3 `defaultValue: () => unknown` (function) → v4 raw value.
+      if (typeof def.defaultValue === 'function') {
+        try {
+          out.defaultValue = (def.defaultValue as () => unknown)();
+        } catch {
+          /* fall through with original */
+        }
+      }
+      break;
+    }
+    case 'ZodUnion': {
+      // v3 `options: ZodType[]` → v4 `options: ZodType[]` (same name).
+      break;
+    }
+    case 'ZodRecord': {
+      // v3 `keyType` / `valueType` → same names in v4.
+      break;
+    }
+    case 'ZodPipeline': {
+      // v3 `in` / `out` → v4 likely same; passthrough.
+      break;
+    }
+  }
+
+  return out;
 }
 
 /** Get description from a Zod v4 schema (stored via .description or .meta()) */
@@ -176,6 +279,15 @@ function zodDefToJsonSchema(def: Record<string, unknown>, zodSchema?: Record<str
     case 'pipe': {
       // Zod v4: .transform() / .refine() — unwrap to input schema
       const inner = def.in as Record<string, unknown> | undefined;
+      const innerDef = inner ? getDef(inner) : undefined;
+      return innerDef ? zodDefToJsonSchema(innerDef, inner) : base;
+    }
+
+    case 'transform': {
+      // Zod v3: ZodEffects (.transform / .refine) — unwrap to input
+      // schema. Our v3 normalizer copies ZodEffects's `.schema` into
+      // both `inner` and `innerType` for downstream lookups.
+      const inner = (def.inner ?? def.innerType) as Record<string, unknown> | undefined;
       const innerDef = inner ? getDef(inner) : undefined;
       return innerDef ? zodDefToJsonSchema(innerDef, inner) : base;
     }

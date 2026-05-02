@@ -816,6 +816,134 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  // ── Detach (builder-native composition) ──
+  //
+  // Sugar over `addFunction` that generates a stage which calls
+  // `scope.$detachAndForget(...)` or `scope.$detachAndJoinLater(...)`
+  // at runtime. ZERO engine changes — pure composition over the
+  // existing scope-method primitives.
+  //
+  // For `addDetachAndJoinLater`, the returned handle is stored in
+  // shared state via `$setValue` (which bypasses the typed-proxy
+  // unwrap that would otherwise strip the handle's class methods).
+  // Downstream stages read it via `scope[options.handleKey]` or
+  // `scope.$getValue(options.handleKey)` — both preserve methods
+  // because the value was stored raw.
+
+  /**
+   * Add a stage that fires a child flowchart on the given driver and
+   * DISCARDS the handle. Pure fire-and-forget — useful for telemetry
+   * exports, audit log shipping, cache warm-up.
+   *
+   * @param id Stable id for this stage (also the stageMap key).
+   * @param child The child flowchart to detach.
+   * @param options.driver The driver to schedule on (e.g. `microtaskBatchDriver`).
+   * @param options.inputMapper Maps the parent's scope to the child's input.
+   *   Defaults to passing `undefined`.
+   * @param options.mountName Display name; defaults to `id`.
+   * @param options.description Stage description for narrative + tools.
+   *
+   * @example
+   * ```ts
+   * import { microtaskBatchDriver } from 'footprintjs/detach';
+   *
+   * flowChart('process', processFn, 'process')
+   *   .addDetachAndForget('telemetry', telemetryChart, {
+   *     driver: microtaskBatchDriver,
+   *     inputMapper: (scope) => ({ event: 'processed', orderId: scope.orderId }),
+   *   })
+   *   .addFunction('next', nextFn, 'next')
+   *   .build();
+   * ```
+   */
+  addDetachAndForget(
+    id: string,
+    child: import('./types.js').FlowChart<any, any>,
+    options: {
+      driver: import('../detach/types.js').DetachDriver;
+      inputMapper?: (scope: TScope) => unknown;
+      mountName?: string;
+      description?: string;
+    },
+  ): this {
+    const name = options.mountName ?? id;
+    return this.addFunction(
+      name,
+      ((scope: any) => {
+        const input = options.inputMapper ? options.inputMapper(scope as TScope) : undefined;
+        scope.$detachAndForget(options.driver, child, input);
+      }) as StageFunction<TOut, TScope>,
+      id,
+      options.description,
+    );
+  }
+
+  /**
+   * Add a stage that fires a child flowchart on the given driver and
+   * delivers the resulting `DetachHandle` to a consumer-supplied
+   * `onHandle` callback. The handle CANNOT be stored in shared state
+   * — `StageContext.setValue` calls `structuredClone` which drops
+   * class prototypes (and therefore the handle's `.wait()` method).
+   *
+   * The callback pattern is the explicit alternative: keep handles in
+   * a closure-local array (or whatever shape suits) and have a
+   * downstream stage `await Promise.all(...)` over them.
+   *
+   * @example
+   * ```ts
+   * import { microtaskBatchDriver } from 'footprintjs/detach';
+   * import type { DetachHandle } from 'footprintjs/detach';
+   *
+   * const handles: DetachHandle[] = [];
+   *
+   * const chart = flowChart('seed', seedFn, 'seed')
+   *   .addDetachAndJoinLater('eval-a', evalChart, {
+   *     driver: microtaskBatchDriver,
+   *     inputMapper: (scope) => scope.configA,
+   *     onHandle: (h) => handles.push(h),
+   *   })
+   *   .addDetachAndJoinLater('eval-b', evalChart, {
+   *     driver: microtaskBatchDriver,
+   *     inputMapper: (scope) => scope.configB,
+   *     onHandle: (h) => handles.push(h),
+   *   })
+   *   .addFunction('join', async (scope) => {
+   *     const settled = await Promise.all(handles.map((h) => h.wait()));
+   *     scope.results = settled;
+   *   }, 'join')
+   *   .build();
+   * ```
+   *
+   * Note: putting `handles` in a module-level closure is fine for
+   * single-run scripts. For server code that runs the same chart
+   * concurrently across requests, allocate a new closure per run
+   * (e.g., wrap chart construction in a factory function) so handles
+   * from different runs don't bleed into each other.
+   */
+  addDetachAndJoinLater(
+    id: string,
+    child: import('./types.js').FlowChart<any, any>,
+    options: {
+      driver: import('../detach/types.js').DetachDriver;
+      onHandle: (handle: import('../detach/types.js').DetachHandle) => void;
+      inputMapper?: (scope: TScope) => unknown;
+      mountName?: string;
+      description?: string;
+    },
+  ): this {
+    const name = options.mountName ?? id;
+    return this.addFunction(
+      name,
+      ((scope: any) => {
+        const input = options.inputMapper ? options.inputMapper(scope as TScope) : undefined;
+        const handle = scope.$detachAndJoinLater(options.driver, child, input);
+        options.onHandle(handle);
+      }) as StageFunction<TOut, TScope>,
+      id,
+      options.description,
+    );
+  }
+
   // ── Branching ──
 
   addDeciderFunction(

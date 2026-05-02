@@ -14,6 +14,10 @@
  * ```
  */
 
+import {
+  detachAndForget as detachAndForgetSpawn,
+  detachAndJoinLater as detachAndJoinLaterSpawn,
+} from '../detach/spawn.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { nativeHas as lodashHas, nativeSet as lodashSet } from '../memory/pathOps.js';
 import { StageContext } from '../memory/StageContext.js';
@@ -324,6 +328,31 @@ export class ScopeFacade {
         });
       }
     }
+  }
+
+  // ── Detach — fire-and-forget child flowchart execution ─────────────────
+  //
+  // Delegates to the shared `detach/spawn` helper, which mints a refId
+  // from this stage's `runtimeStageId` and calls `driver.schedule()`.
+  // Routed through `createTypedScope` as `scope.$detachAndJoinLater(...)`
+  // and `scope.$detachAndForget(...)`.
+
+  /** See `ScopeMethods.$detachAndJoinLater`. */
+  detachAndJoinLater(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): import('../detach/types.js').DetachHandle {
+    return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
+  }
+
+  /** See `ScopeMethods.$detachAndForget`. */
+  detachAndForget(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): void {
+    detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
   /**

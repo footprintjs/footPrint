@@ -548,6 +548,63 @@ This closes the long-standing gap where `$metric` / `$debug` went to side bags n
 
 Example: [examples/runtime-features/emit/01-custom-events.ts](examples/runtime-features/emit/01-custom-events.ts).
 
+## Detach — Fire-and-Forget Child Flowcharts (`footprintjs/detach`)
+
+Schedule a child chart on a chosen **driver** without blocking the parent stage. Two semantics + two surfaces:
+
+| Method                                | Returns        | Caller                                   |
+|---------------------------------------|----------------|------------------------------------------|
+| `scope.$detachAndJoinLater(d, c, i)`  | `DetachHandle` | Inside a stage (refId = stage's runtimeStageId) |
+| `scope.$detachAndForget(d, c, i)`     | `void`         | Inside a stage (handle discarded)        |
+| `executor.detachAndJoinLater(d, c, i)`| `DetachHandle` | Outside any chart (refId prefix `__executor__`) |
+| `executor.detachAndForget(d, c, i)`   | `void`         | Outside any chart                        |
+
+```ts
+import { microtaskBatchDriver } from 'footprintjs/detach';
+
+flowChart('process', async (scope) => {
+  scope.result = await heavyWork();
+  scope.$detachAndForget(microtaskBatchDriver, telemetryChart, { event: 'done' });
+}, 'process').build();
+```
+
+**Built-in drivers** (more in v4.17.1):
+- `microtaskBatchDriver` — coalesces N detaches into one `queueMicrotask` flush. Default for in-process.
+- `immediateDriver` — runs sync inside `schedule()`. Test fixture / debugging aid.
+
+**Custom drivers**: `createMicrotaskBatchDriver(runChild)` / `createImmediateDriver(runChild)` accept a custom `ChildRunner` so consumers can wrap the executor (e.g., for tracing context). Drivers are **passed explicitly** as the first arg — no library-default to keep the engine free of driver imports.
+
+**Handle**: `{ id, status: 'queued'|'running'|'done'|'failed', result?, error?, wait() }`. NOT Promise-shaped (no `.then()` — defeats fire-and-forget). Status is sync property; `wait()` returns a CACHED Promise on every call.
+
+**Graceful shutdown**: `flushAllDetached({ timeoutMs })` drains every in-flight handle to terminal. Use in SIGTERM handlers / test cleanup. Returns `{ done, failed, pending }` — `pending === 0` means full drain.
+
+**Gotcha**: don't store handles in shared state — `StageContext.setValue` calls `structuredClone`, which drops the handle's class prototype (and `.wait()` method). Keep handles in closure-local variables. The builder-native `addDetachAndJoinLater` enforces this by delivering the handle to a consumer-supplied `onHandle` callback rather than to a shared-state key.
+
+**Builder-native composition** — make detach a labeled chart stage (visible in narrative + visualizations):
+
+```ts
+const handles: DetachHandle[] = [];
+const chart = flowChart('process', processFn, 'process')
+  .addDetachAndForget('telemetry', telemetryChart, {
+    driver: microtaskBatchDriver,
+    inputMapper: (scope) => ({ event: 'processed', orderId: scope.orderId }),
+  })
+  .addDetachAndJoinLater('eval', evalChart, {
+    driver: microtaskBatchDriver,
+    inputMapper: (s) => s.input,
+    onHandle: (h) => handles.push(h),
+  })
+  .addFunction('join', async (scope) => {
+    const settled = await Promise.all(handles.map((h) => h.wait()));
+    scope.results = settled.map((r) => r.result);
+  }, 'join')
+  .build();
+```
+
+Pure sugar over `addFunction` — zero engine changes. For server-side concurrent runs, allocate a fresh `handles` closure per run (factory-build the chart) so handles don't bleed across requests.
+
+Examples: [examples/runtime-features/detach/](examples/runtime-features/detach/) — 7 scenarios (telemetry, fan-out, bare-executor, immediate driver, error handling, status polling, graceful shutdown).
+
 ## Combined Recorder
 
 A `CombinedRecorder` is an observer that hooks into multiple event streams (scope data-flow, control-flow, AND emit — all three channels). One object, one `id`, one `attachCombinedRecorder()` call — the library routes to the right channels via runtime method-shape detection.

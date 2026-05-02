@@ -81,6 +81,10 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   // Observability — Emit channel (Phase 3). Routes to ScopeFacade.emitEvent
   // which handles fast-path, enrichment, redaction, and error isolation.
   $emit: (t) => t.emitEvent.bind(t),
+  // Detach (T4) — fire-and-forget child flowcharts. Delegates to ScopeFacade
+  // which minted refIds from runtimeStageId.
+  $detachAndJoinLater: (t) => t.detachAndJoinLater.bind(t),
+  $detachAndForget: (t) => t.detachAndForget.bind(t),
   $toRaw: (t) => () => t,
 };
 

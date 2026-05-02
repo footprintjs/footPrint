@@ -126,6 +126,8 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
     '$batchArray',
     '$break',
     '$emit',
+    '$detachAndJoinLater',
+    '$detachAndForget',
     '$toRaw',
   ];
 

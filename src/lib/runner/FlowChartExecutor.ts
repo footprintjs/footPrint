@@ -18,6 +18,7 @@
  */
 
 import type { FlowChart } from '../builder/types.js';
+import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
@@ -762,6 +763,58 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)
     this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== recorder.id);
     this.scopeRecorders.push(recorder);
+  }
+
+  // ─── Detach (T4) ─────────────────────────────────────────────────────────
+  //
+  // Bare-executor entry point for fire-and-forget child flowchart execution.
+  // Use from outside any chart (consumer code that wants to detach work
+  // without first running a parent chart). For detach FROM INSIDE a stage,
+  // use `scope.$detachAndJoinLater(...)` / `scope.$detachAndForget(...)` —
+  // those mint refIds from the calling stage's runtimeStageId for trace
+  // correlation; the bare-executor entries use a synthetic prefix
+  // (`__executor__`) instead.
+
+  /**
+   * Detach a child flowchart on the given driver and return a `DetachHandle`
+   * the caller can `wait()` on (Promise) or read `.status` from (sync).
+   *
+   * The driver is a REQUIRED first argument — there is no library-default,
+   * to keep the engine free of driver imports and to make the choice of
+   * scheduling algorithm explicit at the call site.
+   *
+   * @example
+   * ```typescript
+   * import { microtaskBatchDriver } from 'footprintjs/detach';
+   *
+   * const exec = new FlowChartExecutor(parentChart);
+   * const handle = exec.detachAndJoinLater(microtaskBatchDriver, telemetryChart, { event: 'x' });
+   * await handle.wait(); // optional
+   * ```
+   */
+  detachAndJoinLater(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): import('../detach/types.js').DetachHandle {
+    return _detachAndJoinLater(driver, child, input, '__executor__');
+  }
+
+  /**
+   * Detach a child flowchart on the given driver and DISCARD the handle.
+   * Use for telemetry exports / fire-and-forget side effects where the
+   * caller doesn't care about the result.
+   *
+   * Errors raised by the child still land on the (discarded) handle — they
+   * go silent unless surfaced through a recorder. For observable detach,
+   * prefer `detachAndJoinLater` and surface failures via `.wait().catch()`.
+   */
+  detachAndForget(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): void {
+    _detachAndForget(driver, child, input, '__executor__');
   }
 
   /** Detach all scope Recorders with the given ID. */

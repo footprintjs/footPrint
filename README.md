@@ -164,6 +164,7 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **Cancellation** | AbortSignal, timeout, early termination via `scope.$break(reason?)` with optional reason |
 | **Subflow break propagation** | Mount a subflow with `propagateBreak: true` &mdash; inner `$break` terminates the parent loop, with drill-down preserved |
 | **Emit channel** | `scope.$emit(name, payload)` &mdash; user-authored structured events to `EmitRecorder`, pass-through, zero-allocation when no recorder attached, redactable via `emitPatterns` |
+| **Detach** *(new in 4.17)* | `scope.$detachAndForget(driver, child, input)` and `scope.$detachAndJoinLater(driver, child, input)` &mdash; fire-and-forget child flowcharts via the `footprintjs/detach` subpath. Six built-in drivers (microtask / immediate / setImmediate / setTimeout / sendBeacon / workerThread) + custom-driver protocol. Builder-native composition (`addDetachAndForget` / `addDetachAndJoinLater`) makes detach a labeled chart stage. `flushAllDetached()` for graceful shutdown. [Guide →](https://footprintjs.github.io/footPrint/guides/patterns/detach/) |
 
 ---
 

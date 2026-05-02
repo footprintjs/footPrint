@@ -88,6 +88,11 @@
       "types": "./dist/types/trace.d.ts",
       "import": "./dist/esm/trace.js",
       "require": "./dist/trace.js"
+    },
+    "./detach": {
+      "types": "./dist/types/detach.d.ts",
+      "import": "./dist/esm/detach.js",
+      "require": "./dist/detach.js"
     }
   },
   "lint-staged": {

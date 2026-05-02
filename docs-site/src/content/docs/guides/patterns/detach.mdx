@@ -1,0 +1,163 @@
+---
+title: Detach — Fire-and-forget child flowcharts
+description: Schedule a child chart on a chosen driver without blocking the parent stage. Telemetry, fan-out, side-effects.
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+import fireAndForget from '@examples/runtime-features/detach/01-fire-and-forget.ts?raw';
+import joinLaterFanout from '@examples/runtime-features/detach/02-join-later-fanout.ts?raw';
+import bareExecutor from '@examples/runtime-features/detach/03-bare-executor.ts?raw';
+import immediateForTests from '@examples/runtime-features/detach/04-immediate-for-tests.ts?raw';
+import errorHandling from '@examples/runtime-features/detach/05-error-handling.ts?raw';
+import statusPolling from '@examples/runtime-features/detach/06-status-polling.ts?raw';
+import gracefulShutdown from '@examples/runtime-features/detach/07-graceful-shutdown.ts?raw';
+import builderNative from '@examples/runtime-features/detach/08-builder-native.ts?raw';
+
+The `footprintjs/detach` subpath gives you a primitive for scheduling child flowcharts off the parent stage's hot path — telemetry exports, parallel evaluations, audit log shipping, cache warm-up, anything that should ride alongside the main pipeline rather than inside it.
+
+Two semantics × two surfaces × six drivers.
+
+## Semantics
+
+| Method                  | Returns          | Use when                                              |
+|-------------------------|------------------|-------------------------------------------------------|
+| `detachAndJoinLater`    | `DetachHandle`   | You want the result later (await, status check, fan-out) |
+| `detachAndForget`       | `void`           | Pure fire-and-forget (telemetry, audit log, etc.)     |
+
+Both are sync at the call site — the parent stage returns immediately. The child runs on whichever driver you pick.
+
+## Surfaces
+
+| Caller                          | refId prefix                       |
+|---------------------------------|------------------------------------|
+| `scope.$detachAndJoinLater`     | `<runtimeStageId>:detach:<n>`      |
+| `executor.detachAndJoinLater`   | `__executor__:detach:<n>`          |
+
+The synthetic `__executor__` prefix is honest about provenance — there is no source stage to point back to.
+
+## Drivers
+
+```ts
+import {
+  microtaskBatchDriver,
+  immediateDriver,
+  setImmediateDriver,
+  setTimeoutDriver,
+  createSendBeaconDriver,
+  createWorkerThreadDriver,
+} from 'footprintjs/detach';
+```
+
+| Driver                   | When                                                    | Capabilities                                  |
+|--------------------------|---------------------------------------------------------|-----------------------------------------------|
+| `microtaskBatchDriver`   | Default. Coalesces N detaches into one microtask flush. | browser + node + edge                         |
+| `immediateDriver`        | Sync execution inside `schedule()` — for tests.         | browser + node + edge                         |
+| `setImmediateDriver`     | Node-only. Yields to I/O before running.                | node                                          |
+| `setTimeoutDriver`       | Cross-runtime. Configurable delay.                      | browser + node + edge                         |
+| `sendBeaconDriver`       | Browser-only. Survives page-unload via `navigator.sendBeacon`. | browser, survivesUnload               |
+| `workerThreadDriver`     | CPU-isolated execution in Node Worker / Web Worker.     | node, cpuIsolated                             |
+
+Driver is a **required** first argument — no library-default. Pass it explicitly so the choice of scheduling algorithm is visible at every call site.
+
+## 1 · Fire-and-forget telemetry
+
+Parent does its work, fires telemetry, returns. The handle is discarded.
+
+<Code code={fireAndForget} lang="ts" title="examples/runtime-features/detach/01-fire-and-forget.ts" />
+
+## 2 · Join-later fan-out
+
+Fire N children in parallel, gather their results in a downstream stage. Combine many handles via `Promise.all`.
+
+<Aside type="caution" title="Don't store handles in shared state">
+`StageContext.setValue` calls `structuredClone`, which drops the handle's class prototype (and with it, the `.wait()` method). Keep handles in **closure-local variables**, not on the typed scope.
+</Aside>
+
+<Code code={joinLaterFanout} lang="ts" title="examples/runtime-features/detach/02-join-later-fanout.ts" />
+
+## 3 · Bare executor (outside any chart)
+
+When you have a `FlowChartExecutor` and want to fire side-effects alongside (not inside) the main chart — analytics pings, audit writes, health checks.
+
+<Code code={bareExecutor} lang="ts" title="examples/runtime-features/detach/03-bare-executor.ts" />
+
+## 4 · Immediate driver (deterministic for tests)
+
+`immediateDriver` advances the handle to `running` synchronously. Useful when you want to assert handle state without managing microtask draining.
+
+<Aside type="caution">
+Status sequence telescopes — consumers polling `.status` synchronously see `running`, never `queued`. Don't use this for long-running production work; pick `microtaskBatchDriver` for that.
+</Aside>
+
+<Code code={immediateForTests} lang="ts" title="examples/runtime-features/detach/04-immediate-for-tests.ts" />
+
+## 5 · Error handling
+
+A child that throws does **not** propagate to the parent. The driver catches it and routes to `handle.error`. Sibling detaches in the same batch are not poisoned.
+
+<Code code={errorHandling} lang="ts" title="examples/runtime-features/detach/05-error-handling.ts" />
+
+## 6 · Status polling without `await`
+
+The handle is intentionally **not** Promise-shaped — no `.then()`. Reading `.status` is a plain property access, useful for backpressure checks, status banners, and "still in flight?" gates that shouldn't depend on async.
+
+<Code code={statusPolling} lang="ts" title="examples/runtime-features/detach/06-status-polling.ts" />
+
+## 7 · Graceful shutdown — `flushAllDetached`
+
+Drain all in-flight detached children before the process exits. Returns `{ done, failed, pending }`. `pending === 0` means the drain ran to completion. Useful in SIGTERM handlers and test cleanup.
+
+<Code code={gracefulShutdown} lang="ts" title="examples/runtime-features/detach/07-graceful-shutdown.ts" />
+
+## 8 · Builder-native composition
+
+Make detach a labeled chart stage so it shows up in narrative + visualizations + Mermaid diagrams. Pure sugar over `addFunction` — zero engine changes.
+
+For `addDetachAndJoinLater`, the handle goes to a consumer-supplied `onHandle` callback (closure pattern) — handles can't survive shared-state storage because of the `structuredClone` step.
+
+<Code code={builderNative} lang="ts" title="examples/runtime-features/detach/08-builder-native.ts" />
+
+## The handle
+
+| Property        | Type                                          |
+|-----------------|-----------------------------------------------|
+| `id`            | `string` — refId minted from the source stage |
+| `status`        | `'queued' \| 'running' \| 'done' \| 'failed'` |
+| `result`        | `unknown` — set when `status === 'done'`      |
+| `error`         | `Error` — set when `status === 'failed'`      |
+| `wait()`        | `Promise<DetachWaitResult>` — cached          |
+
+`wait()` returns the **same** Promise on every call — no re-running, no duplicated work. Errors land on `handle.error` and reject `wait()` with the same `Error`.
+
+The refId format makes log correlation easy:
+```
+sf-tools/exec-tool#42:detach:7
+└────── runtimeStageId ──────┘:detach:<counter>
+```
+
+Grep for the refId in your logs to find every event tied to a specific detached child.
+
+## Custom drivers
+
+Drivers are plain objects that satisfy the `DetachDriver` interface. The `createXxxDriver(runChild)` factories take a custom `ChildRunner` if you just want to wrap the executor (e.g., for tracing context).
+
+```ts
+import type { DetachDriver } from 'footprintjs/detach';
+import { createHandle, asImpl } from 'footprintjs/detach';
+
+const myDriver: DetachDriver = {
+  name: 'lambda-extension',
+  capabilities: { nodeSafe: true, survivesUnload: true },
+  schedule(child, input, refId) {
+    const handle = createHandle(refId);
+    sharedBuffer.push({ refId, child, input, handle });
+    return handle;
+  },
+};
+```
+
+When your buffer flushes, call `asImpl(handle)._markRunning()` / `_markDone(result)` / `_markFailed(error)` to advance the lifecycle.
+
+## See also
+
+- All 8 examples live at [`examples/runtime-features/detach/`](https://github.com/footprintjs/footPrint/tree/main/examples/runtime-features/detach) — each has a `.md` companion + regression guards. They run automatically as integration tests, so the snippets on this page never go stale.

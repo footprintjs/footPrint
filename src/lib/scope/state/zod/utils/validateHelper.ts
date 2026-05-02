@@ -13,11 +13,38 @@ export function isZodNode(x: unknown): x is ZodTypeAny {
   return detectSchema(x) !== 'none';
 }
 
-/** Peel wrappers; returns the underlying base Zod node (or null). */
+/** Peel wrappers; returns the underlying base Zod node (or null).
+ *
+ *  Wrapper-aware: only descends through fields that are KNOWN to hold
+ *  the inner schema for wrapper Zod types (Optional, Default, Nullable,
+ *  Effects/Pipeline). Notably, `_def.type` is treated as the inner
+ *  schema ONLY for v3 Effects/Pipeline — it is NOT the inner schema
+ *  for ZodArray (where `_def.type` holds the ELEMENT schema, which is
+ *  a separate concern from wrapper unwrapping).
+ *
+ *  Without this gate, `unwrap(z.array(z.string()))` would incorrectly
+ *  follow `_def.type` and return `ZodString`, breaking array detection
+ *  in `scopeFactory.analyze()`.
+ */
 export function unwrap(schema: ZodTypeAny | null | undefined): ZodTypeAny | null {
   let s: unknown = schema ?? null;
   while (isZodNode(s)) {
-    const def = (s as any)._def ?? {};
+    const def = ((s as any)._def ?? {}) as Record<string, unknown>;
+    const tn = def.typeName as string | undefined;
+    // Only known wrapper typeNames descend. ZodArray / ZodObject /
+    // ZodRecord / ZodUnion etc. break out so the caller can branch
+    // on the base instance check.
+    const isWrapper =
+      tn === 'ZodOptional' ||
+      tn === 'ZodDefault' ||
+      tn === 'ZodNullable' ||
+      tn === 'ZodReadonly' ||
+      tn === 'ZodBranded' ||
+      tn === 'ZodCatch' ||
+      tn === 'ZodEffects' ||
+      tn === 'ZodPipeline' ||
+      tn === 'ZodLazy';
+    if (!isWrapper) break;
     if (isZodNode(def.innerType)) {
       s = def.innerType;
       continue;
@@ -26,9 +53,22 @@ export function unwrap(schema: ZodTypeAny | null | undefined): ZodTypeAny | null
       s = def.schema;
       continue;
     }
-    if (isZodNode(def.type)) {
-      s = def.type;
+    // Pipeline (`in` / `out`) — descend into `in` (input side).
+    if (isZodNode(def.in)) {
+      s = def.in;
       continue;
+    }
+    // Lazy holds a getter under `getter`. Last-resort fallback.
+    if (typeof def.getter === 'function') {
+      try {
+        const inner = (def.getter as () => unknown)();
+        if (isZodNode(inner)) {
+          s = inner;
+          continue;
+        }
+      } catch {
+        /* fall through */
+      }
     }
     break;
   }
