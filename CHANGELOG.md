@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.17.1]
+
+### Fixed
+
+- **`test/lib/detach/examples-integration.test.ts` builds `dist/` on demand.** The detach examples-integration test runs each example via `npx tsx`, which resolves `import { ... } from 'footprintjs'` to the package's `dist/index.js`. CI runs `npm test` BEFORE `npm run build`, so `dist/` didn't exist yet during the test — every detach example exited with `Cannot find module .../dist/index.js` and the v4.17.0 publish workflow failed before `npm publish` could run. A `beforeAll` hook now builds dist/ if missing (no-op locally where dist is already current). v4.17.1 is functionally identical to v4.17.0 — just makes the publish go through.
+
 ## [4.17.0]
 
 ### Added
