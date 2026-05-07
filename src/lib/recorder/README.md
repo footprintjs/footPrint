@@ -182,16 +182,40 @@ executor.attachRecorder(agentObservability());
 }
 ```
 
-## Recorder Base Classes
+## Recorder Storage Primitives — three bookkeeping shelves
 
-Two abstract base classes for building custom recorders, both keyed by `runtimeStageId`:
+Recorders have **two halves**:
 
-| Base Class | Relationship | Data Shape | Use When |
-|------------|-------------|------------|----------|
-| **`KeyedRecorder<T>`** | 1:1 Map | One entry per step | Each step produces exactly one record (MetricRecorder, TokenRecorder) |
-| **`SequenceRecorder<T>`** | 1:N sequence + Map | Multiple entries per step, ordered | Each step produces multiple records or ordering matters (CombinedNarrativeRecorder) |
+- **Observer half** — *how* it hears events. Implements one of `Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`.
+- **Storage half** — *where* it keeps data. Extends one of three abstract base classes on the **storage shelf**.
 
-Both are exported from `footprintjs/trace` and share the same three operations:
+Mental model: existing recorder *interfaces* are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf, combining via `extends + implements` in a single class. Same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
+
+The three storage primitives:
+
+| Base Class | Relationship | Time scope | Memory | Use When |
+|------------|-------------|------------|--------|----------|
+| **`KeyedRecorder<T>`** | 1:1 Map | durable | O(N steps) | Each step produces exactly one record (MetricRecorder, TokenRecorder) |
+| **`SequenceRecorder<T>`** | 1:N sequence + Map | durable | O(N events) | Multiple entries per step, ordering matters (CombinedNarrativeRecorder, BoundaryRecorder) |
+| **`BoundaryStateTracker<TState>`** 🆕 | Map\<key, TState\> active stack | transient — clears on stop | O(K active) | Live state DURING a `[start, stop]` bracket (LLM stream partial, tool args streaming, agent turn state) |
+
+All three are exported from `footprintjs/trace` and `footprintjs/advanced`.
+
+### Decision tree
+
+```
+1. Is the data DURABLE (kept after the run completes)?
+     yes → step 2
+     no  → BoundaryStateTracker<TState>
+
+2. Are there MULTIPLE entries per stage, and does ORDER matter?
+     yes → SequenceRecorder<T>
+     no  → KeyedRecorder<T>
+```
+
+### Shared operations (durable shelves only)
+
+`KeyedRecorder<T>` and `SequenceRecorder<T>` share the same three read operations:
 
 | Operation | KeyedRecorder | SequenceRecorder |
 |-----------|--------------|-----------------|
@@ -262,6 +286,88 @@ class AuditRecorder extends SequenceRecorder<AuditEntry> {
 Methods: `emit(entry)`, `getEntries()`, `getEntriesForStep(id)`, `getEntriesUpTo(visibleIds)`, `getEntryRanges()`, `entryCount`, `stepCount`, `aggregate()`, `accumulate()`, `forEachEntry()`, `clear()`.
 
 `getEntryRanges()` returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step lookups during time-travel slider scrubbing — same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
+
+### BoundaryStateTracker<TState> — Transient Bracket-Scoped State 🆕
+
+The third storage shelf — for **live transient state** that exists only while a matched `[start, stop]` event interval is open. Cleared on stop. Algorithmically: the **DFS bracket-sequence pattern** (stack-frame state during a graph-traversal interval). Same shape used by Tarjan's SCC algorithm, tree decomposition, and push-down automata.
+
+**Use when:** "Is something happening RIGHT NOW? What's the partial value mid-stream?"
+
+**Don't use when:** time-travel queries (state clears on stop — snapshot to a `SequenceRecorder<TState>` instead), run-wide aggregates (use `aggregate()` / `accumulate()`), stage-level concerns (use `Recorder.onStageStart` / `onStageEnd`).
+
+```typescript
+import { BoundaryStateTracker } from 'footprintjs/trace';
+import type { EmitEvent, EmitRecorder } from 'footprintjs';
+
+interface LLMLiveState {
+  readonly partial: string;
+  readonly tokens: number;
+}
+
+class LiveLLMTracker
+  extends BoundaryStateTracker<LLMLiveState>      // STORAGE shelf
+  implements EmitRecorder                          // OBSERVER interface
+{
+  readonly id = 'live-llm';
+
+  // Observer half — translate events into bracket mutations.
+  onEmit(e: EmitEvent): void {
+    if (e.name === 'agentfootprint.stream.llm_start') {
+      this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
+    } else if (e.name === 'agentfootprint.stream.token') {
+      const chunk = (e.payload as { content: string }).content;
+      this.updateBoundary(e.runtimeStageId, (s) => ({
+        partial: s.partial + chunk,
+        tokens: s.tokens + 1,
+      }));
+    } else if (e.name === 'agentfootprint.stream.llm_end') {
+      this.stopBoundary(e.runtimeStageId);
+    }
+  }
+
+  // Public read API — O(1) at any moment during the run.
+  isInFlight(): boolean { return this.hasActive; }
+  getPartial(stageId: string): string {
+    return this.getActive(stageId)?.partial ?? '';
+  }
+}
+
+const tracker = new LiveLLMTracker();
+executor.attachEmitRecorder(tracker);
+await executor.run();
+
+tracker.isInFlight();    // O(1) — true between llm_start and llm_end
+tracker.getActive(rid);  // O(1) — current state of one boundary
+tracker.activeCount;     // O(1) — concurrent active boundaries
+```
+
+**Public API:**
+
+| Method | Visibility | Purpose |
+|---|---|---|
+| `startBoundary(key, initial)` | `protected` | Open a new boundary |
+| `updateBoundary(key, updater)` | `protected` | Evolve in-flight state via pure function |
+| `stopBoundary(key) → TState \| undefined` | `protected` | Close + return final state |
+| `getActive(key) → TState \| undefined` | `public` | O(1) read of one boundary |
+| `getAllActive() → ReadonlyMap` | `public` | All currently-active boundaries |
+| `hasActive` (getter) | `public` | True if any boundary active |
+| `activeCount` (getter) | `public` | Number of active boundaries |
+| `clear()` | `public` | Lifecycle reset (called by executors before each run) |
+
+**Lifecycle contract — STRICT:** every `startBoundary(key, ...)` MUST be paired with a `stopBoundary(key)`. Failure to wire stop is a memory leak — the active map grows unboundedly. Common cause: subclass wires `start` to one event handler and forgets to wire `stop`. Always wire both at the same time.
+
+**Dev-mode safety** (`enableDevMode()`, zero overhead in production):
+- `clear()` warns when residual active boundaries are detected at run boundaries — names the leaked keys
+- `updateBoundary` before `startBoundary` warns at the 1st, 10th, 100th occurrence per key (rate-limited)
+- `startBoundary` on an already-active key warns
+
+**Key convention:** use `runtimeStageId` for boundaries that map 1:1 to a stage execution — gives free interop with `getEntriesForStep`, `getByKey`, `findCommit` / `findLastWriter`, and the rest of the trace ecosystem. Use a more granular key (e.g., `toolCallId`) only when there are multiple concurrent boundaries WITHIN one stage.
+
+**Concurrency:** the same tracker handles N concurrent boundaries (parallel branches with multiple LLM calls) via independent keys in the active map. For DIFFERENT boundary kinds (e.g., LLM vs. Tool), use separate tracker instances — one per kind.
+
+Example: [examples/runtime-features/data-recorder/06-boundary-state-tracker.ts](../../../examples/runtime-features/data-recorder/06-boundary-state-tracker.ts)
+
+Doc-site: [Recorder storage primitives](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/)
 
 ## Three Operations on Auto-Collected Data
 
