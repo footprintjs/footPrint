@@ -1,0 +1,237 @@
+---
+title: Recorder storage primitives
+description: Three bookkeeping shelves — SequenceRecorder, KeyedRecorder, BoundaryStateTracker. When to use each.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A recorder has two halves:
+
+- **Observer half** — *how* it hears events. Implements one of `Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`.
+- **Storage half** — *where* it keeps data. Extends one of three base classes on the **storage shelf**.
+
+This page is about the storage shelf. Three primitives, three different durability and indexing properties:
+
+| Primitive                          | Stores                                  | Time scope            | Memory      |
+| ---------------------------------- | --------------------------------------- | --------------------- | ----------- |
+| `SequenceRecorder<T>`              | append-only ordered + keyed entries     | durable across run    | O(N events) |
+| `KeyedRecorder<T>`                 | 1:1 entry per `runtimeStageId`          | durable across run    | O(N steps)  |
+| `BoundaryStateTracker<TState>` 🆕  | transient bracket-scoped state          | live; clears on stop  | O(K active) |
+
+All three are imported from `'footprintjs/trace'` (or the convenience re-export from `'footprintjs/advanced'`).
+
+## When to pick which
+
+```
+"I need a permanent log of every event for time-travel"
+                                 → SequenceRecorder<T>
+
+"I want exactly one durable record per stage execution
+ (e.g., metrics, costs, evals)"
+                                 → KeyedRecorder<T>
+
+"I need to know what's happening RIGHT NOW inside an
+ in-flight matched-bracket interval (LLM stream partial,
+ tool args streaming, agent turn state)"
+                                 → BoundaryStateTracker<TState>
+```
+
+Pick **multiple** when you need both durable AND live views — they compose freely.
+
+## Mental model
+
+> Existing recorder *interfaces* are observers. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf, combining them via `extends + implements` in a single class.
+
+This is exactly how the existing `BoundaryRecorder` is built (in agentfootprint): it `extends SequenceRecorder<DomainEvent>` AND `implements CombinedRecorder`. Same pattern; just pick the storage shelf that matches your data shape.
+
+## Primitive 1 — `SequenceRecorder<T>` (durable, ordered, keyed)
+
+For event streams where **order matters** and you want **per-step lookup AND ordered iteration**.
+
+```ts
+import { SequenceRecorder } from 'footprintjs/trace';
+import type { CombinedRecorder } from 'footprintjs';
+
+interface AuditEntry {
+  readonly runtimeStageId?: string;
+  readonly type: 'read' | 'write' | 'decision';
+  readonly detail: string;
+}
+
+class AuditRecorder
+  extends SequenceRecorder<AuditEntry>
+  implements CombinedRecorder
+{
+  readonly id = 'audit';
+
+  onWrite(e) { this.emit({ runtimeStageId: e.runtimeStageId, type: 'write', detail: e.key }); }
+  onDecision(e) {
+    this.emit({
+      runtimeStageId: e.traversalContext?.runtimeStageId,
+      type: 'decision',
+      detail: `${e.decider} chose ${e.chosen}`,
+    });
+  }
+}
+```
+
+Built-ins on this shelf: `BoundaryRecorder`, `TopologyRecorder`, `InOutRecorder`, `QualityRecorder`, `CombinedNarrativeRecorder`.
+
+## Primitive 2 — `KeyedRecorder<T>` (durable, 1:1 by step)
+
+For "exactly one record per stage execution" semantics — typical for metrics, costs, evaluation scores.
+
+```ts
+import { KeyedRecorder } from 'footprintjs/trace';
+
+interface TokenEntry {
+  readonly tokens: { readonly input: number; readonly output: number };
+}
+
+class TokenRecorder extends KeyedRecorder<TokenEntry> {
+  readonly id = 'tokens';
+  recordCall(stageId: string, usage: TokenEntry['tokens']) {
+    this.store(stageId, { tokens: usage });
+  }
+
+  // Aggregate: grand total
+  totalTokens() {
+    return this.aggregate(
+      (acc, e) => ({
+        input: acc.input + e.tokens.input,
+        output: acc.output + e.tokens.output,
+      }),
+      { input: 0, output: 0 },
+    );
+  }
+}
+```
+
+Built-ins: `MetricRecorder`, `DebugRecorder`.
+
+## Primitive 3 — `BoundaryStateTracker<TState>` (transient, bracket-scoped) 🆕
+
+For live transient state that exists ONLY during a matched `[start, stop]` event interval. Cleared on stop.
+
+**Use when:** "Is something happening right now? What's the partial value mid-stream?"
+
+```ts
+import { BoundaryStateTracker } from 'footprintjs/trace';
+import type { EmitEvent, EmitRecorder } from 'footprintjs';
+
+interface LLMLiveState {
+  readonly partial: string;
+  readonly tokens: number;
+}
+
+class LiveLLMTracker
+  extends BoundaryStateTracker<LLMLiveState>
+  implements EmitRecorder
+{
+  readonly id = 'live-llm';
+
+  onEmit(e: EmitEvent): void {
+    if (e.name === 'demo.llm.start') {
+      this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
+    } else if (e.name === 'demo.llm.token') {
+      const chunk = (e.payload as { content: string }).content;
+      this.updateBoundary(e.runtimeStageId, (s) => ({
+        partial: s.partial + chunk,
+        tokens: s.tokens + 1,
+      }));
+    } else if (e.name === 'demo.llm.end') {
+      this.stopBoundary(e.runtimeStageId);
+    }
+  }
+
+  // Public read API — O(1) at any moment
+  isInFlight(): boolean { return this.hasActive; }
+  getPartial(stageId: string): string {
+    return this.getActive(stageId)?.partial ?? '';
+  }
+}
+
+const tracker = new LiveLLMTracker();
+executor.attachEmitRecorder(tracker);
+await executor.run();
+
+// Read live state DURING the run from another async context:
+tracker.isInFlight();           // true while llm.start↔llm.end is open
+tracker.getPartial(rid);        // 'I will help you with that'
+```
+
+### Algorithmic framing
+
+This is the **DFS bracket-sequence pattern** — stack-frame state during a graph-traversal interval. The internal `active` Map is the open-brackets stack at any moment. Same shape used by Tarjan's SCC algorithm, tree decomposition, and push-down automata.
+
+### Lifecycle contract — strict
+
+Every `startBoundary(key, ...)` call **MUST** be paired with a `stopBoundary(key)` call. Failure to wire stop is a memory leak — the active map grows unboundedly and `getAllActive()` returns stale entries that look in-flight but aren't. Common cause: subclass wires `start` but forgets `stop`.
+
+<Aside type="tip">
+**Dev-mode safety:** call `enableDevMode()` at app startup. The tracker then warns at `clear()` time when residual active boundaries are detected, naming the leaked keys so you can find the missing wiring. Zero overhead in production.
+</Aside>
+
+### What it does NOT do
+
+- **Time-travel queries.** Transient state clears on stop. To answer *"what was the state at past slider step N?"*, snapshot the state at each emit into a separate `SequenceRecorder<TState>`.
+- **Run-wide aggregates.** For totals/counts, use `SequenceRecorder.aggregate()` or `KeyedRecorder.aggregate()`.
+- **Stage-level concerns.** Use `Recorder.onStageStart` / `Recorder.onStageEnd`. This primitive operates at finer granularity (events emitted DURING a stage execution).
+
+### Concurrency / nesting
+
+- **Concurrent boundaries** of the same kind (parallel branches with two LLM calls active at once) work correctly — keyed independently in the active map.
+- **Nested boundaries of different kinds** (Agent boundary contains LLM boundary contains streaming) require **separate tracker instances** — one per kind. Compose multiple trackers; each one observes its own bracket pair.
+
+### Key convention
+
+The `key: string` is whatever your subclass picks. Convention: use `runtimeStageId` when the boundary maps 1:1 to a stage execution — gives free interop with `SequenceRecorder.getEntriesForStep`, `KeyedRecorder.getByKey`, `findCommit` / `findLastWriter`, and the rest of the trace ecosystem. Use a more granular key (e.g., `toolCallId`) only when there are multiple concurrent boundaries WITHIN one stage execution.
+
+## Choosing the right shelf — decision tree
+
+```
+1. Is the data DURABLE (kept after the run completes)?
+     yes → step 2
+     no  → BoundaryStateTracker<TState>
+
+2. Are there MULTIPLE entries per stage, and does ORDER matter?
+     yes → SequenceRecorder<T>
+     no  → KeyedRecorder<T>
+```
+
+Ninety-five percent of recorders fit one of the three. If yours doesn't, file an issue — the storage shelf is intentionally small and we want to keep it that way.
+
+## Composing storage with observer interfaces
+
+Same pattern for all three shelves:
+
+```ts
+// SequenceRecorder + CombinedRecorder
+class A extends SequenceRecorder<MyEntry> implements CombinedRecorder { ... }
+
+// KeyedRecorder + Recorder
+class B extends KeyedRecorder<MyEntry> implements Recorder { ... }
+
+// BoundaryStateTracker + EmitRecorder
+class C extends BoundaryStateTracker<MyState> implements EmitRecorder { ... }
+```
+
+Attach the same way:
+
+```ts
+executor.attachCombinedRecorder(new A());
+executor.attachRecorder(new B());
+executor.attachEmitRecorder(new C());
+```
+
+Storage shelves don't change the attach API. They just give your recorder a typed bookkeeping data structure with an idiomatic public read API and a clear `clear()` lifecycle.
+
+## Runnable example
+
+A complete `LiveLLMTracker` example demonstrating bracket-scoped transient state:
+
+```bash
+npx tsx examples/runtime-features/data-recorder/06-boundary-state-tracker.ts
+```
+
+The example also doubles as an integration test in the suite — examples in `examples/` run end-to-end on every release, so the snippets on this page never go stale.

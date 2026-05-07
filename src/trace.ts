@@ -38,6 +38,10 @@ export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
 // SequenceRecorder — base class for 1:N ordered sequence recorders with keyed index
 export { SequenceRecorder } from './lib/recorder/SequenceRecorder.js';
 
+// BoundaryStateTracker — base class for transient bracket-scoped state
+// (live state DURING a matched [start, stop] event interval; clears on stop)
+export { BoundaryStateTracker } from './lib/recorder/BoundaryStateTracker.js';
+
 // TopologyRecorder — composition graph accumulator (subflows + control-flow edges)
 export type {
   Topology,

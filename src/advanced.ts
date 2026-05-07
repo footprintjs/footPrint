@@ -189,4 +189,5 @@ export {
 export type { ExecutionCounter } from './lib/engine/runtimeStageId.js';
 export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/engine/runtimeStageId.js';
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+export { BoundaryStateTracker } from './lib/recorder/BoundaryStateTracker.js';
 export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';

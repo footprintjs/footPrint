@@ -1,3 +1,4 @@
+export { BoundaryStateTracker } from './BoundaryStateTracker.js';
 export type { CombinedRecorder } from './CombinedRecorder.js';
 export { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods, isFlowEvent } from './CombinedRecorder.js';
 export type { CompositeSnapshot } from './CompositeRecorder.js';

@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.17.2]
+
+### Added — `BoundaryStateTracker<TState>` — third storage primitive on the recorder shelf
+
+A new abstract base class for tracking **transient bracket-scoped state**. Sits alongside `SequenceRecorder<T>` (durable ordered) and `KeyedRecorder<T>` (durable 1:1) as the third storage primitive on the recorder shelf.
+
+**What it answers:** "At any moment during the run, what is the LIVE transient state of every currently-active boundary?" — for example, the partial answer of an in-flight LLM stream, the args of a tool call mid-execution, the running state of an agent turn between `turn_start` and `turn_end`.
+
+**Mental model:**
+
+> Existing recorder *interfaces* (`Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf via `extends + implements` — the same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
+
+**API:**
+
+```ts
+import { BoundaryStateTracker } from 'footprintjs/trace';
+
+class LiveLLMTracker
+  extends BoundaryStateTracker<LLMLiveState>     // STORAGE shelf
+  implements EmitRecorder                         // OBSERVER interface
+{
+  readonly id = 'live-llm';
+  onEmit(e) {
+    if (e.name === 'llm.start') this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
+    if (e.name === 'llm.token') this.updateBoundary(e.runtimeStageId, s => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
+    if (e.name === 'llm.end')   this.stopBoundary(e.runtimeStageId);
+  }
+
+  // O(1) reads
+  isInFlight(): boolean { return this.hasActive; }
+  getPartial(rid: string): string { return this.getActive(rid)?.partial ?? ''; }
+}
+```
+
+**Algorithmic framing:** the DFS bracket-sequence pattern — stack-frame state during a graph-traversal interval. Same shape used by Tarjan's SCC algorithm, tree decomposition, and push-down automata. The internal `active` Map is the open-brackets stack at any moment.
+
+**Public surface:**
+
+- `protected startBoundary(key, initial)` — open a boundary
+- `protected updateBoundary(key, updater)` — evolve in-flight state
+- `protected stopBoundary(key)` — close + return final state
+- `getActive(key) → TState | undefined` — O(1) read
+- `getAllActive() → ReadonlyMap<string, TState>` — type-only readonly snapshot
+- `hasActive` getter, `activeCount` getter
+- `clear()` — lifecycle reset (called by executors before each run)
+
+**Dev-mode safety:** call `enableDevMode()` to enable three diagnostic warnings (zero overhead in production):
+
+- `clear()` warns if it finds residual active boundaries (likely missed `stopBoundary` upstream — a memory leak). Lists the leaked keys so the wiring bug is findable.
+- `updateBoundary` before `startBoundary` warns at the 1st, 10th, 100th occurrence per key (rate-limited so a stuck loop doesn't spam the console).
+- `startBoundary` on an already-active key warns (likely a missed `stopBoundary` upstream).
+
+**What it is NOT for:**
+
+- Time-travel queries ("what was the state at past slider step N?") — transient state clears on stop. For time-travel, snapshot to a `SequenceRecorder<TState>`.
+- Run-wide aggregates — use `SequenceRecorder.aggregate()` / `KeyedRecorder.aggregate()`.
+- Stage-level concerns — use `Recorder.onStageStart` / `Recorder.onStageEnd`. This primitive operates at finer granularity (events emitted DURING a stage execution).
+
+**Lifecycle contract — strict:** every `startBoundary(key, ...)` MUST be paired with a `stopBoundary(key)`. Failure to wire the stop side leaks memory. Dev-mode warnings catch this; the JSDoc loudly emphasizes the invariant.
+
+**Tests:** 33 unit/scenario/integration/property/perf/security/ROI tests across 7 tiers.
+**Example:** [examples/runtime-features/data-recorder/06-boundary-state-tracker.ts](examples/runtime-features/data-recorder/06-boundary-state-tracker.ts) — a complete `LiveLLMTracker` demonstrating mid-stream peeks at transient state.
+**Doc-site:** [Recorder storage primitives](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/) — when to pick which shelf.
+
+**Public exports:** `BoundaryStateTracker` is re-exported from `'footprintjs/trace'` and `'footprintjs/advanced'` (same convention as `KeyedRecorder` / `SequenceRecorder`).
+
+Pure addition. No breaking changes. Existing recorders unaffected.
+
 ## [4.17.1]
 
 ### Fixed
