@@ -14,7 +14,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.keys auto-redacts matching keys on setValue', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['ssn', 'creditCard'] });
     scope.setValue('ssn', '123-45-6789');
@@ -26,7 +26,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.keys does not redact non-matching keys', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['ssn'] });
     scope.setValue('name', 'Alice');
@@ -47,7 +47,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.patterns auto-redacts keys matching a regex', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ patterns: [/password|secret|apiKey/i] });
     scope.setValue('userPassword', 'hunter2');
@@ -62,7 +62,7 @@ describe('RedactionPolicy — unit', () => {
   it('multiple patterns are checked (any match triggers redaction)', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ patterns: [/^cc_/, /^ssn$/] });
     scope.setValue('cc_number', '4111...');
@@ -77,7 +77,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.fields scrubs specific fields in object values on setValue', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { user: ['ssn', 'dob'] } });
     scope.setValue('user', { name: 'Alice', ssn: '123-45-6789', dob: '1990-01-01', role: 'admin' });
@@ -98,12 +98,12 @@ describe('RedactionPolicy — unit', () => {
     ctx.commit();
 
     const reads: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => reads.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => reads.push(e) });
     const value = scope.getValue('user') as any;
 
     // Runtime gets real value
     expect(value.ssn).toBe('999-99-9999');
-    // Recorder gets scrubbed
+    // ScopeRecorder gets scrubbed
     expect((reads[0].value as any).ssn).toBe('[REDACTED]');
     expect(reads[0].redacted).toBe(true);
   });
@@ -112,7 +112,7 @@ describe('RedactionPolicy — unit', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { patient: ['ssn'] } });
     scope.setValue('patient', { name: 'Alice', ssn: '111' });
@@ -127,7 +127,7 @@ describe('RedactionPolicy — unit', () => {
   it('field-level redaction ignores non-object values gracefully', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { user: ['ssn'] } });
     scope.setValue('user', 'not-an-object');
@@ -141,7 +141,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.fields with dot-notation scrubs nested fields on setValue', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { patient: ['address.zip', 'insurance.memberId'] } });
     scope.setValue('patient', {
@@ -167,19 +167,19 @@ describe('RedactionPolicy — unit', () => {
     ctx.commit();
 
     const reads: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => reads.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => reads.push(e) });
     const value = scope.getValue('patient') as any;
 
     // Runtime gets real value
     expect(value.address.zip).toBe('10001');
-    // Recorder gets scrubbed
+    // ScopeRecorder gets scrubbed
     expect((reads[0].value as any).address.zip).toBe('[REDACTED]');
   });
 
   it('policy.fields with dot-notation ignores missing nested paths', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { user: ['address.zip'] } });
     scope.setValue('user', { name: 'Alice' }); // no 'address' property at all
@@ -192,7 +192,7 @@ describe('RedactionPolicy — unit', () => {
   it('policy.fields mixes dot-notation and flat fields', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { patient: ['ssn', 'address.zip'] } });
     scope.setValue('patient', {
@@ -210,7 +210,7 @@ describe('RedactionPolicy — unit', () => {
 
   it('dot-notation does not mutate the original object', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
-    scope.attachRecorder({ id: 'r', onWrite: () => {} });
+    scope.attachScopeRecorder({ id: 'r', onWrite: () => {} });
 
     scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
     const original = { name: 'Alice', address: { zip: '90210' } };
@@ -224,7 +224,7 @@ describe('RedactionPolicy — unit', () => {
   it('exact keys + patterns + fields work together', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({
       keys: ['creditCard'],
@@ -249,7 +249,7 @@ describe('RedactionPolicy — unit', () => {
   it('manual shouldRedact=true works alongside policy', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['ssn'] });
     scope.setValue('ssn', '123'); // policy redacts

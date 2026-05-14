@@ -87,7 +87,7 @@ describe('reactive/types -- compile-time assertions', () => {
       deleteValue: () => {},
       getArgs: () => ({} as any),
       getEnv: () => ({} as any),
-      attachRecorder: () => {},
+      attachScopeRecorder: () => {},
       addDebugInfo: () => {},
       addDebugMessage: () => {},
       addErrorInfo: () => {},
@@ -120,9 +120,9 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
     '$error',
     '$metric',
     '$eval',
-    '$attachRecorder',
-    '$detachRecorder',
-    '$getRecorders',
+    '$attachScopeRecorder',
+    '$detachScopeRecorder',
+    '$getScopeRecorders',
     '$batchArray',
     '$break',
     '$emit',
@@ -157,8 +157,8 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
       'deleteValue',
       'getArgs',
       'getEnv',
-      'attachRecorder',
-      'detachRecorder',
+      'attachScopeRecorder',
+      'detachScopeRecorder',
       'addDebugInfo',
       'addDebugMessage',
       'addErrorInfo',
@@ -235,7 +235,15 @@ describe('reactive/types -- $-prefix collision safety', () => {
 
   it('ScopeFacade method names do not start with $', () => {
     // Verifies the collision space is cleanly separated
-    const facadeMethods = ['getValue', 'setValue', 'updateValue', 'deleteValue', 'getArgs', 'getEnv', 'attachRecorder'];
+    const facadeMethods = [
+      'getValue',
+      'setValue',
+      'updateValue',
+      'deleteValue',
+      'getArgs',
+      'getEnv',
+      'attachScopeRecorder',
+    ];
     for (const method of facadeMethods) {
       expect(method.startsWith('$')).toBe(false);
     }

@@ -4,17 +4,17 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Recorder, StageEvent } from '../../../../src';
+import type { ScopeRecorder, StageEvent } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 function captureRuntimeIds(exec: FlowChartExecutor): string[] {
   const ids: string[] = [];
-  exec.attachRecorder({
+  exec.attachScopeRecorder({
     id: 'capture',
     onStageStart(e: StageEvent) {
       ids.push((e as any).runtimeStageId);
     },
-  } as Recorder);
+  } as ScopeRecorder);
   return ids;
 }
 

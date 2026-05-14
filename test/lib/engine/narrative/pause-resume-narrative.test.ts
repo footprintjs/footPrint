@@ -277,7 +277,7 @@ describe('Narrative pause/resume — security', () => {
     executor.attachFlowRecorder({
       id: 'bad-recorder',
       onPause: () => {
-        throw new Error('Recorder crash!');
+        throw new Error('ScopeRecorder crash!');
       },
     });
 

@@ -12,7 +12,7 @@ import { ManifestFlowRecorder } from '../../../../src/lib/engine/narrative/recor
 import type { FlowRecorder } from '../../../../src/lib/engine/narrative/types.js';
 import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor.js';
 
-describe('Recorder snapshots in getSnapshot()', () => {
+describe('ScopeRecorder snapshots in getSnapshot()', () => {
   it('snapshot includes no recorders field when none implement toSnapshot', async () => {
     const noopRecorder: FlowRecorder = { id: 'noop' };
 

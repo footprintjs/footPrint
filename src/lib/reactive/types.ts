@@ -9,7 +9,7 @@
  */
 
 import type { ExecutionEnv } from '../engine/types.js';
-import type { Recorder } from '../scope/types.js';
+import type { ScopeRecorder } from '../scope/types.js';
 
 // -- ReactiveTarget ----------------------------------------------------------
 // Minimum protocol required by TypedScope -- a curated subset of ScopeFacade's
@@ -36,10 +36,10 @@ export interface ReactiveTarget {
   getArgs<T = Record<string, unknown>>(): T;
   getEnv(): Readonly<ExecutionEnv>;
 
-  // Recorder management
-  attachRecorder(recorder: Recorder): void;
-  detachRecorder(recorderId: string): void;
-  getRecorders(): Recorder[];
+  // ScopeRecorder management
+  attachScopeRecorder(recorder: ScopeRecorder): void;
+  detachScopeRecorder(recorderId: string): void;
+  getScopeRecorders(): ScopeRecorder[];
 
   // Diagnostics
   addDebugInfo(key: string, value: unknown): void;
@@ -106,10 +106,10 @@ export interface ScopeMethods {
   $metric(name: string, value: unknown): void;
   $eval(name: string, value: unknown): void;
 
-  // Recorder management
-  $attachRecorder(recorder: Recorder): void;
-  $detachRecorder(recorderId: string): void;
-  $getRecorders(): Recorder[];
+  // ScopeRecorder management
+  $attachScopeRecorder(recorder: ScopeRecorder): void;
+  $detachScopeRecorder(recorderId: string): void;
+  $getScopeRecorders(): ScopeRecorder[];
 
   /**
    * Batch-mutate an array key in a single clone+write cycle.
@@ -272,9 +272,9 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$error',
   '$metric',
   '$eval',
-  '$attachRecorder',
-  '$detachRecorder',
-  '$getRecorders',
+  '$attachScopeRecorder',
+  '$detachScopeRecorder',
+  '$getScopeRecorders',
   '$batchArray',
   '$break',
   '$emit',
@@ -304,9 +304,9 @@ export const EXECUTOR_INTERNAL_METHODS = new Set([
   'notifyStageStart', // StageRunner.run() line 59
   'notifyStageEnd', // StageRunner.run() line 79
   'notifyPause', // StageRunner.run() — pause detection
-  'attachRecorder', // FlowChartExecutor.createTraverser() — narrative + user recorders
-  'detachRecorder', // FlowChartExecutor.detachRecorder()
-  'getRecorders', // FlowChartExecutor.getRecorders()
+  'attachScopeRecorder', // FlowChartExecutor.createTraverser() — narrative + user recorders
+  'detachScopeRecorder', // FlowChartExecutor.detachScopeRecorder()
+  'getScopeRecorders', // FlowChartExecutor.getScopeRecorders()
   'useSharedRedactedKeys', // FlowChartExecutor.createTraverser() — redaction wrapping
   'useRedactionPolicy', // FlowChartExecutor.createTraverser() — redaction wrapping
 ]);

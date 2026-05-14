@@ -1,8 +1,8 @@
 /**
  * CompositeRecorder — fan-out a single recorder attachment to multiple child recorders.
  *
- * Implements both Recorder (scope data ops) and FlowRecorder (control flow events)
- * so it works with both `executor.attachRecorder()` and `executor.attachFlowRecorder()`.
+ * Implements both ScopeRecorder (scope data ops) and FlowRecorder (control flow events)
+ * so it works with both `executor.attachScopeRecorder()` and `executor.attachFlowRecorder()`.
  *
  * The composite has a single ID for idempotent attach/detach. Child recorders
  * keep their own IDs internally but are not individually visible to the executor.
@@ -20,7 +20,7 @@
  *   new DebugRecorder({ verbosity: 'minimal' }),
  * ]);
  *
- * executor.attachRecorder(observability);
+ * executor.attachScopeRecorder(observability);
  *
  * // Access child recorders by type
  * const metrics = observability.get(MetricRecorder);
@@ -39,7 +39,7 @@
  * }
  *
  * // Consumer
- * executor.attachRecorder(agentObservability());
+ * executor.attachScopeRecorder(agentObservability());
  * ```
  */
 
@@ -56,7 +56,7 @@ import type {
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
 } from '../engine/narrative/types.js';
-import type { CommitEvent, ErrorEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../scope/types.js';
+import type { CommitEvent, ErrorEvent, ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../scope/types.js';
 
 /** Snapshot format for composite recorders — wraps child snapshots. */
 export interface CompositeSnapshot {
@@ -66,11 +66,11 @@ export interface CompositeSnapshot {
   };
 }
 
-export class CompositeRecorder implements Recorder, FlowRecorder {
+export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
   readonly id: string;
-  private readonly children: Array<Recorder | FlowRecorder>;
+  private readonly children: Array<ScopeRecorder | FlowRecorder>;
 
-  constructor(id: string, children: Array<Recorder | FlowRecorder>) {
+  constructor(id: string, children: Array<ScopeRecorder | FlowRecorder>) {
     this.id = id;
     this.children = [...children];
   }
@@ -90,34 +90,34 @@ export class CompositeRecorder implements Recorder, FlowRecorder {
   }
 
   /** Get all child recorders. */
-  getChildren(): ReadonlyArray<Recorder | FlowRecorder> {
+  getChildren(): ReadonlyArray<ScopeRecorder | FlowRecorder> {
     return this.children;
   }
 
-  // ── Scope Recorder hooks (fan-out to children that implement Recorder) ─
+  // ── Scope ScopeRecorder hooks (fan-out to children that implement ScopeRecorder) ─
 
   onRead(event: ReadEvent): void {
-    for (const c of this.children) if ((c as Recorder).onRead) (c as Recorder).onRead!(event);
+    for (const c of this.children) if ((c as ScopeRecorder).onRead) (c as ScopeRecorder).onRead!(event);
   }
 
   onWrite(event: WriteEvent): void {
-    for (const c of this.children) if ((c as Recorder).onWrite) (c as Recorder).onWrite!(event);
+    for (const c of this.children) if ((c as ScopeRecorder).onWrite) (c as ScopeRecorder).onWrite!(event);
   }
 
   onCommit(event: CommitEvent): void {
-    for (const c of this.children) if ((c as Recorder).onCommit) (c as Recorder).onCommit!(event);
+    for (const c of this.children) if ((c as ScopeRecorder).onCommit) (c as ScopeRecorder).onCommit!(event);
   }
 
   onError(event: ErrorEvent | FlowErrorEvent): void {
-    for (const c of this.children) if ((c as Recorder).onError) (c as Recorder).onError!(event as any);
+    for (const c of this.children) if ((c as ScopeRecorder).onError) (c as ScopeRecorder).onError!(event as any);
   }
 
   onStageStart(event: StageEvent): void {
-    for (const c of this.children) if ((c as Recorder).onStageStart) (c as Recorder).onStageStart!(event);
+    for (const c of this.children) if ((c as ScopeRecorder).onStageStart) (c as ScopeRecorder).onStageStart!(event);
   }
 
   onStageEnd(event: StageEvent): void {
-    for (const c of this.children) if ((c as Recorder).onStageEnd) (c as Recorder).onStageEnd!(event);
+    for (const c of this.children) if ((c as ScopeRecorder).onStageEnd) (c as ScopeRecorder).onStageEnd!(event);
   }
 
   // ── FlowRecorder hooks (fan-out to children that implement FlowRecorder) ─

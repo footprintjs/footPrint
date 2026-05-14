@@ -29,7 +29,7 @@ describe('redaction ReDoS guard — unit: normal keys still matched by patterns'
     scope.useRedactionPolicy({ patterns: [/ssn/i] });
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -45,7 +45,7 @@ describe('redaction ReDoS guard — unit: normal keys still matched by patterns'
     scope.useRedactionPolicy({ patterns: [/secret/] });
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -66,7 +66,7 @@ describe('redaction ReDoS guard — boundary: keys at/above 256-char cap', () =>
     scope.useRedactionPolicy({ patterns: [/^a+$/] }); // would match
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -83,7 +83,7 @@ describe('redaction ReDoS guard — boundary: keys at/above 256-char cap', () =>
     scope.useRedactionPolicy(policy);
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -99,7 +99,7 @@ describe('redaction ReDoS guard — boundary: keys at/above 256-char cap', () =>
     scope.useRedactionPolicy({ patterns: [/z/] });
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -120,7 +120,7 @@ describe('redaction ReDoS guard — scenario: pathological regex does not hang',
     scope.useRedactionPolicy({ patterns: [catastrophicPattern] });
 
     const writes: unknown[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'w',
       onWrite: (e: any) => writes.push(e),
     });
@@ -146,7 +146,7 @@ describe('redaction ReDoS guard — scenario: pathological regex does not hang',
     });
 
     const writes: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
 
     scope.setValue('creditScore', 750);
     scope.setValue('ssn', '123-45-6789');
@@ -171,7 +171,7 @@ describe('redaction ReDoS guard — property: stateful regex lastIndex is reset 
     scope.useRedactionPolicy({ patterns: [globalPattern] });
 
     const writes: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
 
     // Both calls must be redacted even though globalPattern.lastIndex advances
     scope.setValue('secretKey', 'v1');
@@ -189,7 +189,7 @@ describe('redaction ReDoS guard — property: stateful regex lastIndex is reset 
     scope.useRedactionPolicy({ patterns: [stickyPattern] });
 
     const writes: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
 
     scope.setValue('ssnNumber', 'v1');
     scope.setValue('creditScore', 750);
@@ -211,7 +211,7 @@ describe('redaction ReDoS guard — security: exact-key bypass is not possible',
     scope.useRedactionPolicy({ keys: [longPiiKey] });
 
     const writes: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
 
     scope.setValue(longPiiKey, 'hashed-ssn');
     expect(writes[0]).toMatchObject({ value: '[REDACTED]' });
@@ -223,7 +223,7 @@ describe('redaction ReDoS guard — security: exact-key bypass is not possible',
     scope.useRedactionPolicy({ patterns: [/w$/] });
 
     const writes: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e: any) => writes.push(e) });
 
     scope.setValue(key256, 'secret');
     // At exactly 256 chars the guard is inclusive — pattern is tested
@@ -239,7 +239,7 @@ describe('redaction ReDoS guard — security: exact-key bypass is not possible',
     scope.setValue(shortKey, 'hunter2');
 
     const reads: any[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e: any) => reads.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e: any) => reads.push(e) });
 
     scope.getValue(shortKey);
     expect(reads[0]).toMatchObject({ key: shortKey, value: '[REDACTED]' });

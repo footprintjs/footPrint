@@ -36,7 +36,7 @@ Non-enumerable escape hatches (don't appear in Object.keys or destructuring):
 
 $getValue, $setValue, $update, $delete, $read, $getArgs, $getEnv,
 $debug, $log, $error, $metric, $eval,
-$attachRecorder, $detachRecorder, $getRecorders, $break, $toRaw
+$attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $break, $toRaw
 
 ## Allowlist
 

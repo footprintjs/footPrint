@@ -11,7 +11,7 @@
 import type { FlowChart } from '../builder/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RunOptions } from '../engine/types.js';
-import type { Recorder, RedactionPolicy } from '../scope/types.js';
+import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { FlowChartExecutor } from './FlowChartExecutor.js';
 
 /** Result from RunContext.run() — owns state and output. */
@@ -28,7 +28,7 @@ export interface RunResult {
 
 export class RunContext<TOut = any, TScope = any> {
   private readonly chart: FlowChart<TOut, TScope>;
-  private readonly scopeRecorders: Recorder[] = [];
+  private readonly scopeRecorders: ScopeRecorder[] = [];
   private readonly flowRecorders: FlowRecorder[] = [];
   private redactionPolicy?: RedactionPolicy;
 
@@ -37,7 +37,7 @@ export class RunContext<TOut = any, TScope = any> {
   }
 
   /** Attach a recorder. Auto-detects scope vs flow recorder. Chainable. */
-  recorder(r: Recorder | FlowRecorder): RunContext<TOut, TScope> {
+  recorder(r: ScopeRecorder | FlowRecorder): RunContext<TOut, TScope> {
     const hasId = typeof (r as any).id === 'string';
     const isFlowRecorder =
       hasId &&
@@ -47,17 +47,17 @@ export class RunContext<TOut = any, TScope = any> {
         typeof (r as FlowRecorder).onNext === 'function');
     const isScopeRecorder =
       hasId &&
-      (typeof (r as Recorder).onRead === 'function' ||
-        typeof (r as Recorder).onWrite === 'function' ||
-        typeof (r as Recorder).onCommit === 'function');
+      (typeof (r as ScopeRecorder).onRead === 'function' ||
+        typeof (r as ScopeRecorder).onWrite === 'function' ||
+        typeof (r as ScopeRecorder).onCommit === 'function');
 
     // CombinedNarrativeRecorder implements BOTH — add to both lists
     if (isFlowRecorder) this.flowRecorders.push(r as FlowRecorder);
-    if (isScopeRecorder) this.scopeRecorders.push(r as Recorder);
+    if (isScopeRecorder) this.scopeRecorders.push(r as ScopeRecorder);
 
     // Pure scope recorder (no flow hooks)
     if (!isFlowRecorder && !isScopeRecorder && hasId) {
-      this.scopeRecorders.push(r as Recorder);
+      this.scopeRecorders.push(r as ScopeRecorder);
     }
 
     return this;
@@ -75,7 +75,7 @@ export class RunContext<TOut = any, TScope = any> {
 
     // Attach scope recorders
     for (const r of this.scopeRecorders) {
-      executor.attachRecorder(r);
+      executor.attachScopeRecorder(r);
     }
 
     // Attach flow recorders (auto-enables narrative)

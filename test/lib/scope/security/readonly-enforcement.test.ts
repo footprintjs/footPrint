@@ -247,13 +247,13 @@ describe('Security: readonly enforcement', () => {
     }).toThrow();
   });
 
-  // ── Recorder sees the error, not leaked data ─────────────────────────
+  // ── ScopeRecorder sees the error, not leaked data ─────────────────────────
 
   it('blocked setValue does not fire onWrite to recorders', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test', { secret: 'protected' });
     const events: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     expect(() => scope.setValue('secret', 'hacked')).toThrow();
 
@@ -265,7 +265,7 @@ describe('Security: readonly enforcement', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test', { secret: 'protected' });
     const events: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     expect(() => scope.updateValue('secret', 'hacked')).toThrow();
     expect(events).toHaveLength(0);
@@ -275,7 +275,7 @@ describe('Security: readonly enforcement', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test', { secret: 'protected' });
     const events: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     expect(() => scope.deleteValue('secret')).toThrow();
     expect(events).toHaveLength(0);

@@ -91,7 +91,7 @@ export interface CausalChainOptions {
  * which read→write edges to follow.
  *
  * Implementors: QualityRecorder tracks keysRead per step,
- * or build a Map<runtimeStageId, string[]> from Recorder.onRead events.
+ * or build a Map<runtimeStageId, string[]> from ScopeRecorder.onRead events.
  */
 export type KeysReadLookup = (runtimeStageId: string) => string[];
 

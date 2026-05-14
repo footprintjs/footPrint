@@ -1,0 +1,51 @@
+---
+title: API reference
+description: Auto-generated API reference is on the v2.4 backlog (TypeDoc + plugin). Until that lands, refer to the source-code JSDoc and the type definitions shipped in dist/types/.
+---
+
+> The API reference for agentfootprint is generated from TypeScript types + JSDoc. Auto-generation via TypeDoc is on the v2.4 backlog (Phase 6). Until that ships, the authoritative reference is the source code itself — every public export has JSDoc with examples, every type is in `dist/types/`, and your IDE's autocomplete on `import { ... } from 'agentfootprint'` shows the current shape.
+
+## Where to find what
+
+| You want | Look at |
+|---|---|
+| `Agent.create({...})` shape | `import('agentfootprint').Agent` — your IDE shows the builder methods |
+| `defineMemory({...})` options | `src/memory/define.types.ts` (curated public types) |
+| `defineSkill({...})` options | `src/lib/injection-engine/factories/defineSkill.ts` |
+| `LLMProvider` interface | `src/adapters/types.ts` |
+| `MemoryStore` interface | `src/memory/store/types.ts` |
+| Event taxonomy (47 events × 13 domains) | `src/events/registry.ts` |
+| Conventions (subflow ids, injection keys) | `src/conventions.ts` |
+
+Every type has a JSDoc with at least one example. The `MemoryStore` interface alone has 200+ lines of JSDoc covering each method's contract.
+
+## Subpath imports
+
+```ts
+import { Agent, defineMemory, mock } from 'agentfootprint';                  // top-level
+import { RedisStore } from 'agentfootprint/memory-redis';                    // Redis adapter
+import { AgentCoreStore } from 'agentfootprint/memory-agentcore';            // AgentCore adapter
+import { withRetry, withFallback } from 'agentfootprint/resilience';         // resilience decorators
+import { toSSE } from 'agentfootprint/stream';                               // SSE bridge
+```
+
+## Coming in v2.4 Phase 6
+
+Auto-generated API reference via:
+
+- `typedoc` — TypeScript → structured JSON
+- `typedoc-plugin-markdown` — JSON → MDX
+- Generated output emitted to `docs-site/src/content/docs/api/`
+- CI step regenerates on every commit; published with the docs build
+
+When that lands, this page is replaced by the auto-generated tree.
+
+## Why we're deferring it
+
+API reference auto-gen is mechanical; we want to do it once correctly rather than ship a half-broken version now. The current source-code JSDoc is COMPLETE and accurate (every public export has it; `npm run lint` enforces). For now, your editor's go-to-definition + JSDoc rendering covers what an HTML reference would.
+
+## Next steps
+
+- [Manifesto](/agentfootprint/manifesto/) — what the library is and isn't
+- [Quick Start](/agentfootprint/getting-started/quick-start/) — first agent in 5 minutes
+- [Citations](/agentfootprint/research/citations/) — the research foundation

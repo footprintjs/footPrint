@@ -94,7 +94,7 @@ Ten focused modules, each owning one aspect of execution. The traverser delegate
 
 ### 3. FlowRecorder System — "The Observers"
 
-Pluggable observers for control flow events. Mirrors the scope-level `Recorder` pattern at the engine layer.
+Pluggable observers for control flow events. Mirrors the scope-level `ScopeRecorder` pattern at the engine layer.
 
 **Why it connects to the main goal:** Every control flow decision — which branch was taken, how many times the loop ran, which subflow was entered — is a fact that consumers need. But different consumers need different views of those facts. An LLM needs a concise narrative. A dashboard needs metrics. An audit system needs every event. The FlowRecorder system lets all of them observe the same traversal without interfering with each other or with execution.
 
@@ -116,7 +116,7 @@ The `FlowRecorderDispatcher` implements `IControlFlowNarrative`, so it drops int
 **Two narrative systems, complementary:**
 
 ```
-scope/Recorder (data events)         = DATA observation  → "wrote userName = 'Alice'"
+scope/ScopeRecorder (data events)         = DATA observation  → "wrote userName = 'Alice'"
 engine/FlowRecorder (flow events)    = FLOW observation  → "chose Reject because riskScore > 0.5"
 CombinedNarrativeRecorder            = MERGE both        → the full story (inline during traversal)
 ```
@@ -177,7 +177,7 @@ interface FlowRecorder {
 All hooks are optional — implement only what you need. The `id` field supports attach/detach by identity.
 
 **Key design decisions:**
-- **Mirrors scope Recorder** — if you know Recorder, you know FlowRecorder
+- **Mirrors scope ScopeRecorder** — if you know ScopeRecorder, you know FlowRecorder
 - **Dispatcher = Null Object** — when no recorders attached, fast-path returns immediately (~0 cost)
 - **Error isolation** — try/catch per recorder per hook, errors swallowed, never breaks execution
 - **Non-breaking additive** — default behavior preserved; NarrativeFlowRecorder auto-attached when narrative enabled

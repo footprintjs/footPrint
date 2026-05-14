@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import type { ReadEvent, Recorder, WriteEvent } from '../../../../src/lib/scope/types';
+import type { ReadEvent, ScopeRecorder, WriteEvent } from '../../../../src/lib/scope/types';
 
 function makeCtx() {
   return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
@@ -20,7 +20,7 @@ describe('Property: redaction invariants', () => {
           const allWriteEvents: WriteEvent[] = [];
 
           for (let i = 0; i < numRecorders + 1; i++) {
-            scope.attachRecorder({
+            scope.attachScopeRecorder({
               id: `r-${i}`,
               onWrite: (e) => allWriteEvents.push(e),
             });
@@ -49,7 +49,7 @@ describe('Property: redaction invariants', () => {
           scope.setValue(key, value, true);
           ctx.commit();
 
-          scope.attachRecorder({
+          scope.attachScopeRecorder({
             id: 'r',
             onRead: (e) => readEvents.push(e),
           });
@@ -71,7 +71,7 @@ describe('Property: redaction invariants', () => {
         (key, value) => {
           const ctx = makeCtx();
           const scope = new ScopeFacade(ctx, 'test');
-          scope.attachRecorder({ id: 'r' });
+          scope.attachScopeRecorder({ id: 'r' });
 
           scope.setValue(key, value, true);
           ctx.commit();
@@ -92,7 +92,7 @@ describe('Property: redaction invariants', () => {
         (key, value) => {
           const scope = new ScopeFacade(makeCtx(), 'test');
           const events: WriteEvent[] = [];
-          scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+          scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
           scope.setValue(key, value);
 
@@ -113,14 +113,14 @@ describe('Property: redaction invariants', () => {
           const goodEvents: WriteEvent[] = [];
 
           // Throwing recorder first
-          scope.attachRecorder({
+          scope.attachScopeRecorder({
             id: 'bad',
             onWrite: () => {
               throw new Error('crash');
             },
           });
           // Good recorder after
-          scope.attachRecorder({
+          scope.attachScopeRecorder({
             id: 'good',
             onWrite: (e) => goodEvents.push(e),
           });
@@ -142,7 +142,7 @@ describe('Property: redaction invariants', () => {
         (key, values) => {
           const scope = new ScopeFacade(makeCtx(), 'test');
           const events: WriteEvent[] = [];
-          scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+          scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
           // First write: mark redacted
           scope.setValue(key, values[0], true);
@@ -176,7 +176,7 @@ describe('Property: redaction invariants', () => {
           scope.setValue(key, nonSecret);
           ctx.commit();
 
-          scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+          scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
           scope.getValue(key);
 
           return readEvents.length === 1 && readEvents[0].redacted === undefined;

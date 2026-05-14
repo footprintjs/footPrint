@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import type { Recorder } from '../../../../src/lib/scope/types';
+import type { ScopeRecorder } from '../../../../src/lib/scope/types';
 
 function makeCtx() {
   return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
@@ -20,13 +20,13 @@ describe('Property: recorder never breaks execution', () => {
           ctx.commit();
 
           const scope = new ScopeFacade(ctx, 'test');
-          const throwingRecorder: Recorder = {
+          const throwingRecorder: ScopeRecorder = {
             id: 'bad',
             onRead: () => {
               throw new Error('recorder crash');
             },
           };
-          scope.attachRecorder(throwingRecorder);
+          scope.attachScopeRecorder(throwingRecorder);
 
           // Should not throw despite recorder error
           const result = scope.getValue(key || 'k');
@@ -41,7 +41,7 @@ describe('Property: recorder never breaks execution', () => {
     fc.assert(
       fc.property(fc.string(), fc.anything(), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
-        scope.attachRecorder({
+        scope.attachScopeRecorder({
           id: 'bad',
           onWrite: () => {
             throw new Error('recorder crash');
@@ -62,13 +62,13 @@ describe('Property: recorder never breaks execution', () => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         let errorCaught = false;
 
-        scope.attachRecorder({
+        scope.attachScopeRecorder({
           id: 'thrower',
           onRead: () => {
             throw new Error('boom');
           },
         });
-        scope.attachRecorder({
+        scope.attachScopeRecorder({
           id: 'catcher',
           onError: () => {
             errorCaught = true;
@@ -89,14 +89,14 @@ describe('Property: recorder never breaks execution', () => {
         const errorIds: string[] = [];
 
         for (let i = 0; i < numRecorders; i++) {
-          scope.attachRecorder({
+          scope.attachScopeRecorder({
             id: `thrower-${i}`,
             onWrite: () => {
               throw new Error(`crash-${i}`);
             },
           });
         }
-        scope.attachRecorder({
+        scope.attachScopeRecorder({
           id: 'catcher',
           onError: (e: any) => errorIds.push(e.error.message),
         });

@@ -100,6 +100,14 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * the inputMapper. Undefined on normal `run()` paths.
    */
   subflowStatesForResume?: Record<string, Record<string, unknown>>;
+  /**
+   * Per-`executor.run()` identifier. Threaded into every TraversalContext
+   * this traverser produces so recorders can scope state to a single run.
+   * Subflow traversers inherit the parent's runId (the subflow is part of
+   * the same run from the consumer's POV). Required field — every event
+   * needs it. See `runner/runId.ts`.
+   */
+  runId: string;
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -114,6 +122,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *  top-level traversal so consumers (e.g. `InOutRecorder`) can bracket
    *  the run with the same payload shape that subflows already have. */
   private readonly readOnlyContext?: unknown;
+  /** Per-`executor.run()` identifier. Stamped onto every TraversalContext.
+   *  Inherited by subflow traversers so all events of one run share one runId. */
+  private readonly runId: string;
 
   // Handler modules
   private readonly nodeResolver: NodeResolver<TOut, TScope>;
@@ -195,6 +206,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.signal = opts.signal;
     this.parentSubflowId = opts.parentSubflowId;
     this.readOnlyContext = opts.readOnlyContext;
+    this.runId = opts.runId;
 
     // Structure manager (deep-clones build-time structure)
     this.structureManager = new RuntimeStructureManager();
@@ -284,6 +296,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         maxDepth: this._maxDepth,
         parentSubflowId: subflowOpts.subflowId,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
+        runId: this.runId, // Subflow inherits parent's runId — same logical run
         // Forward the resume-only subflow scope captures so nested
         // SubflowExecutors can re-seed deeper-nested runtimes (e.g.
         // Sequence(Agent(...)) where the inner Agent subflow paused).
@@ -339,16 +352,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // events for them would double-bracket the boundary stream. The
     // top-level traverser is the one without a parentSubflowId.
     const isTopLevel = this.parentSubflowId === undefined;
+    // Synthetic TraversalContext for run.entry / run.exit. Fields use
+    // root-stage defaults (stageId='__root__', runtimeStageId='__root__#0',
+    // depth 0) so the runId is reliably available on run events without
+    // forcing recorders to handle `traversalContext === undefined`.
+    const rootContext: TraversalContext = {
+      runId: this.runId,
+      stageId: '__root__',
+      runtimeStageId: '__root__#0',
+      stageName: '__root__',
+      depth: 0,
+    };
     if (isTopLevel) {
       // `readOnlyContext` is the engine's view of `run({input})` — passed
       // through from `FlowChartExecutor.run()` as the validated input.
-      this.narrativeGenerator.onRunStart(this.readOnlyContext);
+      this.narrativeGenerator.onRunStart(this.readOnlyContext, rootContext);
     }
 
     const result = await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
 
     if (isTopLevel) {
-      this.narrativeGenerator.onRunEnd(result);
+      this.narrativeGenerator.onRunEnd(result, rootContext);
     }
 
     return result;
@@ -495,6 +519,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       // Build traversal context for recorder events — created once per stage, shared by all events
       const traversalContext: TraversalContext = {
+        runId: this.runId,
         stageId: node.id ?? context.stageId,
         runtimeStageId: context.runtimeStageId,
         stageName: node.name,

@@ -131,9 +131,26 @@ export interface IControlFlowNarrative {
  * Like OpenTelemetry's span context: stageId + parentStageId form a tree.
  */
 export interface TraversalContext {
+  /**
+   * Per-`executor.run()` identifier. Generated once at the start of every
+   * `run()` (and again on `resume()`); shared by every event of that run;
+   * differs across consecutive runs of the same executor.
+   *
+   * Format: `${Date.now()}-${counter}` — sortable lexicographically (==
+   * chronologically for runs > 1ms apart). Process-local — for cross-
+   * process correlation use `getEnv().traceId` (consumer-supplied).
+   *
+   * Recorders that accumulate state across runs (fork bookkeeping,
+   * sibling-handoff state, etc.) detect "new run" via
+   * `event.traversalContext.runId !== this.lastRunId` and reset
+   * transient bookkeeping. Recorders that don't care about scoping
+   * ignore the field.
+   */
+  readonly runId: string;
   /** Stable stage identifier from the builder (matches spec node id). */
   readonly stageId: string;
-  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
+  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex.
+   *  Counter resets per executor — combine with `runId` for globally unique step keys. */
   readonly runtimeStageId: string;
   /** Human-readable stage name. */
   readonly stageName: string;
@@ -304,7 +321,7 @@ export interface FlowRunEvent {
 /**
  * FlowRecorder — Pluggable observer for control flow events.
  *
- * Mirrors the scope-level Recorder pattern for the engine layer.
+ * Mirrors the scope-level ScopeRecorder pattern for the engine layer.
  * All methods are optional — implement only the hooks you need.
  * Recorders are invoked synchronously in attachment order.
  * If a recorder throws, the error is caught and swallowed; execution continues.

@@ -10,7 +10,7 @@
  */
 
 import { isDevMode } from '../scope/detectCircular.js';
-import type { Recorder } from '../scope/types.js';
+import type { ScopeRecorder } from '../scope/types.js';
 import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';
 import type {
@@ -29,17 +29,17 @@ import { DECISION_RESULT } from './types.js';
 
 // -- Scope accessor helpers --------------------------------------------------
 
-function getAttachFn(scope: unknown): ((r: Recorder) => void) | undefined {
+function getAttachFn(scope: unknown): ((r: ScopeRecorder) => void) | undefined {
   const s = scope as Record<string, unknown>;
-  if (typeof s.$attachRecorder === 'function') return s.$attachRecorder.bind(s);
-  if (typeof s.attachRecorder === 'function') return s.attachRecorder.bind(s);
+  if (typeof s.$attachScopeRecorder === 'function') return s.$attachScopeRecorder.bind(s);
+  if (typeof s.attachScopeRecorder === 'function') return s.attachScopeRecorder.bind(s);
   return undefined;
 }
 
 function getDetachFn(scope: unknown): ((id: string) => void) | undefined {
   const s = scope as Record<string, unknown>;
-  if (typeof s.$detachRecorder === 'function') return s.$detachRecorder.bind(s);
-  if (typeof s.detachRecorder === 'function') return s.detachRecorder.bind(s);
+  if (typeof s.$detachScopeRecorder === 'function') return s.$detachScopeRecorder.bind(s);
+  if (typeof s.detachScopeRecorder === 'function') return s.detachScopeRecorder.bind(s);
   return undefined;
 }
 
@@ -71,7 +71,7 @@ function evaluateRule<S extends object>(
   scope: S,
   rule: DecideRule<S>,
   index: number,
-  attachFn?: (r: Recorder) => void,
+  attachFn?: (r: ScopeRecorder) => void,
   detachFn?: (id: string) => void,
   valueFn?: (key: string) => unknown,
   redactedFn?: (key: string) => boolean,

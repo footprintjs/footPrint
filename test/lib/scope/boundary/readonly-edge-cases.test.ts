@@ -50,7 +50,7 @@ describe('Boundary: readonly edge cases', () => {
 
     // Redaction policy key auto-redacted but writable
     const events: any[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
     scope.setValue('password', 'secret123');
 
     expect(events[0].value).toBe('[REDACTED]');

@@ -11,7 +11,7 @@ import { normalizeSchema } from '../contract/schema.js';
 import type { JsonSchema } from '../contract/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RunOptions, StageNode } from '../engine/types.js';
-import type { Recorder, RedactionPolicy } from '../scope/types.js';
+import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { type RunResult, RunContext } from './RunContext.js';
 
 /** OpenAPI generation options. */
@@ -43,7 +43,7 @@ export interface MCPToolDescription {
  */
 export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<TOut, TScope> {
   /** Attach a recorder for the next run. Returns a chainable RunContext. */
-  recorder(r: Recorder | FlowRecorder): RunContext<TOut, TScope>;
+  recorder(r: ScopeRecorder | FlowRecorder): RunContext<TOut, TScope>;
   /** Set redaction policy for the next run. Returns a chainable RunContext. */
   redact(policy: RedactionPolicy): RunContext<TOut, TScope>;
   /** Execute the chart directly (bare run, no recorders). */
@@ -68,7 +68,7 @@ const mcpCache = new WeakMap<FlowChart, MCPToolDescription>();
 export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): RunnableFlowChart<TOut, TScope> {
   const runnable = chart as RunnableFlowChart<TOut, TScope>;
 
-  runnable.recorder = function (r: Recorder | FlowRecorder): RunContext<TOut, TScope> {
+  runnable.recorder = function (r: ScopeRecorder | FlowRecorder): RunContext<TOut, TScope> {
     return new RunContext(chart).recorder(r);
   };
 

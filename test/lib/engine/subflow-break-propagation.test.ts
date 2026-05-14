@@ -10,7 +10,7 @@
  *     terminating the outer loop.
  *   - Without `propagateBreak`, the inner break is locally scoped to the
  *     subflow (current default; backward-compat).
- *   - Recorder sees BOTH the inner originating break AND a propagated
+ *   - ScopeRecorder sees BOTH the inner originating break AND a propagated
  *     outer break event with `propagatedFromSubflow` identifying the
  *     subflow id.
  *
@@ -270,7 +270,7 @@ describe('subflow break propagation — scenario', () => {
     // Parent's `NeverRuns` did NOT execute.
     expect(state.outerResult).toBeUndefined();
 
-    // Recorder sees TWO onBreak events: the inner originator + the propagated outer.
+    // ScopeRecorder sees TWO onBreak events: the inner originator + the propagated outer.
     expect(events.length).toBeGreaterThanOrEqual(2);
     // Tight assertion: inner break originates at the subflow's 'First'
     // stage. The builder prefixes subflow stage names with the mount id,
@@ -560,7 +560,7 @@ describe('subflow break propagation — security', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachCombinedRecorder(badRecorder);
 
-    // Recorder error isolation: the executor MUST NOT propagate handler errors.
+    // ScopeRecorder error isolation: the executor MUST NOT propagate handler errors.
     await expect(executor.run()).resolves.not.toThrow();
   });
 });

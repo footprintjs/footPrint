@@ -16,7 +16,7 @@
  *   if (event.stageName.includes('llm')) return 0.7;
  *   return 1.0;
  * });
- * executor.attachRecorder(quality);
+ * executor.attachScopeRecorder(quality);
  * await executor.run();
  *
  * // Per-step score
@@ -30,7 +30,7 @@
  * ```
  */
 
-import type { ReadEvent, Recorder, StageEvent, WriteEvent } from '../scope/types.js';
+import type { ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../scope/types.js';
 import { KeyedRecorder } from './KeyedRecorder.js';
 import type { RecorderOperation } from './RecorderOperation.js';
 
@@ -68,13 +68,13 @@ export type QualityScoringFn = (
 
 /** Options for QualityRecorder. */
 export interface QualityRecorderOptions {
-  /** Recorder ID. Defaults to auto-increment. */
+  /** ScopeRecorder ID. Defaults to auto-increment. */
   id?: string;
   /** Preferred UI operation. Defaults to 'accumulate' (progressive quality). */
   preferredOperation?: RecorderOperation;
 }
 
-export class QualityRecorder extends KeyedRecorder<QualityEntry> implements Recorder {
+export class QualityRecorder extends KeyedRecorder<QualityEntry> implements ScopeRecorder {
   private static _counter = 0;
 
   readonly id: string;

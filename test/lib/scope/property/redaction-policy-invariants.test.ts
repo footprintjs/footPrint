@@ -20,8 +20,8 @@ describe('RedactionPolicy — property-based invariants', () => {
       fc.property(safeKey, fc.string(), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
-        scope.attachRecorder({ id: 'r1', onWrite: (e) => writes.push(e) });
-        scope.attachRecorder({ id: 'r2', onWrite: (e) => writes.push(e) });
+        scope.attachScopeRecorder({ id: 'r1', onWrite: (e) => writes.push(e) });
+        scope.attachScopeRecorder({ id: 'r2', onWrite: (e) => writes.push(e) });
 
         scope.useRedactionPolicy({ keys: [key] });
         scope.setValue(key, value);
@@ -37,7 +37,7 @@ describe('RedactionPolicy — property-based invariants', () => {
       fc.property(safeKey, fc.string(), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
-        scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+        scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
         // Use exact string match as pattern
         const pattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
@@ -58,7 +58,7 @@ describe('RedactionPolicy — property-based invariants', () => {
         (key, value) => {
           const scope = new ScopeFacade(makeCtx(), 'test');
           const writes: WriteEvent[] = [];
-          scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+          scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
           scope.useRedactionPolicy({ keys: ['ssn'] });
           scope.setValue(key, value);
@@ -92,7 +92,7 @@ describe('RedactionPolicy — property-based invariants', () => {
         const secret = `secret_${secretField}`;
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
-        scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+        scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
         scope.useRedactionPolicy({ fields: { data: [secret] } });
         scope.setValue('data', { [safe]: 'visible', [secret]: secretValue });
@@ -126,7 +126,7 @@ describe('RedactionPolicy — property-based invariants', () => {
       fc.property(fc.string({ minLength: 1 }), (secretValue) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
         const writes: WriteEvent[] = [];
-        scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+        scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
         scope.useRedactionPolicy({ fields: { data: ['nested.secret'] } });
         scope.setValue('data', { name: 'visible', nested: { secret: secretValue, other: 'ok' } });
@@ -142,7 +142,7 @@ describe('RedactionPolicy — property-based invariants', () => {
     fc.assert(
       fc.property(fc.string({ minLength: 1 }), (secretValue) => {
         const scope = new ScopeFacade(makeCtx(), 'test');
-        scope.attachRecorder({ id: 'r', onWrite: () => {} });
+        scope.attachScopeRecorder({ id: 'r', onWrite: () => {} });
 
         scope.useRedactionPolicy({ fields: { data: ['nested.secret'] } });
         const original = { nested: { secret: secretValue } };

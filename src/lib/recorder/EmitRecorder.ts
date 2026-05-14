@@ -1,5 +1,5 @@
 /**
- * EmitRecorder — the third observer channel, alongside `Recorder`
+ * EmitRecorder — the third observer channel, alongside `ScopeRecorder`
  * (scope data-flow) and `FlowRecorder` (control-flow).
  *
  * ## Why this exists
@@ -34,7 +34,7 @@
  *
  * | Channel         | Fires when                         | Built-in consumers     |
  * |-----------------|------------------------------------|------------------------|
- * | `Recorder`      | scope read/write/commit            | DebugRecorder, MetricRecorder |
+ * | `ScopeRecorder`      | scope read/write/commit            | DebugRecorder, MetricRecorder |
  * | `FlowRecorder`  | traversal transitions              | NarrativeFlowRecorder, etc. |
  * | `EmitRecorder`  | consumer calls `scope.$emit(...)`  | (none ships today; Phase 3.X adds MemoryEmitRecorder) |
  *

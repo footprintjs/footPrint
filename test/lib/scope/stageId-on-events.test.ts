@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { ReadEvent, Recorder, StageEvent, WriteEvent } from '../../../src';
+import type { ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../../../src';
 import { flowChart, FlowChartExecutor } from '../../../src';
 
 interface CapturedEvent {
@@ -20,9 +20,9 @@ interface CapturedEvent {
   key?: string;
 }
 
-function createCapturingRecorder(): { recorder: Recorder; events: CapturedEvent[] } {
+function createCapturingRecorder(): { recorder: ScopeRecorder; events: CapturedEvent[] } {
   const events: CapturedEvent[] = [];
-  const recorder: Recorder = {
+  const recorder: ScopeRecorder = {
     id: 'test-capture',
     onStageStart(event: StageEvent) {
       events.push({ hook: 'onStageStart', stageName: event.stageName, stageId: event.stageId });
@@ -68,7 +68,7 @@ describe('stageId on recorder events', () => {
       .build();
 
     const exec = new FlowChartExecutor(chart);
-    exec.attachRecorder(recorder);
+    exec.attachScopeRecorder(recorder);
     await exec.run();
 
     // Every event has a non-empty stageId
@@ -117,7 +117,7 @@ describe('stageId on recorder events', () => {
       .build();
 
     const exec = new FlowChartExecutor(chart);
-    exec.attachRecorder(recorder);
+    exec.attachScopeRecorder(recorder);
     await exec.run();
 
     // 'step' stageId appears 3 times in onStageStart events
@@ -157,7 +157,7 @@ describe('stageId on recorder events', () => {
       .build();
 
     const exec = new FlowChartExecutor(chart);
-    exec.attachRecorder(recorder);
+    exec.attachScopeRecorder(recorder);
     await exec.run();
 
     // The chosen branch stage should have its own stageId
@@ -231,7 +231,7 @@ describe('stageId on recorder events', () => {
       .build();
 
     const exec = new FlowChartExecutor(chart);
-    exec.attachRecorder(recorder);
+    exec.attachScopeRecorder(recorder);
     await exec.run();
 
     // outer-stage should appear

@@ -7,7 +7,7 @@
  * @example
  * ```typescript
  * const metric = new MetricRecorder();
- * executor.attachRecorder(metric);
+ * executor.attachScopeRecorder(metric);
  * await executor.run();
  *
  * // Per-step (time-travel):
@@ -23,7 +23,7 @@
 
 import { KeyedRecorder } from '../../recorder/KeyedRecorder.js';
 import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
-import type { CommitEvent, PauseEvent, ReadEvent, Recorder, StageEvent, WriteEvent } from '../types.js';
+import type { CommitEvent, PauseEvent, ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../types.js';
 
 /** Per-invocation metrics for a single execution step. */
 export interface StepMetrics {
@@ -65,7 +65,7 @@ export interface StageMetrics {
 
 /** Options for MetricRecorder. */
 export interface MetricRecorderOptions {
-  /** Recorder ID. Defaults to auto-increment (`metrics-1`, `metrics-2`, ...). */
+  /** ScopeRecorder ID. Defaults to auto-increment (`metrics-1`, `metrics-2`, ...). */
   id?: string;
   /** Filter which stages are recorded. Return `true` to record, `false` to skip. */
   stageFilter?: (stageName: string) => boolean;
@@ -73,7 +73,7 @@ export interface MetricRecorderOptions {
   preferredOperation?: RecorderOperation;
 }
 
-export class MetricRecorder extends KeyedRecorder<StepMetrics> implements Recorder {
+export class MetricRecorder extends KeyedRecorder<StepMetrics> implements ScopeRecorder {
   private static _counter = 0;
 
   readonly id: string;

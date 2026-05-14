@@ -23,7 +23,7 @@ import { nativeHas as lodashHas, nativeSet as lodashSet } from '../memory/pathOp
 import { StageContext } from '../memory/StageContext.js';
 import { hasCircularReference, isDevMode } from './detectCircular.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
-import type { CommitEvent, Recorder, RedactionPolicy, RedactionReport } from './types.js';
+import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');
@@ -45,7 +45,7 @@ export class ScopeFacade {
   /** Execution environment — read-only, inherited from parent executor. */
   private readonly _executionEnv: Readonly<ExecutionEnv>;
 
-  private _recorders: Recorder[] = [];
+  private _recorders: ScopeRecorder[] = [];
   private _redactedKeys: Set<string>;
   private _redactionPolicy: RedactionPolicy | undefined;
   private _redactedFieldsByKey: Map<string, Set<string>> = new Map();
@@ -58,7 +58,7 @@ export class ScopeFacade {
     this._executionEnv = Object.freeze({ ...executionEnv });
     this._redactedKeys = new Set<string>();
 
-    // Register as commit observer so Recorder.onCommit fires when StageContext.commit() is called
+    // Register as commit observer so ScopeRecorder.onCommit fires when StageContext.commit() is called
     this._stageContext.setCommitObserver((mutations) => {
       this._onCommitFired(mutations);
     });
@@ -117,19 +117,19 @@ export class ScopeFacade {
     };
   }
 
-  // ── Recorder Management ──────────────────────────────────────────────────
+  // ── ScopeRecorder Management ──────────────────────────────────────────────────
 
-  attachRecorder(recorder: Recorder): void {
+  attachScopeRecorder(recorder: ScopeRecorder): void {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)
     this._recorders = this._recorders.filter((r) => r.id !== recorder.id);
     this._recorders.push(recorder);
   }
 
-  detachRecorder(recorderId: string): void {
+  detachScopeRecorder(recorderId: string): void {
     this._recorders = this._recorders.filter((r) => r.id !== recorderId);
   }
 
-  getRecorders(): Recorder[] {
+  getScopeRecorders(): ScopeRecorder[] {
     return [...this._recorders];
   }
 
@@ -694,7 +694,7 @@ export class ScopeFacade {
     return copy;
   }
 
-  private _invokeHook(hook: keyof Omit<Recorder, 'id'>, event: unknown): void {
+  private _invokeHook(hook: keyof Omit<ScopeRecorder, 'id'>, event: unknown): void {
     for (const recorder of this._recorders) {
       try {
         const hookFn = recorder[hook];

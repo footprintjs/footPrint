@@ -12,7 +12,7 @@ describe('Scenario: redaction across recorders', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'ProcessPayment');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
 
     scope.setValue('cardNumber', '4111-1111-1111-1111', true);
     scope.setValue('amount', 99.99);
@@ -39,7 +39,7 @@ describe('Scenario: redaction across recorders', () => {
     scope.setValue('ssn', '123-45-6789', true);
     ctx.commit();
 
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
     scope.getValue('ssn');
     scope.getValue('name');
 
@@ -57,7 +57,7 @@ describe('Scenario: redaction across recorders', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Ingest');
     const metrics = new MetricRecorder('m1');
-    scope.attachRecorder(metrics);
+    scope.attachScopeRecorder(metrics);
 
     scope.setValue('apiKey', 'sk-secret', true);
     scope.setValue('endpoint', '/api/data');
@@ -76,8 +76,8 @@ describe('Scenario: redaction across recorders', () => {
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
     const metrics = new MetricRecorder('m1');
 
-    scope.attachRecorder(debug);
-    scope.attachRecorder(metrics);
+    scope.attachScopeRecorder(debug);
+    scope.attachScopeRecorder(metrics);
 
     scope.setValue('token', 'bearer-xyz', true);
     scope.setValue('userId', 'user-42');
@@ -100,7 +100,7 @@ describe('Scenario: redaction across recorders', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Runtime');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
 
     scope.setValue('apiSecret', 'real-secret-value', true);
     ctx.commit();
@@ -122,7 +122,7 @@ describe('Scenario: redaction across recorders', () => {
     const ctx1 = makeCtx('p1', 'Collect');
     const scope1 = new ScopeFacade(ctx1, 'Collect');
     scope1.useSharedRedactedKeys(sharedSet);
-    scope1.attachRecorder(debug);
+    scope1.attachScopeRecorder(debug);
     scope1.setValue('apiKey', 'sk-live-secret', true);
     scope1.setValue('region', 'us-east-1');
     ctx1.commit();
@@ -134,7 +134,7 @@ describe('Scenario: redaction across recorders', () => {
     ctx2.commit();
     const scope2 = new ScopeFacade(ctx2, 'Use');
     scope2.useSharedRedactedKeys(sharedSet);
-    scope2.attachRecorder(debug);
+    scope2.attachScopeRecorder(debug);
     scope2.getValue('apiKey');
     scope2.getValue('region');
 

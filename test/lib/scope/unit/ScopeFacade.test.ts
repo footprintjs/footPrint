@@ -1,6 +1,6 @@
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import type { CommitEvent, ErrorEvent, ReadEvent, Recorder, WriteEvent } from '../../../../src/lib/scope/types';
+import type { CommitEvent, ErrorEvent, ReadEvent, ScopeRecorder, WriteEvent } from '../../../../src/lib/scope/types';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
   const mem = new SharedMemory();
@@ -96,23 +96,23 @@ describe('ScopeFacade', () => {
     expect(ctx.debug.errorContext).toBeDefined();
   });
 
-  // ── Recorder tests ──────────────────────────────────────────────────
+  // ── ScopeRecorder tests ──────────────────────────────────────────────────
 
-  it('attachRecorder and getRecorders', () => {
+  it('attachScopeRecorder and getScopeRecorders', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
-    const rec: Recorder = { id: 'r1' };
-    scope.attachRecorder(rec);
-    expect(scope.getRecorders()).toHaveLength(1);
-    expect(scope.getRecorders()[0].id).toBe('r1');
+    const rec: ScopeRecorder = { id: 'r1' };
+    scope.attachScopeRecorder(rec);
+    expect(scope.getScopeRecorders()).toHaveLength(1);
+    expect(scope.getScopeRecorders()[0].id).toBe('r1');
   });
 
-  it('detachRecorder removes by id', () => {
+  it('detachScopeRecorder removes by id', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
-    scope.attachRecorder({ id: 'r1' });
-    scope.attachRecorder({ id: 'r2' });
-    scope.detachRecorder('r1');
-    expect(scope.getRecorders()).toHaveLength(1);
-    expect(scope.getRecorders()[0].id).toBe('r2');
+    scope.attachScopeRecorder({ id: 'r1' });
+    scope.attachScopeRecorder({ id: 'r2' });
+    scope.detachScopeRecorder('r1');
+    expect(scope.getScopeRecorders()).toHaveLength(1);
+    expect(scope.getScopeRecorders()[0].id).toBe('r2');
   });
 
   it('getValue fires onRead on attached recorders', () => {
@@ -121,7 +121,7 @@ describe('ScopeFacade', () => {
     ctx.commit();
     const scope = new ScopeFacade(ctx, 'test');
     const events: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => events.push(e) });
     scope.getValue('x');
     expect(events).toHaveLength(1);
     expect(events[0].key).toBe('x');
@@ -131,7 +131,7 @@ describe('ScopeFacade', () => {
   it('setValue fires onWrite on attached recorders', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
     scope.setValue('y', 'hello');
     expect(events).toHaveLength(1);
     expect(events[0].key).toBe('y');
@@ -141,7 +141,7 @@ describe('ScopeFacade', () => {
   it('deleteValue fires onWrite with operation delete', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
     scope.deleteValue('z');
     expect(events).toHaveLength(1);
     expect(events[0].operation).toBe('delete');
@@ -150,7 +150,7 @@ describe('ScopeFacade', () => {
   it('notifyCommit fires onCommit on recorders', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: CommitEvent[] = [];
-    scope.attachRecorder({ id: 'r', onCommit: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onCommit: (e) => events.push(e) });
     scope.notifyCommit([{ key: 'a', value: 1, operation: 'set' }]);
     expect(events).toHaveLength(1);
     expect(events[0].mutations).toHaveLength(1);
@@ -160,7 +160,7 @@ describe('ScopeFacade', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const starts: any[] = [];
     const ends: any[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'r',
       onStageStart: (e) => starts.push(e),
       onStageEnd: (e) => ends.push(e),
@@ -175,13 +175,13 @@ describe('ScopeFacade', () => {
   it('recorder errors are caught and forwarded to onError', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const errors: ErrorEvent[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'bad',
       onRead: () => {
         throw new Error('boom');
       },
     });
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'catcher',
       onError: (e) => errors.push(e),
     });
@@ -197,12 +197,12 @@ describe('ScopeFacade', () => {
     expect((MyScope as any).BRAND).toBe(Symbol.for('ScopeFacade@v1'));
   });
 
-  it('getRecorders returns a copy', () => {
+  it('getScopeRecorders returns a copy', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
-    scope.attachRecorder({ id: 'r1' });
-    const list = scope.getRecorders();
+    scope.attachScopeRecorder({ id: 'r1' });
+    const list = scope.getScopeRecorders();
     list.push({ id: 'r2' });
-    expect(scope.getRecorders()).toHaveLength(1);
+    expect(scope.getScopeRecorders()).toHaveLength(1);
   });
 
   // ── Uncovered line 82: addDebugMessage ──────────────────────────────
@@ -253,7 +253,7 @@ describe('ScopeFacade', () => {
   it('setValue with shouldRedact sends [REDACTED] to recorder onWrite', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
     scope.setValue('ssn', '123-45-6789', true);
     expect(events).toHaveLength(1);
     expect(events[0].key).toBe('ssn');
@@ -268,12 +268,12 @@ describe('ScopeFacade', () => {
     ctx.commit();
 
     const events: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => events.push(e) });
     const value = scope.getValue('password');
 
     // Runtime gets the real value
     expect(value).toBe('secret');
-    // Recorder gets redacted value
+    // ScopeRecorder gets redacted value
     expect(events).toHaveLength(1);
     expect(events[0].value).toBe('[REDACTED]');
     expect(events[0].redacted).toBe(true);
@@ -284,7 +284,7 @@ describe('ScopeFacade', () => {
     const scope = new ScopeFacade(ctx, 'test');
     const writeEvents: WriteEvent[] = [];
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'r',
       onWrite: (e) => writeEvents.push(e),
       onRead: (e) => readEvents.push(e),
@@ -307,7 +307,7 @@ describe('ScopeFacade', () => {
     ctx.commit();
 
     const events: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => events.push(e) });
 
     // Read multiple times — all should be redacted
     scope.getValue('token');
@@ -323,8 +323,8 @@ describe('ScopeFacade', () => {
 
     const narrativeWrites: WriteEvent[] = [];
     const debugWrites: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'narrative', onWrite: (e) => narrativeWrites.push(e) });
-    scope.attachRecorder({ id: 'debug', onWrite: (e) => debugWrites.push(e) });
+    scope.attachScopeRecorder({ id: 'narrative', onWrite: (e) => narrativeWrites.push(e) });
+    scope.attachScopeRecorder({ id: 'debug', onWrite: (e) => debugWrites.push(e) });
 
     scope.setValue('creditCard', '4111-1111-1111-1111', true);
 
@@ -336,7 +336,7 @@ describe('ScopeFacade', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     scope.setValue('config', { apiKey: 'secret' }, true);
     scope.updateValue('config', { apiKey: 'new-secret', retries: 3 });
@@ -353,7 +353,7 @@ describe('ScopeFacade', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
     scope.setValue('token', 'secret', true);
     ctx.commit();
@@ -390,7 +390,7 @@ describe('ScopeFacade', () => {
     ctx2.commit();
 
     const readEvents: ReadEvent[] = [];
-    scope2.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope2.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
     scope2.getValue('password');
 
     // Stage 2 should see redacted value because shared set has 'password'

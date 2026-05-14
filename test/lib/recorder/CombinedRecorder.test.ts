@@ -4,7 +4,7 @@
  * Patterns: unit, boundary, scenario, property, security.
  *
  * What's under test:
- *   - `CombinedRecorder` type composes Recorder + FlowRecorder correctly
+ *   - `CombinedRecorder` type composes ScopeRecorder + FlowRecorder correctly
  *     with shared-method payload unions.
  *   - `hasRecorderMethods` / `hasFlowRecorderMethods` duck-typing predicates.
  *   - `executor.attachCombinedRecorder(r)` routes to the correct channels
@@ -107,7 +107,7 @@ describe('CombinedRecorder — boundary', () => {
     };
     executor.attachCombinedRecorder(empty);
 
-    expect(executor.getRecorders()).toHaveLength(0);
+    expect(executor.getScopeRecorders()).toHaveLength(0);
     expect(executor.getFlowRecorders()).toHaveLength(0);
     expect(warnSpy).toHaveBeenCalled();
     // Warning is gated on isDevMode() — part of the library-wide dev-mode
@@ -151,9 +151,9 @@ describe('CombinedRecorder — boundary', () => {
     executor.attachCombinedRecorder(v2);
 
     // Each channel holds exactly one recorder with id 'obs' — and it's v2.
-    expect(executor.getRecorders()).toHaveLength(1);
+    expect(executor.getScopeRecorders()).toHaveLength(1);
     expect(executor.getFlowRecorders()).toHaveLength(1);
-    expect(executor.getRecorders()[0]).toBe(v2);
+    expect(executor.getScopeRecorders()[0]).toBe(v2);
     expect(executor.getFlowRecorders()[0]).toBe(v2);
   });
 
@@ -172,11 +172,11 @@ describe('CombinedRecorder — boundary', () => {
       onDecision: () => {},
     };
     executor.attachCombinedRecorder(r);
-    expect(executor.getRecorders()).toHaveLength(1);
+    expect(executor.getScopeRecorders()).toHaveLength(1);
     expect(executor.getFlowRecorders()).toHaveLength(1);
 
     executor.detachCombinedRecorder('r');
-    expect(executor.getRecorders()).toHaveLength(0);
+    expect(executor.getScopeRecorders()).toHaveLength(0);
     expect(executor.getFlowRecorders()).toHaveLength(0);
   });
 });
@@ -217,7 +217,7 @@ describe('CombinedRecorder — scenario', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachCombinedRecorder(r);
 
-    expect(executor.getRecorders()).toHaveLength(1);
+    expect(executor.getScopeRecorders()).toHaveLength(1);
     expect(executor.getFlowRecorders()).toHaveLength(0);
     await executor.run();
   });
@@ -231,7 +231,7 @@ describe('CombinedRecorder — scenario', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachCombinedRecorder(r);
 
-    expect(executor.getRecorders()).toHaveLength(0);
+    expect(executor.getScopeRecorders()).toHaveLength(0);
     expect(executor.getFlowRecorders()).toHaveLength(1);
     await executor.run();
   });
@@ -299,7 +299,7 @@ describe('CombinedRecorder — scenario', () => {
     expect(firstRunCount).toBeGreaterThan(0);
 
     executor.detachCombinedRecorder('cycle');
-    expect(executor.getRecorders()).toHaveLength(0);
+    expect(executor.getScopeRecorders()).toHaveLength(0);
     expect(executor.getFlowRecorders()).toHaveLength(0);
 
     // Re-attach same id — events must fire on next run.
@@ -333,7 +333,7 @@ describe('CombinedRecorder — property', () => {
         executor.attachCombinedRecorder(r);
         warnSpy.mockRestore();
 
-        expect(executor.getRecorders().length).toBe(hasDataMethod ? 1 : 0);
+        expect(executor.getScopeRecorders().length).toBe(hasDataMethod ? 1 : 0);
         expect(executor.getFlowRecorders().length).toBe(hasFlowMethod ? 1 : 0);
       }
     }
@@ -351,7 +351,7 @@ describe('CombinedRecorder — property', () => {
     executor.attachCombinedRecorder(b);
     executor.attachCombinedRecorder(a);
 
-    expect(executor.getRecorders().map((r) => r.id)).toEqual(['a']);
+    expect(executor.getScopeRecorders().map((r) => r.id)).toEqual(['a']);
     expect(executor.getFlowRecorders().map((r) => r.id)).toEqual(['b']);
 
     await executor.run();
@@ -379,7 +379,7 @@ describe('CombinedRecorder — property', () => {
     executor.attachCombinedRecorder(b);
     executor.detachCombinedRecorder('a');
 
-    expect(executor.getRecorders().map((r) => r.id)).toEqual(['b']);
+    expect(executor.getScopeRecorders().map((r) => r.id)).toEqual(['b']);
     expect(executor.getFlowRecorders().map((r) => r.id)).toEqual(['b']);
   });
 });
@@ -457,7 +457,7 @@ describe('CombinedRecorder — security', () => {
     };
     executor.attachCombinedRecorder(r);
 
-    // Recorder error isolation: the executor MUST NOT propagate handler errors.
+    // ScopeRecorder error isolation: the executor MUST NOT propagate handler errors.
     await expect(executor.run()).resolves.not.toThrow();
   });
 
@@ -474,8 +474,8 @@ describe('CombinedRecorder — security', () => {
     executor.attachCombinedRecorder(first);
     executor.attachCombinedRecorder(hijack);
 
-    expect(executor.getRecorders()).toHaveLength(1);
-    expect(executor.getRecorders()[0]).toBe(hijack);
-    expect(executor.getRecorders()[0]).not.toBe(first);
+    expect(executor.getScopeRecorders()).toHaveLength(1);
+    expect(executor.getScopeRecorders()[0]).toBe(hijack);
+    expect(executor.getScopeRecorders()[0]).not.toBe(first);
   });
 });

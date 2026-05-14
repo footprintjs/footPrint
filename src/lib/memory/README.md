@@ -116,7 +116,7 @@ const child = ctx.createChild('run-1', 'branch-1', 'parallelTask');
 
 ---
 
-### 5. DiagnosticCollector — "The Flight Recorder"
+### 5. DiagnosticCollector — "The Flight ScopeRecorder"
 
 Per-stage metadata: logs, errors, metrics, evaluation scores, flow control messages.
 

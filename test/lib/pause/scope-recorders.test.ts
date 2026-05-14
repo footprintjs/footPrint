@@ -52,7 +52,7 @@ describe('MetricRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new MetricRecorder('test-metrics');
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 
@@ -65,7 +65,7 @@ describe('MetricRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new MetricRecorder('test-metrics');
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 
@@ -77,7 +77,7 @@ describe('MetricRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new MetricRecorder('test-metrics');
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 
@@ -90,7 +90,7 @@ describe('MetricRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new MetricRecorder('test-metrics');
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
     const cp = executor.getCheckpoint()!;
@@ -110,7 +110,7 @@ describe('DebugRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new DebugRecorder({ id: 'test-debug' });
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 
@@ -126,14 +126,14 @@ describe('DebugRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new DebugRecorder({ id: 'test-debug' });
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
     const cp = executor.getCheckpoint()!;
 
     // Recorders are cleared on resume, so create a fresh one for the resume phase
     const resumeRecorder = new DebugRecorder({ id: 'test-debug' });
-    executor.attachRecorder(resumeRecorder);
+    executor.attachScopeRecorder(resumeRecorder);
     await executor.resume(cp, { approved: true });
 
     const entries = resumeRecorder.getEntries();
@@ -147,7 +147,7 @@ describe('DebugRecorder — pause/resume', () => {
     const chart = buildChart();
     const recorder = new DebugRecorder({ id: 'test-debug', verbosity: 'minimal' });
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 

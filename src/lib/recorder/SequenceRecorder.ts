@@ -3,7 +3,7 @@
  *
  * Provides dual-indexed storage: a flat array preserving insertion order plus a
  * Map<runtimeStageId, T[]> for O(1) per-step lookup. One entry type, multiple entries
- * per step. Designed for recorders that implement BOTH Recorder and FlowRecorder
+ * per step. Designed for recorders that implement BOTH ScopeRecorder and FlowRecorder
  * (merging data ops and control flow into a single interleaved sequence).
  *
  * **Contrast with KeyedRecorder<T>:**

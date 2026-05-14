@@ -32,6 +32,27 @@ export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogU
 export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';
 export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';
 
+// ── v5 Stores (concrete, composable — primary recorder API) ─────
+// Compose these via `new Store<T>()` as a field on your recorder
+// class. One purpose per recorder: stores are storage; recorders
+// are event-hook interface implementations.
+export { BoundaryStateStore } from './lib/recorder/BoundaryStateStore.js';
+export { KeyedStore } from './lib/recorder/KeyedStore.js';
+export { SequenceStore } from './lib/recorder/SequenceStore.js';
+
+// ── v5.1 Commit grouping primitive ──────────────────────────────
+// Interval index over commit indices. Built incrementally during
+// traversal: open() on boundary entry, close() on exit. Query at any
+// commit position with enclosing()/overlapping(). Generic over TLabel
+// — footprintjs owns ZERO knowledge of what consumers use as labels.
+// See docs/design/commit-range-index.md for the full contract.
+export type { RangeEntry, RangeToken } from './lib/recorder/CommitRangeIndex.js';
+export { CommitRangeIndex } from './lib/recorder/CommitRangeIndex.js';
+
+// ── Abstract bases (DEPRECATED in v5 — slated for removal) ───────
+// Kept during the v5 migration window for downstream consumers
+// (agentfootprint, agentfootprint-lens, etc.) that still extend
+// them. Migrate to the corresponding Store class above.
 // KeyedRecorder — base class for 1:1 Map-based recorders
 export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
 

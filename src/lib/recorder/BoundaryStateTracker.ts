@@ -4,7 +4,7 @@
  *
  * **Mental model — observers vs. bookkeepers:**
  *
- *   `Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`
+ *   `ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`
  *     are OBSERVER interfaces — they describe how a recorder hears
  *     events from the executor.
  *
@@ -57,8 +57,8 @@
  *   - Aggregations across the whole run (totals, counts) — those are
  *     `SequenceRecorder.aggregate()` / `KeyedRecorder.aggregate()`.
  *
- *   - Stage-level concerns — those use `Recorder.onStageStart` /
- *     `Recorder.onStageEnd`. This primitive operates at finer
+ *   - Stage-level concerns — those use `ScopeRecorder.onStageStart` /
+ *     `ScopeRecorder.onStageEnd`. This primitive operates at finer
  *     granularity (events emitted DURING a stage execution).
  *
  * **Lifecycle contract — STRICT:**

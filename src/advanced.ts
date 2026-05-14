@@ -97,7 +97,7 @@ export {
   toScopeFactory,
 } from './lib/scope/index.js';
 
-// Recorder config/option types
+// ScopeRecorder config/option types
 export type {
   AggregatedMetrics,
   DebugEntry,

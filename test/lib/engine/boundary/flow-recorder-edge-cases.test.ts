@@ -191,25 +191,25 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
       for (let i = 0; i < 100; i++) {
         dispatcher.detach(`r${i}`);
       }
-      expect(dispatcher.getRecorders()).toEqual([]);
+      expect(dispatcher.getScopeRecorders()).toEqual([]);
     });
 
     it('attaching same id multiple times creates duplicates', () => {
       const dispatcher = new FlowRecorderDispatcher();
       dispatcher.attach({ id: 'dup' });
       dispatcher.attach({ id: 'dup' });
-      expect(dispatcher.getRecorders()).toHaveLength(2);
+      expect(dispatcher.getScopeRecorders()).toHaveLength(2);
       // Detach removes all with that id
       dispatcher.detach('dup');
-      expect(dispatcher.getRecorders()).toEqual([]);
+      expect(dispatcher.getScopeRecorders()).toEqual([]);
     });
 
-    it('getRecorders returns defensive copy', () => {
+    it('getScopeRecorders returns defensive copy', () => {
       const dispatcher = new FlowRecorderDispatcher();
       dispatcher.attach({ id: 'a' });
-      const copy = dispatcher.getRecorders();
+      const copy = dispatcher.getScopeRecorders();
       copy.push({ id: 'b' });
-      expect(dispatcher.getRecorders()).toHaveLength(1);
+      expect(dispatcher.getScopeRecorders()).toHaveLength(1);
     });
   });
 

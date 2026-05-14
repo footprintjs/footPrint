@@ -55,7 +55,7 @@ import { MetricRecorder } from './lib/scope/recorders/MetricRecorder.js';
 // ---- Narrative ----
 
 /**
- * Recorder factory for combined flow+data narrative.
+ * ScopeRecorder factory for combined flow+data narrative.
  *
  * The returned recorder is a `CombinedNarrativeRecorder` — attach it to a
  * chart/executor, then read structured entries via `.getEntries()` after

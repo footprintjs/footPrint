@@ -3,8 +3,8 @@ export type {
   CommitEvent,
   ErrorEvent,
   ReadEvent,
-  Recorder,
   RecorderContext,
+  ScopeRecorder,
   StageEvent,
   WriteEvent,
 } from '../types.js';

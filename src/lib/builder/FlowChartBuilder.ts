@@ -176,7 +176,12 @@ export class DeciderList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    const spec: SerializedPipelineStructure = {
+    // Apply the builder's BuildTimeExtractor to the branch mount spec so
+    // consumers' per-node translators reach every node, parallel to
+    // siblings `addFunctionBranch` / `addPausableFunctionBranch` /
+    // top-level `addSubFlowChart*`. Previously omitted — Conditional /
+    // Selector branch mounts were the only un-extracted node type.
+    let spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -185,6 +190,7 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
+    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -220,8 +226,11 @@ export class DeciderList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Spec stub — no subflowStructure (lazy)
-    const spec: SerializedPipelineStructure = {
+    // Spec stub — no subflowStructure (lazy). The extractor still runs
+    // on this stub so consumer translators see EVERY node; the lazy
+    // subflow's internals will be shaped at resolution time by THAT
+    // subflow's own extractor (if any).
+    let spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -230,6 +239,7 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
+    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -447,7 +457,12 @@ export class SelectorFnList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    const spec: SerializedPipelineStructure = {
+    // Apply the builder's BuildTimeExtractor to the branch mount spec so
+    // consumers' per-node translators reach every node, parallel to
+    // siblings `addFunctionBranch` / `addPausableFunctionBranch` /
+    // top-level `addSubFlowChart*`. Previously omitted — Conditional /
+    // Selector branch mounts were the only un-extracted node type.
+    let spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -456,6 +471,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
+    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -1149,7 +1165,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    const spec: SerializedPipelineStructure = {
+    // Apply the BuildTimeExtractor to the lazy mount stub. The lazy
+    // subflow's internals will be shaped at resolution time by THAT
+    // subflow's own extractor (if any); this call ensures consumer
+    // translators reach the parent-side mount node too.
+    let spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1160,6 +1180,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       parallelGroupId: forkId,
       isLazy: true,
     };
+    spec = this._applyExtractorToNode(spec);
 
     curSpec.type = 'fork';
     cur.children = cur.children || [];
@@ -1199,7 +1220,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    const spec: SerializedPipelineStructure = {
+    // Apply the BuildTimeExtractor to the lazy mount stub. The lazy
+    // subflow's internals will be shaped at resolution time by THAT
+    // subflow's own extractor (if any).
+    let spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1208,6 +1232,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
+    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;

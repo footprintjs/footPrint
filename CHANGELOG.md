@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0]
+
+Major release — **recorder-system rewrite** plus a load-bearing build-time
+extractor bug fix. See `MIGRATION-5.md` for a step-by-step upgrade guide
+covering every breaking change.
+
+### Breaking changes
+
+- **`Recorder` → `ScopeRecorder`.** The data-flow channel's recorder
+  interface is renamed for naming symmetry with `FlowRecorder` and
+  `EmitRecorder`. The shape is unchanged — every method, every event
+  payload is byte-identical. Only the import name moves. Most
+  consumers should be able to do a single find-and-replace.
+- **`attachRecorder` → `attachScopeRecorder`.** Same motivation — the
+  executor method that wires a `ScopeRecorder` now carries the channel
+  name explicitly.
+- **Abstract bases → concrete stores (composition pattern).**
+  `SequenceRecorder<T>`, `KeyedRecorder<T>`, `BoundaryStateTracker<T>`
+  remain available for back-compat but are deprecated. The new primitives
+  are `SequenceStore<T>`, `KeyedStore<T>`, `BoundaryStateStore<T>` —
+  plain storage primitives that consumers compose via a field instead
+  of extending. The composed form aligns with the project's Convention 1
+  ("one purpose per recorder") and removes the multi-inheritance
+  workaround Bracket trackers needed.
+
+### Added — new storage primitives
+
+- **`SequenceStore<T>`** — 1:N ordered storage shelf. The composable
+  replacement for extending `SequenceRecorder<T>`. Exposes `push`,
+  `getAll`, `getEntryRanges` (O(1) per-step ranges for time-travel),
+  and `aggregate` / `accumulate` / `getEntriesUpTo` for slider scrub.
+- **`KeyedStore<T>`** — 1:1 Map storage shelf. Replaces extending
+  `KeyedRecorder<T>`. Exposes `set`, `get`, `getAll`, `aggregate`,
+  `accumulate`, `clear`.
+- **`BoundaryStateStore<T>`** — bracket-scoped transient state shelf,
+  algorithmically the DFS-bracket-stack pattern. Open / update / close
+  via `start`, `update`, `stop`. Exposes `getActive(key)`, `hasActive`,
+  `activeCount`. Dev-mode wires the same three leak-detection
+  diagnostics the `BoundaryStateTracker` had.
+
+### Added — `runId` on `TraversalContext`
+
+Every event the engine fires now carries a `runId` on
+`traversalContext`. Generated fresh per `executor.run()` and per
+`executor.resume()`; shared across all events of one run; differs
+across consecutive runs of the same executor. Recorders that
+accumulate state across runs detect "new run" via
+`event.traversalContext.runId !== this.lastRunId` and reset transient
+bookkeeping. See `examples/runtime-features/run-id/` for the
+canonical patterns.
+
+### Added — `CommitRangeIndex`
+
+A small helper that builds an O(log n) range index over a commit log
+for fast "what commits happened between runtimeStageId X and Y"
+lookups. Used by Lens for time-travel scrubbing and by any consumer
+that needs interval queries over the commit log.
+
+### Fixed — `BuildTimeExtractor` was silently skipped on 6 builder sites
+
+`FlowChartBuilder.ts` had **six methods** that produced spec nodes
+WITHOUT calling `_applyExtractorToNode` on them, while every other
+spec-producing method did. The result: consumers passing a
+`BuildTimeExtractor` saw their per-node translator skip an entire
+category of nodes — most visibly, every `Conditional` branch mount
+spec (the `.when()` / `.otherwise()` outputs) was un-extracted.
+
+Fixed sites:
+
+| # | Class | Method | Line (pre-fix) |
+|---|---|---|---|
+| 1 | `DeciderList` | `addSubFlowChartBranch` | 179 |
+| 2 | `DeciderList` | `addLazySubFlowChartBranch` | 224 |
+| 3 | `SelectorFnList` | `addSubFlowChartBranch` | 450 |
+| 4 | `SelectorFnList` | `addLazySubFlowChartBranch` | 493 |
+| 5 | `FlowChartBuilder` | `addLazySubFlowChart` | 1152 |
+| 6 | `FlowChartBuilder` | `addLazySubFlowChartNext` | 1202 |
+
+All six now call `_applyExtractorToNode` after spec construction.
+Zero-risk for consumers without an extractor (helper is a no-op when
+`_buildTimeExtractor` is undefined). Consumers with an extractor will
+now see their per-node UI shape / metadata applied to branch mount
+nodes too.
+
+### Documentation
+
+- New `MIGRATION-5.md` with step-by-step before/after diffs for every
+  breaking change.
+- New `docs/design/v5-recorder-redesign.md` — the design memo behind
+  the storage-primitive refactor.
+- New `docs/design/commit-range-index.md` — algorithmic background +
+  perf notes.
+- New `docs-site/src/content/docs/api/agent.mdx` (and the previous
+  `recorders.mdx` is retired in favor of the per-primitive pages).
+- README + every `lib/*/README.md` updated to use the new names.
+
 ## [4.17.2]
 
 ### Added — `BoundaryStateTracker<TState>` — third storage primitive on the recorder shelf

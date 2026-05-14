@@ -33,18 +33,18 @@ function mockScope(state: Record<string, unknown>, redactedKeys: Set<string> = n
     $getValue(key: string) {
       return this.getValue(key);
     },
-    attachRecorder(r: any) {
+    attachScopeRecorder(r: any) {
       recorders.push(r);
     },
-    detachRecorder(id: string) {
+    detachScopeRecorder(id: string) {
       const idx = recorders.findIndex((r: any) => r.id === id);
       if (idx >= 0) recorders.splice(idx, 1);
     },
-    $attachRecorder(r: any) {
-      this.attachRecorder(r);
+    $attachScopeRecorder(r: any) {
+      this.attachScopeRecorder(r);
     },
-    $detachRecorder(id: string) {
-      this.detachRecorder(id);
+    $detachScopeRecorder(id: string) {
+      this.detachScopeRecorder(id);
     },
     getRedactedKeys() {
       return redactedKeys;

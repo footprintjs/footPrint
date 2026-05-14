@@ -73,7 +73,7 @@ describe('EvidenceCollector', () => {
     expect(inputs[0].redacted).toBe(true);
   });
 
-  it('does not implement other Recorder hooks (onWrite, onCommit, etc.)', () => {
+  it('does not implement other ScopeRecorder hooks (onWrite, onCommit, etc.)', () => {
     const collector = new EvidenceCollector();
     expect(collector.onWrite).toBeUndefined();
     expect(collector.onCommit).toBeUndefined();

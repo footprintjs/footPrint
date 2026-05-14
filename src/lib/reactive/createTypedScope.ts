@@ -61,9 +61,9 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $error: (t) => t.addErrorInfo.bind(t),
   $metric: (t) => t.addMetric.bind(t),
   $eval: (t) => t.addEval.bind(t),
-  $attachRecorder: (t) => t.attachRecorder.bind(t),
-  $detachRecorder: (t) => t.detachRecorder.bind(t),
-  $getRecorders: (t) => t.getRecorders.bind(t),
+  $attachScopeRecorder: (t) => t.attachScopeRecorder.bind(t),
+  $detachScopeRecorder: (t) => t.detachScopeRecorder.bind(t),
+  $getScopeRecorders: (t) => t.getScopeRecorders.bind(t),
   $batchArray: (t) => (key: string, fn: (arr: unknown[]) => void) => {
     // One getValue — fires onRead once
     const current = t.getValue(key);
@@ -303,7 +303,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       }
 
       // 5. Executor-internal method pass-through (explicit allowlist)
-      //    FlowChartExecutor wrapping calls attachRecorder, notifyStageStart, etc.
+      //    FlowChartExecutor wrapping calls attachScopeRecorder, notifyStageStart, etc.
       //    directly on the scope. Forward only allowlisted methods.
       if (EXECUTOR_INTERNAL_METHODS.has(prop) && typeof (target as any)[prop] === 'function') {
         return (target as any)[prop].bind(target);

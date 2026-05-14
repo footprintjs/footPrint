@@ -8,15 +8,15 @@ footprintjs has **two parallel recorder systems**:
 
 | System | Interface | Fires | Captures |
 |--------|-----------|-------|----------|
-| **Scope Recorder** | `Recorder` | DURING stage execution | Data ops: reads, writes, commits, errors, stage start/end |
-| **Flow Recorder** | `FlowRecorder` | AFTER stage execution | Control flow: decisions, forks, loops, subflows, breaks |
+| **Scope ScopeRecorder** | `ScopeRecorder` | DURING stage execution | Data ops: reads, writes, commits, errors, stage start/end |
+| **Flow ScopeRecorder** | `FlowRecorder` | AFTER stage execution | Control flow: decisions, forks, loops, subflows, breaks |
 
 Both use the same pattern: `{ id, optional hooks } → dispatcher → error isolation → attach/detach`.
 
 ## ID Contract
 
 ```
-attachRecorder is idempotent by ID:
+attachScopeRecorder is idempotent by ID:
   Same ID    → replaces (prevents double-counting)
   Different  → coexists (multiple configs)
 ```
@@ -27,27 +27,27 @@ attachRecorder is idempotent by ID:
 
 ```typescript
 // Framework auto-attaches with well-known ID
-executor.attachRecorder(new MetricRecorder('metrics'));
+executor.attachScopeRecorder(new MetricRecorder('metrics'));
 
 // Consumer overrides (same ID → replace)
-executor.attachRecorder(new MetricRecorder('metrics'));
+executor.attachScopeRecorder(new MetricRecorder('metrics'));
 
 // Consumer adds second (different auto ID → coexist)
-executor.attachRecorder(new MetricRecorder());
+executor.attachScopeRecorder(new MetricRecorder());
 ```
 
 ## Built-in Recorders
 
 ### Scope Recorders
 
-| Recorder | Hooks | Config | Snapshot | Purpose |
+| ScopeRecorder | Hooks | Config | Snapshot | Purpose |
 |----------|-------|--------|----------|---------|
 | `MetricRecorder` | read, write, commit, stageStart, stageEnd | `stageFilter`, `id` | `{ name: 'Metrics', data: { stages, totals } }` | Timing + counts |
 | `DebugRecorder` | read, write, error, stageStart, stageEnd | `verbosity`, `id` | — | Development diagnostics |
 
 ### Flow Recorders
 
-| Recorder | Strategy | Config | Purpose |
+| ScopeRecorder | Strategy | Config | Purpose |
 |----------|----------|--------|---------|
 | `CombinedNarrativeRecorder` | Merge flow + data inline (extends `SequenceRecorder`) | `renderer`, `maxValueLength` | LLM-readable narrative |
 | `NarrativeFlowRecorder` | Full English sentences | — | Flow-only narrative |
@@ -71,7 +71,7 @@ flowChart() builder      →  STATIC flowchart (design-time)
                                        │
                                        ▼ executor runs it
                          Traversal emits events on 3 channels:
-                            Recorder · FlowRecorder · EmitRecorder
+                            ScopeRecorder · FlowRecorder · EmitRecorder
                                        │
                                        ▼ TopologyRecorder listens
                          DYNAMIC flowchart (runtime shape):
@@ -132,7 +132,7 @@ Example: [examples/runtime-features/flow-recorder/06-topology.ts](../../../examp
 
 ## CompositeRecorder
 
-Bundles multiple child recorders under a single ID. Implements **both** `Recorder` and `FlowRecorder` — fan-out all events to children.
+Bundles multiple child recorders under a single ID. Implements **both** `ScopeRecorder` and `FlowRecorder` — fan-out all events to children.
 
 ```typescript
 import { CompositeRecorder, MetricRecorder, DebugRecorder } from 'footprintjs';
@@ -142,7 +142,7 @@ const bundle = new CompositeRecorder('my-observability', [
   new DebugRecorder({ verbosity: 'minimal' }),
 ]);
 
-executor.attachRecorder(bundle);
+executor.attachScopeRecorder(bundle);
 
 // Access children by type
 const metrics = bundle.get(MetricRecorder);
@@ -155,17 +155,17 @@ Without it, domain libraries force consumers to attach multiple recorders:
 
 ```typescript
 // Without composite — 4 calls, consumer must know all types
-executor.attachRecorder(new MetricRecorder());
-executor.attachRecorder(new TokenRecorder());
-executor.attachRecorder(new ToolUsageRecorder());
-executor.attachRecorder(new CostRecorder());
+executor.attachScopeRecorder(new MetricRecorder());
+executor.attachScopeRecorder(new TokenRecorder());
+executor.attachScopeRecorder(new ToolUsageRecorder());
+executor.attachScopeRecorder(new CostRecorder());
 ```
 
 With it, the domain library exports a preset:
 
 ```typescript
 // With composite — 1 call, consumer knows nothing about internals
-executor.attachRecorder(agentObservability());
+executor.attachScopeRecorder(agentObservability());
 ```
 
 ### Snapshot format
@@ -182,11 +182,11 @@ executor.attachRecorder(agentObservability());
 }
 ```
 
-## Recorder Storage Primitives — three bookkeeping shelves
+## ScopeRecorder Storage Primitives — three bookkeeping shelves
 
 Recorders have **two halves**:
 
-- **Observer half** — *how* it hears events. Implements one of `Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`.
+- **Observer half** — *how* it hears events. Implements one of `ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`.
 - **Storage half** — *where* it keeps data. Extends one of three abstract base classes on the **storage shelf**.
 
 Mental model: existing recorder *interfaces* are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf, combining via `extends + implements` in a single class. Same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
@@ -245,7 +245,7 @@ Methods: `store(key, entry)`, `getByKey(key)`, `getMap()`, `values()`, `size`, `
 
 ### SequenceRecorder<T> — 1:N Ordered Sequence Recorders
 
-For recorders that implement **both** Recorder and FlowRecorder (merging data ops and control flow into a single interleaved sequence). Entries must satisfy `{ runtimeStageId?: string }`.
+For recorders that implement **both** ScopeRecorder and FlowRecorder (merging data ops and control flow into a single interleaved sequence). Entries must satisfy `{ runtimeStageId?: string }`.
 
 ```typescript
 import { SequenceRecorder } from 'footprintjs/trace';
@@ -293,7 +293,7 @@ The third storage shelf — for **live transient state** that exists only while 
 
 **Use when:** "Is something happening RIGHT NOW? What's the partial value mid-stream?"
 
-**Don't use when:** time-travel queries (state clears on stop — snapshot to a `SequenceRecorder<TState>` instead), run-wide aggregates (use `aggregate()` / `accumulate()`), stage-level concerns (use `Recorder.onStageStart` / `onStageEnd`).
+**Don't use when:** time-travel queries (state clears on stop — snapshot to a `SequenceRecorder<TState>` instead), run-wide aggregates (use `aggregate()` / `accumulate()`), stage-level concerns (use `ScopeRecorder.onStageStart` / `onStageEnd`).
 
 ```typescript
 import { BoundaryStateTracker } from 'footprintjs/trace';
@@ -367,7 +367,7 @@ tracker.activeCount;     // O(1) — concurrent active boundaries
 
 Example: [examples/runtime-features/data-recorder/06-boundary-state-tracker.ts](../../../examples/runtime-features/data-recorder/06-boundary-state-tracker.ts)
 
-Doc-site: [Recorder storage primitives](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/)
+Doc-site: [ScopeRecorder storage primitives](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/)
 
 ## Three Operations on Auto-Collected Data
 
@@ -398,12 +398,12 @@ const entries = recorder.filterByKeys(visibleKeys);
 
 ## Custom Recorders
 
-### Scope Recorder (data ops)
+### Scope ScopeRecorder (data ops)
 
 ```typescript
-import type { Recorder, WriteEvent } from 'footprintjs';
+import type { ScopeRecorder, WriteEvent } from 'footprintjs';
 
-class AuditRecorder implements Recorder {
+class AuditRecorder implements ScopeRecorder {
   readonly id = 'audit';
   private writes: Array<{ stage: string; key: string }> = [];
 
@@ -421,7 +421,7 @@ class AuditRecorder implements Recorder {
 }
 ```
 
-### Flow Recorder (control flow)
+### Flow ScopeRecorder (control flow)
 
 ```typescript
 import type { FlowRecorder, FlowDecisionEvent } from 'footprintjs';

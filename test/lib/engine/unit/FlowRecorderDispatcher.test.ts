@@ -12,22 +12,22 @@ describe('FlowRecorderDispatcher', () => {
   // ── Attach / Detach ────────────────────────────────────────────────────
 
   it('starts with no recorders', () => {
-    expect(dispatcher.getRecorders()).toEqual([]);
+    expect(dispatcher.getScopeRecorders()).toEqual([]);
   });
 
   it('attaches recorders', () => {
     const recorder: FlowRecorder = { id: 'test' };
     dispatcher.attach(recorder);
-    expect(dispatcher.getRecorders()).toHaveLength(1);
-    expect(dispatcher.getRecorders()[0].id).toBe('test');
+    expect(dispatcher.getScopeRecorders()).toHaveLength(1);
+    expect(dispatcher.getScopeRecorders()[0].id).toBe('test');
   });
 
   it('detaches recorders by id', () => {
     dispatcher.attach({ id: 'a' });
     dispatcher.attach({ id: 'b' });
     dispatcher.detach('a');
-    expect(dispatcher.getRecorders()).toHaveLength(1);
-    expect(dispatcher.getRecorders()[0].id).toBe('b');
+    expect(dispatcher.getScopeRecorders()).toHaveLength(1);
+    expect(dispatcher.getScopeRecorders()[0].id).toBe('b');
   });
 
   it('getRecorderById returns the correct recorder', () => {

@@ -368,7 +368,7 @@ describe('FlowChartExecutor — end-to-end', () => {
 
     const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
-    // Plain scopes don't support attachRecorder, so no data steps
+    // Plain scopes don't support attachScopeRecorder, so no data steps
     expect(narrative.some((s) => s.includes('Write'))).toBe(false);
   });
 

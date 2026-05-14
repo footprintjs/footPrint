@@ -110,7 +110,7 @@ export interface Topology {
 }
 
 export interface TopologyRecorderOptions {
-  /** Recorder id. Defaults to `topology-N` (auto-incremented). */
+  /** ScopeRecorder id. Defaults to `topology-N` (auto-incremented). */
   id?: string;
 }
 

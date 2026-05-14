@@ -6,7 +6,15 @@
  */
 
 import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
-import type { ErrorEvent, PauseEvent, ReadEvent, Recorder, ResumeEvent, StageEvent, WriteEvent } from '../types.js';
+import type {
+  ErrorEvent,
+  PauseEvent,
+  ReadEvent,
+  ResumeEvent,
+  ScopeRecorder,
+  StageEvent,
+  WriteEvent,
+} from '../types.js';
 
 export type DebugVerbosity = 'minimal' | 'verbose';
 
@@ -31,15 +39,15 @@ export interface DebugRecorderOptions {
  * @example
  * ```typescript
  * // Verbose debug for development
- * executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+ * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
  *
  * // Minimal debug for production (errors only)
- * executor.attachRecorder(new DebugRecorder({ verbosity: 'minimal' }));
+ * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'minimal' }));
  *
  * // Both coexist — different auto IDs
  * ```
  */
-export class DebugRecorder implements Recorder {
+export class DebugRecorder implements ScopeRecorder {
   private static _counter = 0;
 
   readonly id: string;
@@ -149,7 +157,7 @@ export class DebugRecorder implements Recorder {
   toSnapshot() {
     return {
       name: 'Debug',
-      description: 'Translator (Scope Recorder) — per-stage diagnostic entries',
+      description: 'Translator (Scope ScopeRecorder) — per-stage diagnostic entries',
       preferredOperation: this.preferredOperation,
       data: this.entries,
     };

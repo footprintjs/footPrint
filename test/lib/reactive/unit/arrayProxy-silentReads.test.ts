@@ -13,11 +13,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { flowChart } from '../../../../src/lib/builder';
 import type { TypedScope } from '../../../../src/lib/reactive/types';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import type { ReadEvent, Recorder } from '../../../../src/lib/scope/types';
+import type { ReadEvent, ScopeRecorder } from '../../../../src/lib/scope/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function createReadCounter(id = 'test-counter'): Recorder & { reads: ReadEvent[] } {
+function createReadCounter(id = 'test-counter'): ScopeRecorder & { reads: ReadEvent[] } {
   const reads: ReadEvent[] = [];
   return {
     id,
@@ -59,7 +59,7 @@ describe('array proxy silent reads — unit', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     // ReadLength stage should fire exactly 1 onRead for 'items'
@@ -86,7 +86,7 @@ describe('array proxy silent reads — unit', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     const reads = counter.reads.filter((r) => r.stageName === 'ReadIndex' && r.key === 'items');
@@ -116,7 +116,7 @@ describe('array proxy silent reads — boundary', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     const reads = counter.reads.filter((r) => r.stageName === 'ReadEmpty' && r.key === 'items');
@@ -147,7 +147,7 @@ describe('array proxy silent reads — boundary', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     const reads = counter.reads.filter((r) => r.stageName === 'Iterate' && r.key === 'items');
@@ -177,7 +177,7 @@ describe('array proxy silent reads — boundary', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     // Only 1 onRead for 'nested' — the .tags access and .map() are silent
@@ -207,7 +207,7 @@ describe('array proxy silent reads — boundary', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     // Two accesses to scope.items: one for .push(), one for .length after mutation
@@ -244,7 +244,7 @@ describe('array proxy silent reads — scenario', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     const reads = counter.reads.filter((r) => r.stageName === 'ComplexRead' && r.key === 'items');
@@ -275,7 +275,7 @@ describe('array proxy silent reads — scenario', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     const reads = counter.reads.filter((r) => r.stageName === 'TruthinessCheck' && r.key === 'items');
@@ -329,7 +329,7 @@ describe('array proxy silent reads — property', () => {
     await fc.assert(
       fc.asyncProperty(fc.array(fc.integer(), { minLength: 0, maxLength: 50 }), async (arr) => {
         let readCount = 0;
-        const counter: Recorder = {
+        const counter: ScopeRecorder = {
           id: 'prop-counter',
           onRead(event: ReadEvent) {
             if (event.key === 'numbers') readCount++;
@@ -353,7 +353,7 @@ describe('array proxy silent reads — property', () => {
           .build();
 
         const executor = new FlowChartExecutor(chart);
-        executor.attachRecorder(counter);
+        executor.attachScopeRecorder(counter);
         await executor.run();
 
         // Exactly 1: Seed does scope.numbers = arr (write, no onRead).
@@ -390,7 +390,7 @@ describe('array proxy silent reads — security', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(counter);
+    executor.attachScopeRecorder(counter);
     await executor.run();
 
     // The tracked onRead should show [REDACTED] for the redacted key

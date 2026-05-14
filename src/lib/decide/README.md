@@ -35,15 +35,15 @@ decide/
 
 ## Design Patterns
 
-### 1. Temporary Recorder (EvidenceCollector)
+### 1. Temporary ScopeRecorder (EvidenceCollector)
 
-For function-based `when` clauses, evidence is captured by attaching a minimal Recorder
+For function-based `when` clauses, evidence is captured by attaching a minimal ScopeRecorder
 to the scope for the duration of the `when()` call, then immediately detaching:
 
 ```
-before when(): scope.attachRecorder(collector)
+before when(): scope.attachScopeRecorder(collector)
 call when(scope) -- reads fire onRead to collector
-after when(): scope.detachRecorder(collector.id)   [in finally block]
+after when(): scope.detachScopeRecorder(collector.id)   [in finally block]
 ```
 
 The collector captures `ReadEvent.key`, `ReadEvent.value` (summarized via `summarizeValue()`),
@@ -54,8 +54,8 @@ and `ReadEvent.redacted` (for PII protection). No raw object references are held
 `decide()` must work with both ScopeFacade (direct methods) and TypedScope ($-prefixed
 methods routed through Proxy). Four accessor factories duck-type both without importing either:
 
-- `getAttachFn(scope)` -- tries `attachRecorder`, then `$attachRecorder`
-- `getDetachFn(scope)` -- tries `detachRecorder`, then `$detachRecorder`
+- `getAttachFn(scope)` -- tries `attachScopeRecorder`, then `$attachScopeRecorder`
+- `getDetachFn(scope)` -- tries `detachScopeRecorder`, then `$detachScopeRecorder`
 - `getValueFn(scope)` -- tries `getValue`, then `$getValue`
 - `getRedactedFn(scope)` -- uses `$toRaw()` to escape Proxy, then `getRedactedKeys()`
 

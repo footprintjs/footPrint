@@ -1,5 +1,5 @@
 /**
- * Tests: Recorder factory functions — narrative(), metrics(), debug(), manifest().
+ * Tests: ScopeRecorder factory functions — narrative(), metrics(), debug(), manifest().
  * Unit + Scenario + Boundary + Security + Property + ML.
  */
 import { describe, expect, it } from 'vitest';
@@ -33,7 +33,7 @@ function buildChart() {
 
 // -- Unit ------------------------------------------------------------------
 
-describe('Recorder Factories — Unit', () => {
+describe('ScopeRecorder Factories — Unit', () => {
   it('narrative() creates recorder with .entries()', async () => {
     const trace = narrative();
     const chart = buildChart();
@@ -122,7 +122,7 @@ describe('Recorder Factories — Unit', () => {
 
 // -- Scenario --------------------------------------------------------------
 
-describe('Recorder Factories — Scenario', () => {
+describe('ScopeRecorder Factories — Scenario', () => {
   it('chain narrative + metrics on same run', async () => {
     const trace = narrative();
     const perf = metrics();
@@ -156,7 +156,7 @@ describe('Recorder Factories — Scenario', () => {
 
 // -- Boundary --------------------------------------------------------------
 
-describe('Recorder Factories — Boundary', () => {
+describe('ScopeRecorder Factories — Boundary', () => {
   it('narrative on chart with single stage', async () => {
     const trace = narrative();
     const chart = flowChart<{ x: number }>(
@@ -193,7 +193,7 @@ describe('Recorder Factories — Boundary', () => {
 
 // -- Security --------------------------------------------------------------
 
-describe('Recorder Factories — Security', () => {
+describe('ScopeRecorder Factories — Security', () => {
   it('narrative with redaction hides values', async () => {
     const trace = narrative();
     const chart = flowChart<{ secret: string; public: string }>(
@@ -220,7 +220,7 @@ describe('Recorder Factories — Security', () => {
 
 // -- ML/AI -----------------------------------------------------------------
 
-describe('Recorder Factories — ML/AI', () => {
+describe('ScopeRecorder Factories — ML/AI', () => {
   it('zero-import overhead: just narrative()', async () => {
     // This is the simplest observability setup:
     const trace = narrative();

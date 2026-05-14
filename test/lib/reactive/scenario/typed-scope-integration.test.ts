@@ -118,7 +118,7 @@ describe('TypedScope integration -- recorders', () => {
 
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
     await executor.run();
 
     const m = metrics.getMetrics();

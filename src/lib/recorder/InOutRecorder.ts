@@ -119,7 +119,7 @@ export interface InOutEntry {
 }
 
 export interface InOutRecorderOptions {
-  /** Recorder id. Defaults to `inout-N` (auto-incremented). */
+  /** ScopeRecorder id. Defaults to `inout-N` (auto-incremented). */
   id?: string;
 }
 

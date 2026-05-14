@@ -19,7 +19,7 @@ import type { FlowBreakEvent, FlowRecorder, IControlFlowNarrative, TraversalCont
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];
 
-  /** Attach a FlowRecorder. Duplicate IDs are allowed (same as scope Recorder). */
+  /** Attach a FlowRecorder. Duplicate IDs are allowed (same as scope ScopeRecorder). */
   attach(recorder: FlowRecorder): void {
     this.recorders.push(recorder);
   }
@@ -30,7 +30,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   }
 
   /** Returns a defensive copy of attached recorders. */
-  getRecorders(): FlowRecorder[] {
+  getScopeRecorders(): FlowRecorder[] {
     return [...this.recorders];
   }
 

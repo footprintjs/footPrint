@@ -284,7 +284,7 @@ describe('Emit channel — scenario', () => {
     const r: CombinedRecorder = {
       id: 'emit-only-combined',
       onEmit: (e) => events.push(e),
-      // no Recorder or FlowRecorder methods
+      // no ScopeRecorder or FlowRecorder methods
     };
 
     const chart = chartEmits('myapp.combined', 'test');
@@ -442,7 +442,7 @@ describe('Emit channel — security', () => {
 
     // Caller-side payload unchanged
     expect(payload.password).toBe('secret');
-    // Recorder saw the redacted version
+    // ScopeRecorder saw the redacted version
     expect(events[0].payload).toBe('[REDACTED]');
   });
 });

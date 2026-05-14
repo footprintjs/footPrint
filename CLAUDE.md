@@ -637,11 +637,49 @@ Built on `CombinedRecorder`: `CombinedNarrativeRecorder` (the `executor.enableNa
 - Don't use `getValue()`/`setValue()` in TypedScope stages — use typed property access
 - Don't use `$`-prefixed state keys (e.g., `$break`) — they collide with ScopeMethods
 - Don't use deprecated `CombinedNarrativeBuilder` — use `CombinedNarrativeRecorder`
-- Don't extract shared base for Recorder/FlowRecorder — two instances = coincidence
+- Don't extract shared base for ScopeRecorder/FlowRecorder — two instances = coincidence
 - Don't use `getArgs()` for tracked data — use typed scope properties
 - Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
 - Don't manually create `CombinedNarrativeRecorder` — `executor.recorder(narrative())` handles it
 - Don't return full arrays from `outputMapper` without `arrayMerge: ArrayMergeMode.Replace` — default `applyOutputMapping` **concatenates** arrays (`[...parent, ...subflow]`). Either return only the **delta** (new items), or set `arrayMerge: ArrayMergeMode.Replace` on `SubflowMountOptions` to overwrite instead of concatenate. Scalars are always replaced regardless.
+
+## Project conventions (5.0+)
+
+### Convention 1 — One purpose per recorder
+
+A recorder owns exactly ONE concern (storage, OR event ingestion, OR state machine, OR projection). Multi-concern recorders MUST be decomposed into single-purpose pieces and composed via a thin facade.
+
+Use composition: own a `SequenceStore<T>` / `KeyedStore<T>` / `BoundaryStateStore<T>` field, implement the relevant `ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder` interface, delegate event handling to internal helpers, delegate storage to the store. See `examples/recorders/` for canonical patterns.
+
+Inheritance is allowed only when the subclass adds NO behavior beyond what the base provides — pure storage extension is fine, mixing in state machines is not. The abstract base classes (`SequenceRecorder`, `KeyedRecorder`, `BoundaryStateTracker`) exported during the v5 migration window are slated for removal — new code MUST use stores.
+
+### Convention 2 — Examples are mandatory integration tests
+
+Every library-surface change MUST include:
+
+1. Unit tests (per-pattern coverage, all 7 test types — see Convention 3).
+2. **Integration tests via `examples/`** — runnable end-to-end demos that exercise the feature in realistic scenarios. Each example file is treated as part of the test suite.
+3. Documentation update (relevant README + `CLAUDE.md` if architectural).
+
+PRs without all three are incomplete. Examples are not optional polish — they ARE the integration-test layer that catches "works in unit tests, fails in real usage" bugs.
+
+### Convention 3 — 7 test types per feature
+
+Every new piece (each store, each recorder, each runtime feature) ships with the following test types. One test file per type when natural, or sections in one file for tightly-scoped primitives.
+
+| Type | Asks |
+|---|---|
+| **Unit** | Does this single function/class behave correctly in isolation? |
+| **Functional** | Does this feature work end-to-end on the happy path? |
+| **Integration** | Do multiple components cooperate correctly? |
+| **Property** | Does the invariant hold for ANY input (randomized fuzzing)? |
+| **Security** | Does this protect against injection, leakage, redaction bypass? |
+| **Performance** | Is the latency / memory within budget? |
+| **Load** | Does it sustain throughput at scale? |
+
+### Convention 4 — `runId` for per-run scoping
+
+Every event the engine fires carries a `runId` in `traversalContext`. Generated fresh per `executor.run()` and per `executor.resume()`; shared across all events of one run; differs across consecutive runs of the same executor. Recorders that accumulate state across runs detect "new run" via `event.traversalContext.runId !== this.lastRunId` and reset transient bookkeeping. See `examples/runtime-features/run-id/`.
 
 ## Build & Test
 

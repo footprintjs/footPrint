@@ -13,7 +13,7 @@
  *   3. Build phase — flowChart<T>() + .contract() + .build()
  *   4. Describe phase — chart.toOpenAPI() + chart.toMCPTool()
  *   5. Run phase — chart.recorder().redact().run()
- *   6. Recorder factories — footprintjs/recorders
+ *   6. ScopeRecorder factories — footprintjs/recorders
  *   7. Result shape — result.state + result.output
  *   8. Naming conventions — no get* prefixes on recorder methods
  */
@@ -70,7 +70,7 @@ describe('API Contract: Public Exports', () => {
 // ============================================================================
 
 describe('API Contract: Removed from Main Export', () => {
-  it('ScopeFacade should NOT be exported from main (use Recorder instead — see footprintjs/advanced)', async () => {
+  it('ScopeFacade should NOT be exported from main (use ScopeRecorder instead — see footprintjs/advanced)', async () => {
     const mod = await import('../../src/index');
     expect((mod as any).ScopeFacade).toBeUndefined();
   });
@@ -306,7 +306,7 @@ describe('API Contract: Run Phase', () => {
 // 6. RECORDER FACTORIES — footprintjs/recorders
 // ============================================================================
 
-describe('API Contract: Recorder Factories', () => {
+describe('API Contract: ScopeRecorder Factories', () => {
   it('narrative() is exported from recorders', async () => {
     const mod = await import('../../src/recorders');
     expect(typeof mod.narrative).toBe('function');

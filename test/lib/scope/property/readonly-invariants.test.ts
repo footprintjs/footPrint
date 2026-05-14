@@ -75,7 +75,7 @@ describe('Property: readonly invariants', () => {
       fc.property(safeKey, fc.oneof(fc.string(), fc.integer()), (key, value) => {
         const scope = new ScopeFacade(makeCtx(), 'test', { [key]: 'protected' });
         const events: any[] = [];
-        scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+        scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
         try {
           scope.setValue(key, value);

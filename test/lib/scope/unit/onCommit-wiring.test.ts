@@ -1,9 +1,9 @@
 /**
- * Tests for onCommit wiring — verifies that Recorder.onCommit fires after
+ * Tests for onCommit wiring — verifies that ScopeRecorder.onCommit fires after
  * StageContext.commit() applies patches.
  *
  * The fix: StageContext.commit() calls a registered observer. ScopeFacade
- * registers in its constructor and dispatches to Recorder.onCommit.
+ * registers in its constructor and dispatches to ScopeRecorder.onCommit.
  *
  * Coverage: unit, boundary, scenario, property, security.
  */
@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import type { CommitEvent, Recorder } from '../../../../src/lib/scope/types';
+import type { CommitEvent, ScopeRecorder } from '../../../../src/lib/scope/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ interface TestState {
 
 function createCommitCounter(id = 'commit-counter') {
   const commits: CommitEvent[] = [];
-  const recorder: Recorder = {
+  const recorder: ScopeRecorder = {
     id,
     onCommit(event: CommitEvent) {
       commits.push(event);
@@ -47,7 +47,7 @@ describe('onCommit wiring — unit', () => {
     ).build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     // One stage = one commit
@@ -69,7 +69,7 @@ describe('onCommit wiring — unit', () => {
     ).build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     expect(commits[0].pipelineId).toBeDefined();
@@ -97,7 +97,7 @@ describe('onCommit wiring — unit', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     expect(commits).toHaveLength(2);
@@ -139,7 +139,7 @@ describe('onCommit wiring — boundary', () => {
     ).build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     // Commit still fires (stage execution always commits)
@@ -166,7 +166,7 @@ describe('onCommit wiring — boundary', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     // Two stages, two commits
@@ -209,7 +209,7 @@ describe('onCommit wiring — scenario', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     expect(commits).toHaveLength(3);
@@ -239,7 +239,7 @@ describe('onCommit wiring — scenario', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(m);
+    executor.attachScopeRecorder(m);
     await executor.run();
 
     expect(m.commits()).toBe(2);
@@ -266,7 +266,7 @@ describe('onCommit wiring — property', () => {
         ).build();
 
         const executor = new FlowChartExecutor(chart);
-        executor.attachRecorder(recorder);
+        executor.attachScopeRecorder(recorder);
         await executor.run();
 
         // Always exactly 1 commit per stage, regardless of write count
@@ -292,7 +292,7 @@ describe('onCommit wiring — security', () => {
     ).build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     await executor.run();
 
     expect(commits).toHaveLength(1);
@@ -318,7 +318,7 @@ describe('onCommit wiring — security', () => {
     ).build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     executor.setRedactionPolicy({ keys: ['ssn'] });
     await executor.run();
 
@@ -353,7 +353,7 @@ describe('onCommit wiring — security', () => {
       .build();
 
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
     executor.setRedactionPolicy({ keys: ['ssn'] });
     await executor.run();
 

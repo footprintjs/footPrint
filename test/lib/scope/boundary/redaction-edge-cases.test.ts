@@ -11,7 +11,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     scope.setValue('secret', 'v1', true);
     scope.setValue('secret', 'v2', true);
@@ -25,7 +25,7 @@ describe('Boundary: redaction edge cases', () => {
   it('redacting with undefined value still marks as redacted', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     scope.setValue('empty', undefined, true);
 
@@ -36,7 +36,7 @@ describe('Boundary: redaction edge cases', () => {
   it('redacting with null value still marks as redacted', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     scope.setValue('nullable', null, true);
 
@@ -47,7 +47,7 @@ describe('Boundary: redaction edge cases', () => {
   it('redacting with complex object value still shows [REDACTED]', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const events: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => events.push(e) });
 
     scope.setValue('credentials', { user: 'admin', pass: 'p@ss', tokens: [1, 2, 3] }, true);
 
@@ -58,7 +58,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const events: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => events.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => events.push(e) });
 
     scope.setValue('secret', 'hidden', true);
     ctx.commit();
@@ -75,7 +75,7 @@ describe('Boundary: redaction edge cases', () => {
     const scope = new ScopeFacade(ctx, 'test');
     const writeEvents: WriteEvent[] = [];
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'r',
       onWrite: (e) => writeEvents.push(e),
       onRead: (e) => readEvents.push(e),
@@ -93,7 +93,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
     for (let i = 0; i < 100; i++) {
       scope.setValue(`secret-${i}`, `value-${i}`, true);
@@ -113,7 +113,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
     scope.setValue('public', 'visible');
     scope.setValue('private', 'hidden', true);
@@ -140,11 +140,11 @@ describe('Boundary: redaction edge cases', () => {
     ctx.commit();
 
     // Attach, detach, reattach a new recorder
-    scope.attachRecorder({ id: 'r1' });
-    scope.detachRecorder('r1');
+    scope.attachScopeRecorder({ id: 'r1' });
+    scope.detachScopeRecorder('r1');
 
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r2', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r2', onRead: (e) => readEvents.push(e) });
     scope.getValue('apiKey');
 
     expect(readEvents[0].value).toBe('[REDACTED]');
@@ -155,7 +155,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
     scope.setValue('key', 'value', false);
     ctx.commit();
@@ -169,7 +169,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const readEvents: ReadEvent[] = [];
-    scope.attachRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
     // First set as non-redacted
     scope.setValue('token', 'public-token');
@@ -191,7 +191,7 @@ describe('Boundary: redaction edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const writeEvents: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
 
     // Simulate subflow marking the key as redacted (adds to _redactedKeys)
     scope.setValue('cardNumber', '4111111111111111', true);
@@ -218,7 +218,7 @@ describe('Boundary: redaction edge cases', () => {
     parentScope.useSharedRedactedKeys(sharedKeys);
 
     const writeEvents: WriteEvent[] = [];
-    parentScope.attachRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
+    parentScope.attachScopeRecorder({ id: 'r', onWrite: (e) => writeEvents.push(e) });
 
     // Subflow marks 'ssn' as redacted
     subflowScope.setValue('ssn', '123-45-6789', true);

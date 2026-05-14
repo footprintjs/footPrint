@@ -59,7 +59,7 @@ export class StageContext {
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
 
-  /** Observer called after commit() — used by ScopeFacade to fire Recorder.onCommit. */
+  /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
     mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
   ) => void;
@@ -243,7 +243,7 @@ export class StageContext {
   // ── Commit ─────────────────────────────────────────────────────────────
 
   /** Register an observer that fires after commit() applies patches.
-   *  Used by ScopeFacade to dispatch Recorder.onCommit events. */
+   *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
   setCommitObserver(
     observer: (mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>) => void,
   ): void {

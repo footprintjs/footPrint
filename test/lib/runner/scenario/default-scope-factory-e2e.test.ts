@@ -33,7 +33,7 @@ describe('FlowChartExecutor — default scopeFactory (scenario)', () => {
 
     const narrative = executor.getNarrativeEntries().map((e) => e.text);
     expect(narrative.length).toBeGreaterThan(0);
-    // Default scopeFactory supports attachRecorder, so combined narrative includes writes
+    // Default scopeFactory supports attachScopeRecorder, so combined narrative includes writes
     expect(narrative.some((s) => s.includes('Write'))).toBe(true);
     expect(narrative.some((s) => s.includes('status'))).toBe(true);
   });

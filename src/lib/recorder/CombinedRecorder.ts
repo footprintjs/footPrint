@@ -7,9 +7,9 @@
  *
  * Before `CombinedRecorder`, a consumer who wanted to observe both streams
  * had to:
- *   1. Implement both `Recorder` (8 methods) and `FlowRecorder` (12 methods)
+ *   1. Implement both `ScopeRecorder` (8 methods) and `FlowRecorder` (12 methods)
  *      fully — stubbing every event they didn't care about.
- *   2. Remember to call BOTH `attachRecorder(r)` AND `attachFlowRecorder(r)`.
+ *   2. Remember to call BOTH `attachScopeRecorder(r)` AND `attachFlowRecorder(r)`.
  *      Forgetting the second call silently dropped half their events — no
  *      warning, no runtime error.
  *   3. Re-implement coordination logic (buffering, ordering) themselves.
@@ -36,7 +36,7 @@
  *
  * const audit: CombinedRecorder = {
  *   id: 'audit',
- *   onWrite: (e) => logWrite(e.key, e.value),        // Recorder method
+ *   onWrite: (e) => logWrite(e.key, e.value),        // ScopeRecorder method
  *   onDecision: (e) => logDecision(e.chosen),        // FlowRecorder method
  * };
  *
@@ -46,7 +46,7 @@
  *
  * ## Contract with existing APIs
  *
- * - `attachRecorder(r)` and `attachFlowRecorder(r)` remain unchanged.
+ * - `attachScopeRecorder(r)` and `attachFlowRecorder(r)` remain unchanged.
  *   Consumers who want only ONE channel keep using them — explicit is good.
  * - `attachCombinedRecorder(r)` is the ONLY way to guarantee an object is
  *   hooked into every stream it has methods for, without maintaining two
@@ -56,11 +56,11 @@
  */
 
 import type { FlowErrorEvent, FlowPauseEvent, FlowRecorder, FlowResumeEvent } from '../engine/narrative/types.js';
-import type { ErrorEvent, PauseEvent, Recorder, ResumeEvent } from '../scope/types.js';
+import type { ErrorEvent, PauseEvent, ResumeEvent, ScopeRecorder } from '../scope/types.js';
 import type { EmitRecorder } from './EmitRecorder.js';
 
 /**
- * Method names that appear on BOTH `Recorder` and `FlowRecorder` but with
+ * Method names that appear on BOTH `ScopeRecorder` and `FlowRecorder` but with
  * different event payload types. For these, a `CombinedRecorder` declares
  * ONE handler that receives the union of both payloads — consumers
  * discriminate on `traversalContext`, which only control-flow events carry.
@@ -74,7 +74,7 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  * A recorder that MAY observe any combination of supported event streams.
  *
  * Today's streams:
- *   - Scope data-flow (`Recorder`: onRead/onWrite/onCommit/onStageStart/…)
+ *   - Scope data-flow (`ScopeRecorder`: onRead/onWrite/onCommit/onStageStart/…)
  *   - Control-flow (`FlowRecorder`: onDecision/onSubflowEntry/onLoop/…)
  *
  * All event handlers are optional — implement only what you care about.
@@ -82,7 +82,7 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  *
  * ## Shared method names (onError / onPause / onResume)
  *
- * Both `Recorder` and `FlowRecorder` declare these with DIFFERENT payload
+ * Both `ScopeRecorder` and `FlowRecorder` declare these with DIFFERENT payload
  * shapes. In a combined recorder, each such handler is called by BOTH
  * channels with its own variant. The parameter type is a union — consumers
  * can either handle both variants uniformly, or discriminate (control-flow
@@ -94,7 +94,7 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  * gains another `& Partial<…>` clause. Because every clause is `Partial`,
  * existing `CombinedRecorder` implementations remain type-valid.
  */
-export type CombinedRecorder = Partial<Omit<Recorder, SharedLifecycleOverlap | SharedLifecycle>> &
+export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverlap | SharedLifecycle>> &
   Partial<Omit<FlowRecorder, SharedLifecycleOverlap | SharedLifecycle>> &
   // Emit channel — new third stream (Phase 3). No method-name overlap with
   // the other two interfaces, so a plain intersection is sound — no
@@ -167,9 +167,9 @@ export function isFlowEvent<T>(event: T): event is Exclude<T, { pipelineId: stri
 }
 
 /**
- * Method names belonging to the `Recorder` (data-flow) interface.
+ * Method names belonging to the `ScopeRecorder` (data-flow) interface.
  * Kept as a single source of truth so the runtime duck-type detector stays
- * in sync with the interface. If a method is added to `Recorder`, adding it
+ * in sync with the interface. If a method is added to `ScopeRecorder`, adding it
  * here is the ONLY change required to route combined-recorders correctly.
  */
 const RECORDER_EVENT_METHODS = [
@@ -268,10 +268,10 @@ function hasOwnOrClassMethod(r: unknown, m: string): boolean {
  *
  * ## Return type
  *
- * Returns plain `boolean` (not a type predicate). The full `Recorder`
+ * Returns plain `boolean` (not a type predicate). The full `ScopeRecorder`
  * interface has payload types that diverge from `CombinedRecorder`'s union
  * variants for shared methods, so a narrowing predicate would be unsound.
- * Callers that need to treat the recorder as a `Recorder` do so explicitly
+ * Callers that need to treat the recorder as a `ScopeRecorder` do so explicitly
  * at the attach site — the cast is the contract that each channel passes
  * its own payload variant.
  */

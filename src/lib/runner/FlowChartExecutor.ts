@@ -48,8 +48,9 @@ import type { EmitRecorder } from '../recorder/EmitRecorder.js';
 import { isDevMode } from '../scope/detectCircular.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
-import type { Recorder, RedactionPolicy, RedactionReport } from '../scope/types.js';
+import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { generateRunId } from './runId.js';
 import { validateInput } from './validateInput.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
@@ -123,11 +124,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
   /** Shared execution counter — survives pause/resume. Reset on fresh run(). */
   private _executionCounter = { value: 0 };
+  /** Per-`run()` identifier — generated fresh per run + per resume. Threaded
+   *  through every TraversalContext so recorders can scope state to a single
+   *  run. See `runId.ts`. */
+  private _currentRunId = '';
   private narrativeEnabled = false;
   private narrativeOptions?: CombinedNarrativeRecorderOptions;
   private combinedRecorder: CombinedNarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
-  private scopeRecorders: Recorder[] = [];
+  private scopeRecorders: ScopeRecorder[] = [];
   private redactionPolicy: RedactionPolicy | undefined;
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
@@ -272,7 +277,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (this.combinedRecorder) {
       const recorder = this.combinedRecorder;
       modifiers.push((scope) => {
-        if (typeof scope.attachRecorder === 'function') scope.attachRecorder(recorder);
+        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(recorder);
       });
     }
 
@@ -280,8 +285,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (this.scopeRecorders.length > 0) {
       const recorders = this.scopeRecorders;
       modifiers.push((scope) => {
-        if (typeof scope.attachRecorder === 'function') {
-          for (const r of recorders) scope.attachRecorder(r);
+        if (typeof scope.attachScopeRecorder === 'function') {
+          for (const r of recorders) scope.attachScopeRecorder(r);
         }
       });
     }
@@ -370,6 +375,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
       executionCounter: this._executionCounter,
+      runId: this._currentRunId,
       ...(overrides?.subflowsOverride && { subflows: overrides.subflowsOverride }),
       ...(overrides?.subflowStatesForResume && {
         subflowStatesForResume: overrides.subflowStatesForResume,
@@ -431,6 +437,28 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** Returns `true` if the most recent run() was paused (checkpoint available). */
   isPaused(): boolean {
     return this.lastCheckpoint !== undefined;
+  }
+
+  /**
+   * Number of commits in the run's commit log. O(1) — direct length
+   * read, no snapshot materialization. Use this to stamp commit
+   * indices on observer events (e.g., `BoundaryRecorder` storing
+   * `commitIdxBefore` / `commitIdxAfter` per domain event for
+   * `CommitRangeIndex` queries — see `footprintjs/trace`).
+   *
+   * Returns 0 before any run; after, returns the cumulative commit
+   * count across the executor's lifetime (including resumes).
+   *
+   * IMPLEMENTATION NOTE: this returns `runtime.executionHistory.length`,
+   * which is the same value as `getSnapshot().commitLog.length`. The
+   * naming asymmetry is historical — the underlying `EventLog` field
+   * is named `executionHistory` but stores the `CommitBundle[]` that
+   * `commitLog` exposes. They are the SAME array (verified by the
+   * "matches commitLog.length" integration test).
+   */
+  getCommitCount(): number {
+    const runtime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime> | undefined;
+    return runtime?.executionHistory.length ?? 0;
   }
 
   /**
@@ -558,6 +586,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
       : undefined;
     this._hasRunBefore = true; // any path that resumes counts as a run
+    // Resume gets a NEW runId — resume is logically a distinct run.
+    // Original runId is recoverable from checkpoint metadata if a consumer
+    // needs cross-run audit (we don't store it on the checkpoint today;
+    // future enhancement). See `runId.ts`.
+    this._currentRunId = generateRunId();
 
     // Pick the resume root + initial context.
     //
@@ -615,12 +648,23 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       ...(subflowsOverride && { subflowsOverride }),
     });
 
-    // Fire onResume event on all recorders (flow + scope)
+    // Fire onResume event on all recorders (flow + scope). Stamp the
+    // synthetic TraversalContext for the resumed stage with the NEW
+    // runId so consumers detect "this is a fresh logical run" via
+    // the same runId-change pattern they use for `onRunStart`.
     const hasInput = resumeInput !== undefined;
+    const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value);
     const flowResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
       hasInput,
+      traversalContext: {
+        runId: this._currentRunId,
+        stageId: pausedNode.id,
+        runtimeStageId: resumeRuntimeStageId,
+        stageName: pausedNode.name,
+        depth: 0,
+      },
     };
     if (this.combinedRecorder) this.combinedRecorder.onResume(flowResumeEvent);
     for (const r of this.flowRecorders) r.onResume?.(flowResumeEvent);
@@ -730,10 +774,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return undefined;
   }
 
-  // ─── Recorder Management ───
+  // ─── ScopeRecorder Management ───
 
   /**
-   * Attach a scope Recorder to observe data operations (reads, writes, commits).
+   * Attach a scope ScopeRecorder to observe data operations (reads, writes, commits).
    * Automatically attached to every ScopeFacade created during traversal.
    * Must be called before run().
    *
@@ -748,18 +792,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * @example
    * ```typescript
    * // Multiple recorders with different configs — each gets a unique ID
-   * executor.attachRecorder(new MetricRecorder());
-   * executor.attachRecorder(new DebugRecorder({ verbosity: 'minimal' }));
+   * executor.attachScopeRecorder(new MetricRecorder());
+   * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'minimal' }));
    *
    * // Override a framework-attached recorder by passing its well-known ID
-   * executor.attachRecorder(new MetricRecorder('metrics'));
+   * executor.attachScopeRecorder(new MetricRecorder('metrics'));
    *
    * // Attaching twice with same ID replaces (no double-counting)
-   * executor.attachRecorder(new MetricRecorder('my-metrics'));
-   * executor.attachRecorder(new MetricRecorder('my-metrics')); // replaces previous
+   * executor.attachScopeRecorder(new MetricRecorder('my-metrics'));
+   * executor.attachScopeRecorder(new MetricRecorder('my-metrics')); // replaces previous
    * ```
    */
-  attachRecorder(recorder: Recorder): void {
+  attachScopeRecorder(recorder: ScopeRecorder): void {
     // Replace existing recorder with same ID (idempotent — prevents double-counting)
     this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== recorder.id);
     this.scopeRecorders.push(recorder);
@@ -818,12 +862,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /** Detach all scope Recorders with the given ID. */
-  detachRecorder(id: string): void {
+  detachScopeRecorder(id: string): void {
     this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== id);
   }
 
   /** Returns a defensive copy of attached scope Recorders. */
-  getRecorders(): Recorder[] {
+  getScopeRecorders(): ScopeRecorder[] {
     return [...this.scopeRecorders];
   }
 
@@ -853,14 +897,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return [...this.flowRecorders];
   }
 
-  // ─── Combined Recorder Management ───
+  // ─── Combined ScopeRecorder Management ───
 
   /**
    * Attach a recorder that may observe multiple event streams (scope
    * data-flow, control-flow, or both). Detects at runtime which streams the
    * recorder has methods for and routes it to the correct internal channels.
    *
-   * Preferred over calling `attachRecorder` and `attachFlowRecorder`
+   * Preferred over calling `attachScopeRecorder` and `attachFlowRecorder`
    * separately, because forgetting one of the two is a silent foot-gun —
    * half your events never fire and there is no runtime warning. With
    * `attachCombinedRecorder` the library guarantees the recorder's declared
@@ -870,7 +914,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * Idempotent by `id` across ALL channels — re-attaching with the same `id`
    * replaces the previous instance everywhere it was registered. Mixing
-   * `attachCombinedRecorder(x)` with a prior `attachRecorder(y)` or
+   * `attachCombinedRecorder(x)` with a prior `attachScopeRecorder(y)` or
    * `attachFlowRecorder(y)` that share `x.id === y.id` is also safe: the
    * combined attach replaces the single-channel registration on whichever
    * channel(s) `x` has methods for. No duplicate firings occur.
@@ -907,11 +951,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     // Emit recorders live on the SAME channel as data-flow recorders
     // (ScopeFacade iterates `_recorders` for onEmit dispatch). So
-    // attachEmitRecorder internally calls attachRecorder — but we want to
+    // attachEmitRecorder internally calls attachScopeRecorder — but we want to
     // avoid double-attach when the recorder implements BOTH onEmit AND
-    // other Recorder methods. Short-circuit: if hasData OR hasEmit, the
+    // other ScopeRecorder methods. Short-circuit: if hasData OR hasEmit, the
     // recorder lands on the scope-recorder list exactly once.
-    if (hasData || hasEmit) this.attachRecorder(recorder as Recorder);
+    if (hasData || hasEmit) this.attachScopeRecorder(recorder as ScopeRecorder);
     if (hasFlow) this.attachFlowRecorder(recorder as FlowRecorder);
 
     if (!hasData && !hasFlow && !hasEmit && isDevMode()) {
@@ -935,11 +979,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Safe to call if the recorder was only on one channel or never attached.
    */
   detachCombinedRecorder(id: string): void {
-    this.detachRecorder(id);
+    this.detachScopeRecorder(id);
     this.detachFlowRecorder(id);
   }
 
-  // ─── Emit Recorder Management (Phase 3) ───
+  // ─── Emit ScopeRecorder Management (Phase 3) ───
 
   /**
    * Attach an `EmitRecorder` — an observer for consumer-emitted structured
@@ -948,8 +992,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Internally, emit recorders share the scope-recorder channel because
    * emit events fire from inside `ScopeFacade` during stage execution,
    * same timing as `onRead`/`onWrite`. This method is a convenience that
-   * delegates to `attachRecorder` — consumers can also use
-   * `attachRecorder` directly for a recorder that implements BOTH
+   * delegates to `attachScopeRecorder` — consumers can also use
+   * `attachScopeRecorder` directly for a recorder that implements BOTH
    * `onWrite` and `onEmit`. Either approach places the recorder on the
    * same underlying list, so `onEmit` fires exactly once per event.
    *
@@ -966,12 +1010,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * ```
    */
   attachEmitRecorder(recorder: EmitRecorder): void {
-    this.attachRecorder(recorder as Recorder);
+    this.attachScopeRecorder(recorder as ScopeRecorder);
   }
 
   /** Detach an `EmitRecorder` by id. Safe to call if never attached. */
   detachEmitRecorder(id: string): void {
-    this.detachRecorder(id);
+    this.detachScopeRecorder(id);
   }
 
   /**
@@ -1044,6 +1088,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     this.lastCheckpoint = undefined;
     this._executionCounter = { value: 0 }; // Reset counter on fresh run
+    this._currentRunId = generateRunId(); // Fresh runId per run() call
     this._hasRunBefore = true; // mark so a later resume() takes the
     // same-executor branch (reuse runtime, accumulate execution tree).
     this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);

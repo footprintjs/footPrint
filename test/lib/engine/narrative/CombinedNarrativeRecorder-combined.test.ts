@@ -104,7 +104,7 @@ describe('CombinedNarrativeRecorder — unit', () => {
     executor.attachCombinedRecorder(rec);
 
     // One recorder in each channel list (attached via the single call).
-    expect(executor.getRecorders().some((r) => r.id === 'n1')).toBe(true);
+    expect(executor.getScopeRecorders().some((r) => r.id === 'n1')).toBe(true);
     expect(executor.getFlowRecorders().some((r) => r.id === 'n1')).toBe(true);
 
     await executor.run();
@@ -344,7 +344,7 @@ describe('CombinedNarrativeRecorder — security', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachCombinedRecorder(rec);
 
-    // Recorder error-isolation contract: the library must catch and continue.
+    // ScopeRecorder error-isolation contract: the library must catch and continue.
     await expect(executor.run()).resolves.not.toThrow();
   });
 

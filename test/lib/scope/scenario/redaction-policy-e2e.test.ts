@@ -21,7 +21,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Intake');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
     scope.useRedactionPolicy(policy);
 
     scope.notifyStageStart();
@@ -41,7 +41,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Intake');
     const metric = new MetricRecorder();
-    scope.attachRecorder(metric);
+    scope.attachScopeRecorder(metric);
     scope.useRedactionPolicy(policy);
 
     scope.notifyStageStart();
@@ -57,7 +57,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Intake');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
     scope.useRedactionPolicy(policy);
 
     scope.notifyStageStart();
@@ -93,7 +93,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     scope2.useSharedRedactedKeys(sharedSet);
 
     const debug = new DebugRecorder({ id: 'd2', verbosity: 'verbose' });
-    scope2.attachRecorder(debug);
+    scope2.attachScopeRecorder(debug);
     const val = scope2.getValue('ssn');
 
     expect(val).toBe('123-45-6789'); // runtime gets real value
@@ -120,7 +120,7 @@ describe('RedactionPolicy — scenario (end-to-end with real recorders)', () => 
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'Intake');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
     scope.useRedactionPolicy({
       fields: { patient: ['address.zip', 'insurance.memberId'] },
     });

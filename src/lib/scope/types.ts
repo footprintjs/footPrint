@@ -112,7 +112,7 @@ export interface RedactionReport {
 }
 
 // ============================================================================
-// Recorder Interface
+// ScopeRecorder Interface
 // ============================================================================
 
 /**
@@ -123,7 +123,7 @@ export interface RedactionReport {
  * If a recorder throws, the error is caught and passed to onError
  * hooks of other recorders; the scope operation continues normally.
  */
-export interface Recorder {
+export interface ScopeRecorder {
   readonly id: string;
   onRead?(event: ReadEvent): void;
   onWrite?(event: WriteEvent): void;

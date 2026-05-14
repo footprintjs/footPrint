@@ -270,7 +270,7 @@ describe('Resume continuity — property', () => {
     const chart = buildPipeline();
     const recorder = new MetricRecorder('test');
     const executor = new FlowChartExecutor(chart);
-    executor.attachRecorder(recorder);
+    executor.attachScopeRecorder(recorder);
 
     await executor.run();
 

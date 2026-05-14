@@ -321,9 +321,9 @@ describe('Scenario: decide()/select() E2E Pipeline Integration', () => {
     const spurious = narrative.filter((line) => line.includes('getValue'));
     expect(spurious).toEqual([]);
 
-    // No spurious "attachRecorder" or "detachRecorder" reads
+    // No spurious "attachScopeRecorder" or "detachScopeRecorder" reads
     const spuriousRecorder = narrative.filter(
-      (line) => line.includes('attachRecorder') || line.includes('detachRecorder'),
+      (line) => line.includes('attachScopeRecorder') || line.includes('detachScopeRecorder'),
     );
     expect(spuriousRecorder).toEqual([]);
   });

@@ -72,11 +72,11 @@ export interface CombinedNarrativeRecorderOptions {
   renderer?: NarrativeRenderer;
 }
 
-// ── Recorder ───────────────────────────────────────────────────────────────
+// ── ScopeRecorder ───────────────────────────────────────────────────────────────
 
 /**
  * Implements `CombinedRecorder` — the library's first-class abstraction for
- * observers that span both data-flow (`Recorder`) and control-flow
+ * observers that span both data-flow (`ScopeRecorder`) and control-flow
  * (`FlowRecorder`) streams. One `id`, routed to both channels via
  * `executor.attachCombinedRecorder(...)` (or equivalently via
  * `executor.enableNarrative(...)` which auto-creates an instance).

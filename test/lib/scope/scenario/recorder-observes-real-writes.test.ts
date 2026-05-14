@@ -12,7 +12,7 @@ describe('Scenario: recorder observes real writes', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'process');
     const metrics = new MetricRecorder('m1');
-    scope.attachRecorder(metrics);
+    scope.attachScopeRecorder(metrics);
 
     scope.setValue('x', 1);
     scope.setValue('y', 2);
@@ -29,7 +29,7 @@ describe('Scenario: recorder observes real writes', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'process');
     const debug = new DebugRecorder({ id: 'd1', verbosity: 'verbose' });
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(debug);
 
     scope.setValue('name', 'Alice');
     scope.updateValue('config', { retries: 3 });
@@ -48,8 +48,8 @@ describe('Scenario: recorder observes real writes', () => {
     const metrics = new MetricRecorder('m1');
     const debug = new DebugRecorder({ id: 'd1' });
 
-    scope.attachRecorder(metrics);
-    scope.attachRecorder(debug);
+    scope.attachScopeRecorder(metrics);
+    scope.attachScopeRecorder(debug);
 
     scope.setValue('key', 'value');
     scope.getValue('key');
@@ -63,10 +63,10 @@ describe('Scenario: recorder observes real writes', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const metrics = new MetricRecorder('m1');
-    scope.attachRecorder(metrics);
+    scope.attachScopeRecorder(metrics);
 
     scope.setValue('a', 1);
-    scope.detachRecorder('m1');
+    scope.detachScopeRecorder('m1');
     scope.setValue('b', 2);
 
     expect(metrics.getMetrics().totalWrites).toBe(1);
@@ -76,7 +76,7 @@ describe('Scenario: recorder observes real writes', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'process');
     const metrics = new MetricRecorder('m1');
-    scope.attachRecorder(metrics);
+    scope.attachScopeRecorder(metrics);
 
     scope.notifyStageStart();
     scope.setValue('x', 1);

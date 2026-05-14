@@ -1,5 +1,5 @@
 /**
- * Tests for FlowChartExecutor.attachRecorder() — scope recorder attachment API.
+ * Tests for FlowChartExecutor.attachScopeRecorder() — scope recorder attachment API.
  *
  * Verifies that scope recorders (MetricRecorder, DebugRecorder, custom) can be
  * attached to the executor with a one-liner, eliminating the need for custom
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 import { DebugRecorder, MetricRecorder } from '../../../../src/lib/scope';
-import type { Recorder } from '../../../../src/lib/scope/types';
+import type { ScopeRecorder } from '../../../../src/lib/scope/types';
 
 function buildSimpleChart() {
   return flowChart(
@@ -31,13 +31,13 @@ function buildSimpleChart() {
     .build();
 }
 
-describe('FlowChartExecutor.attachRecorder()', () => {
+describe('FlowChartExecutor.attachScopeRecorder()', () => {
   it('MetricRecorder receives read/write events without custom scopeFactory', async () => {
     const chart = buildSimpleChart();
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
 
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
     await executor.run();
 
     const summary = metrics.getMetrics();
@@ -50,7 +50,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const executor = new FlowChartExecutor(chart);
     const debug = new DebugRecorder({ verbosity: 'verbose' });
 
-    executor.attachRecorder(debug);
+    executor.attachScopeRecorder(debug);
     await executor.run();
 
     const entries = debug.getEntries();
@@ -59,13 +59,13 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     expect(entries.some((e) => e.type === 'write' && (e.data as any).key === 'x')).toBe(true);
   });
 
-  it('custom Recorder receives onWrite/onRead hooks', async () => {
+  it('custom ScopeRecorder receives onWrite/onRead hooks', async () => {
     const chart = buildSimpleChart();
     const executor = new FlowChartExecutor(chart);
 
     const writes: string[] = [];
     const reads: string[] = [];
-    const custom: Recorder = {
+    const custom: ScopeRecorder = {
       id: 'test-custom',
       onWrite(event) {
         writes.push(event.key);
@@ -75,7 +75,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
       },
     };
 
-    executor.attachRecorder(custom);
+    executor.attachScopeRecorder(custom);
     await executor.run();
 
     expect(writes).toContain('x');
@@ -90,8 +90,8 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const metrics = new MetricRecorder();
     const debug = new DebugRecorder({ verbosity: 'verbose' });
 
-    executor.attachRecorder(metrics);
-    executor.attachRecorder(debug);
+    executor.attachScopeRecorder(metrics);
+    executor.attachScopeRecorder(debug);
     await executor.run();
 
     expect(metrics.getMetrics().totalWrites).toBeGreaterThanOrEqual(2);
@@ -110,7 +110,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const executor = new FlowChartExecutor(chart);
     executor.enableNarrative();
     const metrics = new MetricRecorder();
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
 
     await executor.run();
 
@@ -127,7 +127,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const metrics = new MetricRecorder();
 
     const flowEvents: string[] = [];
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
     executor.attachFlowRecorder({
       id: 'test-flow',
       onStageExecuted(event) {
@@ -155,7 +155,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const executor = new FlowChartExecutor(chart);
     const debug = new DebugRecorder({ verbosity: 'verbose' });
 
-    executor.attachRecorder(debug);
+    executor.attachScopeRecorder(debug);
     executor.setRedactionPolicy({ keys: ['ssn'] });
     await executor.run();
 
@@ -166,28 +166,28 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     expect(String((ssnEntry!.data as any).value)).not.toContain('123-45-6789');
   });
 
-  it('detachRecorder removes by ID', () => {
+  it('detachScopeRecorder removes by ID', () => {
     const chart = buildSimpleChart();
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
 
-    executor.attachRecorder(metrics);
-    expect(executor.getRecorders()).toHaveLength(1);
+    executor.attachScopeRecorder(metrics);
+    expect(executor.getScopeRecorders()).toHaveLength(1);
 
-    executor.detachRecorder(metrics.id);
-    expect(executor.getRecorders()).toHaveLength(0);
+    executor.detachScopeRecorder(metrics.id);
+    expect(executor.getScopeRecorders()).toHaveLength(0);
   });
 
-  it('getRecorders returns defensive copy', () => {
+  it('getScopeRecorders returns defensive copy', () => {
     const chart = buildSimpleChart();
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
 
-    executor.attachRecorder(metrics);
-    const copy = executor.getRecorders();
+    executor.attachScopeRecorder(metrics);
+    const copy = executor.getScopeRecorders();
     copy.length = 0; // mutate the copy
 
-    expect(executor.getRecorders()).toHaveLength(1); // original unchanged
+    expect(executor.getScopeRecorders()).toHaveLength(1); // original unchanged
   });
 
   it('clears scope recorders between runs (no cross-run accumulation)', async () => {
@@ -195,7 +195,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
 
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
 
     await executor.run();
     const firstRunWrites = metrics.getMetrics().totalWrites;
@@ -212,7 +212,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
 
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
     await executor.run();
 
     const snapshot = executor.getSnapshot();
@@ -243,7 +243,7 @@ describe('FlowChartExecutor.attachRecorder()', () => {
 
     const executor = new FlowChartExecutor(chart);
     const metrics = new MetricRecorder();
-    executor.attachRecorder(metrics);
+    executor.attachScopeRecorder(metrics);
 
     await executor.run();
 

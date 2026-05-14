@@ -14,10 +14,10 @@ export type {
   CommitEvent,
   ErrorEvent,
   ReadEvent,
-  Recorder,
   RecorderContext,
   RedactionPolicy,
   RedactionReport,
+  ScopeRecorder,
   StageEvent,
   WriteEvent,
 } from './types.js';

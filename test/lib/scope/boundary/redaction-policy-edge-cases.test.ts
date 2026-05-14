@@ -12,7 +12,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('empty policy has no effect', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({});
     scope.setValue('name', 'Alice');
@@ -24,7 +24,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('policy with empty arrays has no effect', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: [], patterns: [], fields: {} });
     scope.setValue('name', 'Alice');
@@ -35,7 +35,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('field-level: fields not present in object are ignored', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { user: ['nonExistent'] } });
     scope.setValue('user', { name: 'Alice' });
@@ -48,7 +48,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('field-level: null value in object is scrubbed', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { data: ['secret'] } });
     scope.setValue('data', { secret: null, other: 'ok' });
@@ -60,7 +60,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
 
   it('field-level: original object is NOT mutated', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
-    scope.attachRecorder({ id: 'r', onWrite: () => {} });
+    scope.attachScopeRecorder({ id: 'r', onWrite: () => {} });
 
     scope.useRedactionPolicy({ fields: { user: ['ssn'] } });
     const original = { name: 'Alice', ssn: '123' };
@@ -72,7 +72,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('pattern with global flag does not cause stateful issues', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     // Global regex has lastIndex state — make sure we handle it
     scope.useRedactionPolicy({ patterns: [/secret/gi] });
@@ -86,7 +86,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('key that matches both policy.keys and policy.patterns is redacted (no double-processing)', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['ssn'], patterns: [/ssn/] });
     scope.setValue('ssn', '123');
@@ -98,7 +98,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('key with field-level policy AND exact key policy: exact wins (fully redacted)', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['user'], fields: { user: ['ssn'] } });
     scope.setValue('user', { name: 'Alice', ssn: '123' });
@@ -126,7 +126,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('useRedactionPolicy can be called multiple times (last wins)', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ keys: ['a'] });
     scope.useRedactionPolicy({ keys: ['b'] });
@@ -164,7 +164,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('dot-notation: deeply nested path (3+ levels)', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { data: ['a.b.c.secret'] } });
     scope.setValue('data', { a: { b: { c: { secret: 'deep', other: 'ok' } } } });
@@ -177,7 +177,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('dot-notation: missing intermediate path is safely ignored', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { data: ['a.b.c'] } });
     scope.setValue('data', { x: 1 }); // 'a' doesn't exist at all
@@ -190,7 +190,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
   it('dot-notation: mixed flat + nested fields in same policy', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({
       keys: ['token'],
@@ -216,7 +216,7 @@ describe('RedactionPolicy — boundary / edge cases', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     const writes: WriteEvent[] = [];
-    scope.attachRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
+    scope.attachScopeRecorder({ id: 'r', onWrite: (e) => writes.push(e) });
 
     scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
     scope.setValue('patient', { name: 'Alice', address: { zip: '90210' } });

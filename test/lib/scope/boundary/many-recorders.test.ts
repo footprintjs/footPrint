@@ -1,7 +1,7 @@
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
-import type { Recorder } from '../../../../src/lib/scope/types';
+import type { ScopeRecorder } from '../../../../src/lib/scope/types';
 
 function makeCtx() {
   return new StageContext('p1', 's1', 's1', new SharedMemory(), '', new EventLog());
@@ -15,7 +15,7 @@ describe('Boundary: many recorders', () => {
     for (let i = 0; i < 50; i++) {
       const idx = i;
       counts[idx] = 0;
-      scope.attachRecorder({
+      scope.attachScopeRecorder({
         id: `r-${idx}`,
         onWrite: () => {
           counts[idx]++;
@@ -35,7 +35,7 @@ describe('Boundary: many recorders', () => {
     let errorCount = 0;
 
     for (let i = 0; i < 50; i++) {
-      scope.attachRecorder({
+      scope.attachScopeRecorder({
         id: `r-${i}`,
         onRead:
           i % 2 === 0
@@ -45,7 +45,7 @@ describe('Boundary: many recorders', () => {
             : undefined,
       });
     }
-    scope.attachRecorder({
+    scope.attachScopeRecorder({
       id: 'catcher',
       onError: () => {
         errorCount++;
@@ -61,14 +61,14 @@ describe('Boundary: many recorders', () => {
     const scope = new ScopeFacade(makeCtx(), 'test');
 
     for (let i = 0; i < 20; i++) {
-      scope.attachRecorder({ id: `r-${i}` });
+      scope.attachScopeRecorder({ id: `r-${i}` });
     }
-    expect(scope.getRecorders()).toHaveLength(20);
+    expect(scope.getScopeRecorders()).toHaveLength(20);
 
     for (let i = 0; i < 20; i++) {
-      scope.detachRecorder(`r-${i}`);
+      scope.detachScopeRecorder(`r-${i}`);
     }
-    expect(scope.getRecorders()).toHaveLength(0);
+    expect(scope.getScopeRecorders()).toHaveLength(0);
 
     // Still works
     scope.setValue('x', 1);
@@ -82,7 +82,7 @@ describe('Boundary: many recorders', () => {
     for (let i = 0; i < 100; i++) {
       const rec = new MetricRecorder(`m-${i}`);
       recorders.push(rec);
-      scope.attachRecorder(rec);
+      scope.attachScopeRecorder(rec);
     }
 
     scope.setValue('a', 1);

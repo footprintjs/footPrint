@@ -81,9 +81,9 @@ export type {
   CommitEvent,
   ErrorEvent,
   ReadEvent,
-  Recorder,
   RedactionPolicy,
   RedactionReport,
+  ScopeRecorder,
   StageEvent,
   WriteEvent,
 } from './lib/scope/index.js';
@@ -110,7 +110,7 @@ export {
 /**
  * @category Observe — Emit (user-authored structured events)
  *
- * Third observer channel (alongside `Recorder` and `FlowRecorder`). Consumer
+ * Third observer channel (alongside `ScopeRecorder` and `FlowRecorder`). Consumer
  * code calls `scope.$emit(name, payload)` from inside a stage; every attached
  * `EmitRecorder.onEmit(event)` fires synchronously with stage-context
  * enrichment. Pass-through — no buffering, zero allocation when no recorder
@@ -208,10 +208,10 @@ export type { RecorderSnapshot, RuntimeSnapshot, SubtreeSnapshot } from './lib/r
 export { getSubtreeSnapshot, listSubflowPaths } from './lib/runner/index.js';
 
 // ============================================================================
-// Recorder Composition — Bundle multiple recorders into domain presets
+// ScopeRecorder Composition — Bundle multiple recorders into domain presets
 // ============================================================================
 
-/** @category Recorder */
+/** @category ScopeRecorder */
 export { CompositeRecorder } from './lib/recorder/index.js';
 
 // ============================================================================
@@ -222,7 +222,7 @@ export { CompositeRecorder } from './lib/recorder/index.js';
 /** @category Pause/Resume */
 export type { FlowchartCheckpoint, PausableHandler } from './lib/pause/index.js';
 
-/** @category Recorder */
+/** @category ScopeRecorder */
 export type { CompositeSnapshot } from './lib/recorder/index.js';
 
 // ============================================================================
