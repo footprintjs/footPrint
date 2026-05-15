@@ -19,7 +19,7 @@ import {
   MetricRecorder,
   DebugRecorder,
   CompositeRecorder,
-  type Recorder,
+  type ScopeRecorder,
   type WriteEvent,
   type StageEvent,
 } from 'footprintjs';
@@ -27,7 +27,7 @@ import {
 // ── Business recorders ─────────────────────────────────────────────────
 
 /** Compliance audit: captures who approved/rejected and why. */
-class ComplianceRecorder implements Recorder {
+class ComplianceRecorder implements ScopeRecorder {
   readonly id = 'compliance';
   private trail: Array<{ stage: string; key: string; value: unknown; timestamp: number }> = [];
 
@@ -57,7 +57,7 @@ class ComplianceRecorder implements Recorder {
 }
 
 /** SLA monitor: flags stages that exceed a threshold. */
-class SLARecorder implements Recorder {
+class SLARecorder implements ScopeRecorder {
   readonly id = 'sla';
   private starts = new Map<string, number>();
   private violations: Array<{ stage: string; durationMs: number; thresholdMs: number }> = [];
@@ -166,7 +166,7 @@ interface PaymentState {
 
   const obs = paymentObservability({ slaThresholdMs: 200 });
   const executor = new FlowChartExecutor(chart, { enrichSnapshots: true });
-  executor.attachRecorder(obs);
+  executor.attachScopeRecorder(obs);
   await executor.run();
 
   // ── Extract results from child recorders by type ───────────────────

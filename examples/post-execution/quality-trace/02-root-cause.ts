@@ -40,7 +40,7 @@ const chart = flowChart<State>('Seed', async (scope) => {
   });
 
   const executor = new FlowChartExecutor(chart);
-  executor.attachRecorder(quality);
+  executor.attachScopeRecorder(quality);
   await executor.run();
 
   const lowest = quality.getLowest()!;

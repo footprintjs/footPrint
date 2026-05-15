@@ -3,7 +3,7 @@
  *
  * Recorders observe scope operations (read, write, commit, errors).
  * You can build audit logs, compliance trails, or custom telemetry
- * by implementing the Recorder interface.
+ * by implementing the ScopeRecorder interface.
  *
  * Run:  npm run feature:recorders
  * Try it: https://footprintjs.github.io/footprint-playground/samples/recorders
@@ -12,7 +12,7 @@
 import {
   flowChart,
   FlowChartExecutor,
-  type Recorder,
+  type ScopeRecorder,
   type ReadEvent,
   type WriteEvent,
   type CommitEvent,
@@ -20,7 +20,7 @@ import {
 
 // ── Custom audit recorder ───────────────────────────────────────────────
 
-class AuditRecorder implements Recorder {
+class AuditRecorder implements ScopeRecorder {
   readonly id = 'audit';
   private log: string[] = [];
 
@@ -75,7 +75,7 @@ const chart = flowChart<OrderState>('Input', async (scope) => {
   .build();
 
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(auditRecorder);
+executor.attachScopeRecorder(auditRecorder);
 await executor.run();
 
 console.log('=== Custom Audit Recorder ===\n');

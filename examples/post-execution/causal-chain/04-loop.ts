@@ -30,7 +30,7 @@ const chart = flowChart<State>('Init', async (scope) => {
 (async () => {
   const quality = new QualityRecorder(() => ({ score: 1.0 }));
   const executor = new FlowChartExecutor(chart);
-  executor.attachRecorder(quality);
+  executor.attachScopeRecorder(quality);
   await executor.run();
 
   const { commitLog } = executor.getSnapshot();

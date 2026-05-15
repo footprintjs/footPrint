@@ -10,7 +10,7 @@
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { SequenceStore } from 'footprintjs/trace';
-import type { ScopeRecorder } from 'footprintjs';
+import type { ReadEvent, ScopeRecorder, WriteEvent } from 'footprintjs';
 
 interface AuditEntry {
   runtimeStageId?: string;
@@ -22,10 +22,10 @@ class AuditRecorder implements ScopeRecorder {
   readonly id = 'audit';
   private readonly store = new SequenceStore<AuditEntry>();
 
-  onRead(event: { runtimeStageId?: string; key: string }) {
-    this.store.push({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key });
+  onRead(event: ReadEvent) {
+    this.store.push({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key ?? '' });
   }
-  onWrite(event: { runtimeStageId?: string; key: string }) {
+  onWrite(event: WriteEvent) {
     this.store.push({ runtimeStageId: event.runtimeStageId, type: 'write', key: event.key });
   }
 

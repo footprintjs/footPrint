@@ -47,7 +47,7 @@ const chart = flowChart<OrderState>('Seed', async (scope) => {
 (async () => {
   const metrics = new MetricRecorder();
   const executor = new FlowChartExecutor(chart);
-  executor.attachRecorder(metrics);
+  executor.attachScopeRecorder(metrics);
   await executor.run();
 
   console.log('Per-step metrics (keyed by runtimeStageId):');

@@ -11,7 +11,7 @@
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { SequenceStore, KeyedStore } from 'footprintjs/trace';
-import type { CombinedRecorder, EmitEvent } from 'footprintjs';
+import type { CombinedRecorder, EmitEvent, ReadEvent, WriteEvent } from 'footprintjs';
 
 interface ScopeOp { runtimeStageId?: string; type: 'read' | 'write'; key: string; }
 interface FlowEvt  { runtimeStageId: string; kind: 'subflow.entry' | 'subflow.exit' | 'fork'; name: string; }
@@ -30,10 +30,10 @@ class MultiChannelRecorder implements CombinedRecorder {
   private readonly emitCounts = new KeyedStore<number>();
 
   // ── ScopeRecorder hooks ───────────────────────────────────
-  onRead(e: { runtimeStageId?: string; key: string }) {
-    this.scopeOps.push({ runtimeStageId: e.runtimeStageId, type: 'read', key: e.key });
+  onRead(e: ReadEvent) {
+    this.scopeOps.push({ runtimeStageId: e.runtimeStageId, type: 'read', key: e.key ?? '' });
   }
-  onWrite(e: { runtimeStageId?: string; key: string }) {
+  onWrite(e: WriteEvent) {
     this.scopeOps.push({ runtimeStageId: e.runtimeStageId, type: 'write', key: e.key });
   }
 

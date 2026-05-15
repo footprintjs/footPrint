@@ -118,8 +118,8 @@ const metricRecorder = new MetricRecorder();
 
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
-executor.attachRecorder(costRecorder);
-executor.attachRecorder(metricRecorder);
+executor.attachScopeRecorder(costRecorder);
+executor.attachScopeRecorder(metricRecorder);
 await executor.run();
 
 // ══════════════════════════════════════════════════════════════════════

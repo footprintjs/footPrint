@@ -175,8 +175,8 @@ const debugRecorder = new DebugRecorder();
 
 const executor = new FlowChartExecutor(creditDecision);
 executor.enableNarrative();
-executor.attachRecorder(metricsRecorder);
-executor.attachRecorder(debugRecorder);
+executor.attachScopeRecorder(metricsRecorder);
+executor.attachScopeRecorder(debugRecorder);
 await executor.run({ input: toolUse.input });
 
 const narrativeLines = executor.getNarrativeEntries().map(e => e.text);

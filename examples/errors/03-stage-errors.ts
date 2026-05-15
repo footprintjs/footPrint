@@ -16,14 +16,14 @@ import {
   FlowChartExecutor,
   MetricRecorder,
   DebugRecorder,
-  type Recorder,
+  type ScopeRecorder,
   type ErrorEvent,
   type WriteEvent,
 } from 'footprintjs';
 
 // ── Custom error alerting recorder ──────────────────────────────────────
 
-class AlertRecorder implements Recorder {
+class AlertRecorder implements ScopeRecorder {
   readonly id = 'alert';
   readonly alerts: Array<{ stage: string; error: string; timestamp: number }> = [];
   readonly writes: Array<{ stage: string; key: string }> = [];
@@ -86,9 +86,9 @@ const chart = flowChart<TransferState>('ValidateInput', async (scope) => {
   .build();
 
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(metrics);
-executor.attachRecorder(debug);
-executor.attachRecorder(alerts);
+executor.attachScopeRecorder(metrics);
+executor.attachScopeRecorder(debug);
+executor.attachScopeRecorder(alerts);
 
 try {
   await executor.run();

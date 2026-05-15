@@ -155,6 +155,7 @@ function inProgressExample() {
     name: 'AwaitingApproval',
     subflowId: 'sf-pause',
     traversalContext: {
+      runId: 'example-run-id',
       stageId: 'sf-pause',
       runtimeStageId: 'sf-pause#0',
       stageName: 'AwaitingApproval',

@@ -53,7 +53,7 @@ console.log('\n  (Paste into https://mermaid.live to render)\n');
 const chart = builder.build();
 
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(debug);
+executor.attachScopeRecorder(debug);
 await executor.run();
 
 console.log('=== DebugRecorder — Full Trace ===\n');

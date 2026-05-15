@@ -66,7 +66,7 @@ const happyChart = flowChart<OrderState>('FetchUser', async (scope) => {
   .build();
 
 const happyExecutor = new FlowChartExecutor(happyChart);
-happyExecutor.attachRecorder(metrics);
+happyExecutor.attachScopeRecorder(metrics);
 await happyExecutor.run();
 
 const happyMetrics = metrics.getMetrics();
@@ -99,8 +99,8 @@ const errorChart = flowChart<ErrorState>('LoadConfig', async (scope) => {
   .build();
 
 const errorExecutor = new FlowChartExecutor(errorChart);
-errorExecutor.attachRecorder(errorMetrics);
-errorExecutor.attachRecorder(debug);
+errorExecutor.attachScopeRecorder(errorMetrics);
+errorExecutor.attachScopeRecorder(debug);
 
 try {
   await errorExecutor.run();

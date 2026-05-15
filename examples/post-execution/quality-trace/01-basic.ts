@@ -82,7 +82,7 @@ const quality = new QualityRecorder((runtimeStageId, ctx) => {
 
 (async () => {
   const executor = new FlowChartExecutor(chart);
-  executor.attachRecorder(quality);
+  executor.attachScopeRecorder(quality);
   executor.enableNarrative();
   await executor.run();
 

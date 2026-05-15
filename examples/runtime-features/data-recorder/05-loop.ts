@@ -39,7 +39,7 @@ const chart = flowChart<State>('Init', async (scope) => {
 (async () => {
   const metrics = new MetricRecorder();
   const executor = new FlowChartExecutor(chart);
-  executor.attachRecorder(metrics);
+  executor.attachScopeRecorder(metrics);
   await executor.run();
 
   // Per-step: each loop iteration is a separate entry
