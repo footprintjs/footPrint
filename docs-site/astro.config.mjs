@@ -140,7 +140,11 @@ export default defineConfig({
             { label: 'flowChart() / Builder', slug: 'api/flowchart' },
             { label: 'decide() / select()', slug: 'api/decide' },
             { label: 'FlowChartExecutor', slug: 'api/executor' },
-            { label: 'Recorders', slug: 'api/recorders' },
+            // 'api/recorders' retired in v5.0.0 — recorder coverage now
+            // lives in the per-primitive READMEs (src/lib/recorder/) and
+            // the v5 design memo (docs/design/v5-recorder-redesign.md).
+            // Dedicated docs-site page will be reintroduced once the
+            // recorder migration is fully documented.
             { label: 'Contract & Self-describing', slug: 'api/contract' },
           ],
         },
