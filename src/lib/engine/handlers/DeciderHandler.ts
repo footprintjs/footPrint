@@ -12,9 +12,9 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
-import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
+import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
-export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn };
+export type { ExecuteNodeFn, RunStageFn };
 
 export class DeciderHandler<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}
@@ -32,8 +32,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     branchPath: string | undefined,
     runStage: RunStageFn<TOut, TScope>,
     executeNode: ExecuteNodeFn<TOut, TScope>,
-    callExtractor: CallExtractorFn<TOut, TScope>,
-    getStagePath: GetStagePathFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<any> {
     const breakFn = () => (breakFlag.shouldBreak = true);
@@ -56,10 +54,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
         throw error;
       }
       context.commit();
-      callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
-        type: 'stageExecutionError',
-        message: error.toString(),
-      });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
       this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
@@ -67,7 +61,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
     }
 
     context.commit();
-    callExtractor(node, context, getStagePath(node, branchPath, context.stageName), branchId);
 
     if (breakFlag.shouldBreak) {
       return branchId;
@@ -114,6 +107,9 @@ export class DeciderHandler<TOut = any, TScope = any> {
       traversalContext,
       decisionEvidence,
     );
+    // Proposal #003: fire onStageExecuted AFTER the specialized event
+    // so consumers tracking "did this stage run" work uniformly.
+    this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'decider');
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
 

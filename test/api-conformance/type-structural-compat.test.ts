@@ -23,12 +23,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import type { ExecutionEnv, FlowChart, RunnableFlowChart, ScopeFactory } from '../../src/index.js';
-import type {
-  CallExtractorFn,
-  ExecuteNodeFn,
-  GetStagePathFn,
-  RunStageFn,
-} from '../../src/lib/engine/handlers/types.js';
+import type { ExecuteNodeFn, RunStageFn } from '../../src/lib/engine/handlers/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. RunnableFlowChart assignable to FlowChart
@@ -63,14 +58,12 @@ describe('Handler callback type unification', () => {
     expectTypeOf<RunStageFn>().not.toBeNever();
   });
 
-  it('ExecuteNodeFn, RunStageFn, CallExtractorFn, GetStagePathFn all come from one source', () => {
+  it('ExecuteNodeFn and RunStageFn all come from one source', () => {
     // These are imported from handlers/types.ts — if the module resolution
     // breaks (e.g. someone re-introduces a local definition with a different shape),
     // the import itself will fail at compile time.
     expectTypeOf<ExecuteNodeFn>().not.toBeNever();
     expectTypeOf<RunStageFn>().not.toBeNever();
-    expectTypeOf<CallExtractorFn>().not.toBeNever();
-    expectTypeOf<GetStagePathFn>().not.toBeNever();
   });
 });
 

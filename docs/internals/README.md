@@ -56,35 +56,39 @@ Total: 900+ tests across 85+ suites.
 
 All data in footprintjs — narrative, metrics, manifest, identity — is collected as a **side effect of the single traversal pass**. There is no post-processing step, no second tree walk, no separate analysis phase.
 
-Three observation systems fire during traversal:
+Observation fires on two phase-scoped channels — build-time + runtime — plus
+the internal execution tree:
 
 ```
-                    Traversal (single pass)
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   FlowRecorder      TraversalExtractor   StageContext
-   (narrative,        (per-stage data)    (execution tree)
-    manifest,
-    metrics)
+   BUILD (flowChart() ... .build())          RUNTIME (executor.run())
+   ──────────────────────────────────        ────────────────────────────────
+   StructureRecorder                         FlowRecorder
+   (per-spec-node + per-edge events)         (per-stage transitions, runtime
+                                              decision/fork/loop/error)
 
-   Recorder builds       Extractor captures    Context accumulates
-   manifest as          full snapshots         the linked list of
-   side effect of       with node metadata     execution state
-   observing events
+   onStageAdded, onEdgeAdded,                onStageExecuted, onDecision,
+   onLoopEdgeAdded,                          onSubflowEntry, onError, ...
+   onDeciderComplete,
+   onSubflowMounted
+
+                       ┌──────────────────────────┐
+                       │  StageContext (internal) │
+                       │  execution tree linked   │
+                       │  list of stage state     │
+                       └──────────────────────────┘
 ```
 
-### FlowRecorder (lightweight event stream)
+### StructureRecorder (build-phase event stream — v6.0+)
 
-Pluggable observers attached via `executor.attachFlowRecorder(r)`. Receive high-level events: `onStageExecuted`, `onDecision`, `onSubflowEntry`, `onError`, etc. Each event carries just enough data for the recorder to do its job (stage name, description, decision rationale). Multiple recorders can be attached; each is error-isolated.
+Pluggable build-time observer attached via `flowChart(..., { structureRecorders: [...] })` OR `.attachStructureRecorder(rec)`. Receives 5 events as the spec tree is built: `onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`. Errors inspected via `builder.getStructureBuildErrors()`.
+
+Best for: building xyflow/visualization shapes during construction; static chart-shape audits; topology indexes for streaming consumers.
+
+### FlowRecorder (runtime event stream)
+
+Pluggable observers attached via `executor.attachFlowRecorder(r)`. Receive high-level runtime events: `onStageExecuted`, `onDecision`, `onSubflowEntry`, `onError`, etc. Each event carries `traversalContext` with `runtimeStageId`, `iteration`, `runId`. Multiple recorders can be attached; each is error-isolated.
 
 Best for: narrative generation, metrics collection, manifest building, audit trails.
-
-### TraversalExtractor (per-stage snapshot extraction)
-
-Single extractor function called after each stage executes. Receives a `StageSnapshot` containing the full `StageNode`, `StageContext`, `RuntimeStructureMetadata` (subflowId, isSubflowRoot, etc.), stage output, and optionally the full scope state.
-
-Best for: detailed per-stage data extraction, custom analytics, schema validation.
 
 ### StageContext (execution tree accumulation)
 
@@ -92,7 +96,7 @@ Internal. Not pluggable. Each stage creates a `StageContext` linked to parent vi
 
 ### Design Rule
 
-When proposing new features, always ask: *"Can this be collected during the existing traversal pass using FlowRecorder or TraversalExtractor?"* If yes, use those hooks. If a new event type is needed, add it to the existing dispatcher — do not create a post-processing step.
+When proposing new features, always ask: *"Can this be collected during the existing traversal pass using StructureRecorder (build phase) or FlowRecorder (runtime phase)?"* If yes, use those hooks. If a new event type is needed, add it to the corresponding dispatcher — do not create a post-processing step, and do not introduce a third observer pattern.
 
 ## Shared Observer Pattern
 

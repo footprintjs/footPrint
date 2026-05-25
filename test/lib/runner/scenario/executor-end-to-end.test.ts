@@ -261,72 +261,6 @@ describe('FlowChartExecutor — end-to-end', () => {
     expect(structure!.name).toBe('A');
   });
 
-  // === Extractor ===
-
-  it('getExtractedResults() collects extractor output', async () => {
-    const chart = flowChart(
-      'A',
-      () => {
-        return 'outputA';
-      },
-      'a',
-    )
-      .addFunction(
-        'B',
-        () => {
-          return 'outputB';
-        },
-        'b',
-      )
-      .addTraversalExtractor((snapshot: any) => ({
-        name: snapshot.node.name,
-        step: snapshot.stepNumber,
-      }))
-      .build();
-
-    const executor = new FlowChartExecutor(chart, noopScope);
-    await executor.run();
-
-    const results = executor.getExtractedResults<{ name: string; step: number }>();
-    expect(results.size).toBeGreaterThan(0);
-
-    let hasA = false;
-    let hasB = false;
-    for (const [key, val] of results) {
-      if (val.name === 'A') hasA = true;
-      if (val.name === 'B') hasB = true;
-    }
-    expect(hasA).toBe(true);
-    expect(hasB).toBe(true);
-  });
-
-  // === Enriched snapshots ===
-
-  it('enrichSnapshots captures scope state and debug info', async () => {
-    const scopeFactory = makeScopeFactory();
-    let capturedSnapshot: any;
-
-    const chart = flowChart(
-      'write',
-      (scope: any) => {
-        scope.setValue('x', 100);
-      },
-      'write',
-    )
-      .addTraversalExtractor((snapshot: any) => {
-        capturedSnapshot = snapshot;
-        return snapshot.node.name;
-      })
-      .build();
-
-    const executor = new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true });
-    await executor.run();
-
-    expect(capturedSnapshot).toBeDefined();
-    expect(capturedSnapshot.scopeState).toBeDefined();
-    expect(capturedSnapshot.scopeState.x).toBe(100);
-  });
-
   // === Narrative ===
 
   it('enableNarrative() produces flow narrative sentences', async () => {
@@ -385,23 +319,6 @@ describe('FlowChartExecutor — end-to-end', () => {
 
     const executor = new FlowChartExecutor(chart, noopScope);
     await expect(executor.run()).rejects.toThrow('kaboom');
-  });
-
-  // === Extractor errors ===
-
-  it('getExtractorErrors() collects extractor failures', async () => {
-    const chart = flowChart('A', () => {}, 'a')
-      .addTraversalExtractor(() => {
-        throw new Error('extractor broke');
-      })
-      .build();
-
-    const executor = new FlowChartExecutor(chart, noopScope);
-    await executor.run();
-
-    const errors = executor.getExtractorErrors();
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0].message).toContain('extractor broke');
   });
 
   // === Multiple runs produce fresh state ===
@@ -675,34 +592,5 @@ describe('FlowChartExecutor — setRootObject', () => {
 
     // setRootObject should delegate to the traverser without throwing
     expect(() => executor.setRootObject(['nested'], 'myKey', { foo: 'bar' })).not.toThrow();
-  });
-});
-
-describe('FlowChartExecutor — getExtractedResults', () => {
-  it('getExtractedResults returns extractor results', async () => {
-    const chart = flowChart(
-      'A',
-      () => {
-        return 'outputA';
-      },
-      'a',
-    )
-      .addFunction(
-        'B',
-        () => {
-          return 'outputB';
-        },
-        'b',
-      )
-      .addTraversalExtractor((snapshot: any) => ({
-        name: snapshot.node.name,
-      }))
-      .build();
-
-    const executor = new FlowChartExecutor(chart, noopScope);
-    await executor.run();
-
-    const extracted = executor.getExtractedResults<{ name: string }>();
-    expect(extracted.size).toBeGreaterThan(0);
   });
 });

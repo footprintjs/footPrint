@@ -6,8 +6,9 @@
  * a single extraction point that preserves structured details while still
  * producing a human-readable message.
  *
- * Consumers (narrative recorders, extractors, diagnostic collectors) receive
- * StructuredErrorInfo instead of a flat string, and can decide how to render it.
+ * Consumers (narrative recorders, FlowRecorder.onError handlers, diagnostic
+ * collectors) receive StructuredErrorInfo instead of a flat string, and can
+ * decide how to render it.
  * String-ification happens only at the final rendering boundary.
  */
 

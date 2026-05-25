@@ -14,7 +14,14 @@ import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js'
 import { isDevMode } from '../../scope/detectCircular.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
-import type { FlowBreakEvent, FlowRecorder, IControlFlowNarrative, TraversalContext } from './types.js';
+import type {
+  FlowBreakEvent,
+  FlowRecorder,
+  FlowStageEvent,
+  IControlFlowNarrative,
+  StageType,
+  TraversalContext,
+} from './types.js';
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];
@@ -41,9 +48,14 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
 
   // ── IControlFlowNarrative implementation ──────────────────────────────────
 
-  onStageExecuted(stageName: string, description?: string, traversalContext?: TraversalContext): void {
+  onStageExecuted(
+    stageName: string,
+    description: string | undefined,
+    traversalContext: TraversalContext | undefined,
+    stageType: StageType,
+  ): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, description, traversalContext };
+    const event: FlowStageEvent = { stageName, description, traversalContext, stageType };
     for (const r of this.recorders) {
       try {
         r.onStageExecuted?.(event);

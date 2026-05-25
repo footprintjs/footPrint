@@ -419,10 +419,12 @@ describe('SequenceRecorder: integration with CombinedNarrativeRecorder', () => {
 
     rec.onStageExecuted({
       stageName: 'A',
+      stageType: 'linear',
       traversalContext: { stageId: 'a', runtimeStageId: 'a#0', stageName: 'A', depth: 0 },
     });
     rec.onStageExecuted({
       stageName: 'B',
+      stageType: 'linear',
       traversalContext: { stageId: 'b', runtimeStageId: 'b#1', stageName: 'B', depth: 0 },
     });
 

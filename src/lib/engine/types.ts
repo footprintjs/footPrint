@@ -377,7 +377,7 @@ export interface RunOptions {
 export type { FlowControlType, FlowMessage };
 
 // ---------------------------------------------------------------------------
-// Traversal Extractor
+// Runtime Structure Metadata (used by RuntimeStructureManager)
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStructureMetadata {
@@ -391,32 +391,6 @@ export interface RuntimeStructureMetadata {
   isDynamic?: boolean;
   isLoopReference?: boolean;
   streamId?: string;
-}
-
-export interface StageSnapshot<TOut = any, TScope = any> {
-  node: StageNode<TOut, TScope>;
-  context: StageContext;
-  stepNumber: number;
-  structureMetadata: RuntimeStructureMetadata;
-  scopeState?: Record<string, unknown>;
-  debugInfo?: {
-    logs: Record<string, unknown>;
-    errors: Record<string, unknown>;
-    metrics: Record<string, unknown>;
-    evals: Record<string, unknown>;
-    flowMessages?: FlowMessage[];
-  };
-  stageOutput?: unknown;
-  errorInfo?: { type: string; message: string };
-  historyIndex?: number;
-}
-
-export type TraversalExtractor<TResult = unknown> = (snapshot: StageSnapshot) => TResult | undefined | null;
-
-export interface ExtractorError {
-  stagePath: string;
-  message: string;
-  error: unknown;
 }
 
 // ---------------------------------------------------------------------------

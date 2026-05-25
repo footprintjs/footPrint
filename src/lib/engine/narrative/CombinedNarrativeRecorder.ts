@@ -142,6 +142,11 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
+    // Non-linear kinds get their narrative entries (and ops flush)
+    // from `onDecision` / `onFork` / `onSelected` / `onSubflowEntry`.
+    // Skip them here so each stage has exactly one narrative entry.
+    if (event.stageType !== 'linear') return;
+
     const stageId = event.traversalContext?.stageId;
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     const sfKey = event.traversalContext?.subflowId ?? '';
@@ -179,7 +184,12 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     const stageId = event.traversalContext?.stageId;
     const runtimeStageId = event.traversalContext?.runtimeStageId;
 
-    // Emit the decider stage entry (deciders don't fire onStageExecuted)
+    // Emit the decider stage entry.
+    // Proposal #003 also fires `onStageExecuted(stageType: 'decider')`
+    // AFTER this event, but CombinedNarrativeRecorder gates that
+    // handler to LINEAR-only so this stays the single emission site
+    // for the decider's stage entry + ops flush. Keeps narrative
+    // output byte-stable across the v6 transition.
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);

@@ -149,27 +149,4 @@ describe('FlowChartExecutor — default scopeFactory (boundary)', () => {
 
     expect(result).toBe('hello');
   });
-
-  it('enrichSnapshots works with default factory', async () => {
-    let capturedSnapshot: any;
-    const chart = flowChart(
-      'write',
-      (scope: any) => {
-        scope.x = 100;
-      },
-      'write',
-    )
-      .addTraversalExtractor((snapshot: any) => {
-        capturedSnapshot = snapshot;
-        return snapshot.node.name;
-      })
-      .build();
-
-    const executor = new FlowChartExecutor(chart, { enrichSnapshots: true });
-    await executor.run();
-
-    expect(capturedSnapshot).toBeDefined();
-    expect(capturedSnapshot.scopeState).toBeDefined();
-    expect(capturedSnapshot.scopeState.x).toBe(100);
-  });
 });

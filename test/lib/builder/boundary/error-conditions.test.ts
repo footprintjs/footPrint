@@ -50,19 +50,4 @@ describe('Boundary: error conditions', () => {
       flowChart('a', noop, 'a').addSelectorFunction('pick', noop, 'pick').end();
     }).toThrow('at least one branch');
   });
-
-  it('buildTimeExtractor errors are captured, not thrown', () => {
-    const badExtractor = () => {
-      throw new Error('extractor boom');
-    };
-    const builder = flowChart('a', noop, 'a', badExtractor).addFunction('b', noop, 'b');
-
-    // Should not throw during build
-    const chart = builder.build();
-    expect(chart.root).toBeDefined();
-
-    const errors = builder.getBuildTimeExtractorErrors();
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0].message).toBe('extractor boom');
-  });
 });

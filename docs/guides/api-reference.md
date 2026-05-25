@@ -18,7 +18,7 @@ const chart = flowChart('Start', startFn, 'start-id')
 
 | Method | Description |
 |--------|-------------|
-| `flowChart(name, fn, id, extractor?, description?)` | Create builder with root stage |
+| `flowChart(name, fn, id, options?)` | Create builder with root stage. Options: `{ structureRecorders?, description? }` (v6.0+ — extractor field removed) |
 | `addFunction(name, fn, id, description?)` | Add linear next stage |
 | `addListOfFunction(specs, opts?)` | Add parallel children (fork). Options: `{ failFast? }` |
 | `addDeciderFunction(name, fn, id, description?)` | Single-choice branching (returns one branch ID) |
@@ -26,7 +26,8 @@ const chart = flowChart('Start', startFn, 'start-id')
 | `addSubFlowChart(id, flow)` | Mount subflow as parallel child |
 | `addSubFlowChartNext(id, flow, mount, opts?)` | Mount subflow as linear next. Options: `{ inputMapper?, outputMapper? }` |
 | `addStreamingFunction(name, fn, id, streamId?, description?)` | Add streaming stage |
-| `addTraversalExtractor(fn)` | Register per-stage data extractor |
+| `attachStructureRecorder(rec)` | Register a build-phase `StructureRecorder` mid-chain (v6.0+ — replaces the old extractor) |
+| `getStructureBuildErrors()` | Inspect accumulated `StructureRecorder` errors (call on BUILDER, not chart) |
 | `contract({ input?, output?, mapper? })` | Set I/O schemas and output mapper |
 | `loopTo(stageId)` | Loop back to earlier stage |
 | `build()` | Compile to `FlowChart` |
@@ -62,7 +63,6 @@ await executor.run({ input: { name: 'Alice' } });
 | `attachFlowRecorder(recorder)` | Attach a FlowRecorder for pluggable narrative control |
 | `detachFlowRecorder(id)` | Detach a FlowRecorder by id |
 | `getSnapshot()` | Full execution tree + state |
-| `getExtractedResults()` | Extractor results map |
 | `getEnrichedResults()` | Enriched snapshots (scope state, debug info, output) |
 | `getSubflowResults()` | Nested subflow execution data |
 | `getSubflowManifest()` | Subflow catalog tree (requires ManifestFlowRecorder) |

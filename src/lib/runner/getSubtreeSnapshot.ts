@@ -87,7 +87,8 @@ export function getSubtreeSnapshot(
   if (isDevMode()) {
     console.warn(
       `[footprint] getSubtreeSnapshot('${normalizedPath}'): subflowResults not populated — ` +
-        'sharedState will be undefined. Did you enable enrichSnapshots or attach an ExtractorRunner?',
+        'sharedState will be undefined. The subflow may not have completed, ' +
+        'or its outputMapper did not write back to the parent scope.',
     );
   }
 

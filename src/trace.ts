@@ -23,7 +23,17 @@
 
 // Runtime stage ID — unique execution step identifiers
 export type { ExecutionCounter } from './lib/engine/runtimeStageId.js';
-export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/engine/runtimeStageId.js';
+export {
+  buildRuntimeStageId,
+  createExecutionCounter,
+  parseRuntimeStageId,
+  splitStageId,
+} from './lib/engine/runtimeStageId.js';
+
+// walkSubflowSpec — flat ordered traversal of a subflow's structure
+// (consume via StructureRecorder.onSubflowMounted's subflowSpec payload)
+export type { WalkerItem, WalkerOptions } from './lib/engine/walkSubflowSpec.js';
+export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 
 // Commit log queries — typed utilities for backtracking
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';

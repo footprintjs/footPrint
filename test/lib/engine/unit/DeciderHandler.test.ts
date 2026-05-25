@@ -1,12 +1,7 @@
 import { vi } from 'vitest';
 
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
-import type {
-  CallExtractorFn,
-  ExecuteNodeFn,
-  GetStagePathFn,
-  RunStageFn,
-} from '../../../../src/lib/engine/handlers/DeciderHandler';
+import type { ExecuteNodeFn, RunStageFn } from '../../../../src/lib/engine/handlers/DeciderHandler';
 import { DeciderHandler } from '../../../../src/lib/engine/handlers/DeciderHandler';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
 import type { HandlerDeps } from '../../../../src/lib/engine/types';
@@ -55,8 +50,6 @@ describe('DeciderHandler', () => {
   // Shared callback stubs
   const noopRunStage: RunStageFn = async (_node, fn, _ctx, breakFn) => fn({} as any, breakFn, undefined);
   const noopExecuteNode: ExecuteNodeFn = async () => 'executed';
-  const noopCallExtractor: CallExtractorFn = () => {};
-  const noopGetStagePath: GetStagePathFn = () => 'main.deciderStage';
 
   describe('handleScopeBased — happy path', () => {
     it('executes stage, commits, resolves child by branchId, and calls executeNode', async () => {
@@ -76,8 +69,6 @@ describe('DeciderHandler', () => {
         'main',
         noopRunStage,
         noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
       );
 
       expect(context.commit).toHaveBeenCalled();
@@ -94,17 +85,7 @@ describe('DeciderHandler', () => {
 
       const stageFunc = () => 'nonexistent-branch';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       // Should resolve to default child
       expect(context.createChild).toHaveBeenCalledWith('main', 'default', 'defaultChild', 'default');
@@ -126,17 +107,7 @@ describe('DeciderHandler', () => {
       const stageFunc = () => 'nonexistent-branch';
 
       await expect(
-        handler.handleScopeBased(
-          node,
-          stageFunc,
-          context,
-          breakFlag,
-          'main',
-          noopRunStage,
-          noopExecuteNode,
-          noopCallExtractor,
-          noopGetStagePath,
-        ),
+        handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode),
       ).rejects.toThrow("doesn't match any child");
 
       expect(context.addError).toHaveBeenCalledWith('deciderError', expect.stringContaining('nonexistent-branch'));
@@ -167,8 +138,6 @@ describe('DeciderHandler', () => {
         'main',
         noopRunStage,
         executeNode,
-        noopCallExtractor,
-        noopGetStagePath,
       );
 
       expect(result).toBe('child-a');
@@ -177,7 +146,7 @@ describe('DeciderHandler', () => {
   });
 
   describe('handleScopeBased — error propagation', () => {
-    it('commits, calls extractor, logs error, calls narrativeGenerator.onError, and rethrows', async () => {
+    it('commits, logs error, calls narrativeGenerator.onError, and rethrows', async () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
         onError: vi.fn(),
@@ -192,32 +161,13 @@ describe('DeciderHandler', () => {
       const failingRunStage: RunStageFn = async () => {
         throw stageError;
       };
-      const callExtractor = vi.fn();
 
       await expect(
-        handler.handleScopeBased(
-          node,
-          () => 'whatever',
-          context,
-          breakFlag,
-          'main',
-          failingRunStage,
-          noopExecuteNode,
-          callExtractor,
-          noopGetStagePath,
-        ),
+        handler.handleScopeBased(node, () => 'whatever', context, breakFlag, 'main', failingRunStage, noopExecuteNode),
       ).rejects.toThrow('Stage exploded');
 
       // Should commit even on error
       expect(context.commit).toHaveBeenCalled();
-      // Should call extractor with error info
-      expect(callExtractor).toHaveBeenCalledWith(
-        node,
-        context,
-        'main.deciderStage',
-        undefined,
-        expect.objectContaining({ type: 'stageExecutionError', message: expect.stringContaining('Stage exploded') }),
-      );
       // Should log error to context
       expect(context.addError).toHaveBeenCalledWith('stageExecutionError', expect.stringContaining('Stage exploded'));
       // Should log to deps.logger
@@ -237,6 +187,7 @@ describe('DeciderHandler', () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
         onDecision: vi.fn(),
+        onStageExecuted: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -254,17 +205,7 @@ describe('DeciderHandler', () => {
 
       const stageFunc = () => 'child-a';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       // Flow debug message should contain "Based on:" with the rationale
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
@@ -288,6 +229,7 @@ describe('DeciderHandler', () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
         onDecision: vi.fn(),
+        onStageExecuted: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -297,17 +239,7 @@ describe('DeciderHandler', () => {
 
       const stageFunc = () => 'child-a';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
         'branch',
@@ -320,6 +252,7 @@ describe('DeciderHandler', () => {
       const narrativeGenerator = {
         ...new NullControlFlowNarrativeGenerator(),
         onDecision: vi.fn(),
+        onStageExecuted: vi.fn(),
       };
       const deps = makeDeps({ narrativeGenerator });
       const handler = new DeciderHandler(deps);
@@ -329,17 +262,7 @@ describe('DeciderHandler', () => {
 
       const stageFunc = () => 'child-a';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       expect(narrativeGenerator.onDecision).toHaveBeenCalledWith(
         'deciderStage',
@@ -367,17 +290,7 @@ describe('DeciderHandler', () => {
       // User decider returns unprefixed 'high'
       const stageFunc = () => 'high';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       // Should resolve to the 'high' child via branchId, not fail
       expect(context.createChild).toHaveBeenCalledWith('main', 'sf/high', 'sf/Reject', 'sf/high');
@@ -396,17 +309,7 @@ describe('DeciderHandler', () => {
       // Decider returns unknown value → should fall back to default
       const stageFunc = () => 'unknown';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       expect(context.createChild).toHaveBeenCalledWith('main', 'sf/default', 'sf/A', 'sf/default');
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(
@@ -428,17 +331,7 @@ describe('DeciderHandler', () => {
 
       const stageFunc = () => 'target';
 
-      await handler.handleScopeBased(
-        node,
-        stageFunc,
-        context,
-        breakFlag,
-        'main',
-        noopRunStage,
-        noopExecuteNode,
-        noopCallExtractor,
-        noopGetStagePath,
-      );
+      await handler.handleScopeBased(node, stageFunc, context, breakFlag, 'main', noopRunStage, noopExecuteNode);
 
       // Should NOT say "fell back to default" — direct match via branchId
       expect(context.addFlowDebugMessage).toHaveBeenCalledWith(

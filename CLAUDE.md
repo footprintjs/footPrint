@@ -120,7 +120,7 @@ scope.getEnv()                     // frozen execution environment (NOT tracked)
 ```typescript
 const executor = new FlowChartExecutor(chart);
 // With options (preferred over positional params):
-const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
+const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory });
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
 executor.attachRecorder(recorder) // plug scope observer
@@ -187,9 +187,12 @@ const subtree = getSubtreeSnapshot(snapshot, 'sf-payment');
 listSubflowPaths(snapshot); // ['sf-payment', 'sf-outer/sf-inner']
 ```
 
-## Two Observer Systems
+## Observer Systems — three channels, one model
 
-Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Intentionally NOT unified.
+Three pluggable observer channels. All use the same dispatcher pattern
+(`{ id, hooks } -> dispatcher -> error isolation -> attach/detach`).
+Intentionally NOT unified into one giant interface — each channel has
+a distinct invariant set.
 
 **Recorder ID contract:**
 - `attachRecorder` is **idempotent by ID** — same ID replaces, different IDs coexist. Prevents accidental double-counting.
@@ -201,12 +204,30 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - Built-in: `MetricRecorder`, `DebugRecorder`
 
 **FlowRecorder** (control flow — fires AFTER stage execution):
-- `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`
+- `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`
 - All events carry `traversalContext: TraversalContext`
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
+- **`onStageExecuted` fires UNIFORMLY for every stage kind** (linear / decider / fork / selector / subflow-mount) as of v6.0+ proposal #003. Event payload carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`. Specialized events (`onDecision`/`onFork`/`onSelected`/`onSubflowEntry`) STILL fire — `onStageExecuted` is the universal "did this stage run" signal AFTER them.
 - Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
 
-**CombinedNarrativeRecorder** implements BOTH interfaces. Attached via `executor.recorder(narrative())` at runtime.
+**StructureRecorder** (build-time chart shape — fires SYNCHRONOUSLY during builder operations, NOT runtime):
+- `onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`
+- Attach via options bag: `flowChart('seed', fn, 'seed', { structureRecorders: [rec] })` OR fluent `.attachStructureRecorder(rec)`.
+- **MOUNT-ONLY contract**: a recorder attached to a builder receives ONLY that builder's events. Subflow internals fire to THEIR builder's recorder, not the parent's. The mount event delivers the full subflow context via `subflowSpec` + `subflowPath` (proposal #001) — consumers walk it via `walkSubflowSpec` from `footprintjs/trace`.
+- `StructureRecorder` + 6 event types now exported from the main `footprintjs` barrel (also available from `footprintjs/advanced`).
+
+**EmitRecorder** (consumer-emitted events — third channel, see "Emit Channel" section below).
+
+**CombinedRecorder** is a union shape that routes by runtime method-shape detection — implement only the hooks you care about across all three channels; one `attachCombinedRecorder` call. `CombinedNarrativeRecorder` is the canonical built-in; attach via `executor.recorder(narrative())`.
+
+**Stage type discrimination on `onStageExecuted`** — under proposal #003, consumers wanting linear-only behavior must filter:
+```ts
+onStageExecuted(event) {
+  if (event.stageType && event.stageType !== 'linear') return;  // ignore decider/fork/selector/subflow-mount
+  // ... linear-stage logic
+}
+```
+Built-in `NarrativeFlowRecorder` and `CombinedNarrativeRecorder` already gate this way — narrative output is byte-stable across the v6 transition.
 
 ## Event Ordering
 
@@ -215,8 +236,9 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 2. Recorder.onRead/onWrite      — DURING execution (buffered per-stage)
 3. Recorder.onCommit            — transaction flush
 4. Recorder.onStageEnd          — stage completes
-5. FlowRecorder.onStageExecuted — CombinedNarrativeRecorder flushes buffered ops
-6. FlowRecorder.onNext/onDecision/onFork — control flow continues
+5. FlowRecorder.onStageExecuted — CombinedNarrativeRecorder flushes buffered ops (LINEAR-only here; non-linear gated to specialized handlers — see above)
+6. FlowRecorder.onNext/onDecision/onFork/onSelected — control flow events
+7. FlowRecorder.onStageExecuted (with stageType !== 'linear') — fires for decider/fork/selector/subflow-mount AFTER the specialized event above
 ```
 
 ## Execution Tracing (`footprintjs/trace`)
@@ -262,7 +284,9 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | Export | Returns | Use |
 |--------|---------|-----|
 | `buildRuntimeStageId(stageId, idx, subflowPath?)` | `string` | Construct an ID from components |
-| `parseRuntimeStageId(id)` | `{ stageId, executionIndex, subflowPath }` | Decompose an ID |
+| `parseRuntimeStageId(id)` | `{ stageId, executionIndex, subflowPath }` | Decompose a runtimeStageId. `stageId` is LOCAL (not the full-prefixed form on `spec.id`) — use `splitStageId` for those |
+| `splitStageId(prefixedStageId)` | `{ localStageId, subflowPath }` | Decompose a bare prefixed id (`spec.id`, `CommitBundle.stageId`, segment of `runtimeStageId` before `#`). Mirrors `parseRuntimeStageId`'s decomposition rule. Added in #002 |
+| `walkSubflowSpec(spec, subflowPath, opts?)` | `Generator<WalkerItem>` | Walk a subflow spec delivered on `StructureSubflowMountedEvent.subflowSpec`. Yields `subflow-start` marker first, then `stage`/`edge`/`loop`/`subflow` items mirroring Structure event payload shapes. Auto-recurses with composed paths; `{recurse:false}` for single-level. Added in #001 |
 | `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |

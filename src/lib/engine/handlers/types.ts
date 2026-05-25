@@ -1,7 +1,7 @@
 /**
  * handlers/types.ts — Shared callback types for all handler modules.
  *
- * Avoids duplicate definitions of ExecuteNodeFn / CallExtractorFn / etc.
+ * Avoids duplicate definitions of ExecuteNodeFn / RunStageFn / etc.
  * across ChildrenExecutor, DeciderHandler, ContinuationResolver, SubflowExecutor.
  * All types are callbacks that break circular dependencies with FlowchartTraverser.
  */
@@ -37,26 +37,10 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
   branchPath?: string,
 ) => Promise<any>;
 
-/** Run a stage function with commit + extractor. */
+/** Run a stage function with commit. */
 export type RunStageFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   stageFunc: StageFunction<TOut, TScope>,
   context: StageContext,
   breakFn: () => void,
 ) => Promise<TOut>;
-
-/** Call the traversal extractor after stage execution. */
-export type CallExtractorFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  context: StageContext,
-  stagePath: string,
-  stageOutput?: unknown,
-  errorInfo?: { type: string; message: string },
-) => void;
-
-/** Compute the stage path string for extractor and narrative. */
-export type GetStagePathFn<TOut = any, TScope = any> = (
-  node: StageNode<TOut, TScope>,
-  branchPath?: string,
-  contextStageName?: string,
-) => string;

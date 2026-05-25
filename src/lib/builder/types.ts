@@ -10,8 +10,9 @@
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
-import type { ILogger, ScopeFactory, StageFunction, TraversalExtractor } from '../engine/types.js';
+import type { ILogger, ScopeFactory, StageFunction } from '../engine/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
+import type { StructureRecorder } from './structure/StructureRecorder.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Re-exports from engine (canonical definitions)
@@ -113,20 +114,27 @@ export interface FlowChartSpec {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build-Time Extractor
+// flowChart() options bag
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Metadata provided to the build-time extractor for each node. */
-export type BuildTimeNodeMetadata = FlowChartSpec;
-
-export type BuildTimeExtractor<TResult = FlowChartSpec> = (metadata: BuildTimeNodeMetadata) => TResult;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Traversal Extractor (runtime) — canonical definition lives in engine/types.
-// Re-exported here so callers don't need two import paths.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type { TraversalExtractor } from '../engine/types.js';
+/**
+ * Options-bag argument shape for the `flowChart()` factory.
+ */
+export interface FlowChartOptions {
+  /**
+   * Build-time recorders to attach BEFORE `start()` fires. Equivalent
+   * to chaining `.attachStructureRecorder(rec)` immediately after the
+   * factory returns — but registered EARLIER, so even the seed event
+   * fires through the dispatcher without needing the seed-replay path.
+   *
+   * Multiple recorders attach in array order (same as
+   * `.attachStructureRecorder` repeated). See `StructureRecorder` JSDoc
+   * for event semantics, ordering invariants, and the trust model.
+   */
+  structureRecorders?: StructureRecorder[];
+  /** Free-form description shown on the root spec node. */
+  description?: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FlowChart — compiled output of build()
@@ -135,7 +143,6 @@ export type { TraversalExtractor } from '../engine/types.js';
 export type FlowChart<TOut = any, TScope = any> = {
   root: StageNode<TOut, TScope>;
   stageMap: Map<string, StageFunction<TOut, TScope>>;
-  extractor?: TraversalExtractor;
   subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
   buildTimeStructure: SerializedPipelineStructure;
   enableNarrative?: boolean;

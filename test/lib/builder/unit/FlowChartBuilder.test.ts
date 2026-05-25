@@ -114,7 +114,7 @@ describe('FlowChartBuilder', () => {
     });
 
     it('includes descriptions in description string', () => {
-      const chart = flowChart('entry', noop, 'entry', undefined, 'start here')
+      const chart = flowChart('entry', noop, 'entry', { description: 'start here' })
         .addFunction('end', noop, 'end', 'finish here')
         .build();
       expect(chart.description).toContain('start here');
@@ -190,43 +190,12 @@ describe('FlowChartBuilder', () => {
       expect(builder).toBeDefined();
     });
   });
-
-  describe('extractors', () => {
-    it('passes traversal extractor to FlowChart', () => {
-      const ext = () => null;
-      const chart = flowChart('a', noop, 'a').addTraversalExtractor(ext).build();
-      expect(chart.extractor).toBe(ext);
-    });
-
-    it('build-time extractor transforms nodes', () => {
-      const extractor = (node: any) => ({ ...node, custom: true });
-      const chart = new FlowChartBuilder(extractor).start('a', noop, 'a').addFunction('b', noop, 'b').build();
-      expect((chart.buildTimeStructure as any).custom).toBe(true);
-      expect((chart.buildTimeStructure.next as any).custom).toBe(true);
-    });
-
-    it('records build-time extractor errors', () => {
-      const extractor = () => {
-        throw new Error('boom');
-      };
-      const builder = new FlowChartBuilder(extractor).start('a', noop, 'a');
-      const errors = builder.getBuildTimeExtractorErrors();
-      expect(errors).toHaveLength(1);
-      expect(errors[0].message).toBe('boom');
-    });
-  });
 });
 
 describe('flowChart factory', () => {
   it('creates builder with start already called', () => {
     const chart = flowChart('entry', noop, 'entry').build();
     expect(chart.root.name).toBe('entry');
-  });
-
-  it('passes buildTimeExtractor', () => {
-    const ext = (n: any) => ({ ...n, tagged: true });
-    const chart = flowChart('a', noop, 'a', ext).build();
-    expect((chart.buildTimeStructure as any).tagged).toBe(true);
   });
 });
 

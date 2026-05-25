@@ -61,8 +61,6 @@ executor.getRuntimeRoot();       // graph as executed (may differ from build-tim
 executor.getRuntimeStructure();  // serialized graph shape for visualization
 executor.getBranchIds();         // child branch IDs from fan-out
 executor.getSubflowResults();    // per-subflow results
-executor.getExtractedResults();  // per-stage extractor output
-executor.getExtractorErrors();   // any errors during extraction
 ```
 
 **Key design decision:** `run()` recreates the traverser each time. This means `enableNarrative()` can be called between construction and execution — the flag gets picked up on the next `run()`. It also means each `run()` starts fresh with a new ExecutionRuntime, which prevents state leakage between runs.

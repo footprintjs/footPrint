@@ -161,7 +161,7 @@ describe('MilestoneNarrativeFlowRecorder', () => {
 describe('SilentNarrativeFlowRecorder', () => {
   it('emits no per-iteration sentences', () => {
     const recorder = new SilentNarrativeFlowRecorder();
-    recorder.onStageExecuted({ stageName: 'Init' });
+    recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     emitLoops(recorder, 100);
     const sentences = recorder.getSentences();
     // Should have 1 stage + 1 summary only
@@ -251,7 +251,7 @@ describe('RLENarrativeFlowRecorder', () => {
 
   it('preserves non-loop sentences', () => {
     const recorder = new RLENarrativeFlowRecorder();
-    recorder.onStageExecuted({ stageName: 'Init' });
+    recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     emitLoops(recorder, 5);
     const sentences = recorder.getSentences();
     expect(sentences[0]).toContain('Init');
@@ -323,7 +323,7 @@ describe('ProgressiveNarrativeFlowRecorder', () => {
 describe('SeparateNarrativeFlowRecorder', () => {
   it('keeps main narrative clean of loop sentences', () => {
     const recorder = new SeparateNarrativeFlowRecorder();
-    recorder.onStageExecuted({ stageName: 'Init' });
+    recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     emitLoops(recorder, 20);
     recorder.onNext({ from: 'Init', to: 'Done' });
 
@@ -354,7 +354,7 @@ describe('SeparateNarrativeFlowRecorder', () => {
 
   it('clears both channels', () => {
     const recorder = new SeparateNarrativeFlowRecorder();
-    recorder.onStageExecuted({ stageName: 'Init' });
+    recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     emitLoops(recorder, 5);
     recorder.clear();
     expect(recorder.getSentences()).toEqual([]);

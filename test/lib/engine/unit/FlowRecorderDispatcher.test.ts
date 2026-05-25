@@ -47,7 +47,7 @@ describe('FlowRecorderDispatcher', () => {
     const calls: string[] = [];
     dispatcher.attach({ id: 'a', onStageExecuted: (e) => calls.push(`a:${e.stageName}`) });
     dispatcher.attach({ id: 'b', onStageExecuted: (e) => calls.push(`b:${e.stageName}`) });
-    dispatcher.onStageExecuted('Init', 'starts the process');
+    dispatcher.onStageExecuted('Init', 'starts the process', undefined, 'linear');
     expect(calls).toEqual(['a:Init', 'b:Init']);
   });
 
@@ -166,7 +166,7 @@ describe('FlowRecorderDispatcher', () => {
     });
 
     // None of these should throw
-    expect(() => dispatcher.onStageExecuted('a')).not.toThrow();
+    expect(() => dispatcher.onStageExecuted('a', undefined, undefined, 'linear')).not.toThrow();
     expect(() => dispatcher.onNext('a', 'b')).not.toThrow();
     expect(() => dispatcher.onDecision('a', 'b')).not.toThrow();
     expect(() => dispatcher.onFork('a', ['b'])).not.toThrow();
@@ -182,7 +182,7 @@ describe('FlowRecorderDispatcher', () => {
 
   it('all methods are no-ops when no recorders attached', () => {
     expect(() => {
-      dispatcher.onStageExecuted('a');
+      dispatcher.onStageExecuted('a', undefined, undefined, 'linear');
       dispatcher.onNext('a', 'b');
       dispatcher.onDecision('a', 'b');
       dispatcher.onFork('a', ['b']);
@@ -206,7 +206,7 @@ describe('FlowRecorderDispatcher', () => {
   it('getSentences delegates to first recorder with getSentences', () => {
     const narrator = new NarrativeFlowRecorder();
     dispatcher.attach(narrator);
-    dispatcher.onStageExecuted('Init');
+    dispatcher.onStageExecuted('Init', undefined, undefined, 'linear');
     const sentences = dispatcher.getSentences();
     expect(sentences).toHaveLength(1);
     expect(sentences[0]).toContain('Init');
@@ -217,7 +217,7 @@ describe('FlowRecorderDispatcher', () => {
   it('recorders with missing hooks are silently skipped', () => {
     dispatcher.attach({ id: 'minimal' }); // no hooks at all
     expect(() => {
-      dispatcher.onStageExecuted('a');
+      dispatcher.onStageExecuted('a', undefined, undefined, 'linear');
       dispatcher.onLoop('a', 1);
     }).not.toThrow();
   });

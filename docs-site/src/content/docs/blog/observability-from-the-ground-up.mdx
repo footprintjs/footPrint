@@ -1,0 +1,313 @@
+---
+title: "Observability From The Ground Up: Why FootPrint Captures What It Captures"
+description: "A causal trace, three event channels, and one library-wide choice — live vs offline monitoring. The recorder architecture explained for ops engineers, not just framework authors."
+date: 2026-05-25
+authors:
+  - sanjay
+excerpt: "Logs scatter. Traces decay. Metrics aggregate too early. FootPrint captures the whole causal trace at the source — and gives you the choice to consume it live (BE→FE) or offline (capture-and-replay)."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**May 2026** · *Sanjay Krishna Anbalagan*
+
+---
+
+## The ops engineer's question
+
+You are paged at 2 AM. A loan application got rejected. Why?
+
+You SSH into the service. The application logs say:
+
+```
+[INFO] 2026-05-24T02:13:51 — req_abc started
+[INFO] 2026-05-24T02:13:51 — credit lookup ok
+[INFO] 2026-05-24T02:13:52 — risk eval done
+[WARN] 2026-05-24T02:13:52 — rejected
+[INFO] 2026-05-24T02:13:52 — req_abc finished in 1071ms
+```
+
+Six lines. A WARN. No causal chain. You don't know **which** risk factor flipped the decision, **what** value was compared against **what** threshold, or **why** that particular rule fired ahead of the four others that could have matched.
+
+You open a terminal, write a SQL query against the audit log, cross-reference it with the trace ID. Twenty minutes later you have an answer.
+
+**That twenty minutes shouldn't exist.** Everything you reconstructed by hand was *known* to the code at runtime. It was just never captured.
+
+This is the problem FootPrint's recorder architecture is built to solve. This post walks through what we capture, why we capture it that way, and the two consumption modes we give you — **live monitor** (real-time BE→FE) and **offline monitor** (capture, ship, replay).
+
+---
+
+## What we capture: three channels, one causal trace
+
+FootPrint observes execution along **three orthogonal channels**. Each channel has a single purpose. Together they reconstruct the full causal trace of a run.
+
+### Channel 1 — Scope (data flow)
+
+What the stage *read* and *wrote* in shared state.
+
+```typescript
+interface Recorder {
+  onRead?(event: { key, value, runtimeStageId, ... }): void;
+  onWrite?(event: { key, value, operation, runtimeStageId, ... }): void;
+  onCommit?(event: { writes, runtimeStageId, ... }): void;
+  onStageStart?(event): void;
+  onStageEnd?(event): void;
+  onError?(event): void;
+}
+```
+
+Fires **during** stage execution. Buffered per-stage and flushed at commit time.
+
+**Why this channel exists**: it gives you the data-level "stack trace." When the rejection decision says `'high-risk'`, you want to know: which key was read, what value did it have, what was the threshold, did it match? Logs answer "this happened." Scope events answer "*because* X was Y."
+
+### Channel 2 — Flow (control flow)
+
+How the engine *moved* between stages. Branches taken, forks spawned, loops iterated, subflows entered, errors raised, runs started and ended.
+
+```typescript
+interface FlowRecorder {
+  onStageExecuted?(event: { stageName, stageType, ... }): void;   // every stage, all kinds
+  onDecision?(event: { decider, chosen, evidence, ... }): void;
+  onFork?(event: { parent, children, ... }): void;
+  onSelected?(event: { parent, selected, evidence, ... }): void;
+  onSubflowEntry?(event): void;
+  onSubflowExit?(event): void;
+  onLoop?(event: { iteration, target, ... }): void;
+  onError?(event): void;
+  onPause?(event): void;
+  onResume?(event): void;
+  onRunStart?(event): void;
+  onRunEnd?(event): void;
+}
+```
+
+Fires **after** the stage completes (or after the control-flow decision in the case of forks/deciders).
+
+**Why this channel exists**: data alone doesn't tell you the path. You need to know **which** branch the engine took, **which** child it forked, **how many** loop iterations ran. The shape of the path *is* part of the answer to "why was my loan rejected" — sometimes the rejection wasn't a data value, it was that the engine never even reached the relevant rule.
+
+As of v6+, `onStageExecuted` fires **uniformly for every stage kind** (linear / decider / fork / selector / subflow-mount). Earlier versions skipped this event for control-flow stages — consumers had to subscribe to four specialized events to track "did this stage run." The new `stageType` discriminator lets a single handler answer that question for any stage kind.
+
+### Channel 3 — Structure (build-time chart shape)
+
+What the chart *looks like* before it runs.
+
+```typescript
+interface StructureRecorder {
+  onStageAdded?(event): void;
+  onEdgeAdded?(event): void;
+  onLoopEdgeAdded?(event): void;
+  onDeciderComplete?(event): void;
+  onSubflowMounted?(event): void;
+}
+```
+
+Fires **synchronously during builder construction** — not at runtime. By the time `.build()` returns, the structure is fully observed.
+
+**Why this channel exists**: the chart shape is reference data. UIs render it. Audit systems hash it. Static analysis tools verify it. None of this needs to wait for execution. The mount event carries the full subflow spec so a parent recorder can materialize the entire chart tree in one pass — no walking the spec yourself, no inner-builder attachment gymnastics.
+
+### Channel 4 — Emit (consumer-defined events)
+
+A third runtime channel for events the consumer code emits intentionally — token counts, retry attempts, custom metrics, anything that doesn't fit the read/write or control-flow shape.
+
+```typescript
+scope.$emit('myapp.llm.tokens', { input: 100, output: 50 });
+```
+
+Fires synchronously, pass-through, with auto-enriched context (`stageName`, `runtimeStageId`, `subflowPath`, `pipelineId`, `timestamp`). Zero allocation when no recorder is attached.
+
+**Why this channel exists**: logging frameworks have a single channel and force consumers to choose between structured events and free-form messages. The emit channel lets consumers send domain-specific events that flow through the same recorder fan-out as built-in events — but with a hierarchical name (`myapp.billing.spend`) so downstream tools can route by namespace.
+
+---
+
+## Why four channels and not one
+
+The first instinct is "just one observer with a bunch of methods." We tried that. It collapses two real distinctions that ops engineers depend on:
+
+1. **Build-time vs runtime.** Structure events fire during construction. They have NO `runtimeStageId`, no `iteration`, no `traversalContext`. A unified interface would force every Structure event to ship a fake "runtime" field, or every Flow event to ship a fake "structure" field. Ops engineers writing a chart-topology dashboard don't want runtime data leaking in; ops engineers writing a latency monitor don't want build-time data confusing the picture.
+
+2. **Data ops vs control flow.** Scope events fire WHILE a stage runs (every read, every write). Flow events fire AFTER it completes. They have fundamentally different timing — Scope is hot-path, Flow is post-hoc. Merging them would force a single dispatcher to handle both, which means hot-path code paying for cold-path bookkeeping.
+
+The four-channel separation matches log4j's `Logger` / `Appender` / `Layout` separation: each channel has one invariant set, and consumers compose what they need. A `CombinedRecorder` shape lets you implement methods from any subset of channels in one object — the runtime detects which methods exist and routes events accordingly.
+
+---
+
+## The universal key: `runtimeStageId`
+
+Every event the engine fires carries a `runtimeStageId`:
+
+```
+[subflowPath/]stageId#executionIndex
+
+  seed#0
+  call-llm#5
+  sf-tools/execute-tool-calls#8
+  sf-tools/execute-tool-calls#12   ← same stage, second iteration of a loop
+```
+
+This is the universal key that ties everything together:
+- Scope events for stage 5 carry `runtimeStageId: 'call-llm#5'`
+- Flow events for the same stage carry the same id
+- Commit log entries are indexed by it
+- A custom recorder using the commit log can backtrack: "who wrote `systemPrompt` before stage 8?" via `findLastWriter(commitLog, 'systemPrompt', 8)`
+
+No correlation IDs to weave by hand. No timestamps to align across services. The engine assigns it once, threads it through every event.
+
+---
+
+## Live vs Offline monitoring — the consumer's choice
+
+Here's where FootPrint gives you a choice that traditional logging frameworks don't. The same recorder events, the same data, can be consumed two ways. You pick based on what you're trying to do.
+
+### Mode A — Live monitor (real-time BE→FE)
+
+Stream events from a running backend to a frontend dashboard as they fire. Subscribe to the executor, push events over WebSocket / SSE / EventSource, render in real time.
+
+```typescript
+// Backend
+const liveRec: FlowRecorder = {
+  id: 'live-stream',
+  onStageExecuted(e) { ws.send({ kind: 'stage', data: e }); },
+  onDecision(e)      { ws.send({ kind: 'decision', data: e }); },
+  onError(e)         { ws.send({ kind: 'error', data: e }); },
+};
+executor.attachFlowRecorder(liveRec);
+await executor.run({ input });
+```
+
+**Use this for:**
+- Live debugging of a running pipeline (the playground does this)
+- Real-time dashboards (latency, error rate, decision distribution)
+- Interactive support tools where an engineer watches a customer's request execute
+- Streaming progress to a UI while a long-running flow executes
+
+**Trade-offs:**
+- Handlers run synchronously on the hot path. Slow handler = slow execution. The contract is **sync and fast** — for slow work, queue a microtask inside the handler, never `await` a long operation.
+- Order is guaranteed (events fire in execution order)
+- Errors in the handler are isolated (try/catch in the dispatcher) but won't be retried
+
+### Mode B — Offline monitor (capture, ship, replay)
+
+Capture the full execution as a serializable snapshot. Ship the snapshot to wherever you need to analyze it. Replay it through a different recorder in a different process.
+
+```typescript
+// Lambda 1 (the request handler) — capture
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run({ input });
+
+const wireFormat = JSON.stringify({
+  spec: chart.buildTimeStructure,           // chart shape
+  snapshot: executor.getSnapshot(),          // post-run state + commitLog
+  narrative: executor.getNarrativeEntries(), // ordered narrative entries
+});
+
+await sqs.sendMessage({ MessageBody: wireFormat });
+return response;  // user gets a fast response
+
+// Lambda 2 (the telemetry processor) — replay
+export const handler = async (event: SQSEvent) => {
+  const trace = JSON.parse(event.Records[0].body);
+  // render the trace in <TracedFlow>, write to a data warehouse,
+  // run anomaly detection, generate an audit report, etc.
+};
+```
+
+**Use this for:**
+- Post-mortem debugging ("here's the trace from yesterday's failure")
+- Long-term storage (S3, data warehouse, audit log)
+- Cross-process analysis (the running service captures, an analytics service consumes)
+- Replay in dev ("ship me your trace.json, I'll reproduce the issue locally")
+- Lambda-to-Lambda fan-out (request handler returns fast; processing happens async)
+
+**Trade-offs:**
+- Loses reference equality (anything that was a live object becomes a deep copy via JSON)
+- Doesn't capture the moment-to-moment event stream — captures the end-state plus the narrative timeline
+- Replay sees the chart as a frozen artifact, not an actively-running thing
+
+### The same recorder API for both modes
+
+This is the load-bearing design decision: **the recorder interface is identical in both modes.** A `FlowRecorder` you write for live monitoring works without modification on a replayed trace. The contract is the same data shape, fired in the same order. The only difference is *when* events are dispatched (during traversal vs after, from a serialized batch).
+
+That's the analogue to log4j's `Appender` model: same `LogEvent`, different appenders (ConsoleAppender vs FileAppender vs KafkaAppender). The framework gives you the event stream; you choose where to consume it.
+
+---
+
+## How this compares to the tools ops engineers already use
+
+| Concern | Traditional approach | FootPrint approach |
+|---|---|---|
+| **"What happened?"** | grep logs | `executor.getNarrativeEntries()` — structured timeline keyed by runtimeStageId |
+| **"Why did it happen?"** | reconstruct from logs + DB | `decide()` evidence captured automatically; commitLog backtrack |
+| **"In what order?"** | timestamps + best guess | events fired in execution order, all with the same `runtimeStageId` correlation key |
+| **"Live dashboard"** | logs → Logstash → Elasticsearch → Kibana | Recorder → WebSocket → UI; same data, no pipeline lag |
+| **"Replay a customer issue"** | "send me your logs" (incomplete) | "send me your trace.json" (complete causal chain) |
+| **"Why was rule X chosen over Y?"** | `console.log("entering rule X")` | `decide()` evidence: every condition evaluated, with the values that triggered the match |
+| **"Audit trail for compliance"** | grep + DB joins + hope | commitLog is the audit trail; deterministic, complete |
+
+The shift isn't about replacing your existing observability stack. It's about **what the engine already knows** vs **what you have to reconstruct after the fact.** A traditional logger forces you to instrument the relevant lines manually — every read, every write, every decision. FootPrint captures all of it as a side effect of execution, because the engine's event loop fires the events anyway.
+
+---
+
+## What this means for your day-to-day
+
+If you're an ops engineer at 2 AM debugging a rejected loan:
+
+```typescript
+// You don't grep logs. You load the trace.
+const trace = JSON.parse(await s3.getObject({ Bucket: 'traces', Key: 'req_abc.json' }).Body);
+
+// You see the whole causal chain:
+trace.narrative
+//   → [stage] Stage 1: load — input received
+//   → [stage] Stage 2: assess-risk
+//   → [step]  read creditScore = 620
+//   → [step]  read dti = 0.47
+//   → [stage] Stage 3: classify
+//   → [condition] Rule "high-DTI": dti 0.47 gt 0.43 ✓, chose review path
+//   → [stage] Stage 4: manual-review
+//   → [step]  read pendingFlags = ['address-mismatch']
+//   → [stage] Stage 5: reject
+//   → [step]  write decision = "Rejected: identity verification incomplete"
+
+// You see exactly which rule fired, with what values, why.
+// Total debug time: 30 seconds. Vs 20 minutes hand-reconstructing from logs.
+```
+
+If you're a framework author writing a custom observer:
+
+```typescript
+// You don't reimplement the event loop. You attach.
+const myRecorder: FlowRecorder = {
+  id: 'my-thing',
+  onStageExecuted(e) {
+    if (e.stageType !== 'linear') return;  // skip control-flow stages
+    metrics.timing('stage.duration', e.duration, { stage: e.stageName });
+  },
+};
+executor.attachFlowRecorder(myRecorder);
+
+// Or implement multiple channels in one object via CombinedRecorder
+const audit: CombinedRecorder = {
+  id: 'audit',
+  onWrite(e)         { auditDB.write({ key: e.key, value: e.value, stage: e.runtimeStageId }); },
+  onDecision(e)      { auditDB.decision({ rule: e.decider, chosen: e.chosen, evidence: e.evidence }); },
+  onError(e)         { auditDB.error(e); },
+};
+executor.attachCombinedRecorder(audit);
+```
+
+You write the observer once. It works on live execution. It works on replayed traces. It works in dev, in prod, in CI tests. The framework guarantees the event contract; you handle the destination.
+
+---
+
+## What's next
+
+The recorder model gives you the *event stream*. The next layer — exporters, transports, and serialization formats — is where you compose with your existing observability stack (OpenTelemetry, Datadog, Prometheus, S3 + custom dashboards, whatever). That's a follow-on design.
+
+For now: pick live or offline based on your use case. Attach the right recorder for your channel. The engine fires events with full causal context, no instrumentation required, every run.
+
+You stop reconstructing after the fact. You start observing what the engine already knows.
+
+<Aside type="tip">
+Want to see this in action? The `<TracedFlow>` component in `footprint-explainable-ui` is a live monitor implementation — attach it to a running executor, watch the chart light up as stages execute. The `examples/runtime-features/snapshot-replay/` example demonstrates the offline mode using only existing primitives.
+</Aside>

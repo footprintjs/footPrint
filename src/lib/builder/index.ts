@@ -14,10 +14,9 @@ export { flowChart, specToStageNode } from './FlowChartBuilder.js';
 
 // Types
 export type {
-  BuildTimeExtractor,
-  BuildTimeNodeMetadata,
   ExecOptions,
   FlowChart,
+  FlowChartOptions,
   FlowChartSpec,
   ILogger,
   ScopeProtectionMode,
@@ -32,6 +31,19 @@ export type {
   StreamTokenHandler,
   SubflowMountOptions,
   SubflowRef,
-  TraversalExtractor,
 } from './types.js';
 export { ArrayMergeMode } from './types.js';
+
+// ── L7 — Structural observer surface ────────────────────────────────────────
+// `StructureRecorder` is the build-time twin of `FlowRecorder`. Together they
+// cover both phases of chart life — see `StructureRecorder.ts` JSDoc for the
+// architectural rationale (why two interfaces, not one phase-tagged event).
+export type {
+  StructureDeciderCompleteEvent,
+  StructureEdgeAddedEvent,
+  StructureEdgeKind,
+  StructureLoopEdgeAddedEvent,
+  StructureRecorder,
+  StructureStageAddedEvent,
+  StructureSubflowMountedEvent,
+} from './structure/StructureRecorder.js';

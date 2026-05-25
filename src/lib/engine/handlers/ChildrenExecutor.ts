@@ -38,6 +38,12 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     // Narrative: capture the fan-out
     const childDisplayNames = allChildren.map((c) => c.name);
     this.deps.narrativeGenerator.onFork(node.name, childDisplayNames, traversalContext);
+    // Proposal #003: fire onStageExecuted for the fork parent AFTER
+    // the specialized event so consumers tracking "did this stage run"
+    // work uniformly. Fires BEFORE children execute — matching the
+    // "decision made" semantic (the fork's main work is the decision
+    // to fan out; children are separate stages with their own lifecycles).
+    this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'fork');
 
     const childPromises: Promise<NodeResultType>[] = allChildren.map((child) => {
       const childBranchPath = branchPath || child.id;
@@ -157,12 +163,10 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
     // Narrative: capture the selection
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
-    this.deps.narrativeGenerator.onSelected(
-      context.stageName || 'selector',
-      selectedDisplayNames,
-      children.length,
-      traversalContext,
-    );
+    const selectorName = context.stageName || 'selector';
+    this.deps.narrativeGenerator.onSelected(selectorName, selectedDisplayNames, children.length, traversalContext);
+    // Proposal #003: fire onStageExecuted AFTER the specialized event.
+    this.deps.narrativeGenerator.onStageExecuted(selectorName, undefined, traversalContext, 'selector');
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',

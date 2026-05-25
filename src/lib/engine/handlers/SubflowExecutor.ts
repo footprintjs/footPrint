@@ -99,6 +99,17 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       parentTraversalContext,
       narrativeInput,
     );
+    // Proposal #003: fire onStageExecuted for the mount node AFTER
+    // onSubflowEntry so consumers tracking "did this stage run" work
+    // uniformly across linear / decider / fork / selector / subflow-mount.
+    // Fires on ENTRY (not exit) — entry = "this mount ran"; the
+    // subflow's children execute after as separate stages.
+    this.deps.narrativeGenerator.onStageExecuted(
+      node.name,
+      rootDescription ?? node.description,
+      parentTraversalContext,
+      'subflow-mount',
+    );
 
     // Create isolated runtime via dynamic construction (avoids circular import)
     const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (

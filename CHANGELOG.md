@@ -7,6 +7,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0]
+
+Major release. Two themes ship together:
+
+**Theme A — Extractor removal (the v5 → v6 migration story):** the
+build-time + runtime extractor pattern is removed entirely and replaced
+by two phase-specific recorders that were already shipping under L7:
+`StructureRecorder` (build phase) and the existing `FlowRecorder`
+(runtime phase). No deprecation period. See `MIGRATION-6.md` for the
+recipes.
+
+**Theme B — Observer-architecture polish (3 follow-up proposals):** new
+helpers (`splitStageId`, `walkSubflowSpec`) on `footprintjs/trace`; new
+fields on `StructureSubflowMountedEvent` (`subflowSpec`, `subflowPath`);
+uniform `onStageExecuted` for ALL stage kinds with a new `stageType`
+discriminator on `FlowStageEvent`.
+
+### Theme B — Observer-architecture polish
+
+### Added
+
+- **`StructureSubflowMountedEvent.subflowSpec`** — the mounted subflow's
+  complete spec (reference-equal to `subflow.buildTimeStructure`), set on
+  every EAGER mount, undefined on lazy mounts. Lets a parent-attached
+  recorder walk the subflow's full inner structure without needing
+  inner-builder attachment (proposal #001).
+- **`StructureSubflowMountedEvent.subflowPath`** — local mount id within
+  the parent (`'auth'` for top-level, composed `'auth/verify'` for nested
+  observations). Matches runtime `traversalContext.subflowPath` semantics
+  (proposal #001).
+- **`walkSubflowSpec`** exported from `footprintjs/trace` — a generator
+  that yields the structural shape of a subflow spec as a flat ordered
+  stream (`subflow-start` markers, `stage`/`edge`/`loop`/`subflow` items,
+  auto-recurse with composed paths). Replaces the consumer-side
+  connected-component "tag inner stages" workaround (proposal #001).
+- **`WalkerItem`, `WalkerOptions`** types exported from `footprintjs/trace`.
+- **`splitStageId(prefixedStageId)`** exported from `footprintjs/trace` —
+  decomposes a prefixed stage id (`'sf-tools/execute-tool-calls'`) into
+  `{ localStageId, subflowPath }`. Mirrors `parseRuntimeStageId`'s
+  decomposition and applies uniformly to `spec.id`, `CommitBundle.stageId`,
+  any prefixed id without the `#N` suffix (proposal #002).
+- **`StageType`** union exported from the engine narrative types:
+  `'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`
+  (proposal #003).
+- **`FlowStageEvent.stageType`** — REQUIRED discriminator field on every
+  `onStageExecuted` event. Lets consumers route by stage kind without a
+  side-table lookup into the chart spec (proposal #003).
+- **`StructureRecorder`** + 6 event payload types
+  (`StructureDeciderCompleteEvent`, `StructureEdgeAddedEvent`,
+  `StructureEdgeKind`, `StructureLoopEdgeAddedEvent`,
+  `StructureStageAddedEvent`, `StructureSubflowMountedEvent`) now exported
+  from the **main `footprintjs` barrel**, not only `footprintjs/advanced`.
+
+### Changed (behavior)
+
+- **`onStageExecuted` now fires for ALL stage kinds**, not just linear
+  stages. Previously, decider / fork / selector / subflow-mount stages
+  fired only their specialized event (`onDecision` / `onFork` /
+  `onSelected` / `onSubflowEntry`) and the engine returned without firing
+  `onStageExecuted`. As of this release, the engine fires
+  `onStageExecuted` AFTER the specialized event for these stages — every
+  stage that runs produces exactly one `onStageExecuted` event, carrying
+  the new `stageType` discriminator (proposal #003).
+
+  **Migration**: consumers that used `onStageExecuted` to track "did this
+  stage run?" no longer need separate `onDecision`/`onFork`/`onSelected`
+  handlers for the same purpose. Consumers that used `onStageExecuted` as
+  a LINEAR-ONLY signal must filter: `if (event.stageType !== 'linear')
+  return;`. See `MIGRATION-6.md` for the recipe.
+
+### Changed (docs / JSDoc)
+
+- `parseRuntimeStageId` JSDoc now warns explicitly about the LOCAL-vs-FULL
+  naming collision between its returned `stageId` field and `spec.id` /
+  `node.id` for subflow-nested stages. Points consumers at `splitStageId`
+  for safe decomposition (proposal #002).
+- `StructureStageAddedEvent.stageId` JSDoc clarifies that the field
+  carries the builder's LOCAL form at event-fire time, but `spec.id` is a
+  LIVE reference that may be rewritten to the FULL prefixed form when
+  this builder is mounted as a subflow (proposal #002).
+- `StructureSubflowMountedEvent` JSDoc updated to describe the new
+  `subflowSpec` and `subflowPath` fields, including the reference-equality
+  guarantee and the lazy-mount caveat (proposal #001).
+
+### Engine internals
+
+- `IControlFlowNarrative.onStageExecuted` signature gained a required
+  `stageType: StageType` argument. Custom `NarrativeGenerator`
+  implementations must update their method signature.
+  `NullControlFlowNarrativeGenerator` and the built-in
+  `NarrativeFlowRecorder` / `CombinedNarrativeRecorder` were updated.
+- `CombinedNarrativeRecorder.onStageExecuted` and
+  `NarrativeFlowRecorder.onStageExecuted` gate to `stageType === 'linear'`
+  (or undefined for back-compat) — narrative output is byte-stable across
+  the v6 transition because the specialized handlers
+  (`onDecision`/`onFork`/`onSelected`/`onSubflowEntry`) keep emitting
+  their narrative entries unchanged.
+
+### Tests
+
+- +9 unit tests for uniform `onStageExecuted` (per-kind fire-order +
+  literal `stageType` assertions + pause/error negative cases).
+- +3 unit tests for `CombinedNarrativeRecorder` byte-stability (no
+  double-emission for decider / fork / subflow-mount stages).
+- +5 wiring tests for `subflowSpec` reference equality at all 4 eager
+  mount sites + `subflowSpec: undefined` on lazy mounts.
+- +8 unit tests for `walkSubflowSpec` (subflow-start markers, recursion,
+  composed paths, `{recurse: false}`).
+- +5 unit tests for `splitStageId` round-trip parity with
+  `parseRuntimeStageId`.
+
+### Theme A — Extractor rip-out
+
+### Breaking changes
+
+- **Removed** all extractor types: `BuildTimeExtractor`,
+  `BuildTimeNodeMetadata`, `TraversalExtractor`, `ChartExtractor`, and
+  `ExtractorError`. These were the v5.x build-time + runtime extraction
+  surfaces.
+- **Removed** `FlowChartOptions.extractor` field. `FlowChartOptions` is no
+  longer generic — the new shape is `{ structureRecorders?, description? }`.
+- **Removed** the legacy 5-positional `flowChart()` signature
+  (`(name, fn, id, buildTimeExtractor?, description?)`). The factory now
+  accepts only `(name, fn, id, options?)`.
+- **Removed** builder methods: `addBuildTimeExtractor()`,
+  `addTraversalExtractor()`, `getBuildTimeExtractorErrors()`.
+- **Removed** executor method `getExtractorErrors()`. Use
+  `builder.getStructureBuildErrors()` (call on the BUILDER, before/after
+  `.build()`).
+- **Removed** `FlowChartExecutorOptions.enrichSnapshots` field — it was
+  only consumed by the extractor system and is now dead code.
+- **Removed** internal: `FlowChartBuilder` `_flush()`,
+  `_drainCursorIfPending()`, `_invokeOnBuildAdHoc()`,
+  `_drainPendingFlush()`, `_chartExtractor`, `_buildTimeExtractor` fields;
+  engine `ExtractorRunner.ts` deleted; `FlowchartTraverser` extractor
+  wiring (`extractorRunner`, `callExtractor`, `getStagePath`,
+  `getExtractedResults`, `getExtractorErrors`) removed.
+
+### Replacement
+
+- **Build-phase observation**: `StructureRecorder` — 5 events
+  (`onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`,
+  `onSubflowMounted`). Register via the options bag
+  (`flowChart('seed', fn, 'seed', { structureRecorders: [rec] })`) or the
+  fluent chain (`.attachStructureRecorder(rec)`).
+- **Runtime per-stage observation**: already-shipping `FlowRecorder` with
+  hooks like `onStageExecuted`, `onDecision`, `onSubflowEntry`, `onError`.
+  Attach via `executor.attachFlowRecorder(rec)`.
+
+### Migration
+
+See [`MIGRATION-6.md`](MIGRATION-6.md) for diff-by-diff recipes covering
+the four most common v5.x → v6.0 patterns.
+
 ## [5.0.0]
 
 Major release — **recorder-system rewrite** plus a load-bearing build-time

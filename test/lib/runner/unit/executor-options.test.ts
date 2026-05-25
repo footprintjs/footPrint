@@ -4,7 +4,7 @@
  * FlowChartExecutor accepts two forms:
  *   new FlowChartExecutor(chart)
  *   new FlowChartExecutor(chart, scopeFactory)
- *   new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true, ... })
+ *   new FlowChartExecutor(chart, { scopeFactory, defaultValuesForContext, ... })
  *
  * The options-object form is preferred when passing more than a factory.
  */
@@ -46,15 +46,10 @@ describe('FlowChartExecutorOptions — unit: options object API', () => {
     expect(factoryWasCalled).toBe(true);
   });
 
-  it('new FlowChartExecutor(chart, { enrichSnapshots: true }) is accepted without error', () => {
-    const chart = buildChart();
-    expect(() => new FlowChartExecutor(chart, { enrichSnapshots: true })).not.toThrow();
-  });
-
   it('FlowChartExecutorOptions is a typed interface (type-check via assignment)', () => {
     // This test is about TypeScript type safety; if it compiles, it passes
     const opts: FlowChartExecutorOptions = {
-      enrichSnapshots: false,
+      defaultValuesForContext: { key: 'value' },
     };
     const chart = buildChart();
     expect(() => new FlowChartExecutor(chart, opts)).not.toThrow();
@@ -114,14 +109,6 @@ describe('FlowChartExecutorOptions — boundary: legacy vs new form parity', () 
 // Pattern 3: scenario — realistic usage with options object
 // ---------------------------------------------------------------------------
 describe('FlowChartExecutorOptions — scenario: realistic configs', () => {
-  it('can configure enrichSnapshots via options object', async () => {
-    const chart = buildChart();
-    const ex = new FlowChartExecutor(chart, { enrichSnapshots: true });
-    const snap = await ex.run();
-    // snap may be undefined if chart returns nothing, but no error thrown
-    expect(ex).toBeDefined();
-  });
-
   it('empty options object {} behaves like no options', async () => {
     const chart = buildChart();
     const ex1 = new FlowChartExecutor(chart);
@@ -134,8 +121,8 @@ describe('FlowChartExecutorOptions — scenario: realistic configs', () => {
   it('multiple options can be set together', () => {
     const chart = buildChart();
     const opts: FlowChartExecutorOptions = {
-      enrichSnapshots: true,
       defaultValuesForContext: { key: 'value' },
+      scopeProtectionMode: 'warn',
     };
     expect(() => new FlowChartExecutor(chart, opts)).not.toThrow();
   });
@@ -147,7 +134,7 @@ describe('FlowChartExecutorOptions — scenario: realistic configs', () => {
 describe('FlowChartExecutorOptions — property: no interference between forms', () => {
   it('passing an options object does not prevent the executor from running multiple times', async () => {
     const chart = buildChart();
-    const ex = new FlowChartExecutor(chart, { enrichSnapshots: false });
+    const ex = new FlowChartExecutor(chart, {});
     await ex.run();
     await ex.run();
     // Two runs with options form must succeed
@@ -167,7 +154,7 @@ describe('FlowChartExecutorOptions — security: options isolation', () => {
   it('options object fields outside the known set are ignored', async () => {
     const chart = buildChart();
     // TypeScript would normally prevent this, but at runtime extra fields are harmless
-    const opts = { enrichSnapshots: false, unknownField: 'injection-attempt' } as FlowChartExecutorOptions;
+    const opts = { unknownField: 'injection-attempt' } as unknown as FlowChartExecutorOptions;
     const ex = new FlowChartExecutor(chart, opts);
     await expect(ex.run()).resolves.not.toThrow();
   });

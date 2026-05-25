@@ -9,7 +9,7 @@
  *   const executor = new FlowChartExecutor(chart);
  *
  *   // Options-object form (preferred when you need to customize behavior):
- *   const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
+ *   const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory });
  *
  *   // 2-param form (accepts a ScopeFactory directly, for backward compatibility):
  *   const executor = new FlowChartExecutor(chart, myFactory);
@@ -29,7 +29,6 @@ import { buildRuntimeStageId } from '../engine/runtimeStageId.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
   type ExecutorResult,
-  type ExtractorError,
   type PausedResult,
   type RunOptions,
   type ScopeFactory,
@@ -63,7 +62,7 @@ const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
  * ```typescript
  * const ex = new FlowChartExecutor(chart, {
  *   scopeFactory: myFactory,
- *   enrichSnapshots: true,
+ *   defaultValuesForContext: { ... },
  * });
  * ```
  *
@@ -81,14 +80,6 @@ export interface FlowChartExecutorOptions<TScope = any> {
 
   /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
   scopeFactory?: ScopeFactory<TScope>;
-  /**
-   * Attach a per-stage scope snapshot to each extractor result. When `true`, the
-   * extraction callback receives the full shared state at the point that stage
-   * committed — useful for debugging multi-stage state transitions. Defaults to
-   * `false` (no scope snapshot attached). Can also be set on the chart via
-   * `flowChart(...).enrichSnapshots(true)`.
-   */
-  enrichSnapshots?: boolean;
 
   // ── Context options ──────────────────────────────────────────────────────
 
@@ -166,7 +157,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     throttlingErrorChecker?: (error: unknown) => boolean;
     streamHandlers?: StreamHandlers;
     scopeProtectionMode?: ScopeProtectionMode;
-    enrichSnapshots?: boolean;
   };
 
   /**
@@ -174,7 +164,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * **Options object form** (preferred):
    * ```typescript
-   * new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots: true })
+   * new FlowChartExecutor(chart, { scopeFactory, defaultValuesForContext })
    * ```
    *
    * **2-param form** (also supported):
@@ -197,13 +187,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let throttlingErrorChecker: ((error: unknown) => boolean) | undefined;
     let streamHandlers: StreamHandlers | undefined;
     let scopeProtectionMode: ScopeProtectionMode | undefined;
-    let enrichSnapshots: boolean | undefined;
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
       scopeFactory = factoryOrOptions;
     } else if (factoryOrOptions !== undefined) {
-      // Options object form: new FlowChartExecutor(chart, { scopeFactory, enrichSnapshots, ... })
+      // Options object form
       const opts = factoryOrOptions;
       scopeFactory = opts.scopeFactory;
       defaultValuesForContext = opts.defaultValuesForContext;
@@ -212,7 +201,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker = opts.throttlingErrorChecker;
       streamHandlers = opts.streamHandlers;
       scopeProtectionMode = opts.scopeProtectionMode;
-      enrichSnapshots = opts.enrichSnapshots;
     }
     this.flowChartArgs = {
       flowChart,
@@ -223,7 +211,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker,
       streamHandlers,
       scopeProtectionMode,
-      enrichSnapshots,
     };
     this.traverser = this.createTraverser();
   }
@@ -364,10 +351,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       readOnlyContext: readOnlyContextOverride ?? args.readOnlyContext,
       throttlingErrorChecker: args.throttlingErrorChecker,
       streamHandlers: args.streamHandlers,
-      extractor: fc.extractor,
       scopeProtectionMode: args.scopeProtectionMode,
       subflows: fc.subflows,
-      enrichSnapshots: args.enrichSnapshots,
       narrativeEnabled: narrativeFlag,
       buildTimeStructure: fc.buildTimeStructure,
       logger: fc.logger ?? defaultLogger,
@@ -1209,16 +1194,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** @internal */
   getSubflowResults(): Map<string, SubflowResult> {
     return this.traverser.getSubflowResults();
-  }
-
-  /** @internal */
-  getExtractedResults<TResult = unknown>(): Map<string, TResult> {
-    return this.traverser.getExtractedResults<TResult>();
-  }
-
-  /** @internal */
-  getExtractorErrors(): ExtractorError[] {
-    return this.traverser.getExtractorErrors();
   }
 
   /**

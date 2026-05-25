@@ -16,9 +16,31 @@ import type { StructuredErrorInfo } from '../errors/errorInfo.js';
  * interface with empty methods for zero-cost disabled path.
  */
 
+/**
+ * The kind of stage that completed. Lets consumers route uniform
+ * "did this stage execute" handling without a side-table lookup into
+ * the chart spec. Required on every `onStageExecuted` event since
+ * proposal #003 unified the event to fire for ALL stage kinds.
+ */
+export type StageType = 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount';
+
 export interface IControlFlowNarrative {
-  /** Called when a stage executes. First stage uses distinct opening pattern. */
-  onStageExecuted(stageName: string, description?: string, traversalContext?: TraversalContext): void;
+  /**
+   * Called when a stage completes its main work. Fires for ALL stage
+   * kinds (`'linear'`, `'decider'`, `'fork'`, `'selector'`, `'subflow-mount'`)
+   * AFTER the corresponding specialized event (`onDecision`, `onFork`,
+   * `onSelected`, `onSubflowEntry`). For linear stages, fires after
+   * the stage function returns.
+   *
+   * Consumers tracking "did this stage run?" use this event uniformly
+   * and switch on `stageType` for kind-specific work.
+   */
+  onStageExecuted(
+    stageName: string,
+    description: string | undefined,
+    traversalContext: TraversalContext | undefined,
+    stageType: StageType,
+  ): void;
 
   /** Called on linear continuation from one stage to the next. */
   onNext(fromStage: string, toStage: string, description?: string, traversalContext?: TraversalContext): void;
@@ -178,6 +200,12 @@ export interface FlowStageEvent {
   description?: string;
   /** Traversal context from the engine — read-only, set by traverser. */
   traversalContext?: TraversalContext;
+  /**
+   * Which kind of stage completed. The engine fires `onStageExecuted`
+   * uniformly for every stage kind (proposal #003); consumers route by
+   * `stageType` without a chart-spec lookup.
+   */
+  stageType: StageType;
 }
 
 /** Event passed to FlowRecorder.onNext. */

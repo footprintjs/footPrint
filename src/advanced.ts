@@ -54,9 +54,8 @@ export {
 // ============================================================================
 
 export type {
-  BuildTimeExtractor,
-  BuildTimeNodeMetadata,
   ExecOptions,
+  FlowChartOptions,
   FlowChartSpec,
   ILogger,
   ScopeProtectionMode,
@@ -149,8 +148,6 @@ export type {
   BranchResult,
   BranchResults,
   SerializedPipelineStructure as EngineSerializedPipelineStructure,
-  StageSnapshot as EngineStageSnapshot,
-  ExtractorError,
   HandlerDeps,
   IExecutionRuntime,
   NodeResultType,
@@ -159,13 +156,12 @@ export type {
   SerializedPipelineNode,
   StageFunction,
   SubflowResult,
-  TraversalExtractor,
   TraversalResult,
 } from './lib/engine/index.js';
 export { NullControlFlowNarrativeGenerator } from './lib/engine/index.js';
 
 // Handlers (testing / custom engines)
-export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './lib/engine/index.js';
+export type { ExecuteNodeFn, RunStageFn } from './lib/engine/index.js';
 export {
   applyOutputMapping,
   ChildrenExecutor,
@@ -174,7 +170,6 @@ export {
   createSubflowHandlerDeps,
   DeciderHandler,
   DEFAULT_MAX_ITERATIONS,
-  ExtractorRunner,
   extractParentScopeValues,
   getInitialScopeValues,
   NodeResolver,

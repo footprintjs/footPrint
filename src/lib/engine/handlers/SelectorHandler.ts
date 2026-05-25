@@ -15,7 +15,7 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
-import type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
+import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
   constructor(
@@ -36,8 +36,6 @@ export class SelectorHandler<TOut = any, TScope = any> {
     branchPath: string | undefined,
     runStage: RunStageFn<TOut, TScope>,
     executeNode: ExecuteNodeFn<TOut, TScope>,
-    callExtractor: CallExtractorFn<TOut, TScope>,
-    getStagePath: GetStagePathFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType>> {
     const breakFn = () => (breakFlag.shouldBreak = true);
@@ -65,10 +63,6 @@ export class SelectorHandler<TOut = any, TScope = any> {
         throw error;
       }
       context.commit();
-      callExtractor(node, context, getStagePath(node, branchPath, context.stageName), undefined, {
-        type: 'stageExecutionError',
-        message: error.toString(),
-      });
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       context.addError('stageExecutionError', error.toString());
       this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
@@ -76,7 +70,6 @@ export class SelectorHandler<TOut = any, TScope = any> {
     }
 
     context.commit();
-    callExtractor(node, context, getStagePath(node, branchPath, context.stageName), selectedIds);
 
     if (breakFlag.shouldBreak) {
       return {};
@@ -92,6 +85,10 @@ export class SelectorHandler<TOut = any, TScope = any> {
         targetStage: [],
       });
       this.deps.narrativeGenerator.onSelected(node.name, [], (node.children ?? []).length, traversalContext);
+      // Proposal #003: fire onStageExecuted even on zero-select path —
+      // the selector DID complete (it picked none); consumers tracking
+      // visited need the signal.
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
       return {};
     }
 
@@ -134,6 +131,9 @@ export class SelectorHandler<TOut = any, TScope = any> {
       traversalContext,
       selectionEvidence,
     );
+    // Proposal #003: fire onStageExecuted AFTER the specialized event
+    // so consumers tracking "did this stage run" work uniformly.
+    this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',

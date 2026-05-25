@@ -16,10 +16,12 @@ import type { ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
+import { StructureRecorderDispatcher } from './structure/StructureRecorderDispatcher.js';
 import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';
 import type {
-  BuildTimeExtractor,
   FlowChart,
+  FlowChartOptions,
   FlowChartSpec,
   ILogger,
   SerializedPipelineStructure,
@@ -30,7 +32,6 @@ import type {
   StreamLifecycleHandler,
   StreamTokenHandler,
   SubflowMountOptions,
-  TraversalExtractor,
 } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,14 +97,16 @@ export class DeciderList<TOut = any, TScope = any> {
       this.b._addToMap(id, fn);
     }
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
+    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Decider branch: stage + decision-branch edge keyed by id.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
     return this;
@@ -137,14 +140,16 @@ export class DeciderList<TOut = any, TScope = any> {
     if (description) node.description = description;
     this.b._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
+    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Pausable decider branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
     return this;
@@ -176,12 +181,7 @@ export class DeciderList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Apply the builder's BuildTimeExtractor to the branch mount spec so
-    // consumers' per-node translators reach every node, parallel to
-    // siblings `addFunctionBranch` / `addPausableFunctionBranch` /
-    // top-level `addSubFlowChart*`. Previously omitted — Conditional /
-    // Selector branch mounts were the only un-extracted node type.
-    let spec: SerializedPipelineStructure = {
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -190,12 +190,15 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Subflow as decider branch: stage + decision edge + mount.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
 
     this.b._mergeStageMap(subflow.stageMap, id);
     this.b._mergeSubflows(subflow.subflows, id);
@@ -226,11 +229,9 @@ export class DeciderList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Spec stub — no subflowStructure (lazy). The extractor still runs
-    // on this stub so consumer translators see EVERY node; the lazy
-    // subflow's internals will be shaped at resolution time by THAT
-    // subflow's own extractor (if any).
-    let spec: SerializedPipelineStructure = {
+    // Spec stub — no subflowStructure (lazy). The lazy subflow's
+    // internals will be shaped at resolution time.
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -239,12 +240,15 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Lazy subflow as decider branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
 
     return this;
   }
@@ -324,6 +328,10 @@ export class DeciderList<TOut = any, TScope = any> {
       }
     }
 
+    // L7.3 — fire `onDeciderComplete` so consumers can trust no more
+    // branches will arrive for this decider. Branch iteration order =
+    // addition order = Set insertion order.
+    this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'decider', [...this.branchIds], this.defaultId);
     return this.b;
   }
 }
@@ -378,14 +386,16 @@ export class SelectorFnList<TOut = any, TScope = any> {
       this.b._addToMap(id, fn);
     }
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
+    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Selector branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
     return this;
@@ -418,14 +428,16 @@ export class SelectorFnList<TOut = any, TScope = any> {
     if (description) node.description = description;
     this.b._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
 
-    let spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
+    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Pausable selector branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
     return this;
@@ -457,12 +469,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Apply the builder's BuildTimeExtractor to the branch mount spec so
-    // consumers' per-node translators reach every node, parallel to
-    // siblings `addFunctionBranch` / `addPausableFunctionBranch` /
-    // top-level `addSubFlowChart*`. Previously omitted — Conditional /
-    // Selector branch mounts were the only un-extracted node type.
-    let spec: SerializedPipelineStructure = {
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -471,12 +478,15 @@ export class SelectorFnList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
-    spec = this.b._applyExtractorToNode(spec);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Subflow as selector branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
 
     this.b._mergeStageMap(subflow.stageMap, id);
     this.b._mergeSubflows(subflow.subflows, id);
@@ -520,6 +530,10 @@ export class SelectorFnList<TOut = any, TScope = any> {
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
     this.curSpec.children.push(spec);
+    // L7.3 — Lazy subflow as selector branch.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
 
     return this;
   }
@@ -583,6 +597,10 @@ export class SelectorFnList<TOut = any, TScope = any> {
       }
     }
 
+    // L7.3 — fire `onDeciderComplete` with type='selector'. Selectors
+    // have no default branch (multi-select semantics differ); pass
+    // undefined.
+    this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'selector', [...this.branchIds]);
     return this.b;
   }
 }
@@ -599,9 +617,22 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _stageMap = new Map<string, StageFunction<TOut, TScope>>();
   _subflowDefs = new Map<string, { root: StageNode<TOut, TScope> }>();
   private _streamHandlers: StreamHandlers = {};
-  private _extractor?: TraversalExtractor;
-  private _buildTimeExtractor?: BuildTimeExtractor<any>;
-  private _buildTimeExtractorErrors: Array<{ message: string; error: unknown }> = [];
+  /**
+   * L7.3 — Build-time observer fan-out. Owned by the builder so every
+   * `addX()` method can fire `StructureRecorder` events at the natural
+   * moment of the corresponding mutation. Dispatcher is allocated
+   * lazily on first attach to keep the zero-recorder path allocation-
+   * free.
+   */
+  private _structureDispatcher?: StructureRecorderDispatcher;
+  /**
+   * L7.3 — Sealed-after-build flag (Panel 2 phase invariant). Flips
+   * to `true` when `.build()` returns; subsequent `attachStructureRecorder`
+   * throws. Prevents the footgun where a consumer attaches a recorder
+   * mid-execution and gets partial structure data (missed every event
+   * already fired during construction).
+   */
+  private _sealed = false;
   private _enableNarrative = false;
   private _logger?: ILogger;
   private _descriptionParts: string[] = [];
@@ -617,10 +648,233 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
   private _scopeFactory?: ScopeFactory<TScope>;
 
-  constructor(buildTimeExtractor?: BuildTimeExtractor<any>) {
-    if (buildTimeExtractor) {
-      this._buildTimeExtractor = buildTimeExtractor;
+  // ── L7.3 — StructureRecorder attach + dispatch helpers ──────────────────
+
+  /**
+   * Attach a `StructureRecorder` for build-phase observation. Multiple
+   * recorders coexist (same id allowed; iteration order = attach
+   * order). Throws if called after `.build()` — the chart is sealed at
+   * that point and any recorder attached late would miss every event
+   * fired during construction.
+   *
+   * **Seed replay**: when this is called AFTER `start()` has already
+   * fired (i.e., after the `flowChart()` factory returns), the
+   * just-attached recorder receives a one-time `onStageAdded` for the
+   * root stage so it observes the seed. Only the new recorder sees
+   * the replay; already-attached recorders are not re-fired.
+   *
+   * **Mid-chain attach caveat**: a recorder attached AFTER one or more
+   * `addX()` calls receives the seed replay but MISSES every
+   * intermediate event. Attach BEFORE the first `addX()` for complete
+   * capture.
+   *
+   * Public for now to enable direct attach in tests + early consumers.
+   * L7.4 will wire `flowChart(..., { structureRecorders: [...] })` as
+   * an additional registration site; this method will remain.
+   */
+  attachStructureRecorder(recorder: StructureRecorder): this {
+    if (this._sealed) {
+      throw new Error(
+        `[FlowChartBuilder] attachStructureRecorder('${recorder.id}') called after .build() — chart is sealed; ` +
+          'the recorder would miss every structure event from construction. Attach BEFORE .build().',
+      );
     }
+    if (!this._structureDispatcher) {
+      this._structureDispatcher = new StructureRecorderDispatcher();
+    }
+    this._structureDispatcher.attach(recorder);
+    // The seed fires inside `start()` — that runs BEFORE the consumer
+    // can post-construct attach. Replay the seed event ONLY into the
+    // just-attached recorder so other already-attached recorders don't
+    // see a duplicate. Errors are routed through the dispatcher's
+    // accumulator so the contract stays uniform.
+    if (this._rootSpec) {
+      try {
+        recorder.onStageAdded?.({
+          stageId: this._rootSpec.id,
+          name: this._rootSpec.name,
+          type: this._rootSpec.type ?? 'stage',
+          ...(this._rootSpec.isPausable === true && { isPausable: true }),
+          spec: this._rootSpec as unknown as FlowChartSpec,
+        });
+      } catch (err) {
+        this._structureDispatcher.recordErrorForReplay(recorder.id, 'onStageAdded', err);
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Inspect accumulated `StructureBuildError`s. Returns empty array
+   * when no recorders attached OR no errors occurred. Returns a
+   * defensive copy — caller mutations do not affect subsequent calls.
+   *
+   * **Call on the BUILDER, not the chart returned by `.build()`.**
+   * Capture the builder reference before `.build()` if you need
+   * post-build access:
+   * ```ts
+   * const builder = flowChart(...).attachStructureRecorder(rec);
+   * const chart = builder.build();
+   * const errors = builder.getStructureBuildErrors();
+   * ```
+   */
+  getStructureBuildErrors(): ReturnType<StructureRecorderDispatcher['getErrors']> {
+    return this._structureDispatcher?.getErrors() ?? [];
+  }
+
+  // Convenience fire helpers — no-op when no dispatcher attached. Keeps
+  // every call site a one-liner without the `if (this._structureDispatcher)`
+  // boilerplate everywhere.
+  private _fireStageAdded(spec: SerializedPipelineStructure): void {
+    if (!this._structureDispatcher) return;
+    // Read `isPausable` directly from the spec — single source of truth.
+    // The previous `extras` argument was a sub-builder footgun: branch
+    // helpers in DeciderList/SelectorFnList went through
+    // `_fireStageAddedFromSubBuilder` which dropped the extras, silently
+    // losing `isPausable: true` on pausable decider/selector branches.
+    const isPausable = spec.isPausable === true;
+    this._structureDispatcher.fireStageAdded({
+      stageId: spec.id,
+      name: spec.name,
+      type: spec.type ?? 'stage',
+      ...(isPausable && { isPausable: true }),
+      spec: spec as unknown as FlowChartSpec,
+    });
+  }
+
+  private _fireEdgeAdded(from: string, to: string, kind: StructureEdgeKind, label?: string): void {
+    if (!this._structureDispatcher) return;
+    this._structureDispatcher.fireEdgeAdded({
+      from,
+      to,
+      kind,
+      ...(label !== undefined && { label }),
+    });
+  }
+
+  private _fireLoopEdgeAdded(from: string, to: string): void {
+    if (!this._structureDispatcher) return;
+    this._structureDispatcher.fireLoopEdgeAdded({ from, to });
+  }
+
+  /**
+   * Fire the `next` edge(s) from a parent spec to a freshly-added
+   * node — with convergence expansion when the parent is a
+   * fork / decider / selector with branches.
+   *
+   * A fork at `parent` is semantically `parent ──fork-branch──► child[i]`
+   * for each child, and the chained `.addFunction(X)` continues
+   * AFTER the fork converges. The runtime semantics are that each
+   * child INDEPENDENTLY feeds `X` (parallel completion → join). The
+   * literal "edge from parent to X" would misrepresent this —
+   * visualizers and topological algorithms would see one edge where
+   * there should be N convergence edges.
+   *
+   * Fix: when `parentSpec` has branch children (fork or branched
+   * decider/selector), fire one `next` edge from EACH child to the
+   * target. Otherwise fire the single edge from `parentSpec` itself.
+   *
+   * Loop-reference children (synthetic spec nodes created by
+   * `.loopTo()`) are excluded — they're back-edge markers, not
+   * convergence sources.
+   *
+   * Call ORDER constraint: must be called BEFORE the cursor advances
+   * to the new target. The caller passes the PRE-ADVANCE parent spec.
+   */
+  private _fireNextEdgeFromParent(parentSpec: SerializedPipelineStructure, targetId: string, label?: string): void {
+    if (!this._structureDispatcher) return;
+    const childSpecs = parentSpec.children;
+    const isBranchingParent =
+      (parentSpec.type === 'fork' || parentSpec.type === 'decider' || parentSpec.type === 'selector') &&
+      Array.isArray(childSpecs) &&
+      childSpecs.length > 0;
+    if (!isBranchingParent) {
+      this._fireEdgeAdded(parentSpec.id, targetId, 'next', label);
+      return;
+    }
+    for (const child of childSpecs!) {
+      if (child.isLoopReference) continue;
+      this._fireEdgeAdded(child.id, targetId, 'next', label);
+    }
+  }
+
+  private _fireDeciderComplete(
+    decider: string,
+    type: 'decider' | 'selector',
+    branchIds: string[],
+    defaultBranch?: string,
+  ): void {
+    if (!this._structureDispatcher) return;
+    this._structureDispatcher.fireDeciderComplete({
+      decider,
+      type,
+      branchIds,
+      ...(defaultBranch !== undefined && { defaultBranch }),
+    });
+  }
+
+  private _fireSubflowMounted(
+    subflowId: string,
+    subflowName: string,
+    rootStageId: string,
+    isLazy?: boolean,
+    subflowSpec?: SerializedPipelineStructure,
+    subflowPath?: string,
+  ): void {
+    if (!this._structureDispatcher) return;
+    // subflowPath defaults to subflowId when the recorder is attached
+    // to the immediate parent (top-level mount); composed paths apply
+    // only when this builder is itself a nested subflow being
+    // observed by the grandparent's recorder.
+    const path = subflowPath ?? subflowId;
+    this._structureDispatcher.fireSubflowMounted({
+      subflowId,
+      subflowName,
+      rootStageId,
+      ...(isLazy === true && { isLazy }),
+      ...(subflowSpec !== undefined && { subflowSpec }),
+      subflowPath: path,
+    });
+  }
+
+  /** Sub-builder access (`.b._fireXxx`) is needed by DeciderList /
+   *  SelectorFnList; expose the dispatcher through internal helpers
+   *  that go through the same no-op-when-absent guard.
+   *
+   *  @internal — these methods are exposed because TypeScript `private`
+   *  doesn't traverse class boundaries. Consumer code MUST NOT call
+   *  them; calling them post-construction lets a hostile caller
+   *  fabricate structure events and corrupt downstream visualizations
+   *  or audit trails. The `_` prefix is intentional convention. */
+  _fireEdgeAddedFromSubBuilder(from: string, to: string, kind: StructureEdgeKind, label?: string): void {
+    this._fireEdgeAdded(from, to, kind, label);
+  }
+
+  /** @internal — see `_fireEdgeAddedFromSubBuilder`. */
+  _fireStageAddedFromSubBuilder(spec: SerializedPipelineStructure): void {
+    this._fireStageAdded(spec);
+  }
+
+  /** @internal — see `_fireEdgeAddedFromSubBuilder`. */
+  _fireDeciderCompleteFromSubBuilder(
+    decider: string,
+    type: 'decider' | 'selector',
+    branchIds: string[],
+    defaultBranch?: string,
+  ): void {
+    this._fireDeciderComplete(decider, type, branchIds, defaultBranch);
+  }
+
+  /** @internal — see `_fireEdgeAddedFromSubBuilder`. */
+  _fireSubflowMountedFromSubBuilder(
+    subflowId: string,
+    subflowName: string,
+    rootStageId: string,
+    isLazy?: boolean,
+    subflowSpec?: SerializedPipelineStructure,
+    subflowPath?: string,
+  ): void {
+    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec, subflowPath);
   }
 
   // ── Description helpers ──
@@ -702,16 +956,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (description) node.description = description;
     this._addToMap(id, stageFn);
 
-    let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
+    const spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (isPausable) spec.isPausable = true;
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     this._root = node;
     this._rootSpec = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Seed node fires `onStageAdded` (no edge — no predecessor).
+    // `isPausable` is read directly from the spec by `_fireStageAdded`.
+    this._fireStageAdded(spec);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -720,20 +977,30 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
+    // Capture the parent SPEC reference (not just id) BEFORE the
+    // cursor advances — we need its `children` + `type` to decide
+    // whether the `next` edge is a fork convergence (N edges from
+    // each branch child) vs a plain linear chain (1 edge from parent).
+    const parentSpec = curSpec;
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
     this._addToMap(id, fn);
 
-    let spec: SerializedPipelineStructure = { name, id, type: 'stage' };
+    const spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Linear node: announce the node first, then the edge
+    // from the prior cursor. Order matters: endpoints announced
+    // before any edge referencing them (StructureRecorder contract).
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -748,6 +1015,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   ): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
+    const parentSpec = curSpec;
 
     const node: StageNode<TOut, TScope> = {
       name,
@@ -759,7 +1027,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (description) node.description = description;
     this._addToMap(id, fn);
 
-    let spec: SerializedPipelineStructure = {
+    const spec: SerializedPipelineStructure = {
       name,
       id,
       type: 'streaming',
@@ -767,13 +1035,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       streamId: streamId ?? name,
     };
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Streaming stage: same shape as linear addFunction.
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -802,6 +1073,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   addPausableFunction(name: string, handler: PausableHandler<TScope>, id: string, description?: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
+    const parentSpec = curSpec;
 
     const node: StageNode<TOut, TScope> = {
       name,
@@ -813,20 +1085,25 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (description) node.description = description;
     this._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
 
-    let spec: SerializedPipelineStructure = {
+    const spec: SerializedPipelineStructure = {
       name,
       id,
       type: 'stage',
       isPausable: true,
     };
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Pausable stage: `_fireStageAdded` reads `isPausable`
+    // directly from `spec.isPausable` (set above), so visualisers
+    // see it on the event payload without a separate threading arg.
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
 
     this._appendDescriptionLine(name, description);
     return this;
@@ -970,6 +1247,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   ): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
+    const parentSpec = curSpec;
 
     if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
 
@@ -977,15 +1255,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (description) node.description = description;
     this._addToMap(id, fn);
 
-    let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
+    const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Decider node is reached via a `next` edge from the prior
+    // cursor. Branches themselves fire via `addFunctionBranch` etc.
+    // `onDeciderComplete` fires from sub-builder `.end()`.
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
@@ -1009,6 +1292,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   ): SelectorFnList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
+    const parentSpec = curSpec;
 
     if (cur.selectorFn) fail(`selector already defined at '${cur.name}'`);
     if (cur.deciderFn) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
@@ -1017,15 +1301,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (description) node.description = description;
     this._addToMap(id, fn);
 
-    let spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
+    const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
-    spec = this._applyExtractorToNode(spec);
 
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+
+    // L7.3 — Selector node: same as decider. Branches + complete event
+    // come from the SelectorFnList sub-builder.
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
     this._stageStepMap.set(name, this._stepCounter);
@@ -1063,19 +1351,21 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         this._addToMap(id, fn);
       }
 
-      let spec: SerializedPipelineStructure = {
+      const spec: SerializedPipelineStructure = {
         name: name ?? id,
         id,
         type: 'stage',
         isParallelChild: true,
         parallelGroupId: forkId,
       };
-      spec = this._applyExtractorToNode(spec);
 
       cur.children = cur.children || [];
       cur.children.push(node);
       curSpec.children = curSpec.children || [];
       curSpec.children.push(spec);
+      // L7.3 — fire structure events for the child + the fork edge.
+      this._fireStageAdded(spec);
+      this._fireEdgeAdded(curSpec.id, spec.id, 'fork-branch');
     }
 
     const childNames = children.map((c) => c.name || c.id).join(', ');
@@ -1112,7 +1402,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    let spec: SerializedPipelineStructure = {
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1123,7 +1413,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       parallelGroupId: forkId,
       subflowStructure: subflow.buildTimeStructure,
     };
-    spec = this._applyExtractorToNode(spec);
 
     curSpec.type = 'fork';
     cur.children = cur.children || [];
@@ -1131,6 +1420,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
     this._knownStageIds.add(id);
+    // L7.3 — Subflow mount: stage event + fork edge + mount lifecycle
+    // event. Mount-only semantics: parent recorders do NOT replay the
+    // subflow's own internal structure events.
+    this._fireStageAdded(spec);
+    this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
+    this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
 
     this._mergeStageMap(subflow.stageMap, id);
     this._mergeSubflows(subflow.subflows, id);
@@ -1165,11 +1460,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Apply the BuildTimeExtractor to the lazy mount stub. The lazy
-    // subflow's internals will be shaped at resolution time by THAT
-    // subflow's own extractor (if any); this call ensures consumer
-    // translators reach the parent-side mount node too.
-    let spec: SerializedPipelineStructure = {
+    // Lazy mount stub. The lazy subflow's internals will be shaped at
+    // resolution time.
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1180,13 +1473,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       parallelGroupId: forkId,
       isLazy: true,
     };
-    spec = this._applyExtractorToNode(spec);
 
     curSpec.type = 'fork';
     cur.children = cur.children || [];
     cur.children.push(node);
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
+    // L7.3 — Lazy subflow parallel mount.
+    this._fireStageAdded(spec);
+    this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
+    this._fireSubflowMounted(id, subflowName, id, true);
 
     this._stepCounter++;
     this._stageStepMap.set(id, this._stepCounter);
@@ -1220,10 +1516,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    // Apply the BuildTimeExtractor to the lazy mount stub. The lazy
-    // subflow's internals will be shaped at resolution time by THAT
-    // subflow's own extractor (if any).
-    let spec: SerializedPipelineStructure = {
+    // Lazy mount stub. The lazy subflow's internals will be shaped at
+    // resolution time.
+    const spec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1232,12 +1527,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
-    spec = this._applyExtractorToNode(spec);
 
+    const parentSpec = curSpec;
     cur.next = node;
     curSpec.next = spec;
     this._cursor = node;
-    this._cursorSpec = spec;
+    this._advanceCursorSpec(spec);
+    // L7.3 — Lazy linear-mount subflow.
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
+    this._fireSubflowMounted(id, subflowName, id, true);
 
     this._stepCounter++;
     this._stageStepMap.set(id, this._stepCounter);
@@ -1275,7 +1574,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
     if (options) node.subflowMountOptions = options;
 
-    let attachedSpec: SerializedPipelineStructure = {
+    const attachedSpec: SerializedPipelineStructure = {
       name: subflowName,
       type: 'stage',
       id,
@@ -1284,13 +1583,17 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
-    attachedSpec = this._applyExtractorToNode(attachedSpec);
 
+    const parentSpec = curSpec;
     cur.next = node;
     curSpec.next = attachedSpec;
     this._cursor = node;
-    this._cursorSpec = attachedSpec;
+    this._advanceCursorSpec(attachedSpec);
     this._knownStageIds.add(id);
+    // L7.3 — Linear-mount subflow.
+    this._fireStageAdded(attachedSpec);
+    this._fireNextEdgeFromParent(parentSpec, id);
+    this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
 
     this._mergeStageMap(subflow.stageMap, id);
     this._mergeSubflows(subflow.subflows, id);
@@ -1323,6 +1626,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       this._descriptionParts.push(`→ loops back to ${stageId}`);
     }
 
+    // L7.3 — Fire the loop back-edge event. Distinct from `onEdgeAdded`
+    // because runtime `onLoop` carries `iteration: number` which has no
+    // build meaning — separate event keeps payloads honest.
+    this._fireLoopEdgeAdded(cur.id, stageId);
     return this;
   }
 
@@ -1343,25 +1650,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
-  // ── Extractors ──
-
-  addTraversalExtractor<TResult = unknown>(extractor: TraversalExtractor<TResult>): this {
-    this._extractor = extractor;
-    return this;
-  }
-
-  addBuildTimeExtractor<TResult = FlowChartSpec>(extractor: BuildTimeExtractor<TResult>): this {
-    this._buildTimeExtractor = extractor;
-    return this;
-  }
-
-  getBuildTimeExtractorErrors(): Array<{ message: string; error: unknown }> {
-    return this._buildTimeExtractorErrors;
-  }
-
   // ── Output ──
 
   build(): RunnableFlowChart<TOut, TScope> {
+    // L7.3 — seal the chart so post-build attaches throw. Prevents
+    // recorders attached mid-execution from getting partial data.
+    this._sealed = true;
+
     const root = this._root ?? fail('empty tree; call start() first');
     const rootSpec = this._rootSpec ?? fail('empty spec; call start() first');
 
@@ -1377,7 +1672,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const chart: FlowChart<TOut, TScope> = {
       root,
       stageMap: this._stageMap,
-      extractor: this._extractor,
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
       ...(this._enableNarrative ? { enableNarrative: true } : {}),
@@ -1440,17 +1734,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this._cursorSpec ?? fail('cursor undefined; call start() first');
   }
 
-  _applyExtractorToNode(spec: SerializedPipelineStructure): SerializedPipelineStructure {
-    if (!this._buildTimeExtractor) return spec;
-    try {
-      return this._buildTimeExtractor(spec as any) as SerializedPipelineStructure;
-    } catch (error: any) {
-      this._buildTimeExtractorErrors.push({
-        message: error?.message ?? String(error),
-        error,
-      });
-      return spec;
-    }
+  /**
+   * Advance the spec cursor. Retained as a method so call sites stay
+   * one-liners and future cursor-related side effects have a hook.
+   */
+  private _advanceCursorSpec(newSpec: SerializedPipelineStructure | undefined): void {
+    this._cursorSpec = newSpec;
   }
 
   _stageMapHas(key: string): boolean {
@@ -1507,32 +1796,40 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 // Factory Function
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Overload 1: typed state — flowChart<LoanState>(...) → scope: TypedScope<LoanState>
+// Overload 1: typed state with options object.
 export function flowChart<TState extends object>(
   name: string,
   fn: TypedStageFunction<TState> | PausableHandler<TypedScope<TState>>,
   id: string,
-  buildTimeExtractor?: BuildTimeExtractor<any>,
-  description?: string,
+  options?: FlowChartOptions,
 ): FlowChartBuilder<any, TypedScope<TState>>;
 
-// Overload 2: fully explicit generics (advanced / ScopeFacade usage)
+// Overload 2: explicit generics with options object.
 export function flowChart<TOut = any, TScope = any>(
   name: string,
   fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
   id: string,
-  buildTimeExtractor?: BuildTimeExtractor<any>,
-  description?: string,
+  options?: FlowChartOptions,
 ): FlowChartBuilder<TOut, TScope>;
 
+// Single implementation — accepts the options bag (or undefined).
 export function flowChart<TOut = any, TScope = any>(
   name: string,
   fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
   id: string,
-  buildTimeExtractor?: BuildTimeExtractor<any>,
-  description?: string,
+  options?: FlowChartOptions,
 ): FlowChartBuilder<TOut, TScope> {
-  return new FlowChartBuilder<TOut, TScope>(buildTimeExtractor).start(name, fn as any, id, description);
+  const builder = new FlowChartBuilder<TOut, TScope>();
+  // Attach StructureRecorders BEFORE start() so the seed event fires through
+  // the normal dispatcher path (no replay needed). Iteration order matches
+  // array order, matching the fluent `.attachStructureRecorder()` chain
+  // semantics.
+  if (options?.structureRecorders) {
+    for (const rec of options.structureRecorders) {
+      builder.attachStructureRecorder(rec);
+    }
+  }
+  return builder.start(name, fn as any, id, options?.description);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

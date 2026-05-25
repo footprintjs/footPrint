@@ -24,6 +24,7 @@ function makeStageEvent(stageName: string, stageId?: string, runtimeStageId?: st
   const rid = runtimeStageId ?? nextId(sid);
   return {
     stageName,
+    stageType: 'linear' as const,
     traversalContext: { stageId: sid, runtimeStageId: rid, stageName, depth: 0, parentStageId: undefined },
   };
 }

@@ -236,8 +236,7 @@ describe('InOutRecorder — P7: integration with FlowChartExecutor', () => {
         s.doubled = (s.seed ?? 0) * 2;
       },
       'double',
-      undefined,
-      'Double: multiply seed by 2',
+      { description: 'Double: multiply seed by 2' },
     ).build();
 
     interface Outer {

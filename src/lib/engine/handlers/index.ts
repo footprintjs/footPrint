@@ -10,7 +10,7 @@ export { StageRunner } from './StageRunner.js';
 export { NodeResolver } from './NodeResolver.js';
 
 // Handler callback types (canonical — avoids circular dep with traverser)
-export type { CallExtractorFn, ExecuteNodeFn, GetStagePathFn, RunStageFn } from './types.js';
+export type { ExecuteNodeFn, RunStageFn } from './types.js';
 
 // Parallel children execution
 export { ChildrenExecutor } from './ChildrenExecutor.js';
@@ -35,9 +35,6 @@ export {
   getInitialScopeValues,
   seedSubflowGlobalStore,
 } from './SubflowInputMapper.js';
-
-// Traversal extractor coordination
-export { ExtractorRunner } from './ExtractorRunner.js';
 
 // Runtime structure management (dynamic pipeline structure tracking)
 export { computeNodeType, RuntimeStructureManager } from './RuntimeStructureManager.js';

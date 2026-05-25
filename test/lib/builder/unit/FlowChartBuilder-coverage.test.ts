@@ -301,37 +301,6 @@ describe('loopTo with unknown target', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// addBuildTimeExtractor (lines 869-870)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('addBuildTimeExtractor', () => {
-  it('sets build-time extractor via fluent method', () => {
-    const extractor = (node: any) => ({ ...node, enriched: true });
-    const chart = new FlowChartBuilder()
-      .addBuildTimeExtractor(extractor)
-      .start('a', noop, 'a')
-      .addFunction('b', noop, 'b')
-      .build();
-
-    expect((chart.buildTimeStructure as any).enriched).toBe(true);
-    expect((chart.buildTimeStructure.next as any).enriched).toBe(true);
-  });
-
-  it('overrides previously set build-time extractor', () => {
-    const ext1 = (node: any) => ({ ...node, first: true });
-    const ext2 = (node: any) => ({ ...node, second: true });
-    const chart = new FlowChartBuilder()
-      .addBuildTimeExtractor(ext1)
-      .addBuildTimeExtractor(ext2)
-      .start('a', noop, 'a')
-      .build();
-
-    expect((chart.buildTimeStructure as any).second).toBe(true);
-    expect((chart.buildTimeStructure as any).first).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // addListOfFunction (lines 665-707)
 // ─────────────────────────────────────────────────────────────────────────────
 

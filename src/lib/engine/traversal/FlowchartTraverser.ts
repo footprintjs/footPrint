@@ -26,7 +26,6 @@ import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
-import { ExtractorRunner } from '../handlers/ExtractorRunner.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
@@ -39,7 +38,6 @@ import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowN
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
 import { buildRuntimeStageId } from '../runtimeStageId.js';
 import type {
-  ExtractorError,
   HandlerDeps,
   IExecutionRuntime,
   ILogger,
@@ -51,7 +49,6 @@ import type {
   StreamHandlers,
   SubflowResult,
   SubflowTraverserFactory,
-  TraversalExtractor,
   TraversalResult,
 } from '../types.js';
 
@@ -65,10 +62,8 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   executionEnv?: import('../../engine/types').ExecutionEnv;
   throttlingErrorChecker?: (error: unknown) => boolean;
   streamHandlers?: StreamHandlers;
-  extractor?: TraversalExtractor;
   scopeProtectionMode?: ScopeProtectionMode;
   subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
-  enrichSnapshots?: boolean;
   narrativeEnabled?: boolean;
   buildTimeStructure?: SerializedPipelineStructure;
   logger: ILogger;
@@ -135,7 +130,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly deciderHandler: DeciderHandler<TOut, TScope>;
   private readonly selectorHandler: SelectorHandler<TOut, TScope>;
   private readonly structureManager: RuntimeStructureManager;
-  private readonly extractorRunner: ExtractorRunner<TOut, TScope>;
   private readonly narrativeGenerator: IControlFlowNarrative;
   private readonly flowRecorderDispatcher: FlowRecorderDispatcher | undefined;
 
@@ -212,14 +206,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.structureManager = new RuntimeStructureManager();
     this.structureManager.init(opts.buildTimeStructure);
 
-    // Extractor runner
-    this.extractorRunner = new ExtractorRunner(
-      opts.extractor,
-      opts.enrichSnapshots ?? false,
-      this.executionRuntime,
-      this.logger,
-    );
-
     // Narrative generator
     // Priority: explicit narrativeGenerator > flowRecorders > default NarrativeFlowRecorder > null.
     // Subflow traversers receive the parent's narrativeGenerator so all events flow to one place.
@@ -286,10 +272,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         executionEnv: parentOpts.executionEnv,
         throttlingErrorChecker: parentOpts.throttlingErrorChecker,
         streamHandlers: parentOpts.streamHandlers,
-        extractor: parentOpts.extractor,
         scopeProtectionMode: parentOpts.scopeProtectionMode,
         subflows: parentSubflows, // Constructor shallow-copies this
-        enrichSnapshots: parentOpts.enrichSnapshots,
         narrativeGenerator, // Share parent's — all events flow to one place
         logger: parentOpts.logger,
         signal: parentOpts.signal,
@@ -416,14 +400,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   getSubflowResults(): Map<string, SubflowResult> {
     return this.subflowResults;
-  }
-
-  getExtractedResults<TResult = unknown>(): Map<string, TResult> {
-    return this.extractorRunner.getExtractedResults() as Map<string, TResult>;
-  }
-
-  getExtractorErrors(): ExtractorError[] {
-    return this.extractorRunner.getExtractorErrors();
   }
 
   getNarrative(): string[] {
@@ -573,22 +549,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // ─── Phase 0: CLASSIFY — subflow detection ───
       if (node.isSubflowRoot && node.subflowId) {
         const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
-        const previousSubflowId = this.extractorRunner.currentSubflowId;
-        this.extractorRunner.currentSubflowId = node.subflowId;
 
-        let subflowOutput: any;
-        try {
-          subflowOutput = await this.subflowExecutor.executeSubflow(
-            resolvedNode,
-            context,
-            breakFlag,
-            branchPath,
-            this.subflowResults,
-            traversalContext,
-          );
-        } finally {
-          this.extractorRunner.currentSubflowId = previousSubflowId;
-        }
+        const subflowOutput = await this.subflowExecutor.executeSubflow(
+          resolvedNode,
+          context,
+          breakFlag,
+          branchPath,
+          this.subflowResults,
+          traversalContext,
+        );
 
         const isReferenceBasedSubflow = resolvedNode !== node;
         const hasChildren = Boolean(node.children && node.children.length > 0);
@@ -656,31 +625,22 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
       if (isScopeBasedSelector) {
-        const previousForkId = this.extractorRunner.currentForkId;
-        this.extractorRunner.currentForkId = node.id;
+        const selectorResult = await this.selectorHandler.handleScopeBased(
+          node,
+          stageFunc!,
+          context,
+          breakFlag,
+          branchPath,
+          this.executeStage.bind(this),
+          this.executeNode.bind(this),
+          traversalContext,
+        );
 
-        try {
-          const selectorResult = await this.selectorHandler.handleScopeBased(
-            node,
-            stageFunc!,
-            context,
-            breakFlag,
-            branchPath,
-            this.executeStage.bind(this),
-            this.executeNode.bind(this),
-            this.extractorRunner.callExtractor.bind(this.extractorRunner),
-            this.extractorRunner.getStagePath.bind(this.extractorRunner),
-            traversalContext,
-          );
-
-          if (hasNext) {
-            const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
-            return await this.executeNode(node.next!, nextCtx, breakFlag, branchPath);
-          }
-          return selectorResult;
-        } finally {
-          this.extractorRunner.currentForkId = previousForkId;
+        if (hasNext) {
+          const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
+          return await this.executeNode(node.next!, nextCtx, breakFlag, branchPath);
         }
+        return selectorResult;
       }
 
       // ─── Phase 2b: DECIDER — scope-based single-choice conditional branch ───
@@ -693,8 +653,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           branchPath,
           this.executeStage.bind(this),
           this.executeNode.bind(this),
-          this.extractorRunner.callExtractor.bind(this.extractorRunner),
-          this.extractorRunner.getStagePath.bind(this.extractorRunner),
           traversalContext,
         );
 
@@ -752,26 +710,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             throw error;
           }
           context.commit();
-          this.extractorRunner.callExtractor(
-            node,
-            context,
-            this.extractorRunner.getStagePath(node, branchPath, context.stageName),
-            undefined,
-            { type: 'stageExecutionError', message: error.toString() },
-          );
           this.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
           this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
           context.addError('stageExecutionError', error.toString());
           throw error;
         }
         context.commit();
-        this.extractorRunner.callExtractor(
-          node,
-          context,
-          this.extractorRunner.getStagePath(node, branchPath, context.stageName),
-          stageOutput,
-        );
-        this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext);
+        this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'linear');
 
         if (breakFlag.shouldBreak) {
           // Forward the optional reason captured on breakFlag — set by the
@@ -872,20 +817,14 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         let nodeChildrenResults: Record<string, NodeResultType>;
 
         if (node.nextNodeSelector) {
-          const previousForkId = this.extractorRunner.currentForkId;
-          this.extractorRunner.currentForkId = node.id;
-          try {
-            nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
-              node.nextNodeSelector,
-              node.children!,
-              stageOutput,
-              context,
-              branchPath as string,
-              traversalContext,
-            );
-          } finally {
-            this.extractorRunner.currentForkId = previousForkId;
-          }
+          nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
+            node.nextNodeSelector,
+            node.children!,
+            stageOutput,
+            context,
+            branchPath as string,
+            traversalContext,
+          );
         } else {
           const childCount = node.children?.length ?? 0;
           const childNames = node.children?.map((c) => c.name).join(', ');
@@ -894,19 +833,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             targetStage: node.children?.map((c) => c.name),
           });
 
-          const previousForkId = this.extractorRunner.currentForkId;
-          this.extractorRunner.currentForkId = node.id;
-          try {
-            nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
-              node,
-              context,
-              undefined,
-              branchPath,
-              traversalContext,
-            );
-          } finally {
-            this.extractorRunner.currentForkId = previousForkId;
-          }
+          nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
+            node,
+            context,
+            undefined,
+            branchPath,
+            traversalContext,
+          );
         }
 
         // Fork-only: return bundle

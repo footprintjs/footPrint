@@ -24,6 +24,17 @@ export type { FlowChart, StageFunction as StageHandler, StreamHandlers } from '.
 /** @category Quick Start */
 export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
 
+/** @category Quick Start — build-time observer (twin of FlowRecorder) */
+export type {
+  StructureDeciderCompleteEvent,
+  StructureEdgeAddedEvent,
+  StructureEdgeKind,
+  StructureLoopEdgeAddedEvent,
+  StructureRecorder,
+  StructureStageAddedEvent,
+  StructureSubflowMountedEvent,
+} from './lib/builder/index.js';
+
 /** @category Quick Start */
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
 

@@ -24,22 +24,22 @@ describe('NarrativeFlowRecorder', () => {
   // ── onStageExecuted ────────────────────────────────────────────────────
 
   it('onStageExecuted with description emits a sentence', () => {
-    recorder.onStageExecuted({ stageName: 'Fetch', description: 'Retrieves data' });
+    recorder.onStageExecuted({ stageName: 'Fetch', description: 'Retrieves data', stageType: 'linear' });
     const s = recorder.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Retrieves data');
   });
 
   it('onStageExecuted without description uses stage name', () => {
-    recorder.onStageExecuted({ stageName: 'Fetch' });
+    recorder.onStageExecuted({ stageName: 'Fetch', stageType: 'linear' });
     const s = recorder.getSentences();
     expect(s).toHaveLength(1);
     expect(s[0]).toContain('Fetch');
   });
 
   it('onStageExecuted fires for every stage', () => {
-    recorder.onStageExecuted({ stageName: 'A' });
-    recorder.onStageExecuted({ stageName: 'B' });
+    recorder.onStageExecuted({ stageName: 'A', stageType: 'linear' });
+    recorder.onStageExecuted({ stageName: 'B', stageType: 'linear' });
     expect(recorder.getSentences()).toHaveLength(2);
   });
 
@@ -170,7 +170,7 @@ describe('NarrativeFlowRecorder', () => {
   // ── full flow sequence ─────────────────────────────────────────────────
 
   it('accumulates sentences in execution order', () => {
-    recorder.onStageExecuted({ stageName: 'Init' });
+    recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     recorder.onNext({ from: 'Init', to: 'Process' });
     recorder.onDecision({ decider: 'Process', chosen: 'Approve' });
     recorder.onLoop({ target: 'Init', iteration: 2 });
@@ -182,13 +182,13 @@ describe('NarrativeFlowRecorder', () => {
   // ── Clear ──────────────────────────────────────────────────────────────
 
   it('clear resets sentences', () => {
-    recorder.onStageExecuted({ stageName: 'A' });
+    recorder.onStageExecuted({ stageName: 'A', stageType: 'linear' });
     expect(recorder.getSentences()).toHaveLength(1);
     recorder.clear();
     expect(recorder.getSentences()).toEqual([]);
 
     // Should emit again after clear
-    recorder.onStageExecuted({ stageName: 'B' });
+    recorder.onStageExecuted({ stageName: 'B', stageType: 'linear' });
     expect(recorder.getSentences()).toHaveLength(1);
     expect(recorder.getSentences()[0]).toContain('B');
   });
@@ -196,7 +196,7 @@ describe('NarrativeFlowRecorder', () => {
   // ── Defensive copy ─────────────────────────────────────────────────────
 
   it('getSentences returns a defensive copy', () => {
-    recorder.onStageExecuted({ stageName: 'A' });
+    recorder.onStageExecuted({ stageName: 'A', stageType: 'linear' });
     const s1 = recorder.getSentences();
     const s2 = recorder.getSentences();
     expect(s1).toEqual(s2);

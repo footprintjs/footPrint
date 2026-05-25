@@ -25,6 +25,7 @@ function makeStageEvent(
   return {
     stageName,
     description,
+    stageType: 'linear' as const,
     traversalContext: {
       stageId: stageId ?? stageName,
       runtimeStageId: runtimeStageId ?? `${stageId ?? stageName}#0`,

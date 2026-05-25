@@ -31,7 +31,7 @@ Each one exists to serve the main goal: **traverse the execution graph while cap
 
 The core algorithm. Recursive pre-order DFS that processes each node through 7 phases.
 
-**Why it connects to the main goal:** The traverser doesn't just execute stages — it *observes* execution. At every phase, it records what's happening: the narrative generator captures flow decisions, the runtime structure manager tracks the execution shape, the extractor runner takes snapshots. The traverser is the single place where all of these observations converge, because it's the only thing that sees the full execution order.
+**Why it connects to the main goal:** The traverser doesn't just execute stages — it *observes* execution. At every phase, it records what's happening: the narrative generator captures flow decisions and the runtime structure manager tracks the execution shape. The traverser is the single place where all of these observations converge, because it's the only thing that sees the full execution order.
 
 **Why pre-order DFS?** Because execution order matches traversal order. When you visit a node, you execute it *before* visiting its children — that's pre-order. The stage runs, commits its data, and then the traverser dispatches children or follows the next pointer. This means the trace is naturally chronological — you don't need to sort or reorder events after the fact.
 
@@ -85,7 +85,6 @@ Ten focused modules, each owning one aspect of execution. The traverser delegate
 | **ContinuationResolver** | Back-edge resolution + iteration counting | "Iteration 3 of max 1000" |
 | **SubflowExecutor** | Isolated recursive execution with scoped runtime | "Entering/exiting subflow" |
 | **SubflowInputMapper** | Pure functions for subflow data contracts | Input/output mapping between parent and child |
-| **ExtractorRunner** | Per-stage snapshot extraction | State snapshots at each step |
 | **RuntimeStructureManager** | Mutable structure tracking | Execution shape for visualization |
 
 **Key design decision:** Handlers receive `HandlerDeps` (a dependency injection bag), not a reference to the traverser. This means handlers can be tested by constructing a minimal deps object with mocks — you don't need to instantiate a full traverser to test branch logic.

@@ -508,6 +508,7 @@ describe('SubflowExecutor — property', () => {
       ...new NullControlFlowNarrativeGenerator(),
       onSubflowEntry: vi.fn(),
       onSubflowExit: vi.fn(),
+      onStageExecuted: vi.fn(),
     };
     const deps = makeDeps({ narrativeGenerator: narrativeGen });
     const { factory } = makeFactory({ executeError: new Error('boom') });

@@ -218,9 +218,9 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
   describe('NarrativeFlowRecorder edge cases', () => {
     it('every onStageExecuted call produces a sentence', () => {
       const recorder = new NarrativeFlowRecorder();
-      recorder.onStageExecuted({ stageName: 'A' });
-      recorder.onStageExecuted({ stageName: 'B' });
-      recorder.onStageExecuted({ stageName: 'C' });
+      recorder.onStageExecuted({ stageName: 'A', stageType: 'linear' });
+      recorder.onStageExecuted({ stageName: 'B', stageType: 'linear' });
+      recorder.onStageExecuted({ stageName: 'C', stageType: 'linear' });
       const sentences = recorder.getSentences();
       expect(sentences).toHaveLength(3);
       expect(sentences[0]).toContain('A');
@@ -230,9 +230,9 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
 
     it('clear resets first-stage tracking', () => {
       const recorder = new NarrativeFlowRecorder();
-      recorder.onStageExecuted({ stageName: 'A' });
+      recorder.onStageExecuted({ stageName: 'A', stageType: 'linear' });
       recorder.clear();
-      recorder.onStageExecuted({ stageName: 'B' });
+      recorder.onStageExecuted({ stageName: 'B', stageType: 'linear' });
       const sentences = recorder.getSentences();
       expect(sentences).toHaveLength(1);
       expect(sentences[0]).toContain('B');
@@ -240,7 +240,7 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
 
     it('all event types produce output', () => {
       const recorder = new NarrativeFlowRecorder();
-      recorder.onStageExecuted({ stageName: 'Init' });
+      recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
       recorder.onNext({ from: 'Init', to: 'Process' });
       recorder.onDecision({ decider: 'Check', chosen: 'Yes' });
       recorder.onFork({ parent: 'Fan', children: ['A', 'B'] });

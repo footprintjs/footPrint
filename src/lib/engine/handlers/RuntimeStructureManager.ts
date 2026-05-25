@@ -14,7 +14,7 @@ import type { SerializedPipelineStructure } from '../types.js';
 
 /**
  * Compute the node type from node properties.
- * Shared by RuntimeStructureManager (serialization) and ExtractorRunner (metadata).
+ * Used by RuntimeStructureManager for serialization.
  */
 export function computeNodeType(
   node: StageNode,

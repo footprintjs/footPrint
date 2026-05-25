@@ -35,6 +35,12 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onStageExecuted(event: FlowStageEvent): void {
+    // Only LINEAR stages produce a "moved on to X" narrative line.
+    // Decider / fork / selector / subflow-mount stages have their
+    // own dedicated narrative lines from onDecision / onFork /
+    // onSelected / onSubflowEntry — emitting from here too would
+    // double up the narrative.
+    if (event.stageType !== 'linear') return;
     if (event.description) {
       this.sentences.push(`Next step: ${event.description}.`);
     } else {

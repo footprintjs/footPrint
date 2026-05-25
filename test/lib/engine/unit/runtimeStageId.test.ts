@@ -9,6 +9,7 @@ import {
   buildRuntimeStageId,
   createExecutionCounter,
   parseRuntimeStageId,
+  splitStageId,
 } from '../../../../src/lib/engine/runtimeStageId';
 
 describe('buildRuntimeStageId', () => {
@@ -91,6 +92,51 @@ describe('parseRuntimeStageId', () => {
     expect(parsed.stageId).toBe('legacy-stage');
     expect(parsed.executionIndex).toBe(0);
     expect(parsed.subflowPath).toBeUndefined();
+  });
+});
+
+describe('splitStageId', () => {
+  it('local id only — no subflow prefix', () => {
+    const split = splitStageId('execute-tool-calls');
+    expect(split.localStageId).toBe('execute-tool-calls');
+    expect(split.subflowPath).toBeUndefined();
+  });
+
+  it('single-level subflow prefix', () => {
+    const split = splitStageId('sf-tools/execute-tool-calls');
+    expect(split.localStageId).toBe('execute-tool-calls');
+    expect(split.subflowPath).toBe('sf-tools');
+  });
+
+  it('multi-level (nested) subflow prefix', () => {
+    const split = splitStageId('sf-outer/sf-inner/validate');
+    expect(split.localStageId).toBe('validate');
+    expect(split.subflowPath).toBe('sf-outer/sf-inner');
+  });
+
+  it('three-level deep nesting', () => {
+    const split = splitStageId('sf-billing/sf-tools/sf-retry/call-llm');
+    expect(split.localStageId).toBe('call-llm');
+    expect(split.subflowPath).toBe('sf-billing/sf-tools/sf-retry');
+  });
+
+  it('round-trip parity with parseRuntimeStageId stageId/subflowPath fields', () => {
+    const cases = [
+      { stageId: 'seed', subflowPath: undefined },
+      { stageId: 'call-llm', subflowPath: 'sf-tools' },
+      { stageId: 'validate', subflowPath: 'sf-outer/sf-inner' },
+      { stageId: 'process', subflowPath: 'sf-a/sf-b/sf-c' },
+    ];
+    for (const c of cases) {
+      const runtime = buildRuntimeStageId(c.stageId, 0, c.subflowPath);
+      const parsed = parseRuntimeStageId(runtime);
+      const prefixedOnly = runtime.split('#')[0]!;
+      const split = splitStageId(prefixedOnly);
+      // Same decomposition rule applied to a runtimeStageId (via
+      // parseRuntimeStageId) vs to a bare prefixed id (via splitStageId).
+      expect(split.localStageId).toBe(parsed.stageId);
+      expect(split.subflowPath).toBe(parsed.subflowPath);
+    }
   });
 });
 

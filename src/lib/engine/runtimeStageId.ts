@@ -14,6 +14,15 @@
  *   - Human-readable ('sf-tools/execute-tool-calls#8')
  *   - Parseable (split on '#' for stageId and index, split stageId on '/' for subflow path)
  *
+ * Naming-collision warning
+ * ────────────────────────
+ *   The parsed-output `.stageId` field below is the LOCAL form (segment
+ *   after the last '/'). This is NOT the same as `spec.id` / `node.id`
+ *   for subflow-nested stages, which carry the FULL prefixed form
+ *   (`'sf-tools/execute-tool-calls'`). To compare safely, use
+ *   `splitStageId(spec.id)` to decompose the prefixed form the same
+ *   way `parseRuntimeStageId` decomposes a runtimeStageId.
+ *
  * @example
  * ```
  * buildRuntimeStageId('call-llm', 5)                    // 'call-llm#5'
@@ -34,7 +43,24 @@ export function buildRuntimeStageId(stageId: string, executionIndex: number, sub
   return `${prefix}${stageId}#${executionIndex}`;
 }
 
-/** Parse a runtimeStageId into its components. */
+/**
+ * Parse a runtimeStageId into its components.
+ *
+ * IMPORTANT — naming collision: the returned `stageId` is the LOCAL
+ * form (the segment between the last '/' and the '#'). This is NOT
+ * the same as `spec.id` or `node.id` for subflow-nested stages,
+ * which contain the FULL prefixed form.
+ *
+ *   parseRuntimeStageId('sf-tools/execute-tool-calls#8').stageId
+ *   // → 'execute-tool-calls'   (LOCAL)
+ *
+ *   node.id  // (post-mount, in a spec that contains subflows)
+ *   // → 'sf-tools/execute-tool-calls'   (FULL prefixed)
+ *
+ * To compare these two safely, use `splitStageId(node.id)` to get
+ * the local form, OR reconstruct the full form via
+ * `(subflowPath ? subflowPath + '/' : '') + stageId`.
+ */
 export function parseRuntimeStageId(runtimeStageId: string): {
   stageId: string;
   executionIndex: number;
@@ -57,6 +83,46 @@ export function parseRuntimeStageId(runtimeStageId: string): {
     stageId: beforeHash.slice(lastSlash + 1),
     executionIndex,
     subflowPath: beforeHash.slice(0, lastSlash),
+  };
+}
+
+/**
+ * Decompose a (possibly prefixed) stage id into its components.
+ *
+ * Use this when you have an id WITHOUT the `#N` execution suffix and
+ * need the local stage name and/or the subflow path. Common sources
+ * of such ids:
+ *   - `spec.id` (post-mount the id includes any subflow prefix)
+ *   - `CommitBundle.stageId` (post-mount id)
+ *   - `node.id` from xyflow nodes built off the spec
+ *   - the segment of `runtimeStageId` BEFORE the `#` (use
+ *     `parseRuntimeStageId` directly for full runtimeStageId strings)
+ *
+ * Mirrors the decomposition `parseRuntimeStageId` performs on the
+ * stageId portion of a runtimeStageId, so the two helpers stay in
+ * lockstep on naming and behavior.
+ *
+ * @example
+ * splitStageId('sf-tools/execute-tool-calls')
+ * // → { localStageId: 'execute-tool-calls', subflowPath: 'sf-tools' }
+ *
+ * splitStageId('execute-tool-calls')
+ * // → { localStageId: 'execute-tool-calls', subflowPath: undefined }
+ *
+ * splitStageId('sf-outer/sf-inner/validate')
+ * // → { localStageId: 'validate', subflowPath: 'sf-outer/sf-inner' }
+ */
+export function splitStageId(prefixedStageId: string): {
+  localStageId: string;
+  subflowPath: string | undefined;
+} {
+  const lastSlash = prefixedStageId.lastIndexOf('/');
+  if (lastSlash === -1) {
+    return { localStageId: prefixedStageId, subflowPath: undefined };
+  }
+  return {
+    localStageId: prefixedStageId.slice(lastSlash + 1),
+    subflowPath: prefixedStageId.slice(0, lastSlash),
   };
 }
 

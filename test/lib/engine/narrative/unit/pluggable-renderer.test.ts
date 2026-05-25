@@ -42,6 +42,7 @@ function fireStage(
   rec.onStageExecuted({
     stageName,
     description,
+    stageType: 'linear',
     traversalContext: { stageId: `id-${stageName}`, runtimeStageId: rid, subflowId: undefined } as any,
   } as any);
 }
