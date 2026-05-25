@@ -20,11 +20,17 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing requires npm >= 11.5.1.
+      # Node 22 ships with npm 10.x — upgrade before publishing.
+      - run: npm install -g npm@latest
+
       - run: npm ci
       - run: npm test
       - run: npm run build
 
+      # Trusted publishing: no NODE_AUTH_TOKEN set. npm CLI authenticates
+      # to the registry via the GitHub OIDC token (granted by id-token:
+      # write permission above). npm verifies the publish is from a
+      # trusted GitHub workflow per the package's trusted-publisher config.
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
