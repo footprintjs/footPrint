@@ -738,11 +738,12 @@ describe('createTypedScope -- property: roundtrip', () => {
 // -- Performance: benchmark --------------------------------------------------
 
 describe('createTypedScope -- performance', () => {
-  it('1K reads complete in under 150ms', () => {
+  it('1K reads complete in under 250ms', () => {
     // CI-safe ceiling. The intent is to catch >5× regressions, not
     // measure absolute perf — `expect(...).toBeDefined()` dominates
     // the loop, and CI machines under load (parallel test files,
-    // co-running processes) routinely take 60-90ms.
+    // co-running processes, the release-pipeline gates) routinely
+    // take 60-200ms.
     const target = mockTarget({ x: 42 });
     const scope = createTypedScope<{ x: number }>(target);
     const start = performance.now();
@@ -750,7 +751,7 @@ describe('createTypedScope -- performance', () => {
       expect(scope.x).toBeDefined();
     }
     const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(150);
+    expect(elapsed).toBeLessThan(250);
   });
 
   it('1K writes complete in under 50ms', () => {
