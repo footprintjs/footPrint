@@ -156,7 +156,7 @@ interface OrderState {
 
 const subChart = flowChart<PaymentState>('ValidatePayment', (scope) => {
   scope.paymentValid = true;
-}, 'validate-payment', undefined, 'Validates payment details')
+}, 'validate-payment', { description: 'Validates payment details' })
   .addFunction('ChargeCard', (scope) => {
     scope.charged = true;
   }, 'charge-card', 'Charges the credit card')
@@ -164,7 +164,7 @@ const subChart = flowChart<PaymentState>('ValidatePayment', (scope) => {
 
 const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
   scope.orderId = 'ORD-12345';
-}, 'receive-order', undefined, 'Receives incoming order')
+}, 'receive-order', { description: 'Receives incoming order' })
   .addDeciderFunction('RiskCheck', (scope) => {
     return scope.orderId ? 'low' : 'high';
   }, 'risk-check', 'Evaluates order risk')

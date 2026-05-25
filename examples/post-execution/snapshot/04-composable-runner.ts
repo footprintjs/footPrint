@@ -103,7 +103,7 @@ const inventory = new InventoryChecker();
 const orderChart = flowChart<OrderState>('ReceiveOrder', (scope) => {
   scope.orderId = 'ORD-42';
   scope.amount = 149.99;
-}, 'receive-order', undefined, 'Ingest order data')
+}, 'receive-order', { description: 'Ingest order data' })
   .addSubFlowChartNext('sf-payment', payment.toFlowChart(), 'Payment', {
     inputMapper: (s: any) => ({ amount: s.amount }),
   })

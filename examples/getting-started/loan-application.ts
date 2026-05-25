@@ -94,8 +94,7 @@ interface LoanState {
 const chart = flowChart<LoanState>('ReceiveApplication', async (scope) => {
   const { app } = scope.$getArgs<LoanInput>();
   console.log(`  Received application from ${app.applicantName}`);
-}, 'receive-application', undefined,
-  'Ingest the loan application and store applicant data')
+}, 'receive-application', { description: 'Ingest the loan application and store applicant data' })
   .addFunction('PullCreditReport', async (scope) => {
     const { app } = scope.$getArgs<LoanInput>();
     await new Promise((r) => setTimeout(r, 40)); // simulate credit bureau API

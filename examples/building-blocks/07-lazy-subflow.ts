@@ -137,8 +137,7 @@ const chart = flowChart<OrchestratorState>(
     scope.requestId = 'req-' + Date.now();
   },
   'parse-request',
-  undefined,
-  'Parse incoming request and determine required services',
+  { description: 'Parse incoming request and determine required services' },
 )
   .addSelectorFunction(
     'Route Services',

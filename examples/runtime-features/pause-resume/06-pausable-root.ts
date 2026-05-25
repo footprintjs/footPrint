@@ -43,8 +43,7 @@ const chart = flowChart<ApprovalState>(
   'ApprovalGate',
   approvalGate,
   'approval-gate',
-  undefined,
-  'Single-stage approval gate with pause/resume',
+  { description: 'Single-stage approval gate with pause/resume' },
 ).build();
 
 // ── Run ─────────────────────────────────────────────────────

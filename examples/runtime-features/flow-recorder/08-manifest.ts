@@ -66,7 +66,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
   scope.orderId = 'ORD-100';
   scope.amount = 249.99;
   scope.cardLast4 = '1234';
-}, 'receive-order', undefined, 'Ingest order and customer data')
+}, 'receive-order', { description: 'Ingest order and customer data' })
 
   .addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
     inputMapper: (s: any) => ({ amount: s.amount, cardLast4: s.cardLast4 }),

@@ -35,8 +35,7 @@ const doublerChart = flowChart<Doubler>(
     s.doubled = (s.seed ?? 0) * 2;
   },
   'double',
-  undefined,
-  'Double: multiply the seed by 2',
+  { description: 'Double: multiply the seed by 2' },
 ).build();
 
 // ── Outer chart that mounts the doubler with input + output mappers ──

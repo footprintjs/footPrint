@@ -80,8 +80,7 @@ const chart = flowChart<CheckoutState>(
     scope.status = 'pending';
   },
   'create-order',
-  undefined,
-  'Initialize the checkout order',
+  { description: 'Initialize the checkout order' },
 )
   .addSubFlowChartNext('payment', paymentSubflow, 'ProcessPayment', {
     inputMapper: (parentScope: any) => ({

@@ -16,7 +16,7 @@ const chart = flowChart<State>('ReceiveOrder', async (scope) => {
   const { quantity, unitPrice } = scope.$getArgs<{ quantity: number; unitPrice: number }>();
   scope.total = quantity * unitPrice;
   scope.status = scope.total > 100 ? 'express' : 'standard';
-}, 'receive', undefined, 'Calculate order total and assign shipping')
+}, 'receive', { description: 'Calculate order total and assign shipping' })
   .contract({
     input: z.object({
       quantity: z.number().positive(),

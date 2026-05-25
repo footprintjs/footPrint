@@ -39,8 +39,7 @@ const creditDecision = flowChart<CreditState>(
     scope.riskFactors = [];
   },
   'assess-credit',
-  undefined,
-  'Compute debt-to-income ratio and pull credit assessment',
+  { description: 'Compute debt-to-income ratio and pull credit assessment' },
 )
   .addDeciderFunction(
     'CreditDecision',

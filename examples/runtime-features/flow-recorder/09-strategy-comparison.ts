@@ -51,9 +51,8 @@ function buildSyncChart(totalBatches: number) {
       scope.errors = 0;
     },
     'fetch-config',
-    undefined,
-    'fetch remote API configuration and credentials',
-  )
+  { description: 'fetch remote API configuration and credentials' },
+)
     .addFunction(
       'PrepareBatches',
       async (scope) => {

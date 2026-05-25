@@ -60,8 +60,7 @@ const creditDecision = flowChart<CreditState>(
     console.log(`  Assessing: ${input.applicantName} — score ${input.creditScore}, DTI ${scope.dti}`);
   },
   'assess-credit',
-  undefined,
-  'Compute debt-to-income ratio and assess credit profile',
+  { description: 'Compute debt-to-income ratio and assess credit profile' },
 )
   .addDeciderFunction(
     'CreditDecision',

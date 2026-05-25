@@ -14,7 +14,7 @@ interface State { creditScore?: number; decision?: string }
 
 const chart = flowChart<State>('LoadApplication', async (scope) => {
   scope.creditScore = scope.$getArgs<{ creditScore: number }>().creditScore;
-}, 'load', undefined, 'Load credit application data')
+}, 'load', { description: 'Load credit application data' })
   .addDeciderFunction('ClassifyRisk', (scope) => {
     return decide(scope, [
       { when: { creditScore: { gt: 700 } }, then: 'approve', label: 'Good credit' },

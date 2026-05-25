@@ -94,8 +94,7 @@ const chart = flowChart<PipelineState>(
     scope.rawData = '{"temp": 72, "humidity": 45, "wind": 12}';
   },
   'fetch-data',
-  undefined,
-  'Pull sensor data from the API',
+  { description: 'Pull sensor data from the API' },
 )
   .addFunction('Call LLM', async (scope) => {
     scope.llmResponse = `Based on the data ${scope.rawData}, the weather is mild and pleasant.`;

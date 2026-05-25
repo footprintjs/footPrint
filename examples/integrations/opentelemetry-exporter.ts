@@ -217,7 +217,7 @@ interface IngestionState {
 
 const subChart = flowChart<ETLState>('FetchData', (scope) => {
   scope.data = [1, 2, 3];
-}, 'fetch-data', undefined, 'Fetches data from source')
+}, 'fetch-data', { description: 'Fetches data from source' })
   .addFunction('Transform', (scope) => {
     scope.transformed = scope.data.map(x => x * 2);
   }, 'transform', 'Transforms fetched data')
@@ -225,7 +225,7 @@ const subChart = flowChart<ETLState>('FetchData', (scope) => {
 
 const chart = flowChart<IngestionState>('Ingest', (scope) => {
   scope.source = 'api';
-}, 'ingest', undefined, 'Starts data ingestion')
+}, 'ingest', { description: 'Starts data ingestion' })
   .addSubFlowChartNext('sf-etl', subChart, 'ETL Pipeline')
   .addFunction('Store', (scope) => {
     scope.stored = true;

@@ -135,9 +135,8 @@ interface PaymentState {
       scope.currency = 'USD';
     },
     'receive',
-    undefined,
-    'Accept incoming payment request',
-  )
+  { description: 'Accept incoming payment request' },
+)
     .addFunction(
       'FraudCheck',
       async (scope) => {
@@ -165,7 +164,7 @@ interface PaymentState {
   // ── One call — full observability ──────────────────────────────────
 
   const obs = paymentObservability({ slaThresholdMs: 200 });
-  const executor = new FlowChartExecutor(chart, { enrichSnapshots: true });
+  const executor = new FlowChartExecutor(chart);
   executor.attachScopeRecorder(obs);
   await executor.run();
 

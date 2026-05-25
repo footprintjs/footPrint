@@ -184,7 +184,7 @@ interface RequestState {
 
 const validationFlow = flowChart<ValidationState>('CheckFormat', (scope) => {
   scope.formatOk = true;
-}, 'check-format', undefined, 'Validates input format')
+}, 'check-format', { description: 'Validates input format' })
   .addFunction('CheckRules', (scope) => {
     scope.rulesOk = true;
   }, 'check-rules', 'Applies business rules')
@@ -192,7 +192,7 @@ const validationFlow = flowChart<ValidationState>('CheckFormat', (scope) => {
 
 const chart = flowChart<RequestState>('Receive', (scope) => {
   scope.requestId = 'REQ-001';
-}, 'receive', undefined, 'Receives incoming request')
+}, 'receive', { description: 'Receives incoming request' })
   .addSubFlowChartNext('sf-validate', validationFlow, 'Validation')
   .addDeciderFunction('Route', (scope) => {
     return scope.requestId ? 'process' : 'reject';
