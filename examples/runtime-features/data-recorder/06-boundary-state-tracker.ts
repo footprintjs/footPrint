@@ -1,5 +1,5 @@
 /**
- * Feature: BoundaryStateTracker — transient bracket-scoped state
+ * Feature: BoundaryStateStore — transient bracket-scoped state
  *
  * Three storage primitives sit on the recorder shelf:
  *
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
   await executor.run();
   clearInterval(stopPeek);
 
-  console.log('=== BoundaryStateTracker — LiveLLMTracker demo ===\n');
+  console.log('=== BoundaryStateStore — LiveLLMTracker demo ===\n');
   console.log(
     `Peeks during streaming (showing transient state evolving):\n` +
       peeks
