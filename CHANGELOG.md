@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.1]
+
+Patch — one real fix + a full documentation correction pass.
+
+### Fixed
+
+- **`chart.recorder()` no longer silently drops emit recorders.** The fluent
+  `chart.recorder(rec).run()` sugar detected only the scope + flow channels, so a
+  recorder implementing only `onEmit` got zero events with no error. It now routes
+  through the executor's combined-attach logic (scope/flow/emit detected uniformly,
+  deduped — no double-attach).
+
+### Docs
+
+- Audited + corrected every hand-written doc and JSDoc `@example` against the
+  current code (recorder family especially: v5 `*Store` classes vs the deprecated
+  bases, executor method names, builder arg forms, `resume()` semantics).
+
 ## [6.1.0]
 
 Additive feature release — no breaking changes (`^6.0.0` consumers upgrade safely).
