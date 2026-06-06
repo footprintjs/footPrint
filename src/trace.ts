@@ -5,19 +5,28 @@
  *
  * @example
  * ```typescript
- * import { parseRuntimeStageId, findLastWriter, KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
+ * import { parseRuntimeStageId, findLastWriter, KeyedStore, SequenceStore } from 'footprintjs/trace';
  *
  * // Parse a runtimeStageId
  * const { stageId, executionIndex } = parseRuntimeStageId('call-llm#5');
  *
- * // Backtrack: who wrote 'systemPrompt' before stage at idx 8?
+ * // Backtrack: who wrote 'systemPrompt' before commit at idx 8?
  * const writer = findLastWriter(commitLog, 'systemPrompt', 8);
  *
- * // Build a keyed recorder (1:1 — one entry per step)
- * class MyRecorder extends KeyedRecorder<MyEntry> { ... }
+ * // v5 primary API: compose a Store as a field (one purpose per recorder).
+ * // KeyedStore<T> — 1:1 (one entry per step)
+ * class MyRecorder {
+ *   readonly id = 'my-recorder';
+ *   private store = new KeyedStore<MyEntry>();
+ *   onWrite(e) { this.store.set(e.runtimeStageId, { ... }); }
+ * }
  *
- * // Build a sequence recorder (1:N — multiple entries per step, ordering matters)
- * class AuditRecorder extends SequenceRecorder<AuditEntry> { ... }
+ * // SequenceStore<T> — 1:N (multiple entries per step, ordering matters)
+ * class AuditRecorder {
+ *   readonly id = 'audit';
+ *   private store = new SequenceStore<AuditEntry>();
+ *   onRead(e) { this.store.push({ runtimeStageId: e.runtimeStageId, ... }); }
+ * }
  * ```
  */
 

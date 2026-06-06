@@ -95,11 +95,8 @@
  * @example Build a live LLM tracker (combining storage + observer):
  *
  * ```typescript
- * import {
- *   BoundaryStateTracker,
- *   type CombinedRecorder,
- *   type EmitEvent,
- * } from 'footprintjs';
+ * import { BoundaryStateTracker } from 'footprintjs/trace';
+ * import { type CombinedRecorder, type EmitEvent } from 'footprintjs';
  *
  * interface LLMLiveState {
  *   readonly partial: string;

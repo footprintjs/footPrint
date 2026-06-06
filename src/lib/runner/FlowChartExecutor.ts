@@ -460,14 +460,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * @example
    * ```typescript
-   * // After a pause...
+   * // Process A — after a pause, persist the checkpoint:
    * const checkpoint = executor.getCheckpoint()!;
    * await redis.set(`session:${id}`, JSON.stringify(checkpoint));
    *
-   * // Later (possibly different server, same chart)
-   * const checkpoint = JSON.parse(await redis.get(`session:${id}`));
+   * // Process B (possibly different server, same chart) — restore and resume:
+   * const restored = JSON.parse(await redis.get(`session:${id}`));
    * const executor = new FlowChartExecutor(chart);
-   * const result = await executor.resume(checkpoint, { approved: true });
+   * const result = await executor.resume(restored, { approved: true });
    * ```
    */
   async resume(

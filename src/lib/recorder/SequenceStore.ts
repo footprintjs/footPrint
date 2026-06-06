@@ -15,7 +15,7 @@
  * @example
  * ```typescript
  * import { SequenceStore } from 'footprintjs/trace';
- * import type { ScopeRecorder } from 'footprintjs';
+ * import type { ScopeRecorder, ReadEvent, WriteEvent } from 'footprintjs';
  *
  * interface AuditEntry {
  *   runtimeStageId?: string;

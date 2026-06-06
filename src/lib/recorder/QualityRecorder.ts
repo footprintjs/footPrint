@@ -11,10 +11,10 @@
  *
  * @example
  * ```typescript
- * const quality = new QualityRecorder((runtimeStageId, event) => {
- *   // Custom scoring function — return 0.0–1.0
- *   if (event.stageName.includes('llm')) return 0.7;
- *   return 1.0;
+ * const quality = new QualityRecorder((runtimeStageId, context) => {
+ *   // Custom scoring function — return { score: 0.0–1.0, factors? }
+ *   if (context.stageName.includes('llm')) return { score: 0.7, factors: ['llm stage'] };
+ *   return { score: 1.0 };
  * });
  * executor.attachScopeRecorder(quality);
  * await executor.run();

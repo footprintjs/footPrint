@@ -179,7 +179,7 @@ export interface DriverCapabilities {
  *     capabilities: { nodeSafe: true, survivesUnload: true },
  *     schedule(child, input, refId) {
  *       sharedBuffer.push({ refId, child, input });
- *       return createHandle(refId, 'queued');
+ *       return createHandle(refId);
  *     },
  *   };
  */
