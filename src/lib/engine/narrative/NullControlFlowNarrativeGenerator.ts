@@ -25,6 +25,7 @@ export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative 
   onResume(): void {}
   onRunStart(): void {}
   onRunEnd(): void {}
+  onRunFailed(): void {}
   getSentences(): string[] {
     return [];
   }

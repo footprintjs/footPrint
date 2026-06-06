@@ -22,6 +22,7 @@
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
+import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
@@ -353,12 +354,29 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       this.narrativeGenerator.onRunStart(this.readOnlyContext, rootContext);
     }
 
-    const result = await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
-
-    if (isTopLevel) {
-      this.narrativeGenerator.onRunEnd(result, rootContext);
+    // Top-level runs close their boundary SYMMETRICALLY: every onRunStart
+    // is followed by exactly one onRunEnd (clean) or onRunFailed (error).
+    // Without the catch, a thrown run fired onRunStart then nothing — a
+    // monitor couldn't tell "still running" from "crashed." Pause is NOT
+    // an error (it's expected suspension), so it skips onRunFailed and
+    // re-throws untouched. The stage-level catch already recorded the
+    // failing stage (onError + commit); this adds the run-level terminal
+    // signal. The error still propagates — this is observation, not
+    // recovery. Subflow traversers don't fire run events; their errors
+    // bubble up and surface here at the top level.
+    if (!isTopLevel) {
+      return this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
     }
-
+    let result: TraversalResult;
+    try {
+      result = await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+    } catch (error: unknown) {
+      if (!isPauseSignal(error)) {
+        this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
+      }
+      throw error;
+    }
+    this.narrativeGenerator.onRunEnd(result, rootContext);
     return result;
   }
 
@@ -824,6 +842,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             context,
             branchPath as string,
             traversalContext,
+            node.failFast,
           );
         } else {
           const childCount = node.children?.length ?? 0;

@@ -168,6 +168,16 @@ function* walkNode(
     source: 'walker',
   };
 
+  // A FAN-OUT (selector/fork) — every branch runs, then the node's `next`
+  // runs (the join). This is engine semantics, so we always render the true
+  // topology: each branch → that join, and the node's own direct → next
+  // "skip" edge suppressed (flow goes fork → branches → join, never fork →
+  // join directly). Deciders (ONE branch chosen, branches genuinely diverge)
+  // are NOT fan-outs and are left alone. `next` must be a real stage (not a
+  // loop back-edge).
+  const isFanOut = node.type === 'fork' || node.hasSelector === true;
+  const fanOutJoinId = isFanOut && node.next && node.next.isLoopReference !== true ? node.next.id : undefined;
+
   // Children (decider/selector/fork branches).
   if (node.children && node.children.length > 0) {
     const edgeKind: 'fork-branch' | 'decision-branch' = node.type === 'fork' ? 'fork-branch' : 'decision-branch';
@@ -181,6 +191,17 @@ function* walkNode(
         subflowPath,
         source: 'walker',
       };
+      // Convergence edge: this branch merges into the fan-out's join stage.
+      if (fanOutJoinId !== undefined) {
+        yield {
+          kind: 'edge',
+          from: child.id,
+          to: fanOutJoinId,
+          edgeKind: 'next',
+          subflowPath,
+          source: 'walker',
+        };
+      }
       yield* walkNode(child, subflowPath, recurse, visited);
     }
   }
@@ -196,14 +217,18 @@ function* walkNode(
         source: 'walker',
       };
     } else {
-      yield {
-        kind: 'edge',
-        from: node.id,
-        to: node.next.id,
-        edgeKind: 'next',
-        subflowPath,
-        source: 'walker',
-      };
+      // Suppress the direct node → next edge when the branches already carry
+      // the convergence to it (fanOutJoinId); still walk next so it's emitted.
+      if (fanOutJoinId === undefined) {
+        yield {
+          kind: 'edge',
+          from: node.id,
+          to: node.next.id,
+          edgeKind: 'next',
+          subflowPath,
+          source: 'walker',
+        };
+      }
       yield* walkNode(node.next, subflowPath, recurse, visited);
     }
   }

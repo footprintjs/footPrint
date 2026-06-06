@@ -10,7 +10,7 @@
 export { DeciderList, FlowChartBuilder, SelectorFnList } from './FlowChartBuilder.js';
 
 // Factory & utilities
-export { flowChart, specToStageNode } from './FlowChartBuilder.js';
+export { flowChart, flowChartSelector, specToStageNode } from './FlowChartBuilder.js';
 
 // Types
 export type {

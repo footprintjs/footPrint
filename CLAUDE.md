@@ -525,6 +525,25 @@ Semantics:
 
 Example: [examples/runtime-features/break/04-subflow-propagate.ts](examples/runtime-features/break/04-subflow-propagate.ts).
 
+## Parallel Fan-Out Error Semantics (`failFast`)
+
+When a selector picks ≥2 branches — or `addListOfFunction` lists several — they run **in parallel** via `ChildrenExecutor`. One branch throwing has two meanings; the **fan-out node's `failFast` flag** picks which:
+
+- **DEFAULT** (`failFast` unset/false) → `Promise.allSettled`: best-effort. A branch error is **collected, not rethrown**; every sibling finishes, the run **resolves**, and the post-fan-out convergence stage still runs.
+- **`failFast: true`** → `Promise.all`: the **first** branch error **rejects the whole run** (aborts before convergence). Use when every selected branch is **REQUIRED**.
+
+**The footgun:** under the default, a *required* parallel branch that throws is **silently swallowed** — the run resolves with a half-built result (this is exactly what swallowed a failing Tools slot in the agent request-assembly fork). Set `failFast: true` so the failure surfaces.
+
+**Set it on the fan-out node** — honored uniformly across plain-function branches, **subflow** branches (`addSubFlowChartBranch`), and `addListOfFunction`:
+
+```ts
+flowChartSelector('Pick', selectorFn, 'pick', { failFast: true })          // root selector
+builder.addSelectorFunction('Pick', selectorFn, 'pick', 'desc', { failFast: true })  // mid-chain (5th arg)
+builder.addListOfFunction([...], { failFast: true })                        // bare parallel list
+```
+
+Defaults to `false` everywhere — existing charts are unchanged. `failFast` (a branch *threw*) is orthogonal to `$break` (a branch *chose* to stop). Full guide: [docs/guides/error-handling.md](docs/guides/error-handling.md#parallel-fan-out-error-semantics). Example: [examples/runtime-features/parallel/01-failfast.ts](examples/runtime-features/parallel/01-failfast.ts).
+
 ## Emit Channel (Phase 3)
 
 Third observer channel alongside `Recorder` (data-flow) and `FlowRecorder` (control-flow). Consumer stage code emits structured events; `EmitRecorder.onEmit(event)` fires synchronously with auto-enriched context.

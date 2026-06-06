@@ -86,6 +86,9 @@ export class DeciderList<TOut = any, TScope = any> {
     name: string,
     fn?: StageFunction<TOut, TScope>,
     description?: string,
+    /** `{ loopTo }` declares this branch loops back to an already-declared
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider). */
+    options?: { readonly loopTo?: string },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -109,6 +112,7 @@ export class DeciderList<TOut = any, TScope = any> {
     this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
+    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
     return this;
   }
 
@@ -125,6 +129,9 @@ export class DeciderList<TOut = any, TScope = any> {
     name: string,
     handler: PausableHandler<TScope>,
     description?: string,
+    /** `{ loopTo }` declares this branch loops back to an already-declared
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider). */
+    options?: { readonly loopTo?: string },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -152,6 +159,7 @@ export class DeciderList<TOut = any, TScope = any> {
     this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
 
     this.branchDescInfo.push({ id, description });
+    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
     return this;
   }
 
@@ -190,6 +198,11 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
+    // STRUCTURE-ONLY convergence override — this branch's convergence edge
+    // points at `convergeAt` instead of the shared next stage (see
+    // `_fireNextEdgeFromParent`). Carried on the spec so the edge-firing
+    // chokepoint (which iterates child specs) can read it.
+    if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -269,6 +282,78 @@ export class DeciderList<TOut = any, TScope = any> {
   setDefault(id: string): DeciderList<TOut, TScope> {
     this.defaultId = id;
     return this;
+  }
+
+  /**
+   * Attach a loop-back edge to the LAST-added branch, so the loop is sourced
+   * from THAT branch node (e.g. `'tool-calls' → loopTo('context')`) rather than
+   * from the decider. The chart then reads honestly: the decider splits into a
+   * looping branch `[ToolCalls → back to Context]` and a terminating branch
+   * `[Final → end]`, instead of a single loop hanging off the decider.
+   *
+   * No engine change is needed: the runtime runs the chosen branch and then
+   * follows that branch node's OWN `next` — and a `next` flagged `isLoopRef`
+   * routes back to the target exactly like the decider's own loop does. This
+   * method just lets the builder express what the engine already supports.
+   *
+   * Targets the branch added immediately before this call (chain it right after
+   * the branch's `addFunctionBranch`/`addPausableFunctionBranch`/
+   * `addSubFlowChartBranch`). Mirrors `FlowChartBuilder.loopTo` validation.
+   *
+   * Works on a SUBFLOW branch too: the branch node carries both its subflow
+   * resolver AND the loop-back `next` — they coexist safely (the runtime runs
+   * the subflow, then follows the loop ref). The target must be a stage already
+   * declared BEFORE the decider (e.g. an upstream `context`); branch ids and the
+   * synthetic `'default'` clone are NOT valid loop targets.
+   */
+  loopTo(stageId: string): DeciderList<TOut, TScope> {
+    const children = this.curNode.children;
+    const specChildren = this.curSpec.children;
+    if (!children || children.length === 0 || !specChildren || specChildren.length === 0) {
+      fail(`loopTo('${stageId}') called before any branch was added under '${this.curNode.name}'`);
+    }
+    // fail() throws, so children/specChildren are non-empty here.
+    this._applyBranchLoop(children![children!.length - 1]!, specChildren![specChildren!.length - 1]!, stageId);
+    return this;
+  }
+
+  /**
+   * Decorate ONE branch node/spec with a loop-back edge to `stageId`. Shared by
+   * the positional `loopTo()` (which targets the last-added branch) AND the
+   * per-branch `{ loopTo }` option on `addFunctionBranch` /
+   * `addPausableFunctionBranch` / `addSubFlowChartBranch`. Either way the loop
+   * SOURCE is the branch — so visualizers read `tool-calls → context`, never
+   * `Route → context`. Validates the target is a stage declared BEFORE the
+   * decider (branch ids / the synthetic 'default' clone are not valid targets).
+   */
+  private _applyBranchLoop(
+    branchNode: StageNode<TOut, TScope>,
+    branchSpec: SerializedPipelineStructure,
+    stageId: string,
+  ): void {
+    if (branchSpec.loopTarget) fail(`loopTo already defined on branch '${branchSpec.id}'`);
+    if (branchNode.next) {
+      fail(`cannot set loopTo on branch '${branchSpec.id}' — it already has a continuation`);
+    }
+    if (!this.b._knownStageIdsHas(stageId)) {
+      fail(
+        `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
+          "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
+          'are not valid loop targets; did you pass a stage name instead of an id?)',
+      );
+    }
+
+    branchNode.next = { name: stageId, id: stageId, isLoopRef: true };
+    branchSpec.loopTarget = stageId;
+    branchSpec.next = { name: stageId, id: stageId, type: 'loop', isLoopReference: true };
+
+    // Branch-scoped description — attribute the loop to the branch, not the
+    // decider (parentDescriptionParts is the decider's description context).
+    this.parentDescriptionParts.push(`   → branch '${branchSpec.id}' loops back to ${stageId}`);
+
+    // Fire the loop back-edge SOURCED FROM THE BRANCH so visualizers read
+    // `tool-calls → context`, not `Route → context`.
+    this.b._fireLoopEdgeAddedFromSubBuilder(branchSpec.id, stageId);
   }
 
   end(): FlowChartBuilder<TOut, TScope> {
@@ -478,6 +563,12 @@ export class SelectorFnList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
+    // STRUCTURE-ONLY convergence override (see `_fireNextEdgeFromParent` +
+    // `SubflowMountOptions.convergeAt`): this branch's convergence edge points at
+    // `convergeAt` (a DOWNSTREAM stage) instead of the shared next stage — e.g. a
+    // `tools` slot that bypasses `messageAPI` to pair with its output at
+    // `call-llm`. Visualization-only: NO runtime join barrier (data rides scope).
+    if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -776,7 +867,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    *
    * Loop-reference children (synthetic spec nodes created by
    * `.loopTo()`) are excluded — they're back-edge markers, not
-   * convergence sources.
+   * convergence sources. A branch that carries an OWN loop-back `next`
+   * (a branch-sourced `loopTo`) is likewise skipped — it loops, it does
+   * not converge at the linear next stage.
+   *
+   * A branch carrying `convergeAt` is REDIRECTED: its single convergence
+   * edge fires to its named target instead of `targetId` — expressing an
+   * unequal-depth merge (e.g. `tools → call-llm`, bypassing `message-api`).
+   * The named target is a forward stage, so it is NOT validated here.
    *
    * Call ORDER constraint: must be called BEFORE the cursor advances
    * to the new target. The caller passes the PRE-ADVANCE parent spec.
@@ -794,6 +892,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
     for (const child of childSpecs!) {
       if (child.isLoopReference) continue;
+      // A branch with its own loop-back next (branch-sourced loopTo) loops —
+      // it does not converge at the linear next stage.
+      if (child.next?.isLoopReference) continue;
+      if (child.convergeAt) {
+        // Redirected convergence: this branch rejoins at its named target.
+        this._fireEdgeAdded(child.id, child.convergeAt, 'next');
+        continue;
+      }
       this._fireEdgeAdded(child.id, targetId, 'next', label);
     }
   }
@@ -875,6 +981,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     subflowPath?: string,
   ): void {
     this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec, subflowPath);
+  }
+
+  /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
+   *  to validate a branch-sourced loop target against the known stage ids
+   *  (mirrors `FlowChartBuilder.loopTo`'s `_knownStageIds.has` guard). */
+  _knownStageIdsHas(id: string): boolean {
+    return this._knownStageIds.has(id);
+  }
+
+  /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
+   *  to fire a loop back-edge SOURCED FROM A BRANCH node (not the decider). */
+  _fireLoopEdgeAddedFromSubBuilder(from: string, to: string): void {
+    this._fireLoopEdgeAdded(from, to);
   }
 
   // ── Description helpers ──
@@ -972,6 +1091,63 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     this._appendDescriptionLine(name, description);
     return this;
+  }
+
+  /**
+   * Start a chart whose ROOT stage IS a selector — it runs first (reading
+   * args, seeding state, returning the chosen branch ids via `select()`),
+   * and its branches attach directly to the root. Mirrors `start()` for the
+   * root-node setup, then returns a `SelectorFnList` bound to the root so
+   * `.addFunctionBranch()` / `.addSubFlowChartBranch()` / `.end()` work
+   * exactly as they do after `addSelectorFunction()`.
+   *
+   * Use when the first thing a chart does is choose among branches — e.g. a
+   * `Context` selector that inits + picks which context slots to engineer,
+   * with no separate seed stage before it.
+   */
+  startSelector(
+    name: string,
+    fn: StageFunction<any, TScope>,
+    id: string,
+    description?: string,
+    options?: { failFast?: boolean },
+  ): SelectorFnList<TOut, TScope> {
+    if (this._root) fail('root already defined; create a new builder');
+
+    const node: StageNode<TOut, TScope> = { name, id, fn: fn as StageFunction<TOut, TScope> };
+    if (description) node.description = description;
+    // See `addSelectorFunction` — `failFast: true` makes a multi-branch
+    // selection fan out via `Promise.all` (first error aborts) instead of the
+    // default `Promise.allSettled` (best-effort).
+    if (options?.failFast) node.failFast = true;
+    this._addToMap(id, fn as StageFunction<TOut, TScope>);
+
+    const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
+    if (description) spec.description = description;
+
+    this._root = node;
+    this._rootSpec = spec;
+    this._cursor = node;
+    this._advanceCursorSpec(spec);
+    this._knownStageIds.add(id);
+
+    // Root selector node fires onStageAdded with NO predecessor edge (it's
+    // the root). Branches + onDeciderComplete come from the SelectorFnList.
+    this._fireStageAdded(spec);
+
+    this._stepCounter++;
+    this._stageStepMap.set(name, this._stepCounter);
+    this._appendDescriptionLine(name, description);
+
+    return new SelectorFnList<TOut, TScope>(
+      this,
+      node,
+      spec,
+      this._descriptionParts,
+      this._stageDescriptions,
+      this._stepCounter,
+      description,
+    );
   }
 
   addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
@@ -1289,6 +1465,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
+    options?: { failFast?: boolean },
   ): SelectorFnList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -1299,6 +1476,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
+    // `failFast`: when the selector picks ≥2 branches they fan out in parallel
+    // via ChildrenExecutor. Default = `Promise.allSettled` (best-effort: every
+    // branch runs to completion even if some fail). `failFast: true` = `Promise.all`
+    // (the first branch error rejects + aborts) — use when ALL selected branches
+    // are REQUIRED (e.g. assembling a request from independent-but-required parts),
+    // not best-effort fan-out. Same flag `addListOfFunction` exposes.
+    if (options?.failFast) node.failFast = true;
     this._addToMap(id, fn);
 
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
@@ -1830,6 +2014,37 @@ export function flowChart<TOut = any, TScope = any>(
     }
   }
   return builder.start(name, fn as any, id, options?.description);
+}
+
+/**
+ * Like `flowChart()`, but the ROOT stage is a SELECTOR — it runs first and
+ * its branches attach directly to it (no separate seed stage). Returns a
+ * `SelectorFnList`; declare branches then call `.end()` to get the builder
+ * back for any subsequent stages.
+ *
+ * @example
+ *   flowChartSelector<MyState>('Context', contextSelectorFn, 'context')
+ *     .addSubFlowChartBranch('sf-system-prompt', sysSlot, 'System Prompt', {...})
+ *     .addSubFlowChartBranch('sf-messages', msgSlot, 'Messages', {...})
+ *     .end()
+ *     .addFunction('messageAPI', assembleFn, 'message-api')
+ *     .build();
+ */
+export function flowChartSelector<TOut = any, TScope = any>(
+  name: string,
+  fn: StageFunction<any, TScope>,
+  id: string,
+  options?: FlowChartOptions,
+): SelectorFnList<TOut, TScope> {
+  const builder = new FlowChartBuilder<TOut, TScope>();
+  if (options?.structureRecorders) {
+    for (const rec of options.structureRecorders) {
+      builder.attachStructureRecorder(rec);
+    }
+  }
+  return builder.startSelector(name, fn, id, options?.description, {
+    ...(options?.failFast !== undefined && { failFast: options.failFast }),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

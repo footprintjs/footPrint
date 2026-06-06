@@ -136,6 +136,23 @@ export interface IControlFlowNarrative {
    */
   onRunEnd(output: unknown, traversalContext?: TraversalContext): void;
 
+  /**
+   * Called once per top-level `executor.run()` when traversal throws a
+   * NON-pause error, BEFORE the exception propagates to `run()`'s caller.
+   *
+   * This is the TERMINAL counterpart to `onRunEnd` — it closes the run
+   * boundary symmetrically so every `onRunStart` is followed by exactly
+   * one of `onRunEnd` (clean) or `onRunFailed` (error). Without it, a
+   * live monitor sees `onRunStart` then silence on a failed run and can't
+   * tell "still running" from "crashed."
+   *
+   * Errors STILL throw — this is the observable terminal signal, not a
+   * recovery mechanism (no routing, no error-subflow). Pause is NOT an
+   * error, so it does not fire this. Subflow-traversers do NOT fire it;
+   * their errors propagate to the parent and surface at the top level.
+   */
+  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext): void;
+
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
 }
@@ -347,6 +364,19 @@ export interface FlowRunEvent {
 }
 
 /**
+ * Event passed to FlowRecorder.onRunFailed — the TERMINAL failure boundary
+ * for a top-level run. Mirror of `onRunEnd` for the error path: it fires
+ * once, during traversal, when the run throws a non-pause error, before
+ * the exception propagates. Carries the structured error (field-level
+ * issues, codes) rather than a flattened string.
+ */
+export interface FlowRunFailedEvent {
+  /** Structured details of the error that terminated the run. */
+  structuredError: StructuredErrorInfo;
+  traversalContext?: TraversalContext;
+}
+
+/**
  * FlowRecorder — Pluggable observer for control flow events.
  *
  * Mirrors the scope-level ScopeRecorder pattern for the engine layer.
@@ -391,6 +421,13 @@ export interface FlowRecorder {
    * pause (the run didn't end) or uncaught error.
    */
   onRunEnd?(event: FlowRunEvent): void;
+  /**
+   * Called once per top-level `executor.run()` when the run throws a
+   * non-pause error, BEFORE the exception propagates. The TERMINAL
+   * counterpart to `onRunEnd` — lets a monitor close the run boundary on
+   * failure instead of waiting forever. NOT fired on pause.
+   */
+  onRunFailed?(event: FlowRunFailedEvent): void;
   /** Called before each run to reset per-run state. Implement for stateful recorders. */
   clear?(): void;
   /** Optional: expose collected data for inclusion in snapshots. */

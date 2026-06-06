@@ -82,6 +82,15 @@ export interface SerializedPipelineStructure {
   isLoopReference?: boolean;
   /** When true, this stage can pause execution (PausableHandler pattern). */
   isPausable?: boolean;
+  /**
+   * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
+   * id its convergence `next` edge points to, instead of the shared next-stage
+   * its siblings converge at. Set from `SubflowMountOptions.convergeAt`; read by
+   * `_fireNextEdgeFromParent` to express an unequal-depth merge (e.g. tools →
+   * call-llm, bypassing message-api). Visualization-only — runtime convergence
+   * is unchanged.
+   */
+  convergeAt?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +143,16 @@ export interface FlowChartOptions {
   structureRecorders?: StructureRecorder[];
   /** Free-form description shown on the root spec node. */
   description?: string;
+  /**
+   * Only meaningful for `flowChartSelector` (a root selector). When the
+   * selector picks ≥2 branches they fan out in parallel: `failFast: true`
+   * uses `Promise.all` (first branch error rejects + aborts), the default
+   * uses `Promise.allSettled` (best-effort — all branches run even if some
+   * fail). Use fail-fast when all selected branches are REQUIRED. Ignored for
+   * non-selector charts. Same flag `addSelectorFunction` / `addListOfFunction`
+   * expose.
+   */
+  failFast?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

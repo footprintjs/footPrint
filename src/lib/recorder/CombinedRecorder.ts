@@ -207,6 +207,13 @@ const FLOW_RECORDER_EVENT_METHODS = [
   'onError',
   'onPause',
   'onResume',
+  // Run-boundary methods — included so a recorder whose ONLY event hook
+  // is a run boundary (e.g. an error bridge implementing just
+  // `onRunFailed`) is still detected as a FlowRecorder and routed to the
+  // flow channel. Previously a run-only recorder was silently dropped.
+  'onRunStart',
+  'onRunEnd',
+  'onRunFailed',
 ] as const;
 
 /**

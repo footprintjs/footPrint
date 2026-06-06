@@ -13,11 +13,18 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../../src/lib/builder/FlowChartBuilder';
+import { flowChart, flowChartSelector } from '../../../../src/lib/builder/FlowChartBuilder';
+import { decide, select } from '../../../../src/lib/decide';
 import type { WalkerItem } from '../../../../src/lib/engine/walkSubflowSpec';
 import { walkSubflowSpec } from '../../../../src/lib/engine/walkSubflowSpec';
 
 const noop = async () => ({});
+
+/** Collect walker edges + a `from→to` membership helper. */
+function edgesOf(items: WalkerItem[]) {
+  const edges = items.filter((i) => i.kind === 'edge') as Extract<WalkerItem, { kind: 'edge' }>[];
+  return { has: (from: string, to: string) => edges.some((e) => e.from === from && e.to === to) };
+}
 
 describe('walkSubflowSpec', () => {
   it('yields subflow-start FIRST, then stage, for a single-stage spec', () => {
@@ -116,5 +123,57 @@ describe('walkSubflowSpec', () => {
     });
     // Spec reference points to the actual node in the spec tree
     expect(stageItem.spec).toBe(chart.buildTimeStructure);
+  });
+});
+
+// Fan-out convergence is INFERRED, not flagged: a selector/fork's branches
+// ALWAYS converge at the node's `next` (engine semantics — every branch runs,
+// then next runs). The walker renders the true topology — fork → branches →
+// join — with each branch → join and the node's direct → next "skip" edge
+// suppressed. Deciders (one branch chosen, branches genuinely diverge) are NOT
+// fan-outs and keep their direct → next edge.
+describe('walkSubflowSpec — fan-out convergence (inferred)', () => {
+  it('selector — branches converge at next; the direct skip edge is suppressed', () => {
+    const chart = flowChartSelector(
+      'Pick',
+      (s: never) =>
+        select(s, [
+          { when: () => true, then: 'a', label: 'a' },
+          { when: () => true, then: 'b', label: 'b' },
+        ]),
+      'pick',
+    )
+      .addFunctionBranch('a', 'A', noop)
+      .addFunctionBranch('b', 'B', noop)
+      .end()
+      .addFunction('join', noop, 'join')
+      .build();
+
+    const { has } = edgesOf([...walkSubflowSpec(chart.buildTimeStructure, 'sub')]);
+    // Each branch merges into the join...
+    expect(has('a', 'join')).toBe(true);
+    expect(has('b', 'join')).toBe(true);
+    // ...and the selector's direct fork→join "skip" edge is gone.
+    expect(has('pick', 'join')).toBe(false);
+    // The fork edges themselves remain.
+    expect(has('pick', 'a')).toBe(true);
+    expect(has('pick', 'b')).toBe(true);
+  });
+
+  it('decider — branches do NOT auto-converge; the direct next edge is kept', () => {
+    const chart = flowChart('seed', noop, 'seed')
+      .addDeciderFunction('Route', (s: never) => decide(s, [{ when: () => true, then: 'x', label: 'x' }], 'y'), 'route')
+      .addFunctionBranch('x', 'X', noop)
+      .addFunctionBranch('y', 'Y', noop)
+      .end()
+      .addFunction('join', noop, 'join')
+      .build();
+
+    const { has } = edgesOf([...walkSubflowSpec(chart.buildTimeStructure, 'sub')]);
+    // A decider's branches genuinely diverge — no inferred convergence edges.
+    expect(has('x', 'join')).toBe(false);
+    expect(has('y', 'join')).toBe(false);
+    // The decider keeps its own direct → next edge (unchanged behavior).
+    expect(has('route', 'join')).toBe(true);
   });
 });

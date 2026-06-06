@@ -12,6 +12,7 @@
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import { isDevMode } from '../../scope/detectCircular.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
@@ -289,6 +290,19 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       } catch (err) {
         if (isDevMode())
           console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onRunEnd: ${err}`);
+      }
+    }
+  }
+
+  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext): void {
+    if (this.recorders.length === 0) return;
+    const event = { structuredError: error, traversalContext };
+    for (const r of this.recorders) {
+      try {
+        r.onRunFailed?.(event);
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onRunFailed: ${err}`);
       }
     }
   }

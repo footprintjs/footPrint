@@ -172,6 +172,59 @@ console.log(chart.toMermaid?.() ?? 'N/A');
 
 ---
 
+## Parallel Fan-Out Error Semantics
+
+When a stage fans out into several children that run **in parallel**, one child
+throwing has two possible meanings. footprintjs lets you pick which:
+
+| Mode | Underlying primitive | What a child error does | Use when |
+|------|---------------------|-------------------------|----------|
+| **DEFAULT** (best-effort) | `Promise.allSettled` | Collected, **NOT** rethrown. Every sibling still runs to completion; the run **resolves** and continues past the fan-out. | Children are independent and partial success is acceptable (e.g. best-effort enrichment, parallel tool calls where some may fail). |
+| **`failFast: true`** | `Promise.all` | The **first** error **rejects the whole run** (aborts). Siblings already in flight are abandoned. | Every selected child is **REQUIRED** — if one fails the result is meaningless (e.g. assembling an LLM request from system-prompt + messages + tools slots). |
+
+### The footgun this prevents
+
+Under the default, a **required** parallel branch that throws is **silently
+swallowed** — the run resolves "successfully" with a half-built result. This is
+easy to miss because the error never surfaces as a rejection. If all selected
+branches must succeed, set `failFast: true` so the failure propagates.
+
+### Where to set it
+
+`failFast` lives on the **fan-out node** and is honored by every parallel
+surface — plain-function branches, **subflow** branches, and bare parallel
+lists alike:
+
+```typescript
+// Root selector (flowChartSelector) — required slots assembled into one request
+flowChartSelector('Pick', selectorFn, 'pick', { failFast: true })
+  .addSubFlowChartBranch('sf-system-prompt', sysSlot, 'System Prompt')
+  .addSubFlowChartBranch('sf-messages', msgSlot, 'Messages')
+  .addSubFlowChartBranch('sf-tools', toolsSlot, 'Tools')
+  .end()
+  .addFunction('messageAPI', assembleFn, 'message-api') // only runs if ALL slots succeeded
+  .build();
+
+// Mid-chain selector (addSelectorFunction) — 5th arg is the options bag
+builder.addSelectorFunction('Pick', selectorFn, 'pick', 'Route', { failFast: true });
+
+// Bare parallel list (addListOfFunction)
+builder.addListOfFunction([{ id: 'a', name: 'A', fn: aFn }, { id: 'b', name: 'B', fn: bFn }], { failFast: true });
+```
+
+`failFast` defaults to `false` (best-effort) everywhere, so existing charts keep
+their current behavior. See `examples/runtime-features/parallel/` and
+`test/lib/builder/unit/selector-failfast.test.ts`.
+
+### Interaction with `$break` propagation
+
+`failFast` (a branch *threw*) is distinct from `$break` (a branch *chose* to
+stop). For a fan-out, the existing break rule still applies: the parent breaks
+only when **all** fork children broke. See **Break + Propagation** in the
+architecture notes.
+
+---
+
 ## What Consumers Can Do After Failure
 
 - **Retry with modifications** — Inspect the snapshot, fix inputs, re-run

@@ -123,6 +123,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     context: StageContext,
     branchPath: string,
     traversalContext?: TraversalContext,
+    failFast?: boolean,
   ): Promise<Record<string, NodeResultType>> {
     const selectorResult = await selector(input);
     const selectedIds = Array.isArray(selectorResult) ? selectorResult : [selectorResult];
@@ -172,6 +173,8 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       name: 'selector-temp',
       id: 'selector-temp',
       children: selectedChildren,
+      // Honor the selector node's fan-out error mode (Promise.all vs allSettled).
+      failFast,
     };
     return await this.executeNodeChildren(tempNode, context, undefined, branchPath, traversalContext);
   }

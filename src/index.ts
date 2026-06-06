@@ -22,7 +22,7 @@
 export type { FlowChart, StageFunction as StageHandler, StreamHandlers } from './lib/builder/index.js';
 
 /** @category Quick Start */
-export { flowChart, FlowChartBuilder } from './lib/builder/index.js';
+export { flowChart, FlowChartBuilder, flowChartSelector } from './lib/builder/index.js';
 
 /** @category Quick Start — build-time observer (twin of FlowRecorder) */
 export type {
@@ -142,6 +142,8 @@ export type {
   FlowLoopEvent,
   FlowNextEvent,
   FlowRecorder,
+  FlowRunEvent,
+  FlowRunFailedEvent,
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,

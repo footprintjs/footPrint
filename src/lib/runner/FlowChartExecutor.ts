@@ -532,6 +532,25 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const leafSubflowId =
       checkpoint.subflowPath.length > 0 ? checkpoint.subflowPath[checkpoint.subflowPath.length - 1] : undefined;
     let continuationNext = pausedNode.next;
+    // A branch-sourced loop (`{ loopTo }` / `DeciderList.loopTo`) sets the
+    // looping branch's `next` to a loop-ref STUB — `{ id, isLoopRef:true }`
+    // with no fn/children/subflowId. On a NORMAL run that stub resolves fine:
+    // the real target node is reachable from the chart root, so the traverser's
+    // node map already holds it (the stub is skipped — first-write-wins). On
+    // RESUME the node map is built from the truncated resume root, where the
+    // real target is unreachable, so the stub would win the id slot and
+    // `executeNode` throws "Node '<target>' must define ...". Resolve the stub
+    // to the REAL target node here (dfsFind skips loop-refs and returns the
+    // real node WITH its full downstream chain — e.g. a subflow MOUNT node,
+    // whose `.next` carries the decider/terminal continuation the loop must
+    // re-enter). See test/lib/pause/resume-branch-loop-subflow.test.ts.
+    if (continuationNext?.isLoopRef) {
+      const loopTargetId = continuationNext.id;
+      const realTarget =
+        (leafSubflowId !== undefined ? this.findNodeInGraph(loopTargetId, checkpoint.subflowPath) : undefined) ??
+        this.findNodeInGraph(loopTargetId, []);
+      if (realTarget) continuationNext = realTarget;
+    }
     if (!continuationNext && checkpoint.continuationStageId) {
       // Search leaf subflow first (loop targets / branch joins live there),
       // then fall back to top level.

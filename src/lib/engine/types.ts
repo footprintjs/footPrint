@@ -140,6 +140,26 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
   arrayMerge?: ArrayMergeMode;
 
   /**
+   * STRUCTURE-ONLY: the downstream stage id this branch's convergence edge
+   * points to, overriding the default "converge at the next linear stage."
+   *
+   * When a fork/selector/decider branch carries `convergeAt`, its visualized
+   * `next` edge is fired to the named stage instead of to the shared
+   * convergence node its siblings use. This expresses an unequal-depth merge
+   * — e.g. a `tools` slot that bypasses the `messageAPI` assembly node and
+   * pairs with its output at `call-llm` (so `call-llm` reads as a 2-parent
+   * merge), faithful to the Anthropic wire protocol (system+messages = the
+   * message payload; tools = a separate top-level field).
+   *
+   * **This affects the STRUCTURE/topology graph only** — the runtime is
+   * unchanged (the branch's outputs ride shared scope; the named target reads
+   * them when it runs). It does NOT introduce a join barrier. The target is a
+   * FORWARD stage (added later in the chain), so it is not validated at
+   * branch-declaration time.
+   */
+  convergeAt?: string;
+
+  /**
    * When `true`, an inner `scope.$break(reason)` call inside this subflow
    * propagates up to the parent — i.e., the parent's `breakFlag` is set
    * after the subflow exits, terminating the parent's outer loop too.

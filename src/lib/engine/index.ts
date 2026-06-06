@@ -41,6 +41,8 @@ export type {
   FlowLoopEvent,
   FlowNextEvent,
   FlowRecorder,
+  FlowRunEvent,
+  FlowRunFailedEvent,
   FlowSelectedEvent,
   FlowStageEvent,
   FlowSubflowEvent,

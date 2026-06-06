@@ -139,6 +139,10 @@ export class SelectorHandler<TOut = any, TScope = any> {
       name: 'selector-temp',
       id: 'selector-temp',
       children: selectedChildren,
+      // Propagate the selector's fan-out error mode. Without this, ChildrenExecutor
+      // reads `tempNode.failFast` (undefined) and always uses Promise.allSettled —
+      // silently swallowing a required branch's error. See builder `failFast` option.
+      failFast: node.failFast,
     };
     try {
       return await this.childrenExecutor.executeNodeChildren(
