@@ -9,6 +9,8 @@
   <a href="https://github.com/footprintjs/footPrint/actions"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <!-- coverage-badge --><img src="https://img.shields.io/badge/coverage-93%25-brightgreen.svg" alt="coverage: 93%"><!-- /coverage-badge -->
   <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg?style=flat" alt="npm version"></a>
+  <a href="https://bundlephobia.com/package/footprintjs"><img src="https://img.shields.io/bundlephobia/minzip/footprintjs?label=minzipped" alt="minzipped size"></a>
+  <a href="#tree-shakeable--esm-first"><img src="https://img.shields.io/badge/tree--shakeable-%E2%9C%93-success?style=flat" alt="tree-shakeable"></a>
   <a href="https://github.com/footprintjs/footPrint/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg" alt="Downloads"></a>
   <a href="https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool"><img src="https://img.shields.io/badge/Try_with_LLM-Live_Demo-7c6cf0?style=flat" alt="Try with LLM"></a>
@@ -167,6 +169,23 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **Emit channel** | `scope.$emit(name, payload)` &mdash; user-authored structured events to `EmitRecorder`, pass-through, zero-allocation when no recorder attached, redactable via `emitPatterns` |
 | **Detach** *(new in 4.17)* | `scope.$detachAndForget(driver, child, input)` and `scope.$detachAndJoinLater(driver, child, input)` &mdash; fire-and-forget child flowcharts via the `footprintjs/detach` subpath. Six built-in drivers (microtask / immediate / setImmediate / setTimeout / sendBeacon / workerThread) + custom-driver protocol. Builder-native composition (`addDetachAndForget` / `addDetachAndJoinLater`) makes detach a labeled chart stage. `flushAllDetached()` for graceful shutdown. [Guide →](https://footprintjs.github.io/footPrint/guides/patterns/detach/) |
 | **Recorder storage primitives** | `BoundaryStateStore<TState>` &mdash; one of three composable storage shelves alongside `SequenceStore<T>` (durable ordered, with `getEntryRanges()`) and `KeyedStore<T>` (durable 1:1). `BoundaryStateStore` tracks live transient state DURING a `[start, stop]` event interval (LLM stream partial, tool args streaming, agent turn state) and clears on stop. O(1) reads via `get` / `hasActive` / `activeCount`. Mental model: recorder *interfaces* (`ScopeRecorder` / `FlowRecorder` / `EmitRecorder`) are observers; stores are *bookkeeping shelves*. A real recorder picks ONE observer interface and OWNS the store as a field (composition &mdash; "one purpose per recorder"). The `Store` classes are exported from `footprintjs/trace`. (Older `KeyedRecorder` / `SequenceRecorder` / `BoundaryStateTracker` abstract bases are deprecated and slated for removal &mdash; use the stores.) [Guide →](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/) |
+
+---
+
+## Tree-shakeable & ESM-first
+
+Import one thing, ship one thing. footprintjs is built so your bundle grows only with what you actually use:
+
+- **Dual build, true ESM.** Ships CommonJS (`require`) **and** real ECMAScript Modules (`import`) with TypeScript types. The ESM build is marked `type:module` and every internal import carries an explicit `.js` extension, so it loads as true ESM under Node, Vite, Next, Deno, and Bun — no compatibility shims.
+- **Per-file modules + `sideEffects:false`.** The dist is emitted file-by-file (never pre-bundled) and declares zero side effects, so bundlers can drop every export you don't touch.
+- **Subpath exports.** Pull execution tracing from `footprintjs/trace`, fire-and-forget children from `footprintjs/detach`, engine internals from `footprintjs/advanced` — each is independently tree-shakeable.
+
+**Proven, not promised.** A CI smoke test bundles a minimal `import { flowChart } from 'footprintjs'` and asserts the recorder, detach, and trace layers are pruned — your flowchart core doesn't drag them in. See [`test/esm-packaging.test.ts`](test/esm-packaging.test.ts).
+
+```ts
+// Only flowChart? The recorder/detach/trace layers are tree-shaken away.
+import { flowChart } from 'footprintjs';
+```
 
 ---
 

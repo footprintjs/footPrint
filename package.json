@@ -39,7 +39,7 @@
   },
   "scripts": {
     "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
-    "build": "tsc && tsc -p tsconfig.esm.json",
+    "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild-esm.mjs",
     "prepare": "husky",
     "watch": "tsc -w",
     "test": "vitest run",
@@ -117,6 +117,7 @@
     "@typescript-eslint/parser": "^5.61.0",
     "@vitest/coverage-v8": "^4.1.8",
     "concurrently": "^8.0.1",
+    "esbuild": "^0.28.0",
     "eslint": "^8.44.0",
     "eslint-config-prettier": "^6.15.0",
     "eslint-config-standard": "^17.0.0",
