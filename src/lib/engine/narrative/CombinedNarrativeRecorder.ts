@@ -1,9 +1,10 @@
 /**
  * CombinedNarrativeRecorder — Inline narrative builder that merges flow + data during traversal.
  *
- * Extends SequenceRecorder<CombinedNarrativeEntry> for dual-indexed storage (ordered sequence
- * + O(1) per-step lookup by runtimeStageId). Implements `CombinedRecorder` — the library's
- * first-class abstraction for observers that span both data-flow and control-flow streams.
+ * Composes a SequenceStore<CombinedNarrativeEntry> for dual-indexed storage (ordered sequence
+ * + O(1) per-step lookup by runtimeStageId) — Convention 1, one purpose per recorder.
+ * Implements `CombinedRecorder` — the library's first-class abstraction for observers that span
+ * both data-flow and control-flow streams.
  *
  * Event ordering guarantees this works:
  *   1. Scope events (onRead, onWrite) fire DURING stage execution
@@ -17,7 +18,7 @@
 import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
 import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
-import { SequenceRecorder } from '../../recorder/SequenceRecorder.js';
+import { SequenceStore } from '../../recorder/SequenceStore.js';
 import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import type {
@@ -86,8 +87,10 @@ export interface CombinedNarrativeRecorderOptions {
  * Scope variants of these events are deliberately ignored here — the
  * narrative only surfaces control-flow lifecycle events.
  */
-export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativeEntry> implements CombinedRecorder {
+export class CombinedNarrativeRecorder implements CombinedRecorder {
   readonly id: string;
+  /** Dual-indexed ordered storage (Convention 1 — composed, not inherited). */
+  private readonly store = new SequenceStore<CombinedNarrativeEntry>();
 
   /**
    * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision.
@@ -110,7 +113,6 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
   private renderer?: NarrativeRenderer;
 
   constructor(options?: CombinedNarrativeRecorderOptions & { id?: string }) {
-    super();
     this.id = options?.id ?? 'combined-narrative';
     this.includeStepNumbers = options?.includeStepNumbers ?? true;
     this.includeValues = options?.includeValues ?? true;
@@ -168,7 +170,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     const text = this.renderer?.renderStage?.(ctx) ?? this.defaultRenderStage(ctx);
 
     const sfId = event.traversalContext?.subflowId;
-    this.emit({
+    this.store.push({
       type: 'stage',
       text,
       depth: 0,
@@ -202,7 +204,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     };
     const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
 
-    this.emit({
+    this.store.push({
       type: 'stage',
       text: stageText,
       depth: 0,
@@ -222,7 +224,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
       evidence: event.evidence,
     };
     const conditionText = this.renderer?.renderDecision?.(decisionCtx) ?? this.defaultRenderDecision(decisionCtx);
-    this.emit({
+    this.store.push({
       type: 'condition',
       text: conditionText,
       depth: 1,
@@ -240,7 +242,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
   onFork(event: FlowForkEvent): void {
     const ctx: ForkRenderContext = { children: event.children };
     const text = this.renderer?.renderFork?.(ctx) ?? this.defaultRenderFork(ctx);
-    this.emit({
+    this.store.push({
       type: 'fork',
       text,
       depth: 0,
@@ -257,7 +259,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
       evidence: event.evidence,
     };
     const text = this.renderer?.renderSelected?.(ctx) ?? this.defaultRenderSelected(ctx);
-    this.emit({
+    this.store.push({
       type: 'selector',
       text,
       depth: 0,
@@ -282,7 +284,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     const rid = event.traversalContext?.runtimeStageId;
     const sid = event.traversalContext?.stageId;
     const sfId = event.traversalContext?.subflowId;
-    this.emit({
+    this.store.push({
       type: 'subflow',
       text,
       depth: 0,
@@ -345,7 +347,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
           text = this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`;
         }
 
-        this.emit({
+        this.store.push({
           type: 'step',
           text,
           depth: 1,
@@ -373,7 +375,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
       outputState: event.outputState,
     };
     const text = this.renderer?.renderSubflow?.(ctx) ?? this.defaultRenderSubflow(ctx);
-    this.emit({
+    this.store.push({
       type: 'subflow',
       text,
       depth: 0,
@@ -392,7 +394,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
       description: event.description,
     };
     const text = this.renderer?.renderLoop?.(ctx) ?? this.defaultRenderLoop(ctx);
-    this.emit({
+    this.store.push({
       type: 'loop',
       text,
       depth: 0,
@@ -405,7 +407,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
   onBreak(event: FlowBreakEvent): void {
     const ctx: BreakRenderContext = { stageName: event.stageName };
     const text = this.renderer?.renderBreak?.(ctx) ?? this.defaultRenderBreak(ctx);
-    this.emit({
+    this.store.push({
       type: 'break',
       text,
       depth: 0,
@@ -423,7 +425,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     if (!isFlowEvent(event)) return;
     if (!event.stageName || !event.stageId) return;
     const text = `Execution paused at ${event.stageName}.`;
-    this.emit({
+    this.store.push({
       type: 'pause',
       text,
       depth: 0,
@@ -440,7 +442,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     if (!event.stageName || !event.stageId) return;
     const suffix = event.hasInput ? ' with input.' : '.';
     const text = `Execution resumed at ${event.stageName}${suffix}`;
-    this.emit({
+    this.store.push({
       type: 'resume',
       text,
       depth: 0,
@@ -473,7 +475,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
       validationIssues,
     };
     const text = this.renderer?.renderError?.(ctx) ?? this.defaultRenderError(ctx);
-    this.emit({
+    this.store.push({
       type: 'error',
       text,
       depth: 0,
@@ -521,7 +523,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
    */
   getEntriesBySubflow(): Record<string, CombinedNarrativeEntry[]> {
     const result: Record<string, CombinedNarrativeEntry[]> = { '': [] };
-    this.forEachEntry((entry) => {
+    this.store.forEach((entry) => {
       const key = entry.subflowId ?? '';
       if (!result[key]) result[key] = [];
       result[key].push(entry);
@@ -529,9 +531,51 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
     return result;
   }
 
+  // ── Sequence query API (delegates to the composed store) ───────────────
+
+  /** All narrative entries in execution order. */
+  getEntries(): CombinedNarrativeEntry[] {
+    return this.store.getAll();
+  }
+
+  /** Total number of narrative entries. */
+  get entryCount(): number {
+    return this.store.size;
+  }
+
+  /** O(1) lookup: all narrative entries for one execution step. */
+  getEntriesForStep(runtimeStageId: string): CombinedNarrativeEntry[] {
+    return this.store.getByKey(runtimeStageId);
+  }
+
+  /** Number of distinct execution steps that produced entries. */
+  get stepCount(): number {
+    return this.store.keyCount;
+  }
+
+  /** Pre-built per-step range index — O(1) lookups for time-travel scrubbing. */
+  getEntryRanges(): ReadonlyMap<string, { readonly firstIdx: number; readonly endIdx: number }> {
+    return this.store.getEntryRanges();
+  }
+
+  /** Reduce ALL entries to a single value. */
+  aggregate<R>(fn: (acc: R, entry: CombinedNarrativeEntry) => R, initial: R): R {
+    return this.store.aggregate(fn, initial);
+  }
+
+  /** Reduce entries, optionally filtered to a set of visible runtimeStageIds. */
+  accumulate<R>(fn: (acc: R, entry: CombinedNarrativeEntry) => R, initial: R, keys?: ReadonlySet<string>): R {
+    return this.store.accumulate(fn, initial, keys);
+  }
+
+  /** Progressive reveal: entries whose runtimeStageId is in the visible set. */
+  getEntriesUpTo(visibleIds: ReadonlySet<string>): CombinedNarrativeEntry[] {
+    return this.store.getEntriesUpTo(visibleIds);
+  }
+
   /** Clears all state. Called automatically before each run. */
-  override clear(): void {
-    super.clear();
+  clear(): void {
+    this.store.clear();
     this.pendingOps.clear();
     this.stageCounters.clear();
     this.firstStageFlags.clear();
@@ -600,7 +644,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
         } else {
           emitText = this.defaultRenderEmit(emitCtx);
         }
-        this.emit({
+        this.store.push({
           type: 'emit',
           text: emitText,
           depth: 1,
@@ -631,7 +675,7 @@ export class CombinedNarrativeRecorder extends SequenceRecorder<CombinedNarrativ
 
       if (text == null) continue;
 
-      this.emit({
+      this.store.push({
         type: 'step',
         text,
         depth: 1,

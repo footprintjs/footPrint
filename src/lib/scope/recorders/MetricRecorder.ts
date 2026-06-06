@@ -2,7 +2,9 @@
  * MetricRecorder — per-step timing and execution counts, keyed by runtimeStageId.
  *
  * Stores per-invocation data during traversal. Aggregated views computed on read.
- * Extends KeyedRecorder<StepMetrics> for O(1) lookup and standard operations.
+ * Composes a `KeyedStore<StepMetrics>` for O(1) lookup and standard operations
+ * (Convention 1 — one purpose per recorder: this is the ScopeRecorder; the store
+ * is the storage).
  *
  * @example
  * ```typescript
@@ -21,7 +23,7 @@
  * ```
  */
 
-import { KeyedRecorder } from '../../recorder/KeyedRecorder.js';
+import { KeyedStore } from '../../recorder/KeyedStore.js';
 import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
 import type { CommitEvent, PauseEvent, ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../types.js';
 
@@ -73,17 +75,18 @@ export interface MetricRecorderOptions {
   preferredOperation?: RecorderOperation;
 }
 
-export class MetricRecorder extends KeyedRecorder<StepMetrics> implements ScopeRecorder {
+export class MetricRecorder implements ScopeRecorder {
   private static _counter = 0;
 
   readonly id: string;
   readonly preferredOperation: RecorderOperation;
+  /** 1:1 per-step storage (Convention 1 — composed, not inherited). */
+  private readonly store = new KeyedStore<StepMetrics>();
   private stageStartTimes = new Map<string, number>();
   private currentRuntimeStageId = '';
   private stageFilter?: (stageName: string) => boolean;
 
   constructor(idOrOptions?: string | MetricRecorderOptions) {
-    super();
     if (typeof idOrOptions === 'string') {
       this.id = idOrOptions;
       this.preferredOperation = 'aggregate';
@@ -101,12 +104,44 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements ScopeR
   /** Get or create the StepMetrics for the current stage. */
   private current(): StepMetrics {
     const key = this.currentRuntimeStageId;
-    let m = this.getByKey(key);
+    let m = this.store.get(key);
     if (!m) {
       m = { stageName: '', readCount: 0, writeCount: 0, commitCount: 0, pauseCount: 0, duration: 0 };
-      this.store(key, m);
+      this.store.set(key, m);
     }
     return m;
+  }
+
+  // ── Per-step query API (delegates to the composed store) ───────────────
+
+  /** Translate: per-step metrics by runtimeStageId. */
+  getByKey(runtimeStageId: string): StepMetrics | undefined {
+    return this.store.get(runtimeStageId);
+  }
+
+  /** All per-step metrics as a read-only Map (insertion-ordered). */
+  getMap(): ReadonlyMap<string, StepMetrics> {
+    return this.store.getMap();
+  }
+
+  /** All per-step metrics (insertion-ordered). */
+  values(): StepMetrics[] {
+    return this.store.values();
+  }
+
+  /** Number of recorded steps. */
+  get size(): number {
+    return this.store.size;
+  }
+
+  /** Aggregate: reduce ALL steps to a single value (dashboards, totals). */
+  aggregate<R>(fn: (acc: R, entry: StepMetrics, key: string) => R, initial: R): R {
+    return this.store.aggregate(fn, initial);
+  }
+
+  /** Accumulate: reduce steps up to a slider position (progressive view). */
+  accumulate<R>(fn: (acc: R, entry: StepMetrics, key: string) => R, initial: R, keys?: ReadonlySet<string>): R {
+    return this.store.accumulate(fn, initial, keys);
   }
 
   onStageStart(event: StageEvent): void {
@@ -201,7 +236,7 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements ScopeR
     }
     return {
       name: 'Metrics',
-      description: 'Aggregator (KeyedRecorder) — per-step timing and I/O counts',
+      description: 'Aggregator (KeyedStore) — per-step timing and I/O counts',
       preferredOperation: this.preferredOperation,
       data: {
         numericField: 'readCount',
@@ -217,8 +252,8 @@ export class MetricRecorder extends KeyedRecorder<StepMetrics> implements ScopeR
   }
 
   /** Clear all state — called by executor before each run(). */
-  override clear(): void {
-    super.clear();
+  clear(): void {
+    this.store.clear();
     this.stageStartTimes.clear();
     this.currentRuntimeStageId = '';
   }

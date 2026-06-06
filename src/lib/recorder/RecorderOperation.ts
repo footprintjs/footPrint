@@ -4,9 +4,9 @@
  * Data is collected during the single DFS traversal. The consumer chooses the
  * operation at READ time:
  *
- * | Operation   | KeyedRecorder method     | SequenceRecorder method        | Use case                    |
+ * | Operation   | KeyedStore method        | SequenceStore method           | Use case                    |
  * |-------------|--------------------------|--------------------------------|-----------------------------|
- * | Translate   | `getByKey(id)`           | `getEntriesForStep(id)`        | Per-step detail             |
+ * | Translate   | `get(id)`                | `getByKey(id)`                 | Per-step detail             |
  * | Accumulate  | `accumulate(fn, init, k)` | `accumulate(fn, init, k)`     | Running total up to slider  |
  * | Aggregate   | `aggregate(fn, init)`    | `aggregate(fn, init)`          | Grand total for dashboards  |
  *

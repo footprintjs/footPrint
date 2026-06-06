@@ -4,11 +4,11 @@
  * Your code IS the instrumentation. Data is collected during the single DFS
  * traversal. The recorder decides what to compute at COLLECTION time:
  *
- * | Operation   | During Traversal                  | Read Time                |
- * |-------------|-----------------------------------|--------------------------|
- * | Translate   | store(id, entry)                  | getByKey(id)             |
- * | Accumulate  | store(id, { ..., runningTotal })  | getByKey(id).runningTotal|
- * | Aggregate   | store(id, entry)                  | aggregate(fn, init)      |
+ * | Operation   | During Traversal                    | Read Time                |
+ * |-------------|-------------------------------------|--------------------------|
+ * | Translate   | store.set(id, entry)                | getByKey(id)             |
+ * | Accumulate  | store.set(id, { ..., runningTotal })| getByKey(id).runningTotal|
+ * | Aggregate   | store.set(id, entry)                | aggregate(fn, init)      |
  *
  * Accumulate = running total computed DURING traversal, stored with each entry.
  * Time-travel UI just reads the pre-computed value. No post-processing.
@@ -20,9 +20,10 @@ import {
   MetricRecorder,
   type StageEvent,
 } from 'footprintjs';
-import { KeyedRecorder } from 'footprintjs/trace';
+import { KeyedStore } from 'footprintjs/trace';
+import type { ScopeRecorder } from 'footprintjs';
 
-// ── Custom CostRecorder (extends KeyedRecorder) ────────────────────────
+// ── Custom CostRecorder (composes KeyedStore — Convention 1) ───────────
 
 interface CostEntry {
   stageName: string;
@@ -31,8 +32,12 @@ interface CostEntry {
   runningTotal: number;
 }
 
-class CostRecorder extends KeyedRecorder<CostEntry> {
+// ONE PURPOSE: the ScopeRecorder is the event handler; the KeyedStore is the
+// storage. The recorder owns the store as a field and exposes only the query
+// methods it wants public — no shared base class.
+class CostRecorder implements ScopeRecorder {
   readonly id = 'cost-tracker';
+  private readonly store = new KeyedStore<CostEntry>();
   private _runningTotal = 0;   // grows during traversal
 
   onStageStart(event: StageEvent) {
@@ -48,28 +53,34 @@ class CostRecorder extends KeyedRecorder<CostEntry> {
     this._runningTotal += cost;
 
     // Accumulate: running total stored WITH each entry during traversal
-    this.store(event.runtimeStageId, {
+    this.store.set(event.runtimeStageId, {
       stageName: event.stageName,
       cost,
       runningTotal: this._runningTotal,
     });
   }
 
+  // Expose the query surface this demo reads (delegates to the composed store).
+  getByKey(id: string) { return this.store.get(id); }
+  getMap() { return this.store.getMap(); }
+  aggregate<R>(fn: (acc: R, entry: CostEntry, key: string) => R, init: R) { return this.store.aggregate(fn, init); }
+  get size() { return this.store.size; }
+
   toSnapshot() {
     return {
       name: 'Cost',
-      description: 'Accumulator (KeyedRecorder) — running total computed during traversal',
+      description: 'Accumulator (KeyedStore) — running total computed during traversal',
       preferredOperation: 'accumulate' as const,
       data: {
         numericField: 'cost',
         grandTotal: this._runningTotal,
-        steps: Object.fromEntries(this.getMap()),
+        steps: Object.fromEntries(this.store.getMap()),
       },
     };
   }
 
-  override clear() {
-    super.clear();
+  clear() {
+    this.store.clear();
     this._runningTotal = 0;
   }
 }

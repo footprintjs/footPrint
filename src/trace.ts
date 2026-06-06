@@ -68,20 +68,6 @@ export { SequenceStore } from './lib/recorder/SequenceStore.js';
 export type { RangeEntry, RangeToken } from './lib/recorder/CommitRangeIndex.js';
 export { CommitRangeIndex } from './lib/recorder/CommitRangeIndex.js';
 
-// ── Abstract bases (DEPRECATED in v5 — slated for removal) ───────
-// Kept during the v5 migration window for downstream consumers
-// (agentfootprint, agentfootprint-lens, etc.) that still extend
-// them. Migrate to the corresponding Store class above.
-// KeyedRecorder — base class for 1:1 Map-based recorders
-export { KeyedRecorder } from './lib/recorder/KeyedRecorder.js';
-
-// SequenceRecorder — base class for 1:N ordered sequence recorders with keyed index
-export { SequenceRecorder } from './lib/recorder/SequenceRecorder.js';
-
-// BoundaryStateTracker — base class for transient bracket-scoped state
-// (live state DURING a matched [start, stop] event interval; clears on stop)
-export { BoundaryStateTracker } from './lib/recorder/BoundaryStateTracker.js';
-
 // TopologyRecorder — composition graph accumulator (subflows + control-flow edges)
 export type {
   Topology,

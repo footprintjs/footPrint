@@ -1,8 +1,12 @@
 # footprintjs 5.0.0 — Recorder Redesign + `runId`
 
-**Status:** DRAFT — Phase 0 design doc, no code yet.
+**Status:** ✅ COMPLETE. The stores (`KeyedStore` / `SequenceStore` / `BoundaryStateStore`)
+shipped in v5; the abstract base classes (`KeyedRecorder` / `SequenceRecorder` /
+`BoundaryStateTracker`) they replaced were **removed in 7.0.0**. Composition is now the
+only recorder model — every built-in recorder owns a store as a field. This memo is
+retained as historical design rationale; code snippets below showing `extends
+SequenceRecorder` describe the *pre-7.0.0* state.
 **Audience:** library maintainers + downstream consumer authors (agentfootprint, lens, explainable-ui).
-**Decision authority:** project owner signoff required before Phase 1 implementation.
 
 ---
 

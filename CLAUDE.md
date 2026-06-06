@@ -296,7 +296,6 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `SequenceStore<T>` | class | **Primary** 1:N ordered store (has `getEntryRanges()` for O(1) time-travel) |
 | `BoundaryStateStore<T>` | class | **Primary** transient bracket-scoped state store |
 | `CommitRangeIndex<TLabel>` | class | Interval index over commit indices (`open`/`close`/`enclosing`/`overlapping`) |
-| `KeyedRecorder<T>` / `SequenceRecorder<T>` / `BoundaryStateTracker<T>` | abstract classes (DEPRECATED) | Legacy bases — migrate to the stores above |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
 | `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
 | `QualityRecorder` + `qualityTrace`/`formatQualityTrace` | class / functions | Per-step quality scoring + Quality Stack Trace backtracking |
@@ -331,7 +330,7 @@ flowChart() builder      →  STATIC flowchart (design-time definition)
 
 **What it ISN'T:**
 - Not a full execution tree — that's `StageContext` / `executor.getSnapshot()`
-- Not per-stage data — that's `MetricRecorder` / custom `KeyedRecorder<T>`
+- Not per-stage data — that's `MetricRecorder` / a custom recorder composing `KeyedStore<T>`
 - Not agent-specific — agentfootprint composes it; footprintjs owns it
 
 **Why live consumers need it:** The executor already has the topology internally (execution tree in `StageContext`). But streaming consumers can't access that tree mid-run — they only see events. `TopologyRecorder` = "the tree, reconstructed from events, live-queryable."
@@ -403,7 +402,7 @@ Each chart execution → 2 boundaries:
 Loop re-entry produces distinct pairs because the parent stage's executionIndex increments.
 
 **What it IS:**
-- `SequenceRecorder<InOutEntry>` — flat ordered list + per-`runtimeStageId` index
+- composes `SequenceStore<InOutEntry>` — flat ordered list + per-`runtimeStageId` index
 - Captures the **payloads** at every chart boundary (what flowed IN and OUT)
 - Path-aware: `subflowPath` is decomposed from the engine's path-prefixed `subflowId` and rooted under `__root__`
 - Domain-agnostic — knows nothing about LLMs, tools, agents
@@ -451,39 +450,45 @@ inOut.getEntryRanges();              // O(1) per-step range index for time-trave
 
 Example: [examples/runtime-features/flow-recorder/07-inout.ts](examples/runtime-features/flow-recorder/07-inout.ts)
 
-**Two recorder base classes (DEPRECATED — v5 migration window, slated for removal)** — choose based on data shape. New code MUST use the v5 stores instead (own a `KeyedStore<T>` / `SequenceStore<T>` / `BoundaryStateStore<T>` field and implement the channel interface yourself — see "Project conventions" Convention 1). These bases are kept only for downstream consumers that still extend them:
+**Three storage primitives (the v5 recorder model)** — choose by data shape. A recorder OWNS a store as a field and implements its channel interface (Convention 1 — "one purpose per recorder"). There are NO abstract base classes; composition is the only model.
 
-| Base Class | Store replacement | Relationship | Use When |
-|------------|-------------------|-------------|----------|
-| `KeyedRecorder<T>` | `KeyedStore<T>` | 1:1 Map | Each step produces one record (MetricRecorder, TokenRecorder) |
-| `SequenceRecorder<T>` | `SequenceStore<T>` | 1:N sequence + Map | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
-| `BoundaryStateTracker<T>` | `BoundaryStateStore<T>` | bracket-scoped state | Live transient state during a `[start, stop]` event interval |
+| Store | Relationship | Use When |
+|-------|-------------|----------|
+| `KeyedStore<T>` | 1:1 Map | Each step produces one record (MetricRecorder, TokenRecorder) |
+| `SequenceStore<T>` | 1:N sequence + Map | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
+| `BoundaryStateStore<T>` | bracket-scoped state | Live transient state during a `[start, stop]` event interval |
 
 ```typescript
-import { KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
+import { KeyedStore, SequenceStore } from 'footprintjs/trace';
+import type { ScopeRecorder } from 'footprintjs';
 
-// KeyedRecorder: one entry per step
-class TokenRecorder extends KeyedRecorder<TokenEntry> {
+// KeyedStore: one entry per step
+class TokenRecorder implements ScopeRecorder {
   readonly id = 'tokens';
-  onLLMCall(event) { this.store(event.runtimeStageId, { tokens: event.usage }); }
-}
-recorder.getByKey('call-llm#5');                               // Translate: per-step value
-recorder.aggregate((sum, e) => sum + e.tokens, 0);             // Aggregate: grand total
-recorder.accumulate((sum, e) => sum + e.tokens, 0, visibleKeys); // Accumulate: up to slider
+  private readonly store = new KeyedStore<TokenEntry>();
+  onLLMCall(event) { this.store.set(event.runtimeStageId, { tokens: event.usage }); }
 
-// SequenceRecorder: multiple entries per step, ordered
-class AuditRecorder extends SequenceRecorder<AuditEntry> {
-  readonly id = 'audit';
-  onRead(event) { this.emit({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key }); }
-  onDecision(event) { this.emit({ runtimeStageId: event.traversalContext?.runtimeStageId, ... }); }
+  getForStep(id) { return this.store.get(id); }                                         // Translate: per-step value
+  getTotal() { return this.store.aggregate((sum, e) => sum + e.tokens, 0); }            // Aggregate: grand total
+  getUpTo(keys) { return this.store.accumulate((sum, e) => sum + e.tokens, 0, keys); }  // Accumulate: up to slider
+  clear() { this.store.clear(); }
 }
-recorder.getEntriesForStep('call-llm#5');                      // Translate: per-step entries
-recorder.aggregate((count, _) => count + 1, 0);                // Aggregate: grand total
-recorder.getEntriesUpTo(visibleKeys);                           // Progressive: up to slider
-recorder.getEntryRanges();                                      // Range index: O(1) slider sync
+
+// SequenceStore: multiple entries per step, ordered
+class AuditRecorder implements ScopeRecorder {
+  readonly id = 'audit';
+  private readonly store = new SequenceStore<AuditEntry>();
+  onRead(event) { this.store.push({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key }); }
+
+  getForStep(id) { return this.store.getByKey(id); }                       // Translate: per-step entries
+  getCount() { return this.store.aggregate((count, _) => count + 1, 0); }  // Aggregate: grand total
+  getUpTo(keys) { return this.store.getEntriesUpTo(keys); }                // Progressive: up to slider
+  getRanges() { return this.store.getEntryRanges(); }                      // Range index: O(1) slider sync
+  clear() { this.store.clear(); }
+}
 ```
 
-**`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
+**`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `push()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
 
 **`CombinedNarrativeEntry.direction`** — subflow entries carry `direction: 'entry' | 'exit'`. Use for programmatic subflow boundary detection instead of text scanning (which breaks with custom `NarrativeRenderer`).
 
@@ -701,7 +706,7 @@ A recorder owns exactly ONE concern (storage, OR event ingestion, OR state machi
 
 Use composition: own a `SequenceStore<T>` / `KeyedStore<T>` / `BoundaryStateStore<T>` field, implement the relevant `ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder` interface, delegate event handling to internal helpers, delegate storage to the store. See `examples/recorders/` for canonical patterns.
 
-Inheritance is allowed only when the subclass adds NO behavior beyond what the base provides — pure storage extension is fine, mixing in state machines is not. The abstract base classes (`SequenceRecorder`, `KeyedRecorder`, `BoundaryStateTracker`) exported during the v5 migration window are slated for removal — new code MUST use stores.
+Composition is the ONLY recorder model. The abstract base classes (`SequenceRecorder`, `KeyedRecorder`, `BoundaryStateTracker`) were removed in 7.0.0 — there is no inheritance path. Every recorder (including the built-ins `MetricRecorder`, `QualityRecorder`, `InOutRecorder`, `CombinedNarrativeRecorder`) owns a store as a field.
 
 ### Convention 2 — Examples are mandatory integration tests
 

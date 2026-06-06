@@ -3,10 +3,10 @@
  *
  * Three storage primitives sit on the recorder shelf:
  *
- *   • SequenceRecorder<T>          — append-only event log (durable)
- *   • KeyedRecorder<T>             — 1:1 entry per runtimeStageId (durable)
- *   • BoundaryStateTracker<TState> — live state DURING a [start, stop]
- *                                     bracket; clears on stop  (transient)
+ *   • SequenceStore<T>          — append-only event log (durable)
+ *   • KeyedStore<T>             — 1:1 entry per runtimeStageId (durable)
+ *   • BoundaryStateStore<TState> — live state DURING a [start, stop]
+ *                                   bracket; clears on stop  (transient)
  *
  * This example builds a `LiveLLMTracker` for the third shelf — it answers
  * "is an LLM call IN FLIGHT right now, and what's the partial answer so
@@ -23,7 +23,7 @@ import {
   type EmitEvent,
   type EmitRecorder,
 } from 'footprintjs';
-import { BoundaryStateTracker } from 'footprintjs/trace';
+import { BoundaryStateStore } from 'footprintjs/trace';
 
 // ── Domain state shape ──────────────────────────────────────────────────
 
@@ -33,47 +33,54 @@ interface LLMLiveState {
   readonly startedAtMs: number;
 }
 
-// ── Tracker — extends storage shelf, implements observer interface ──────
+// ── Tracker — composes the storage shelf, implements observer interface ──
 //
-// Two halves combined into one class:
-//   storage:  BoundaryStateTracker<LLMLiveState>  (the new shelf)
-//   observer: EmitRecorder                        (existing interface)
+// One purpose per recorder (Convention 1):
+//   storage:  BoundaryStateStore<LLMLiveState>  (owned as a field)
+//   observer: EmitRecorder                       (the interface this is)
 
-class LiveLLMTracker
-  extends BoundaryStateTracker<LLMLiveState>
-  implements EmitRecorder
-{
+class LiveLLMTracker implements EmitRecorder {
   readonly id = 'live-llm';
+  private readonly store = new BoundaryStateStore<LLMLiveState>();
 
   // Translate emitted events into bracket mutations. The event names
   // are illustrative — wire to whatever your domain emits.
   onEmit(event: EmitEvent): void {
     const key = event.runtimeStageId;
     if (event.name === 'demo.llm.start') {
-      this.startBoundary(key, { partial: '', tokens: 0, startedAtMs: Date.now() });
+      this.store.start(key, { partial: '', tokens: 0, startedAtMs: Date.now() });
     } else if (event.name === 'demo.llm.token') {
       const chunk = (event.payload as { content: string }).content;
-      this.updateBoundary(key, (s) => ({
+      this.store.update(key, (s) => ({
         ...s,
         partial: s.partial + chunk,
         tokens: s.tokens + 1,
       }));
     } else if (event.name === 'demo.llm.end') {
-      // The `final` value lets the subclass do any handoff to durable
-      // storage (e.g., emit a summary into a SequenceRecorder).
-      this.stopBoundary(key);
+      // stop() returns the final state, letting the consumer hand off to
+      // durable storage (e.g., push a summary into a SequenceStore).
+      this.store.stop(key);
     }
   }
 
-  // Public read API — O(1) at any moment during the run.
+  // Public read API — O(1) at any moment during the run (delegates to the store).
   isInFlight(): boolean {
-    return this.hasActive;
+    return this.store.hasActive;
   }
   getPartial(stageId: string): string {
-    return this.getActive(stageId)?.partial ?? '';
+    return this.store.get(stageId)?.partial ?? '';
   }
   getTokenCount(stageId: string): number {
-    return this.getActive(stageId)?.tokens ?? 0;
+    return this.store.get(stageId)?.tokens ?? 0;
+  }
+  getAllActive(): ReadonlyMap<string, LLMLiveState> {
+    return this.store.getAll();
+  }
+  get activeCount(): number {
+    return this.store.activeCount;
+  }
+  clear(): void {
+    this.store.clear();
   }
 }
 

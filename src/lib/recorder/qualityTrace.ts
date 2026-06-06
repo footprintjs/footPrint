@@ -16,8 +16,12 @@
 
 import { causalChain, flattenCausalDAG } from '../memory/backtrack.js';
 import type { CommitBundle } from '../memory/types.js';
-import type { KeyedRecorder } from './KeyedRecorder.js';
 import type { QualityEntry } from './QualityRecorder.js';
+
+/** Minimal per-step quality lookup — satisfied by `QualityRecorder` (structural, decoupled). */
+export interface QualityLookup {
+  getByKey(runtimeStageId: string): QualityEntry | undefined;
+}
 
 /** A single frame in the quality stack trace. */
 export interface QualityFrame {
@@ -51,7 +55,7 @@ export interface QualityStackTrace {
  */
 export function qualityTrace(
   commitLog: CommitBundle[],
-  qualityRecorder: KeyedRecorder<QualityEntry>,
+  qualityRecorder: QualityLookup,
   startId: string,
   maxDepth = 20,
 ): QualityStackTrace {

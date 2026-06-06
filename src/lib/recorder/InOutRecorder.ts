@@ -62,7 +62,7 @@
  */
 
 import type { FlowRecorder, FlowRunEvent, FlowSubflowEvent } from '../engine/narrative/types.js';
-import { SequenceRecorder } from './SequenceRecorder.js';
+import { SequenceStore } from './SequenceStore.js';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -134,53 +134,53 @@ export function inOutRecorder(options: InOutRecorderOptions = {}): InOutRecorder
 
 /**
  * Stateful accumulator that watches `FlowRecorder` chart-boundary events
- * (run start/end + subflow entry/exit) and emits `InOutEntry` records to
- * its underlying `SequenceRecorder` storage.
+ * (run start/end + subflow entry/exit) and pushes `InOutEntry` records to
+ * its composed `SequenceStore` (Convention 1 — one purpose per recorder).
  *
  * Attach via `executor.attachCombinedRecorder(recorder)` — footprintjs
  * detects the `FlowRecorder` method shape and routes events.
  */
-export class InOutRecorder extends SequenceRecorder<InOutEntry> implements FlowRecorder {
+export class InOutRecorder implements FlowRecorder {
   readonly id: string;
+  /** 1:N ordered storage with per-step index (Convention 1 — composed). */
+  private readonly store = new SequenceStore<InOutEntry>();
 
   constructor(options: InOutRecorderOptions = {}) {
-    super();
     this.id = options.id ?? `inout-${++_counter}`;
   }
 
   // ── FlowRecorder hooks ────────────────────────────────────────────────
 
   onRunStart(event: FlowRunEvent): void {
-    this.emit(buildRootEntry('entry', event.payload));
+    this.store.push(buildRootEntry('entry', event.payload));
   }
 
   onRunEnd(event: FlowRunEvent): void {
-    this.emit(buildRootEntry('exit', event.payload));
+    this.store.push(buildRootEntry('exit', event.payload));
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
     const entry = buildSubflowEntry(event, 'entry');
-    if (entry) this.emit(entry);
+    if (entry) this.store.push(entry);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
     const entry = buildSubflowEntry(event, 'exit');
-    if (entry) this.emit(entry);
+    if (entry) this.store.push(entry);
   }
 
   // ── Query API ─────────────────────────────────────────────────────────
 
-  /** All entries in execution order (entry+exit interleaved).
-   *  Alias for `getEntries()` with domain-clearer naming. */
+  /** All entries in execution order (entry+exit interleaved). */
   getBoundaries(): InOutEntry[] {
-    return this.getEntries();
+    return this.store.getAll();
   }
 
   /** Entry/exit pair for one chart execution.
    *  Returns `{ entry, exit }` — `exit` is `undefined` for in-progress / paused
    *  charts or if `runtimeStageId` is unknown. */
   getBoundary(runtimeStageId: string): { entry?: InOutEntry; exit?: InOutEntry } {
-    const entries = this.getEntriesForStep(runtimeStageId);
+    const entries = this.store.getByKey(runtimeStageId);
     return {
       entry: entries.find((e) => e.phase === 'entry'),
       exit: entries.find((e) => e.phase === 'exit'),
@@ -193,10 +193,30 @@ export class InOutRecorder extends SequenceRecorder<InOutEntry> implements FlowR
    *  step (depth 0). */
   getSteps(): InOutEntry[] {
     const steps: InOutEntry[] = [];
-    for (const b of this.getEntries()) {
+    for (const b of this.store.getAll()) {
       if (b.phase === 'entry') steps.push(b);
     }
     return steps;
+  }
+
+  /** O(1) lookup: all boundary entries (both phases) for one runtimeStageId. */
+  getEntriesForStep(runtimeStageId: string): InOutEntry[] {
+    return this.store.getByKey(runtimeStageId);
+  }
+
+  /** Pre-built per-step range index — O(1) lookups for time-travel scrubbing. */
+  getEntryRanges(): ReadonlyMap<string, { readonly firstIdx: number; readonly endIdx: number }> {
+    return this.store.getEntryRanges();
+  }
+
+  /** Progressive reveal: boundaries whose runtimeStageId is in the visible set. */
+  getEntriesUpTo(visibleIds: ReadonlySet<string>): InOutEntry[] {
+    return this.store.getEntriesUpTo(visibleIds);
+  }
+
+  /** Clear all stored boundaries — called by the executor before each run(). */
+  clear(): void {
+    this.store.clear();
   }
 
   /** The root run's entry/exit pair, if the run has started.

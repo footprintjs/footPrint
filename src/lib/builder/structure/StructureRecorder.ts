@@ -14,7 +14,7 @@
  *
  *     - Runtime events carry `runtimeStageId` (`[subflowPath/]stageId#N`),
  *       `iteration`, `traversalContext` — load-bearing for time-travel
- *       UIs, commit-log indices, and `SequenceRecorder<T>` consumers.
+ *       UIs, commit-log indices, and `SequenceStore<T>` consumers.
  *       NONE of these exist at build time.
  *
  *     - Build events carry only `stageId` + structural fields. No

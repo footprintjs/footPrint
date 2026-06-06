@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0]
+
+Major — recorder model cleanup. One breaking change, removing long-deprecated API.
+
+### Removed (BREAKING)
+
+- **The three deprecated abstract recorder base classes are gone:**
+  `KeyedRecorder<T>`, `SequenceRecorder<T>`, `BoundaryStateTracker<T>` (previously
+  exported from `footprintjs/trace` and `footprintjs/advanced`). They were
+  deprecated in v5 in favor of the composable stores and are now removed.
+  **Composition via `KeyedStore` / `SequenceStore` / `BoundaryStateStore` is the
+  only recorder-storage model** — there is no base class to extend.
+
+  Migration — replace inheritance with a composed store field:
+  ```ts
+  // before (7.0.0 removed this)
+  class TokenRecorder extends KeyedRecorder<TokenEntry> {
+    onLLMCall(e) { this.store(e.runtimeStageId, e.usage); }
+  }
+  // after
+  class TokenRecorder implements ScopeRecorder {
+    readonly id = 'tokens';
+    private readonly store = new KeyedStore<TokenEntry>();
+    onLLMCall(e) { this.store.set(e.runtimeStageId, e.usage); }
+    getForStep(id) { return this.store.get(id); }   // expose what you need
+    clear() { this.store.clear(); }
+  }
+  ```
+
+### Changed
+
+- The built-in recorders (`MetricRecorder`, `QualityRecorder`, `InOutRecorder`,
+  `CombinedNarrativeRecorder`) now **compose** a store instead of extending a base.
+  Their public query methods (`getByKey` / `aggregate` / `accumulate` /
+  `getEntries` / `getEntriesForStep` / `getEntryRanges` / `getEntriesUpTo` / …) are
+  unchanged — only the (deprecated) base-class identity is gone. `instanceof
+  KeyedRecorder` / `SequenceRecorder` checks no longer apply.
+
 ## [6.1.2]
 
 Patch — packaging only. No API or behavior change.
