@@ -55,7 +55,9 @@
     "format": "prettier --config .prettierrc.js --list-different '{src,test}/**/*.ts'",
     "bench": "npx tsx bench/run.ts",
     "docs": "typedoc",
-    "docs:serve": "typedoc && npx serve docs"
+    "docs:serve": "typedoc && npx serve docs",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=coverage",
+    "coverage:badge": "npm run test:coverage; node scripts/coverage-badge.mjs"
   },
   "files": [
     "dist/**/*",
@@ -113,6 +115,7 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^5.61.0",
     "@typescript-eslint/parser": "^5.61.0",
+    "@vitest/coverage-v8": "^4.1.8",
     "concurrently": "^8.0.1",
     "eslint": "^8.44.0",
     "eslint-config-prettier": "^6.15.0",
@@ -129,6 +132,5 @@
     "typedoc": "^0.28.17",
     "typescript": "~5.4.5",
     "vitest": "^4.0.18"
-  },
-  "dependencies": {}
+  }
 }

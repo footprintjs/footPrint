@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0]
+
+Additive feature release — no breaking changes (`^6.0.0` consumers upgrade safely).
+
+### Added
+
+- **Parallel fan-out `failFast`**: opt-in `Promise.all` semantics on a fan-out
+  node so a _required_ parallel branch that throws rejects the whole run, instead
+  of the default `allSettled` best-effort silently swallowing it. Honored on root
+  selectors, `addSelectorFunction`, `addListOfFunction`, and subflow branches.
+- **Branch-sourced `loopTo`** on `DeciderList`: a loop can originate from a decider
+  branch (e.g. `tool-calls → context`) rather than from the decider node.
+- **Structure-only `convergeAt`** (`SubflowMountOptions`): redirect a branch's
+  convergence edge to a different stage as a 2-parent merge (no engine change).
+- **`onRunFailed` terminal run boundary**: a failed run emits a symmetric CLOSED
+  boundary (error-as-boundary, not error-as-stage) so observers see a clean
+  terminal state. `CombinedRecorder` detection fixed for run-only recorders.
+- `test:coverage` script + v8 coverage reporting + README coverage badge.
+
+### Fixed
+
+- Pause/resume: a branch loop whose target is a SUBFLOW resolved the loop-ref
+  stub as the continuation; resume now resolves it to the real target node.
+
 ## [6.0.0]
 
 Major release. Two themes ship together:
