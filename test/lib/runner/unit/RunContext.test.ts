@@ -107,6 +107,60 @@ describe('RunContext — Unit', () => {
     expect(events).toContain('Start');
   });
 
+  it('chart.recorder(emitRecorder) receives $emit events (regression: emit channel was dropped)', async () => {
+    // Regression: RunContext.recorder() detected only scope + flow channels, so
+    // an emit-only recorder attached via the fluent chart.recorder() sugar was
+    // silently dropped (zero events, no error). It now routes through the
+    // executor's combined-attach logic, which detects the emit channel too.
+    const chart = flowChart<{ done: boolean }>(
+      'Emit',
+      async (scope) => {
+        scope.$emit('test.event', { value: 42 });
+        scope.done = true;
+      },
+      'emit',
+    ).build();
+
+    const received: Array<{ name: string; payload: unknown }> = [];
+    await chart.recorder({ id: 'emit-only', onEmit: (e) => received.push({ name: e.name, payload: e.payload }) }).run();
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({ name: 'test.event', payload: { value: 42 } });
+  });
+
+  it('combined recorder (scope + flow + emit) fires each channel exactly once — no double-attach', async () => {
+    const chart = flowChart<{ x: number }>(
+      'Both',
+      async (scope) => {
+        scope.x = 1;
+        scope.$emit('x.set', { x: 1 });
+      },
+      'both',
+    ).build();
+
+    let writes = 0;
+    let stages = 0;
+    let emits = 0;
+    await chart
+      .recorder({
+        id: 'combined',
+        onWrite: () => {
+          writes += 1;
+        },
+        onStageExecuted: () => {
+          stages += 1;
+        },
+        onEmit: () => {
+          emits += 1;
+        },
+      })
+      .run();
+
+    expect(writes).toBe(1); // x = 1 (exactly once, not doubled)
+    expect(stages).toBe(1);
+    expect(emits).toBe(1);
+  });
+
   it('result.output uses outputMapper when available', async () => {
     const chart = flowChart<TestState>(
       'Start',

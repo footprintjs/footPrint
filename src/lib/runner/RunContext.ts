@@ -11,6 +11,7 @@
 import type { FlowChart } from '../builder/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RunOptions } from '../engine/types.js';
+import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { FlowChartExecutor } from './FlowChartExecutor.js';
 
@@ -28,38 +29,21 @@ export interface RunResult {
 
 export class RunContext<TOut = any, TScope = any> {
   private readonly chart: FlowChart<TOut, TScope>;
-  private readonly scopeRecorders: ScopeRecorder[] = [];
-  private readonly flowRecorders: FlowRecorder[] = [];
+  private readonly recorders: CombinedRecorder[] = [];
   private redactionPolicy?: RedactionPolicy;
 
   constructor(chart: FlowChart<TOut, TScope>) {
     this.chart = chart;
   }
 
-  /** Attach a recorder. Auto-detects scope vs flow recorder. Chainable. */
-  recorder(r: ScopeRecorder | FlowRecorder): RunContext<TOut, TScope> {
-    const hasId = typeof (r as any).id === 'string';
-    const isFlowRecorder =
-      hasId &&
-      (typeof (r as FlowRecorder).onStageExecuted === 'function' ||
-        typeof (r as FlowRecorder).onDecision === 'function' ||
-        typeof (r as FlowRecorder).onFork === 'function' ||
-        typeof (r as FlowRecorder).onNext === 'function');
-    const isScopeRecorder =
-      hasId &&
-      (typeof (r as ScopeRecorder).onRead === 'function' ||
-        typeof (r as ScopeRecorder).onWrite === 'function' ||
-        typeof (r as ScopeRecorder).onCommit === 'function');
-
-    // CombinedNarrativeRecorder implements BOTH — add to both lists
-    if (isFlowRecorder) this.flowRecorders.push(r as FlowRecorder);
-    if (isScopeRecorder) this.scopeRecorders.push(r as ScopeRecorder);
-
-    // Pure scope recorder (no flow hooks)
-    if (!isFlowRecorder && !isScopeRecorder && hasId) {
-      this.scopeRecorders.push(r as ScopeRecorder);
-    }
-
+  /**
+   * Attach a recorder. Routed through the executor's combined-attach logic at
+   * run time, so scope, flow, AND emit channels are all detected uniformly — a
+   * recorder that implements only `onEmit` (or any mix) lands on the right
+   * channel(s) exactly once. Chainable.
+   */
+  recorder(r: ScopeRecorder | FlowRecorder | CombinedRecorder): RunContext<TOut, TScope> {
+    this.recorders.push(r as CombinedRecorder);
     return this;
   }
 
@@ -73,14 +57,11 @@ export class RunContext<TOut = any, TScope = any> {
   async run(options?: RunOptions): Promise<RunResult> {
     const executor = new FlowChartExecutor(this.chart);
 
-    // Attach scope recorders
-    for (const r of this.scopeRecorders) {
-      executor.attachScopeRecorder(r);
-    }
-
-    // Attach flow recorders (auto-enables narrative)
-    for (const r of this.flowRecorders) {
-      executor.attachFlowRecorder(r);
+    // Attach every recorder via the combined router so scope/flow/emit channels
+    // are detected by method shape (flow recorders auto-enable narrative; emit
+    // recorders share the scope channel with dedup — no double-attach).
+    for (const r of this.recorders) {
+      executor.attachCombinedRecorder(r);
     }
 
     // Set redaction
