@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.2]
+
+Patch — packaging only. No API or behavior change.
+
+### Changed
+
+- **The ESM build now loads as true ESM.** `dist/esm` is marked `type:module`
+  via a postbuild step, so Node, Deno, and Bun load it as real ECMAScript
+  Modules instead of the syntax-detection fallback (every relative import
+  already carried a `.js` extension; the lone worker-thread `require()` is
+  guarded). Bundler consumers are unaffected; CJS `require` consumers are
+  unaffected.
+
+### Added
+
+- **Tree-shaking guard test + badges.** A CI smoke test bundles a minimal
+  `import { flowChart }` and asserts the recorder / detach / trace layers are
+  pruned, plus true-ESM load of the main barrel and every subpath. README gains
+  minzipped-size and tree-shakeable badges.
+
 ## [6.1.1]
 
 Patch — one real fix + a full documentation correction pass.
