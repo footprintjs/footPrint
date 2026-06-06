@@ -5,7 +5,7 @@ description: loopTo(), $break(), and retry patterns for polling, pagination, and
 
 import { Aside } from '@astrojs/starlight/components';
 
-`.loopTo(targetStageName)` creates a back-edge to any earlier stage. The loop continues until a stage calls `scope.$break()`. This enables polling, pagination, retry, and iterative refinement patterns.
+`.loopTo(targetStageId)` creates a back-edge to any earlier stage. Pass the stage **id** (the third argument to `flowChart`/`addFunction`), not the display name — `loopTo` validates against known ids and throws if you pass a name. The loop continues until a stage calls `scope.$break()`. This enables polling, pagination, retry, and iterative refinement patterns.
 
 ## Basic loop
 
@@ -20,7 +20,7 @@ const chart = flowChart<{ counter: number; target: number }>('Init', async (scop
     scope.counter += 1;
     if (scope.counter >= scope.target) scope.$break();
   }, 'increment')
-  .loopTo('Increment')
+  .loopTo('increment')
   .build();
 
 const executor = new FlowChartExecutor(chart);
@@ -58,7 +58,7 @@ const chart = flowChart<RetryState>('Init', async (scope) => {
       await new Promise((r) => setTimeout(r, scope.attempt * 100));
     }
   }, 'call-api')
-  .loopTo('CallAPI')
+  .loopTo('call-api')
   .build();
 ```
 
@@ -83,7 +83,7 @@ const chart = flowChart<PaginationState>('Init', async (scope) => {
     scope.hasMore = items.length > 0;
     if (!scope.hasMore) scope.$break();
   }, 'fetch-page')
-  .loopTo('FetchPage')
+  .loopTo('fetch-page')
   .build();
 ```
 
@@ -109,7 +109,7 @@ executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
 ```
 
 <Aside>
-  The narrative shows "Looped back to X (pass N)" for each iteration, with `stageVisitCounts` tracking how many times each stage has been visited. This context is available to recorders for custom reporting.
+  The narrative shows "Looped back to X (pass N)" for each iteration. Custom recorders get the iteration number directly: `FlowRecorder.onLoop(event)` carries `event.iteration` (and `event.target`), and every flow event's `traversalContext.loopIteration` reflects the current pass — use either for custom loop reporting.
 </Aside>
 
 ## Try it live

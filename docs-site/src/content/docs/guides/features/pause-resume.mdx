@@ -73,7 +73,7 @@ if (executor.isPaused()) {
 }
 
 // Narrative spans both run + resume
-executor.getNarrative().forEach((line) => console.log(line));
+executor.getNarrativeEntries().map((e) => e.text).forEach((line) => console.log(line));
 ```
 
 ## Key properties

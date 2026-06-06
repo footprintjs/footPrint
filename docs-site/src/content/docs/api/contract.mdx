@@ -17,7 +17,7 @@ Attach input/output schemas and an optional output mapper. Call before `.build()
 .contract(options: {
   input?:  ZodSchema | JsonSchema;
   output?: ZodSchema | JsonSchema;
-  mapper?: (scope: TypedScope<State>) => unknown;
+  mapper?: (finalScope: Record<string, unknown>) => unknown;
 }): FlowChartBuilder<State>
 ```
 
@@ -70,10 +70,10 @@ When `input` is defined, `chart.run({ input: {...} })` validates the input autom
 
 ## .toOpenAPI()
 
-Generate an OpenAPI 3.1 spec from the chart's contract. Requires an `input` schema in `.contract()`.
+Generate an OpenAPI 3.1 spec from the chart's contract. An `input` schema from `.contract()` becomes the `requestBody`; an `output` schema becomes the `200` response. Both are optional — omitting them just drops the corresponding section.
 
 ```ts
-chart.toOpenAPI(options?: ChartOpenAPIOptions): OpenAPISpec
+chart.toOpenAPI(options?: ChartOpenAPIOptions): object
 ```
 
 **Options**
@@ -83,7 +83,7 @@ chart.toOpenAPI(options?: ChartOpenAPIOptions): OpenAPISpec
 | `title` | Chart description | API title |
 | `version` | `'1.0.0'` | API version string |
 | `description` | Chart description | API description |
-| `path` | `'/<root-stage-id>'` | HTTP path |
+| `path` | `'/<root-stage-id>'` (slugified) | HTTP path |
 
 ```ts
 const spec = chart.toOpenAPI({
@@ -123,16 +123,16 @@ Returns:
 
 ```ts
 {
-  name: string;         // root stage name, lowercased + spaces → underscores
-  description: string;  // numbered stage list from stage descriptions
-  inputSchema: JsonSchema; // from .contract({ input }) or inferred
+  name: string;         // root stage id, sanitized to the MCP name allowlist [A-Za-z0-9_\-.]
+  description: string;  // the chart description (numbered stage list assembled at build time)
+  inputSchema: JsonSchema; // from .contract({ input }), else a default empty-object schema
 }
 ```
 
 ```ts
 const tool = chart.toMCPTool();
 
-console.log(tool.name);        // 'calculatetotal'
+console.log(tool.name);        // 'calculate-total' (root stage id, sanitized)
 console.log(tool.description); // '1. CalculateTotal\n2. ...'
 console.log(tool.inputSchema); // { type: 'object', properties: { ... } }
 ```
@@ -149,7 +149,7 @@ const anthropicTool = {
 ```
 
 <Aside>
-  `toMCPTool()` requires either a `.contract({ input })` schema or stage-level `inputSchema` on the root stage. The description is built from stage `description` params in the builder.
+  `inputSchema` is always present (the MCP spec requires it). With a `.contract({ input })` schema it carries the chart's input shape; without one it falls back to `{ type: 'object', properties: {}, additionalProperties: false }`. The `description` is the chart description, assembled from each stage's `description` param at build time.
 </Aside>
 
 ---

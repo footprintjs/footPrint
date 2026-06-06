@@ -68,7 +68,7 @@ const chart = flowChart<OrderState>('Validate', async (scope) => {
 const rec = narrative();
 await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 149 } });
 
-console.log(rec.lines().join('\n'));
+console.log(rec.getEntries().map((e) => e.text).join('\n'));
 // Stage 1: The process began with Validate.
 // Stage 2: Next, it moved on to Route.
 // [Condition]: It evaluated Rule 0 "Premium order": tier "premium" eq "premium" ✓, and chose express.

@@ -103,14 +103,27 @@ When `qualityTrace()` backtracks from a low-scoring step:
 - It uses **Accumulate** to compute progressive quality up to the drop point  
 - It uses **Aggregate** to compute the overall pipeline score
 
-The `KeyedRecorder<T>` base class provides all three operations. Every built-in recorder (`MetricRecorder`, `QualityRecorder`, `TokenRecorder`, `CostRecorder`) inherits them. Your custom recorders get them for free.
+The `KeyedStore<T>` composition primitive provides all three operations. Own one as a field on your recorder — "one purpose per recorder" — and the built-ins (`MetricRecorder`, `QualityRecorder`) expose them too. Your custom recorders get them for free.
 
 ```typescript
-// All three operations on auto-collected data:
-metric.getByKey('call-llm#5');                           // Translate
-metric.accumulate((sum, m) => sum + m.duration, 0, keys); // Accumulate
-metric.aggregate((sum, m) => sum + m.duration, 0);         // Aggregate
+import { KeyedStore } from 'footprintjs/trace';
+
+// A single-purpose recorder that owns a KeyedStore for storage:
+class TokenRecorder {
+  readonly id = 'tokens';
+  private readonly store = new KeyedStore<{ input: number; output: number }>();
+  onEmit(e) { this.store.set(e.runtimeStageId, e.payload); }
+
+  // All three operations on auto-collected data:
+  getForStep(id: string) { return this.store.get(id); }                                   // Translate
+  getTokensUpTo(keys: Set<string>) { return this.store.accumulate((s, e) => s + e.input + e.output, 0, keys); } // Accumulate
+  getTotal() { return this.store.aggregate((s, e) => s + e.input + e.output, 0); }         // Aggregate
+}
 ```
+
+<Aside type="note">
+  The abstract `KeyedRecorder<T>` / `SequenceRecorder<T>` base classes still ship for the v5 migration window but are deprecated and slated for removal — new code should compose a `KeyedStore<T>` / `SequenceStore<T>` instead. Same three operations, no inheritance.
+</Aside>
 
 **One interface. Three operations. Collected during traversal. Never stale.**
 

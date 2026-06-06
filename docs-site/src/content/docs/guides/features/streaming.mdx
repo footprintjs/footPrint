@@ -66,12 +66,12 @@ await executor.run();
 
 | Hook | Fires when |
 |------|-----------|
-| `onStart(streamId)` | First `streamCallback()` call |
+| `onStart(streamId)` | Streaming stage begins, before its function runs (even if no token is emitted) |
 | `onToken(streamId, token)` | Each `streamCallback(token)` call |
-| `onEnd(streamId, fullText)` | Stage completes; `fullText` is concatenated tokens |
+| `onEnd(streamId, fullText)` | Stage completes; `fullText` is the concatenated tokens |
 
 <Aside>
-  The `streamId` (4th arg to `addStreamingFunction`) lets you identify which streaming stage is emitting. Multiple streaming stages in the same chart get distinct IDs.
+  The `streamId` (4th arg to `addStreamingFunction`) lets you identify which streaming stage is emitting. Multiple streaming stages in the same chart get distinct IDs. If you omit it, `streamId` defaults to the stage `name`.
 </Aside>
 
 ## Try it live

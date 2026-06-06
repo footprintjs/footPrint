@@ -37,21 +37,22 @@ This is the problem FootPrint's recorder architecture is built to solve. This po
 
 ---
 
-## What we capture: three channels, one causal trace
+## What we capture: four channels, one causal trace
 
-FootPrint observes execution along **three orthogonal channels**. Each channel has a single purpose. Together they reconstruct the full causal trace of a run.
+FootPrint observes execution along **four orthogonal channels**. Each channel has a single purpose. Together they reconstruct the full causal trace of a run.
 
 ### Channel 1 — Scope (data flow)
 
 What the stage *read* and *wrote* in shared state.
 
 ```typescript
-interface Recorder {
+interface ScopeRecorder {
+  id: string;
   onRead?(event: { key, value, runtimeStageId, ... }): void;
   onWrite?(event: { key, value, operation, runtimeStageId, ... }): void;
-  onCommit?(event: { writes, runtimeStageId, ... }): void;
+  onCommit?(event: { mutations, runtimeStageId, ... }): void;
   onStageStart?(event): void;
-  onStageEnd?(event): void;
+  onStageEnd?(event: { duration, runtimeStageId, ... }): void;
   onError?(event): void;
 }
 ```
@@ -66,6 +67,7 @@ How the engine *moved* between stages. Branches taken, forks spawned, loops iter
 
 ```typescript
 interface FlowRecorder {
+  id: string;
   onStageExecuted?(event: { stageName, stageType, ... }): void;   // every stage, all kinds
   onDecision?(event: { decider, chosen, evidence, ... }): void;
   onFork?(event: { parent, children, ... }): void;
@@ -93,6 +95,7 @@ What the chart *looks like* before it runs.
 
 ```typescript
 interface StructureRecorder {
+  id: string;
   onStageAdded?(event): void;
   onEdgeAdded?(event): void;
   onLoopEdgeAdded?(event): void;
@@ -277,14 +280,20 @@ If you're a framework author writing a custom observer:
 
 ```typescript
 // You don't reimplement the event loop. You attach.
-const myRecorder: FlowRecorder = {
+const myRecorder: CombinedRecorder = {
   id: 'my-thing',
+  // Flow channel — "did this stage run?" Filter to linear stages.
   onStageExecuted(e) {
     if (e.stageType !== 'linear') return;  // skip control-flow stages
+    metrics.increment('stage.executed', { stage: e.stageName });
+  },
+  // Scope channel — duration lives on onStageEnd (StageEvent), not on the
+  // flow event. Both events share the same runtimeStageId.
+  onStageEnd(e) {
     metrics.timing('stage.duration', e.duration, { stage: e.stageName });
   },
 };
-executor.attachFlowRecorder(myRecorder);
+executor.attachCombinedRecorder(myRecorder);
 
 // Or implement multiple channels in one object via CombinedRecorder
 const audit: CombinedRecorder = {

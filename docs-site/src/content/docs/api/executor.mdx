@@ -8,10 +8,10 @@ import { Aside } from '@astrojs/starlight/components';
 ## Constructor
 
 ```ts
-new FlowChartExecutor(chart: FlowChart)
+new FlowChartExecutor(chart: FlowChart, options?: FlowChartExecutorOptions)
 ```
 
-Takes a compiled `FlowChart` (the return value of `.build()`). The executor is stateful — call `.run()` and then read the results.
+Takes a compiled `FlowChart` (the return value of `.build()`). The optional second argument is a `FlowChartExecutorOptions` bag (e.g. `{ scopeFactory }`). The executor is stateful — call `.run()` and then read the results.
 
 ```ts
 import { FlowChartExecutor } from 'footprintjs';
@@ -24,10 +24,10 @@ await executor.run({ input: { orderId: 'ORD-001', amount: 49.99 } });
 
 ## .run()
 
-Execute the flowchart. Returns a `RunResult` with the output value (if a `.contract()` mapper is defined), the final snapshot, and narrative lines.
+Execute the flowchart. Returns an `ExecutorResult` — the traversal result (a branch id / mapped value / `Error`), or a `PausedResult` (`{ paused: true, checkpoint }`) if a pausable stage paused. Read the final state via `getSnapshot()` and the trace via `getNarrativeEntries()`.
 
 ```ts
-executor.run(options?: RunOptions): Promise<RunResult>
+executor.run(options?: RunOptions): Promise<ExecutorResult>
 ```
 
 **RunOptions**
@@ -35,7 +35,10 @@ executor.run(options?: RunOptions): Promise<RunResult>
 | Field | Type | Description |
 |-------|------|-------------|
 | `input` | `unknown` | Business input — frozen, accessible via `scope.$getArgs()` |
-| `env` | `ExecutionEnv?` | Infrastructure context (signal, timeoutMs, traceId) — accessible via `scope.$getEnv()` |
+| `env` | `ExecutionEnv?` | Infrastructure context (`signal`, `timeoutMs`, `traceId`) — accessible via `scope.$getEnv()`, auto-inherited by subflows |
+| `signal` | `AbortSignal?` | Cooperative cancellation |
+| `timeoutMs` | `number?` | Aborts the run after the deadline via an internal `AbortController` |
+| `maxDepth` | `number?` | Override the max recursive traversal depth (default 500) |
 
 ```ts
 await executor.run({
@@ -53,7 +56,8 @@ await executor.run({
 For a one-shot run without a persistent executor, chain recorders directly on the compiled chart:
 
 ```ts
-import { flowChart, narrative, metrics } from 'footprintjs';
+import { narrative } from 'footprintjs';
+import { metrics } from 'footprintjs/recorders';
 
 const narr = narrative();
 const metr = metrics();
@@ -63,27 +67,29 @@ await chart
   .recorder(metr)
   .run({ input: { orderId: 'ORD-001', amount: 49.99 } });
 
-console.log(narr.lines().join('\n'));
+console.log(narr.getEntries().map(e => e.text).join('\n'));
 console.log(`Total: ${metr.all().totalDuration}ms`);
 ```
+
+`chart.recorder(...)` returns a chainable `RunContext`; its `.run()` resolves to a `RunResult` (`{ state, output, executionTree, commitLog }`). Recorder factories (`metrics`, `debug`, `manifest`, ...) live in `footprintjs/recorders`; `narrative()` is also re-exported from the main entry.
 
 ---
 
 ## Attaching recorders
 
-### .attachRecorder()
+### .attachScopeRecorder()
 
-Attach a **scope recorder** — fires on data operations (reads, writes, commits) during stage execution.
+Attach a **scope recorder** — fires on data operations (reads, writes, commits) during stage execution. Idempotent by `id`: a recorder with the same `id` replaces the previous one; different ids coexist.
 
 ```ts
-executor.attachRecorder(recorder: Recorder): void
+executor.attachScopeRecorder(recorder: ScopeRecorder): void
 ```
 
 ```ts
 import { MetricRecorder, DebugRecorder } from 'footprintjs';
 
-executor.attachRecorder(new MetricRecorder());
-executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+executor.attachScopeRecorder(new MetricRecorder());
+executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
 ```
 
 ### .attachFlowRecorder()
@@ -103,71 +109,121 @@ await executor.run();
 console.log(manifest.getManifest());
 ```
 
-### .enableNarrative()
+### .attachCombinedRecorder()
 
-Shorthand: attaches a `CombinedNarrativeRecorder` that implements both scope and flow recorder interfaces, producing a merged timeline.
+Attach one object that observes **multiple channels** (scope data-flow, control-flow, and emit). The library duck-types the recorder's `on*` methods and routes it to the right internal channels — one `id`, one call.
 
 ```ts
-executor.enableNarrative(): void
+executor.attachCombinedRecorder(recorder: CombinedRecorder): void
+```
+
+```ts
+import { isFlowEvent } from 'footprintjs';
+import type { CombinedRecorder } from 'footprintjs';
+
+const audit: CombinedRecorder = {
+  id: 'audit',
+  onWrite: (e) => log('scope write', e.key),
+  onDecision: (e) => log('routed to', e.chosen),
+  onError: (e) => (isFlowEvent(e) ? log('flow error', e.stageName) : log('scope error', e.operation)),
+};
+executor.attachCombinedRecorder(audit);
+```
+
+### .attachEmitRecorder()
+
+Attach a recorder for the **emit channel** — consumer-emitted structured events from `scope.$emit(name, payload)`. Fires synchronously, in call order.
+
+```ts
+executor.attachEmitRecorder(recorder: EmitRecorder): void
+```
+
+```ts
+executor.attachEmitRecorder({
+  id: 'token-meter',
+  onEmit: (e) => {
+    if (e.name === 'myapp.llm.tokens') trackTokens(e.payload);
+  },
+});
+```
+
+### .enableNarrative()
+
+Shorthand: attaches a `CombinedNarrativeRecorder` (a `CombinedRecorder` spanning scope, flow, and emit channels), producing a merged timeline.
+
+```ts
+executor.enableNarrative(options?: CombinedNarrativeRecorderOptions): void
 ```
 
 ```ts
 executor.enableNarrative();
 await executor.run();
-executor.getNarrative().forEach(line => console.log(line));
+executor.getNarrativeEntries().forEach(entry => console.log(entry.text));
 ```
 
 ---
 
 ## Reading results
 
-### .getNarrative()
-
-Returns the merged narrative as a `string[]` — one sentence per event.
-
-```ts
-executor.getNarrative(): string[]
-```
-
-```
-Stage 1: The process began with AssessCredit.
-  Step 1: Write creditScore = 750
-[Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓ → approved.
-Stage 2: Next, it moved on to Approve.
-  Step 1: Write decision = "Approved"
-```
-
 ### .getNarrativeEntries()
 
-Returns structured `CombinedNarrativeEntry[]` with `type`, `depth`, `stageName`, and `stageId` metadata — useful for building custom UIs.
+The single public narrative API. Returns structured `CombinedNarrativeEntry[]` — each entry has a `type` (`stage`, `step`, `condition`, `fork`, `subflow`, `loop`, `emit`, ...), `text`, `depth`, and optional `stageName` / `stageId` / `runtimeStageId` metadata. Render however you want; call `.map(e => e.text)` for a flat `string[]`.
 
 ```ts
 executor.getNarrativeEntries(): CombinedNarrativeEntry[]
 ```
 
-### .getFlowNarrative()
-
-Returns only the control-flow sentences (stage transitions, decisions, loops) — without data operation lines.
-
 ```ts
-executor.getFlowNarrative(): string[]
+executor.enableNarrative();
+await executor.run();
+
+executor.getNarrativeEntries().forEach(e => console.log(e.text));
+// Stage 1: The process began with AssessCredit.
+//   Step 1: Write creditScore = 750
+// [Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓ → approved.
+// Stage 2: Next, it moved on to Approve.
+//   Step 1: Write decision = "Approved"
 ```
 
 ### .getSnapshot()
 
-Returns the full `RuntimeSnapshot` — shared state, execution tree, and recorder snapshots at every nesting depth.
+Returns the full `RuntimeSnapshot` — shared state, execution tree, commit log, and recorder snapshots at every nesting depth. Pass `{ redact: true }` to get a scrubbed `sharedState`.
 
 ```ts
-executor.getSnapshot(): RuntimeSnapshot | undefined
+executor.getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot
 ```
 
 ```ts
 const snapshot = executor.getSnapshot();
-const finalState = snapshot?.sharedState as LoanState;
+const finalState = snapshot.sharedState as LoanState;
 console.log(finalState.decision); // 'Approved'
 ```
 
 Use [`getSubtreeSnapshot()`](/footPrint/api/contract/#getsubtreesnapshot) to drill into subflows.
+
+---
+
+## Pause / Resume
+
+When a pausable stage pauses, `run()` resolves with a `PausedResult`. Inspect and persist the checkpoint, then continue later — even on a different process.
+
+```ts
+executor.isPaused(): boolean
+executor.getCheckpoint(): FlowchartCheckpoint | undefined
+executor.resume(checkpoint: FlowchartCheckpoint, resumeInput?: unknown): Promise<ExecutorResult>
+```
+
+```ts
+await executor.run({ input });
+
+if (executor.isPaused()) {
+  const checkpoint = executor.getCheckpoint()!; // JSON-safe — store in Redis/Postgres/etc.
+  // Later, with the human's answer:
+  await executor.resume(checkpoint, { approved: true });
+}
+```
+
+The checkpoint is JSON-serializable. See the [Pause / Resume guide](/footPrint/guides/features/pause-resume/) for the full human-in-the-loop pattern.
 
 ---
 
@@ -183,15 +239,20 @@ executor.setRedactionPolicy(policy: RedactionPolicy): void
 
 ```ts
 executor.setRedactionPolicy({
-  keys: ['password', 'ssn', 'cardNumber'],
+  keys: ['password', 'ssn', 'cardNumber'], // exact key matches
+  patterns: [/token$/i],                    // regex-matched keys
+  fields: { customer: ['email'] },          // field-level scrub within an object
+  emitPatterns: [/\.auth\./],               // matched against scope.$emit() event names
 });
 ```
+
+`getRedactionReport()` returns a compliance-friendly summary of what was redacted (never the actual values).
 
 ---
 
 ## Try it live
 
-- [Auto-Narrative](https://footprintjs.github.io/footprint-playground/samples/narrative) — `enableNarrative()` + `getNarrative()`
+- [Auto-Narrative](https://footprintjs.github.io/footprint-playground/samples/narrative) — `enableNarrative()` + `getNarrativeEntries()`
 - [Metrics](https://footprintjs.github.io/footprint-playground/samples/metrics) — `MetricRecorder`
 - [Redaction](https://footprintjs.github.io/footprint-playground/samples/redaction) — `setRedactionPolicy()`
 

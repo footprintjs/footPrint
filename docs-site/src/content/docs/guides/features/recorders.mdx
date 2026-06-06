@@ -7,9 +7,9 @@ import { Aside } from '@astrojs/starlight/components';
 
 This guide assumes you know how to build a flowchart — see [Building a flowchart](/footPrint/guides/building-blocks/stages/) first.
 
-footprintjs has two observer layers: **Scope recorders** fire on data operations (reads, writes, commits) *during* stage execution. **Flow recorders** fire on control-flow events (decisions, loops, forks) *after* each stage completes.
+footprintjs observes runs through pluggable recorder channels. The two you reach for most: **Scope recorders** (`attachScopeRecorder`) fire on data operations (reads, writes, commits) *during* stage execution. **Flow recorders** (`attachFlowRecorder`) fire on control-flow events (decisions, loops, forks) *after* each stage completes. A third **Emit channel** (`attachEmitRecorder`) carries consumer-emitted structured events from `scope.$emit(...)`, and a build-time **`StructureRecorder`** observes chart shape during construction.
 
-Both attach to the executor and run in error-isolated dispatch — one failing recorder never stops the pipeline.
+All recorders attach to the executor and run in error-isolated dispatch — one failing recorder never stops the pipeline. A `CombinedRecorder` can implement hooks across the scope, flow, and emit channels at once and attach via a single `attachCombinedRecorder(...)` call — that's what `executor.enableNarrative()` uses internally.
 
 ## Built-in: narrative()
 
@@ -43,7 +43,7 @@ const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
 
-executor.getNarrative().forEach((line) => console.log(line));
+executor.getNarrativeEntries().map((e) => e.text).forEach((line) => console.log(line));
 // Stage 1: The process began with Ingest.
 //   Step 1: Write temperature = 38.5
 //   Step 2: Write unit = "celsius"
@@ -65,7 +65,7 @@ import { FlowChartExecutor, MetricRecorder } from 'footprintjs';
 
 const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(metrics);
+executor.attachScopeRecorder(metrics);
 await executor.run();
 
 const result = metrics.getMetrics();
@@ -84,7 +84,7 @@ import { FlowChartExecutor, DebugRecorder } from 'footprintjs';
 
 const debug = new DebugRecorder({ verbosity: 'verbose' });
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(debug);
+executor.attachScopeRecorder(debug);
 await executor.run();
 
 const entries = debug.getEntries();
@@ -95,12 +95,12 @@ console.log(`${writes.length} writes, ${errors.length} errors`);
 
 ## Custom scope recorder
 
-Implement `Recorder` to build audit logs, compliance trails, or custom telemetry. All hooks are optional:
+Implement `ScopeRecorder` to build audit logs, compliance trails, or custom telemetry. All hooks are optional:
 
 ```ts
-import { flowChart, FlowChartExecutor, type Recorder, type ReadEvent, type WriteEvent, type CommitEvent } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type ScopeRecorder, type ReadEvent, type WriteEvent, type CommitEvent } from 'footprintjs';
 
-class AuditRecorder implements Recorder {
+class AuditRecorder implements ScopeRecorder {
   readonly id = 'audit';
   private log: string[] = [];
 
@@ -121,7 +121,7 @@ class AuditRecorder implements Recorder {
 
 const auditRecorder = new AuditRecorder();
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(auditRecorder);
+executor.attachScopeRecorder(auditRecorder);
 await executor.run();
 
 auditRecorder.getLog().forEach((line) => console.log(line));
@@ -151,7 +151,7 @@ const metrics: FlowRecorder = {
     console.log(`stage: ${event.stageName}`);
   },
   onDecision: (event) => {
-    console.log(`decision: ${event.stageName} -> ${event.chosen}`);
+    console.log(`decision: ${event.decider} -> ${event.chosen}`);
     // event.evidence is set when decide() was used
   },
   onLoop: (event) => {
@@ -182,7 +182,7 @@ executor.attachFlowRecorder(metrics);
 
 ## Narrative strategies for loops
 
-When a pipeline loops many times, the default narrative can grow large. footprintjs ships 6 loop-aware strategies:
+When a pipeline loops many times, the default narrative can grow large. footprintjs ships several loop-aware strategies — `NarrativeFlowRecorder` (default), `WindowedNarrativeFlowRecorder`, `SilentNarrativeFlowRecorder`, `AdaptiveNarrativeFlowRecorder`, `SeparateNarrativeFlowRecorder`, `MilestoneNarrativeFlowRecorder`, `ProgressiveNarrativeFlowRecorder`, and `RLENarrativeFlowRecorder`:
 
 ```ts
 import {
@@ -215,8 +215,8 @@ console.log(Object.fromEntries(separate.getLoopCounts()));
 Attach as many recorders as needed — they all run in the same execution:
 
 ```ts
-executor.attachRecorder(auditRecorder);
-executor.attachRecorder(new MetricRecorder());
+executor.attachScopeRecorder(auditRecorder);
+executor.attachScopeRecorder(new MetricRecorder());
 executor.attachFlowRecorder(new NarrativeFlowRecorder());
 executor.attachFlowRecorder(metricsFlowRecorder);
 await executor.run();
@@ -234,4 +234,4 @@ See recorders and narrative strategies in action in the browser:
 - [Scope Recorders](https://footprintjs.github.io/footprint-playground/samples/recorders) — custom audit recorder
 - [Metrics](https://footprintjs.github.io/footprint-playground/samples/metrics) — per-stage latency
 - [Flow Recorders](https://footprintjs.github.io/footprint-playground/samples/flow-recorders) — strategy comparison
-- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 6 loop strategies side by side
+- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — loop strategies side by side

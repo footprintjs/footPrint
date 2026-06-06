@@ -99,7 +99,7 @@ Stage 2: Next, it moved on to AssessCredit.
   Step 9: Write riskTier = "high"
 Stage 3: Next step: Route based on risk assessment.
   Step 1: Read riskTier = "high"
-[Condition]: It evaluated "High risk applicant": riskTier "high" eq "high" ✓, and chose GenerateAdverseAction.
+[Condition]: It evaluated Rule 0 "High risk applicant": riskTier "high" eq "high" ✓, and chose GenerateAdverseAction.
 Stage 4: Next, it moved on to GenerateAdverseAction.
   Step 1: Write decision = "REJECTED"
   Step 2: Read riskFactors = (3 items)
@@ -129,33 +129,39 @@ const result = decide(scope, [
 ], 'subprime');
 ```
 
-The evidence object includes:
+`decide()` returns a branded `DecisionResult` with `.branch` (the chosen branch) and `.evidence`. The `evidence` object includes:
 
 ```json
 {
-  "chosenBranch": "subprime",
-  "chosenLabel": "Default",
+  "chosen": "subprime",
+  "default": "subprime",
   "rules": [
     {
+      "type": "filter",
+      "ruleIndex": 0,
+      "branch": "premium",
       "label": "Prime borrower",
-      "passed": false,
+      "matched": false,
       "conditions": [
-        { "field": "creditScore", "operator": "gte", "expected": 700, "actual": 580, "passed": false },
-        { "field": "dtiRatio", "operator": "lte", "expected": 0.35, "actual": 0.6, "passed": false }
+        { "key": "creditScore", "op": "gte", "threshold": 700, "actualSummary": "580", "result": false, "redacted": false },
+        { "key": "dtiRatio", "op": "lte", "threshold": 0.35, "actualSummary": "0.6", "result": false, "redacted": false }
       ]
     },
     {
+      "type": "filter",
+      "ruleIndex": 1,
+      "branch": "standard",
       "label": "Standard borrower",
-      "passed": false,
+      "matched": false,
       "conditions": [
-        { "field": "creditScore", "operator": "gte", "expected": 620, "actual": 580, "passed": false }
+        { "key": "creditScore", "op": "gte", "threshold": 620, "actualSummary": "580", "result": false, "redacted": false }
       ]
     }
   ]
 }
 ```
 
-Every rule that was evaluated, whether it passed or failed, with the exact values compared. This is the structured evidence an ECOA adverse action notice needs.
+Every rule that was evaluated, whether it `matched` or not, with the exact values compared (`actualSummary` is a redaction-safe string summary, and `redacted` flags fields hidden by the redaction policy). This is the structured evidence an ECOA adverse action notice needs.
 
 ## Compliance properties
 
@@ -170,8 +176,10 @@ FootPrintJS's execution model provides several properties that compliance teams 
 **PII redaction.** Built-in `RedactionPolicy` for per-key or declarative redaction with audit trail. Redacted fields appear in the trace as `[REDACTED]` while maintaining the causal structure.
 
 ```typescript
+const trace = narrative();
 const result = await chart
-  .recorder(narrative({ redactionPolicy: { keys: ['ssn', 'dateOfBirth'] } }))
+  .recorder(trace)
+  .redact({ keys: ['ssn', 'dateOfBirth'] }) // also supports `patterns: RegExp[]`
   .run();
 // Trace shows: Write ssn = [REDACTED], Read dateOfBirth = [REDACTED]
 // Causal chain is preserved. PII is not exposed.
@@ -203,10 +211,12 @@ const chart = flowChart<YourState>('FirstStage', handler, 'id')
   // ... add stages, decisions, branches
   .build();
 
-// Run with narrative recording
-const result = await chart.recorder(narrative()).run();
+// Run with narrative recording — keep a reference to read the trace afterward
+const trace = narrative();
+const result = await chart.recorder(trace).run();
 
-// result.narrative — human-readable causal trace
+// trace.getEntries() — structured causal entries; each has a `.text` field
+const lines = trace.getEntries().map((e) => e.text); // flat string[] for export
 // result.state — final state with all decisions
 ```
 

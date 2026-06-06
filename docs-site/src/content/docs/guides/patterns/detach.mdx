@@ -48,14 +48,16 @@ import {
 } from 'footprintjs/detach';
 ```
 
-| Driver                   | When                                                    | Capabilities                                  |
-|--------------------------|---------------------------------------------------------|-----------------------------------------------|
-| `microtaskBatchDriver`   | Default. Coalesces N detaches into one microtask flush. | browser + node + edge                         |
-| `immediateDriver`        | Sync execution inside `schedule()` — for tests.         | browser + node + edge                         |
-| `setImmediateDriver`     | Node-only. Yields to I/O before running.                | node                                          |
-| `setTimeoutDriver`       | Cross-runtime. Configurable delay.                      | browser + node + edge                         |
-| `sendBeaconDriver`       | Browser-only. Survives page-unload via `navigator.sendBeacon`. | browser, survivesUnload               |
-| `workerThreadDriver`     | CPU-isolated execution in Node Worker / Web Worker.     | node, cpuIsolated                             |
+| Driver / factory             | When                                                    | Capabilities                                  |
+|------------------------------|---------------------------------------------------------|-----------------------------------------------|
+| `microtaskBatchDriver`       | Default. Coalesces N detaches into one microtask flush. | browser + node + edge                         |
+| `immediateDriver`            | Sync execution inside `schedule()` — for tests.         | browser + node + edge                         |
+| `setImmediateDriver`         | Node-only. Yields to I/O before running.                | node                                          |
+| `setTimeoutDriver`           | Cross-runtime. Configurable delay.                      | browser + node + edge                         |
+| `createSendBeaconDriver()`   | Browser-only. Survives page-unload via `navigator.sendBeacon`. | browser, survivesUnload               |
+| `createWorkerThreadDriver()` | CPU-isolated execution in Node Worker / Web Worker.     | node, cpuIsolated                             |
+
+The first four ship as ready-to-use singletons. `sendBeacon` and `worker-thread` ship as **factories only** (`createSendBeaconDriver` / `createWorkerThreadDriver`) — they take config, so you construct an instance per use site.
 
 Driver is a **required** first argument — no library-default. Pass it explicitly so the choice of scheduling algorithm is visible at every call site.
 

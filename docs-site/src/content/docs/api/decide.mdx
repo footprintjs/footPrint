@@ -173,7 +173,10 @@ All 8 operators follow [Prisma](https://www.prisma.io/docs/reference/api-referen
 
 ## Try it live
 
-- [decide() / select()](https://footprintjs.github.io/footprint-playground/samples/decide-select) — filter rules, function rules, multi-match with evidence
+- [Filter Rules](https://footprintjs.github.io/footprint-playground/samples/filter-rules) — filter object rules with evidence (`creditScore gt 700 ✓` → approved)
+- [Function Rules](https://footprintjs.github.io/footprint-playground/samples/function-rules) — function `when` clauses with read-tracking
+- [Mixed Rules](https://footprintjs.github.io/footprint-playground/samples/mixed-rules) — filter + function rules in the same `decide()`
+- [Select Parallel](https://footprintjs.github.io/footprint-playground/samples/select-parallel) — `select()` multi-match fires every matched branch in parallel
 - [Decider (Conditional)](https://footprintjs.github.io/footprint-playground/samples/decider) — plain decider without `decide()`
 
 → Full guide: [Decision branching](/footPrint/guides/building-blocks/decisions/)

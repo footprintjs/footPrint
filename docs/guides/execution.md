@@ -82,7 +82,7 @@ The signal is checked before each stage starts and raced against async stage fun
 By default, parallel children run to completion even if some fail (errors captured as `{ isError: true }`). For cases where you want immediate failure:
 
 ```typescript
-flowChart('Fetch', fetchFn)
+flowChart('Fetch', fetchFn, 'fetch')
   .addListOfFunction([
     { id: 'api1', name: 'CallAPI1', fn: api1Fn },
     { id: 'api2', name: 'CallAPI2', fn: api2Fn },
@@ -97,9 +97,9 @@ flowChart('Fetch', fetchFn)
 The engine tracks iteration count per node. Default maximum is 1000 iterations per back-edge to prevent infinite loops from user code.
 
 ```typescript
-flowChart('Init', initFn)
+flowChart('Init', initFn, 'init')
   .addFunction('Retry', retryFn, 'retry')
-  .addDeciderFunction('Check', checkFn)
+  .addDeciderFunction('Check', checkFn, 'check')
     .addFunctionBranch('again', 'Process', processFn)
     .addFunctionBranch('done', 'Finish', finishFn)
     .end()

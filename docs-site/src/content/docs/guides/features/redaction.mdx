@@ -9,7 +9,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## Setting a policy
 
-Call `executor.setRedactionPolicy()` before `run()`. One config covers three dimensions:
+Call `executor.setRedactionPolicy()` before `run()`. One config covers four dimensions:
 
 ```ts
 import { flowChart, FlowChartExecutor } from 'footprintjs';
@@ -60,13 +60,14 @@ executor.enableNarrative();
 await executor.run();
 ```
 
-## Three dimensions
+## Four dimensions
 
 | Dimension | Config | What it matches |
 |-----------|--------|----------------|
 | `keys` | `['ssn', 'password']` | Exact top-level key names |
 | `patterns` | `[/token|secret/i]` | Regex against key names |
-| `fields` | `{ patient: ['ssn', 'dob'] }` | Specific nested paths within objects |
+| `fields` | `{ patient: ['ssn', 'dob'] }` | Specific nested paths within objects (dot-notation supported) |
+| `emitPatterns` | `[/\.auth\./, /\.billing\./]` | Regex against `scope.$emit()` event names — matched payloads become `[REDACTED]` |
 
 ## What gets redacted
 
@@ -84,12 +85,12 @@ After execution, `executor.getRedactionReport()` returns a compliance-friendly a
 const report = executor.getRedactionReport();
 console.log(report.redactedKeys);     // ['ssn']
 console.log(report.fieldRedactions);  // { patient: ['ssn', 'dob', 'address.zip'] }
-console.log(report.patterns);         // [/password|token|secret/i]
+console.log(report.patterns);         // ['password|token|secret'] — regex source strings, not RegExp
 ```
 
 ## Subflow redaction
 
-Redaction policies propagate to subflows automatically. See [examples/features/17-subflow-redaction.ts](https://github.com/footprintjs/footPrint/blob/main/examples/features/17-subflow-redaction.ts) for a working example.
+Redaction policies propagate to subflows automatically. See [examples/runtime-features/redaction/02-subflow.ts](https://github.com/footprintjs/footPrint/blob/main/examples/runtime-features/redaction/02-subflow.ts) for a working example.
 
 <Aside>
   Redaction is declarative and config-driven — zero per-call flags. Define one policy at the executor level and it covers the entire execution tree.

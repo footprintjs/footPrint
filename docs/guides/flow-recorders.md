@@ -31,10 +31,12 @@ The FlowRecorder system mirrors the scope-level Recorder pattern:
 import { FlowChartExecutor } from 'footprintjs';
 
 const executor = new FlowChartExecutor(chart);
-executor.enableNarrative(); // auto-attaches NarrativeFlowRecorder
+executor.enableNarrative(); // auto-attaches the CombinedNarrativeRecorder
 await executor.run();
 
-console.log(executor.getFlowNarrative());
+// getNarrativeEntries() is the single public narrative API — structured
+// entries with { type, text, depth }. Map to text for a flat string[].
+console.log(executor.getNarrativeEntries().map((e) => e.text));
 // ["The process began with Validate.", "A decision was made...", ...]
 ```
 
@@ -80,16 +82,24 @@ await executor.run();
 ```typescript
 interface FlowRecorder {
   readonly id: string;
-  onStageExecuted?(event: FlowStageEvent): void;
+  onStageExecuted?(event: FlowStageEvent): void;   // every stage kind (carries stageType)
   onNext?(event: FlowNextEvent): void;
   onDecision?(event: FlowDecisionEvent): void;
   onFork?(event: FlowForkEvent): void;
   onSelected?(event: FlowSelectedEvent): void;
   onSubflowEntry?(event: FlowSubflowEvent): void;
   onSubflowExit?(event: FlowSubflowEvent): void;
+  onSubflowRegistered?(event: FlowSubflowRegisteredEvent): void;
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  onPause?(event: FlowPauseEvent): void;
+  onResume?(event: FlowResumeEvent): void;
+  onRunStart?(event: FlowRunEvent): void;          // once per executor.run(), before traversal
+  onRunEnd?(event: FlowRunEvent): void;            // once per run, after clean completion
+  onRunFailed?(event: FlowRunFailedEvent): void;   // once per run on a non-pause error (terminal)
+  clear?(): void;                                  // reset per-run state (stateful recorders)
+  toSnapshot?(): { name: string; data: unknown };  // expose data for getSnapshot()
 }
 ```
 
@@ -99,15 +109,25 @@ All hooks are **optional**. Implement only the events you care about. The `id` f
 
 | Event | When it fires | Key fields |
 |---|---|---|
-| `FlowStageEvent` | Stage function executed | `stageName`, `description?` |
+| `FlowStageEvent` | A stage executed (any kind) | `stageName`, `description?`, `stageType` |
 | `FlowNextEvent` | Linear next transition | `from`, `to`, `description?` |
-| `FlowDecisionEvent` | Decider picks a branch | `decider`, `chosen`, `rationale?`, `description?` |
+| `FlowDecisionEvent` | Decider picks a branch | `decider`, `chosen`, `rationale?`, `description?`, `evidence?` |
 | `FlowForkEvent` | Children dispatched in parallel | `parent`, `children[]` |
-| `FlowSelectedEvent` | Selector filters children | `parent`, `selected[]`, `total` |
-| `FlowSubflowEvent` | Entering/exiting a subflow | `name` |
+| `FlowSelectedEvent` | Selector filters children | `parent`, `selected[]`, `total`, `evidence?` |
+| `FlowSubflowEvent` | Entering/exiting a subflow | `name`, `subflowId?`, `description?`, `mappedInput?`, `outputState?` |
+| `FlowSubflowRegisteredEvent` | Dynamic subflow registered | `subflowId`, `name`, `description?`, `specStructure?` |
 | `FlowLoopEvent` | Back-edge loop iteration | `target`, `iteration`, `description?` |
-| `FlowBreakEvent` | Break function called | `stageName` |
-| `FlowErrorEvent` | Stage threw an error | `stageName`, `message`, `structuredError?` |
+| `FlowBreakEvent` | Break function called | `stageName`, `reason?`, `propagatedFromSubflow?` |
+| `FlowErrorEvent` | Stage threw an error | `stageName`, `message`, `structuredError` |
+| `FlowPauseEvent` / `FlowResumeEvent` | Pausable stage paused / resumed | `stageName`, `stageId`, `pauseData?` / `hasInput` |
+| `FlowRunEvent` | `executor.run()` started / ended cleanly | `payload?` (input on start, return value on end) |
+| `FlowRunFailedEvent` | `executor.run()` terminated on a non-pause error | `structuredError` |
+
+Every event also carries a read-only `traversalContext` (runId, stageId,
+runtimeStageId, subflowPath, depth, …). `onStageExecuted` fires uniformly for
+**every** stage kind — switch on `event.stageType`
+(`'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`) for kind-specific
+handling, and return early on non-`'linear'` types if you only want plain stages.
 
 ### Structured Errors in FlowErrorEvent
 
@@ -240,7 +260,7 @@ const recorder = new SeparateNarrativeFlowRecorder();
 executor.attachFlowRecorder(recorder);
 await executor.run();
 
-const mainNarrative = executor.getFlowNarrative(); // clean — no loops
+const mainNarrative = executor.getNarrativeEntries().map((e) => e.text); // clean — no loops
 const loopDetail = recorder.getLoopSentences();     // full loop detail
 const loopCounts = recorder.getLoopCounts();         // Map<target, count>
 ```
@@ -320,6 +340,9 @@ class MyStrategy extends NarrativeFlowRecorder {
 ## Multiple Recorders
 
 Attach as many recorders as you need. Each receives every event independently.
+`attachFlowRecorder` is **idempotent by ID** — attaching a recorder whose `id`
+matches an already-attached one replaces it (prevents accidental double-counting);
+distinct IDs coexist.
 
 ```typescript
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2)); // narrative
@@ -368,4 +391,4 @@ For reference, see:
 - [src/lib/engine/narrative/types.ts](../../src/lib/engine/narrative/types.ts) — FlowRecorder interface and event types
 - [src/lib/engine/narrative/FlowRecorderDispatcher.ts](../../src/lib/engine/narrative/FlowRecorderDispatcher.ts) — Dispatcher implementation
 - [src/lib/engine/narrative/NarrativeFlowRecorder.ts](../../src/lib/engine/narrative/NarrativeFlowRecorder.ts) — Default narrative recorder
-- [src/lib/engine/narrative/recorders/](../../src/lib/engine/narrative/recorders/) — 7 built-in loop strategies
+- [src/lib/engine/narrative/recorders/](../../src/lib/engine/narrative/recorders/) — built-in narrative strategies (7 loop strategies + `ManifestFlowRecorder`)

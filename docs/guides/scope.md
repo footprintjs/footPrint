@@ -11,7 +11,7 @@ Each stage in a FootPrint pipeline receives a **scope** — a transactional inte
 Extend `ScopeFacade` with domain-specific getters for type-safe reads:
 
 ```typescript
-import { ScopeFacade, toScopeFactory } from 'footprintjs';
+import { ScopeFacade, toScopeFactory } from 'footprintjs/advanced';
 
 class LoanScope extends ScopeFacade {
   get creditScore(): number {
@@ -42,7 +42,7 @@ const assessRisk = async (scope: LoanScope) => {
 Use `ScopeFacade` directly with string keys. When you pass no scope factory to `FlowChartExecutor`, this is what you get by default:
 
 ```typescript
-import { ScopeFacade } from 'footprintjs';
+import { ScopeFacade } from 'footprintjs/advanced';
 
 const myStage = (scope: ScopeFacade) => {
   scope.setValue('total', 79.98);              // overwrite
@@ -108,11 +108,11 @@ Recorders observe scope operations without modifying them. Attach multiple for d
 import { FlowChartExecutor, DebugRecorder, MetricRecorder } from 'footprintjs';
 
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(new DebugRecorder({ verbosity: 'verbose' }));
-executor.attachRecorder(new MetricRecorder());
+executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+executor.attachScopeRecorder(new MetricRecorder());
 ```
 
-**ID-based idempotency:** `attachRecorder` replaces any existing recorder with the same ID. Each `new MetricRecorder()` gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...), so multiple instances with different configs coexist. To override a framework-attached recorder, pass the same ID: `new MetricRecorder('metrics')`.
+**ID-based idempotency:** `attachScopeRecorder` replaces any existing recorder with the same ID. Each `new MetricRecorder()` gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...), so multiple instances with different configs coexist. To override a framework-attached recorder, pass the same ID: `new MetricRecorder('metrics')`.
 
 ### Built-in Recorders
 
@@ -122,16 +122,16 @@ executor.attachRecorder(new MetricRecorder());
 | `MetricRecorder` | Timing + read/write/commit counts per stage | Ops / monitoring |
 | `DebugRecorder` | Errors (always) + mutations + reads (verbose mode) | Developer |
 
-> **Note:** `narrative()` from `footprintjs/recorders` produces the combined flow + data narrative. Attach it via `executor.recorder(narrative())` — this is the only step needed.
+> **Note:** `narrative()` from `footprintjs/recorders` produces the combined flow + data narrative — it is a `CombinedNarrativeRecorder` (spans the scope and flow channels). Attach it to an executor instance via `executor.attachCombinedRecorder(narrative())`, or call `executor.enableNarrative()` to wire the default one in a single step.
 
 ### Custom Recorders
 
 Implement any subset of six hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
 
 ```typescript
-import { Recorder, WriteEvent } from 'footprintjs';
+import type { ScopeRecorder, WriteEvent } from 'footprintjs';
 
-class AuditRecorder implements Recorder {
+class AuditRecorder implements ScopeRecorder {
   readonly id = 'audit';
   private writes: Array<{ stage: string; key: string; value: unknown }> = [];
 
@@ -178,7 +178,7 @@ const pwd = scope.getValue('password'); // → 'super-secret'
 Recorder events include a `redacted: true` flag so recorders can distinguish redacted values from literal `"[REDACTED]"` strings:
 
 ```typescript
-class ComplianceRecorder implements Recorder {
+class ComplianceRecorder implements ScopeRecorder {
   readonly id = 'compliance';
   onWrite(event: WriteEvent) {
     if (event.redacted) {
@@ -192,13 +192,15 @@ class ComplianceRecorder implements Recorder {
 
 **Cross-stage redaction:** When running via `FlowChartExecutor`, redacted keys are automatically shared across all stages. A key marked redacted in stage 1 stays redacted in stage 5's reads — no extra configuration needed.
 
-For custom scope factories, share redaction state across stages using `useSharedRedactedKeys()`:
+To redact keys declaratively across every stage, attach a policy to the executor:
 
 ```typescript
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(myRecorder);
+executor.attachScopeRecorder(myRecorder);
 executor.setRedactionPolicy({ keys: ['ssn', 'password'] });
 ```
+
+Custom scope factories that maintain their own redaction set across stages can share it via the scope's `useSharedRedactedKeys(sharedSet)` method.
 
 ### Error Isolation
 
@@ -213,7 +215,7 @@ The #1 FootPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setVal
 Protection catches this at runtime:
 
 ```typescript
-import { createProtectedScope } from 'footprintjs';
+import { createProtectedScope } from 'footprintjs/advanced';
 
 const protected = createProtectedScope(scope, {
   mode: 'error',        // 'error' | 'warn' | 'off'
@@ -306,9 +308,11 @@ Then apply it in the scope factory or via `executor.setRedactionPolicy(PatientSc
 
 ## Provider System
 
-The provider system normalizes different scope definitions to a single `ScopeFactory` interface:
+The provider system normalizes different scope definitions to a single `ScopeFactory` interface. `toScopeFactory`, `defineScopeSchema`, and `registerScopeResolver` are engine-level helpers exported from `footprintjs/advanced`:
 
 ```typescript
+import { toScopeFactory, defineScopeSchema, ScopeFacade } from 'footprintjs/advanced';
+
 // Class-based
 const factory1 = toScopeFactory(UserScope);
 

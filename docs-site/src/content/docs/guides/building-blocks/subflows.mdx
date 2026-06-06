@@ -54,6 +54,15 @@ await executor.run();
 
 The `inputMapper` option lets you pass a subset of parent state into the subflow. If omitted, the full parent state is passed.
 
+The matching `outputMapper` option maps the subflow's final state back into the parent scope. Top-level array keys are **concatenated** by default (`[...parent, ...subflow]`) — return only the delta items, or set `arrayMerge: ArrayMergeMode.Replace` (from `footprintjs/advanced`) to overwrite instead. Scalars are always replaced.
+
+```ts
+.addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
+  inputMapper: (s: any) => ({ amount: s.amount, cardLast4: s.cardLast4 }),
+  outputMapper: (sub: any) => ({ txnId: sub.txnId }),
+})
+```
+
 ## Mounting multiple subflows
 
 Mount as many subflows as needed. They run sequentially:

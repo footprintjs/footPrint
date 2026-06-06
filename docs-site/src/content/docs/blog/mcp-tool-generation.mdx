@@ -46,7 +46,7 @@ FootPrintJS solves this with **self-describing graphs**. The flowchart *is* the 
 ## One line: `.toMCPTool()`
 
 ```typescript
-import { flowChart, decide, narrative } from 'footprintjs';
+import { flowChart, decide, FlowChartExecutor } from 'footprintjs';
 
 interface CreditState {
   creditScore: number;
@@ -59,7 +59,9 @@ interface CreditState {
 
 const chart = flowChart<CreditState>('ReceiveApplication', async (scope) => {
     // Input is already on scope from the caller
-  }, 'receive')
+  }, 'assess-credit-risk', {
+    description: 'Evaluates credit risk by checking credit score, DTI ratio, and employment status. Returns risk tier and decision.',
+  })
   .addFunction('CheckCredit', async (scope) => {
     scope.riskTier = scope.creditScore >= 700 ? 'low' :
                      scope.creditScore >= 620 ? 'medium' : 'high';
@@ -82,6 +84,18 @@ const chart = flowChart<CreditState>('ReceiveApplication', async (scope) => {
     })
     .setDefault('approve')
     .end()
+  // The contract declares the input schema toMCPTool() reads
+  .contract({
+    input: {
+      type: 'object',
+      properties: {
+        creditScore: { type: 'number' },
+        dtiRatio: { type: 'number' },
+        employmentYears: { type: 'number' },
+      },
+      required: ['creditScore', 'dtiRatio', 'employmentYears'],
+    },
+  })
   .build();
 
 // One line — tool descriptor generated from the graph
@@ -92,20 +106,21 @@ const tool = chart.toMCPTool();
 
 ```json
 {
-  "name": "receivecreditapplication",
-  "description": "1. ReceiveApplication\n2. CheckCredit\n3. CheckDTI\n4. Route based on overall risk assessment\n   → Reject\n   → Approve",
+  "name": "assess-credit-risk",
+  "description": "Evaluates credit risk by checking credit score, DTI ratio, and employment status. Returns risk tier and decision.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "creditScore": { "type": "number" },
       "dtiRatio": { "type": "number" },
       "employmentYears": { "type": "number" }
-    }
+    },
+    "required": ["creditScore", "dtiRatio", "employmentYears"]
   }
 }
 ```
 
-The description is auto-generated from the graph stages. The input schema comes from the contract (or can be inferred). If you add a new stage to the flowchart, the tool description updates automatically.
+The `name` comes from the chart's root id (sanitized to the MCP name allowlist), the `description` from the chart description, and the `inputSchema` from the contract. They all live next to the code that runs — change the chart and the descriptor changes with it. (When no contract is declared, `inputSchema` defaults to the MCP no-parameter form `{ "type": "object", "properties": {}, "additionalProperties": false }`.)
 
 ## Register with any MCP server
 
@@ -133,16 +148,18 @@ When Claude calls the tool, execute the flowchart and return the result **with t
 // Handle the tool call
 const toolInput = response.content[0].input; // { creditScore: 580, dtiRatio: 0.6, employmentYears: 1 }
 
-const result = await chart
-  .initialState(toolInput)
-  .recorder(narrative())
-  .run();
+// Run the chart with the tool input; the executor exposes the narrative.
+const executor = new FlowChartExecutor(chart);
+await executor.run({ input: toolInput });
+
+const state = executor.getSnapshot().sharedState as CreditState;
+const narrative = executor.getNarrativeEntries().map((e) => e.text).join('\n');
 
 // Return to Claude: the decision + why
 const toolResult = {
-  decision: result.state.decision,       // "REJECTED"
-  reasons: result.state.reasons,          // ["DTI exceeds 43%"]
-  trace: result.narrative.join('\n'),     // Full causal trace
+  decision: state.decision,   // "REJECTED"
+  reasons: state.reasons,     // ["DTI exceeds 43%"]
+  trace: narrative,           // Full causal trace
 };
 ```
 
@@ -170,38 +187,38 @@ One flowchart, two output formats — MCP for AI agents, OpenAPI for humans and 
 If you're using agentfootprint (the agent framework), the integration is even tighter:
 
 ```typescript
-import { Agent, createProvider, anthropic, defineTool } from 'agentfootprint';
+import { Agent, defineTool } from 'agentfootprint';
+import { anthropic } from 'agentfootprint/llm-providers';
+import { FlowChartExecutor } from 'footprintjs';
 
 // Turn the flowchart into an agent tool
 const creditTool = defineTool({
-  id: tool.name,
+  name: tool.name,
   description: tool.description,
   inputSchema: tool.inputSchema,
-  handler: async (input) => {
-    const result = await chart
-      .initialState(input)
-      .recorder(narrative())
-      .run();
+  execute: async (input) => {
+    const executor = new FlowChartExecutor(chart);
+    await executor.run({ input });
+    const state = executor.getSnapshot().sharedState as CreditState;
+    // execute() returns anything JSON-serializable; it's forwarded to the LLM
     return {
-      content: JSON.stringify({
-        decision: result.state.decision,
-        trace: result.narrative,
-      }),
+      decision: state.decision,
+      trace: executor.getNarrativeEntries().map((e) => e.text),
     };
   },
 });
 
 // Build an agent that uses it
 const agent = Agent.create({
-  provider: createProvider(anthropic('claude-sonnet-4-20250514')),
+  provider: anthropic({ defaultModel: 'claude-sonnet-4-5-20250929' }),
 })
   .system('You are a loan officer assistant. Use the credit assessment tool to evaluate applications and explain decisions clearly.')
   .tool(creditTool)
   .build();
 
-const response = await agent.run(
-  'Evaluate this application: credit score 580, DTI 60%, 1 year employment'
-);
+const response = await agent.run({
+  message: 'Evaluate this application: credit score 580, DTI 60%, 1 year employment',
+});
 // Agent calls the tool, gets the trace, explains the decision
 ```
 

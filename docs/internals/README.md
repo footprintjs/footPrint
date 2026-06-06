@@ -1,12 +1,18 @@
 # Internals
 
-FootPrint is six independent libraries, each usable standalone. Every library has its own README with architecture details, design decisions, dependency graphs, and test coverage.
+FootPrint is a library of focused libraries, each usable standalone. Every library has its own README with architecture details, design decisions, dependency graphs, and test coverage. The six libraries below form the core spine; the remaining libraries (see "New Libraries" further down) layer on top.
 
 ```
 src/lib/
 ├── memory/    Transactional state (SharedMemory, StageContext, EventLog, TransactionBuffer)
+├── schema/    Validation abstraction (Zod optional, duck-typed detection)
 ├── builder/   Fluent flowchart DSL (FlowChartBuilder, DeciderList, SelectorFnList)
 ├── scope/     Scope facades, recorders, protection, Zod integration
+├── reactive/  TypedScope<T> deep Proxy (typed property access, $-methods)
+├── decide/    decide()/select() decision evidence capture
+├── recorder/  CompositeRecorder, stores, EmitRecorder, composition primitives
+├── pause/     Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
+├── detach/    Fire-and-forget child flowcharts (drivers, handles)
 ├── engine/    DFS traversal, handlers, narrative generators
 ├── runner/    Execution convenience (FlowChartExecutor, ExecutionRuntime)
 └── contract/  I/O schemas, Zod→JSON Schema, OpenAPI 3.1 generation
@@ -21,27 +27,31 @@ Each README follows a consistent pattern: *Why This Exists → The N Primitives 
 | **memory/** | SharedMemory, TransactionBuffer, EventLog, StageContext, DiagnosticCollector | [src/lib/memory/README.md](../../src/lib/memory/README.md) |
 | **builder/** | FlowChartBuilder, DeciderList, SelectorFnList | [src/lib/builder/README.md](../../src/lib/builder/README.md) |
 | **scope/** | ScopeFacade, Recorders, Protection, Providers, Zod Integration | [src/lib/scope/README.md](../../src/lib/scope/README.md) |
-| **engine/** | FlowchartTraverser, Handlers (10 specialists), FlowRecorder System | [src/lib/engine/README.md](../../src/lib/engine/README.md) |
+| **engine/** | FlowchartTraverser, Handlers (the specialists), FlowRecorder System | [src/lib/engine/README.md](../../src/lib/engine/README.md) |
 | **runner/** | FlowChartExecutor | [src/lib/runner/README.md](../../src/lib/runner/README.md) |
 | **contract/** | .contract(), schema normalization, OpenAPI generation | [src/lib/contract/](../../src/lib/contract/) |
 
 ## Dependency Graph
 
 ```
-contract/  (standalone — uses builder types only)
+schema/   (standalone — validation abstraction)
      |
-builder/  (standalone — zero internal deps)
+contract/ → builder/ + schema/
      |
-scope/  → memory/
+builder/  → engine/ (types only)
+     |
+scope/  → memory/   (engine ExecutionEnv type only)
+reactive/ → scope/
+decide/  → scope/
      |
 engine/ → memory/ + scope/
      |
-runner/ → engine/ + memory/ + scope/
+runner/ → engine/ + memory/ + scope/ + schema/ (input validation)
 ```
 
 ## Test Architecture
 
-Four test tiers across all libraries:
+Test tiers across all libraries:
 
 | Tier | Purpose | Example |
 |------|---------|---------|
@@ -49,8 +59,9 @@ Four test tiers across all libraries:
 | **scenario/** | Multi-step workflow correctness | Stage writes → commit → next stage reads |
 | **property/** | Invariants hold for random inputs (fast-check) | Replay N commits = same state every time |
 | **boundary/** | Edge cases and extremes | 10K-item arrays, 200 sequential commits |
+| **security/** | Injection, leakage, redaction-bypass resistance | Redaction policy holds under crafted input |
 
-Total: 900+ tests across 85+ suites.
+Total: 2,700+ tests across 230+ suites.
 
 ## Core Principle: Collect During Traversal
 
@@ -100,30 +111,33 @@ When proposing new features, always ask: *"Can this be collected during the exis
 
 ## Shared Observer Pattern
 
-Two libraries independently implement the same observer pattern:
+Four observer channels independently implement the same observer pattern. The first two are the original pair; the third (`StructureRecorder`, build-phase) and fourth (`EmitRecorder`, consumer-emitted events) were added later:
 
 | Aspect | scope/recorders (Data) | engine/narrative (Flow) |
 |---|---|---|
-| **Interface** | `Recorder` | `FlowRecorder` |
-| **Hooks** | `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd` | `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`, ... |
+| **Interface** | `ScopeRecorder` | `FlowRecorder` |
+| **Hooks** | `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onEmit` | `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`, `onRunStart`, `onRunEnd`, `onRunFailed`, ... |
 | **Dispatch** | `ScopeFacade._invokeHook()` | `FlowRecorderDispatcher` |
-| **Attachment** | `executor.attachRecorder(r)` | `executor.attachFlowRecorder(r)` |
+| **Attachment** | `executor.attachScopeRecorder(r)` | `executor.attachFlowRecorder(r)` |
 | **Error isolation** | try/catch per recorder | try/catch per recorder |
 | **Identity** | `readonly id: string` | `readonly id: string` |
 | **All hooks optional** | Yes | Yes |
+
+A `CombinedRecorder` lets one object implement hooks across all channels; the library routes it to the right dispatchers by method-shape detection (`executor.attachCombinedRecorder(r)`).
 
 Both follow the same abstract machine: **observer with `{ id, optional hooks }` → dispatcher fans out to N observers → errors swallowed → attach/detach by id → fast-path when empty.**
 
 ### Why not a shared base class?
 
-Considered and deliberately deferred. The two dispatchers differ structurally:
+Considered and deliberately kept apart. The dispatchers differ structurally:
 
-- `ScopeFacade` *is* the dispatcher (inline `_invokeHook` with string-keyed dispatch)
+- `ScopeFacade` *is* the data dispatcher (inline `_invokeHook` with string-keyed dispatch); `EmitRecorder.onEmit` rides the same channel
 - `FlowRecorderDispatcher` is a separate class that implements `IControlFlowNarrative` (adapter pattern)
+- `StructureRecorderDispatcher` is the build-phase dispatcher, fired synchronously during builder operations
 
-A generic `ObserverDispatcher<T>` would save ~30 lines of duplication but add type complexity (`dispatch<K extends keyof T>` generics) and indirection. The current implementations are each ~40 lines, completely self-explanatory, and independently testable.
+A generic `ObserverDispatcher<T>` would save duplication but add type complexity (`dispatch<K extends keyof T>` generics) and indirection. Each implementation is small, self-explanatory, and independently testable.
 
-**Rule of three:** Two instances are a coincidence. If a third observer system is added (e.g., `BuilderRecorder` for the fluent DSL), that's the signal to extract the shared base. Until then, the duplication cost is lower than the wrong-abstraction cost.
+**Why still not unified:** even with four channels, the dispatchers were intentionally NOT collapsed into one base. Each channel has a distinct invariant set (build-phase vs runtime, fires-before vs fires-after a stage, pass-through vs buffered), so a shared base would couple unrelated lifecycles. The duplication cost stays lower than the wrong-abstraction cost.
 
 For details on each system:
 - Scope recorders: [docs/guides/scope.md](../guides/scope.md) → Recorders section
@@ -156,8 +170,8 @@ discriminating result types at the engine boundary. The engine checks via `Refle
 
 ### 2. Temporary Recorder (EvidenceCollector)
 
-A minimal Recorder attached for one `when()` call, detached in `finally`. Captures ReadEvent
-key + summarized value + redacted flag. The canonical example of single-lifecycle observation.
+A minimal `ScopeRecorder` (`EvidenceCollector`) attached for one `when()` call, detached in `finally`.
+Captures ReadEvent key + summarized value + redacted flag. The canonical example of single-lifecycle observation.
 
 ### 3. Scope Accessor Adaptation
 

@@ -13,9 +13,8 @@ The primary factory function. Creates the root stage and returns a builder.
 flowChart<State>(
   name: string,
   fn: (scope: TypedScope<State>) => Promise<void>,
-  id?: string,
-  inputSchema?: ZodSchema | JsonSchema,
-  description?: string,
+  id: string,
+  options?: FlowChartOptions,
 ): FlowChartBuilder<State>
 ```
 
@@ -25,9 +24,8 @@ flowChart<State>(
 |-------|------|-------------|
 | `name` | `string` | Stage display name (shown in narrative) |
 | `fn` | async function | Stage handler — reads/writes `scope` |
-| `id` | `string?` | Stable ID for snapshot navigation (defaults to slug of `name`) |
-| `inputSchema` | Zod or JSON Schema | Input validation for this stage only (rarely needed — use `.contract()` instead) |
-| `description` | `string?` | Human description included in MCP tool output |
+| `id` | `string` | Stable ID for snapshot navigation |
+| `options` | `FlowChartOptions?` | Options bag: `description?` (human description shown on the root spec + MCP tool output), `structureRecorders?` (build-time observers), `failFast?` (only for `flowChartSelector`) |
 
 ```ts
 import { flowChart } from 'footprintjs';
@@ -41,7 +39,7 @@ interface LoanState {
 const chart = flowChart<LoanState>('AssessCredit', async (scope) => {
   scope.creditScore = 720;
   scope.dti = 0.38;
-}, 'assess-credit', undefined, 'Load and validate credit application')
+}, 'assess-credit', { description: 'Load and validate credit application' })
   .build();
 ```
 
@@ -63,7 +61,7 @@ Append a sequential stage.
 .addFunction(
   name: string,
   fn: (scope: TypedScope<State>) => Promise<void>,
-  id?: string,
+  id: string,
   description?: string,
 ): FlowChartBuilder<State>
 ```
@@ -86,7 +84,7 @@ Add a branching stage. The handler returns a branch ID (plain string) or a `Deci
 .addDeciderFunction(
   name: string,
   fn: (scope: TypedScope<State>) => string | DecisionResult,
-  id?: string,
+  id: string,
   description?: string,
 ): DeciderBuilder<State>
 ```
@@ -128,10 +126,13 @@ Add a parallel fan-out stage. The handler returns a `SelectionResult` from [`sel
 .addSelectorFunction(
   name: string,
   fn: (scope: TypedScope<State>) => SelectionResult,
-  id?: string,
+  id: string,
   description?: string,
+  options?: { failFast?: boolean },
 ): SelectorBuilder<State>
 ```
+
+By default a selected fan-out is best-effort (`Promise.allSettled` — a branch error is collected, not rethrown). Pass `{ failFast: true }` to use `Promise.all` so the first branch error rejects the whole run — use it when every selected branch is required.
 
 ### .addSubFlowChartNext()
 
@@ -141,10 +142,12 @@ Mount another compiled flowchart as a sequential subflow.
 .addSubFlowChartNext(
   id: string,
   chart: FlowChart,
-  name: string,
-  options?: { inputMapper?: (s: State) => unknown },
+  name?: string,
+  options?: SubflowMountOptions,
 ): FlowChartBuilder<State>
 ```
+
+`SubflowMountOptions` carries `inputMapper` (parent scope → subflow input), `outputMapper` (subflow output → parent scope), `arrayMerge` (`ArrayMergeMode.Concat` default / `.Replace`), `convergeAt` (structure-only merge target), and `propagateBreak` (inner `$break` propagates to the parent).
 
 ```ts
 const paymentChart = new FlowChartBuilder()
@@ -167,18 +170,33 @@ Add a stage that emits tokens incrementally (for LLM responses, SSE, etc.).
 ```ts
 .addStreamingFunction(
   name: string,
-  fn: (scope: TypedScope<State>, handlers: StreamHandlers) => Promise<void>,
-  id?: string,
+  fn: (scope: TypedScope<State>, breakPipeline: () => void, streamCallback?: StreamCallback) => Promise<void>,
+  id: string,
+  streamId?: string,
+  description?: string,
 ): FlowChartBuilder<State>
 ```
 
+The stage emits tokens by calling the injected `streamCallback`. The lifecycle handlers (`onStart` / `onToken` / `onEnd`) are `StreamHandlers` attached to the **executor**, not passed to the stage:
+
 ```ts
-.addStreamingFunction('GenerateResponse', async (scope, handlers) => {
+.addStreamingFunction('GenerateResponse', async (scope, _breakPipeline, streamCallback) => {
   for await (const chunk of callLLM(scope.$getArgs())) {
-    handlers.onChunk(chunk);
+    streamCallback?.(chunk);
   }
-  handlers.onComplete('done');
-}, 'generate-response')
+}, 'generate-response', 'llm-stream')
+```
+
+```ts
+import type { StreamHandlers } from 'footprintjs';
+
+const handlers: StreamHandlers = {
+  onStart: (id) => console.log(`[${id}] started`),
+  onToken: (id, token) => process.stdout.write(token),
+  onEnd: (id, full) => console.log(`[${id}] done: "${full}"`),
+};
+
+const executor = new FlowChartExecutor(chart, { streamHandlers: handlers });
 ```
 
 ### .loopTo()
@@ -186,8 +204,10 @@ Add a stage that emits tokens incrementally (for LLM responses, SSE, etc.).
 Create a back-edge to an earlier stage. The loop exits when `scope.$break()` is called inside any stage.
 
 ```ts
-.loopTo(targetStageName: string): FlowChartBuilder<State>
+.loopTo(targetStageId: string): FlowChartBuilder<State>
 ```
+
+Pass the target stage's **id** (not its display name) — `loopTo` validates against declared stage ids and throws at build time otherwise.
 
 ```ts
 const chart = flowChart<{ attempt: number; result?: string }>('Init', async (scope) => {
@@ -199,7 +219,7 @@ const chart = flowChart<{ attempt: number; result?: string }>('Init', async (sco
     if (ok) { scope.result = 'success'; scope.$break(); }
     if (scope.attempt >= 3) { scope.result = 'failed'; scope.$break(); }
   }, 'try-request')
-  .loopTo('TryRequest')
+  .loopTo('try-request')
   .build();
 ```
 
@@ -211,7 +231,7 @@ Attach input/output schemas for validation and API generation. See [Self-describ
 .contract(options: {
   input?: ZodSchema | JsonSchema;
   output?: ZodSchema | JsonSchema;
-  mapper?: (scope: TypedScope<State>) => unknown;
+  mapper?: (finalScope: Record<string, unknown>) => unknown;
 }): FlowChartBuilder<State>
 ```
 

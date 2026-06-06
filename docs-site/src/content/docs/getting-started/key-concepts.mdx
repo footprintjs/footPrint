@@ -38,16 +38,17 @@ const score = scope.creditScore;      // tracked read
   Don't use `getValue()`/`setValue()` in TypedScope stages — use direct property access. `$`-prefixed methods (`$break`, `$debug`, `$metric`) are escape hatches for side effects.
 </Aside>
 
-## Two observer systems
+## Observer channels
 
-footprintjs has two separate observer channels that fire at different times:
+footprintjs has three runtime observer channels that fire at different times:
 
 | Channel | Interface | Fires when |
 |---|---|---|
-| **Scope recorder** | `Recorder` | During stage execution (reads, writes, commits) |
+| **Scope recorder** | `ScopeRecorder` | During stage execution (reads, writes, commits) |
 | **Flow recorder** | `FlowRecorder` | After stage execution (decisions, forks, loops) |
+| **Emit recorder** | `EmitRecorder` | When a stage calls `scope.$emit(name, payload)` |
 
-`narrative()` implements **both** interfaces and merges them into a single timeline. You attach it via `.recorder(narrative())`.
+A single object can implement hooks across all three channels — that union is a `CombinedRecorder`, attached with one `attachCombinedRecorder()` call. `narrative()` returns exactly such a recorder (the `CombinedNarrativeRecorder`): it merges scope, flow, and emit events into a single timeline. You attach it via `.recorder(narrative())`.
 
 ## Collect during traversal
 

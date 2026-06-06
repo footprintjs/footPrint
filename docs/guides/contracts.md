@@ -10,9 +10,9 @@ Define I/O schemas on your flowchart and auto-generate OpenAPI 3.1 specs. Schema
 import { flowChart } from 'footprintjs';
 import { z } from 'zod';
 
-const chart = flowChart('ProcessLoan', receiveFn)
-  .addFunction('Assess', assessFn)
-  .addDeciderFunction('Decide', deciderFn)
+const chart = flowChart('ProcessLoan', receiveFn, 'receive')
+  .addFunction('Assess', assessFn, 'assess')
+  .addDeciderFunction('Decide', deciderFn, 'decide')
     .addFunctionBranch('approved', 'Approve', approveFn)
     .addFunctionBranch('rejected', 'Reject', rejectFn)
     .end()
@@ -35,68 +35,71 @@ const chart = flowChart('ProcessLoan', receiveFn)
 
 ### What `.contract()` gives you
 
-- **`chart.inputSchema`** — Normalized JSON Schema (Zod auto-converted)
-- **`chart.outputSchema`** — Normalized JSON Schema
+- **`chart.inputSchema`** — The input schema you passed (raw Zod or JSON Schema; normalized to JSON Schema when consumed)
+- **`chart.outputSchema`** — The output schema you passed
 - **`chart.outputMapper`** — Function to extract output from scope
 - **`chart.toOpenAPI(options?)`** — Generate OpenAPI 3.1 spec
+- **`chart.toMCPTool()`** — Generate a Model Context Protocol tool description (`{ name, description, inputSchema }`)
 
 ---
 
 ## OpenAPI Generation
 
+`chart.toOpenAPI(options?)` is attached to the compiled chart by `.build()`. Options are `ChartOpenAPIOptions`:
+
 ```typescript
-const spec = chart.toOpenAPI({ version: '1.0.0', basePath: '/api' });
+const spec = chart.toOpenAPI({
+  title: 'Loan API',   // defaults to the first line of chart.description
+  version: '1.0.0',    // defaults to '1.0.0'
+  description: '...',  // defaults to chart.description
+  path: '/process',    // defaults to `/${slug(root.id)}`
+});
 ```
 
-Produces a complete OpenAPI 3.1 spec:
+Produces an OpenAPI 3.1 spec with the input/output schemas **inlined** under each operation:
 
 ```json
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "ProcessLoan",
+    "title": "FlowChart: ProcessLoan",
     "version": "1.0.0",
     "description": "FlowChart: ProcessLoan\nSteps:\n1. ProcessLoan\n2. Assess\n3. Decide — Decides between: approved, rejected"
   },
   "paths": {
-    "/api/processloan": {
+    "/receive": {
       "post": {
-        "operationId": "processloan",
-        "summary": "ProcessLoan",
+        "summary": "FlowChart: ProcessLoan",
+        "description": "FlowChart: ProcessLoan\nSteps:\n...",
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProcessLoanInput" }
+              "schema": { "type": "object", "properties": { ... } }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Successful execution",
+            "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ProcessLoanOutput" }
+                "schema": { "type": "object", "properties": { ... } }
               }
             }
           }
         }
       }
     }
-  },
-  "components": {
-    "schemas": {
-      "ProcessLoanInput": { "type": "object", "properties": { ... } },
-      "ProcessLoanOutput": { "type": "object", "properties": { ... } }
-    }
   }
 }
 ```
 
-The description auto-walks the flowchart's `buildTimeStructure` to include:
-- Sequential step numbering
+The `description` is assembled incrementally by the builder as each stage is added (no
+post-execution walk) and includes:
+- Sequential step numbering (`Steps:` block)
 - Per-stage descriptions (if provided)
 - Decider branch IDs (`"Decides between: approved, rejected"`)
-- Parallel fork children (`"(parallel: ParseHTML, ParseCSS)"`)
+- Parallel fan-out children (`"Runs in parallel: ParseHTML, ParseCSS"`)
 
 ---
 
@@ -105,7 +108,7 @@ The description auto-walks the flowchart's `buildTimeStructure` to include:
 Set all I/O schemas in a single `.contract()` call on the builder:
 
 ```typescript
-const chart = flowChart('Greet', greetFn)
+const chart = flowChart('Greet', greetFn, 'greet')
   .contract({
     input: z.object({ name: z.string() }),
     output: z.object({ greeting: z.string() }),
@@ -124,7 +127,7 @@ const chart = flowChart('Greet', greetFn)
 ### Zod (optional peer dependency)
 
 ```typescript
-const chart = flowChart('Process', processFn)
+const chart = flowChart('Process', processFn, 'process')
   .contract({
     input: z.object({
       applicantName: z.string(),
@@ -140,7 +143,7 @@ Supported Zod types: `string`, `number`, `boolean`, `literal`, `enum`, `array`, 
 ### Raw JSON Schema
 
 ```typescript
-const chart = flowChart('Process', processFn)
+const chart = flowChart('Process', processFn, 'process')
   .contract({
     input: {
       type: 'object',
@@ -156,19 +159,9 @@ const chart = flowChart('Process', processFn)
 
 ### Detection
 
-FootPrint duck-types Zod schemas by checking for `.def.type` (Zod v4) or `._def.typeName` (Zod v3). If detected, auto-converts to JSON Schema via `zodToJsonSchema()`. Otherwise, passes through as raw JSON Schema.
+FootPrint duck-types Zod schemas by checking for `.def` (Zod v4) or `._def` (Zod v3). If detected, the schema is auto-converted to JSON Schema. Otherwise, it passes through as raw JSON Schema.
 
-You can also convert manually:
-
-```typescript
-import { zodToJsonSchema, normalizeSchema } from 'footprintjs';
-
-const jsonSchema = zodToJsonSchema(z.object({ name: z.string() }));
-// { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
-
-const normalized = normalizeSchema(anySchema);
-// Detects Zod → converts; JSON Schema → passes through
-```
+Conversion happens automatically inside `.contract()` (and when `chart.toOpenAPI()` / `chart.toMCPTool()` read the schemas), so you never have to convert by hand — `chart.inputSchema` / `chart.outputSchema` always normalize to JSON Schema at the point they're consumed.
 
 ---
 

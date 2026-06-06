@@ -16,7 +16,7 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
-├── recorder/  → CompositeRecorder, KeyedRecorder<T>, SequenceRecorder<T>, BoundaryStateTracker<TState>, composition primitives
+├── recorder/  → CompositeRecorder, KeyedStore<T>, SequenceStore<T>, BoundaryStateStore<TState>, composition primitives
 ├── pause/     → Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
@@ -27,7 +27,7 @@ Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- en
 
 Three entry points:
 - `import { ... } from 'footprintjs'` — public API
-- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, KeyedRecorder, SequenceRecorder, BoundaryStateTracker
+- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, storage primitives (KeyedStore, SequenceStore, BoundaryStateStore)
 - `import { ... } from 'footprintjs/advanced'` — engine internals (also re-exports trace)
 
 ## Key API
@@ -120,7 +120,7 @@ scope.getEnv()                     // frozen execution environment (NOT tracked)
 ```typescript
 const executor = new FlowChartExecutor(chart);
 // With options (preferred over positional params):
-const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory, enrichSnapshots: true });
+const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory });
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
 executor.attachRecorder(recorder) // plug scope observer
@@ -187,9 +187,9 @@ const subtree = getSubtreeSnapshot(snapshot, 'sf-payment');
 listSubflowPaths(snapshot); // ['sf-payment', 'sf-outer/sf-inner']
 ```
 
-## Two Observer Systems
+## Observer Channels
 
-Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Intentionally NOT unified.
+Four pluggable observer channels — three fire at runtime (Scope, Flow, Emit) and one fires at build time (Structure). All share `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. A recorder is routed to channels by runtime duck-typing of its `on*` methods. Intentionally NOT unified into one interface — each channel has a distinct invariant set.
 
 **Recorder ID contract:**
 - `attachRecorder` is **idempotent by ID** — same ID replaces, different IDs coexist. Prevents accidental double-counting.
@@ -201,22 +201,31 @@ Both use `{ id, hooks } -> dispatcher -> error isolation -> attach/detach`. Inte
 - Built-in: `MetricRecorder`, `DebugRecorder`
 
 **FlowRecorder** (control flow — fires AFTER stage execution):
-- `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`
-- All events carry `traversalContext: TraversalContext`
+- `onStageExecuted` (universal "did this stage run", carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`), `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onSubflowRegistered`, `onLoop`, `onBreak`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`, `onRunFailed`
+- All events carry `traversalContext: TraversalContext` (includes per-run `runId`)
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
 - Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
 
-**CombinedNarrativeRecorder** implements BOTH interfaces. Attached via `executor.recorder(narrative())` at runtime.
+**Emit Recorder** (consumer-emitted events — fired by `scope.$emit(name, payload)`):
+- `onEmit(EmitEvent)` — see the "Emit Channel" section below.
+
+**Structure Recorder** (build-time chart shape — fires SYNCHRONOUSLY during builder operations, NOT runtime):
+- `onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`
+- Attach via options bag — `flowChart('seed', fn, 'seed', { structureRecorders: [rec] })` — or fluent `.attachStructureRecorder(rec)`. MOUNT-ONLY: a builder's recorder sees only that builder's events; subflow internals arrive via the mount event's `subflowSpec` (walk with `walkSubflowSpec` from `footprintjs/trace`). Exported from the main `footprintjs` barrel.
+
+**CombinedNarrativeRecorder** implements the Scope + Flow + Emit interfaces. Attached via `chart.recorder(narrative())` (fluent) or `executor.attachCombinedRecorder(narrative())` / `executor.enableNarrative()` at runtime.
 
 ## Event Ordering
 
 ```
+0. FlowRecorder.onRunStart      — once per executor.run(), carries the run input
 1. Recorder.onStageStart        — stage begins
 2. Recorder.onRead/onWrite      — DURING execution (buffered per-stage)
 3. Recorder.onCommit            — transaction flush
 4. Recorder.onStageEnd          — stage completes
-5. FlowRecorder.onStageExecuted — CombinedNarrativeRecorder flushes buffered ops
-6. FlowRecorder.onNext/onDecision/onFork — control flow continues
+5. FlowRecorder.onStageExecuted — universal "stage ran" (stageType discriminator); CombinedNarrativeRecorder flushes buffered ops for LINEAR stages here
+6. FlowRecorder.onNext/onDecision/onFork/onSelected — control flow continues (non-linear onStageExecuted fires AFTER its specialized event)
+7. FlowRecorder.onRunEnd (clean) or onRunFailed (error) — once per run, closes the boundary symmetrically
 ```
 
 ## Execution Tracing (`footprintjs/trace`)
@@ -266,9 +275,13 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
-| `KeyedRecorder<T>` | abstract class | Base for 1:1 Map-based recorders (durable) |
-| `SequenceRecorder<T>` | abstract class | Base for 1:N ordered sequence recorders (durable; has `getEntryRanges()` for O(1) time-travel) |
-| `BoundaryStateTracker<TState>` | abstract class | Base for transient bracket-scoped state — live state DURING a `[start, stop]` interval; clears on stop. O(1) reads via `getActive` / `hasActive` / `activeCount`. Subclass calls `startBoundary` / `updateBoundary` / `stopBoundary` from observer hooks. |
+| `splitStageId(prefixedId)` | `{ localStageId, subflowPath }` | Decompose a bare prefixed id (`spec.id`, `CommitBundle.stageId`) |
+| `walkSubflowSpec(spec, subflowPath, opts?)` | `Generator<WalkerItem>` | Walk a subflow spec from `StructureSubflowMountedEvent.subflowSpec` |
+| `KeyedStore<T>` | class (v5 primary) | Storage shelf for 1:1 Map keyed by runtimeStageId (`set`/`get`/`aggregate`/`accumulate`/`filterByKeys`) |
+| `SequenceStore<T>` | class (v5 primary) | Storage shelf for 1:N ordered entries (`push`/`getByKey`/`getEntryRanges()` for O(1) time-travel/`getEntriesUpTo`) |
+| `BoundaryStateStore<TState>` | class (v5 primary) | Storage shelf for transient bracket-scoped state — live state DURING a `[start, stop]` interval; clears on stop. O(1) reads via `get` / `hasActive` / `activeCount`; lifecycle via `start` / `update` / `stop`. |
+| `KeyedRecorder<T>` / `SequenceRecorder<T>` / `BoundaryStateTracker<TState>` | abstract bases — **DEPRECATED** | v5 migration window only, slated for removal. Superseded by the `*Store` classes above — new code MUST own a store as a field and implement the channel interface itself. |
+| `CommitRangeIndex<TLabel>` | class | Interval index over commit indices (`open`/`close`/`enclosing`/`overlapping`) |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
 | `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
 
@@ -422,56 +435,54 @@ inOut.getEntryRanges();              // O(1) per-step range index for time-trave
 
 Example: [examples/runtime-features/flow-recorder/07-inout.ts](examples/runtime-features/flow-recorder/07-inout.ts)
 
-**Three recorder storage primitives** — choose based on data shape and durability:
+**Three recorder STORAGE PRIMITIVES (v5 primary API)** — "one purpose per recorder": a store is storage ONLY. You own one as a field and implement the channel interface (`ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) yourself, delegating storage to the store. The abstract base classes (`KeyedRecorder` / `SequenceRecorder` / `BoundaryStateTracker`) are DEPRECATED — they exist only for the v5 migration window and are slated for removal. Choose a store by data shape and durability:
 
-| Base Class | Relationship | Time scope | Use When |
+| Store | Relationship | Time scope | Use When |
 |------------|-------------|------------|----------|
-| `KeyedRecorder<T>` | 1:1 Map | durable | Each step produces one record (MetricRecorder, TokenRecorder) |
-| `SequenceRecorder<T>` | 1:N sequence + Map | durable | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
-| `BoundaryStateTracker<TState>` | Map\<key, TState\> active stack | transient — clears on stop | Live state DURING a `[start, stop]` bracket (LLM stream partial, tool args streaming) |
-
-A real recorder picks ONE observer interface AND ONE storage shelf, combining via `extends + implements`. Existing example: `BoundaryRecorder extends SequenceRecorder<DomainEvent> implements CombinedRecorder`.
+| `KeyedStore<T>` | 1:1 Map | durable | Each step produces one record (token totals per step) |
+| `SequenceStore<T>` | 1:N sequence + Map | durable | Multiple records per step, ordering matters (narrative, audit) |
+| `BoundaryStateStore<TState>` | Map\<key, TState\> active bracket | transient — clears on stop | Live state DURING a `[start, stop]` bracket (LLM stream partial, tool args streaming) |
 
 ```typescript
-import { KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
+import { KeyedStore, SequenceStore, BoundaryStateStore } from 'footprintjs/trace';
+import type { FlowRecorder, EmitRecorder } from 'footprintjs';
 
-// KeyedRecorder: one entry per step
-class TokenRecorder extends KeyedRecorder<TokenEntry> {
+// KeyedStore: one entry per step. Own the store; implement the channel.
+class TokenRecorder implements FlowRecorder {
   readonly id = 'tokens';
-  onLLMCall(event) { this.store(event.runtimeStageId, { tokens: event.usage }); }
-}
-recorder.getByKey('call-llm#5');                               // Translate: per-step value
-recorder.aggregate((sum, e) => sum + e.tokens, 0);             // Aggregate: grand total
-recorder.accumulate((sum, e) => sum + e.tokens, 0, visibleKeys); // Accumulate: up to slider
-
-// SequenceRecorder: multiple entries per step, ordered
-class AuditRecorder extends SequenceRecorder<AuditEntry> {
-  readonly id = 'audit';
-  onRead(event) { this.emit({ runtimeStageId: event.runtimeStageId, type: 'read', key: event.key }); }
-  onDecision(event) { this.emit({ runtimeStageId: event.traversalContext?.runtimeStageId, ... }); }
-}
-recorder.getEntriesForStep('call-llm#5');                      // Translate: per-step entries
-recorder.aggregate((count, _) => count + 1, 0);                // Aggregate: grand total
-recorder.getEntriesUpTo(visibleKeys);                           // Progressive: up to slider
-recorder.getEntryRanges();                                      // Range index: O(1) slider sync
-
-// BoundaryStateTracker: transient state DURING a bracket; clears on stop
-class LiveLLMTracker extends BoundaryStateTracker<{ partial: string; tokens: number }>
-  implements EmitRecorder
-{
-  readonly id = 'live-llm';
-  onEmit(e) {
-    if (e.name === 'llm.start') this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
-    if (e.name === 'llm.token') this.updateBoundary(e.runtimeStageId, s => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
-    if (e.name === 'llm.end')   this.stopBoundary(e.runtimeStageId);
+  private store = new KeyedStore<{ tokens: number }>();
+  onStageExecuted(e) { this.store.set(e.traversalContext.runtimeStageId, { tokens: 0 }); }
+  byStep(rid: string) { return this.store.get(rid); }                       // Translate: per-step value
+  total() { return this.store.aggregate((sum, e) => sum + e.tokens, 0); }   // Aggregate: grand total
+  upTo(keys: ReadonlySet<string>) {                                          // Accumulate: up to slider
+    return this.store.accumulate((sum, e) => sum + e.tokens, 0, keys);
   }
-  isInFlight(): boolean { return this.hasActive; }
-  getPartial(rid: string): string { return this.getActive(rid)?.partial ?? ''; }
 }
-tracker.isInFlight();              // O(1) — live read
-tracker.getActive(rid);            // O(1) — current state of one boundary
-tracker.activeCount;               // O(1) — how many concurrent boundaries
-// Lifecycle: clear() between runs; dev-mode warns on leaked-stop bugs.
+
+// SequenceStore: multiple entries per step, ordered.
+class AuditRecorder implements FlowRecorder {
+  readonly id = 'audit';
+  private store = new SequenceStore<{ runtimeStageId: string; type: string }>();
+  onDecision(e) { this.store.push({ runtimeStageId: e.traversalContext?.runtimeStageId, type: 'decision' }); }
+  forStep(rid: string) { return this.store.getByKey(rid); }                  // Translate: per-step entries
+  upTo(keys: ReadonlySet<string>) { return this.store.getEntriesUpTo(keys); } // Progressive: up to slider
+  ranges() { return this.store.getEntryRanges(); }                           // Range index: O(1) slider sync
+}
+
+// BoundaryStateStore: transient state DURING a bracket; clears on stop.
+class LiveLLMTracker implements EmitRecorder {
+  readonly id = 'live-llm';
+  private store = new BoundaryStateStore<{ partial: string; tokens: number }>();
+  onEmit(e) {
+    if (e.name === 'llm.start') this.store.start(e.runtimeStageId, { partial: '', tokens: 0 });
+    if (e.name === 'llm.token') this.store.update(e.runtimeStageId, s => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
+    if (e.name === 'llm.end')   this.store.stop(e.runtimeStageId);
+  }
+  isInFlight() { return this.store.hasActive; }                              // O(1) — live read
+  getPartial(rid: string) { return this.store.get(rid)?.partial ?? ''; }     // O(1) — current state of one boundary
+  concurrent() { return this.store.activeCount; }                            // O(1) — how many concurrent boundaries
+}
+// Lifecycle: call store.clear() between runs; dev-mode warns on leaked-stop bugs.
 ```
 
 **`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.

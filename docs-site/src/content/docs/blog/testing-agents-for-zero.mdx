@@ -29,41 +29,42 @@ The idea is simple: your agent code doesn't know (or care) which LLM provider is
 
 ```typescript
 import { Agent, defineTool, mock } from 'agentfootprint';
-import { createProvider, anthropic } from 'agentfootprint';
+// Real providers live on a peer-dep-isolated subpath:
+import { anthropic } from 'agentfootprint/llm-providers';
 
 // The tool — same in tests and production
 const calculator = defineTool({
-  id: 'calculator',
+  name: 'calculator',
   description: 'Evaluate a math expression',
   inputSchema: {
     type: 'object',
     properties: { expression: { type: 'string' } },
     required: ['expression'],
   },
-  handler: async (input) => ({
-    content: String(eval(input.expression)),
-  }),
+  execute: async (input) => String(eval(input.expression)),
 });
 
 // ── Test code ────────────────────────────────────────
-const testProvider = mock([
-  {
-    content: 'Let me calculate that.',
-    toolCalls: [{
-      id: 'tc1',
-      name: 'calculator',
-      arguments: { expression: '42 * 17' },
-    }],
-  },
-  { content: 'The answer is 714.' },
-]);
+const testProvider = mock({
+  replies: [
+    {
+      content: 'Let me calculate that.',
+      toolCalls: [{
+        id: 'tc1',
+        name: 'calculator',
+        args: { expression: '42 * 17' },
+      }],
+    },
+    { content: 'The answer is 714.' },
+  ],
+});
 
 // ── Production code ──────────────────────────────────
-const prodProvider = createProvider(anthropic('claude-sonnet-4-20250514'));
+const prodProvider = anthropic({ defaultModel: 'claude-sonnet-4-20250514' });
 
 // ── Agent code — IDENTICAL in both cases ─────────────
 function buildAgent(provider) {
-  return Agent.create({ provider })
+  return Agent.create({ provider, model: 'anthropic' })
     .system('You are a helpful calculator assistant.')
     .tool(calculator)
     .maxIterations(5)
@@ -72,8 +73,8 @@ function buildAgent(provider) {
 
 // Test: $0, instant, deterministic
 const testAgent = buildAgent(testProvider);
-const result = await testAgent.run('What is 42 times 17?');
-assert(result.content.includes('714'));
+const result = await testAgent.run({ message: 'What is 42 times 17?' });
+assert(result.includes('714')); // run() resolves to the final-answer string
 
 // Production: real LLM, real cost
 const prodAgent = buildAgent(prodProvider);
@@ -88,89 +89,113 @@ This isn't just "mock the HTTP call." The mock adapter participates in the full 
 **Tool call orchestration.** The mock returns a tool call → the agent executes the real tool handler → the result goes back to the mock → the mock returns the next response. Your tool handlers run for real. Your error handling runs for real. Only the LLM is mocked.
 
 ```typescript
-const provider = mock([
-  // Turn 1: LLM decides to search
-  {
-    content: 'Searching for information...',
-    toolCalls: [{ id: 'tc1', name: 'search', arguments: { query: 'AI trends' } }],
-  },
-  // Turn 2: LLM processes search results and responds
-  { content: 'Based on my research, here are the top AI trends...' },
-]);
+const provider = mock({
+  replies: [
+    // Turn 1: LLM decides to search
+    {
+      content: 'Searching for information...',
+      toolCalls: [{ id: 'tc1', name: 'search', args: { query: 'AI trends' } }],
+    },
+    // Turn 2: LLM processes search results and responds
+    { content: 'Based on my research, here are the top AI trends...' },
+  ],
+});
 
-const agent = Agent.create({ provider })
+const agent = Agent.create({ provider, model: 'mock' })
   .tool(searchTool)  // Real tool — actually executes
   .build();
 
-const result = await agent.run('What are the AI trends?');
-// searchTool.handler() was called with { query: 'AI trends' }
+const result = await agent.run({ message: 'What are the AI trends?' });
+// searchTool.execute() was called with { query: 'AI trends' }
 // The full ReAct loop ran — mock → tool → mock → response
 ```
 
-**Multi-turn conversations.** Each entry in the mock array is one LLM turn. The agent processes them in sequence, exactly like it would with a real provider.
+**Multi-turn conversations.** Each entry in the mock `replies` array is one LLM turn. The agent processes them in sequence, exactly like it would with a real provider.
 
-**Recorder verification.** Attach `TokenRecorder`, `CostRecorder`, `TurnRecorder` to mock runs. Verify that your observability pipeline captures the right data.
+**Recorder verification.** Attach a recorder to mock runs and watch the real emit-channel events stream by. Verify that your observability pipeline captures the right data. A recorder is just `{ id, onEmit }` — agentfootprint emits typed events like `agentfootprint.stream.llm_end` (carries `usage` token counts) and `agentfootprint.agent.turn_end`.
 
 ```typescript
-const tokens = new TokenRecorder();
-const turns = new TurnRecorder();
+let llmCalls = 0;
 
-const agent = Agent.create({ provider: mock([...]) })
-  .recorder(tokens)
-  .recorder(turns)
+const provider = mock({
+  replies: [
+    { content: 'thinking...', toolCalls: [{ id: 't1', name: 'noop', args: {} }] },
+    { content: 'done' },
+  ],
+});
+
+const agent = Agent.create({ provider, model: 'mock' })
+  .tool(noopTool)
+  .recorder({
+    id: 'observability',
+    onEmit: (e) => {
+      if (e.type === 'agentfootprint.stream.llm_end') llmCalls++;
+    },
+  })
   .build();
 
-await agent.run('Hello');
+await agent.run({ message: 'Hello' });
 
-assert(turns.getCompletedCount() === 2); // Two LLM turns
-assert(tokens.getStats().totalCalls === 2);
+assert(llmCalls === 2); // Two LLM turns
 ```
 
-**FlowChart pipelines.** Mock individual agents within a pipeline. Test the orchestration logic without any API calls.
+For ready-made observability, the `costRecorder`, `agentRecorder`, and `toolsRecorder` factories wrap this same emit channel.
+
+**Sequence pipelines.** Mock individual agents within a composition. Test the orchestration logic without any API calls.
 
 ```typescript
-const pipeline = FlowChart.create()
-  .agent('research', 'Research phase', mockResearchAgent)
-  .agent('write', 'Writing phase', mockWriterAgent)
+import { Sequence } from 'agentfootprint';
+
+const pipeline = Sequence.create()
+  .step('research', mockResearchAgent)  // each step is any Runner
+  .step('write', mockWriterAgent)
   .build();
 
-const result = await pipeline.run('Write about AI safety');
+const result = await pipeline.run({ message: 'Write about AI safety' });
 // Both agents ran with mocks — pipeline orchestration tested for $0
 ```
 
-**Error handling.** Mock providers can simulate errors to test your resilience patterns:
+**Error handling.** Resilience wrappers decorate the *provider*, so a mock that throws once lets you test retry/fallback for $0:
 
 ```typescript
-import { withRetry, withFallback } from 'agentfootprint';
+import { withRetry } from 'agentfootprint/resilience';
 
-// Simulate API failure on first call, success on retry
-const flakyProvider = mock([
-  { error: { code: 'rate_limit', message: 'Too many requests' } },
-  { content: 'Success on retry!' },
-]);
+// Simulate API failure on the first call, success after that.
+let calls = 0;
+const flakyProvider = mock({
+  respond: () => {
+    if (calls++ === 0) throw new Error('rate_limit: too many requests');
+    return { content: 'Success on retry!' };
+  },
+});
 
-const resilientAgent = withRetry(
-  Agent.create({ provider: flakyProvider }).build(),
-  { maxRetries: 3, backoffMs: 100 },
-);
+// withRetry wraps the PROVIDER (drop-in LLMProvider), not the agent.
+const robustProvider = withRetry(flakyProvider, {
+  maxAttempts: 3,
+  initialDelayMs: 100,
+});
 
-const result = await resilientAgent.run('Hello');
-assert(result.content === 'Success on retry!');
+const agent = Agent.create({ provider: robustProvider, model: 'mock' }).build();
+
+const result = await agent.run({ message: 'Hello' });
+assert(result === 'Success on retry!');
 ```
+
+`withFallback` and `fallbackProvider` (also from `agentfootprint/resilience`) compose the same way — they wrap one provider and fall through to another on failure.
 
 ## The concept ladder makes this natural
 
-agentfootprint has five concepts that compose together: **LLMCall → Agent → RAG → FlowChart → Swarm**. Each one accepts a provider. Every one works with `mock()`.
+agentfootprint has concepts that compose together: **LLMCall → Agent → RAG → Sequence/Parallel → swarm**. Each one accepts a provider. Every one works with `mock()`.
 
-| Concept | What it adds | Testing pattern |
+| Concept | API | Testing pattern |
 |---------|-------------|-----------------|
-| **LLMCall** | Single invocation | Mock one response |
-| **Agent** | Tool use loop | Mock response sequence with tool calls |
-| **RAG** | Retrieval + generation | Mock retriever + LLM response |
-| **FlowChart** | Sequential pipeline | Mock each agent in the pipeline |
-| **Swarm** | Dynamic routing | Mock router decisions + specialist responses |
+| **LLMCall** | `LLMCall.create(...)` | Mock one response |
+| **Agent** | `Agent.create(...)` | Mock response sequence with tool calls |
+| **RAG** | `defineRAG(...)` | Mock retriever + LLM response |
+| **Composition** | `Sequence` / `Parallel` / `Conditional` / `Loop` | Mock each step in the pipeline |
+| **Swarm** | `swarm(...)` | Mock router decisions + specialist responses |
 
-You start simple (test an LLMCall), compose up (test an Agent with tools), and eventually test full Swarm orchestrations — all at $0.
+You start simple (test an LLMCall), compose up (test an Agent with tools), and eventually test full `swarm` orchestrations — all at $0.
 
 ## When you still need real LLM tests
 
@@ -190,16 +215,17 @@ npm install agentfootprint
 ```
 
 ```typescript
-import { Agent, mock, defineTool } from 'agentfootprint';
+import { Agent, mock } from 'agentfootprint';
 
 const agent = Agent.create({
-  provider: mock([{ content: 'Hello! How can I help?' }]),
+  provider: mock({ reply: 'Hello! How can I help?' }),
+  model: 'mock',
 })
   .system('You are a helpful assistant.')
   .build();
 
-const result = await agent.run('Hi there');
-console.log(result.content); // "Hello! How can I help?"
+const result = await agent.run({ message: 'Hi there' });
+console.log(result); // "Hello! How can I help?"
 ```
 
 Zero API calls. Zero cost. Deterministic. Your CI pipeline will thank you.

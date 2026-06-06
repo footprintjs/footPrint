@@ -9,7 +9,7 @@ A footprintjs flowchart is a **directed graph of stages** built once, executed m
 
 ## Starting a flowchart
 
-`flowChart<State>(name, fn, id?, inputSchema?, description?)` creates the root stage and returns a builder.
+`flowChart<State>(name, fn, id, options?)` creates the root stage and returns a builder. The optional `options` is a `FlowChartOptions` bag (`{ description?, structureRecorders?, failFast? }`). Input/output schemas are declared separately via [`.contract()`](#contract).
 
 ```ts
 import { flowChart } from 'footprintjs';
@@ -22,7 +22,7 @@ interface OrderState {
 
 const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
   scope.status = 'received';
-}, 'receive-order', undefined, 'Ingest order and validate input')
+}, 'receive-order', { description: 'Ingest order and validate input' })
   .build();
 ```
 
@@ -128,6 +128,8 @@ const chart = flowChart<ScreeningState>('LoadVitals', async (scope) => {
 
 Selected branches run in parallel. Branches that don't match are skipped entirely.
 
+By default a fan-out is best-effort (`Promise.allSettled`) — a branch that throws is collected, not rethrown, and siblings still finish. Pass `{ failFast: true }` as the 5th argument (`.addSelectorFunction(name, fn, id, description, { failFast: true })`) to abort the whole run on the first branch error (`Promise.all`) when every selected branch is required.
+
 ## Subflows
 
 `.addSubFlowChartNext(id, chart, name, options?)` mounts another flowchart as a subflow that runs in sequence.
@@ -161,7 +163,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 
 ## Loops
 
-`.loopTo(targetStageName)` creates a back-edge to any earlier stage. The loop exits when a stage calls `scope.$break()`.
+`.loopTo(targetStageId)` creates a back-edge to any earlier stage. **Pass the stage _id_, not its display name.** The loop exits when a stage calls `scope.$break()`.
 
 ```ts
 flowChart<{ counter: number; target: number }>('Init', async (scope) => {
@@ -172,21 +174,21 @@ flowChart<{ counter: number; target: number }>('Init', async (scope) => {
     scope.counter += 1;
     if (scope.counter >= scope.target) scope.$break();
   }, 'increment')
-  .loopTo('Increment')
+  .loopTo('increment')
   .build();
 ```
 
 ## Streaming stages
 
-`.addStreamingFunction(name, fn, id?)` adds a stage that receives a streaming response.
+`.addStreamingFunction(name, fn, id?, streamId?, description?)` adds a stage that emits tokens incrementally. The stage function receives `(scope, breakFn, streamCallback)` — call `streamCallback(token)` once per chunk. The executor routes each token through its `StreamHandlers` lifecycle (`onStart` → `onToken` → `onEnd`), wired via `new FlowChartExecutor(chart, { streamHandlers })`.
 
 ```ts
-.addStreamingFunction('StreamAnswer', async (scope, handlers) => {
+.addStreamingFunction('StreamAnswer', async (scope, _breakFn, streamCallback) => {
   for await (const chunk of callLLM(scope.$getArgs())) {
-    handlers.onChunk(chunk);
+    streamCallback?.(chunk);
   }
-  handlers.onComplete('done');
-}, 'stream-answer')
+  scope.answer = 'done';
+}, 'stream-answer', 'llm-stream')
 ```
 
 ## Contract

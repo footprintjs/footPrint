@@ -16,7 +16,7 @@ src/lib/
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods, cycle-safe)
 ├── decide/    → decide()/select() decision evidence capture (filter + function)
-├── recorder/  → CompositeRecorder, KeyedRecorder<T>, SequenceRecorder<T>, composition primitives
+├── recorder/  → CompositeRecorder, stores (KeyedStore/SequenceStore/BoundaryStateStore), CommitRangeIndex, composition primitives
 ├── pause/     → Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── engine/    → DFS traversal + narrative + 13 handlers
 ├── runner/    → High-level executor (FlowChartExecutor)
@@ -27,7 +27,7 @@ Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- en
 
 Three entry points:
 - `import { ... } from 'footprintjs'` — public API
-- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, KeyedRecorder, SequenceRecorder
+- `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, causal chain, recorder stores (`KeyedStore`/`SequenceStore`/`BoundaryStateStore`), `CommitRangeIndex`, `TopologyRecorder`/`InOutRecorder`/`QualityRecorder`
 - `import { ... } from 'footprintjs/advanced'` — engine internals (also re-exports trace)
 
 ## Key API
@@ -89,7 +89,7 @@ import { decide, select } from 'footprintjs';
 ```typescript
 import { flowChart, FlowChartBuilder } from 'footprintjs';
 
-const chart = flowChart('Stage1', fn1, 'stage-1', undefined, 'Description')
+const chart = flowChart('Stage1', fn1, 'stage-1', { description: 'Description' })
   .addFunction('Stage2', fn2, 'stage-2', 'Description')
   .addDeciderFunction('Decide', deciderFn, 'decide', 'Route based on risk')
     .addFunctionBranch('high', 'Reject', rejectFn)
@@ -123,13 +123,14 @@ const executor = new FlowChartExecutor(chart);
 const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory });
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
-executor.attachRecorder(recorder) // plug scope observer
-executor.getNarrative()           // combined flow + data narrative
-executor.getNarrativeEntries()    // structured entries with type/depth/stageName/stageId
-executor.getFlowNarrative()       // flow-only (no data ops)
-executor.getSnapshot()            // full memory state (includes recorder snapshots)
-executor.attachFlowRecorder(r)    // plug flow observer
-executor.setRedactionPolicy({})   // PII protection
+executor.attachScopeRecorder(recorder)  // plug scope (data) observer
+executor.attachFlowRecorder(r)          // plug flow observer
+executor.attachCombinedRecorder(r)      // plug observer across all channels (routed by method-shape)
+executor.attachEmitRecorder(r)          // plug emit observer
+executor.enableNarrative()              // turn on the built-in combined narrative recorder
+executor.getNarrativeEntries()          // structured entries with type/depth/stageName/stageId
+executor.getSnapshot()                  // full memory state (includes recorder snapshots)
+executor.setRedactionPolicy({})         // PII protection
 
 // Pause/Resume — human-in-the-loop
 executor.isPaused()               // true if last run paused
@@ -174,7 +175,7 @@ if (executor.isPaused()) {
 
 - `execute` returns data → pauses. Returns void → continues normally (conditional pause).
 - Checkpoint is JSON-serializable — no functions, no class instances.
-- `resume()` reuses the execution runtime — narrative, metrics, execution tree all accumulate.
+- `resume()` resets narrative/recorder state — collect any narrative you need from the paused run BEFORE resuming. A fresh `runId` is generated for the resumed run.
 - `FlowRecorder.onPause`/`onResume` and `Recorder.onPause`/`onResume` fire on both observer systems.
 
 ### ComposableRunner & Snapshot Navigation
@@ -195,20 +196,20 @@ Intentionally NOT unified into one giant interface — each channel has
 a distinct invariant set.
 
 **Recorder ID contract:**
-- `attachRecorder` is **idempotent by ID** — same ID replaces, different IDs coexist. Prevents accidental double-counting.
+- Every `attach*Recorder` call (`attachScopeRecorder` / `attachFlowRecorder` / `attachEmitRecorder` / `attachCombinedRecorder`) is **idempotent by ID** — same ID replaces, different IDs coexist. Prevents accidental double-counting.
 - Built-in recorders use auto-increment default IDs (`metrics-1`, `debug-1`, ...) so multiple instances with different configs coexist naturally.
 - Frameworks that auto-attach recorders should use a well-known ID (e.g., `new MetricRecorder('metrics')`) so the consumer can override it by passing the same ID, or add a second instance with `new MetricRecorder()` (gets unique ID).
 
-**Scope Recorder** (data ops — fires DURING stage execution):
-- `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`
+**Scope Recorder** (`ScopeRecorder`; data ops — fires DURING stage execution):
+- `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onPause`/`onResume`, `onEmit`
 - Built-in: `MetricRecorder`, `DebugRecorder`
 
 **FlowRecorder** (control flow — fires AFTER stage execution):
-- `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onLoop`, `onBreak`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`
+- `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onSubflowRegistered`, `onLoop`, `onBreak`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`, `onRunFailed` (terminal counterpart to `onRunEnd` — closes the run boundary on error)
 - All events carry `traversalContext: TraversalContext`
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
 - **`onStageExecuted` fires UNIFORMLY for every stage kind** (linear / decider / fork / selector / subflow-mount) as of v6.0+ proposal #003. Event payload carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`. Specialized events (`onDecision`/`onFork`/`onSelected`/`onSubflowEntry`) STILL fire — `onStageExecuted` is the universal "did this stage run" signal AFTER them.
-- Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
+- Built-in: 9 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
 
 **StructureRecorder** (build-time chart shape — fires SYNCHRONOUSLY during builder operations, NOT runtime):
 - `onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`
@@ -218,7 +219,7 @@ a distinct invariant set.
 
 **EmitRecorder** (consumer-emitted events — third channel, see "Emit Channel" section below).
 
-**CombinedRecorder** is a union shape that routes by runtime method-shape detection — implement only the hooks you care about across all three channels; one `attachCombinedRecorder` call. `CombinedNarrativeRecorder` is the canonical built-in; attach via `executor.recorder(narrative())`.
+**CombinedRecorder** is a union shape that routes by runtime method-shape detection — implement only the hooks you care about across all three channels; one `attachCombinedRecorder` call. `CombinedNarrativeRecorder` is the canonical built-in; attach via `chart.recorder(narrative())` (the chart's `.recorder()` sugar) or `executor.attachCombinedRecorder(narrative())`.
 
 **Stage type discrimination on `onStageExecuted`** — under proposal #003, consumers wanting linear-only behavior must filter:
 ```ts
@@ -290,10 +291,15 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
-| `KeyedRecorder<T>` | abstract class | Base for 1:1 Map-based recorders |
-| `SequenceRecorder<T>` | abstract class | Base for 1:N ordered sequence recorders (has `getEntryRanges()` for O(1) time-travel) |
+| `causalChain` / `flattenCausalDAG` / `formatCausalChain` | functions | Backward program slicing over the commit-log DAG |
+| `KeyedStore<T>` | class | **Primary** 1:1 Map store — own as a field on your recorder |
+| `SequenceStore<T>` | class | **Primary** 1:N ordered store (has `getEntryRanges()` for O(1) time-travel) |
+| `BoundaryStateStore<T>` | class | **Primary** transient bracket-scoped state store |
+| `CommitRangeIndex<TLabel>` | class | Interval index over commit indices (`open`/`close`/`enclosing`/`overlapping`) |
+| `KeyedRecorder<T>` / `SequenceRecorder<T>` / `BoundaryStateTracker<T>` | abstract classes (DEPRECATED) | Legacy bases — migrate to the stores above |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
 | `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
+| `QualityRecorder` + `qualityTrace`/`formatQualityTrace` | class / functions | Per-step quality scoring + Quality Stack Trace backtracking |
 
 ### TopologyRecorder — Composition Graph for Streaming Consumers
 
@@ -445,12 +451,13 @@ inOut.getEntryRanges();              // O(1) per-step range index for time-trave
 
 Example: [examples/runtime-features/flow-recorder/07-inout.ts](examples/runtime-features/flow-recorder/07-inout.ts)
 
-**Two recorder base classes** — choose based on data shape:
+**Two recorder base classes (DEPRECATED — v5 migration window, slated for removal)** — choose based on data shape. New code MUST use the v5 stores instead (own a `KeyedStore<T>` / `SequenceStore<T>` / `BoundaryStateStore<T>` field and implement the channel interface yourself — see "Project conventions" Convention 1). These bases are kept only for downstream consumers that still extend them:
 
-| Base Class | Relationship | Use When |
-|------------|-------------|----------|
-| `KeyedRecorder<T>` | 1:1 Map | Each step produces one record (MetricRecorder, TokenRecorder) |
-| `SequenceRecorder<T>` | 1:N sequence + Map | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
+| Base Class | Store replacement | Relationship | Use When |
+|------------|-------------------|-------------|----------|
+| `KeyedRecorder<T>` | `KeyedStore<T>` | 1:1 Map | Each step produces one record (MetricRecorder, TokenRecorder) |
+| `SequenceRecorder<T>` | `SequenceStore<T>` | 1:N sequence + Map | Multiple records per step, ordering matters (CombinedNarrativeRecorder) |
+| `BoundaryStateTracker<T>` | `BoundaryStateStore<T>` | bracket-scoped state | Live transient state during a `[start, stop]` event interval |
 
 ```typescript
 import { KeyedRecorder, SequenceRecorder } from 'footprintjs/trace';
@@ -670,7 +677,7 @@ const audit: CombinedRecorder = {
 executor.attachCombinedRecorder(audit);
 ```
 
-Built on `CombinedRecorder`: `CombinedNarrativeRecorder` (the `executor.enableNarrative()` default). Consumers implement ONLY the events they care about — `Partial<Recorder> & Partial<FlowRecorder>` under the hood.
+Built on `CombinedRecorder`: `CombinedNarrativeRecorder` (the `executor.enableNarrative()` default). Consumers implement ONLY the events they care about — `Partial<ScopeRecorder> & Partial<FlowRecorder> & Partial<EmitRecorder>` under the hood.
 
 **Detection rule:** only OWN event-method properties count (prototype methods are ignored for security — prevents accidental `Object.prototype` pollution from attaching handlers).
 
@@ -683,7 +690,7 @@ Built on `CombinedRecorder`: `CombinedNarrativeRecorder` (the `executor.enableNa
 - Don't extract shared base for ScopeRecorder/FlowRecorder — two instances = coincidence
 - Don't use `getArgs()` for tracked data — use typed scope properties
 - Don't put infrastructure data in `getArgs()` — use `getEnv()` via `run({ env })`
-- Don't manually create `CombinedNarrativeRecorder` — `executor.recorder(narrative())` handles it
+- Don't manually create `CombinedNarrativeRecorder` — `chart.recorder(narrative())` (or `executor.attachCombinedRecorder(narrative())`) handles it
 - Don't return full arrays from `outputMapper` without `arrayMerge: ArrayMergeMode.Replace` — default `applyOutputMapping` **concatenates** arrays (`[...parent, ...subflow]`). Either return only the **delta** (new items), or set `arrayMerge: ArrayMergeMode.Replace` on `SubflowMountOptions` to overwrite instead of concatenate. Scalars are always replaced regardless.
 
 ## Project conventions (5.0+)

@@ -138,36 +138,44 @@ import { DebugRecorder, FlowChartExecutor } from 'footprintjs';
 
 const debug = new DebugRecorder({ verbosity: 'verbose' });
 const executor = new FlowChartExecutor(chart);
-executor.attachRecorder(debug);
+executor.attachScopeRecorder(debug);
 
 // After execution:
 const entries = debug.getEntries();
 // [
-//   { type: 'write', stageName: 'Validate', key: 'rawPayload', value: {...} },
-//   { type: 'error', stageName: 'Validate', error: Error(...) },
+//   { type: 'write', stageName: 'Validate', timestamp, data: { key: 'rawPayload', value: {...} } },
+//   { type: 'error', stageName: 'Validate', timestamp, data: { error: Error(...) } },
 //   ...
 // ]
 ```
 
 ### Mermaid Diagrams
 
-The builder can generate Mermaid flowchart diagrams for visualization:
+The builder can generate Mermaid flowchart diagrams for visualization. `toMermaid()`
+lives on the **builder**, so call it before `build()` (the compiled chart returned by
+`build()` has no `toMermaid`):
 
 ```typescript
-const chart = flowChart('A', fnA)
-  .addFunction('B', fnB)
-  .addDeciderFunction('Route', routeFn)
+const builder = flowChart('A', fnA, 'a')
+  .addFunction('B', fnB, 'b')
+  .addDeciderFunction('Route', routeFn, 'route')
     .addFunctionBranch('x', 'X', xFn)
     .addFunctionBranch('y', 'Y', yFn)
-    .end()
-  .build();
+    .end();
 
-console.log(chart.toMermaid?.() ?? 'N/A');
-// graph TD
-//   A --> B
-//   B --> Route
-//   Route -->|x| X
-//   Route -->|y| Y
+console.log(builder.toMermaid());
+// flowchart TD
+//   a["A"]
+//   a --> b
+//   b["B"]
+//   b --> route
+//   route["Route"]
+//   route --> x
+//   x["X"]
+//   route --> y
+//   y["Y"]
+
+const chart = builder.build();
 ```
 
 ---

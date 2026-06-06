@@ -101,10 +101,10 @@ console.log(JSON.stringify(spec, null, 2));
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `title` | Chart description | API title |
+| `title` | First line of chart description (else `'API'`) | API title |
 | `version` | `'1.0.0'` | API version string |
 | `description` | Chart description | API description |
-| `path` | `'/<root-stage-name>'` | HTTP path |
+| `path` | `'/<slugified-root-stage-id>'` | HTTP path |
 
 ## Generating an MCP tool description
 
@@ -115,13 +115,13 @@ const tool = chart.toMCPTool();
 
 console.log(tool);
 // {
-//   name: 'receiveorder',
+//   name: 'receive-order',
 //   description: '1. ReceiveOrder\n2. CalculateTotal\n3. ClassifyOrder ...',
 //   inputSchema: { type: 'object', properties: { item: ..., quantity: ..., unitPrice: ... } }
 // }
 ```
 
-The `name` is derived from the root stage name (lowercased, spaces replaced with underscores). The `description` is the numbered step list generated from stage descriptions you provide in the builder.
+The `name` is derived from the root stage **id** (here `'receive-order'`), sanitized to the MCP tool-name allowlist `[A-Za-z0-9_\-.]` — any other character is replaced with an underscore. The `description` is the numbered step list generated from stage descriptions you provide in the builder. When no contract declares an `input` schema, `inputSchema` defaults to the MCP no-parameter form `{ type: 'object', properties: {}, additionalProperties: false }`.
 
 ## JSON Schema (without Zod)
 

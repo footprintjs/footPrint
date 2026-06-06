@@ -88,12 +88,12 @@ executor.attachFlowRecorder(errorObserver);
 import { extractErrorInfo, formatErrorInfo } from 'footprintjs';
 
 const info = extractErrorInfo(error);
-// { name: 'InputValidationError', code: 'VALIDATION', message: '...', issues: [...] }
+// { name: 'InputValidationError', code: 'INPUT_VALIDATION_ERROR', message: '...', issues: [...], raw: error }
 
 console.log(formatErrorInfo(info));
-// InputValidationError [VALIDATION]: Order validation failed
-//   total: Must be positive [too_small]
-//   email: Required [invalid_type]
+// Order validation failed
+//   - total: Must be positive
+//   - email: Required
 ```
 
 Works with `InputValidationError`, standard `Error`, Node.js errors with `.code`, and even non-Error thrown values.

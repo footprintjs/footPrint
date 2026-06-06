@@ -1,9 +1,9 @@
 ---
 title: API reference
-description: Auto-generated API reference is on the v2.4 backlog (TypeDoc + plugin). Until that lands, refer to the source-code JSDoc and the type definitions shipped in dist/types/.
+description: Auto-generated API reference (TypeDoc + plugin) is wired up but not yet published. Until it lands, refer to the source-code JSDoc and the type definitions shipped in dist/types/.
 ---
 
-> The API reference for agentfootprint is generated from TypeScript types + JSDoc. Auto-generation via TypeDoc is on the v2.4 backlog (Phase 6). Until that ships, the authoritative reference is the source code itself — every public export has JSDoc with examples, every type is in `dist/types/`, and your IDE's autocomplete on `import { ... } from 'agentfootprint'` shows the current shape.
+> The API reference for agentfootprint is generated from TypeScript types + JSDoc. Auto-generation via TypeDoc is wired up (`typedoc` + `typedoc-plugin-markdown` are installed; run `npm run docs:api`) but the generated tree is not yet published. Until it is, the authoritative reference is the source code itself — every public export has JSDoc with examples, every type is in `dist/types/`, and your IDE's autocomplete on `import { ... } from 'agentfootprint'` shows the current shape.
 
 ## Where to find what
 
@@ -14,7 +14,7 @@ description: Auto-generated API reference is on the v2.4 backlog (TypeDoc + plug
 | `defineSkill({...})` options | `src/lib/injection-engine/factories/defineSkill.ts` |
 | `LLMProvider` interface | `src/adapters/types.ts` |
 | `MemoryStore` interface | `src/memory/store/types.ts` |
-| Event taxonomy (47 events × 13 domains) | `src/events/registry.ts` |
+| Event taxonomy (59 events × 16 domains) | `src/events/registry.ts` (`ALL_EVENT_TYPES`) |
 | Conventions (subflow ids, injection keys) | `src/conventions.ts` |
 
 Every type has a JSDoc with at least one example. The `MemoryStore` interface alone has 200+ lines of JSDoc covering each method's contract.
@@ -29,7 +29,7 @@ import { withRetry, withFallback } from 'agentfootprint/resilience';         // 
 import { toSSE } from 'agentfootprint/stream';                               // SSE bridge
 ```
 
-## Coming in v2.4 Phase 6
+## Coming soon: auto-generated reference
 
 Auto-generated API reference via:
 
@@ -38,7 +38,7 @@ Auto-generated API reference via:
 - Generated output emitted to `docs-site/src/content/docs/api/`
 - CI step regenerates on every commit; published with the docs build
 
-When that lands, this page is replaced by the auto-generated tree.
+The tooling is installed and the `docs:api` script runs TypeDoc today; once the generated output is wired into the docs build, this page is replaced by the auto-generated tree.
 
 ## Why we're deferring it
 
@@ -46,6 +46,6 @@ API reference auto-gen is mechanical; we want to do it once correctly rather tha
 
 ## Next steps
 
-- [Manifesto](/agentfootprint/manifesto/) — what the library is and isn't
-- [Quick Start](/agentfootprint/getting-started/quick-start/) — first agent in 5 minutes
-- [Citations](/agentfootprint/research/citations/) — the research foundation
+- [Overview](/footPrint/overview/) — what the library is and isn't
+- [Quick Start](/footPrint/getting-started/quick-start/) — first flowchart in 5 minutes
+- [Key Concepts](/footPrint/getting-started/key-concepts/) — the core model

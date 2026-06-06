@@ -98,7 +98,7 @@ const quality = new QualityRecorder((id, ctx) => {
   return { score: 1.0 };
 });
 
-executor.attachRecorder(quality);
+executor.attachScopeRecorder(quality);
 await executor.run();
 
 // 2. Find the lowest-scoring step (Aggregate pattern)

@@ -100,11 +100,13 @@ Fires **after** stage execution (or after the control-flow decision for forks/de
 | `onFork` | fork spawned children |
 | `onSelected` | selector picked a subset |
 | `onSubflowEntry` / `onSubflowExit` | subflow boundary |
+| `onSubflowRegistered` | dynamic subflow attached at runtime |
 | `onLoop` | loop iteration |
 | `onBreak` | `$break()` called |
 | `onError` | stage threw |
 | `onPause` / `onResume` | pause/resume signal |
-| `onRunStart` / `onRunEnd` | top-level run boundary |
+| `onRunStart` / `onRunEnd` | top-level run boundary (clean) |
+| `onRunFailed` | top-level run terminated by error (terminal counterpart to `onRunEnd`) |
 
 <Aside type="caution">
 **v6+ behavior change**: `onStageExecuted` now fires uniformly for every stage kind, not just linear. Consumers that used it as a linear-only signal must filter via `event.stageType`. See `MIGRATION-6.md` Recipe 5.
@@ -296,7 +298,7 @@ See `examples/runtime-features/snapshot-replay/` for a runnable end-to-end demo 
 
 ## ID contract
 
-`attachRecorder` is **idempotent by ID**: same ID replaces, different IDs coexist. Prevents accidental double-counting; multiple instances with different configs can coexist naturally.
+Every `attach*Recorder` method (`attachScopeRecorder`, `attachFlowRecorder`, `attachCombinedRecorder`, `attachEmitRecorder`, and the builder's `attachStructureRecorder`) is **idempotent by ID**: same ID replaces, different IDs coexist. Prevents accidental double-counting; multiple instances with different configs can coexist naturally.
 
 `CombinedRecorder` is a union shape — implement methods from any subset of channels in one object. The runtime detects which methods exist (own properties only, prototype methods ignored for security) and routes events accordingly. One `attachCombinedRecorder(r)` call.
 

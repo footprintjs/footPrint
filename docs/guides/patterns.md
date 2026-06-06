@@ -11,9 +11,9 @@ Stages execute in sequence. The simplest pattern.
 ```typescript
 import { flowChart } from 'footprintjs';
 
-flowChart('A', fnA)
-  .addFunction('B', fnB)
-  .addFunction('C', fnC)
+flowChart('A', fnA, 'a')
+  .addFunction('B', fnB, 'b')
+  .addFunction('C', fnC, 'c')
   .build();
 ```
 
@@ -28,13 +28,13 @@ A → B → C
 Multiple stages run concurrently via `Promise.allSettled`, then rejoin at the next linear stage.
 
 ```typescript
-flowChart('Fetch', fetchFn)
+flowChart('Fetch', fetchFn, 'fetch')
   .addListOfFunction([
     { id: 'html', name: 'ParseHTML', fn: parseHTML },
     { id: 'css',  name: 'ParseCSS',  fn: parseCSS },
     { id: 'js',   name: 'ParseJS',   fn: parseJS },
   ])
-  .addFunction('Merge', mergeFn)
+  .addFunction('Merge', mergeFn, 'merge')
   .build();
 ```
 
@@ -57,11 +57,11 @@ By default, all children run to completion even if some fail (errors captured as
 A decider reads scope and returns the ID of **exactly one** branch to execute. Think radio button — single select.
 
 ```typescript
-flowChart('Classify', classifyFn)
+flowChart('Classify', classifyFn, 'classify')
   .addDeciderFunction('Route', (scope) => {
     const type = scope.getValue('fulfillmentType');
     return type === 'digital' ? 'digital' : 'physical';
-  })
+  }, 'route')
     .addFunctionBranch('digital', 'DigitalDelivery', digitalFn)
     .addFunctionBranch('physical', 'ShipPackage', shipFn)
     .setDefault('physical')
@@ -84,11 +84,11 @@ The decider function's return value picks the branch. `setDefault()` specifies w
 Like a decider, but returns an **array** of branch IDs — enabling fan-out to multiple branches. Think checkbox — multi select.
 
 ```typescript
-flowChart('Entry', entryFn)
+flowChart('Entry', entryFn, 'entry')
   .addSelectorFunction('PickChannels', (scope) => {
     const prefs = scope.getValue('notificationPrefs') as string[];
     return prefs; // e.g., ['email', 'sms']
-  })
+  }, 'pick-channels')
     .addFunctionBranch('email', 'SendEmail', emailFn)
     .addFunctionBranch('sms', 'SendSMS', smsFn)
     .addFunctionBranch('push', 'SendPush', pushFn)
@@ -110,19 +110,19 @@ Entry ──> PickChannels ─┤
 Mount entire flowcharts as nodes in a larger workflow. Each subflow runs in isolation with its own runtime and memory — clean I/O mapping at boundaries.
 
 ```typescript
-const faqFlow = flowChart('FAQ_Entry', faqEntryFn)
-  .addFunction('FAQ_Answer', faqAnswerFn)
+const faqFlow = flowChart('FAQ_Entry', faqEntryFn, 'faq-entry')
+  .addFunction('FAQ_Answer', faqAnswerFn, 'faq-answer')
   .build();
 
-const ragFlow = flowChart('RAG_Entry', ragEntryFn)
-  .addFunction('RAG_Retrieve', ragRetrieveFn)
-  .addFunction('RAG_Answer', ragAnswerFn)
+const ragFlow = flowChart('RAG_Entry', ragEntryFn, 'rag-entry')
+  .addFunction('RAG_Retrieve', ragRetrieveFn, 'rag-retrieve')
+  .addFunction('RAG_Answer', ragAnswerFn, 'rag-answer')
   .build();
 
-const mainChart = flowChart('Router', routerFn)
+const mainChart = flowChart('Router', routerFn, 'router')
   .addSubFlowChart('faq', faqFlow, 'FAQ Handler')
   .addSubFlowChart('rag', ragFlow, 'RAG Handler')
-  .addFunction('Aggregate', aggregateFn)
+  .addFunction('Aggregate', aggregateFn, 'aggregate')
   .build();
 ```
 
@@ -133,7 +133,7 @@ Subflow names are auto-prefixed to prevent collisions: `'FAQ_Entry'` becomes `'f
 Control data flow between parent and subflow:
 
 ```typescript
-mainChart = flowChart('Router', routerFn)
+mainChart = flowChart('Router', routerFn, 'router')
   .addSubFlowChart('faq', faqFlow, 'FAQ Handler', {
     inputMapper: (parentScope) => ({
       query: parentScope.getValue('userQuery'),
@@ -152,11 +152,11 @@ mainChart = flowChart('Router', routerFn)
 Built-in streaming stages for LLM token emission:
 
 ```typescript
-const chart = flowChart('PreparePrompt', prepareFn)
-  .addStreamingFunction('AskLLM', 'llm-stream', askLLMFn)
+const chart = flowChart('PreparePrompt', prepareFn, 'prepare-prompt')
+  .addStreamingFunction('AskLLM', askLLMFn, 'ask-llm', 'llm-stream')
   .onStream((streamId, token) => process.stdout.write(token))
   .onStreamEnd((streamId, fullText) => console.log('\nDone:', fullText))
-  .addFunction('ProcessResponse', processFn)
+  .addFunction('ProcessResponse', processFn, 'process-response')
   .build();
 ```
 
@@ -164,13 +164,13 @@ const chart = flowChart('PreparePrompt', prepareFn)
 
 ## Loops
 
-Use `loopTo()` with a stage ID to create back-edges. Combine with `breakFn()` or a decider to control termination.
+Use `loopTo()` with a stage ID to create back-edges. Combine with `scope.$break()` (or the stage function's `breakPipeline` callback) or a decider to control termination.
 
 ```typescript
-flowChart('Init', initFn)
+flowChart('Init', initFn, 'init')
   .addFunction('AskLLM', askFn, 'ask-llm')
-  .addFunction('ParseResponse', parseFn)
-  .addDeciderFunction('HasToolCalls', deciderFn)
+  .addFunction('ParseResponse', parseFn, 'parse-response')
+  .addDeciderFunction('HasToolCalls', deciderFn, 'has-tool-calls')
     .addFunctionBranch('yes', 'ExecuteTools', toolsFn)
     .addFunctionBranch('no', 'Finalize', finalizeFn)
     .end()
@@ -194,14 +194,14 @@ The engine tracks iteration count per node (default max: 1000) to prevent infini
 Patterns compose naturally. A real pipeline often mixes several:
 
 ```typescript
-flowChart('ReceiveApplication', receiveFn)
+flowChart('ReceiveApplication', receiveFn, 'receive')
   .addListOfFunction([                        // parallel
     { id: 'credit', name: 'PullCredit', fn: creditFn },
     { id: 'dti', name: 'CalculateDTI', fn: dtiFn },
     { id: 'emp', name: 'VerifyEmployment', fn: empFn },
   ])
-  .addFunction('AssessRisk', assessFn)        // linear
-  .addDeciderFunction('Decide', deciderFn)    // conditional
+  .addFunction('AssessRisk', assessFn, 'assess-risk')        // linear
+  .addDeciderFunction('Decide', deciderFn, 'decide')         // conditional
     .addFunctionBranch('approved', 'Approve', approveFn)
     .addFunctionBranch('rejected', 'Reject', rejectFn)
     .addFunctionBranch('review', 'ManualReview', reviewFn)

@@ -117,7 +117,7 @@ await executor.resume(checkpoint, {
   approved: true,
   approver: 'Manager Kim',
 });
-// Pipeline continues: ProcessRefund → NotifyCustomer → done
+// Pipeline continues: ProcessRefund → done
 ```
 
 ## What makes this different
@@ -126,7 +126,7 @@ await executor.resume(checkpoint, {
 
 **No WebSockets.** The checkpoint is a plain JSON object. Store it in Redis, Postgres, S3, localStorage — anywhere. Resume from any server, any process.
 
-**Continuous execution tree.** After resume, `getSnapshot()` returns the full traversal path — pre-pause stages + resume + continuation. The narrative accumulates. Metrics accumulate. No gaps.
+**Continuous execution tree.** Resume has two modes. When you reuse the *same* executor (it already called `run()`), the runtime is reused: `getSnapshot()` returns the full traversal path — pre-pause stages + resume + continuation — and the narrative and metrics accumulate with no gaps. When you resume on a *fresh* executor reconstructed from a stored checkpoint (the cross-server case below), the new runtime is seeded from `checkpoint.sharedState`, so the full scope survives the round trip, but the execution tree starts at the resume node — the previous process's traversal tree isn't on this machine. Either way, `resume()` gets a fresh `runId`.
 
 **Conditional pause.** Return data to pause, return nothing to continue. One handler handles both paths:
 
@@ -155,7 +155,7 @@ Consumers touch exactly 4 things:
 
 | What | Purpose |
 |------|---------|
-| `PausableHandler<TScope, TInput>` | Type for `{ execute, resume }` |
+| `PausableHandler<TScope, TInput, TPauseData>` | Type for `{ execute, resume }` (`TInput`/`TPauseData` optional) |
 | `.addPausableFunction(name, handler, id)` | Builder method |
 | `executor.isPaused()` / `executor.getCheckpoint()` | Check pause state |
 | `executor.resume(checkpoint, input)` | Continue execution |
