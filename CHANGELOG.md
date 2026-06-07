@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.1.0]
+
+Minor — the commit log now records **net state changes**, not raw writes.
+
+### Changed
+
+- **`TransactionBuffer.commit()` emits a change-only payload.** A key is recorded
+  in a `CommitBundle` only when its committed value actually **differs** from the
+  base snapshot (structural deep-equal). No-op writes (`x = x`) and
+  write-then-revert within a stage now produce an **empty** commit instead of a
+  phantom entry.
+
+  This makes the commit log a faithful record of what each stage *changed*, not
+  merely what it *touched* — so time-travel consumers (e.g. a UI that highlights
+  the stages responsible for a value) light up only the stages that genuinely
+  changed state.
+
+  **Observable behavior change (non-breaking to the type/API surface):** code that
+  reads `executor.getSnapshot().commitLog` (or `footprintjs/trace` helpers like
+  `findLastWriter` / `findCommit`) will see fewer entries for keys that were
+  written without changing. This is the intended, more-correct semantics; see
+  `docs/design/commit-change-semantics.md`.
+
+### Added
+
+- `deepEqual` internal helper (acyclic, JSON-shaped, allocation-free) used by the
+  change-only diff.
+- `docs/design/commit-change-semantics.md` — the design rationale and edge cases.
+
+### Tests
+
+- Property test (`change-only-commit`) — the invariant holds for randomized writes.
+- Boundary/perf test (`change-only-perf`) — diff cost stays within budget at scale.
+
 ## [7.0.0]
 
 Major — recorder model cleanup. One breaking change, removing long-deprecated API.
