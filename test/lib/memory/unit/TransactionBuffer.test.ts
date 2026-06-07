@@ -103,3 +103,108 @@ describe('TransactionBuffer', () => {
     expect(buf.get(['tags'])).toEqual(['b']);
   });
 });
+
+// ── Change-only commits (commit = net delta, not a write log) ──────────────
+// See docs/design/commit-change-semantics.md for the rationale.
+describe('TransactionBuffer — change-only commit semantics', () => {
+  it('no-op write (same primitive) produces an EMPTY commit', () => {
+    const buf = new TransactionBuffer({ count: 1 });
+    buf.set(['count'], 1); // writes the value it already holds
+    const result = buf.commit();
+    expect(result.trace).toHaveLength(0);
+    expect(result.overwrite).toEqual({});
+    expect(result.updates).toEqual({});
+  });
+
+  it('no-op write (equal object, different reference) produces an EMPTY commit', () => {
+    const buf = new TransactionBuffer({ user: { name: 'Alice', tags: ['vip'] } });
+    // A fresh object with identical content — the slot-re-emit case.
+    buf.set(['user'], { name: 'Alice', tags: ['vip'] });
+    const result = buf.commit();
+    expect(result.trace).toHaveLength(0);
+    expect(result.overwrite).toEqual({});
+  });
+
+  it('no-op merge (content already present) produces an EMPTY commit', () => {
+    const buf = new TransactionBuffer({ config: { a: 1, b: 2 } });
+    buf.merge(['config'], { a: 1 }); // merging a value that is already there
+    const result = buf.commit();
+    expect(result.trace).toHaveLength(0);
+    expect(result.updates).toEqual({});
+  });
+
+  it('write-then-revert within one stage produces an EMPTY commit', () => {
+    const buf = new TransactionBuffer({ k: 1 });
+    buf.set(['k'], 2); // change
+    buf.set(['k'], 1); // revert to base — net zero
+    const result = buf.commit();
+    expect(result.trace).toHaveLength(0);
+    expect(result.overwrite).toEqual({});
+  });
+
+  it('a real change is still recorded', () => {
+    const buf = new TransactionBuffer({ k: 1 });
+    buf.set(['k'], 2);
+    const result = buf.commit();
+    expect(result.trace).toEqual([{ path: 'k', verb: 'set' }]);
+    expect(result.overwrite).toEqual({ k: 2 });
+  });
+
+  it('prunes only the no-op path, keeps the changed one (partial)', () => {
+    const buf = new TransactionBuffer({ a: 1, b: 1 });
+    buf.set(['a'], 1); // no-op
+    buf.set(['b'], 2); // real change
+    const result = buf.commit();
+    expect(result.trace).toEqual([{ path: 'b', verb: 'set' }]);
+    expect(result.overwrite).toEqual({ b: 2 });
+    expect(result.overwrite).not.toHaveProperty('a');
+  });
+
+  it('nested no-op (deep-equal subtree) is pruned; sibling change survives', () => {
+    const buf = new TransactionBuffer({ user: { name: 'Alice', age: 30 } });
+    buf.set(['user', 'name'], 'Alice'); // no-op leaf
+    buf.set(['user', 'age'], 31); // real change
+    const result = buf.commit();
+    expect(result.trace).toHaveLength(1);
+    expect(result.trace[0].verb).toBe('set');
+    expect(result.overwrite).toEqual({ user: { age: 31 } });
+  });
+
+  it('array content change is recorded; identical array content is pruned', () => {
+    const changed = new TransactionBuffer({ tags: ['a', 'b'] });
+    changed.set(['tags'], ['a', 'b', 'c']);
+    expect(changed.commit().overwrite).toEqual({ tags: ['a', 'b', 'c'] });
+
+    const same = new TransactionBuffer({ tags: ['a', 'b'] });
+    same.set(['tags'], ['a', 'b']); // identical content, new ref
+    expect(same.commit().trace).toHaveLength(0);
+  });
+
+  it('writing a brand-new key (absent in base) is a change', () => {
+    const buf = new TransactionBuffer({});
+    buf.set(['fresh'], 5);
+    const result = buf.commit();
+    expect(result.overwrite).toEqual({ fresh: 5 });
+  });
+
+  it('redactedPaths drops a no-op path but keeps a changed redacted path', () => {
+    const buf = new TransactionBuffer({ token: 'abc', secret: 'x' });
+    buf.set(['token'], 'abc', true); // redacted no-op → dropped
+    buf.set(['secret'], 'y', true); // redacted real change → kept
+    const result = buf.commit();
+    expect([...result.redactedPaths]).toEqual(['secret']);
+  });
+
+  it('an all-no-op stage yields a structurally-valid EMPTY bundle (the marker)', () => {
+    const buf = new TransactionBuffer({ a: 1, b: 2 });
+    buf.set(['a'], 1);
+    buf.set(['b'], 2);
+    const result = buf.commit();
+    expect(result).toEqual({
+      overwrite: {},
+      updates: {},
+      redactedPaths: new Set(),
+      trace: [],
+    });
+  });
+});

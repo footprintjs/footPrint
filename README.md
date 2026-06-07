@@ -235,6 +235,22 @@ npx degit footprintjs/footPrint/ai-instructions footprint-ai && bash footprint-a
 
 ---
 
+## Roadmap — community extension points
+
+These are deliberately deferred ideas where footprintjs aims to be a *true
+developer's friend*: ship a great zero-config default, but let teams who need it
+**bring their own** implementation. Contributions welcome — open an issue to
+discuss before a PR.
+
+- **Pluggable performance primitives (bring-your-own).** Hot-path internals
+  (`deepEqual` for change-only commits, `deepSmartMerge`, deep clones) are
+  built-in today. A future opt-in would let extreme-throughput consumers inject
+  their own (e.g. a SIMD fast-deep-equal or structural-sharing clone) while
+  everyone else keeps the default. Must honour the existing structural-equality
+  contract (a wrong comparator could drop real changes), so it ships with a
+  documented contract + dev-mode validation. See
+  [Commit change semantics](./docs/design/commit-change-semantics.md).
+
 ## Documentation
 
 | Resource | Link |

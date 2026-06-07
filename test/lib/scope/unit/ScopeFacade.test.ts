@@ -50,13 +50,21 @@ describe('ScopeFacade', () => {
   });
 
   it('deleteValue sets key to undefined', () => {
-    const ctx = makeCtx();
-    ctx.setObject([], 'tmp', 'data');
-    ctx.commit();
-    const scope = new ScopeFacade(ctx, 'test');
-    scope.deleteValue('tmp');
-    ctx.commit();
-    expect(ctx.getValue([], 'tmp')).toBeUndefined();
+    // A StageContext is one-shot: each stage commits exactly once, and the next
+    // stage runs in a fresh context (createNext) whose buffer bases on the
+    // committed state. (Re-committing the SAME context is not a real execution
+    // pattern — its working copy is already reset on commit.) Delete therefore
+    // happens in stage 2, against stage 1's committed value — the production path.
+    const stage1 = makeCtx();
+    stage1.setObject([], 'tmp', 'data');
+    stage1.commit();
+
+    const stage2 = stage1.createNext('p1', 's2', 's2');
+    const scope = new ScopeFacade(stage2, 'test');
+    scope.deleteValue('tmp'); // 'data' -> undefined is a real change, so it commits
+    stage2.commit();
+
+    expect(stage2.getValue([], 'tmp')).toBeUndefined();
   });
 
   it('getInitialValueFor reads from global context', () => {

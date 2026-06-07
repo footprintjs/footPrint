@@ -147,6 +147,61 @@ export function normalisePath(path: (string | number)[]): string {
 }
 
 /**
+ * Structural deep equality for committed-state values.
+ *
+ * Used by {@link TransactionBuffer} to decide whether a stage actually CHANGED
+ * a path or merely re-wrote / reverted it to the value it already held (a
+ * "no-op write"). Committed state is JSON-shaped — it must survive
+ * `structuredClone` — so this only needs to handle the shapes that can reach a
+ * commit: primitives, arrays, and plain objects.
+ *
+ * Semantics:
+ *   - reference / identical-primitive short-circuits first (cheap fast path)
+ *   - `NaN` equals `NaN` (primitive compare falls back to `Object.is`)
+ *   - arrays: equal length AND deep-equal element-wise (order-sensitive)
+ *   - objects: identical own-key set AND deep-equal per key
+ *   - mismatched kinds (array vs object, object vs null) → not equal
+ *
+ * Cost & safety:
+ *   - Allocates NOTHING but transient `Object.keys` arrays — no clones. It is
+ *     strictly cheaper than the `structuredClone` the commit already performs.
+ *   - Primitive comparisons (the bulk of state) are O(1) via the `===` /
+ *     `Object.is` fast paths; only nested objects/arrays incur a walk, bounded
+ *     by the value's own size.
+ *   - Assumes ACYCLIC, JSON-shaped values — the same contract the memory layer
+ *     already relies on (committed state is `structuredClone`d and must be
+ *     JSON-serialisable for checkpoints). A cyclic value is out of contract
+ *     here exactly as it is for checkpointing; dev mode flags cycles at write
+ *     time via `ScopeFacade.setValue`.
+ */
+export function deepEqual(a: any, b: any): boolean {
+  if (a === b) return true; // same reference or identical primitive
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b; // one is null, the other isn't
+  if (typeof a !== 'object') return Object.is(a, b); // NaN-safe primitive compare
+
+  const aIsArray = Array.isArray(a);
+  if (aIsArray !== Array.isArray(b)) return false; // array vs plain object
+
+  if (aIsArray) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!deepEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+/**
  * Deep union merge helper.
  * - Arrays (non-empty): union without duplicates (encounter order preserved)
  * - Arrays (empty):     replace — src `[]` clears the destination array.

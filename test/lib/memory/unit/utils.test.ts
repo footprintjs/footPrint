@@ -3,7 +3,65 @@
  * Covers: redactPatch, updateValue, deepSmartMerge
  */
 
-import { deepSmartMerge, DELIM, redactPatch, updateValue } from '../../../../src/lib/memory/utils';
+import { deepEqual, deepSmartMerge, DELIM, redactPatch, updateValue } from '../../../../src/lib/memory/utils';
+
+// ---------------------------------------------------------------------------
+// deepEqual — structural equality used for change-only commit detection
+// ---------------------------------------------------------------------------
+
+describe('deepEqual', () => {
+  it('primitives: equal and unequal', () => {
+    expect(deepEqual(1, 1)).toBe(true);
+    expect(deepEqual('a', 'a')).toBe(true);
+    expect(deepEqual(true, true)).toBe(true);
+    expect(deepEqual(1, 2)).toBe(false);
+    expect(deepEqual('a', 'b')).toBe(false);
+  });
+
+  it('NaN equals NaN', () => {
+    expect(deepEqual(NaN, NaN)).toBe(true);
+  });
+
+  it('null / undefined distinctions', () => {
+    expect(deepEqual(null, null)).toBe(true);
+    expect(deepEqual(undefined, undefined)).toBe(true);
+    expect(deepEqual(null, undefined)).toBe(false);
+    expect(deepEqual(null, {})).toBe(false);
+    expect(deepEqual({}, null)).toBe(false);
+  });
+
+  it('type mismatches are unequal', () => {
+    expect(deepEqual(1, '1')).toBe(false);
+    expect(deepEqual([], {})).toBe(false);
+    expect(deepEqual({ 0: 'a', length: 1 }, ['a'])).toBe(false);
+  });
+
+  it('arrays: order-sensitive deep comparison', () => {
+    expect(deepEqual([1, 2, 3], [1, 2, 3])).toBe(true);
+    expect(deepEqual([1, 2], [1, 2, 3])).toBe(false);
+    expect(deepEqual([1, 2, 3], [3, 2, 1])).toBe(false);
+    expect(deepEqual([{ a: 1 }], [{ a: 1 }])).toBe(true);
+    expect(deepEqual([{ a: 1 }], [{ a: 2 }])).toBe(false);
+  });
+
+  it('objects: same keys + deep values, order-insensitive', () => {
+    expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
+    expect(deepEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+    expect(deepEqual({ a: { b: { c: 1 } } }, { a: { b: { c: 1 } } })).toBe(true);
+    expect(deepEqual({ a: { b: { c: 1 } } }, { a: { b: { c: 2 } } })).toBe(false);
+  });
+
+  it('equal content with different references compares equal (the no-op-write case)', () => {
+    const a = { name: 'Alice', tags: ['vip'], meta: { age: 30 } };
+    const b = { name: 'Alice', tags: ['vip'], meta: { age: 30 } };
+    expect(a).not.toBe(b); // different references
+    expect(deepEqual(a, b)).toBe(true);
+  });
+
+  it('missing key on one side is unequal even with same key count edge', () => {
+    expect(deepEqual({ a: 1, b: undefined }, { a: 1, c: undefined })).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // redactPatch
