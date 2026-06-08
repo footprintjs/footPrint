@@ -95,6 +95,11 @@
       "types": "./dist/types/detach.d.ts",
       "import": "./dist/esm/detach.js",
       "require": "./dist/detach.js"
+    },
+    "./zod": {
+      "types": "./dist/types/zod.d.ts",
+      "import": "./dist/esm/zod.js",
+      "require": "./dist/zod.js"
     }
   },
   "lint-staged": {

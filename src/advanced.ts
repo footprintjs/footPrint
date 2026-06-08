@@ -102,14 +102,16 @@ export type {
   DebugEntry,
   DebugRecorderOptions,
   DebugVerbosity,
-  DefineScopeOptions,
   RecorderContext,
   StageEvent,
   StageMetrics,
 } from './lib/scope/index.js';
+// `DefineScopeOptions` (zod scope options) moved to 'footprintjs/zod'.
 
-// Zod internals
-export { createScopeProxyFromZod, defineScopeSchema, isScopeSchema, ZodScopeResolver } from './lib/scope/index.js';
+// Zod internals moved to the opt-in `footprintjs/zod` entry (keeps zod — an
+// optional peer — out of the `footprintjs/advanced` load path). Import
+// createScopeProxyFromZod / defineScopeSchema / isScopeSchema / ZodScopeResolver
+// from 'footprintjs/zod'.
 
 // ============================================================================
 // Runner — Internals

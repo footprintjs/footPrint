@@ -289,5 +289,6 @@ export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
  */
 export { disableDevMode, enableDevMode, isDevMode } from './lib/scope/detectCircular.js';
 
-/** @category Dev Tools */
-export { defineScopeFromZod } from './lib/scope/index.js';
+// `defineScopeFromZod` and the other zod-based scope helpers moved to the opt-in
+// `footprintjs/zod` entry — keeping zod out of the core load path (it is an
+// optional peer). Import them from 'footprintjs/zod'.

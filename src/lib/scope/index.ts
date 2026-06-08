@@ -54,9 +54,8 @@ export {
   toScopeFactory,
 } from './providers/index.js';
 
-// State / Zod
-export type { DefineScopeOptions } from './state/zod/defineScopeFromZod.js';
-export { defineScopeFromZod } from './state/zod/defineScopeFromZod.js';
-export { ZodScopeResolver } from './state/zod/resolver.js';
-export { defineScopeSchema, isScopeSchema } from './state/zod/schema/builder.js';
-export { createScopeProxyFromZod } from './state/zod/scopeFactory.js';
+// State / Zod — INTENTIONALLY NOT re-exported here.
+// Zod is an OPTIONAL peer; re-exporting it from this barrel would force every
+// `footprintjs` consumer to load zod eagerly (and crash if it isn't installed).
+// The zod-based scope helpers live behind the opt-in `footprintjs/zod` entry
+// (src/zod.ts). Import them from there and add zod to your own dependencies.

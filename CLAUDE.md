@@ -25,10 +25,11 @@ src/lib/
 
 Dependency DAG: `memory <- scope <- reactive <- engine <- runner`, `schema <- engine`, `builder (standalone) -> engine`, `contract <- schema`, `decide -> scope`
 
-Three entry points:
+Entry points:
 - `import { ... } from 'footprintjs'` — public API
 - `import { ... } from 'footprintjs/trace'` — execution tracing: runtimeStageId, commitLog queries, causal chain, recorder stores (`KeyedStore`/`SequenceStore`/`BoundaryStateStore`), `CommitRangeIndex`, `TopologyRecorder`/`InOutRecorder`/`QualityRecorder`
 - `import { ... } from 'footprintjs/advanced'` — engine internals (also re-exports trace)
+- `import { ... } from 'footprintjs/zod'` — **opt-in** zod-based scope helpers (`defineScopeFromZod`, `defineScopeSchema`, `isScopeSchema`, `createScopeProxyFromZod`, `ZodScopeResolver`). zod is an OPTIONAL peer — the core never imports it, so import these here and add `zod` to your deps. (Moved off the core barrels in 8.0.0 — see CHANGELOG.)
 
 ## Key API
 

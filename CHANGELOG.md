@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0]
+
+Major — zod becomes a truly optional peer. One breaking change: the zod-based
+scope helpers move to a new opt-in `footprintjs/zod` entry.
+
+### Changed (BREAKING)
+
+- **The zod scope helpers are no longer re-exported from `footprintjs` or
+  `footprintjs/advanced`.** They moved to the new **`footprintjs/zod`** entry.
+
+  Why: re-exporting them from the core barrels forced **every** consumer to load
+  zod eagerly — a plain `footprintjs` install would crash at load with
+  `ERR_MODULE_NOT_FOUND: 'zod'` if zod wasn't installed, even when the consumer
+  never used a zod schema. zod is declared as an **optional peer**, so the core
+  must not import it. Now it doesn't: `footprintjs` and `footprintjs/advanced`
+  load with zod completely absent.
+
+  Migration — import from the subpath and add `zod` to your dependencies:
+  ```ts
+  // before
+  import { defineScopeFromZod, defineScopeSchema } from 'footprintjs';
+  import { createScopeProxyFromZod, isScopeSchema, ZodScopeResolver } from 'footprintjs/advanced';
+  // after
+  import {
+    defineScopeFromZod, defineScopeSchema, createScopeProxyFromZod,
+    isScopeSchema, ZodScopeResolver, type DefineScopeOptions,
+  } from 'footprintjs/zod';
+  ```
+
+### Added
+
+- **`footprintjs/zod`** subpath export — the opt-in home for `defineScopeFromZod`,
+  `defineScopeSchema`, `isScopeSchema`, `createScopeProxyFromZod`,
+  `ZodScopeResolver`, and the `DefineScopeOptions` type.
+
+### Tests
+
+- `api-conformance/zod-subpath` — locks the contract: the core barrels never
+  export the zod helpers; the `footprintjs/zod` entry exports all of them.
+
 ## [7.1.0]
 
 Minor — the commit log now records **net state changes**, not raw writes.
