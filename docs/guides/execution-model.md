@@ -110,10 +110,28 @@ no structure with the engine: mutating a checkpoint you hold cannot corrupt
 engine state, and a later same-executor resume cannot mutate a checkpoint
 you already persisted. `resume()` is isolated in the other direction too —
 it clones the checkpoint pieces it seeds into the engine, so the engine
-never holds a reference to your object. (Consequence of the JSON-safe
-contract: a `pauseData` value that is not structured-cloneable — e.g.
-contains a function — now throws at pause time instead of silently
-surviving in-process and breaking on real persistence.)
+never holds a reference to your object.
+
+**Where non-serializable values can enter a checkpoint, and what happens to
+each:**
+
+- **Diagnostic values** (`$debug`/`$error`/`$metric`/`$eval`) — these accept
+  ANY value at write time without cloning, so a logged function/Promise/etc.
+  can legitimately be present when a run pauses. Observability never aborts
+  traversal: the pause **succeeds**, and the offending value is replaced in
+  the checkpoint's `executionTree` with a marker string such as
+  `'[non-serializable: function]'`. Only the checkpoint is sanitized — the
+  live engine diagnostics (and a same-executor resume) keep the raw value.
+- **`pauseData`** (returned by a pausable stage's `execute()`) — consumer-owned
+  checkpoint data, so the JSON-safe contract applies. A non-cloneable value
+  here fails the pause with a **descriptive contract error** naming the
+  offending checkpoint field (the raw `DataCloneError` is preserved as
+  `error.cause`) — instead of silently surviving in-process and breaking on
+  real persistence. A naked `DataCloneError` never escapes the executor.
+- **Shared state** (stage writes, the executor's `initialContext` /
+  `defaultValuesForContext` options) — must be structured-cloneable from the
+  start: a function here rejects at **stage entry**, when the transaction
+  buffer clones the context — long before any pause.
 
 `getSnapshot().sharedState` is different: in production it remains a
 **zero-copy live view** of working memory — treat it as read-only. In dev

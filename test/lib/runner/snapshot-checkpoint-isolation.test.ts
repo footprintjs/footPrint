@@ -290,3 +290,110 @@ describe('snapshot isolation — production mode is unchanged', () => {
     }).not.toThrow();
   });
 });
+
+// ── (e) Clone resilience — non-cloneable diagnostics never abort a pause ──
+
+/** Same Seed → Approve → Process chart, but Seed $debug/$metric's FUNCTIONS. */
+function buildDiagnosticChart() {
+  return flowChart<State>(
+    'Seed',
+    (scope) => {
+      scope.amount = 10;
+      scope.config = { multiplier: 2, tags: ['original'] };
+      scope.$debug('callback', () => 'not-cloneable');
+      scope.$metric('timing', { cb: () => 1, ms: 42 });
+    },
+    'seed',
+  )
+    .addPausableFunction(
+      'Approve',
+      {
+        execute: async () => ({ question: 'Approve?' }),
+        resume: async (scope, input) => {
+          scope.approved = (input as { approved?: boolean }).approved ?? false;
+        },
+      } as PausableHandler<State, { approved: boolean }>,
+      'approve',
+    )
+    .addFunction(
+      'Process',
+      (scope) => {
+        scope.total = (scope.amount as number) * (scope.config as { multiplier: number }).multiplier;
+      },
+      'process',
+    )
+    .build();
+}
+
+describe('checkpoint clone resilience — diagnostic bags are sanitized, the pause survives', () => {
+  it('a $debug-ed FUNCTION no longer aborts the pause — sanitized to a marker in the checkpoint', async () => {
+    const executor = new FlowChartExecutor(buildDiagnosticChart());
+    const result = await executor.run();
+    expect(result).toMatchObject({ paused: true });
+    expect(executor.isPaused()).toBe(true);
+
+    const tree = executor.getCheckpoint()!.executionTree as {
+      logs: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+    };
+    expect(tree.logs.callback).toBe('[non-serializable: function]');
+    // Nested non-cloneable is replaced; the cloneable sibling survives intact.
+    expect(tree.metrics.timing).toEqual({ cb: '[non-serializable: function]', ms: 42 });
+    // The sanitized checkpoint is JSON-safe end-to-end (the persistence contract).
+    expect(() => JSON.stringify(executor.getCheckpoint())).not.toThrow();
+  });
+
+  it('sanitization touches only the checkpoint — live engine diagnostics keep the raw value', async () => {
+    const executor = new FlowChartExecutor(buildDiagnosticChart());
+    await executor.run();
+    expect(typeof executor.getSnapshot().executionTree.logs.callback).toBe('function');
+  });
+
+  it('resume completes normally after a sanitized pause', async () => {
+    const executor = new FlowChartExecutor(buildDiagnosticChart());
+    await executor.run();
+    await executor.resume(executor.getCheckpoint()!, { approved: true });
+    const after = executor.getSnapshot().sharedState;
+    expect(after.total).toBe(20);
+    expect(after.approved).toBe(true);
+  });
+
+  it('non-cloneable pauseData throws a DESCRIPTIVE contract error, never a naked DataCloneError', async () => {
+    const chart = flowChart<State>(
+      'Seed',
+      (scope) => {
+        scope.amount = 10;
+      },
+      'seed',
+    )
+      .addPausableFunction(
+        'Approve',
+        {
+          // Function in pauseData = genuine JSON-safe contract violation.
+          execute: async () => ({ question: 'Approve?', onApprove: () => true }),
+          resume: async () => {},
+        } as PausableHandler<State, unknown>,
+        'approve',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart);
+
+    let caught: unknown;
+    try {
+      await executor.run();
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const err = caught as Error;
+    // Descriptive: names the offending checkpoint field and the contract doc.
+    expect(err.name).not.toBe('DataCloneError');
+    expect(err.message).toContain('pauseData');
+    expect(err.message).toContain('docs/guides/execution-model.md');
+    // The original clone error is preserved for debugging.
+    expect((err.cause as Error | undefined)?.name).toBe('DataCloneError');
+    // A failed pause leaves no half-built checkpoint behind.
+    expect(executor.isPaused()).toBe(false);
+    expect(executor.getCheckpoint()).toBeUndefined();
+  });
+});

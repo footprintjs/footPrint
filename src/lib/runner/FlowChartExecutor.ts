@@ -39,6 +39,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
+import type { StageSnapshot } from '../memory/types.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -49,6 +50,7 @@ import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
+import { describeCheckpointCloneFailure, sanitizeDiagnosticBags } from './checkpointSanitize.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { generateRunId } from './runId.js';
 import { validateInput } from './validateInput.js';
@@ -752,10 +754,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *   - `subflowResults` values stay referenced by the traverser's results map.
    *
    * The checkpoint is persisted by contract ("store in Redis/Postgres") — it
-   * must never share structure with the engine. The checkpoint contract is
-   * JSON-safe (no functions, no class instances), so `structuredClone` cannot
-   * reject a contract-compliant checkpoint. Pause is not a hot path; the
+   * must never share structure with the engine. Pause is not a hot path; the
    * clone cost is irrelevant.
+   *
+   * The JSON-safe checkpoint contract (no functions, no class instances)
+   * governs CONSUMER-owned data — but the executionTree's diagnostic bags
+   * accept ANY value at write time without cloning ($debug/$error/$metric/
+   * $eval store raw references), so a contract-compliant run can still carry
+   * a non-cloneable diagnostic. Observability side-bags never abort traversal
+   * anywhere else in the library, so they must not abort the pause either:
+   * on clone failure we sanitize the diagnostic bags (non-cloneable values
+   * become '[non-serializable: …]' markers — the live engine bags are never
+   * touched) and retry. If the retry STILL fails, the violation is in
+   * consumer-owned data (realistically `pauseData` — a function in shared
+   * state already rejects at stage entry when TransactionBuffer clones the
+   * context) and we throw a DESCRIPTIVE contract error naming the offending
+   * checkpoint field(s). A naked DataCloneError never escapes.
    *
    * Subflow scope capture (`subflowStates`) survives ONLY on the signal — the
    * nested runtimes are GC'd as the stack unwinds. Promoting it onto the
@@ -765,7 +779,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
     const snapshot = this.traverser.getSnapshot();
     const sfResults = this.traverser.getSubflowResults();
-    return structuredClone({
+    const checkpoint = {
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
@@ -777,7 +791,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
       ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
       pausedAt: Date.now(),
-    });
+    };
+    try {
+      return structuredClone(checkpoint);
+    } catch {
+      // Non-cloneable diagnostics must not swallow the pause — sanitize the
+      // executionTree's bags (markers replace the offenders) and retry.
+      try {
+        checkpoint.executionTree = sanitizeDiagnosticBags(checkpoint.executionTree as StageSnapshot);
+        return structuredClone(checkpoint);
+      } catch (retryError) {
+        // Genuine JSON-safe contract violation in consumer-owned data.
+        throw describeCheckpointCloneFailure(checkpoint, retryError);
+      }
+    }
   }
 
   /**
@@ -1230,6 +1257,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // context until the next commit rebuilds it (post-run: forever).
       // Production stays zero-copy; clone-always is a measured decision
       // deferred until the bench says it's affordable (BACKLOG #8).
+      // NOTE: deepFreeze (reused from readonlyInput) freezes plain objects/
+      // arrays only — Map/Set INTERNALS stay mutable (`map.set()` on the
+      // frozen clone won't throw). The CLONE still isolates the engine.
       snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
     }
     const sfResults = this.traverser.getSubflowResults();
