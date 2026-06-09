@@ -145,6 +145,23 @@ Credential transient-retry via reliability (documented deferral) · `sf-credenti
 
 ---
 
+## Research track — RFC-001 Deferred Observers (design: `research/RFC-001-deferred-observers.md`)
+
+- [ ] **R1. [F]** Blocks 1–5: standalone `src/lib/observer-queue/` module (envelope/ring/merged queue/flush driver/dispatcher) — zero engine imports, full 7-type test coverage. *Can start anytime.*
+- [ ] **R2. [F]** Blocks 6–9: tier router (`delivery: 'inline' | 'deferred'`, inline default), wire 3 dispatch sites after redaction, terminal flush on end/fail/pause, `observerStats` on snapshot. **Gate: existing suite green + narrative byte-identity with zero opt-ins.** *Sequence around #7/#15 merge windows (same traverser region).*
+- [ ] **R3. [A]** Block 10: EmitBridge `delivery` opt-in + published bench (p95 traversal latency, 5ms listener × 10⁴ events, inline vs deferred). Default flip deferred to next major.
+
+## Research track — RFC-002 Tool-Choice Confusability (design: `research/RFC-002-tool-choice-confusability.md`)
+
+- [ ] **R4. [A]** Tier 1 — `analyzeToolCatalog()` build-time lint (blocks C1–C3): pairwise description confusability + structural rules (missing "when", enum-able prose params) + CI gate. Plain `{name, description}[]` input — adoptable with zero stack buy-in. First test catalog: Neo's twinned NX-API/Influx tools.
+- [ ] **R5. [A]** Tier 2 — `toolChoiceRecorder` (blocks C4–C6): per-LLM-call margin scoring over the offered catalog, flags narrow margins + proxy disagreements. Declares `delivery: 'deferred'` once R2 lands. Lens "Tool choice" panel = C7 (U-tier).
+- [ ] **R6. [A]** Tier 3 — choice-entropy sampler + description A/B harness + proxy-health metric (block C8). The validation study for the FDL follow-up paper.
+
+## Research track — RFC-003 Contextual Bug Localization (design: `research/RFC-003-contextual-bug-localization.md`)
+
+- [ ] **R7. [F]** Part A — backtracking gap fixes (blocks D1–D5, one additive minor): `parentRuntimeStageId` on TraversalContext · untracked-read honesty flags on CommitBundle · control-dependence edges + `CausalEdge`/`weigh` hook in `causalChain` · `controlDepRecorder()` · truncation flags. Fixes the decider-invisible-in-slice gap verified at backtrack.ts.
+- [ ] **R8. [A]** Part B — `localizeContextBug()` (blocks D6–D10): extract shared `influence-core` (also de-dupes R4/R5) · LLM-edge weigher · ablation adapters (tool/injection/memory) · N-seeded bisection with variance · Lens weighted-DAG panel. The follow-up paper's engine.
+
 ## Phase 6 — Minor & polish (anytime; none block the phases above)
 
 **footprintjs**

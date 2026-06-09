@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.0]
+
 ### Changed — snapshot/checkpoint boundary isolation (backlog #8)
 
 - **Pause checkpoints are now deep-copied at creation.** `getCheckpoint()` /
