@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — snapshot/checkpoint boundary isolation (backlog #8)
+
+- **Pause checkpoints are now deep-copied at creation.** `getCheckpoint()` /
+  the `PausedResult.checkpoint` previously embedded the LIVE `SharedMemory`
+  context as `sharedState` (the alias only detached at the next commit —
+  post-pause, never), and `executionTree` nodes referenced live diagnostic
+  bags. The docs said "store the checkpoint in Redis" while handing out live
+  references. Now the whole checkpoint is detached via one `structuredClone`
+  at pause time: mutating a checkpoint you hold cannot corrupt engine state,
+  and a later same-executor resume cannot mutate a checkpoint you already
+  persisted. Edge-case consequence of the (pre-existing) JSON-safe contract:
+  a `pauseData` value that is not structured-cloneable (e.g. contains a
+  function) now throws a **descriptive contract error** at pause time —
+  naming the offending checkpoint field, with the raw `DataCloneError` as
+  `error.cause` — instead of silently surviving in-process and breaking on
+  real persistence.
+- **Non-cloneable diagnostics never abort a pause (clone resilience).**
+  `$debug`/`$error`/`$metric`/`$eval` accept ANY value at write time without
+  cloning, so a function logged in any stage of a pausing run would have
+  made the whole-checkpoint `structuredClone` reject with a naked
+  `DataCloneError` — swallowing the human-in-the-loop pause. Now, on clone
+  failure, the checkpoint's `executionTree` diagnostic bags
+  (`logs`/`errors`/`metrics`/`evals`) are sanitized — non-cloneable values
+  become `'[non-serializable: function]'`-style marker strings in the
+  CHECKPOINT only (live engine diagnostics keep the raw value) — and the
+  pause succeeds. If the clone still fails after sanitization, the
+  violation is in consumer-owned data (realistically `pauseData`; functions
+  in shared state, e.g. via the `initialContext` option, already reject at
+  stage entry when the transaction buffer clones the context) and the
+  descriptive contract error above is thrown. A naked `DataCloneError`
+  never escapes the executor. Ingress points documented in
+  [docs/guides/execution-model.md](docs/guides/execution-model.md).
+- **`resume()` clones the checkpoint in.** `checkpoint.sharedState` and
+  `checkpoint.subflowStates` are deep-copied before seeding engine runtimes
+  (`mergeContextWins` copies only the top level), so the engine never holds
+  a live reference into the caller's checkpoint object — caller mutations
+  can't reach the resumed run, and engine writes can't bleed back.
+- **Dev-mode mutation guard on `getSnapshot()`.** When `enableDevMode()` is
+  on, `getSnapshot().sharedState` is a deep-frozen CLONE — consumer mutation
+  throws a `TypeError` instead of silently corrupting engine state.
+  Production behavior is unchanged: `sharedState` remains the zero-copy live
+  view — treat it as read-only (documented in
+  [docs/guides/execution-model.md](docs/guides/execution-model.md)).
+  Clone-always in production is deferred pending the Phase-3 bench
+  (~4 ms per `structuredClone` of a 1 MB state, Node 22/M-series).
+
 ## [8.1.0]
 
 Minor — **re-entrancy guard + the honest execution-model doc** (backlog Phase 0,

@@ -39,15 +39,18 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import type { FlowchartCheckpoint } from '../pause/types.js';
+import type { StageSnapshot } from '../memory/types.js';
+import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
 import { isDevMode } from '../scope/detectCircular.js';
+import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
+import { describeCheckpointCloneFailure, sanitizeDiagnosticBags } from './checkpointSanitize.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { generateRunId } from './runId.js';
 import { validateInput } from './validateInput.js';
@@ -416,6 +419,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * The checkpoint is JSON-serializable — store it in Redis, Postgres, localStorage, etc.
    *
+   * It is fully DETACHED from engine state: every field was deep-copied at
+   * pause time (see `buildPauseCheckpoint`). Holding, mutating, or persisting
+   * it cannot affect the executor, and a later same-executor resume cannot
+   * mutate a checkpoint you already stored.
+   *
    * @example
    * ```typescript
    * const result = await executor.run({ input });
@@ -549,7 +557,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // leaf subflow (e.g., the loop target back to `messages`). Search
     // the leaf subflow first; fall back to top-level for root-level
     // pauses.
-    const sfStates = checkpoint.subflowStates;
+    // Clone-in: `subflowStates` seeds nested runtimes in SubflowExecutor
+    // (shallow-merged into each nested SharedMemory), so without a copy the
+    // engine would hold live references into the caller's checkpoint object —
+    // caller mutations would bleed into the resumed run and engine writes
+    // would reach a checkpoint the caller may have already persisted.
+    const sfStates = structuredClone(checkpoint.subflowStates);
     const leafSubflowId =
       checkpoint.subflowPath.length > 0 ? checkpoint.subflowPath[checkpoint.subflowPath.length - 1] : undefined;
     let continuationNext = pausedNode.next;
@@ -660,7 +673,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       subflowsOverride = { ...(fc.subflows ?? {}) };
       subflowsOverride[leafSubflowId] = { root: innerResumeChain };
     }
-    const resumeInitialContext = checkpoint.sharedState;
+    // Clone-in for the same reason as `sfStates` above: `initialContext`
+    // seeds the fresh SharedMemory via `mergeContextWins`, which copies only
+    // the TOP level — nested objects would alias the caller's checkpoint.
+    const resumeInitialContext = structuredClone(checkpoint.sharedState);
 
     this.traverser = this.createTraverser(options?.signal, undefined, options?.env, options?.maxDepth, {
       root: resumeRoot,
@@ -711,25 +727,83 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return await this.traverser.execute();
     } catch (error: unknown) {
       if (isPauseSignal(error)) {
-        const snapshot = this.traverser.getSnapshot();
-        const sfResults = this.traverser.getSubflowResults();
-        this.lastCheckpoint = {
-          sharedState: snapshot.sharedState,
-          executionTree: snapshot.executionTree,
-          pausedStageId: error.stageId,
-          subflowPath: error.subflowPath,
-          pauseData: error.pauseData,
-          subflowStates: error.subflowStates,
-          ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
-          ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),
-          ...(error.continuationStageId && { continuationStageId: error.continuationStageId }),
-          pausedAt: Date.now(),
-        };
+        this.lastCheckpoint = this.buildPauseCheckpoint(error);
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
       }
       throw error;
     } finally {
       this._isExecuting = false;
+    }
+  }
+
+  /**
+   * Build a fully DETACHED checkpoint from a caught PauseSignal.
+   *
+   * Every field is deep-copied via one `structuredClone` of the assembled
+   * checkpoint, because the raw pieces alias live engine state:
+   *
+   *   - `sharedState` IS `SharedMemory`'s internal context object — the alias
+   *     only detaches at the next commit (`applySmartMerge` rebuilds it), and
+   *     after a pause there is no next commit until resume.
+   *   - `executionTree` nodes are fresh, but their `logs`/`errors`/`metrics`/
+   *     `evals`/`stageReads`/`flowMessages` fields reference live
+   *     `DiagnosticCollector` bags that keep accumulating on same-executor
+   *     resume.
+   *   - `subflowStates` values are shallow copies whose NESTED objects alias
+   *     subflow memory, and they get seeded back into live runtimes on resume.
+   *   - `subflowResults` values stay referenced by the traverser's results map.
+   *
+   * The checkpoint is persisted by contract ("store in Redis/Postgres") — it
+   * must never share structure with the engine. Pause is not a hot path; the
+   * clone cost is irrelevant.
+   *
+   * The JSON-safe checkpoint contract (no functions, no class instances)
+   * governs CONSUMER-owned data — but the executionTree's diagnostic bags
+   * accept ANY value at write time without cloning ($debug/$error/$metric/
+   * $eval store raw references), so a contract-compliant run can still carry
+   * a non-cloneable diagnostic. Observability side-bags never abort traversal
+   * anywhere else in the library, so they must not abort the pause either:
+   * on clone failure we sanitize the diagnostic bags (non-cloneable values
+   * become '[non-serializable: …]' markers — the live engine bags are never
+   * touched) and retry. If the retry STILL fails, the violation is in
+   * consumer-owned data (realistically `pauseData` — a function in shared
+   * state already rejects at stage entry when TransactionBuffer clones the
+   * context) and we throw a DESCRIPTIVE contract error naming the offending
+   * checkpoint field(s). A naked DataCloneError never escapes.
+   *
+   * Subflow scope capture (`subflowStates`) survives ONLY on the signal — the
+   * nested runtimes are GC'd as the stack unwinds. Promoting it onto the
+   * checkpoint here lets cross-executor resume restore pre-pause subflow
+   * scope (e.g. an Agent's `scope.history`). Empty `{}` for root-level pauses.
+   */
+  private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
+    const snapshot = this.traverser.getSnapshot();
+    const sfResults = this.traverser.getSubflowResults();
+    const checkpoint = {
+      sharedState: snapshot.sharedState,
+      executionTree: snapshot.executionTree,
+      pausedStageId: signal.stageId,
+      subflowPath: signal.subflowPath,
+      pauseData: signal.pauseData,
+      subflowStates: signal.subflowStates,
+      ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+      // Invoker context — collected during traversal bubble-up (not tree-walked)
+      ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
+      ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
+      pausedAt: Date.now(),
+    };
+    try {
+      return structuredClone(checkpoint);
+    } catch {
+      // Non-cloneable diagnostics must not swallow the pause — sanitize the
+      // executionTree's bags (markers replace the offenders) and retry.
+      try {
+        checkpoint.executionTree = sanitizeDiagnosticBags(checkpoint.executionTree as StageSnapshot);
+        return structuredClone(checkpoint);
+      } catch (retryError) {
+        // Genuine JSON-safe contract violation in consumer-owned data.
+        throw describeCheckpointCloneFailure(checkpoint, retryError);
+      }
     }
   }
 
@@ -1142,27 +1216,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return await this.traverser.execute();
     } catch (error: unknown) {
       if (isPauseSignal(error)) {
-        // Build checkpoint from current execution state
-        const snapshot = this.traverser.getSnapshot();
-        const sfResults = this.traverser.getSubflowResults();
-        // Subflow scope capture survives ONLY on the signal — the
-        // nested runtimes are GC'd as the stack unwinds. Promote to
-        // the checkpoint here so cross-executor resume can restore
-        // pre-pause subflow scope (e.g. an Agent's `scope.history`).
-        // Empty `{}` for root-level pauses (no subflows entered).
-        this.lastCheckpoint = {
-          sharedState: snapshot.sharedState,
-          executionTree: snapshot.executionTree,
-          pausedStageId: error.stageId,
-          subflowPath: error.subflowPath,
-          pauseData: error.pauseData,
-          subflowStates: error.subflowStates,
-          ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
-          // Invoker context — collected during traversal bubble-up (not tree-walked)
-          ...(error.invokerStageId && { invokerStageId: error.invokerStageId }),
-          ...(error.continuationStageId && { continuationStageId: error.continuationStageId }),
-          pausedAt: Date.now(),
-        };
+        // Build a detached checkpoint from current execution state — see
+        // buildPauseCheckpoint() for the deep-copy rationale.
+        this.lastCheckpoint = this.buildPauseCheckpoint(error);
         // Return a PauseResult-shaped value so callers can check without try/catch
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
       }
@@ -1187,9 +1243,25 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    *   The commit log is already redacted at write-time regardless of this
    *   flag, and the execution tree carries only structural metadata.
+   *
+   * **Treat `sharedState` as READ-ONLY.** In production it is a live view of
+   * the engine's working memory (zero copy cost) — mutating it corrupts
+   * engine state. In dev mode (`enableDevMode()`) it is a deep-frozen CLONE,
+   * so any consumer mutation throws loudly instead of corrupting silently.
    */
   getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
     const snapshot = this.traverser.getSnapshot(options) as RuntimeSnapshot;
+    if (isDevMode()) {
+      // Dev-mode mutation guard: freeze a CLONE, never the live engine
+      // state — `snapshot.sharedState` aliases SharedMemory's internal
+      // context until the next commit rebuilds it (post-run: forever).
+      // Production stays zero-copy; clone-always is a measured decision
+      // deferred until the bench says it's affordable (BACKLOG #8).
+      // NOTE: deepFreeze (reused from readonlyInput) freezes plain objects/
+      // arrays only — Map/Set INTERNALS stay mutable (`map.set()` on the
+      // frozen clone won't throw). The CLONE still isolates the engine.
+      snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
+    }
     const sfResults = this.traverser.getSubflowResults();
     if (sfResults.size > 0) {
       snapshot.subflowResults = Object.fromEntries(sfResults);
