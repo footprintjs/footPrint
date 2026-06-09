@@ -176,7 +176,7 @@ if (executor.isPaused()) {
 
 - `execute` returns data → pauses. Returns void → continues normally (conditional pause).
 - Checkpoint is JSON-serializable — no functions, no class instances.
-- `resume()` resets narrative/recorder state — collect any narrative you need from the paused run BEFORE resuming. A fresh `runId` is generated for the resumed run.
+- Checkpoints never capture recorder state: CROSS-executor resume (fresh executor from a stored checkpoint) starts with empty narrative — collect what you need before discarding the paused executor. SAME-executor resume preserves and accumulates narrative/recorder state (`preserveRecorders`). A fresh `runId` is generated for the resumed run either way.
 - `FlowRecorder.onPause`/`onResume` and `Recorder.onPause`/`onResume` fire on both observer systems.
 
 ### ComposableRunner & Snapshot Navigation

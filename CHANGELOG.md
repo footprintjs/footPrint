@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.0]
+
+Minor — **re-entrancy guard + the honest execution-model doc** (backlog Phase 0,
+items #1/#2 of the verified combined backlog, now in [BACKLOG.md](BACKLOG.md)).
+
+### Changed (behavioral — read this)
+
+- **`executor.run()` and `executor.resume()` now THROW on concurrent entry**
+  on the same executor instance:
+  `"FlowChartExecutor: run() called while another run()/resume() is in flight…"`.
+  Previously this silently corrupted state — the two runs interleaved runIds,
+  cross-contaminated recorder/narrative state, and `getCheckpoint()` returned
+  whichever run paused last. The guard rejects the intruder **before any side
+  effect** (the in-flight run is untouched; its recorders are not cleared) and
+  releases on completion, throw, or pause. Sequential reuse and same-executor
+  pause→resume are unchanged. **If you shared one executor across concurrent
+  requests, you were corrupting traces — create one executor per run** (charts
+  are immutable and safely shared). See
+  [docs/guides/execution-model.md](docs/guides/execution-model.md).
+- Entry-path hygiene (same "failed entry leaves no side effects" rule): input
+  validation now runs **before** the `timeoutMs` timer is created (a rejected
+  input can no longer leak a pending timer), and `resume()` no longer wipes
+  `lastCheckpoint` before checkpoint validation (a rejected checkpoint no
+  longer destroys the executor's existing checkpoint state).
+
+### Added
+
+- **[docs/guides/execution-model.md](docs/guides/execution-model.md)** — the
+  supported envelope, stated honestly: executor-per-run lifecycle, the depth
+  budget as it really is (caps the longest chain within ONE traverser; subflow
+  mounts reset it; measured agent wall ≈ iteration 71), the current clone-cost
+  table (incl. the truth that read-only stages pay buffer construction today),
+  what checkpoints do/don't capture (recorder state: cross-executor resume
+  starts empty, same-executor resume accumulates), and last-run-wins getters.
+  Linked from the README.
+- `test/lib/runner/reentrancy.test.ts` — 7 tests: run∥run, resume∥run,
+  resume∥resume, sequential reuse, release-after-throw, release-after-pause,
+  and intruder-clears-nothing.
+
+### Fixed (docs/comments that contradicted the code)
+
+- CLAUDE.md's pause/resume note now correctly scopes "recorders reset" to
+  **cross-executor** resume (same-executor resume preserves + accumulates —
+  `preserveRecorders`).
+- `StageContext.getTransactionBuffer()`'s comment claimed "pay clone cost only
+  if stage writes" — false (reads construct the buffer too). Now states the
+  truth; truly-lazy-on-write is backlog Phase-3 #13.
+
 ## [8.0.0]
 
 Major — zod becomes a truly optional peer. One breaking change: the zod-based

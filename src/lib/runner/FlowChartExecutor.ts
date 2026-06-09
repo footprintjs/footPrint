@@ -144,6 +144,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * scope. See `test/lib/pause/cross-executor-resume.test.ts`.
    */
   private _hasRunBefore = false;
+  /**
+   * Re-entrancy guard. `run()` and `resume()` mutate per-run instance state
+   * (traverser, runId, execution counter, checkpoint) and clear attached
+   * recorders — a second concurrent entry on the SAME executor would
+   * interleave runIds and cross-contaminate recorder/narrative state, and
+   * `getCheckpoint()` would return whichever run paused last. One executor =
+   * one in-flight execution; create an executor per concurrent run.
+   * See docs/guides/execution-model.md.
+   */
+  private _isExecuting = false;
 
   // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
   // AND be assigned in the constructor's options-resolution block (the `else if` branch).
@@ -475,9 +485,19 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     resumeInput?: unknown,
     options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth'>,
   ): Promise<ExecutorResult> {
-    this.lastCheckpoint = undefined;
-
+    // Re-entrancy guard FIRST — resume() mutates the same per-run state run()
+    // does (traverser, runId, checkpoint), so resume-during-run and
+    // double-resume are the same corruption class as concurrent run().
+    if (this._isExecuting) {
+      throw new Error(
+        'FlowChartExecutor: resume() called while another run()/resume() is in flight on this ' +
+          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
+          'one executor per concurrent run. See docs/guides/execution-model.md.',
+      );
+    }
     // ── Validate checkpoint structure (may come from untrusted external storage) ──
+    // (lastCheckpoint is wiped AFTER validation — a rejected checkpoint must
+    // not destroy the executor's existing checkpoint state.)
     if (
       !checkpoint ||
       typeof checkpoint !== 'object' ||
@@ -511,6 +531,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           'Only stages created with addPausableFunction() can be resumed.',
       );
     }
+    this.lastCheckpoint = undefined;
 
     // Build a synthetic resume node: calls resumeFn with resumeInput, then continues.
     // resumeFn signature is (scope, input) per PausableHandler — wrap to match StageFunction(scope, breakFn).
@@ -683,6 +704,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     };
     for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
 
+    // Set AFTER all sync validation/lookup throws above (nothing can leak the
+    // flag); no await between the top-of-method check and here, so race-free.
+    this._isExecuting = true;
     try {
       return await this.traverser.execute();
     } catch (error: unknown) {
@@ -704,6 +728,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
       }
       throw error;
+    } finally {
+      this._isExecuting = false;
     }
   }
 
@@ -1061,6 +1087,25 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   async run(options?: RunOptions): Promise<ExecutorResult> {
+    // Re-entrancy guard FIRST — before clearing recorders or touching any
+    // per-run field, so a rejected concurrent call leaves the in-flight run
+    // completely untouched.
+    if (this._isExecuting) {
+      throw new Error(
+        'FlowChartExecutor: run() called while another run()/resume() is in flight on this ' +
+          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
+          'one executor per concurrent run. See docs/guides/execution-model.md.',
+      );
+    }
+    // Validate input against inputSchema if both are present. Validation runs
+    // BEFORE the timeout timer is created so a rejected input can't leak a
+    // pending timer (same "failed entry leaves no side effects" rule as the
+    // re-entrancy guard above).
+    let validatedInput = options?.input;
+    if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
+      validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
+    }
+
     let signal = options?.signal;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -1072,12 +1117,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         () => controller.abort(new Error(`Execution timed out after ${options.timeoutMs}ms`)),
         options.timeoutMs,
       );
-    }
-
-    // Validate input against inputSchema if both are present
-    let validatedInput = options?.input;
-    if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
-      validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
     }
 
     // User-attached recorders (flowRecorders + scopeRecorders) are cleared via clear() to prevent
@@ -1096,6 +1135,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._hasRunBefore = true; // mark so a later resume() takes the
     // same-executor branch (reuse runtime, accumulate execution tree).
     this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
+    // Set AFTER all sync validation throws (nothing above can leak the flag);
+    // no await between the top-of-method check and here, so this is race-free.
+    this._isExecuting = true;
     try {
       return await this.traverser.execute();
     } catch (error: unknown) {
@@ -1126,6 +1168,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
       throw error;
     } finally {
+      this._isExecuting = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
   }

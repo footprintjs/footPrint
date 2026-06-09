@@ -105,7 +105,9 @@ export class StageContext {
     return this.redactedSharedMemory;
   }
 
-  /** Lazily creates the transaction buffer (pay clone cost only if stage writes). */
+  /** Lazily creates the transaction buffer on the stage's FIRST state access —
+   *  reads included, so read-only stages currently pay the clone cost too.
+   *  (Truly lazy-on-write is backlog Phase-3 #13.) */
   getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
       this.buffer = new TransactionBuffer(this.sharedMemory.getState());
