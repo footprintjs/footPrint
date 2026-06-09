@@ -12,7 +12,6 @@
  * 6. Time-travel replay (EventLog.materialise cost)
  */
 
-import { FlowChartExecutor } from '../src/lib/runner/FlowChartExecutor';
 import { ExecutionRuntime } from '../src/lib/runner/ExecutionRuntime';
 import { FlowchartTraverser } from '../src/lib/engine/traversal/FlowchartTraverser';
 import { ScopeFacade } from '../src/lib/scope/ScopeFacade';
@@ -21,6 +20,17 @@ import { EventLog } from '../src/lib/memory/EventLog';
 import { StageContext } from '../src/lib/memory/StageContext';
 import type { StageNode } from '../src/lib/engine/graph/StageNode';
 import type { StageFunction, ILogger } from '../src/lib/engine/types';
+import {
+  type BenchResult,
+  formatBytes,
+  formatMs,
+  formatNum,
+  makeObject,
+  measure,
+  measureAsync,
+  printHeader,
+  printTable,
+} from './util';
 
 // ─── Utilities ───
 
@@ -28,70 +38,9 @@ const silentLogger: ILogger = {
   info() {}, log() {}, debug() {}, error() {}, warn() {},
 };
 
-function simpleScopeFactory(context: any, stageName: string) {
+function simpleScopeFactory(context: StageContext, stageName: string) {
   return new ScopeFacade(context, stageName);
 }
-
-function formatNum(n: number): string {
-  return n.toLocaleString('en-US');
-}
-
-function formatMs(ms: number): string {
-  if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`;
-  if (ms < 1000) return `${ms.toFixed(2)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-function median(arr: number[]): number {
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function measure(fn: () => void, iterations = 10): { median: number; min: number; max: number } {
-  const times: number[] = [];
-  // Warmup
-  for (let i = 0; i < 3; i++) fn();
-  // Measure
-  for (let i = 0; i < iterations; i++) {
-    const start = performance.now();
-    fn();
-    times.push(performance.now() - start);
-  }
-  return { median: median(times), min: Math.min(...times), max: Math.max(...times) };
-}
-
-async function measureAsync(fn: () => Promise<void>, iterations = 10): Promise<{ median: number; min: number; max: number }> {
-  const times: number[] = [];
-  // Warmup
-  for (let i = 0; i < 3; i++) await fn();
-  // Measure
-  for (let i = 0; i < iterations; i++) {
-    const start = performance.now();
-    await fn();
-    times.push(performance.now() - start);
-  }
-  return { median: median(times), min: Math.min(...times), max: Math.max(...times) };
-}
-
-function makeObject(sizeBytes: number): Record<string, unknown> {
-  // Create an object approximately `sizeBytes` large
-  const obj: Record<string, unknown> = {};
-  const fieldValue = 'x'.repeat(100); // ~100 bytes per field
-  const fieldCount = Math.max(1, Math.floor(sizeBytes / 110));
-  for (let i = 0; i < fieldCount; i++) {
-    obj[`field_${i}`] = fieldValue;
-  }
-  return obj;
-}
-
-type BenchResult = { name: string; value: string; detail?: string };
 
 // ─── Benchmarks ───
 
@@ -101,8 +50,8 @@ function benchWriteThroughput(): BenchResult[] {
 
   for (const count of counts) {
     const mem = new SharedMemory();
-    const log = new EventLog();
-    const ctx = new StageContext('', 'bench', mem, '', log);
+    const log = new EventLog({});
+    const ctx = new StageContext('', 'bench', 'bench', mem, '', log);
 
     const t = measure(() => {
       for (let i = 0; i < count; i++) {
@@ -128,15 +77,16 @@ function benchReadThroughput(): BenchResult[] {
   for (const count of counts) {
     // Pre-populate state
     const mem = new SharedMemory();
-    const log = new EventLog();
-    const writeCtx = new StageContext('', 'setup', mem, '', log);
+    const log = new EventLog({});
+    const writeCtx = new StageContext('', 'setup', 'setup', mem, '', log);
     for (let i = 0; i < count; i++) {
       writeCtx.setObject([], `key_${i}`, `value_${i}`);
     }
     writeCtx.commit();
 
-    // Measure reads (no buffer creation — read-only path)
-    const readCtx = new StageContext('', 'bench', mem, '', log);
+    // Measure reads (buffer is created lazily on the first getValue — see bench/baseline.ts
+    // for the end-to-end cost of that construction over large state)
+    const readCtx = new StageContext('', 'bench', 'bench', mem, '', log);
     const t = measure(() => {
       for (let i = 0; i < count; i++) {
         readCtx.getValue([], `key_${i}`);
@@ -176,13 +126,15 @@ async function benchPipelineScale(): Promise<BenchResult[]> {
     }
 
     const t = await measureAsync(async () => {
-      const runtime = new ExecutionRuntime(nodes[0].name);
+      const runtime = new ExecutionRuntime(nodes[0].name, nodes[0].id);
       const traverser = new FlowchartTraverser({
         root: nodes[0],
         stageMap,
         scopeFactory: simpleScopeFactory,
         executionRuntime: runtime,
         logger: silentLogger,
+        runId: 'bench',
+        maxDepth: count + 10,
       });
       await traverser.execute();
     }, 5);
@@ -217,12 +169,13 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
     const t = await measureAsync(async () => {
       const promises: Promise<any>[] = [];
       for (let i = 0; i < n; i++) {
-        const runtime = new ExecutionRuntime(root.name);
+        const runtime = new ExecutionRuntime(root.name, root.id);
         const traverser = new FlowchartTraverser({
           root, stageMap,
           scopeFactory: simpleScopeFactory,
           executionRuntime: runtime,
           logger: silentLogger,
+          runId: `bench-${i}`,
         });
         promises.push(traverser.execute());
       }
@@ -232,12 +185,13 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
     // Measure memory after one run
     const promises: Promise<any>[] = [];
     for (let i = 0; i < n; i++) {
-      const runtime = new ExecutionRuntime(root.name);
+      const runtime = new ExecutionRuntime(root.name, root.id);
       const traverser = new FlowchartTraverser({
         root, stageMap,
         scopeFactory: simpleScopeFactory,
         executionRuntime: runtime,
         logger: silentLogger,
+        runId: `bench-mem-${i}`,
       });
       promises.push(traverser.execute());
     }
@@ -291,10 +245,10 @@ function benchTimeTravelReplay(): BenchResult[] {
   for (const count of commitCounts) {
     // Build up commit history
     const mem = new SharedMemory();
-    const log = new EventLog();
+    const log = new EventLog({});
 
     for (let i = 0; i < count; i++) {
-      const ctx = new StageContext('', `stage_${i}`, mem, '', log);
+      const ctx = new StageContext('', `stage_${i}`, `stage_${i}`, mem, '', log);
       ctx.setObject([], `key_${i}`, `value_${i}`);
       ctx.commit();
     }
@@ -323,8 +277,8 @@ function benchCommitOverhead(): BenchResult[] {
   for (const writes of writeCounts) {
     const t = measure(() => {
       const mem = new SharedMemory();
-      const log = new EventLog();
-      const ctx = new StageContext('', 'bench', mem, '', log);
+      const log = new EventLog({});
+      const ctx = new StageContext('', 'bench', 'bench', mem, '', log);
       for (let i = 0; i < writes; i++) {
         ctx.setObject([], `key_${i}`, { data: `value_${i}`, nested: { a: i } });
       }
@@ -342,22 +296,8 @@ function benchCommitOverhead(): BenchResult[] {
 
 // ─── Runner ───
 
-function printTable(title: string, rows: BenchResult[]) {
-  console.log(`\n### ${title}\n`);
-  const nameWidth = Math.max(25, ...rows.map((r) => r.name.length));
-  const valWidth = Math.max(10, ...rows.map((r) => r.value.length));
-
-  console.log(`| ${'Benchmark'.padEnd(nameWidth)} | ${'Time'.padEnd(valWidth)} | Detail |`);
-  console.log(`|${''.padEnd(nameWidth + 2, '-')}|${''.padEnd(valWidth + 2, '-')}|--------|`);
-  for (const row of rows) {
-    console.log(`| ${row.name.padEnd(nameWidth)} | ${row.value.padEnd(valWidth)} | ${row.detail ?? ''} |`);
-  }
-}
-
 async function main() {
-  console.log('# FootPrint Performance Benchmarks');
-  console.log(`\nNode ${process.version} | ${process.platform} ${process.arch}`);
-  console.log(`Date: ${new Date().toISOString().split('T')[0]}`);
+  printHeader('FootPrint Performance Benchmarks (micro)');
 
   printTable('Write Throughput', benchWriteThroughput());
   printTable('Read Throughput', benchReadThroughput());
