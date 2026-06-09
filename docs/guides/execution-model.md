@@ -103,10 +103,25 @@ the paused stage id + subflow path, `pauseData`, and pre-pause subflow scopes
 - **In-flight timers/aborts.** `timeoutMs`/`signal` belong to the call, not
   the checkpoint; supply them again on `resume()`.
 
-One more honesty note: today the checkpoint's `sharedState` is **not deep-
-copied at creation** — serialize it promptly (e.g. `JSON.stringify` into
-Redis) rather than holding the live object and mutating engine state through
-it. Boundary isolation is on the backlog (Phase 1).
+One more honesty note — now resolved: the checkpoint **is deep-copied at
+creation** (one `structuredClone` of every field — `sharedState`,
+`executionTree`, `subflowStates`, `subflowResults`, `pauseData`). It shares
+no structure with the engine: mutating a checkpoint you hold cannot corrupt
+engine state, and a later same-executor resume cannot mutate a checkpoint
+you already persisted. `resume()` is isolated in the other direction too —
+it clones the checkpoint pieces it seeds into the engine, so the engine
+never holds a reference to your object. (Consequence of the JSON-safe
+contract: a `pauseData` value that is not structured-cloneable — e.g.
+contains a function — now throws at pause time instead of silently
+surviving in-process and breaking on real persistence.)
+
+`getSnapshot().sharedState` is different: in production it remains a
+**zero-copy live view** of working memory — treat it as read-only. In dev
+mode (`enableDevMode()`) it is a **deep-frozen clone**, so any accidental
+consumer mutation throws immediately instead of silently corrupting engine
+state. Clone-always in production is deferred until benchmarked (a 1 MB
+state costs ~4 ms per `structuredClone`, measured on Node 22/M-series —
+fine for a one-off pause, real money for snapshot-polling consumers).
 
 ## Summary — the envelope in one box
 
@@ -115,5 +130,5 @@ it. Boundary isolation is on the backlog (Phase 1).
 | Concurrency | one in-flight execution per executor (guarded); executor-per-run on servers |
 | Chain length | ~500 chained stages/loop hops per traverser; subflow mounts reset the budget |
 | State size | modest values; whole-state clone on first read per stage |
-| Introspection | last-run-wins getters |
-| Checkpoints | state + tree + pause data; **not** recorders or detached children |
+| Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
+| Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |

@@ -176,6 +176,8 @@ if (executor.isPaused()) {
 
 - `execute` returns data → pauses. Returns void → continues normally (conditional pause).
 - Checkpoint is JSON-serializable — no functions, no class instances.
+- Checkpoint is **deep-copied at creation** (one `structuredClone` of every field) — fully detached from engine state. Mutating a checkpoint you hold cannot corrupt the engine, and a same-executor resume cannot mutate a checkpoint you already persisted. `resume()` clones the checkpoint in too — the engine never holds a reference to your object.
+- `getSnapshot().sharedState` is a zero-copy LIVE view in production — treat as read-only. Dev mode (`enableDevMode()`) returns a deep-frozen clone so consumer mutation throws.
 - Checkpoints never capture recorder state: CROSS-executor resume (fresh executor from a stored checkpoint) starts with empty narrative — collect what you need before discarding the paused executor. SAME-executor resume preserves and accumulates narrative/recorder state (`preserveRecorders`). A fresh `runId` is generated for the resumed run either way.
 - `FlowRecorder.onPause`/`onResume` and `Recorder.onPause`/`onResume` fire on both observer systems.
 
@@ -514,6 +516,7 @@ Gated diagnostics:
 - **Empty-recorder warning** in `attachCombinedRecorder(r)` — catches `r` with no `on*` handler
 - **Suspicious predicates** in `decide()` / `select()`
 - **Snapshot integrity** in `getSubtreeSnapshot()`
+- **Snapshot mutation guard** in `FlowChartExecutor.getSnapshot()` — `sharedState` becomes a deep-frozen CLONE (mutation throws); production returns the zero-copy live view (treat as read-only)
 
 Convention: when adding a new dev-only check, gate on `isDevMode()` (from `scope/detectCircular.ts`). Do NOT use `process.env.NODE_ENV` inline — consumers control dev tooling centrally via `enableDevMode()`/`disableDevMode()`, and inline env checks break that contract.
 
