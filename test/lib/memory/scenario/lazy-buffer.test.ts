@@ -13,6 +13,10 @@
  *   (c) read-before-write returns the committed pre-write value
  *   (d) net-change commit semantics unchanged (same-value write → empty commit)
  *   (e) no-touch stage's commit bundle is byte-identical to the eager-buffer era
+ *   (f) the commit baseline is anchored at the stage's FIRST TOUCH (not first
+ *       write): a concurrent root-key commit landing between first read and
+ *       first write must not shift the net-change diff base (eager parity),
+ *       and fork-sibling namespace isolation is pinned e2e
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -329,6 +333,125 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
         expect(bundle.trace).toEqual([]);
         expect(bundle.redactedPaths).toEqual([]);
       }
+    });
+  });
+
+  // ── (f) first-touch anchor: concurrent commit between first read and first
+  //     write ──────────────────────────────────────────────────────────────
+  // The case a sequential probe cannot hit. Fork siblings are namespace-
+  // isolated for run-scoped keys (each child writes under runs/<childId>/),
+  // but ROOT-level keys are shared: `setGlobal` is reachable from consumer
+  // scope code AND from SubflowInputMapper's output mapping — exactly what
+  // runs when a subflow is a fork branch. The eager engine anchored the
+  // commit baseline (net-change diff base) at the stage's first ACCESS; the
+  // lazy buffer must anchor its zero-clone state view at the same point, NOT
+  // at first write, where a concurrent root-key commit landing in the gap
+  // would shift the diff base and record a phantom change (or swallow a real
+  // one). See firstTouchState() in StageContext.
+  describe('first-touch anchor: concurrent root-key commit in the read→write gap', () => {
+    it('commit baseline stays at first touch — rewriting the first-read value nets EMPTY', () => {
+      const mem = new SharedMemory();
+      const log = new EventLog(mem.getState());
+
+      const seed = new StageContext('', 'seed', 'seed', mem, '', log);
+      seed.setGlobal('g', 'orig');
+      seed.commit();
+
+      // Sibling B's first touch: a read. View anchored HERE (g='orig').
+      const b = new StageContext('b', 'B', 'b', mem, '', log);
+      expect(b.getValue([], 'g')).toBe('orig');
+
+      // Sibling A commits g='A' into the gap (the subflow-outputMapper-
+      // inside-a-fork pattern).
+      const a = new StageContext('a', 'A', 'a', mem, '', log);
+      a.setGlobal('g', 'A');
+      a.commit();
+
+      // Live fallback parity: 'g' is absent from B's namespaced view, so a
+      // post-gap read sees the LIVE value — the eager engine's exact
+      // visibility (its workingCopy lookup also missed runs/b/g and fell
+      // back to live state). Only the DIFF BASE is pinned, not reads.
+      expect(b.getValue([], 'g')).toBe('A');
+
+      // B writes back what it FIRST read. Eager diffed against the
+      // first-ACCESS base (g='orig') → no net change → EMPTY bundle. A
+      // first-write anchor would diff against A's 'A' and record g:'orig' —
+      // a phantom change that replays over (and clobbers) A's commit.
+      b.setGlobal('g', 'orig');
+      b.commit();
+
+      const bundle = log.list().find((entry) => entry.stageId === 'b');
+      expect(bundle?.overwrite).toEqual({});
+      expect(bundle?.updates).toEqual({});
+      expect(bundle?.trace).toEqual([]);
+
+      // A's value survives — B's empty patch replays nothing over it.
+      expect(mem.getValue('', [], 'g')).toBe('A');
+    });
+
+    it('keys present in the view at first touch read repeatably from it', () => {
+      const { mem, log, ctx } = seededCtx();
+
+      // First touch: 'greeting' IS in the view (runs/p1/greeting) → snapshot read.
+      expect(ctx.getValue([], 'greeting')).toBe('hello');
+
+      // Another context commits a change to the same run-namespaced key.
+      const intruder = new StageContext('p1', 'intruder', 'intruder', mem, '', log);
+      intruder.setObject([], 'greeting', 'changed');
+      intruder.commit();
+      expect(mem.getValue('p1', [], 'greeting')).toBe('changed');
+
+      // View-present keys are repeatable: the eager engine served them from
+      // its workingCopy clone; the lazy view serves the same bytes by
+      // reference. (A first-write anchor would leak 'changed' here.)
+      expect(ctx.getValue([], 'greeting')).toBe('hello');
+    });
+
+    it('e2e pin: fork siblings stay namespace-isolated; root keys are untouched by children', async () => {
+      // Documents the REAL fork contract the anchor analysis rests on:
+      // children write under runs/<childId>/ — invisible to siblings — and
+      // the root namespace has no writers while plain-function children run.
+      const reads: unknown[] = [];
+      let crossSibling: unknown = 'sentinel';
+      const chart = flowChart<{ k: string }>(
+        'Seed',
+        async (scope) => {
+          scope.k = 'orig';
+        },
+        'seed',
+      )
+        .addListOfFunction([
+          {
+            id: 'fast-writer',
+            name: 'FastWriter',
+            fn: async (scope: { k: string }) => {
+              scope.k = 'A'; // lands in runs/fast-writer/k, NOT the root k
+            },
+          },
+          {
+            id: 'slow-reader',
+            name: 'SlowReader',
+            fn: async (scope: { k: string } & Record<string, unknown>) => {
+              reads.push(scope.k); // root k via live global fallback
+              await new Promise((resolve) => setTimeout(resolve, 25)); // sibling commits here
+              reads.push(scope.k); // root k unchanged — isolation, not snapshotting
+              crossSibling = (scope as Record<string, unknown>).onlyInSibling;
+            },
+          },
+        ])
+        .build();
+
+      const executor = new FlowChartExecutor(chart);
+      await executor.run();
+      const snapshot = executor.getSnapshot();
+
+      expect(reads).toEqual(['orig', 'orig']);
+      // A sibling's namespaced write is invisible to this child — by design.
+      expect(crossSibling).toBeUndefined();
+
+      const state = snapshot.sharedState as { k?: string; runs?: Record<string, { k?: string }> };
+      expect(state.k).toBe('orig'); // root key untouched by children
+      expect(state.runs?.['fast-writer']?.k).toBe('A'); // child write in its namespace
     });
   });
 });

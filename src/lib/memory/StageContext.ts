@@ -10,6 +10,7 @@
 
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
+import { nativeGet } from './pathOps.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './types.js';
@@ -31,6 +32,13 @@ export class StageContext {
    */
   private redactedSharedMemory?: SharedMemory;
   private buffer?: TransactionBuffer;
+  /**
+   * Committed-state view captured at this stage's FIRST touch (first read OR
+   * first write) — held by REFERENCE, never cloned. See
+   * {@link firstTouchState} for the algorithm and the immutability invariant
+   * that makes a bare reference safe.
+   */
+  private stateView?: Record<string, unknown>;
   private eventLog?: EventLog;
 
   public stageName = '';
@@ -105,18 +113,68 @@ export class StageContext {
     return this.redactedSharedMemory;
   }
 
+  /**
+   * ── The first-touch state view (#13) ────────────────────────────────────
+   *
+   * WHAT: returns the committed shared state as it was at this stage's FIRST
+   * touch (first read or first write), capturing the reference on first call.
+   * Serves two consumers: reads before the first write ({@link readState})
+   * and the transaction buffer's diff base ({@link getTransactionBuffer}).
+   *
+   * WHY A BARE REFERENCE IS SAFE — the invariant this rests on: committed
+   * state is immutable-after-swap. `SharedMemory.applyPatch` routes through
+   * `applySmartMerge`, which `structuredClone`s the current state, mutates
+   * only the clone, and swaps `SharedMemory.context` to it — the object a
+   * stage captured here is never edited afterwards. (`SharedMemory.setValue`/
+   * `updateValue` DO mutate in place, but have no callers during traversal;
+   * every runtime write reaches state through a stage commit's `applyPatch`.)
+   * Holding the reference therefore gives this stage a stable snapshot at
+   * zero cost — no clone, which is the entire point of #13.
+   *
+   * WHY FIRST TOUCH, not first write: the pre-#13 eager engine cloned the
+   * state into the buffer at the stage's first ACCESS, anchoring both its
+   * snapshot reads and its commit baseline (the net-change diff base) there.
+   * #13's first cut anchored the lazy buffer at first WRITE — observably
+   * different when something else commits in the gap between this stage's
+   * first read and its first write. That gap is REACHABLE: fork siblings are
+   * namespace-isolated for run-scoped keys (each child writes under
+   * `runs/<childId>/`), but ROOT-level keys are shared — written via
+   * `setGlobal` from consumer scope code and, critically, by
+   * `SubflowInputMapper`'s output mapping (`parentContext.setGlobal`), which
+   * is exactly what runs when a subflow is a fork branch. A sibling's
+   * root-key commit landing in the gap would shift this stage's diff base,
+   * making its CommitBundle record a phantom change (or swallow a real one)
+   * relative to the eager engine. Anchoring the view at first touch restores
+   * the EXACT eager semantics — sequential AND parallel — at zero clone cost.
+   *
+   * Read visibility is two-tier, matching eager byte-for-byte: keys present
+   * in the view at first touch read repeatably from it; keys ABSENT from it
+   * fall back to LIVE state (the eager engine's exact fallback — a
+   * mid-flight sibling root-key write was always visible to reads, and
+   * stays visible; only the DIFF BASE is pinned).
+   */
+  private firstTouchState(): Record<string, unknown> {
+    if (!this.stateView) {
+      this.stateView = this.sharedMemory.getState();
+    }
+    return this.stateView;
+  }
+
   /** Lazily creates the transaction buffer on the stage's FIRST WRITE (#13).
    *
    *  Reads NEVER construct it: read-your-writes only matters once a staged
-   *  write exists, so before that {@link getValue}/{@link getValueDirect} read
-   *  straight from SharedMemory and {@link commit} records an empty bundle —
-   *  all with ZERO `structuredClone`s of the shared state. The `baseSnapshot`
-   *  captured here is identical to one captured at stage entry, because stage
-   *  writes only reach SharedMemory at commit time — the state cannot have
-   *  changed under this stage between its entry and its first write. */
+   *  write exists, so before that {@link getValue}/{@link getValueDirect}
+   *  serve from the first-touch state view and {@link commit} records an
+   *  empty bundle — all with ZERO `structuredClone`s of the shared state.
+   *
+   *  The buffer's base is the FIRST-TOUCH view, NOT the live state at write
+   *  time: under parallel forks a sibling may have committed between this
+   *  stage's first read and this write, and the net-change diff base must
+   *  stay anchored at first touch to match the eager engine — see
+   *  {@link firstTouchState}. */
   getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
-      this.buffer = new TransactionBuffer(this.sharedMemory.getState());
+      this.buffer = new TransactionBuffer(this.firstTouchState());
     }
     return this.buffer;
   }
@@ -209,15 +267,23 @@ export class StageContext {
 
   // ── Read operations ────────────────────────────────────────────────────
 
-  /** Buffer-aware read. Consults staged writes when the buffer exists
-   *  (read-your-writes), otherwise reads straight from SharedMemory — reads
-   *  never construct the buffer (#13), so a stage that never writes performs
-   *  zero clones of the shared state. */
+  /** Buffer-aware read, mirroring the eager engine's read order byte-for-byte:
+   *
+   *    1. staged writes + first-touch snapshot — `buffer.get` over its
+   *       workingCopy when the buffer exists, else `nativeGet` over the
+   *       zero-clone state view (the buffer's base IS that view, so the two
+   *       tiers agree on content);
+   *    2. LIVE state via `sharedMemory.getValue` for keys absent from the
+   *       snapshot — including its run→global namespace fallback. The eager
+   *       engine had this exact live fallback for snapshot-missing keys;
+   *       byte-identity over purity.
+   *
+   *  Reads never construct the buffer (#13): a stage that never writes
+   *  performs zero clones of the shared state. */
   private readState(path: string[], key?: string): unknown {
-    if (this.buffer) {
-      const fromPatch = this.buffer.get(this.withNamespace(path, key as string));
-      if (typeof fromPatch !== 'undefined') return fromPatch;
-    }
+    const namespaced = this.withNamespace(path, key as string);
+    const fromSnapshot = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
+    if (typeof fromSnapshot !== 'undefined') return fromSnapshot;
     return this.sharedMemory.getValue(this.runId, path, key);
   }
 

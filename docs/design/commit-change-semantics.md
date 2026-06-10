@@ -38,9 +38,14 @@ should answer *"what did this stage change?"*, not *"what did this stage type?"*
 
 ## How it works
 
-At commit time the buffer holds both `baseSnapshot` (state when the stage began —
-captured lazily at the stage's *first write* since #13, which is identical to
-stage-entry state because stage writes only reach SharedMemory at commit) and
+At commit time the buffer holds both `baseSnapshot` (state at the stage's *first
+touch* — read or write. Since #13 the buffer is constructed lazily at the first
+WRITE, but its base is the stage's first-touch state view, not write-time state:
+under parallel forks a concurrent root-key commit — `setGlobal` from scope code,
+or a subflow output mapping running inside a fork branch — can land between a
+stage's first read and its first write, and the diff base must stay anchored at
+first touch to match the eager engine. See `firstTouchState()` in
+`StageContext`) and
 `workingCopy` (state after all its writes). For each touched path it keeps
 the path **only if** `deepEqual(before, after)` is false. Surviving `set` paths
 copy their final value from `overwritePatch`; surviving `merge` paths copy their

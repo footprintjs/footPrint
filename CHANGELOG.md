@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed — truly lazy TransactionBuffer: the buffer is constructed on a stage's first WRITE, never on reads or commit (backlog #13)
 
 - **Reads never construct the transaction buffer.** Before a stage's first
-  write, `getValue`/`getValueDirect` read straight from `SharedMemory` —
+  write, `getValue`/`getValueDirect` serve from the stage's first-touch
+  state view (see below) with the eager engine's exact live fallback —
   read-your-writes only matters once a staged write exists, and after the
   first write reads consult the buffer exactly as before. Previously the
   buffer (2× `structuredClone` of the ENTIRE shared state) was constructed
@@ -28,6 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stage + same-value rewrite + writing stage) diff clean against the
   pre-#13 implementation. Net-change commit semantics are untouched:
   same-value writes and write-then-revert still produce empty bundles.
+- **First-touch anchor (adversarial-review finding).** The buffer's diff
+  base is the stage's FIRST-TOUCH state view — a zero-cost REFERENCE to
+  committed state, safe because committed state is immutable-after-swap
+  (`applyPatch` clones and swaps; nothing mutates it in place during
+  traversal) — NOT the live state at first write. The difference is
+  reachable under parallel forks: fork siblings are namespace-isolated for
+  run keys, but ROOT-level keys (`setGlobal` from scope code; a subflow
+  output mapping running inside a fork branch) can be committed by a
+  sibling between a stage's first read and its first write, where a
+  write-time base would record a phantom change or swallow a real one
+  relative to the eager engine. Reads of view-present keys are repeatable;
+  view-missing keys keep the eager engine's LIVE fallback. See
+  `firstTouchState()` in `StageContext` and
+  `docs/design/commit-change-semantics.md`.
 - **Measured (Apple M2, 1MB shared state — `bench/BASELINE.md` §A):** first
   tracked read 4.97ms → **3µs**; per no-touch stage 10.19ms → **~40µs**;
   seed+read-only run 21.66ms → 14.61ms. Per-read VALUE clones (tracked-read
