@@ -76,6 +76,25 @@ Practical consequences:
 Splitting long linear chains into subflows is no longer necessary for depth —
 compose subflows for meaning, not to dodge a frame budget.
 
+## Stage boundaries are scheduling points — by design
+
+The traverser `await`s every stage function, so the JavaScript microtask
+queue runs at **every stage boundary** — even in a pure-CPU chart with no
+I/O anywhere. This is a deliberate structural guarantee, not an accident
+of async style:
+
+- As a chart **grows** — more stages, deeper subflows, longer loops — its
+  number of scheduling points grows with it. The engine never degenerates
+  into one long synchronous block.
+- Consumer stage code is free to be heavy: the boundary awaits guarantee
+  the platform (timers, promise continuations, and anything scheduled on
+  microtasks) gets the thread between stages, regardless of what a stage
+  did inside.
+- The granularity is the **stage**: JavaScript cannot preempt, so a
+  synchronous loop *inside* one stage runs to completion before the next
+  boundary. If you need finer-grained breathing, split long CPU work
+  across stages — the boundaries do the rest.
+
 ## Clone-cost model — what a stage pays today
 
 State safety is bought with structured clones. Current costs per stage:
