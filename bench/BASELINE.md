@@ -219,9 +219,18 @@ and still O(N²) for a growing tracked array — at N=200: commit log ≈18MB
 (each bundle records the full changed array), `stageReads` + `stageWrites`
 snapshot clones ≈36MB (`$batchArray` = 1 tracked read + 1 tracked write of
 the full array per iteration). Levers: `readTracking: 'summary' | 'off'`
-(#14) removes the read half; the write half has no policy yet and the
-per-commit clone WALL cost still dominates long-loop latency — both tracked
-as **#13c**.
+(#14) removes the read half; `writeTracking: 'summary' | 'off'` (#13c-A)
+the write half; the commit log's full payloads and the per-commit clone
+WALL cost remain — tracked as **#13c-B** (delta verb).
+
+**Finding 6 (#13c-A shipped — the writeTracking dial, 2026-06-10):** the §E
+probe now also runs the same N=200 chart with `writeTracking: 'summary'`
+and `'off'` (two extra rows). Measured: default 59.7MB → 40.0MB
+(`'summary'`) / 39.9MB (`'off'`) — the `_stageWrites` clone share is
+**≈19.7MB (33%)** of the retained heap on this chart, gone under either
+non-default mode (markers are O(1), so `'summary'` ≈ `'off'`). The default
+row is byte-identical (59.7MB, 0.0% vs the committed baseline). What the
+dial deliberately does NOT shrink: the commit log (≈18MB here) — #13c-B.
 
 ### PRE-#13b (v9.2.0 — historical)
 

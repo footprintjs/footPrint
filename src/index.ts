@@ -259,6 +259,20 @@ export type { ScopeFactory } from './lib/engine/index.js';
  */
 export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js';
 
+/**
+ * @category Configuration
+ *
+ * Write-tracking policy for `StageSnapshot.stageWrites` (#13c-A) — the
+ * sibling of `ReadTrackingMode`; both alias the shared `RetentionPolicy`
+ * family from `lib/capture`. `'full'` (default — per-write value clone,
+ * historical behavior) / `'summary'` (cheap `WriteSummaryMarker` per write)
+ * / `'off'` (no tracking; `stageWrites` absent and the `onCommit` mutations
+ * payload is empty — writes themselves still commit, and the commit log is
+ * unaffected). Pass as `new FlowChartExecutor(chart, { writeTracking })` or
+ * call `executor.setWriteTracking(mode)` before `run()`.
+ */
+export type { RetentionPolicy, WriteSummaryMarker, WriteTrackingMode } from './lib/memory/index.js';
+
 // ============================================================================
 // Contract & Validation
 // ============================================================================

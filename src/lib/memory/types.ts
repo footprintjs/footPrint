@@ -128,7 +128,10 @@ export type StageSnapshot = {
   subflowId?: string;
   isDecider?: boolean;
   isFork?: boolean;
-  /** User-level writes made by this stage (pre-namespace keys → values). */
+  /** User-level writes made by this stage (pre-namespace keys → values).
+   *  Shape depends on {@link WriteTrackingMode}: cloned values under `'full'`
+   *  (default), {@link WriteSummaryMarker}s under `'summary'`, absent under
+   *  `'off'`. Redacted writes show `'[REDACTED]'` regardless of mode. */
   stageWrites?: Record<string, unknown>;
   /** User-level reads made by this stage (pre-namespace keys → values at read
    *  time). Shape depends on {@link ReadTrackingMode}: cloned values under

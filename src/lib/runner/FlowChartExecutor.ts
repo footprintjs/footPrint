@@ -39,7 +39,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import type { ReadTrackingMode, StageSnapshot } from '../memory/types.js';
+import type { ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -116,6 +116,41 @@ export interface FlowChartExecutorOptions<TScope = any> {
    */
   readTracking?: ReadTrackingMode;
 
+  /**
+   * Policy for `StageSnapshot.stageWrites` (#13c-A) — the sibling of
+   * {@link readTracking}; the two dials are independent. Default `'full'` —
+   * every tracked write `structuredClone`s the value into the stage's write
+   * view (the historical behavior). `'summary'` records a cheap
+   * `WriteSummaryMarker` (type/size/preview) per write; `'off'` records
+   * nothing — `stageWrites` is absent from the snapshot.
+   *
+   * Observable consequences — what the policy DOES govern:
+   * - `StageSnapshot.stageWrites` (markers under `'summary'`, absent under
+   *   `'off'`).
+   * - The commit observer payload: `ScopeRecorder.onCommit(mutations)`
+   *   receives the retained `_stageWrites` entries, so it carries the same
+   *   markers under `'summary'` and an empty mutations bag under `'off'` —
+   *   deferred/observer consumers see exactly what retention stored.
+   *
+   * What it does NOT govern:
+   * - The writes themselves: shared state, the transaction buffer, and the
+   *   COMMIT LOG are identical in every mode (commitLog values keep their
+   *   full payloads — the lossless linear-cost fix for those is #13c-B's
+   *   delta verb, out of scope here).
+   * - Per-op `ScopeRecorder.onWrite` events — they fire with live values
+   *   regardless (delivery tier, RFC-001's concern), so narrative output is
+   *   identical in every mode.
+   * - Redaction: a policy/per-call-redacted write stores `'[REDACTED]'`
+   *   under `'full'` AND `'summary'` (redaction takes precedence over the
+   *   dial; a marker would leak size/preview), and nothing under `'off'`.
+   *
+   * Caveat: under `'off'` a stage's SNAPSHOT is indistinguishable from one
+   * that wrote nothing — but unlike `readTracking: 'off'`, the commit log
+   * still records every net change, so "did it write?" stays answerable.
+   * Equivalent to calling `executor.setWriteTracking(mode)` before `run()`.
+   */
+  writeTracking?: WriteTrackingMode;
+
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
@@ -187,6 +222,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     streamHandlers?: StreamHandlers;
     scopeProtectionMode?: ScopeProtectionMode;
     readTracking?: ReadTrackingMode;
+    writeTracking?: WriteTrackingMode;
   };
 
   /**
@@ -218,6 +254,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let streamHandlers: StreamHandlers | undefined;
     let scopeProtectionMode: ScopeProtectionMode | undefined;
     let readTracking: ReadTrackingMode | undefined;
+    let writeTracking: WriteTrackingMode | undefined;
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
@@ -233,6 +270,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       streamHandlers = opts.streamHandlers;
       scopeProtectionMode = opts.scopeProtectionMode;
       readTracking = opts.readTracking;
+      writeTracking = opts.writeTracking;
     }
     this.flowChartArgs = {
       flowChart,
@@ -244,6 +282,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       streamHandlers,
       scopeProtectionMode,
       readTracking,
+      writeTracking,
     };
     this.traverser = this.createTraverser();
   }
@@ -386,6 +425,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       runtime.useReadTracking(readTracking);
     }
 
+    // Write-tracking policy (#13c-A): identical plumbing to readTracking —
+    // same root-context anchor, same inheritance, same resume-path ordering.
+    const writeTracking = args.writeTracking;
+    if (writeTracking !== undefined && writeTracking !== 'full') {
+      runtime.useWriteTracking(writeTracking);
+    }
+
     return new FlowchartTraverser<TOut, TScope>({
       root: effectiveRoot,
       stageMap: fc.stageMap,
@@ -434,6 +480,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   setReadTracking(mode: ReadTrackingMode): void {
     this.flowChartArgs.readTracking = mode;
+  }
+
+  /**
+   * Set the write-tracking policy for `StageSnapshot.stageWrites` (#13c-A).
+   * Must be called before run(). Equivalent to the `writeTracking`
+   * constructor option — see {@link FlowChartExecutorOptions.writeTracking}
+   * for the mode semantics ('full' default / 'summary' / 'off'), the
+   * onCommit-payload consequence, and the redaction-precedence rule.
+   */
+  setWriteTracking(mode: WriteTrackingMode): void {
+    this.flowChartArgs.writeTracking = mode;
   }
 
   /**

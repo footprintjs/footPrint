@@ -13,7 +13,7 @@
 import { EventLog } from '../memory/EventLog.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, ReadTrackingMode, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 
 /** Snapshot of a single recorder's collected data. */
 export interface RecorderSnapshot {
@@ -96,6 +96,19 @@ export class ExecutionRuntime {
    */
   useReadTracking(mode: ReadTrackingMode): void {
     this.rootStageContext.useReadTracking(mode);
+  }
+
+  /**
+   * Set the write-tracking policy (#13c-A) on the root stage context — the
+   * sibling of {@link useReadTracking}, with identical plumbing: descendant
+   * contexts inherit via `createNext`/`createChild`; subflow root contexts
+   * inherit from their parent-mount context via `SubflowExecutor`. Called by
+   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
+   * the default `'full'` — including the resume path, where it is applied to
+   * the freshly-created continuation root.
+   */
+  useWriteTracking(mode: WriteTrackingMode): void {
+    this.rootStageContext.useWriteTracking(mode);
   }
 
   /** Preserve the current rootStageContext for snapshots before changing it for resume. */

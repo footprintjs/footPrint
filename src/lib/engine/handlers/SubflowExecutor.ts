@@ -153,6 +153,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRootContext.useReadTracking(parentReadTracking);
     }
 
+    // Write-tracking policy (#13c-A): same inheritance hop as readTracking
+    // above — subflow runtimes are isolated, so the parent-mount context's
+    // mode is pushed into the FINAL nested root with the same duck-type
+    // guard and the same skip-at-default fast path.
+    const parentWriteTracking = parentContext.getWriteTracking?.();
+    if (parentWriteTracking !== undefined && parentWriteTracking !== 'full') {
+      nestedRootContext.useWriteTracking(parentWriteTracking);
+    }
+
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
     //
     // PRESERVE `next`. Earlier revisions stripped `next` whenever the

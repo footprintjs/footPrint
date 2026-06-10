@@ -122,6 +122,8 @@ const child = ctx.createChild('run-1', 'branch-1', 'parallelTask');
 
 **Read-tracking policy (#14):** the per-read `structuredClone` into the snapshot's `stageReads` view is policy-gated via `ReadTrackingMode` — `'full'` (default, historical behavior), `'summary'` (cheap type/size/preview marker per read), `'off'` (no `stageReads`, zero per-read cost). Set per executor: `new FlowChartExecutor(chart, { readTracking: 'off' })` or `executor.setReadTracking('off')`. Only the snapshot payload changes — `onRead` events (and therefore narrative) pass the live reference and are identical in every mode.
 
+**Write-tracking policy (#13c-A):** the independent sibling dial for the per-write `structuredClone` into `stageWrites`, via `WriteTrackingMode` (same `'full' | 'summary' | 'off'` family — both dials alias `RetentionPolicy` from `lib/capture`, which also owns the shared marker builders). Set per executor: `new FlowChartExecutor(chart, { writeTracking: 'summary' })` or `executor.setWriteTracking(mode)`. Two consumers see the policy: the snapshot's `stageWrites` (markers under `'summary'`, absent under `'off'`) and the commit observer — `ScopeRecorder.onCommit` mutations are a spread of `_stageWrites`, so they carry the same markers or arrive empty. The WRITE itself is untouched in every mode: shared state, the transaction buffer, and the commit log are byte-identical (commit-log payloads are #13c-B's delta verb, not this dial), and `onWrite` fires with the live value regardless. Redaction beats the dial — `'[REDACTED]'` under `'full'`/`'summary'`, nothing retained under `'off'`.
+
 ---
 
 ### 5. DiagnosticCollector — "The Flight ScopeRecorder"

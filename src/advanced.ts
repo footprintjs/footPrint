@@ -31,8 +31,11 @@ export type {
   MemoryPatch,
   ReadSummaryMarker,
   ReadTrackingMode,
+  RetentionPolicy,
   StageSnapshot,
   TraceEntry,
+  WriteSummaryMarker,
+  WriteTrackingMode,
 } from './lib/memory/index.js';
 export { SharedMemory } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';

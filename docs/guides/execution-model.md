@@ -85,7 +85,7 @@ State safety is bought with structured clones. Current costs per stage:
 | Stage's first **write** | Constructs the transaction buffer: **two `structuredClone`s of the entire shared state** |
 | Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
 | Each tracked read (`getValue`) | Policy-gated (#14): one `structuredClone` of the value under the DEFAULT `readTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
-| Each net-changing write | ~3 value clones (patch, write-tracking, commit diff) |
+| Each net-changing write | ~3 value clones (patch, write-tracking, commit diff). The write-TRACKING clone is policy-gated (#13c-A): it fires under the DEFAULT `writeTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'`. The patch + commit-diff clones remain in EVERY mode — they are the commit path, not tracking |
 | TypedScope object/array write | + one JSON round-trip to unwrap the proxy |
 | `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
 | Commit of a read-only / no-touch stage | **Zero clones** — the (empty) commit bundle is still recorded, but without buffer construction or state replay |
@@ -101,6 +101,18 @@ snapshot's `stageReads` payload — `onRead` events pass the live reference (nev
 cloned), so narrative and recorder output are identical in every mode. Measured:
 50 tracked reads of a 1MB value drop from ~130ms (`'full'`) to **7µs** (`'off'`)
 — `bench/BASELINE.md` §A.
+
+The write side has the independent sibling dial (#13c-A):
+`new FlowChartExecutor(chart, { writeTracking: 'summary' })` (or
+`executor.setWriteTracking(mode)` before `run()`). It gates ONLY the
+write-tracking clone into `stageWrites` — and, because the commit observer
+payload is a spread of that view, `ScopeRecorder.onCommit` mutations carry the
+same markers (`'summary'`) or arrive empty (`'off'`). Everything else is
+untouched in every mode: the write still commits (shared state, commit log,
+`onWrite` events, narrative are byte-identical), and redaction takes precedence
+over the dial (`'[REDACTED]'` under `'full'`/`'summary'`, nothing retained
+under `'off'`). The commit log's full value payloads are deliberately NOT
+gated — that is #13c-B's lossless delta verb.
 
 One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
 **read values are borrowed — do not mutate them.** Pre-write reads return
@@ -127,8 +139,9 @@ agent OOMed a default Node heap). After the release the tree retains **zero**
 buffers and **zero** state generations; what still grows per iteration is the
 audit surface by design — the commit log (each bundle records the full changed
 value) and the per-stage `stageReads`/`stageWrites` snapshot clones
-(`readTracking` gates the read half; the write half has no policy lever yet —
-tracked as #13c together with the per-commit clone wall cost).
+(`readTracking` (#14) gates the read half; `writeTracking` (#13c-A) the write
+half; the commit log's full payloads + the per-commit clone wall cost remain —
+tracked as #13c-B's delta verb).
 
 
 **Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —

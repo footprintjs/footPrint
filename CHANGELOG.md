@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`writeTracking` retention dial for `StageSnapshot.stageWrites`** (backlog
+  #13c-A) — the sibling of #14's `readTracking`; the two dials are
+  independent. `new FlowChartExecutor(chart, { writeTracking })` or
+  `executor.setWriteTracking(mode)` before `run()`:
+  - `'full'` (default) — per-write `structuredClone` into the stage's write
+    view. Byte-identical to the historical behavior (pinned by a
+    negative-control clone counter).
+  - `'summary'` — a cheap `WriteSummaryMarker`
+    (`{ __writeSummary, type, size?, preview? }`, Map/Set report real entry
+    counts) per write; zero tracking clones.
+  - `'off'` — no `stageWrites` at all; zero tracking cost. The WRITE itself
+    is untouched: shared state, the transaction buffer, the commit log,
+    `onWrite` events, and narrative are byte-identical in every mode.
+  Observable consequences: besides the snapshot, the commit observer payload
+  (`ScopeRecorder.onCommit` mutations is a spread of the retained
+  `_stageWrites`) carries the same markers under `'summary'` and arrives
+  empty under `'off'`; per-op `onWrite` always delivers live values (delivery
+  tier — RFC-001's concern). Redaction takes precedence over the dial:
+  `'[REDACTED]'` under `'full'`/`'summary'` (a marker would leak
+  size/preview), nothing retained under `'off'`. Plumbed exactly like
+  readTracking: root context → `createNext`/`createChild` inheritance →
+  subflow roots via `SubflowExecutor` → re-applied on the resume path.
+  Measured on the §E retained-heap probe (N=200 growing-history loop): the
+  `_stageWrites` share drops with `'summary'`/`'off'` while default rows are
+  unchanged. New example: `examples/runtime-features/write-tracking/01-basic.ts`;
+  25-test scenario suite `test/lib/memory/scenario/write-tracking.test.ts`.
+  OUT OF SCOPE (by design, documented on the option): commit-log value
+  payloads — deferred to **#13c-B's lossless delta/append verb** (one bundle-
+  contract evolution, designed jointly with the RFC-001 §12 envelope);
+  read tracking (shipped in #14); deferred observer delivery (RFC-001).
+
+- **`src/lib/capture/` — shared value-capture/retention module** (#13c-A
+  part 1; the module RFC-001's deferred-observer capture tier builds on).
+  `RetentionPolicy = 'full' | 'summary' | 'off'` is the one family behind
+  both dials (`ReadTrackingMode`/`WriteTrackingMode` are public aliases —
+  zero type-level change for consumers); `summarizeReadValue` (extracted
+  byte-identical from `StageContext`) and the new sibling
+  `summarizeWriteValue` share ONE classification path. RFC-001 mapping
+  documented in the module: RFC capture `'clone'` ≈ retention `'full'`,
+  `'summary'` ≈ `'summary'`, `'ref'` is delivery-tier only (retention must
+  never hold live references) — reserved, not implemented. New exports from
+  the main + `advanced` barrels: `WriteTrackingMode`, `WriteSummaryMarker`,
+  `RetentionPolicy` (+ `SUMMARY_PREVIEW_LENGTH` from the memory barrel;
+  `READ_PREVIEW_LENGTH` kept as the shipped alias). All existing import
+  paths unchanged.
+
 ## [9.3.0] - 2026-06-10
 
 ### Fixed

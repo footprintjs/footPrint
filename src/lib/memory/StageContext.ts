@@ -8,14 +8,14 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
-import { summarizeReadValue } from '../capture/summarize.js';
+import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../scope/detectCircular.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
-import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot } from './types.js';
+import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './types.js';
 import { redactPatch } from './utils.js';
 
 export class StageContext {
@@ -81,6 +81,20 @@ export class StageContext {
    */
   private readTracking: ReadTrackingMode = 'full';
 
+  /**
+   * How tracked writes are recorded into `_stageWrites` (#13c-A) — the
+   * sibling of {@link readTracking}, with the same propagation pattern
+   * (inherited via {@link createNext}/{@link createChild}, pushed into
+   * subflow root contexts by `SubflowExecutor`). Governs the per-write
+   * `structuredClone` in {@link setObject}/{@link updateObject}. Affects the
+   * snapshot's `stageWrites` payload AND the commit observer's mutations
+   * payload (which is a spread of `_stageWrites`) — but NOT the write
+   * itself: the transaction buffer, the commit log, and shared state are
+   * identical in every mode, and `ScopeRecorder.onWrite` always fires with
+   * the live value.
+   */
+  private writeTracking: WriteTrackingMode = 'full';
+
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
     mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
@@ -141,6 +155,47 @@ export class StageContext {
   /** Returns the active read-tracking policy (used for subflow propagation). */
   getReadTracking(): ReadTrackingMode {
     return this.readTracking;
+  }
+
+  /**
+   * Set the write-tracking policy for this context (#13c-A). Same plumbing
+   * as {@link useReadTracking}: called at the root by
+   * `ExecutionRuntime.useWriteTracking()` (plumbed from `FlowChartExecutor`);
+   * descendants inherit via `createNext`/`createChild`, and `SubflowExecutor`
+   * pushes the parent context's mode into each subflow root.
+   */
+  useWriteTracking(mode: WriteTrackingMode): void {
+    this.writeTracking = mode;
+  }
+
+  /** Returns the active write-tracking policy (used for subflow propagation). */
+  getWriteTracking(): WriteTrackingMode {
+    return this.writeTracking;
+  }
+
+  /**
+   * Record a tracked user-level write into `_stageWrites`, policy-gated
+   * (#13c-A) — the single bookkeeping path for {@link setObject} and
+   * {@link updateObject}.
+   *
+   * Redaction takes precedence over the dial in EVERY mode: a redacted
+   * write stores the `'[REDACTED]'` placeholder under `'full'` AND
+   * `'summary'` (a summary marker would leak the value's preview/size),
+   * and stores nothing under `'off'` (entry skipped entirely — nothing to
+   * leak). The staged write itself is unaffected — redaction of the
+   * committed payload is handled by the transaction buffer's
+   * `redactedPaths`.
+   */
+  private trackWrite(userKey: string, value: unknown, shouldRedact: boolean, operation: 'set' | 'update' | 'delete') {
+    if (this.writeTracking === 'off') return;
+    this._stageWrites[userKey] = {
+      value: shouldRedact
+        ? '[REDACTED]'
+        : this.writeTracking === 'summary'
+        ? summarizeWriteValue(value)
+        : structuredClone(value),
+      operation,
+    };
   }
 
   /**
@@ -240,12 +295,10 @@ export class StageContext {
     operationOverride?: 'set' | 'delete',
   ) {
     this.patch(path, key, value, shouldRedact ?? false);
-    // Track user-level write (pre-namespace) for memory view + onCommit
+    // Track user-level write (pre-namespace) for memory view + onCommit —
+    // policy-gated (#13c-A), see trackWrite.
     const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this._stageWrites[userKey] = {
-      value: shouldRedact ? '[REDACTED]' : structuredClone(value),
-      operation: operationOverride ?? 'set',
-    };
+    this.trackWrite(userKey, value, shouldRedact ?? false, operationOverride ?? 'set');
     if (description) {
       const tagged = description.startsWith('[') ? description : `[WRITE] ${description}`;
       this.debug.addLog('message', tagged);
@@ -254,12 +307,10 @@ export class StageContext {
 
   updateObject(path: string[], key: string, value: unknown, description?: string, shouldRedact?: boolean) {
     this.merge(path, key, value);
-    // Track user-level write (pre-namespace) for memory view + onCommit
+    // Track user-level write (pre-namespace) for memory view + onCommit —
+    // policy-gated (#13c-A), see trackWrite.
     const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this._stageWrites[userKey] = {
-      value: shouldRedact ? '[REDACTED]' : structuredClone(value),
-      operation: 'update',
-    };
+    this.trackWrite(userKey, value, shouldRedact ?? false, 'update');
     if (description) {
       this.debug.addLog('message', description);
     }
@@ -485,6 +536,7 @@ export class StageContext {
       // in the run writes to both views.
       if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
       this.next.readTracking = this.readTracking;
+      this.next.writeTracking = this.writeTracking;
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -504,6 +556,7 @@ export class StageContext {
     child.parent = this;
     if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
     child.readTracking = this.readTracking;
+    child.writeTracking = this.writeTracking;
     this.children.push(child);
     return child;
   }

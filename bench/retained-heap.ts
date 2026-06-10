@@ -34,7 +34,7 @@
  * growing ~1KB-per-iteration history key, no LLM layer.
  */
 
-import type { FlowChart } from '../src/index';
+import type { FlowChart, WriteTrackingMode } from '../src/index';
 import { flowChart, FlowChartExecutor } from '../src/index';
 import {
   type BenchResult,
@@ -118,12 +118,21 @@ export interface RetainedHeapResult {
   retainedAfterDropBytes: number;
 }
 
-/** Run the probe at `iterations`; returns gc-stable retained-heap deltas. */
-export async function probeRetainedHeap(iterations: number): Promise<RetainedHeapResult> {
+/** Run the probe at `iterations`; returns gc-stable retained-heap deltas.
+ *  `options.writeTracking` exercises the #13c-A retention dial — the growing
+ *  history key makes `_stageWrites` clones the dominant per-iteration
+ *  tracking cost, so 'summary'/'off' isolate that share. */
+export async function probeRetainedHeap(
+  iterations: number,
+  options?: { writeTracking?: WriteTrackingMode },
+): Promise<RetainedHeapResult> {
   const chart = buildHistoryLoopChart(iterations);
   const baseline = heapAfterGc();
 
-  let executor: FlowChartExecutor | undefined = new FlowChartExecutor(chart);
+  let executor: FlowChartExecutor | undefined = new FlowChartExecutor(
+    chart,
+    options?.writeTracking !== undefined ? { writeTracking: options.writeTracking } : undefined,
+  );
   await executor.run({ maxIterations: iterations + 1 });
 
   const withExecutor = heapAfterGc();
@@ -148,6 +157,11 @@ async function main() {
   printHeader('FootPrint Retained-Heap Probe (backlog #13b / #18 replication)');
 
   const r = await probeRetainedHeap(ITERATIONS);
+  // #13c-A retention-dial variants — same chart, only the writeTracking
+  // policy differs. The delta vs the default row is the _stageWrites share
+  // (the growing history key makes it the dominant tracking clone).
+  const rSummary = await probeRetainedHeap(ITERATIONS, { writeTracking: 'summary' });
+  const rOff = await probeRetainedHeap(ITERATIONS, { writeTracking: 'off' });
 
   const rows: BenchResult[] = [
     {
@@ -169,6 +183,20 @@ async function main() {
       value: formatBytes(Math.round(r.retainedWithExecutorBytes / r.iterations)),
       detail: 'commit log + narrative + stageWrites tracking remain; state generations/buffers must NOT (#13b)',
       num: Math.round(r.retainedWithExecutorBytes / r.iterations),
+      unit: 'bytes',
+    },
+    {
+      name: `Retained heap, writeTracking 'summary' (N=${formatNum(rSummary.iterations)})`,
+      value: formatBytes(rSummary.retainedWithExecutorBytes),
+      detail: '#13c-A dial: stageWrites retained as markers — delta vs default row = the _stageWrites clone share',
+      num: rSummary.retainedWithExecutorBytes,
+      unit: 'bytes',
+    },
+    {
+      name: `Retained heap, writeTracking 'off' (N=${formatNum(rOff.iterations)})`,
+      value: formatBytes(rOff.retainedWithExecutorBytes),
+      detail: '#13c-A dial: no stageWrites retention — commit log + narrative remain (#13c-B)',
+      num: rOff.retainedWithExecutorBytes,
       unit: 'bytes',
     },
   ];
