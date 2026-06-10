@@ -114,6 +114,10 @@ const child = ctx.createChild('run-1', 'branch-1', 'parallelTask');
 
 **Key design decision:** TransactionBuffer is lazily created — you only pay the `structuredClone` cost if the stage actually writes. Many stages are read-only; lazy instantiation saves real time.
 
+**Read values are borrowed — do not mutate them.** Since the lazy buffer (#13), a read before the stage's first write returns a reference INTO COMMITTED SHARED STATE (the zero-clone first-touch view); a read after a write returns a reference into the buffer's working copy. Mutating a returned value in place corrupts state without a commit record — write changes back through `setObject`/`updateObject` (or, at the scope tier, `setValue`/`updateValue`). TypedScope consumers are safe automatically (the proxy routes every mutation through tracked writes). There is deliberately no dev-mode deep-freeze guard: freezing a buffer-served read would freeze the stage's own working copy (a later deep write into the same key throws), and freezing a committed-state read mutates an object shared with every other consumer of the live state — neither is a safe guard, so the contract is documented instead.
+
+**Read-tracking policy (#14):** the per-read `structuredClone` into the snapshot's `stageReads` view is policy-gated via `ReadTrackingMode` — `'full'` (default, historical behavior), `'summary'` (cheap type/size/preview marker per read), `'off'` (no `stageReads`, zero per-read cost). Set per executor: `new FlowChartExecutor(chart, { readTracking: 'off' })` or `executor.setReadTracking('off')`. Only the snapshot payload changes — `onRead` events (and therefore narrative) pass the live reference and are identical in every mode.
+
 ---
 
 ### 5. DiagnosticCollector — "The Flight ScopeRecorder"

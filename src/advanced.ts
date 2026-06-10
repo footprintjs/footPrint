@@ -29,6 +29,8 @@ export type {
   FlowControlType,
   FlowMessage,
   MemoryPatch,
+  ReadSummaryMarker,
+  ReadTrackingMode,
   StageSnapshot,
   TraceEntry,
 } from './lib/memory/index.js';

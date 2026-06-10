@@ -51,6 +51,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assertions (instrumented `structuredClone`) fail against the eager-buffer
   implementation; semantics-parity assertions pass against both.
 
+### Added — read-tracking policy: the per-tracked-read value clone is now opt-out (backlog #14)
+
+- **`ReadTrackingMode = 'full' | 'summary' | 'off'`** gates the LAST
+  per-operation full-value clone on the read path — the `structuredClone`
+  of every tracked read's value into `StageSnapshot.stageReads`
+  (`StageContext.getValue`). Set per executor:
+  `new FlowChartExecutor(chart, { readTracking: 'off' })` or
+  `executor.setReadTracking(mode)` before `run()`.
+  - `'full'` (DEFAULT) — today's behavior, byte-identical. Snapshot
+    consumers (lens, agentfootprint) see exactly the same `stageReads`
+    payload as before; nothing changes unless you opt in.
+  - `'off'` — no `stageReads` tracking at all: zero per-read cost, the
+    field is absent from stage snapshots. For production agents, where
+    reads dominate the loop.
+  - `'summary'` — each read records a cheap `ReadSummaryMarker`
+    (`{ __readSummary: true, type, size?, preview? }`) instead of the
+    cloned value. Honest cost: `size` is a PROXY (string length / array
+    length / object key count — `Object.keys` is O(key count), not free on
+    huge objects but strictly cheaper than the clone), and `preview`
+    (≤80 chars) exists only for primitives/strings — real byte sizes would
+    require the O(value) serialization the mode exists to avoid.
+- **Scope of the policy — snapshot payload ONLY.** `ScopeRecorder.onRead`
+  events pass the live reference and never cloned (verified by
+  measurement: 50 reads of a 1MB value with a recorder attached run in
+  0.29ms under 'off', every event carrying the SAME reference), so
+  narrative output and all recorder channels are byte-identical in every
+  mode. `stageWrites`, the commit log, and read-your-writes are untouched.
+- **Plumbing:** executor option / `setReadTracking` →
+  `ExecutionRuntime.useReadTracking()` → root `StageContext`; descendants
+  inherit via `createNext`/`createChild` (fork children included), and
+  `SubflowExecutor` pushes the parent-mount context's mode into each
+  isolated subflow runtime — nested charts inherit per mount hop.
+- **Borrowed-reads contract documented (carried from #13's review):** reads
+  at the `StageContext`/`ScopeFacade` tier return BORROWED references —
+  into committed state before the stage's first write, into the buffer's
+  working copy after. Do not mutate them; TypedScope consumers are safe
+  (the proxy routes mutations through tracked writes). Documented on
+  `ScopeFacade.getValue` and in `src/lib/memory/README.md`. Deliberately NO
+  dev-mode deep-freeze guard: freezing a buffer-served read freezes the
+  stage's own working copy (a later legitimate deep write into the same key
+  would throw), and freezing a committed-state read mutates an object
+  shared with every live-state consumer — no cheap guard is safe, so the
+  contract is documentation-only.
+- **Measured (Apple M2, `bench/BASELINE.md` §A):** 50 tracked reads of a
+  1MB value — default 130.15ms (unchanged, within noise of 129.65ms);
+  `'off'` **7µs**; `'summary'` 30.34ms (no clone; remaining cost is the
+  key-count proxy on the bench's ~9.5k-key object).
+- Guarded by `test/lib/memory/scenario/read-tracking.test.ts` — default
+  parity (including a negative control asserting the clone DOES fire under
+  'full'), zero-clone counters for 'off'/'summary', narrative byte-equality,
+  subflow/fork plumbing, and policy-independent read-your-writes.
+
 ## [9.0.0]
 
 ### BREAKING — trampolined next/loop continuations: the depth ceiling on chains and loops is gone (backlog #15)

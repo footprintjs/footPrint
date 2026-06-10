@@ -415,6 +415,29 @@ export class ScopeFacade {
     return this._stageContext.getGlobal?.(key);
   }
 
+  /**
+   * Tracked read of shared state.
+   *
+   * **Read values are BORROWED — do not mutate them.** Since the lazy buffer
+   * (#13), reads before the stage's first write return references INTO
+   * COMMITTED SHARED STATE, and reads after a write return references into
+   * the stage's private transaction-buffer working copy (the eager engine
+   * returned references into that working copy for ALL reads). Mutating a
+   * returned value in place would corrupt state without a commit record —
+   * write changes back via `setValue`/`updateValue` instead. TypedScope
+   * consumers are safe automatically: the proxy routes every mutation
+   * through `setValue`/`updateValue`/copy-on-write array ops.
+   *
+   * There is deliberately NO dev-mode freeze guard here: deep-freezing a
+   * buffer-served read would freeze the stage's own working copy and make a
+   * legitimate read-then-deep-write throw, and freezing a committed-state
+   * read mutates an object shared with every other consumer of the live
+   * state. See `src/lib/memory/README.md` ("Read values are borrowed").
+   *
+   * Recorder note: the `onRead` event below passes the SAME live reference
+   * (no clone) unless field-level redaction scrubs a copy — recorders must
+   * treat event values as read-only too.
+   */
   getValue(key?: string) {
     const value = this._stageContext.getValue([], key);
 

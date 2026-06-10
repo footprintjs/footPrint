@@ -13,7 +13,7 @@
 import { EventLog } from '../memory/EventLog.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ReadTrackingMode, StageSnapshot } from '../memory/types.js';
 
 /** Snapshot of a single recorder's collected data. */
 export interface RecorderSnapshot {
@@ -84,6 +84,18 @@ export class ExecutionRuntime {
       this._initialState,
     );
     this.rootStageContext.useRedactedMirror(this.redactedStore);
+  }
+
+  /**
+   * Set the read-tracking policy (#14) on the root stage context. Descendant
+   * contexts inherit via `createNext`/`createChild`; subflow root contexts
+   * inherit from their parent-mount context via `SubflowExecutor`. Called by
+   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
+   * the default `'full'` — including the resume path, where it is applied to
+   * the freshly-created continuation root.
+   */
+  useReadTracking(mode: ReadTrackingMode): void {
+    this.rootStageContext.useReadTracking(mode);
   }
 
   /** Preserve the current rootStageContext for snapshots before changing it for resume. */

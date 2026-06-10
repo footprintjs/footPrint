@@ -84,7 +84,7 @@ State safety is bought with structured clones. Current costs per stage:
 |---|---|
 | Stage's first **write** | Constructs the transaction buffer: **two `structuredClone`s of the entire shared state** |
 | Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
-| Each tracked read (`getValue`) | One `structuredClone` of the value (for the read-tracking view) |
+| Each tracked read (`getValue`) | Policy-gated (#14): one `structuredClone` of the value under the DEFAULT `readTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
 | Each net-changing write | ~3 value clones (patch, write-tracking, commit diff) |
 | TypedScope object/array write | + one JSON round-trip to unwrap the proxy |
 | `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
@@ -93,8 +93,21 @@ State safety is bought with structured clones. Current costs per stage:
 Rules of thumb: keep shared-state values modest (the buffer clones the *whole*
 state on a stage's first write, so one huge key taxes every **writing** stage —
 read-only stages are free); prefer `getValueDirect` for read-hot inner loops;
-batch array writes with `$batchArray`. The read-tracking clone opt-in (backlog
-Phase 3, #14) is planned and will revise the tracked-read row.
+batch array writes with `$batchArray`. For read-dominated production workloads
+(agent loops), turn the per-read snapshot clone off wholesale:
+`new FlowChartExecutor(chart, { readTracking: 'off' })` (or
+`executor.setReadTracking('off')` before `run()`). The policy changes ONLY the
+snapshot's `stageReads` payload — `onRead` events pass the live reference (never
+cloned), so narrative and recorder output are identical in every mode. Measured:
+50 tracked reads of a 1MB value drop from ~130ms (`'full'`) to **7µs** (`'off'`)
+— `bench/BASELINE.md` §A.
+
+One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
+**read values are borrowed — do not mutate them.** Pre-write reads return
+references into committed shared state; post-write reads return references into
+the stage's transaction buffer. Write changes back via `setValue`/`updateValue`.
+TypedScope consumers are safe automatically (the proxy routes every mutation
+through tracked writes). See `src/lib/memory/README.md`.
 
 
 **Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —

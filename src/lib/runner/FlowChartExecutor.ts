@@ -39,7 +39,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import type { StageSnapshot } from '../memory/types.js';
+import type { ReadTrackingMode, StageSnapshot } from '../memory/types.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -99,6 +99,19 @@ export interface FlowChartExecutorOptions<TScope = any> {
   initialContext?: unknown;
   /** Read-only input accessible via `scope.getArgs()` — never tracked or written. */
   readOnlyContext?: unknown;
+
+  // ── Observability cost options ────────────────────────────────────────────
+
+  /**
+   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
+   * tracked read `structuredClone`s the value into the stage's read view
+   * (the historical behavior; what lens/agentfootprint snapshots show).
+   * `'summary'` records a cheap type/size/preview marker per read; `'off'`
+   * records nothing — zero per-read clone cost (reads of large values become
+   * ~free). Narrative and `ScopeRecorder.onRead` are identical in every mode.
+   * Equivalent to calling `executor.setReadTracking(mode)` before `run()`.
+   */
+  readTracking?: ReadTrackingMode;
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -170,6 +183,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     throttlingErrorChecker?: (error: unknown) => boolean;
     streamHandlers?: StreamHandlers;
     scopeProtectionMode?: ScopeProtectionMode;
+    readTracking?: ReadTrackingMode;
   };
 
   /**
@@ -200,6 +214,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let throttlingErrorChecker: ((error: unknown) => boolean) | undefined;
     let streamHandlers: StreamHandlers | undefined;
     let scopeProtectionMode: ScopeProtectionMode | undefined;
+    let readTracking: ReadTrackingMode | undefined;
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
@@ -214,6 +229,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker = opts.throttlingErrorChecker;
       streamHandlers = opts.streamHandlers;
       scopeProtectionMode = opts.scopeProtectionMode;
+      readTracking = opts.readTracking;
     }
     this.flowChartArgs = {
       flowChart,
@@ -224,6 +240,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker,
       streamHandlers,
       scopeProtectionMode,
+      readTracking,
     };
     this.traverser = this.createTraverser();
   }
@@ -357,6 +374,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       runtime.enableRedactedMirror();
     }
 
+    // Read-tracking policy (#14): set on the runtime's root context so every
+    // descendant context (createNext/createChild) and subflow root inherits.
+    // Applied AFTER the resume-path root swap above so the continuation root
+    // carries the policy too. Skipped for the default 'full' — zero work.
+    const readTracking = args.readTracking;
+    if (readTracking !== undefined && readTracking !== 'full') {
+      runtime.useReadTracking(readTracking);
+    }
+
     return new FlowchartTraverser<TOut, TScope>({
       root: effectiveRoot,
       stageMap: fc.stageMap,
@@ -395,6 +421,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   setRedactionPolicy(policy: RedactionPolicy): void {
     this.redactionPolicy = policy;
+  }
+
+  /**
+   * Set the read-tracking policy for `StageSnapshot.stageReads` (#14).
+   * Must be called before run(). Equivalent to the `readTracking`
+   * constructor option — see {@link FlowChartExecutorOptions.readTracking}
+   * for the mode semantics ('full' default / 'summary' / 'off').
+   */
+  setReadTracking(mode: ReadTrackingMode): void {
+    this.flowChartArgs.readTracking = mode;
   }
 
   /**

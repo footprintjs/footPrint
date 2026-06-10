@@ -55,6 +55,52 @@ export interface FlowMessage {
   timestamp?: number;
 }
 
+// ── Read Tracking (#14) ────────────────────────────────────────────────────
+
+/**
+ * Policy for how tracked reads are recorded into `StageSnapshot.stageReads`.
+ *
+ * - `'full'` (default) — every tracked read `structuredClone`s the value into
+ *   the stage's read view. Byte-identical to the historical behavior; this is
+ *   what snapshot consumers (lens, agentfootprint) see today.
+ * - `'summary'` — reads record a cheap {@link ReadSummaryMarker} (type + size
+ *   proxy + short preview) instead of the cloned value. O(1)-ish per read —
+ *   no value clone, no serialization of large objects.
+ * - `'off'` — reads are not recorded at all; `stageReads` is absent from the
+ *   snapshot. Zero per-read cost. Values are still readable, and the
+ *   `ScopeRecorder.onRead` event still fires (it passes the live reference and
+ *   never cloned) — so narrative output is identical in every mode. The policy
+ *   scopes ONLY the snapshot's `stageReads` payload.
+ *
+ * Set via `new FlowChartExecutor(chart, { readTracking })` or
+ * `executor.setReadTracking(mode)` (before `run()`).
+ */
+export type ReadTrackingMode = 'full' | 'summary' | 'off';
+
+/**
+ * Marker recorded in `StageSnapshot.stageReads` under `readTracking: 'summary'`.
+ *
+ * Honest cost note: `size` is a cheap proxy (string length / array length /
+ * object key count), NOT a serialized byte count — computing real byte size
+ * would require an O(value) serialization, which is exactly the cost the
+ * summary mode removes. `preview` is only produced for primitives and strings
+ * (first {@link READ_PREVIEW_LENGTH} characters); objects and arrays carry no
+ * preview for the same reason.
+ */
+export interface ReadSummaryMarker {
+  /** Discriminant — lets snapshot consumers detect marker entries. */
+  __readSummary: true;
+  /** `typeof` result, refined to 'array' / 'null' for objects. */
+  type: 'string' | 'number' | 'boolean' | 'bigint' | 'symbol' | 'function' | 'object' | 'array' | 'null';
+  /** Size proxy: string length, array length, or object key count. */
+  size?: number;
+  /** First {@link READ_PREVIEW_LENGTH} chars — primitives and strings only. */
+  preview?: string;
+}
+
+/** Max characters captured in {@link ReadSummaryMarker.preview}. */
+export const READ_PREVIEW_LENGTH = 80;
+
 // ── Stage Snapshot ─────────────────────────────────────────────────────────
 
 /** Serialisable representation of a stage's state (for debugging / visualisation). */
@@ -71,7 +117,10 @@ export type StageSnapshot = {
   isFork?: boolean;
   /** User-level writes made by this stage (pre-namespace keys → values). */
   stageWrites?: Record<string, unknown>;
-  /** User-level reads made by this stage (pre-namespace keys → values at read time). */
+  /** User-level reads made by this stage (pre-namespace keys → values at read
+   *  time). Shape depends on {@link ReadTrackingMode}: cloned values under
+   *  `'full'` (default), {@link ReadSummaryMarker}s under `'summary'`, absent
+   *  under `'off'`. */
   stageReads?: Record<string, unknown>;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;

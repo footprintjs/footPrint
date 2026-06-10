@@ -19,10 +19,13 @@ export type {
   FlowControlType,
   FlowMessage,
   MemoryPatch,
+  ReadSummaryMarker,
+  ReadTrackingMode,
   ScopeFactory,
   StageSnapshot,
   TraceEntry,
 } from './types.js';
+export { READ_PREVIEW_LENGTH } from './types.js';
 
 // Utilities
 export {

@@ -13,8 +13,35 @@ import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
-import type { FlowControlType, FlowMessage, StageSnapshot } from './types.js';
+import type { FlowControlType, FlowMessage, ReadSummaryMarker, ReadTrackingMode, StageSnapshot } from './types.js';
+import { READ_PREVIEW_LENGTH } from './types.js';
 import { redactPatch } from './utils.js';
+
+/**
+ * Cheap summary of a read value for `readTracking: 'summary'` (#14).
+ *
+ * Deliberately avoids every O(value) operation: no clone, no serialization.
+ * `size` is a proxy (string length / array length / shallow key count) and
+ * `preview` exists only where producing it is O(preview) — primitives and
+ * strings. See {@link ReadSummaryMarker} for the honest-cost contract.
+ */
+function summarizeReadValue(value: unknown): ReadSummaryMarker {
+  if (value === null) return { __readSummary: true, type: 'null' };
+  if (typeof value === 'string') {
+    return { __readSummary: true, type: 'string', size: value.length, preview: value.slice(0, READ_PREVIEW_LENGTH) };
+  }
+  if (Array.isArray(value)) return { __readSummary: true, type: 'array', size: value.length };
+  if (typeof value === 'object') {
+    return { __readSummary: true, type: 'object', size: Object.keys(value as Record<string, unknown>).length };
+  }
+  if (typeof value === 'function') return { __readSummary: true, type: 'function' };
+  // number | boolean | bigint | symbol — String() is O(rendered length)
+  return {
+    __readSummary: true,
+    type: typeof value as ReadSummaryMarker['type'],
+    preview: String(value).slice(0, READ_PREVIEW_LENGTH),
+  };
+}
 
 export class StageContext {
   private sharedMemory: SharedMemory;
@@ -67,6 +94,18 @@ export class StageContext {
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
 
+  /**
+   * How tracked reads are recorded into `_stageReads` (#14). Default `'full'`
+   * preserves the historical per-read `structuredClone`. Inherited by every
+   * context created via {@link createNext} / {@link createChild} (same
+   * propagation pattern as the redacted mirror), and pushed into subflow
+   * root contexts by `SubflowExecutor`. Affects ONLY the snapshot's
+   * `stageReads` payload — `ScopeRecorder.onRead` (and therefore narrative)
+   * is dispatched at the scope tier and never cloned, so it is identical in
+   * every mode.
+   */
+  private readTracking: ReadTrackingMode = 'full';
+
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
     mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
@@ -111,6 +150,22 @@ export class StageContext {
   /** Returns the redacted mirror if installed, else undefined. */
   getRedactedSharedMemory(): SharedMemory | undefined {
     return this.redactedSharedMemory;
+  }
+
+  /**
+   * Set the read-tracking policy for this context (#14). Called at the root
+   * by `ExecutionRuntime.useReadTracking()` (plumbed from
+   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
+   * and `SubflowExecutor` pushes the parent context's mode into each subflow
+   * root so nested charts inherit too.
+   */
+  useReadTracking(mode: ReadTrackingMode): void {
+    this.readTracking = mode;
+  }
+
+  /** Returns the active read-tracking policy (used for subflow propagation). */
+  getReadTracking(): ReadTrackingMode {
+    return this.readTracking;
   }
 
   /**
@@ -287,12 +342,23 @@ export class StageContext {
     return this.sharedMemory.getValue(this.runId, path, key);
   }
 
+  /**
+   * Tracked read. The returned value is BORROWED — see the contract on
+   * `ScopeFacade.getValue`. Read-tracking cost is policy-gated (#14):
+   * `'full'` clones the value into `_stageReads` (historical default),
+   * `'summary'` records a cheap marker, `'off'` records nothing.
+   */
   getValue(path: string[], key?: string, description?: string) {
     const value = this.readState(path, key);
     // Track user-level read (pre-namespace) for memory view
-    if (key !== undefined) {
+    if (key !== undefined && this.readTracking !== 'off') {
       const userKey = path.length > 0 ? [...path, key].join('.') : key;
-      this._stageReads[userKey] = value !== undefined ? structuredClone(value) : undefined;
+      this._stageReads[userKey] =
+        value === undefined
+          ? undefined
+          : this.readTracking === 'summary'
+          ? summarizeReadValue(value)
+          : structuredClone(value);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
@@ -396,6 +462,7 @@ export class StageContext {
       // Propagate the redacted mirror down the context tree so every commit
       // in the run writes to both views.
       if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
+      this.next.readTracking = this.readTracking;
     }
     return this.next;
   }
@@ -407,6 +474,7 @@ export class StageContext {
     const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
     child.parent = this;
     if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
+    child.readTracking = this.readTracking;
     this.children.push(child);
     return child;
   }

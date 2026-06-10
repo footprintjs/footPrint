@@ -139,6 +139,20 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRuntime.rootStageContext = nestedRootContext;
     }
 
+    // Read-tracking policy (#14): subflows get an ISOLATED runtime, so the
+    // executor-level policy doesn't reach them via the root context chain.
+    // Inherit it from the parent-mount context (which inherited it from ITS
+    // root via createNext/createChild) — applied to the FINAL nested root,
+    // after the seeding block above may have replaced it. Nested subflows
+    // chain the same way, one hop per mount. Optional-chained because this
+    // section is duck-typed by design (dynamic construction to avoid the
+    // circular import) — and skipped at the default 'full', where the fresh
+    // nested context is already correct, so the default path does zero work.
+    const parentReadTracking = parentContext.getReadTracking?.();
+    if (parentReadTracking !== undefined && parentReadTracking !== 'full') {
+      nestedRootContext.useReadTracking(parentReadTracking);
+    }
+
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
     //
     // PRESERVE `next`. Earlier revisions stripped `next` whenever the

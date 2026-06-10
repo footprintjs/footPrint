@@ -24,6 +24,18 @@ and diff against this file in those PRs.
 > depth-probe long run improved 508ms → 468ms (51µs → 47µs/iter) because its
 > loop body includes non-writing stages.
 
+> **#14 SHIPPED:** the per-tracked-read VALUE clone (`_stageReads`) is now
+> policy-gated — `readTracking: 'full' | 'summary' | 'off'` on the executor
+> (default `'full'`, byte-identical). Section A gained two variant rows for the
+> 1MB-value reads: **'off' → 7µs** (was 130.15ms — zero per-read work),
+> **'summary' → 30.34ms** (no value clone; the remaining cost is `Object.keys`
+> on the bench's ~9.5k-key object — the size proxy is O(key count), still ~4×
+> cheaper than the clone; on typical small objects it is µs). The default row
+> is unchanged (130.15ms vs 129.65ms — run-to-run noise). Side measurement:
+> `onRead` recorder events never cloned — 50×1MB reads with a recorder attached
+> under 'off' run in 0.29ms and all events carry the SAME reference, so
+> narrative/recorder output is identical in every mode.
+
 How these were produced:
 
 ```bash
@@ -41,17 +53,19 @@ measured rounds. Expect a few percent run-to-run jitter; the structural ratios
 
 ## A. Read-heavy stage over ~1MB shared state (`bench:baseline`)
 
-### POST-#13 (lazy buffer — 2026-06-10, current)
+### POST-#13 + #14 (lazy buffer + read-tracking policy — 2026-06-10, current)
 
 | Benchmark | Median | Detail |
 |---|---|---|
-| First tracked read (1MB state) | **3µs** | was 4.97ms — reads never construct the buffer |
-| 2,000 small tracked reads | 1.09ms | 1,842,752 ops/s |
-| 50 tracked reads of 1MB value | 129.65ms | unchanged (within noise) — the per-read VALUE clone is #14's cost, untouched by design |
-| Run: seed(1MB) + 1-small-read stage | 14.61ms | was 21.66ms — the read-only stage clones nothing; the seed stage still pays its own write freight |
-| Run: seed(1MB) + touch-nothing stage | 14.86ms | was 21.44ms — empty commit records the bundle with zero clones |
-| Δ one-read vs no-touch | ≈0 (-247µs) | both stage kinds are now genuinely free |
-| Per no-touch stage over 1MB state | **40µs** | was 10.19ms — regression guard: must stay µs (40–131µs across runs, jitter) |
+| First tracked read (1MB state) | **3µs** | was 4.97ms — reads never construct the buffer (#13) |
+| 2,000 small tracked reads | 1.24ms | 1,613,066 ops/s |
+| 50 tracked reads of 1MB value | 130.15ms | default `readTracking: 'full'` — unchanged (129.65ms pre-#14, within noise); the per-read VALUE clone is the DEFAULT's cost by design |
+| … same, `readTracking: 'summary'` | 30.34ms | per-read marker, no value clone (#14); remaining cost = `Object.keys` proxy on the ~9.5k-key bench object |
+| … same, `readTracking: 'off'` | **7µs** | no stageReads tracking, zero per-read clone (#14) |
+| Run: seed(1MB) + 1-small-read stage | 14.59ms | was 21.66ms — the read-only stage clones nothing; the seed stage still pays its own write freight |
+| Run: seed(1MB) + touch-nothing stage | 15.30ms | was 21.44ms — empty commit records the bundle with zero clones |
+| Δ one-read vs no-touch | ≈0 (-710µs) | both stage kinds are now genuinely free |
+| Per no-touch stage over 1MB state | **≈0 (-160µs)** | was 10.19ms — regression guard: must stay µs (sub-noise across runs) |
 
 **Finding 1 — RESOLVED by #13:** the per-stage freight was never read-specific —
 `commit()` constructed the buffer unconditionally after EVERY stage. #13 moved

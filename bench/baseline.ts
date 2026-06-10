@@ -15,8 +15,10 @@
  *      structuredClones of the ENTIRE shared state — see bench/BASELINE.md
  *      history.
  *    - N small tracked reads → per-read overhead (each read structuredClones
- *      the value into _stageReads, StageContext.getValue — backlog #14)
- *    - N reads of the 1MB value itself → value-clone-dominated reads (#14)
+ *      the value into _stageReads, StageContext.getValue — policy-gated by #14)
+ *    - N reads of the 1MB value itself → value-clone-dominated reads under the
+ *      DEFAULT readTracking: 'full'; the 'summary'/'off' variant rows show the
+ *      #14 policy removing the per-read value clone
  *    - read-only vs touch-nothing vs stage-count scaling → both deltas must
  *      stay ≈0 POST-#13 because read-only AND no-touch stages clone nothing:
  *      `StageContext.commit()` records an empty bundle without constructing
@@ -38,8 +40,8 @@
  * for. They route to the same tracked ScopeFacade.getValue/setValue paths.
  */
 
+import type { FlowChart, ReadTrackingMode } from '../src/index';
 import { flowChart, FlowChartExecutor } from '../src/index';
-import type { FlowChart } from '../src/index';
 import {
   type BenchResult,
   formatBytes,
@@ -103,35 +105,55 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     )
     .build();
 
-  const firstArr: number[] = [];
-  const smallArr: number[] = [];
-  const docArr: number[] = [];
+  // Same chart, parameterized by the executor's read-tracking policy (#14):
+  // 'full' (default) pays the per-read _stageReads value clone; 'summary'
+  // records a cheap marker; 'off' records nothing.
+  const runRounds = async (readTracking?: ReadTrackingMode) => {
+    const firstArr: number[] = [];
+    const smallArr: number[] = [];
+    const docArr: number[] = [];
+    const options = readTracking ? { readTracking } : undefined;
+    // Warmup
+    await new FlowChartExecutor(chart, options).run();
+    for (let r = 0; r < ROUNDS; r++) {
+      await new FlowChartExecutor(chart, options).run();
+      firstArr.push(firstReadMs);
+      smallArr.push(smallReadsMs);
+      docArr.push(docReadsMs);
+    }
+    return { first: median(firstArr), small: median(smallArr), doc: median(docArr) };
+  };
 
-  // Warmup
-  await new FlowChartExecutor(chart).run();
-  for (let r = 0; r < ROUNDS; r++) {
-    await new FlowChartExecutor(chart).run();
-    firstArr.push(firstReadMs);
-    smallArr.push(smallReadsMs);
-    docArr.push(docReadsMs);
-  }
+  const full = await runRounds();
+  const summary = await runRounds('summary');
+  const off = await runRounds('off');
 
   results.push({
     name: 'First tracked read (1MB state)',
-    value: formatMs(median(firstArr)),
+    value: formatMs(full.first),
     detail: 'post-#13: reads never construct the buffer (was 2× full-state clone)',
   });
-  const smallMed = median(smallArr);
   results.push({
     name: `${formatNum(N_SMALL_READS)} small tracked reads`,
-    value: formatMs(smallMed),
-    detail: `${formatNum(Math.round(N_SMALL_READS / (smallMed / 1000)))} ops/s`,
+    value: formatMs(full.small),
+    detail: `${formatNum(Math.round(N_SMALL_READS / (full.small / 1000)))} ops/s`,
   });
-  const docMed = median(docArr);
   results.push({
     name: `${formatNum(N_DOC_READS)} tracked reads of 1MB value`,
-    value: formatMs(docMed),
-    detail: `${formatNum(Math.round(N_DOC_READS / (docMed / 1000)))} ops/s (per-read value clone)`,
+    value: formatMs(full.doc),
+    detail: `${formatNum(
+      Math.round(N_DOC_READS / (full.doc / 1000)),
+    )} ops/s (per-read value clone — default readTracking: 'full')`,
+  });
+  results.push({
+    name: "… same, readTracking: 'summary'",
+    value: formatMs(summary.doc),
+    detail: 'per-read marker (type/size/preview), no value clone (#14)',
+  });
+  results.push({
+    name: "… same, readTracking: 'off'",
+    value: formatMs(off.doc),
+    detail: 'no stageReads tracking, zero per-read clone (#14)',
   });
 
   // Read-only-stage variant: identical seed, second stage does ONE small read
