@@ -40,7 +40,7 @@ Your LLM needs to explain why your code made a decision. Without structure, it r
 |---|---|---|
 | **LLM explains a decision** | Reconstruct from scattered logs | Read the causal trace directly |
 | **Tool descriptions for agents** | Write and maintain by hand | Auto-generated from the graph |
-| **State management** | Global/manual, race-prone | Transactional scope with atomic commits |
+| **State management** | Global/manual, race-prone | Transactional scope with per-stage staged commits |
 | **Debugging** | `console.log` + guesswork | Time-travel replay to any stage |
 
 ---
@@ -159,7 +159,7 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **TypedScope&lt;T&gt;** | Typed property access &mdash; `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)` |
 | **Auto Narrative** | Build-time descriptions for tool selection, runtime traces for explanation |
 | **7 Patterns** | Linear, parallel fork, conditional, multi-select, subflow, streaming, loops |
-| **Transactional State** | Atomic commits, safe merges, time-travel replay |
+| **Transactional State** | Per-stage staged commits, safe merges, time-travel replay |
 | **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
 | **Flow Recorders** | 8 narrative strategies for loop compression |
 | **Combined Recorders** | Single-hook observers that span data-flow + control-flow &mdash; `executor.attachCombinedRecorder(r)` |

@@ -1,6 +1,6 @@
 # Scope
 
-Each stage in a FootPrint pipeline receives a **scope** — a transactional interface to shared state. Writes are buffered and committed atomically after each stage completes. Recorders observe every operation without modifying behavior.
+Each stage in a FootPrint pipeline receives a **scope** — a transactional interface to shared state. Writes are buffered per stage and committed in one batch when the stage finishes (including when it throws — the staged writes are kept as audit evidence, not rolled back). Recorders observe every operation without modifying behavior.
 
 ---
 
@@ -92,11 +92,13 @@ Consumer defines scope (class, factory, or Zod schema)
      Stage function receives the protected scope
 ```
 
-Writes go through `TransactionBuffer` — staged, then committed atomically when the stage completes. This gives you:
+Writes go through `TransactionBuffer` — staged, then committed in one batch when the stage finishes. This gives you:
 
-- **Atomicity** — If a stage sets 5 values and crashes on the 4th, none are visible
+- **No mid-stage visibility** — Other stages and parallel siblings never see half-finished writes; everything lands in one commit
 - **Read-after-write** — Within a stage, you see your own uncommitted writes immediately
 - **Deterministic replay** — Every write recorded in an operation trace for time-travel
+
+It is **not rollback**: when a stage throws, the engine still commits everything the stage staged before re-throwing — deliberately, so the audit trail records what the failing stage changed. A staging buffer with read-your-writes, not atomicity.
 
 ---
 

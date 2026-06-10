@@ -44,15 +44,17 @@ mem.getValue('run-1', [], 'defaultTheme'); // 'light' (global fallback)
 
 ### 2. TransactionBuffer — "The Database Transaction"
 
-Stages write here instead of directly to SharedMemory. All writes are staged, then committed atomically.
+Stages write here instead of directly to SharedMemory. Writes are staged, then flushed to SharedMemory in **one batch per stage**. Despite the name, this is a **staging buffer with read-your-writes — not a rollback mechanism** (see below).
 
 **Why it connects to the main goal:** Every write is recorded in a chronological operation trace — which path was written, whether it was a `set` (overwrite) or `merge` (deep union). This trace *is* the causal record. Without it, you know the final state but not *how* you got there. The trace is what makes time-travel and deterministic replay possible — you can reconstruct the exact state at any point by replaying traces in order.
 
 **Why not write directly to SharedMemory?** Three reasons:
 
-1. **Atomicity** — If a stage sets 5 values and crashes on the 4th, you don't want the first 3 to be visible. All-or-nothing commits.
+1. **No mid-stage visibility** — Other stages (and parallel siblings) never see a stage's half-finished writes; everything lands in one commit when the stage finishes.
 2. **Read-after-write consistency** — Within a stage, you see your own uncommitted writes immediately. Set `name = 'Alice'`, read `name`, get `'Alice'` — even before commit.
 3. **Deterministic replay** — The operation trace enables exact state reconstruction at any commit point.
+
+**What it does NOT give you: rollback.** When a stage throws, the engine still **commits everything staged so far** before re-throwing (commit-on-error in `FlowchartTraverser`). That is deliberate — the audit trail must record what the failing stage changed; evidence beats all-or-nothing semantics here. Do not rely on "stage failed → its writes vanished".
 
 ```typescript
 const buffer = new TransactionBuffer(currentState);
@@ -60,7 +62,7 @@ buffer.set(['user', 'name'], 'Alice');     // staged, not applied
 buffer.merge(['user', 'tags'], ['admin']); // staged
 buffer.get(['user', 'name']);              // 'Alice' (read-after-write)
 
-const { overwrite, updates, trace } = buffer.commit(); // atomic flush
+const { overwrite, updates, trace } = buffer.commit(); // one-batch flush (net change)
 // trace = [{ path: 'user.name', verb: 'set' }, { path: 'user.tags', verb: 'merge' }]
 ```
 
@@ -94,7 +96,7 @@ log.materialise();   // final state
 
 Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and provides tree navigation.
 
-**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, three things happen atomically: (1) patches are applied to SharedMemory, (2) the commit is recorded to EventLog, and (3) the write trace is logged to diagnostics. This triple-write is what makes traces connected — the execution, the history, and the diagnostics all stay in sync without the stage author thinking about it.
+**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, three things happen together: (1) patches are applied to SharedMemory, (2) the commit is recorded to EventLog, and (3) the write trace is logged to diagnostics. This triple-write is what makes traces connected — the execution, the history, and the diagnostics all stay in sync without the stage author thinking about it.
 
 **Why does this exist? Why not hand stages a TransactionBuffer directly?** Because a stage needs more than read/write:
 
@@ -106,7 +108,7 @@ Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and pro
 const ctx = new StageContext('run-1', 'validate', sharedMemory, '', eventLog);
 ctx.setObject([], 'userName', 'Alice');   // staged
 ctx.getValue([], 'userName');             // 'Alice' (read-after-write)
-ctx.commit();                             // atomic: applies + records + logs
+ctx.commit();                             // one step: applies + records + logs
 
 const next = ctx.createNext('run-1', 'process');
 const child = ctx.createChild('run-1', 'branch-1', 'parallelTask');
@@ -196,7 +198,7 @@ Parent creates N children via createChild()
 | Namespace isolation via `runs/{id}/` prefix | Prevents collisions between concurrent runs | Parallel runs produce clean, separate traces |
 | Run-then-global fallback reads | Global defaults with per-run overrides | Traces show where a value came from (local vs. inherited) |
 | TransactionBuffer with operation trace | Records *how* state changed, not just *what* | Enables deterministic replay and time-travel |
-| Atomic commit (all-or-nothing) | Prevents partial state on failure | Every commit in the history is a complete, consistent snapshot |
+| One staged commit per stage (NOT rollback) | No mid-stage visibility; on a stage error the staged writes still commit — audit evidence over all-or-nothing | Every commit in the history is one stage's net change, including what a failing stage changed |
 | Diff-based EventLog (not full snapshots) | O(1) storage per commit | Can store complete history without blowing up memory |
 | Replay-based materialise | Reconstructs state at any point | Time-travel debugging: "what did the decider see at step 47?" |
 | DiagnosticCollector separate from state | Observational data can't corrupt execution | Stage narratives are always safe to capture — no side effects |

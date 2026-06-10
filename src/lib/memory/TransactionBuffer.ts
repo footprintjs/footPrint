@@ -1,11 +1,21 @@
 /**
- * TransactionBuffer — Transactional write buffer for stage mutations
+ * TransactionBuffer — Per-stage STAGING buffer for state mutations
  *
- * Collects writes during execution and commits them atomically.
- * Like a database transaction buffer:
- * - Changes staged here before being committed to SharedMemory
- * - Enables read-after-write consistency within a stage
- * - Records operation trace for deterministic replay
+ * What it IS: a staging buffer with read-your-writes and net-change commits.
+ * - Changes are staged here during stage execution and flushed to
+ *   SharedMemory in ONE batch per stage (`commit()`) — other stages and
+ *   parallel siblings never observe a stage's half-finished writes.
+ * - Read-after-write consistency within a stage — a stage sees its own
+ *   staged writes immediately.
+ * - `commit()` records the stage's NET change (see {@link commit}), plus an
+ *   operation trace for deterministic replay.
+ *
+ * What it is NOT: a rollback mechanism. Despite the name, there is no
+ * abort/rollback path — when a stage THROWS, the engine still commits
+ * everything staged so far before re-throwing (commit-on-error in
+ * `FlowchartTraverser`). That is deliberate: the audit trail must record
+ * what the failing stage changed. Do not rely on "stage failed → its
+ * writes vanished".
  */
 
 import { nativeGet as _get, nativeSet as _set } from './pathOps.js';

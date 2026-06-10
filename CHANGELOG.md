@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Docs: `TransactionBuffer` semantics named honestly — staging buffer with
+  read-your-writes + net-change commits, NOT rollback** (backlog B5). The
+  class JSDoc, `memory/README.md`, `docs/guides/scope.md` and the top-level
+  README no longer claim all-or-nothing/atomic commits: when a stage throws,
+  the engine deliberately COMMITS everything staged so far before re-throwing
+  (commit-on-error in `FlowchartTraverser`) so the audit trail records what
+  the failing stage changed. The real guarantee is no mid-stage visibility
+  (one batched commit per stage), not rollback.
+
 ## [9.1.0] - 2026-06-10
 
 ### Changed — truly lazy TransactionBuffer: the buffer is constructed on a stage's first WRITE, never on reads or commit (backlog #13)
