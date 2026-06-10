@@ -159,6 +159,12 @@ function evaluateRule<S extends object>(
  * treated as non-matching (`matched: false`) and the error message is captured in
  * `matchError` on that rule's `RuleEvidence` entry. Execution continues with
  * subsequent rules; errors do not propagate to the caller.
+ *
+ * **Empty-filter behavior (anti-vacuous-truth):** a filter rule whose `when` is
+ * `{}` (no evaluable conditions) NEVER matches. This deliberately inverts the
+ * Prisma/SQL `where: {}` intuition ("match everything") — a rule that asserts
+ * nothing must not win a branch on vacuous truth. Use `defaultBranch` for the
+ * catch-all instead. Unknown filter operators also never match (dev mode warns).
  */
 export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defaultBranch: string): DecisionResult {
   const attachFn = getAttachFn(scope);
@@ -203,6 +209,11 @@ export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defau
  * treated as non-matching (`matched: false`) and the error message is captured in
  * `matchError` on that rule's `RuleEvidence` entry. Evaluation continues with
  * remaining rules; errors do not propagate to the caller.
+ *
+ * **Empty-filter behavior (anti-vacuous-truth):** a filter rule whose `when` is
+ * `{}` (no evaluable conditions) NEVER matches — same rule as `decide()`; an
+ * always-selected branch must be expressed explicitly, not via an empty filter.
+ * Unknown filter operators also never match (dev mode warns).
  */
 export function select<S extends object>(scope: S, rules: DecideRule<S>[]): SelectionResult {
   const attachFn = getAttachFn(scope);

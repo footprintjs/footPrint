@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`decide()`/`select()`: dev-mode warning on unknown filter operators +
+  vacuous-truth docs** (backlog B5). An operator outside `eq, ne, gt, gte,
+  lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the
+  condition silently; with `enableDevMode()` it now warns, naming the
+  operator and key. The empty-filter rule (`when: {}` NEVER matches —
+  anti-vacuous-truth, deliberately inverting Prisma/SQL `where: {}`) is now
+  documented on `decide()`/`select()` JSDoc, `evaluateFilter`, and the
+  decide README. Matching behavior is unchanged.
+
 ### Changed
 
 - **Docs: `TransactionBuffer` semantics named honestly — staging buffer with

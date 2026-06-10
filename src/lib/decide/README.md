@@ -80,6 +80,14 @@ SelectorHandler check `Reflect.has(stageOutput, DECISION_RESULT)` before extract
 
 Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` = range check.
 
+> **Empty filter NEVER matches (anti-vacuous-truth).** `when: {}` returns
+> `matched: false` — this deliberately **inverts the Prisma/SQL `where: {}`
+> intuition** ("match everything"). In a decision rule, a rule that asserts
+> nothing must not win a branch on vacuous truth; the catch-all belongs in
+> `decide()`'s explicit `defaultBranch`. Unknown operators (e.g. a typo like
+> `gle`) also never match — with `enableDevMode()` a console warning names
+> the bad operator and key.
+
 ## Security
 
 - Prototype pollution denylist: `__proto__`, `constructor`, `prototype`, etc. silently fail the rule

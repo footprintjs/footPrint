@@ -3,8 +3,9 @@
  *
  * Covers: unit (all operators), boundary, security (prototype pollution, redaction), performance.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { disableDevMode, enableDevMode } from '../../../../src/index.js';
 import { evaluateFilter } from '../../../../src/lib/decide/evaluator';
 import type { WhereFilter } from '../../../../src/lib/decide/types';
 
@@ -209,6 +210,49 @@ describe('evaluator -- security: unknown operator', () => {
     expect(conditions).toHaveLength(1);
     expect(conditions[0].op).toBe('greaterThan');
     expect(conditions[0].result).toBe(false);
+  });
+
+  it('dev mode warns on unknown operator, naming the operator and key (B5)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    enableDevMode();
+    try {
+      evaluateFilter(makeGetter({ score: 750 }), noRedaction, { score: { greaterThan: 700 } } as any);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const message = warnSpy.mock.calls[0]?.[0] as string;
+      expect(message).toContain('unknown operator "greaterThan"');
+      expect(message).toContain('key "score"');
+      expect(message).toContain('eq, ne, gt, gte, lt, lte, in, notIn');
+    } finally {
+      disableDevMode();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('production (dev mode OFF) stays silent on unknown operator', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    disableDevMode();
+    try {
+      const { matched } = evaluateFilter(makeGetter({ score: 750 }), noRedaction, {
+        score: { greaterThan: 700 },
+      } as any);
+      expect(matched).toBe(false); // behavior unchanged — only the warn is gated
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('known operators never trigger the dev warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    enableDevMode();
+    try {
+      const { matched } = evaluateFilter(makeGetter({ score: 750 }), noRedaction, { score: { gt: 700 } });
+      expect(matched).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      disableDevMode();
+      warnSpy.mockRestore();
+    }
   });
 });
 
