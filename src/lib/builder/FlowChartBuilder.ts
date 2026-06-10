@@ -1012,13 +1012,27 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stepCounter++;
     this._stageStepMap.set(id, this._stepCounter);
     if (subflow.description) {
-      this._descriptionParts.push(`${this._stepCounter}. [Sub-Execution: ${name}] — ${subflow.description}`);
       const lines = subflow.description.split('\n');
       const stepsIdx = lines.findIndex((l) => l.startsWith('Steps:'));
       if (stepsIdx >= 0) {
+        // Builder-composed description (`FlowChart: X\nSteps:\n...`).
+        // Inline ONLY the summary above `Steps:` on the mount line, then
+        // re-list the step lines once, indented. Embedding the FULL inner
+        // description here AND re-listing its steps doubled the text per
+        // nesting level — exponential growth, RangeError ("Invalid string
+        // length") at ~22 nesting levels of nested build().
+        const summary = lines.slice(0, stepsIdx).join(' ').trim();
+        this._descriptionParts.push(
+          summary
+            ? `${this._stepCounter}. [Sub-Execution: ${name}] — ${summary}`
+            : `${this._stepCounter}. [Sub-Execution: ${name}]`,
+        );
         for (let i = stepsIdx + 1; i < lines.length; i++) {
           if (lines[i].trim()) this._descriptionParts.push(`   ${lines[i]}`);
         }
+      } else {
+        // Free-form (single-block) description — inline it whole, unchanged.
+        this._descriptionParts.push(`${this._stepCounter}. [Sub-Execution: ${name}] — ${subflow.description}`);
       }
     } else {
       this._descriptionParts.push(`${this._stepCounter}. [Sub-Execution: ${name}]`);

@@ -31,6 +31,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Design doc: `docs/design/rfc-001-deferred-observers.md` (accepted with
   amendments A1–A4; engine wiring is Blocks 6–10).
 
+### Fixed
+
+- **Nested-build description explosion** — `_appendSubflowDescription`
+  embedded the mounted subflow's FULL builder-composed description inline on
+  the `[Sub-Execution: …]` line AND re-listed its `Steps:` lines indented:
+  two copies of the inner text per wrap, so each nested `build()` ~doubled
+  the description. Exponential growth at BUILD time —
+  `RangeError: Invalid string length` at ~22 nesting levels (224 MB of
+  description at N=20), before anything ran. The mount line now inlines only
+  the summary above `Steps:` (the `FlowChart: X` header) and keeps the
+  single indented step re-list — 50 nesting levels build in <1 ms with a
+  ~13 KB description, and the composed text reads as a clean indented tree
+  (each inner step listed exactly once). Free-form (non-builder, no `Steps:`
+  section) subflow descriptions are still inlined whole, unchanged. Spec
+  ids/stageMap keys were never affected.
+  Regression suite: `test/lib/builder/unit/nested-build-description.test.ts`.
+
 ## [9.4.0] - 2026-06-10
 
 ### Added
