@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0]
+
 ### BREAKING — trampolined next/loop continuations: the depth ceiling on chains and loops is gone (backlog #15)
 
 - **`executeNode` is now an iterative trampoline driver.** Every TAIL
