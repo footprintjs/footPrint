@@ -299,6 +299,33 @@ describe('Scenario: read-tracking policy (#14)', () => {
       });
     });
 
+    it('Map/Set report their real entry count, not Object.keys (always 0)', () => {
+      const mem = new SharedMemory();
+      const log = new EventLog(mem.getState());
+      const seed = new StageContext('p1', 'seed', 'seed', mem, '', log);
+      seed.setObject(
+        [],
+        'lookup',
+        new Map([
+          ['a', 1],
+          ['b', 2],
+          ['c', 3],
+        ]),
+      );
+      seed.setObject([], 'seen', new Set(['x', 'y']));
+      seed.commit();
+
+      const ctx = new StageContext('p1', 'stage2', 'stage2', mem, '', log);
+      ctx.useReadTracking('summary');
+      ctx.getValue([], 'lookup');
+      ctx.getValue([], 'seen');
+
+      expect(ctx.getSnapshot().stageReads).toEqual({
+        lookup: { __readSummary: true, type: 'object', size: 3 },
+        seen: { __readSummary: true, type: 'object', size: 2 },
+      });
+    });
+
     it('string previews are capped at 80 characters', () => {
       const { ctx } = seededCtx();
       ctx.setObject([], 'long', 'x'.repeat(500));

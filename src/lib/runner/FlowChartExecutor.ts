@@ -109,6 +109,9 @@ export interface FlowChartExecutorOptions<TScope = any> {
    * `'summary'` records a cheap type/size/preview marker per read; `'off'`
    * records nothing — zero per-read clone cost (reads of large values become
    * ~free). Narrative and `ScopeRecorder.onRead` are identical in every mode.
+   * Caveat: under `'off'` a stage's snapshot is indistinguishable from one
+   * that read nothing — auditing consumers that need "did it read?" without
+   * the value cost should prefer `'summary'`.
    * Equivalent to calling `executor.setReadTracking(mode)` before `run()`.
    */
   readTracking?: ReadTrackingMode;

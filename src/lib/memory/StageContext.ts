@@ -31,6 +31,10 @@ function summarizeReadValue(value: unknown): ReadSummaryMarker {
     return { __readSummary: true, type: 'string', size: value.length, preview: value.slice(0, READ_PREVIEW_LENGTH) };
   }
   if (Array.isArray(value)) return { __readSummary: true, type: 'array', size: value.length };
+  if (value instanceof Map || value instanceof Set) {
+    // Object.keys() on a Map/Set is always [] — report the real entry count.
+    return { __readSummary: true, type: 'object', size: value.size };
+  }
   if (typeof value === 'object') {
     return { __readSummary: true, type: 'object', size: Object.keys(value as Record<string, unknown>).length };
   }
