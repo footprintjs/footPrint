@@ -81,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behavior is unchanged (existing backtrack suite green unmodified).
 
 - **RFC-003 D4 — `weigh` hook + truncation visibility** (additive).
+
   - `causalChain()` gains `weigh?: EdgeWeigher` —
     `(child, parent, key, kind) => number | undefined` — called once per
     created edge; `undefined` → 1.0. The ENGINE never computes weights
@@ -99,6 +100,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `⚠ slice truncated (…) — older causes exist beyond this horizon`, and
     dev mode (`enableDevMode()`) warns — a consumer must never mistake a
     truncated slice for a complete one.
+
+- **RFC-003 D5 — `controlDepRecorder()` (`footprintjs/trace`)** — the
+  built-in producer for D3's `controlDeps` option. A `FlowRecorder` that
+  records every `onDecision`/`onSelected` as
+  `ControlDecisionRecord { deciderRuntimeStageId, chosen, evidence?, ruleLabel? }`
+  (the label extracted from decide() evidence), builds the runtime ancestor
+  chain from D1's `parentRuntimeStageId`, and maps every subsequently
+  executed stage whose chain passes through the chosen branch to its
+  governing decider. `lookup(runtimeStageId)` resolves the NEAREST decision
+  (nested decisions compose — the backtracker expands the decider and asks
+  again); `asLookup()` plugs straight into
+  `causalChain(..., { controlDeps })`. Correlation is by parent-runtime-id
+  - count, NOT stage name (subflow-mount events carry path-prefixed names;
+    selectors emit a synthetic fork event sharing the selector's own
+    runtimeStageId), and a branch that THROWS consumes its slot via
+    `onError` so best-effort fan-out convergence stages are never
+    misattributed. Convention-4 runId reset: each run (and each resume)
+    starts clean — control chains do not survive a pause/resume boundary.
+    Fixtures: decider, selector, nested subflow branches (single + double
+    nesting), loop re-entry (per-iteration decisions stay distinct).
+    Attach via `executor.attachFlowRecorder(ctrl)` or
+    `attachCombinedRecorder(ctrl)`.
 
 ## [9.7.0] - 2026-06-11
 
