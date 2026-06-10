@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Review hardening (blocks 6–9 wiring gate)
+
+- **Attach-surface capture default is `'clone'`** (was `'summary'` in the
+  unreleased draft): `{ delivery: 'deferred' }` keeps existing recorder
+  code working unchanged — same event shape as inline. `'summary'` is an
+  explicit telemetry choice. (Review CRITICAL-2.)
+- **Deferred listener errors respect channel registration**: a flow-only
+  recorder never receives scope-channel listener errors — inline-tier
+  parity. (Review CRITICAL-1; negative-control test added.)
+
+
 ### Added
 
 - **RFC-001 deferred-observer delivery is WIRED (Blocks 6–9)** — the pure

@@ -79,12 +79,14 @@ export interface AttachRecorderOptions {
   /** `'deferred'` = capture → queue → next-checkpoint delivery. Default `'inline'`. */
   readonly delivery?: ObserverDelivery;
   /**
-   * Payload materialization at capture time. `'summary'` (default) —
-   * bounded, reference-free summary (the recorder receives a
-   * `PayloadSummary`, NOT the original event shape); `'clone'` —
-   * `structuredClone` of the event (event-shape compatible with inline;
-   * degrades to `'summary'` with a dev-warn when unclonable); `'ref'` —
-   * the live event reference (dev-warned; caller asserts immutability).
+   * Payload materialization at capture time. Default `'clone'` — your
+   * recorder's hooks receive the SAME event shape as inline delivery
+   * (`structuredClone`d; `e.key`/`e.value`/`e.runtimeStageId` all work
+   * unchanged), so `{ delivery: 'deferred' }` is a drop-in port.
+   * `'summary'` — a bounded type/size/preview digest (`PayloadSummary`)
+   * instead of the event shape: cheaper capture for telemetry-only
+   * consumers that don't read domain fields. `'ref'` — pass-through by
+   * reference; the caller asserts immutability (dev-mode warns).
    */
   readonly capture?: CapturePolicy;
   /** Queue bound — default 10 000. */
@@ -157,7 +159,12 @@ export class DeferredObserverTier {
 
   constructor(options?: AttachRecorderOptions) {
     this.appliedConfig = {
-      capture: options?.capture,
+      // Attach-surface default is 'clone' (review CRITICAL-2): a recorder
+      // ported with `{ delivery: 'deferred' }` keeps receiving the SAME
+      // event shape as inline (e.key/e.value/e.runtimeStageId all intact).
+      // The module-internal envelope default stays 'summary' for raw-
+      // envelope consumers; 'summary' here is an explicit telemetry choice.
+      capture: options?.capture ?? 'clone',
       maxQueue: options?.maxQueue,
       overflow: options?.overflow,
       sampleEvery: options?.sampleEvery,
@@ -167,7 +174,7 @@ export class DeferredObserverTier {
       maxQueue: options?.maxQueue,
       overflow: options?.overflow,
       sampleEvery: options?.sampleEvery,
-      capturePolicy: options?.capture,
+      capturePolicy: options?.capture ?? 'clone',
       flushBudgetMs: options?.flushBudgetMs,
       // The dev-warn seam (RFC-001 §"Resolution: the dev-warn seam"): the
       // pure module invokes `warn` on every 'ref' capture and every 'clone'
@@ -408,8 +415,13 @@ export class DeferredObserverTier {
       operation: operationFor(envelope.method),
       channel: 'scope' as const,
     };
-    for (const [id, { recorder }] of this.registrations) {
+    for (const [id, { recorder, channels }] of this.registrations) {
       if (id === listenerId) continue;
+      // Inline-tier parity (review CRITICAL-1): the synthesized event is
+      // scope-typed, so it reaches ONLY recorders registered on the scope
+      // lists — a flow-only recorder never receives scope-channel errors
+      // inline and must not here either.
+      if (!channels.has('scope')) continue;
       try {
         invokeRecorderHook(recorder, 'onError', errorEvent);
       } catch {

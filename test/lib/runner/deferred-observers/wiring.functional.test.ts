@@ -114,12 +114,31 @@ describe('Block 7 — dispatch-site wiring (functional)', () => {
     expect(withDeferred.getNarrativeEntries().map((e) => e.text)).toEqual(baseline);
   });
 
-  it("default capture policy is 'summary': payload is a bounded PayloadSummary, never the live event", async () => {
+  it("default capture policy is 'clone': hooks receive the SAME event shape as inline (drop-in port)", async () => {
+    // Review CRITICAL-2: the attach-surface default must keep existing
+    // recorder code (e.key/e.value reads) working unchanged.
+    const payloads: unknown[] = [];
+    const executor = new FlowChartExecutor(twoStageChart());
+    executor.attachScopeRecorder(
+      { id: 'cloned', onWrite: (e) => payloads.push(e) },
+      { delivery: 'deferred' }, // capture defaults to 'clone'
+    );
+    await executor.run();
+    expect(payloads.length).toBeGreaterThan(0);
+    for (const p of payloads) {
+      const event = p as { __payloadSummary?: boolean; key?: string; runtimeStageId?: string };
+      expect(event.__payloadSummary).toBeUndefined();
+      expect(typeof event.key).toBe('string'); // domain fields intact
+      expect(typeof event.runtimeStageId).toBe('string');
+    }
+  });
+
+  it("explicit capture: 'summary' delivers a bounded PayloadSummary, never the live event", async () => {
     const payloads: unknown[] = [];
     const executor = new FlowChartExecutor(twoStageChart());
     executor.attachScopeRecorder(
       { id: 'summarized', onWrite: (e) => payloads.push(e) },
-      { delivery: 'deferred' }, // capture defaults to 'summary'
+      { delivery: 'deferred', capture: 'summary' },
     );
     await executor.run();
     expect(payloads.length).toBeGreaterThan(0);

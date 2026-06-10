@@ -58,15 +58,16 @@ delivered on both tiers.
 A deferred hook receives the envelope's **materialized payload**, not the
 live event:
 
-- **`'summary'` (default)** — a bounded, reference-free `PayloadSummary`
-  tree (depth ≤ 3, ≤ 16 entries/level, ≤ 128 nodes, 80-char previews).
-  Cheapest and detached from engine state — but it is **not the original
-  event shape**: a recorder reading `event.key` must be written against the
-  summary shape instead. Ideal for "what happened" telemetry at minimum cost.
-- **`'clone'`** — a `structuredClone` of the event: the same shape an inline
-  recorder sees, fully detached. The drop-in choice for porting an existing
-  recorder to the deferred tier. Unclonable payloads degrade to `'summary'`
-  with a dev-warn.
+- **`'clone'` (default)** — a `structuredClone` of the event: the **same
+  shape an inline recorder sees**, fully detached. `{ delivery: 'deferred' }`
+  is therefore a drop-in port — `event.key` / `event.value` /
+  `event.runtimeStageId` all keep working unchanged. Unclonable payloads
+  degrade to `'summary'` with a dev-warn.
+- **`'summary'`** — a bounded, reference-free `PayloadSummary` tree
+  (depth ≤ 3, ≤ 16 entries/level, ≤ 128 nodes, 80-char previews). Cheapest
+  and detached — but it is **not the original event shape**: a recorder
+  reading `event.key` must be written against the summary shape instead.
+  Choose it explicitly for "what happened" telemetry at minimum cost.
 - **`'ref'`** — the live event object, zero copy. The event WRAPPERS the
   engine dispatches are fresh per event, but nested values (e.g. an
   `onWrite`'s `value`) can alias engine state — you assert immutability for

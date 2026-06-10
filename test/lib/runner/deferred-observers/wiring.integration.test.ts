@@ -149,6 +149,42 @@ describe('Blocks 6–7 — engine integration', () => {
     expect(routedErrors[0].operation).toBe('write');
   });
 
+  it('a FLOW-ONLY deferred sibling never receives scope-channel listener errors (inline-tier parity)', async () => {
+    // Review CRITICAL-1: the synthesized error is scope-typed; a recorder
+    // registered only via attachFlowRecorder must not see it — exactly as
+    // in the inline tier, where scope errors reach scope recorders only.
+    const chart = flowChart<Loose>(
+      'Seed',
+      async (scope) => {
+        scope.$setValue('k', 1);
+      },
+      'seed',
+    ).build();
+    const flowOnlyErrors: unknown[] = [];
+    const scopeErrors: unknown[] = [];
+    const executor = new FlowChartExecutor(chart);
+    executor.attachScopeRecorder(
+      {
+        id: 'broken-scope',
+        onWrite: () => {
+          throw new Error('listener boom');
+        },
+      },
+      { delivery: 'deferred', capture: 'clone' },
+    );
+    executor.attachFlowRecorder(
+      { id: 'flow-only', onStageExecuted: () => {}, onError: (e) => flowOnlyErrors.push(e) },
+      { delivery: 'deferred', capture: 'clone' },
+    );
+    executor.attachScopeRecorder(
+      { id: 'scope-sibling', onWrite: () => {}, onError: (e) => scopeErrors.push(e) },
+      { delivery: 'deferred', capture: 'clone' },
+    );
+    await executor.run();
+    expect(scopeErrors.length).toBeGreaterThan(0); // scope sibling DOES hear it
+    expect(flowOnlyErrors).toEqual([]); // flow-only sibling never does
+  });
+
   it('clear() fires on deferred recorders at each fresh run (no cross-run accumulation)', async () => {
     const chart = flowChart<Loose>(
       'Seed',
