@@ -15,4 +15,4 @@
 
 export type { RetentionPolicy } from './policies.js';
 export type { ReadSummaryMarker, SummaryValueType, WriteSummaryMarker } from './summarize.js';
-export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH, summarizeReadValue, summarizeWriteValue } from './summarize.js';
+export { READ_PREVIEW_LENGTH, summarizeReadValue, summarizeWriteValue, SUMMARY_PREVIEW_LENGTH } from './summarize.js';
