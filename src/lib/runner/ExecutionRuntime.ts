@@ -14,6 +14,7 @@ import { EventLog } from '../memory/EventLog.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
 import type { CommitBundle, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
+import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
 export interface RecorderSnapshot {
@@ -34,6 +35,13 @@ export type RuntimeSnapshot = {
   subflowResults?: Record<string, unknown>;
   /** Snapshot data from recorders that implement toSnapshot(). */
   recorders?: RecorderSnapshot[];
+  /**
+   * Deferred-observer accounting (RFC-001 Block 9) — queue depth, drops,
+   * flush/budget counters, per-listener time attribution, and the
+   * terminal-flush stranding count. ABSENT unless a recorder was attached
+   * with `{ delivery: 'deferred' }` on this executor (zero-cost discipline).
+   */
+  observerStats?: ObserverStats;
 };
 
 export class ExecutionRuntime {

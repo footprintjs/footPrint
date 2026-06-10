@@ -1517,8 +1517,35 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         });
       }
     }
+    if (this.deferredTier) {
+      // Deferred recorders are attached observers too — collect their
+      // snapshots once per id (a combined recorder registers once in the
+      // tier, unlike the two inline lists).
+      const seen = new Set<string>();
+      for (const r of [...this.deferredTier.scopeListRecorders(), ...this.deferredTier.flowListRecorders()]) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        if (r.toSnapshot) {
+          const snap = r.toSnapshot();
+          recorderSnapshots.push({
+            id: r.id,
+            name: snap.name,
+            description: snap.description,
+            preferredOperation: snap.preferredOperation,
+            data: snap.data,
+          });
+        }
+      }
+    }
     if (recorderSnapshots.length > 0) {
       snapshot.recorders = recorderSnapshots;
+    }
+
+    // RFC-001 Block 9: the deferred-observer accounting surface. Present
+    // ONLY when a deferred observer was attached on this executor —
+    // zero-cost discipline for everyone else.
+    if (this.deferredTier) {
+      snapshot.observerStats = this.deferredTier.getStats();
     }
 
     return snapshot;
