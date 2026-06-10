@@ -383,3 +383,62 @@ describe('Scenario: dynamic StageNode returns do not mutate the shared built cha
     expect(frozenShape(chart.root)).toEqual(shapeBefore);
   });
 });
+
+describe('dynamic child id colliding with a built node (object-keyed overlay)', () => {
+  // A dynamic child may (carelessly) reuse a BUILT node's id. The overlay is
+  // keyed by node OBJECT (WeakMap), so the dynamic twin's patch must never
+  // leak onto the built node — id-keyed lookup caused the built node to
+  // inherit the twin's children and fork them a second time (phantom run).
+  it('the built node never inherits a same-id dynamic node’s patch', async () => {
+    let phantomRuns = 0;
+    let victimRuns = 0;
+    let twinRuns = 0;
+
+    const chart = flowChart(
+      'Seed',
+      () => {
+        return {
+          name: 'DynFork',
+          children: [
+            {
+              name: 'DynTwin',
+              id: 'victim', // deliberate collision with the built node id
+              fn: () => {
+                twinRuns++;
+                return {
+                  name: 'TwinFork',
+                  children: [
+                    {
+                      name: 'Phantom',
+                      id: 'phantom',
+                      fn: () => {
+                        phantomRuns++;
+                      },
+                    },
+                  ],
+                };
+              },
+            },
+          ],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Victim',
+        () => {
+          victimRuns++;
+        },
+        'victim',
+      )
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    await executor.run({ input: {} });
+
+    expect(twinRuns).toBe(1);
+    expect(victimRuns).toBe(1);
+    expect(phantomRuns).toBe(1); // id-keyed overlay forked Phantom TWICE
+  });
+});

@@ -186,8 +186,14 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * All engine reads of the patched fields go through the `eff*` accessors
    * below. The map dies with the traverser — one run, one overlay — so a
    * fresh executor over the same built chart always sees the original graph.
+   *
+   * Keyed by the node OBJECT (WeakMap), not `node.id`: a dynamic child that
+   * reuses a built node's id must NOT make the built node inherit the patch
+   * (id-keyed lookup caused phantom double-execution). `patchCount` is the
+   * fast-path check — WeakMap has no `size`.
    */
-  private readonly dynamicPatches = new Map<string, DynamicNodePatch<TOut, TScope>>();
+  private readonly dynamicPatches = new WeakMap<StageNode<TOut, TScope>, DynamicNodePatch<TOut, TScope>>();
+  private patchCount = 0;
 
   /**
    * Recursion depth counter for executeNode.
@@ -516,15 +522,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   // with no dynamic returns never allocate and pay one `size === 0` check.
 
   private getPatch(node: StageNode<TOut, TScope>): DynamicNodePatch<TOut, TScope> | undefined {
-    if (this.dynamicPatches.size === 0) return undefined;
-    return this.dynamicPatches.get(node.id);
+    if (this.patchCount === 0) return undefined;
+    return this.dynamicPatches.get(node);
   }
 
   private getOrCreatePatch(node: StageNode<TOut, TScope>): DynamicNodePatch<TOut, TScope> {
-    let patch = this.dynamicPatches.get(node.id);
+    let patch = this.dynamicPatches.get(node);
     if (!patch) {
       patch = {};
-      this.dynamicPatches.set(node.id, patch);
+      this.dynamicPatches.set(node, patch);
+      this.patchCount++;
     }
     return patch;
   }
