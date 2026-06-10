@@ -1,0 +1,170 @@
+{
+  "schema": "fp-bench/1",
+  "date": "2026-06-10T17:02:42.935Z",
+  "node": "v22.16.0",
+  "platform": "darwin arm64",
+  "commit": "de1cd5f",
+  "rows": [
+    {
+      "section": "A-read-heavy",
+      "name": "First tracked read (1MB state)",
+      "value": 0.0030000000000427463,
+      "unit": "ms",
+      "detail": "post-#13: reads never construct the buffer (was 2× full-state clone)"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "2,000 small tracked reads",
+      "value": 1.1945419999999558,
+      "unit": "ms",
+      "detail": "1,674,282 ops/s"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "50 tracked reads of 1MB value",
+      "value": 127.63554099999999,
+      "unit": "ms",
+      "detail": "392 ops/s (per-read value clone — default readTracking: 'full')"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "… same, readTracking: 'summary'",
+      "value": 28.87474999999995,
+      "unit": "ms",
+      "detail": "per-read marker (type/size/preview), no value clone (#14)"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "… same, readTracking: 'off'",
+      "value": 0.0072920000000067375,
+      "unit": "ms",
+      "detail": "no stageReads tracking, zero per-read clone (#14)"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "Run: seed(1MB) + 1-small-read stage",
+      "value": 14.516083000000208,
+      "unit": "ms",
+      "detail": "post-#13: read-only stage clones nothing (seed stage still pays its write freight)"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "Run: seed(1MB) + touch-nothing stage",
+      "value": 14.789624999999887,
+      "unit": "ms",
+      "detail": "post-#13: empty commit records the bundle with zero clones"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "Δ one-read vs no-touch",
+      "value": -0.2735419999996793,
+      "unit": "ms",
+      "detail": "≈0: both stage kinds are free post-#13"
+    },
+    {
+      "section": "A-read-heavy",
+      "name": "Per no-touch stage over 1MB state",
+      "value": -0.035635500000012144,
+      "unit": "ms",
+      "detail": "from 1-vs-5-stage charts; regression guard: must stay µs (was 10.19ms pre-#13)"
+    },
+    {
+      "section": "B-loop-growth",
+      "name": "Total wall (100 iterations)",
+      "value": 27.89804200000026,
+      "unit": "ms",
+      "detail": "history grows to ~100.0KB"
+    },
+    {
+      "section": "B-loop-growth",
+      "name": "Iteration latency (iters 1–10)",
+      "value": 0.0572704999999587,
+      "unit": "ms",
+      "detail": "median"
+    },
+    {
+      "section": "B-loop-growth",
+      "name": "Iteration latency (iters 91–100)",
+      "value": 0.4144169999999576,
+      "unit": "ms",
+      "detail": "median — 7.2× early"
+    },
+    {
+      "section": "B-loop-growth",
+      "name": "Peak RSS",
+      "value": 229572608,
+      "unit": "bytes",
+      "detail": "process.memoryUsage().rss (Δ from bench-B start: 32.0KB)"
+    },
+    {
+      "section": "C-nested-subflows",
+      "name": "10 nested subflow mounts",
+      "value": 0.18870800000013332,
+      "unit": "ms",
+      "detail": "19µs/mount (build once: 665µs)"
+    },
+    {
+      "section": "C-nested-subflows",
+      "name": "50 nested subflow mounts",
+      "value": 1.1684999999997672,
+      "unit": "ms",
+      "detail": "23µs/mount (build once: 2.45ms)"
+    },
+    {
+      "section": "C-nested-subflows",
+      "name": "100 nested subflow mounts",
+      "value": 2.6796250000002146,
+      "unit": "ms",
+      "detail": "27µs/mount (build once: 11.62ms)"
+    },
+    {
+      "section": "D-depth-probe",
+      "name": "Frames per loop iteration",
+      "value": 1,
+      "unit": "count",
+      "detail": "driver invocations across all traversers"
+    },
+    {
+      "section": "D-depth-probe",
+      "name": "Guard depth per iteration",
+      "value": 0,
+      "unit": "count",
+      "detail": "engine _executeDepth slope — MUST be 0.0 (trampoline regression guard)"
+    },
+    {
+      "section": "D-depth-probe",
+      "name": "Chain depth per iteration",
+      "value": 0,
+      "unit": "count",
+      "detail": "retained awaited-frame slope — MUST be 0.0 (trampoline regression guard)"
+    },
+    {
+      "section": "D-depth-probe",
+      "name": "Long run: 10,000 iterations",
+      "value": 448.86974999999995,
+      "unit": "ms",
+      "detail": "default maxDepth; peak guard 1, peak chain 1, 45µs/iter"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained heap after 200-iteration run",
+      "value": 62618208,
+      "unit": "bytes",
+      "detail": "heapUsed after gc, executor (execution tree) still referenced — the #13b number"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained after dropping executor",
+      "value": 404352,
+      "unit": "bytes",
+      "detail": "floor — everything the executor pinned was releasable"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Per iteration (tree retained)",
+      "value": 313091,
+      "unit": "bytes",
+      "detail": "commit log + narrative + stageWrites tracking remain; state generations/buffers must NOT (#13b)"
+    }
+  ]
+}

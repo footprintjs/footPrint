@@ -6,6 +6,9 @@
  */
 
 import * as os from 'os';
+import * as path from 'path';
+
+import type { ResultFile, ResultRow, ResultUnit } from './compareCore';
 
 // ─── Formatting ───
 
@@ -89,7 +92,14 @@ export function makeMessage(idx: number): Record<string, unknown> {
 
 // ─── Reporting ───
 
-export type BenchResult = { name: string; value: string; detail?: string };
+/**
+ * One human-readable table row. `num` + `unit` are the OPTIONAL machine
+ * mirror: rows that carry them are also written to
+ * `bench/results/latest.json` by {@link writeResultsJson} — the contract
+ * `bench/compare.ts` diffs for regressions. Qualitative rows (e.g. the
+ * depth-probe's "Depth wall: none (flat)") simply omit them.
+ */
+export type BenchResult = { name: string; value: string; detail?: string; num?: number; unit?: ResultUnit };
 
 export function printTable(title: string, rows: BenchResult[]) {
   console.log(`\n### ${title}\n`);
@@ -113,4 +123,93 @@ export function machineInfo(): string {
   const cpu = os.cpus()[0]?.model ?? 'unknown CPU';
   const mem = formatBytes(os.totalmem());
   return `Node ${process.version} | ${process.platform} ${process.arch} | ${cpu} | ${mem} RAM`;
+}
+
+// ─── Machine-readable results (fp-bench/1) ───
+
+// The fp-bench/1 types live in ./compareCore (kept import-free so the
+// comparator's logic unit-tests under vitest); re-exported here for the
+// bench scripts.
+export type { ResultFile, ResultRow, ResultUnit };
+
+export const RESULTS_DIR = path.join(__dirname, 'results');
+export const LATEST_RESULTS_PATH = path.join(RESULTS_DIR, 'latest.json');
+export const BASELINE_RESULTS_PATH = path.join(RESULTS_DIR, 'baseline.json');
+
+function currentCommit(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const cp = require('child_process') as {
+      execFileSync(file: string, args: string[], opts: { encoding: string }): string;
+    };
+    // execFileSync with a fixed argument array — no shell, no injection surface.
+    return cp.execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Write `section`'s rows into `bench/results/latest.json` (`fp-bench/1`).
+ *
+ * MERGE semantics: the bench suite is several scripts (`bench:baseline` →
+ * sections A/B/C, `bench:depth` → D, `bench:heap` → E) that each call this
+ * for their own sections. Rows belonging to the written sections are
+ * REPLACED; rows from other sections are kept, so `npm run bench`
+ * accumulates one complete file. Header fields (date/node/commit) refresh
+ * on every write.
+ *
+ * Derived from the SAME `BenchResult[]` the human table prints — rows that
+ * carry `num`+`unit` are included; qualitative rows are skipped.
+ */
+export function writeResultsJson(sections: Array<{ section: string; rows: BenchResult[] }>): void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('fs') as {
+    existsSync(p: string): boolean;
+    mkdirSync(p: string, opts?: { recursive?: boolean }): void;
+    readFileSync(p: string, enc: string): string;
+    writeFileSync(p: string, data: string): void;
+  };
+
+  const writtenSections = new Set(sections.map((s) => s.section));
+  let keptRows: ResultRow[] = [];
+  if (fs.existsSync(LATEST_RESULTS_PATH)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(LATEST_RESULTS_PATH, 'utf8')) as ResultFile;
+      if (existing.schema === 'fp-bench/1' && Array.isArray(existing.rows)) {
+        keptRows = existing.rows.filter((r) => !writtenSections.has(r.section));
+      }
+    } catch {
+      // unreadable/corrupt latest.json — start fresh
+    }
+  }
+
+  const newRows: ResultRow[] = [];
+  for (const { section, rows } of sections) {
+    for (const row of rows) {
+      if (row.num === undefined || row.unit === undefined) continue;
+      newRows.push({
+        section,
+        name: row.name,
+        value: row.num,
+        unit: row.unit,
+        ...(row.detail !== undefined && { detail: row.detail }),
+      });
+    }
+  }
+
+  const file: ResultFile = {
+    schema: 'fp-bench/1',
+    date: new Date().toISOString(),
+    node: process.version,
+    platform: `${process.platform} ${process.arch}`,
+    commit: currentCommit(),
+    rows: [...keptRows, ...newRows],
+  };
+
+  if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  fs.writeFileSync(LATEST_RESULTS_PATH, `${JSON.stringify(file, null, 2)}\n`);
+  console.log(
+    `\n[fp-bench] wrote ${newRows.length} rows (${[...writtenSections].join(', ')}) → ${LATEST_RESULTS_PATH}`,
+  );
 }

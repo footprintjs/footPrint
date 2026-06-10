@@ -39,6 +39,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   main barrel** — it is exported from `footprintjs/advanced`; the examples
   typecheck (`npm run test:examples`) was failing on a clean tree.
 
+### Added
+
+- **Machine-readable bench results + regression compare** (`fp-bench/1`).
+  `bench:baseline` (sections A/B/C), `bench:depth` (D) and `bench:heap` (E)
+  now ALSO write `bench/results/latest.json` — `{ schema: 'fp-bench/1',
+  date, node, platform, commit, rows: [{ section, name, value, unit,
+  detail }] }`, merged by section so `npm run bench` accumulates one
+  complete file. `bench/BASELINE.md` stays the human doc, unchanged format
+  (header now documents the JSON as the machine contract). New
+  `npm run bench:compare` (`bench/compare.ts` + pure `bench/compareCore.ts`,
+  12 unit tests) diffs two result files (default `bench/results/
+  baseline.json` vs `latest.json`), prints per-row deltas, highlights
+  regressions (▲ red ANSI, exit 1 above `--threshold`, default 25%) and
+  improvements (▼ green). Regression gating is two-stage — relative
+  threshold AND a per-unit absolute noise floor (0.5ms / 1MiB / 0.25 count)
+  so µs-scale jitter can't cry wolf; zero-baseline rows (e.g. a flat depth
+  slope regressing to 2.0/iter) flag on the absolute gate alone and are
+  deliberately not silenceable by `--threshold`. The post-#13b run is
+  committed as `bench/results/baseline.json` — the new reference;
+  `latest.json` is gitignored (regenerated every run).
+
 ## [9.2.0] - 2026-06-10
 
 ### Added

@@ -53,6 +53,7 @@ import {
   median,
   printHeader,
   printTable,
+  writeResultsJson,
 } from './util';
 
 type LooseState = Record<string, unknown>;
@@ -132,11 +133,15 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     name: 'First tracked read (1MB state)',
     value: formatMs(full.first),
     detail: 'post-#13: reads never construct the buffer (was 2× full-state clone)',
+    num: full.first,
+    unit: 'ms',
   });
   results.push({
     name: `${formatNum(N_SMALL_READS)} small tracked reads`,
     value: formatMs(full.small),
     detail: `${formatNum(Math.round(N_SMALL_READS / (full.small / 1000)))} ops/s`,
+    num: full.small,
+    unit: 'ms',
   });
   results.push({
     name: `${formatNum(N_DOC_READS)} tracked reads of 1MB value`,
@@ -144,16 +149,22 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     detail: `${formatNum(
       Math.round(N_DOC_READS / (full.doc / 1000)),
     )} ops/s (per-read value clone — default readTracking: 'full')`,
+    num: full.doc,
+    unit: 'ms',
   });
   results.push({
     name: "… same, readTracking: 'summary'",
     value: formatMs(summary.doc),
     detail: 'per-read marker (type/size/preview), no value clone (#14)',
+    num: summary.doc,
+    unit: 'ms',
   });
   results.push({
     name: "… same, readTracking: 'off'",
     value: formatMs(off.doc),
     detail: 'no stageReads tracking, zero per-read clone (#14)',
+    num: off.doc,
+    unit: 'ms',
   });
 
   // Read-only-stage variant: identical seed, second stage does ONE small read
@@ -200,21 +211,29 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     name: 'Run: seed(1MB) + 1-small-read stage',
     value: formatMs(oneRead.median),
     detail: 'post-#13: read-only stage clones nothing (seed stage still pays its write freight)',
+    num: oneRead.median,
+    unit: 'ms',
   });
   results.push({
     name: 'Run: seed(1MB) + touch-nothing stage',
     value: formatMs(noTouch.median),
     detail: 'post-#13: empty commit records the bundle with zero clones',
+    num: noTouch.median,
+    unit: 'ms',
   });
   results.push({
     name: 'Δ one-read vs no-touch',
     value: formatMs(oneRead.median - noTouch.median),
     detail: '≈0: both stage kinds are free post-#13',
+    num: oneRead.median - noTouch.median,
+    unit: 'ms',
   });
   results.push({
     name: 'Per no-touch stage over 1MB state',
     value: formatMs((noTouch5.median - noTouch.median) / 4),
     detail: 'from 1-vs-5-stage charts; regression guard: must stay µs (was 10.19ms pre-#13)',
+    num: (noTouch5.median - noTouch.median) / 4,
+    unit: 'ms',
   });
 
   return results;
@@ -293,17 +312,23 @@ async function benchLoopGrowth(): Promise<BenchResult[]> {
       name: `Total wall (${LOOP_ITERS} iterations)`,
       value: formatMs(median(wallArr)),
       detail: `history grows to ~${formatBytes(LOOP_ITERS * 1024)}`,
+      num: median(wallArr),
+      unit: 'ms',
     },
-    { name: 'Iteration latency (iters 1–10)', value: formatMs(early), detail: 'median' },
+    { name: 'Iteration latency (iters 1–10)', value: formatMs(early), detail: 'median', num: early, unit: 'ms' },
     {
       name: `Iteration latency (iters ${LOOP_ITERS - 9}–${LOOP_ITERS})`,
       value: formatMs(late),
       detail: `median — ${(late / early).toFixed(1)}× early`,
+      num: late,
+      unit: 'ms',
     },
     {
       name: 'Peak RSS',
       value: formatBytes(rssPeak),
       detail: `process.memoryUsage().rss (Δ from bench-B start: ${formatBytes(Math.max(0, rssPeak - rssStart))})`,
+      num: rssPeak,
+      unit: 'bytes',
     },
   ];
 }
@@ -352,6 +377,8 @@ async function benchDeepSubflows(): Promise<BenchResult[]> {
       name: `${depth} nested subflow mounts`,
       value: formatMs(t.median),
       detail: `${formatMs(t.median / depth)}/mount (build once: ${formatMs(buildMs)})`,
+      num: t.median,
+      unit: 'ms',
     });
   }
 
@@ -363,9 +390,20 @@ async function benchDeepSubflows(): Promise<BenchResult[]> {
 async function main() {
   printHeader('FootPrint Baseline Benchmarks (backlog #12)');
 
-  printTable('A. Read-heavy stage over ~1MB shared state', await benchReadHeavy());
-  printTable(`B. Loop growth (${LOOP_ITERS}-iteration loopTo, growing history)`, await benchLoopGrowth());
-  printTable('C. Deep-nested subflow mounts', await benchDeepSubflows());
+  const a = await benchReadHeavy();
+  printTable('A. Read-heavy stage over ~1MB shared state', a);
+  const b = await benchLoopGrowth();
+  printTable(`B. Loop growth (${LOOP_ITERS}-iteration loopTo, growing history)`, b);
+  const c = await benchDeepSubflows();
+  printTable('C. Deep-nested subflow mounts', c);
+
+  // Machine mirror (fp-bench/1) — bench/results/latest.json. BASELINE.md is
+  // the human doc; compare with `npm run bench:compare`.
+  writeResultsJson([
+    { section: 'A-read-heavy', rows: a },
+    { section: 'B-loop-growth', rows: b },
+    { section: 'C-nested-subflows', rows: c },
+  ]);
 
   console.log('\n---\n');
 }

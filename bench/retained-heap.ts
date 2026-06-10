@@ -34,9 +34,17 @@
  * growing ~1KB-per-iteration history key, no LLM layer.
  */
 
-import { flowChart, FlowChartExecutor } from '../src/index';
 import type { FlowChart } from '../src/index';
-import { type BenchResult, formatBytes, formatNum, makeMessage, printHeader, printTable } from './util';
+import { flowChart, FlowChartExecutor } from '../src/index';
+import {
+  type BenchResult,
+  formatBytes,
+  formatNum,
+  makeMessage,
+  printHeader,
+  printTable,
+  writeResultsJson,
+} from './util';
 
 type LooseState = Record<string, unknown>;
 
@@ -146,20 +154,30 @@ async function main() {
       name: `Retained heap after ${formatNum(r.iterations)}-iteration run`,
       value: formatBytes(r.retainedWithExecutorBytes),
       detail: 'heapUsed after gc, executor (execution tree) still referenced — the #13b number',
+      num: r.retainedWithExecutorBytes,
+      unit: 'bytes',
     },
     {
       name: 'Retained after dropping executor',
       value: formatBytes(r.retainedAfterDropBytes),
       detail: 'floor — everything the executor pinned was releasable',
+      num: r.retainedAfterDropBytes,
+      unit: 'bytes',
     },
     {
       name: 'Per iteration (tree retained)',
       value: formatBytes(Math.round(r.retainedWithExecutorBytes / r.iterations)),
       detail: 'commit log + narrative + stageWrites tracking remain; state generations/buffers must NOT (#13b)',
+      num: Math.round(r.retainedWithExecutorBytes / r.iterations),
+      unit: 'bytes',
     },
   ];
 
   printTable(`Agent-style loop, growing ~1KB history key, N=${ITERATIONS}`, rows);
+
+  // Machine mirror (fp-bench/1) — merged into bench/results/latest.json.
+  writeResultsJson([{ section: 'E-retained-heap', rows }]);
+
   console.log('\n---\n');
 }
 

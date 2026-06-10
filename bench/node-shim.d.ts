@@ -11,13 +11,17 @@ declare const process: {
   version: string;
   platform: string;
   arch: string;
+  argv: string[];
+  env: Record<string, string | undefined>;
   memoryUsage(): { rss: number; heapUsed: number; heapTotal: number; external: number };
   exitCode?: number;
 };
 
 declare const global: { gc?: () => void };
 
-declare const require: { main?: unknown };
+declare const require: { (id: string): unknown; main?: unknown };
+
+declare const __dirname: string;
 
 // eslint-disable-next-line no-var
 declare var module: unknown;
@@ -25,4 +29,8 @@ declare var module: unknown;
 declare module 'os' {
   export function cpus(): { model: string }[];
   export function totalmem(): number;
+}
+
+declare module 'path' {
+  export function join(...segments: string[]): string;
 }

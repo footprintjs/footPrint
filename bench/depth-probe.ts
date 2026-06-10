@@ -36,7 +36,7 @@
 import type { FlowChart } from '../src/index';
 import { flowChart, FlowChartExecutor } from '../src/index';
 import { FlowchartTraverser } from '../src/lib/engine/traversal/FlowchartTraverser';
-import { type BenchResult, formatNum, printHeader, printTable } from './util';
+import { type BenchResult, formatNum, printHeader, printTable, writeResultsJson } from './util';
 
 // ─── Instrumentation ───
 
@@ -310,16 +310,22 @@ async function main() {
       name: 'Frames per loop iteration',
       value: frameSlope.toFixed(1),
       detail: 'driver invocations across all traversers',
+      num: frameSlope,
+      unit: 'count',
     },
     {
       name: 'Guard depth per iteration',
       value: guardSlope.toFixed(1),
       detail: 'engine _executeDepth slope — MUST be 0.0 (trampoline regression guard)',
+      num: guardSlope,
+      unit: 'count',
     },
     {
       name: 'Chain depth per iteration',
       value: chainSlope.toFixed(1),
       detail: 'retained awaited-frame slope — MUST be 0.0 (trampoline regression guard)',
+      num: chainSlope,
+      unit: 'count',
     },
     {
       name: 'Depth wall',
@@ -335,6 +341,8 @@ async function main() {
         (longRun.wallMs * 1000) /
         longRun.iterations
       ).toFixed(0)}µs/iter`,
+      num: longRun.wallMs,
+      unit: 'ms',
     },
     {
       name: 'Binding limit (all defaults)',
@@ -344,6 +352,10 @@ async function main() {
   ];
 
   printTable('Agent-style loopTo chart (Context → sf-tools → Decide → loop)', rows);
+
+  // Machine mirror (fp-bench/1) — merged into bench/results/latest.json.
+  writeResultsJson([{ section: 'D-depth-probe', rows }]);
+
   console.log('\n---\n');
 }
 

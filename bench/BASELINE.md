@@ -43,7 +43,19 @@ npm run bench            # all three scripts, in order
 npm run bench:micro      # bench/run.ts        — memory-layer micro benches
 npm run bench:baseline   # bench/baseline.ts   — end-to-end charts (A/B/C below)
 npm run bench:depth      # bench/depth-probe.ts — depth-guard probe (D below)
+npm run bench:heap       # bench/retained-heap.ts — retained-heap probe (E below; sets --expose-gc)
 ```
+
+**Machine contract (`fp-bench/1`):** this file is the HUMAN document — prose,
+findings, history. The machine mirror is `bench/results/latest.json`, written
+by `bench:baseline` (sections A/B/C), `bench:depth` (D) and `bench:heap` (E):
+`{ schema: 'fp-bench/1', date, node, platform, commit, rows: [{ section,
+name, value, unit, detail }] }`. `npm run bench:compare` diffs it against the
+committed reference `bench/results/baseline.json`, prints per-row deltas, and
+HIGHLIGHTS regressions (▲ red; exit 1 above `--threshold`, default 25%,
+gated by per-unit noise floors) and improvements (▼ green). Update the
+reference by copying a reviewed `latest.json` over `baseline.json` in the
+perf PR that justifies it.
 
 All benches use fixed sizes, warmup rounds and report the **median** of multiple
 measured rounds. Expect a few percent run-to-run jitter; the structural ratios
