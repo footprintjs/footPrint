@@ -57,6 +57,7 @@
     "bench:micro": "npx tsx bench/run.ts",
     "bench:baseline": "npx tsx bench/baseline.ts",
     "bench:depth": "npx tsx bench/depth-probe.ts",
+    "bench:heap": "NODE_OPTIONS=--expose-gc npx tsx bench/retained-heap.ts",
     "bench:typecheck": "tsc -p bench/tsconfig.json",
     "docs": "typedoc",
     "docs:serve": "typedoc && npx serve docs",

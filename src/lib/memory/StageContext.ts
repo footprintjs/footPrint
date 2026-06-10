@@ -403,6 +403,35 @@ export class StageContext {
     this._commitObserver = observer;
   }
 
+  /**
+   * Flush staged writes to shared memory and RELEASE the per-stage staging
+   * state (#13b).
+   *
+   * Commit is the stage's lifecycle end: `buffer` (2 full-state clones) and
+   * `stateView` (a reference that pins one full committed-state GENERATION —
+   * `applySmartMerge` clones + swaps the whole state per commit, so every
+   * stage's view is a distinct object) are only needed DURING execution, as
+   * the read snapshot + net-change diff base. The execution tree retains
+   * every StageContext for the lifetime of the run, so WITHOUT the release
+   * a long loop retains one state generation + two clones per executed
+   * stage — measured O(N²): 563.8MB at N=200 on an agent-style chart; a
+   * 500-iteration agent OOMed a default Node heap (backlog #18).
+   *
+   * RE-USE AFTER COMMIT stays correct because both fields re-create lazily:
+   * - a later READ re-anchors via {@link firstTouchState} on the CURRENT
+   *   committed state (which includes this stage's own flushed writes);
+   * - a later WRITE constructs a fresh buffer on that re-anchored view, so a
+   *   second commit diffs against post-first-commit state. The pre-release
+   *   buffer behaved the same for VALUES (its `workingCopy` was reset on
+   *   commit, falling reads through to live state) but kept the ORIGINAL
+   *   `baseSnapshot` as diff base — unreachable in practice: every engine
+   *   re-commit path (fork double-commit, subflow outputMapper double-commit)
+   *   stages nothing in between, and the two real "write after commit" sites
+   *   (SubflowExecutor seed → replaces the context; resume → fresh context
+   *   via `leaf.createNext`) never re-use a committed context's buffer.
+   * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
+   *   reads them post-run for the execution-tree snapshot.
+   */
   commit(): void {
     if (!this.buffer) {
       // Truly-lazy fast path (#13): no write ever constructed the buffer, so
@@ -422,6 +451,9 @@ export class StageContext {
       if (this._commitObserver) {
         this._commitObserver({ ...this._stageWrites });
       }
+      // #13b: drop the first-touch view — a read-only stage still pinned one
+      // full state generation through it.
+      this.stateView = undefined;
       return;
     }
 
@@ -456,6 +488,11 @@ export class StageContext {
     if (this._commitObserver) {
       this._commitObserver({ ...this._stageWrites });
     }
+
+    // #13b: release the staging state — see the method JSDoc. Done LAST so
+    // the commit observer sees the exact same world as before the release.
+    this.buffer = undefined;
+    this.stateView = undefined;
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────

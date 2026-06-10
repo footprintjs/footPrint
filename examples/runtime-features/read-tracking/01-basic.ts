@@ -17,8 +17,8 @@
  * Run: npx tsx examples/runtime-features/read-tracking/01-basic.ts
  */
 
-import type { StageSnapshot } from 'footprintjs';
 import { flowChart, FlowChartExecutor } from 'footprintjs';
+import type { StageSnapshot } from 'footprintjs/advanced';
 
 interface State {
   catalog: { sku: string; price: number }[];

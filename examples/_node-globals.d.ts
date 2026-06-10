@@ -14,6 +14,7 @@ declare const process: {
   readonly env: Record<string, string | undefined>;
   exit(code?: number): never;
   on?(event: string, listener: (...args: unknown[]) => void): unknown;
+  memoryUsage(): { rss: number; heapTotal: number; heapUsed: number; external: number };
 };
 
 declare function setImmediate(callback: () => void): unknown;

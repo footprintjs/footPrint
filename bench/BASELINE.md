@@ -183,6 +183,42 @@ chart-specific. The trampoline drove both slopes to 0.0 — the success
 criterion ("the guard becomes a pure tree-nesting limit; the loop-iteration
 limit becomes binding") is met, verified above.
 
+## E. Retained heap — agent-style growing-history loop (`bench:heap`)
+
+Probe: `bench/retained-heap.ts` (needs `--expose-gc`; the npm script sets it).
+Replicates the #18 measurement in footprintjs-only form: Context → sf-tools
+subflow → Decide → loopTo, appending a ~1KB message to a tracked `history`
+array per iteration. Reports `heapUsed` after `global.gc()` (1) with the
+executor (and its execution tree) still referenced and (2) after dropping it.
+
+### POST-#13b (staging state released at commit — 2026-06-10, current)
+
+| Benchmark | Value | Detail |
+|---|---|---|
+| Retained @ N=200, executor referenced | **59.7MB** | was 137.2MB — the tree retains ZERO buffers / state generations |
+| Retained @ N=500, executor referenced | **365.9MB** | was 849.1MB — pre-#13b the full-agent variant OOMed a default heap here (#18) |
+| Retained after dropping executor | ~0.4MB | floor — everything the executor pinned was releasable |
+
+**Finding 5 (#13b shipped — what remains is the audit surface):**
+`StageContext.commit()` now releases the stage's TransactionBuffer (2
+full-state clones) and first-touch `stateView` (a reference pinning one full
+committed-state generation) at commit end. The remaining growth is BY DESIGN
+and still O(N²) for a growing tracked array — at N=200: commit log ≈18MB
+(each bundle records the full changed array), `stageReads` + `stageWrites`
+snapshot clones ≈36MB (`$batchArray` = 1 tracked read + 1 tracked write of
+the full array per iteration). Levers: `readTracking: 'summary' | 'off'`
+(#14) removes the read half; the write half has no policy yet and the
+per-commit clone WALL cost still dominates long-loop latency — both tracked
+as **#13c**.
+
+### PRE-#13b (v9.2.0 — historical)
+
+| Benchmark | Value | Detail |
+|---|---|---|
+| Retained @ N=200, executor referenced | 137.2MB | ~701KB/iteration — every StageContext pinned its stateView generation + buffer clones forever |
+| Retained @ N=500, executor referenced | 849.1MB | quadratic; the full-agent #18 measurement OOMed a default Node heap at this N |
+| Retained after dropping executor | ~0.4MB | the pin was the execution tree, not a leak |
+
 ## Micro benches (`bench:micro`, bench/run.ts)
 
 | Benchmark | Median | Detail |

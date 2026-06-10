@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Long-run memory: per-stage staging state is RELEASED at commit end**
+  (backlog #13b — the #18 root cause). The execution tree retains one
+  `StageContext` per executed stage for the lifetime of the run, and each
+  context pinned (a) its first-touch `stateView` — a reference to a DISTINCT
+  full committed-state generation, because the engine clones + swaps the
+  whole state per commit — and (b) its `TransactionBuffer` (two full-state
+  clones), with zero release sites after commit. Retained heap grew O(N²)
+  on loop charts: 849MB at 500 iterations on a growing-history chart
+  (footprintjs-only reduction; the original #18 agent measurement OOMed a
+  default Node heap at N=500). `StageContext.commit()` now nulls `buffer` +
+  `stateView` at the end of BOTH paths (no-buffer fast path and buffer
+  path). Both fields re-create lazily on a later touch, so every engine
+  re-commit path (fork wrapper double-commit, subflow outputMapper
+  double-commit, post-commit throttle write, pause commit) is observably
+  identical — proven byte-for-byte across 9 scenarios by
+  `scripts/byte-identity-probe.ts` and pinned by
+  `test/lib/memory/scenario/commit-release.test.ts` (14 tests). Measured:
+  N=200 retained heap 137.2MB → 59.7MB; N=500 849.1MB → 365.9MB; the
+  execution tree now retains ZERO buffers and ZERO state generations. What
+  remains is the audit surface by design — commit log + `stageReads`/
+  `stageWrites` snapshot clones (read half gated by `readTracking` (#14);
+  write half + per-commit clone wall cost tracked as #13c). New probe:
+  `npm run bench:heap` (`bench/retained-heap.ts`). New example:
+  `examples/runtime-features/long-loops/02-retained-memory.ts`. Lifetime
+  contract documented in `docs/guides/execution-model.md`.
+
+- **Examples: `read-tracking/01-basic.ts` imported `StageSnapshot` from the
+  main barrel** — it is exported from `footprintjs/advanced`; the examples
+  typecheck (`npm run test:examples`) was failing on a clean tree.
+
 ## [9.2.0] - 2026-06-10
 
 ### Added

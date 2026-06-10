@@ -109,6 +109,27 @@ the stage's transaction buffer. Write changes back via `setValue`/`updateValue`.
 TypedScope consumers are safe automatically (the proxy routes every mutation
 through tracked writes). See `src/lib/memory/README.md`.
 
+### Staging-state lifetime — released at commit (#13b)
+
+A stage's transaction buffer (those two full-state clones) and its first-touch
+state view (a reference pinning one full committed-state **generation** — the
+engine clones + swaps the whole state per commit) live exactly as long as the
+stage **executes**. `StageContext.commit()` releases both at its end; they
+re-create lazily if the engine touches the context again (fork double-commits,
+subflow output double-commits — all observably identical, byte-for-byte).
+
+This is what keeps LONG RUNS bounded by the audit trail instead of by state
+history: the execution tree retains one `StageContext` per executed stage for
+the lifetime of the run, and before the release each context pinned a distinct
+full-state generation plus two clones — O(N²) retained heap on loop charts
+(measured 849MB at 500 iterations on a growing-history chart; a 500-iteration
+agent OOMed a default Node heap). After the release the tree retains **zero**
+buffers and **zero** state generations; what still grows per iteration is the
+audit surface by design — the commit log (each bundle records the full changed
+value) and the per-stage `stageReads`/`stageWrites` snapshot clones
+(`readTracking` gates the read half; the write half has no policy lever yet —
+tracked as #13c together with the per-commit clone wall cost).
+
 
 **Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —
 `resume()` does not inherit the values passed to `run()`; supply them again
