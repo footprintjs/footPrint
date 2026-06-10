@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — dynamic StageNode returns no longer mutate the shared built chart (backlog #7)
+
+- **Traverser-local dynamic-patch overlay.** Phase 4 of `FlowchartTraverser`
+  (dynamic StageNode-return handling) used to write the dynamic shape
+  DIRECTLY onto the built chart's shared node objects —
+  `isSubflowRoot`/`subflowId`/`subflowName`/`subflowMountOptions` (dynamic
+  subflow), `children` + `nextNodeSelector` (dynamic fork), and `next`
+  (restored after the visit — the only field that was). A chart built once
+  is a shared artifact: the mutation leaked one run's dynamic graph into
+  every later run of the same built chart (a fresh executor would re-execute
+  stale dynamic children with the PREVIOUS run's closed-over args, or
+  misclassify a stage as a subflow mount and skip its continuation) and
+  raced concurrent executors sharing one chart. Phase 4 now writes patches
+  into a per-traverser `dynamicPatches: Map<nodeId, DynamicNodePatch>`
+  overlay that dies with the run — the built graph is never touched. Every
+  engine read of the patched fields goes through effective-value accessors
+  (`effChildren`/`effSelector`/`effIsSubflowRoot`/`effSubflowId`/`effNode`),
+  and helper executors (`NodeResolver` loop-target DFS, `SubflowExecutor`,
+  `ChildrenExecutor`) receive the effective node view instead of reading
+  stale built fields. Dynamic `next` stays a local routed through
+  `ContinuationResolver` — the save/restore dance on the shared node is
+  gone. Fast path preserved: charts with no dynamic returns pay one
+  `size === 0` check per read. Zero behavior change for any single run;
+  `structureManager.updateDynamic*` observability events fire exactly as
+  before.
+
 ## [8.2.0]
 
 ### Changed — snapshot/checkpoint boundary isolation (backlog #8)
