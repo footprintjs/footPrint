@@ -3,6 +3,16 @@
  *
  * Handles scope-based deciders (stage IS the decider, returns branch ID).
  * Logs flow control decisions and narrative sentences.
+ *
+ * Two entry points:
+ * - `prepareDispatch` — runs the decider stage, commits, resolves the chosen
+ *   branch, fires narrative, and returns the chosen node + branch context
+ *   WITHOUT executing it. The traverser's trampoline driver uses this so a
+ *   decider with no continuation of its own can hand the branch to the
+ *   driver as a flat hop (loop-heavy decider charts stay flat-stacked).
+ * - `handleScopeBased` — prepareDispatch + immediate branch execution via
+ *   the provided `executeNode` callback. Kept for direct/advanced callers
+ *   and for deciders whose own `.next` must run after the branch completes.
  */
 
 import type { DecisionEvidence } from '../../decide/types.js';
@@ -15,6 +25,15 @@ import type { HandlerDeps, StageFunction } from '../types.js';
 import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
 export type { ExecuteNodeFn, RunStageFn };
+
+/**
+ * Result of `prepareDispatch` — either the decider stage broke (no branch
+ * runs; `branchId` is the decider's return value), or a branch was chosen
+ * and is ready to execute in `branchContext`.
+ */
+export type DeciderDispatch<TOut = any, TScope = any> =
+  | { kind: 'break'; branchId: string }
+  | { kind: 'dispatch'; chosen: StageNode<TOut, TScope>; branchContext: StageContext };
 
 export class DeciderHandler<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}
@@ -34,6 +53,48 @@ export class DeciderHandler<TOut = any, TScope = any> {
     executeNode: ExecuteNodeFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<any> {
+    const dispatch = await this.prepareDispatch(
+      node,
+      stageFunc,
+      context,
+      breakFlag,
+      branchPath,
+      runStage,
+      traversalContext,
+    );
+
+    if (dispatch.kind === 'break') {
+      return dispatch.branchId;
+    }
+
+    try {
+      return await executeNode(dispatch.chosen, dispatch.branchContext, breakFlag, branchPath);
+    } catch (error: unknown) {
+      // Stamp invoker context on PauseSignal during bubble-up.
+      // The decider (node) is the invoker; its .next is the continuation target.
+      if (isPauseSignal(error)) {
+        error.setInvoker(node.id!, node.next?.id);
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Run the decider stage and resolve the chosen branch WITHOUT executing it.
+   * Everything up to (and including) the `onDecision`/`onStageExecuted`
+   * narrative and the branch context creation happens here — only the
+   * branch execution itself is left to the caller.
+   */
+  async prepareDispatch(
+    node: StageNode<TOut, TScope>,
+    stageFunc: StageFunction<TOut, TScope>,
+    context: StageContext,
+    breakFlag: { shouldBreak: boolean },
+    branchPath: string | undefined,
+    runStage: RunStageFn<TOut, TScope>,
+    traversalContext?: TraversalContext,
+  ): Promise<DeciderDispatch<TOut, TScope>> {
     const breakFn = () => (breakFlag.shouldBreak = true);
 
     let branchId: string;
@@ -63,7 +124,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     context.commit();
 
     if (breakFlag.shouldBreak) {
-      return branchId;
+      return { kind: 'break', branchId };
     }
 
     // Resolve child by matching branch ID against node.children.
@@ -113,16 +174,6 @@ export class DeciderHandler<TOut = any, TScope = any> {
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
 
-    try {
-      return await executeNode(chosen, branchContext, breakFlag, branchPath);
-    } catch (error: unknown) {
-      // Stamp invoker context on PauseSignal during bubble-up.
-      // The decider (node) is the invoker; its .next is the continuation target.
-      if (isPauseSignal(error)) {
-        error.setInvoker(node.id!, node.next?.id);
-        throw error;
-      }
-      throw error;
-    }
+    return { kind: 'dispatch', chosen, branchContext };
   }
 }

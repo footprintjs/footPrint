@@ -6,8 +6,14 @@ and diff against this file in those PRs.
 
 **Machine:** Apple M2, 8 GB RAM, macOS (darwin arm64)
 **Node:** v22.16.0
-**Date:** 2026-06-09
-**Source version:** 8.1.0 (worktree of main @ 29c9edc)
+**Date:** 2026-06-09 (sections A–C + micro: v8.1.0 @ 29c9edc) / 2026-06-10 (section D re-measured post-#15 trampoline)
+**Source version:** 8.1.0 (worktree of main @ 29c9edc); section D updated on the `trampoline` branch (post-v8.3.0)
+
+> **#15 SHIPPED:** `executeNode` is now an iterative trampoline driver — see
+> section D for before/after. Micro + linear-chain benches were re-run on the
+> trampoline branch and are within run-to-run noise of the 8.1.0 numbers below
+> (500-stage linear: 22.24ms → 20.96ms; commit/replay/clone unchanged) — no
+> >20% regressions.
 
 How these were produced:
 
@@ -74,31 +80,54 @@ strips `description` between wraps as a workaround; candidate for a backlog item
 ## D. Depth probe — agent-style loop chart (`bench:depth`)
 
 Chart: Seed → [loop: Context → sf-tools subflow (2 stages) → Decide] → loopTo.
-`MAX_EXECUTE_DEPTH = 500`; loop-iteration limit (1000) is independent — the depth
-guard fires first for loop-heavy charts.
+`MAX_EXECUTE_DEPTH = 500` now bounds TREE nesting only; the loop-iteration
+limit (default 1000, `RunOptions.maxIterations`) is the binding constraint
+for loops.
+
+### POST-#15 (trampoline — 2026-06-10, current)
+
+| Benchmark | Value | Detail |
+|---|---|---|
+| Probe @ 10 iterations | guard 1 | chain 1, 11 frames |
+| Probe @ 50 iterations | guard 1 | chain 1, 51 frames |
+| Frames per loop iteration | 1.0 | driver invocations (the subflow mount's fresh traverser) |
+| Guard depth per iteration | **0.0** | flat — regression guard: any positive slope is a trampoline break |
+| Chain depth per iteration | **0.0** | flat — retained promise chain no longer grows with iterations |
+| Depth wall | none | pre-trampoline wall was iteration 249 |
+| Long run: 10,000 iterations | 508ms | DEFAULT maxDepth; peak guard 1, peak chain 1, 51µs/iter |
+| Binding limit (all defaults) | iteration 1,001 | `Maximum loop iterations (1000) exceeded for node 'context'` — the documented limit is now actually reachable |
+
+**Finding 4 (post-#15 — what still bounds long loops):** MEMORY, not depth.
+The long-run probe uses a scalar-state variant of the chart: appending to a
+tracked ARRAY each iteration makes every commit record the full changed array,
+so retained commit-log size grows O(N²) — the original history-appending chart
+OOMs (~2 GB heap) near ~2,000 iterations on this machine. Per-iteration state
+deltas, the commit log, and narrative entries all still accumulate per
+iteration; long loops should keep tracked state bounded (windowed arrays,
+scalars) or accept the memory cost deliberately.
+
+### PRE-#15 (v8.1.0 — historical, the walls the trampoline removed)
 
 | Benchmark | Value | Detail |
 |---|---|---|
 | Probe @ 10 iterations | guard 22 | chain 31, 51 frames |
 | Probe @ 50 iterations | guard 102 | chain 151, 251 frames |
 | Frames per loop iteration | 5.0 | across all traversers |
-| Guard depth per iteration | 2.0 | engine `_executeDepth` slope — what the 500-cap checks |
-| Chain depth per iteration | 3.0 | retained awaited-frame slope — #15 trampoline target |
+| Guard depth per iteration | 2.0 | engine `_executeDepth` slope — what the 500-cap checked |
+| Chain depth per iteration | 3.0 | retained awaited-frame slope — the #15 trampoline target |
 | Predicted wall iteration | ~249 | from guard-depth slope |
 | Empirical wall iteration | 249 | guard actually fired (verified) |
 
-**Finding 3 (two depths, both real):** the engine's guard counter grows SLOWER
-than the true retained promise chain. Loop edges return
-`this.continuationResolver.resolve(...)` WITHOUT `await` (FlowchartTraverser.ts
-Phase 6), so the `finally` decrements `_executeDepth` before the loop target
-runs — an accidental partial tail-release on loop edges only. Guard slope 2.0 vs
-true chain slope 3.0 per iteration on this chart. Consequences:
-- Wall predictions must use the GUARD slope (matches empirically: 249).
-- #15's trampoline targets the CHAIN slope (3.0 → ~0); the guard becoming a pure
-  loop-iteration limit is the success criterion.
-- The prior agentfootprint measurement (~7.0 frames/iter, peak 352 @ 50 iters,
-  wall ≈ 71) is chart-specific — a full-featured agent chart holds more frames
-  per iteration. Slopes scale with chart shape; track slope deltas, not absolutes.
+**Finding 3 (pre-#15, two depths, both real — RESOLVED by #15):** the engine's
+guard counter grew SLOWER than the true retained promise chain. Loop edges
+returned `this.continuationResolver.resolve(...)` WITHOUT `await`, so the
+`finally` decremented `_executeDepth` before the loop target ran — an
+accidental partial tail-release on loop edges only. Guard slope 2.0 vs true
+chain slope 3.0 per iteration on this chart. The prior agentfootprint
+measurement (~7.0 frames/iter, peak 352 @ 50 iters, wall ≈ 71) was
+chart-specific. The trampoline drove both slopes to 0.0 — the success
+criterion ("the guard becomes a pure tree-nesting limit; the loop-iteration
+limit becomes binding") is met, verified above.
 
 ## Micro benches (`bench:micro`, bench/run.ts)
 

@@ -233,6 +233,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     readOnlyContextOverride?: unknown,
     env?: import('../engine/types').ExecutionEnv,
     maxDepth?: number,
+    maxIterations?: number,
     overrides?: {
       root?: StageNode<TOut, TScope>;
       initialContext?: unknown;
@@ -379,6 +380,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         subflowStatesForResume: overrides.subflowStatesForResume,
       }),
       ...(maxDepth !== undefined && { maxDepth }),
+      ...(maxIterations !== undefined && { maxIterations }),
     });
   }
 
@@ -491,7 +493,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   async resume(
     checkpoint: FlowchartCheckpoint,
     resumeInput?: unknown,
-    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth'>,
+    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations'>,
   ): Promise<ExecutorResult> {
     // Re-entrancy guard FIRST — resume() mutates the same per-run state run()
     // does (traverser, runId, checkpoint), so resume-during-run and
@@ -678,16 +680,23 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // the TOP level — nested objects would alias the caller's checkpoint.
     const resumeInitialContext = structuredClone(checkpoint.sharedState);
 
-    this.traverser = this.createTraverser(options?.signal, undefined, options?.env, options?.maxDepth, {
-      root: resumeRoot,
-      initialContext: resumeInitialContext,
-      preserveRecorders: true,
-      ...(existingRuntime ? { existingRuntime } : {}),
-      // Hand the per-subflow scope captures down to SubflowExecutor.
-      // Always present on a checkpoint — empty `{}` for root pauses.
-      subflowStatesForResume: sfStates,
-      ...(subflowsOverride && { subflowsOverride }),
-    });
+    this.traverser = this.createTraverser(
+      options?.signal,
+      undefined,
+      options?.env,
+      options?.maxDepth,
+      options?.maxIterations,
+      {
+        root: resumeRoot,
+        initialContext: resumeInitialContext,
+        preserveRecorders: true,
+        ...(existingRuntime ? { existingRuntime } : {}),
+        // Hand the per-subflow scope captures down to SubflowExecutor.
+        // Always present on a checkpoint — empty `{}` for root pauses.
+        subflowStatesForResume: sfStates,
+        ...(subflowsOverride && { subflowsOverride }),
+      },
+    );
 
     // Fire onResume event on all recorders (flow + scope). Stamp the
     // synthetic TraversalContext for the resumed stage with the NEW
@@ -1208,7 +1217,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._currentRunId = generateRunId(); // Fresh runId per run() call
     this._hasRunBefore = true; // mark so a later resume() takes the
     // same-executor branch (reuse runtime, accumulate execution tree).
-    this.traverser = this.createTraverser(signal, validatedInput, options?.env, options?.maxDepth);
+    this.traverser = this.createTraverser(
+      signal,
+      validatedInput,
+      options?.env,
+      options?.maxDepth,
+      options?.maxIterations,
+    );
     // Set AFTER all sync validation throws (nothing above can leak the flag);
     // no await between the top-of-method check and here, so this is race-free.
     this._isExecuting = true;

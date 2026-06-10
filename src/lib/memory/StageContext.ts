@@ -372,6 +372,34 @@ export class StageContext {
   }
 
   getSnapshot(): StageSnapshot {
+    // Iterative walk (explicit work stack), NOT recursion: the execution
+    // tree deepens by one level per executed stage along `next` chains, and
+    // the trampolined traverser allows chains/loops of tens of thousands of
+    // stages — far deeper than a recursive serializer can walk before
+    // "Maximum call stack size exceeded".
+    const root = this.snapshotSelf();
+    const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
+    while (work.length > 0) {
+      const { ctx, snap } = work.pop()!;
+      if (ctx.next) {
+        const nextSnap = ctx.next.snapshotSelf();
+        snap.next = nextSnap;
+        work.push({ ctx: ctx.next, snap: nextSnap });
+      }
+      if (ctx.children) {
+        snap.children = ctx.children.map((child) => {
+          const childSnap = child.snapshotSelf();
+          work.push({ ctx: child, snap: childSnap });
+          return childSnap;
+        });
+      }
+    }
+    return root;
+  }
+
+  /** Snapshot of THIS context's own fields — `next`/`children` are filled
+   *  in by the iterative walk in `getSnapshot`. */
+  private snapshotSelf(): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
       runtimeStageId: this.runtimeStageId || undefined,
@@ -402,12 +430,6 @@ export class StageContext {
     }
     if (this.debug.flowMessages.length > 0) {
       snapshot.flowMessages = this.debug.flowMessages;
-    }
-    if (this.next) {
-      snapshot.next = this.next.getSnapshot();
-    }
-    if (this.children) {
-      snapshot.children = this.children.map((c) => c.getSnapshot());
     }
     return snapshot;
   }

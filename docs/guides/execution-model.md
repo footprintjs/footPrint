@@ -42,27 +42,39 @@ if you need to keep results from several runs, capture them after each run.
 
 ## Depth budget — what the 500 actually limits
 
-The traverser executes stages by recursive `await`, so frames for linear
-`next` hops and loop iterations **do not unwind** until the chain settles.
-`MAX_EXECUTE_DEPTH = 500` caps the **longest chain within one traverser** —
-not the whole run: every subflow mount gets a **fresh traverser with its own
-depth counter**, and completed fork branches release their budget.
+The traverser is a **trampoline**: linear `next` hops, loop edges
+(`loopTo` / dynamic next), and dynamic re-entries are followed in an
+iterative driver loop, so neither the call stack nor the retained promise
+chain grows with chain length or loop count. `MAX_EXECUTE_DEPTH = 500` caps
+**tree nesting only** — one tick per fork child, per decider/selector branch
+dispatch that must return to its invoker (a decider with its own
+continuation), per subflow mount frame in the parent (the subflow body runs
+on a fresh traverser with its own budget).
 
 Practical consequences:
 
-- A flat chart can execute at most ~500 chained stages/loop hops per
-  traverser. Measured against agent-style loop charts: ≈ 7 frames per loop
-  iteration → the wall sits around iteration 71 for a full-featured loop.
-- The loop-iteration limit (default 1000, `ContinuationResolver`) is
-  **independent of** the depth guard — for loop-heavy charts the depth guard
-  fires first.
-- `RunOptions.maxDepth` raises the guard, but past a point that trades a
-  clear, named error for a real V8 stack overflow. Treat ~500 chained frames
-  per traverser as the supported envelope until the trampoline lands (see
-  the backlog).
+- **Linear chains and loop iterations are unbounded by depth.** A 5,000-stage
+  chain or a 10,000-iteration `loopTo` loop runs at the default `maxDepth`
+  with a flat stack (measured: 10k iterations of an agent-style loop chart
+  in ~0.5 s, peak engine depth 1 — pre-trampoline the same chart hit the
+  depth wall at iteration 249).
+- **The loop-iteration limit is the binding constraint for loops** — default
+  1000 per node, with its own actionable error
+  (`Maximum loop iterations (N) exceeded for node '…'`). Raise it per run
+  via `RunOptions.maxIterations` (propagates to subflows); the documented
+  limit is now actually reachable instead of the depth guard firing first.
+- **Memory still bounds long loops.** Per-iteration state deltas, commit-log
+  entries, and narrative entries all accumulate. In particular, appending to
+  a tracked **array** each iteration makes every commit record the full
+  changed array — retained commit-log size grows O(N²) and OOMs around a
+  couple thousand iterations on an 8 GB machine. Keep tracked state bounded
+  (scalars, windowed arrays) for long loops, or accept the cost deliberately.
+- `RunOptions.maxDepth` still guards runaway **recursive composition**
+  (unbounded nested dispatch). 500 covers any realistic chart shape; raising
+  it is rarely needed now that chains and loops don't consume it.
 
-Splitting long linear chains into subflows resets the budget at each mount and
-is the supported way to run deeper pipelines today.
+Splitting long linear chains into subflows is no longer necessary for depth —
+compose subflows for meaning, not to dodge a frame budget.
 
 ## Clone-cost model — what a stage pays today
 
@@ -81,6 +93,11 @@ state, so one huge key taxes every stage); prefer `getValueDirect` for
 read-hot inner loops; batch array writes with `$batchArray`. The lazy-buffer
 and summary-tracking optimizations are planned (backlog Phase 3) and will
 revise this table.
+
+
+**Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —
+`resume()` does not inherit the values passed to `run()`; supply them again
+(iteration counters reset on resume).
 
 ## Pause / resume — what a checkpoint captures
 
@@ -146,7 +163,8 @@ fine for a one-off pause, real money for snapshot-polling consumers).
 | Dimension | Supported today |
 |---|---|
 | Concurrency | one in-flight execution per executor (guarded); executor-per-run on servers |
-| Chain length | ~500 chained stages/loop hops per traverser; subflow mounts reset the budget |
+| Chain length | unbounded (flat trampoline); depth guards tree NESTING only (default 500) |
+| Loop iterations | bounded by `maxIterations` (default 1000 per node, raisable per run) and by memory — not by stack depth |
 | State size | modest values; whole-state clone on first read per stage |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
 | Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |
