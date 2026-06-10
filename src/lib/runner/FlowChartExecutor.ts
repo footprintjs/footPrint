@@ -359,6 +359,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       });
     }
 
+    // 2b. Deferred-observer scope tap (RFC-001 Block 7) — a synthetic
+    // recorder whose hooks CAPTURE into the bounded queue instead of doing
+    // observer work. It rides the same per-stage recorder list as inline
+    // recorders, so it receives exactly the post-redaction events they do.
+    // Absent (zero work, identical list) when nobody opted into deferral.
+    const scopeTap = this.deferredTier?.buildScopeTap();
+    if (scopeTap) {
+      modifiers.push((scope) => {
+        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(scopeTap);
+      });
+    }
 
     // 3. Redaction policy (conditional — only when policy is set)
     if (this.redactionPolicy) {
@@ -836,6 +847,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     };
     for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
 
+    // Deferred tier (RFC-001): these executor-synthesized onResume events
+    // bypass the per-stage dispatch sites, so capture them directly.
+    if (this.deferredTier) {
+      this.deferredTier.capture('flow', 'onResume', resumeRuntimeStageId, this._currentRunId, flowResumeEvent);
+      this.deferredTier.capture(
+        'scope',
+        'onResume',
+        scopeResumeEvent.runtimeStageId,
+        scopeResumeEvent.pipelineId,
+        scopeResumeEvent,
+      );
+    }
 
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
     // flag); no await between the top-of-method check and here, so race-free.
@@ -1317,6 +1340,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       recorders.push(this.combinedRecorder);
     }
     recorders.push(...this.flowRecorders);
+    // Deferred-observer flow tap (RFC-001 Block 7) — captures every flow
+    // event for deferred listeners. Appended like any other flow recorder,
+    // so the FlowRecorderDispatcher site needs no tier logic of its own.
+    const flowTap = this.deferredTier?.buildFlowTap();
+    if (flowTap) recorders.push(flowTap);
     return recorders.length > 0 ? recorders : undefined;
   }
 

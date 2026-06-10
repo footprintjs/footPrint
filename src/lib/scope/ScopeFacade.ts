@@ -21,6 +21,7 @@ import {
 import type { ExecutionEnv } from '../engine/types.js';
 import { nativeHas as lodashHas, nativeSet as lodashSet } from '../memory/pathOps.js';
 import { StageContext } from '../memory/StageContext.js';
+import { invokeRecorderHook } from '../recorder/invokeHook.js';
 import { hasCircularReference, isDevMode } from './detectCircular.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
@@ -314,10 +315,11 @@ export class ScopeFacade {
     // other scope events. A throwing recorder's error is surfaced via
     // onError on the other recorders; the emit loop continues unaffected.
     for (const recorder of this._recorders) {
-      const onEmit = recorder.onEmit;
-      if (typeof onEmit !== 'function') continue;
+      if (typeof recorder.onEmit !== 'function') continue;
       try {
-        onEmit.call(recorder, event);
+        // Shared invoke helper — the SAME primitive the deferred tier uses
+        // at delivery time, so the two delivery paths cannot drift.
+        invokeRecorderHook(recorder, 'onEmit', event);
       } catch (error) {
         this._invokeHook('onError', {
           stageName: this._stageName,
@@ -723,10 +725,11 @@ export class ScopeFacade {
   private _invokeHook(hook: keyof Omit<ScopeRecorder, 'id'>, event: unknown): void {
     for (const recorder of this._recorders) {
       try {
-        const hookFn = recorder[hook];
-        if (typeof hookFn === 'function') {
-          (hookFn as (event: unknown) => void).call(recorder, event);
-        }
+        // Shared invoke helper — the SAME primitive the deferred tier uses
+        // at delivery time (RFC-001 §9 mitigation): lookup + `.call(this)`
+        // semantics live in exactly one place, so the inline and deferred
+        // paths cannot drift.
+        invokeRecorderHook(recorder, hook, event);
       } catch (error) {
         if (hook !== 'onError') {
           this._invokeHook('onError', {
