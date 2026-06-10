@@ -216,7 +216,10 @@ describe('FlushDriver — property', () => {
   it('any arrival pattern fully drains, FIFO, with flushes ≤ checkpoints ≤ arrivals', () => {
     fc.assert(
       fc.property(fc.array(fc.integer({ min: 1, max: 20 }), { minLength: 1, maxLength: 30 }), (batchSizes) => {
-        const h = makeHarness();
+        // Infinity budget: this property is about arrival patterns + the
+        // armed-once invariant, not the (real-clock) budget — a GC pause
+        // must not be able to split a batch into two flushes here.
+        const h = makeHarness({ flushBudgetMs: Infinity });
         let next = 0;
         for (const size of batchSizes) {
           for (let i = 0; i < size; i++) {
