@@ -148,19 +148,22 @@ The full flow for a single stage:
 2. Stage function receives a scope object (built from StageContext by the scope layer)
 
 3. Stage writes → StageContext → TransactionBuffer
+   (buffer constructed lazily on the stage's FIRST write — #13)
    (staged in buffer, not applied to shared memory yet)
    (every write recorded in operation trace)
 
-4. Stage reads → StageContext → TransactionBuffer (if buffered) → SharedMemory (fallback)
+4. Stage reads → StageContext → TransactionBuffer (if a write created one) → SharedMemory (fallback)
    (read-after-write: sees own uncommitted writes)
+   (before any write: reads go straight to SharedMemory — zero clones)
 
 5. Stage finishes → engine calls ctx.commit():
    a. TransactionBuffer.commit()  → returns { overwrite, updates, trace }
+      (no buffer = stage never wrote → empty bundle recorded, zero clones)
    b. SharedMemory.applyPatch()   → state updated (visible to next stage)
    c. EventLog.record()           → history recorded (replayable)
    d. DiagnosticCollector.addLog() → trace logged (debuggable)
 
-6. Next stage gets a fresh StageContext → same SharedMemory, fresh buffer
+6. Next stage gets a fresh StageContext → same SharedMemory, fresh (lazy) buffer
 ```
 
 For parallel execution (fork/join):

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — truly lazy TransactionBuffer: the buffer is constructed on a stage's first WRITE, never on reads or commit (backlog #13)
+
+- **Reads never construct the transaction buffer.** Before a stage's first
+  write, `getValue`/`getValueDirect` read straight from `SharedMemory` —
+  read-your-writes only matters once a staged write exists, and after the
+  first write reads consult the buffer exactly as before. Previously the
+  buffer (2× `structuredClone` of the ENTIRE shared state) was constructed
+  on the stage's FIRST state access of any kind — including `commit()`,
+  which runs after EVERY stage — so even a stage that never touched state
+  paid the full-state clone freight.
+- **`commit()` with no buffer is a zero-clone fast path** with the same
+  observable outcome as an empty commit: the (empty) bundle is still
+  recorded in the commit log — every executed stage remains a time-travel
+  cursor stop — and the commit observer still fires; there is just no
+  buffer construction and no `applyPatch` replay (which itself
+  `structuredClone`d the whole state per commit).
+- **Output is byte-identical.** Full snapshot JSON (commit log included)
+  and narrative entries for a probe chart (reads-only stage + no-touch
+  stage + same-value rewrite + writing stage) diff clean against the
+  pre-#13 implementation. Net-change commit semantics are untouched:
+  same-value writes and write-then-revert still produce empty bundles.
+- **Measured (Apple M2, 1MB shared state — `bench/BASELINE.md` §A):** first
+  tracked read 4.97ms → **3µs**; per no-touch stage 10.19ms → **~40µs**;
+  seed+read-only run 21.66ms → 14.61ms. Per-read VALUE clones (tracked-read
+  freight, backlog #14) intentionally unchanged.
+- Guarded by `test/lib/memory/scenario/lazy-buffer.test.ts` — clone-count
+  assertions (instrumented `structuredClone`) fail against the eager-buffer
+  implementation; semantics-parity assertions pass against both.
+
 ## [9.0.0]
 
 ### BREAKING — trampolined next/loop continuations: the depth ceiling on chains and loops is gone (backlog #15)

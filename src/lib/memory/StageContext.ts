@@ -105,9 +105,15 @@ export class StageContext {
     return this.redactedSharedMemory;
   }
 
-  /** Lazily creates the transaction buffer on the stage's FIRST state access —
-   *  reads included, so read-only stages currently pay the clone cost too.
-   *  (Truly lazy-on-write is backlog Phase-3 #13.) */
+  /** Lazily creates the transaction buffer on the stage's FIRST WRITE (#13).
+   *
+   *  Reads NEVER construct it: read-your-writes only matters once a staged
+   *  write exists, so before that {@link getValue}/{@link getValueDirect} read
+   *  straight from SharedMemory and {@link commit} records an empty bundle —
+   *  all with ZERO `structuredClone`s of the shared state. The `baseSnapshot`
+   *  captured here is identical to one captured at stage entry, because stage
+   *  writes only reach SharedMemory at commit time — the state cannot have
+   *  changed under this stage between its entry and its first write. */
   getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
       this.buffer = new TransactionBuffer(this.sharedMemory.getState());
@@ -203,10 +209,20 @@ export class StageContext {
 
   // ── Read operations ────────────────────────────────────────────────────
 
+  /** Buffer-aware read. Consults staged writes when the buffer exists
+   *  (read-your-writes), otherwise reads straight from SharedMemory — reads
+   *  never construct the buffer (#13), so a stage that never writes performs
+   *  zero clones of the shared state. */
+  private readState(path: string[], key?: string): unknown {
+    if (this.buffer) {
+      const fromPatch = this.buffer.get(this.withNamespace(path, key as string));
+      if (typeof fromPatch !== 'undefined') return fromPatch;
+    }
+    return this.sharedMemory.getValue(this.runId, path, key);
+  }
+
   getValue(path: string[], key?: string, description?: string) {
-    const buf = this.getTransactionBuffer();
-    const fromPatch = buf.get(this.withNamespace(path, key as string));
-    const value = typeof fromPatch !== 'undefined' ? fromPatch : this.sharedMemory.getValue(this.runId, path, key);
+    const value = this.readState(path, key);
     // Track user-level read (pre-namespace) for memory view
     if (key !== undefined) {
       const userKey = path.length > 0 ? [...path, key].join('.') : key;
@@ -221,9 +237,7 @@ export class StageContext {
   /** Read state without tracking in _stageReads or paying structuredClone cost.
    *  Used by ScopeFacade.getValueSilent() for array proxy internal operations. */
   getValueDirect(path: string[], key?: string): unknown {
-    const buf = this.getTransactionBuffer();
-    const fromPatch = buf.get(this.withNamespace(path, key as string));
-    return typeof fromPatch !== 'undefined' ? fromPatch : this.sharedMemory.getValue(this.runId, path, key);
+    return this.readState(path, key);
   }
 
   getRoot(key: string) {
@@ -253,8 +267,28 @@ export class StageContext {
   }
 
   commit(): void {
-    const buf = this.getTransactionBuffer();
-    const bundle = buf.commit();
+    if (!this.buffer) {
+      // Truly-lazy fast path (#13): no write ever constructed the buffer, so
+      // the stage's net change is empty BY CONSTRUCTION. Same observable
+      // outcome as an empty commit — the (empty) bundle is still recorded so
+      // every executed stage remains a time-travel cursor stop — but with
+      // ZERO clones: no buffer construction, no applyPatch replay.
+      this.eventLog?.record({
+        overwrite: {},
+        updates: {},
+        redactedPaths: [],
+        trace: [],
+        stage: this.stageName,
+        stageId: this.stageId,
+        runtimeStageId: this.runtimeStageId,
+      });
+      if (this._commitObserver) {
+        this._commitObserver({ ...this._stageWrites });
+      }
+      return;
+    }
+
+    const bundle = this.buffer.commit();
     const commitBundle = {
       ...bundle,
       stage: this.stageName,

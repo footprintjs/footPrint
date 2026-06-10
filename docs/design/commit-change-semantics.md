@@ -38,8 +38,10 @@ should answer *"what did this stage change?"*, not *"what did this stage type?"*
 
 ## How it works
 
-At commit time the buffer holds both `baseSnapshot` (state when the stage began)
-and `workingCopy` (state after all its writes). For each touched path it keeps
+At commit time the buffer holds both `baseSnapshot` (state when the stage began —
+captured lazily at the stage's *first write* since #13, which is identical to
+stage-entry state because stage writes only reach SharedMemory at commit) and
+`workingCopy` (state after all its writes). For each touched path it keeps
 the path **only if** `deepEqual(before, after)` is false. Surviving `set` paths
 copy their final value from `overwritePatch`; surviving `merge` paths copy their
 accumulated delta from `updatePatch` — so the `set`/`merge` verb is preserved and
@@ -68,7 +70,9 @@ and must not be collapsed into one.
 A stage that nets no change commits an **empty patch — not nothing**.
 `StageContext.commit()` records the bundle **unconditionally**, so every executed
 stage keeps its `runtimeStageId` marker and stays a time-travel cursor stop. Only
-its patch is empty.
+its patch is empty. (Since #13, a stage that never *wrote* records that same
+empty bundle through a zero-clone fast path — no buffer is ever constructed —
+with identical commit-log output.)
 
 This is the property that makes the change safe for the commit-indexed time
 machine: the **number and order of commits is unchanged** (one per stage, as

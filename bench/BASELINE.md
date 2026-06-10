@@ -6,14 +6,23 @@ and diff against this file in those PRs.
 
 **Machine:** Apple M2, 8 GB RAM, macOS (darwin arm64)
 **Node:** v22.16.0
-**Date:** 2026-06-09 (sections A–C + micro: v8.1.0 @ 29c9edc) / 2026-06-10 (section D re-measured post-#15 trampoline)
-**Source version:** 8.1.0 (worktree of main @ 29c9edc); section D updated on the `trampoline` branch (post-v8.3.0)
+**Date:** 2026-06-09 (sections A–C + micro: v8.1.0 @ 29c9edc) / 2026-06-10 (section D re-measured post-#15 trampoline; sections A–B + micro re-measured post-#13 lazy buffer)
+**Source version:** 8.1.0 (worktree of main @ 29c9edc); section D updated on the `trampoline` branch (post-v8.3.0); section A updated on the `lazy-buffer` branch (post-v9.0.0)
 
 > **#15 SHIPPED:** `executeNode` is now an iterative trampoline driver — see
 > section D for before/after. Micro + linear-chain benches were re-run on the
 > trampoline branch and are within run-to-run noise of the 8.1.0 numbers below
 > (500-stage linear: 22.24ms → 20.96ms; commit/replay/clone unchanged) — no
 > >20% regressions.
+
+> **#13 SHIPPED:** the TransactionBuffer is now constructed on a stage's first
+> WRITE — reads never construct it, and `commit()` with no buffer records the
+> (empty) bundle with zero clones. Section A has before/after. Micro benches
+> re-run post-#13: read-throughput rows improved (reads no longer construct a
+> buffer — Read 1,000 keys 843µs → 623µs, Read 100,000 keys 81.27ms → 65.52ms);
+> write/clone/replay/commit/linear-chain rows within run-to-run noise. The
+> depth-probe long run improved 508ms → 468ms (51µs → 47µs/iter) because its
+> loop body includes non-writing stages.
 
 How these were produced:
 
@@ -32,6 +41,29 @@ measured rounds. Expect a few percent run-to-run jitter; the structural ratios
 
 ## A. Read-heavy stage over ~1MB shared state (`bench:baseline`)
 
+### POST-#13 (lazy buffer — 2026-06-10, current)
+
+| Benchmark | Median | Detail |
+|---|---|---|
+| First tracked read (1MB state) | **3µs** | was 4.97ms — reads never construct the buffer |
+| 2,000 small tracked reads | 1.09ms | 1,842,752 ops/s |
+| 50 tracked reads of 1MB value | 129.65ms | unchanged (within noise) — the per-read VALUE clone is #14's cost, untouched by design |
+| Run: seed(1MB) + 1-small-read stage | 14.61ms | was 21.66ms — the read-only stage clones nothing; the seed stage still pays its own write freight |
+| Run: seed(1MB) + touch-nothing stage | 14.86ms | was 21.44ms — empty commit records the bundle with zero clones |
+| Δ one-read vs no-touch | ≈0 (-247µs) | both stage kinds are now genuinely free |
+| Per no-touch stage over 1MB state | **40µs** | was 10.19ms — regression guard: must stay µs (40–131µs across runs, jitter) |
+
+**Finding 1 — RESOLVED by #13:** the per-stage freight was never read-specific —
+`commit()` constructed the buffer unconditionally after EVERY stage. #13 moved
+buffer construction to the stage's first WRITE: reads consult the buffer only if
+it exists (read-your-writes preserved), and a commit with no buffer records the
+same empty bundle with ZERO clones (no buffer construction, no applyPatch
+replay). Commit-log/narrative output is byte-identical to pre-#13. Guarded by
+`test/lib/memory/scenario/lazy-buffer.test.ts` (clone-count assertions fail on
+the eager-buffer implementation).
+
+### PRE-#13 (v8.1.0 — historical)
+
 | Benchmark | Median | Detail |
 |---|---|---|
 | First tracked read (1MB state) | 4.97ms | TransactionBuffer construction: 2× structuredClone of full state |
@@ -42,8 +74,8 @@ measured rounds. Expect a few percent run-to-run jitter; the structural ratios
 | Δ one-read vs no-touch | ≈0 (216µs) | BOTH pay full freight (see finding 1) |
 | Per no-touch stage over 1MB state | 10.19ms | from 1-vs-5-stage charts; #13 target: ~0 |
 
-**Finding 1 (refines the #13 brief):** the read-only-stage freight is real, but it
-is NOT read-specific. `context.commit()` runs after EVERY stage
+**Finding 1 (pre-#13, refines the #13 brief):** the read-only-stage freight is
+real, but it is NOT read-specific. `context.commit()` runs after EVERY stage
 (FlowchartTraverser.ts:736) and `StageContext.commit()` calls
 `getTransactionBuffer()` unconditionally (StageContext.ts:256) — so even a stage
 that never touches state constructs the buffer (2× structuredClone of the entire
@@ -59,6 +91,14 @@ stages become free" goal won't show up in this bench.
 | Iteration latency (iters 1–10) | 46µs | |
 | Iteration latency (iters 91–100) | 424µs | **9.2× early** — O(state) clone per iteration |
 | Peak RSS | 212.5MB | Δ from bench-B start: 3.7MB (process-wide RSS; bench A runs first) |
+
+**Post-#13 re-measurement (2026-06-10):** 27.94ms wall / 44µs early / 401µs late
+— within run-to-run noise of the table above, as expected: this chart's ONLY
+loop stage writes every iteration, so it constructs the buffer regardless and
+the late-iteration O(state) clone freight is the WRITING stage's own (that is
+#14/commit-cost territory, not #13's). Loops whose bodies include non-writing
+stages DO improve — the depth-probe long run (Context → sf-tools → Decide,
+scalar state) dropped 508ms → 468ms for 10,000 iterations (51µs → 47µs/iter).
 
 ## C. Deep-nested subflow mounts (`bench:baseline`)
 
@@ -149,7 +189,7 @@ limit becomes binding") is met, verified above.
 | structuredClone 1KB | 2µs | |
 | structuredClone 10KB | 9µs | |
 | structuredClone 100KB | 76µs | |
-| structuredClone 1MB | 2.47ms | the unit of #13's freight: buffer construction = 2× this |
+| structuredClone 1MB | 2.47ms | the unit of buffer-construction freight (2× this) — post-#13 paid only by stages that WRITE |
 | Replay 10 commits | 14µs | |
 | Replay 50 commits | 144µs | |
 | Replay 100 commits | 441µs | |

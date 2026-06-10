@@ -9,20 +9,19 @@
  * guard probe lives in bench/depth-probe.ts; micro benches in bench/run.ts.
  *
  * A. Read-heavy stage over ~1MB shared state
- *    - first tracked read  → constructs the TransactionBuffer, which today
- *      does TWO structuredClones of the ENTIRE shared state
- *      (TransactionBuffer.ts:25-26 via StageContext.getValue →
- *      getTransactionBuffer) — read-only stages pay full freight
+ *    - first tracked read  → POST-#13 this is ~free: reads never construct
+ *      the TransactionBuffer (StageContext.readState reads straight from
+ *      SharedMemory until the stage's first WRITE). Pre-#13 it paid TWO
+ *      structuredClones of the ENTIRE shared state — see bench/BASELINE.md
+ *      history.
  *    - N small tracked reads → per-read overhead (each read structuredClones
- *      the value into _stageReads, StageContext.ts:213)
- *    - N reads of the 1MB value itself → value-clone-dominated reads
- *    - read-only vs touch-nothing vs stage-count scaling → BASELINE FINDING:
- *      the one-read/no-touch delta is ~0 because `context.commit()` runs for
- *      EVERY stage (FlowchartTraverser.ts:736) and `StageContext.commit()`
- *      constructs the buffer unconditionally (StageContext.ts:256) — so even
- *      a stage that never touches state pays the 2× full-state clone. The
- *      per-stage freight is exposed by comparing charts with 1 vs 5 no-touch
- *      stages. #13 must make commit() skip buffer construction too.
+ *      the value into _stageReads, StageContext.getValue — backlog #14)
+ *    - N reads of the 1MB value itself → value-clone-dominated reads (#14)
+ *    - read-only vs touch-nothing vs stage-count scaling → both deltas must
+ *      stay ≈0 POST-#13 because read-only AND no-touch stages clone nothing:
+ *      `StageContext.commit()` records an empty bundle without constructing
+ *      the buffer. The 1-vs-5 no-touch comparison is the per-stage regression
+ *      guard (pre-#13 it exposed ~10ms/stage of buffer freight over 1MB).
  *
  * B. Loop growth — 100-iteration loopTo chart appending ~1KB messages to a
  *    growing history array (simulates agent message history). Per-iteration
@@ -81,8 +80,10 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     .addFunction(
       'Reader',
       async (scope) => {
-        // First tracked read of the stage — constructs the TransactionBuffer
-        // (2× structuredClone of the entire ~1MB shared state today).
+        // First tracked read of the stage. POST-#13 this no longer constructs
+        // the TransactionBuffer (reads never do) — only the small tracked-read
+        // value clone remains. Pre-#13 it paid 2× structuredClone of the
+        // entire ~1MB shared state.
         let t0 = performance.now();
         scope.$getValue('k_0');
         firstReadMs = performance.now() - t0;
@@ -118,7 +119,7 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
   results.push({
     name: 'First tracked read (1MB state)',
     value: formatMs(median(firstArr)),
-    detail: 'TransactionBuffer construction: 2× structuredClone of full state',
+    detail: 'post-#13: reads never construct the buffer (was 2× full-state clone)',
   });
   const smallMed = median(smallArr);
   results.push({
@@ -136,11 +137,13 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
   // Read-only-stage variant: identical seed, second stage does ONE small read
   // vs a stage that never touches state.
   //
-  // BASELINE FINDING: the delta is ~0 — NOT because read-only stages are free,
-  // but because `context.commit()` runs after EVERY stage and constructs the
-  // buffer unconditionally. Every stage over 1MB state pays the ~2× full-state
-  // clone today. The 1-vs-5 no-touch comparison below isolates that per-stage
-  // freight end-to-end. #13's target: BOTH deltas ≈ 0.
+  // PRE-#13 FINDING (history): the delta was ~0 — NOT because read-only stages
+  // were free, but because `context.commit()` ran after EVERY stage and
+  // constructed the buffer unconditionally (~2× full-state clone per stage).
+  // POST-#13: the buffer is constructed on the first WRITE only; reads and
+  // empty commits clone nothing, so BOTH deltas are ≈0 because both stage
+  // kinds are now genuinely free. The 1-vs-5 no-touch comparison isolates the
+  // residual per-stage freight end-to-end (regression guard: must stay µs).
   const oneReadChart = flowChart<LooseState>('Seed', seedFn, 'seed')
     .addFunction(
       'OneRead',
@@ -174,22 +177,22 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
   results.push({
     name: 'Run: seed(1MB) + 1-small-read stage',
     value: formatMs(oneRead.median),
-    detail: 'read-only stage pays buffer construction',
+    detail: 'post-#13: read-only stage clones nothing (seed stage still pays its write freight)',
   });
   results.push({
     name: 'Run: seed(1MB) + touch-nothing stage',
     value: formatMs(noTouch.median),
-    detail: 'pays it too — commit() constructs the buffer',
+    detail: 'post-#13: empty commit records the bundle with zero clones',
   });
   results.push({
     name: 'Δ one-read vs no-touch',
     value: formatMs(oneRead.median - noTouch.median),
-    detail: '≈0 today: BOTH pay full freight (see header)',
+    detail: '≈0: both stage kinds are free post-#13',
   });
   results.push({
     name: 'Per no-touch stage over 1MB state',
     value: formatMs((noTouch5.median - noTouch.median) / 4),
-    detail: 'from 1-vs-5-stage charts; #13 target: ~0',
+    detail: 'from 1-vs-5-stage charts; regression guard: must stay µs (was 10.19ms pre-#13)',
   });
 
   return results;

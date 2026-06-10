@@ -775,9 +775,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * on clone failure we sanitize the diagnostic bags (non-cloneable values
    * become '[non-serializable: …]' markers — the live engine bags are never
    * touched) and retry. If the retry STILL fails, the violation is in
-   * consumer-owned data (realistically `pauseData` — a function in shared
-   * state already rejects at stage entry when TransactionBuffer clones the
-   * context) and we throw a DESCRIPTIVE contract error naming the offending
+   * consumer-owned data (realistically `pauseData` — a function can never
+   * reach shared state in the first place: TransactionBuffer clones every
+   * written value at write time, so the offending write already rejected)
+   * and we throw a DESCRIPTIVE contract error naming the offending
    * checkpoint field(s). A naked DataCloneError never escapes.
    *
    * Subflow scope capture (`subflowStates`) survives ONLY on the signal — the

@@ -82,17 +82,19 @@ State safety is bought with structured clones. Current costs per stage:
 
 | Operation | Cost today |
 |---|---|
-| First tracked **read** in a stage | Constructs the transaction buffer: **two `structuredClone`s of the entire shared state** |
+| Stage's first **write** | Constructs the transaction buffer: **two `structuredClone`s of the entire shared state** |
+| Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
 | Each tracked read (`getValue`) | One `structuredClone` of the value (for the read-tracking view) |
 | Each net-changing write | ~3 value clones (patch, write-tracking, commit diff) |
 | TypedScope object/array write | + one JSON round-trip to unwrap the proxy |
-| `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) — but the stage's *first* state access of any kind still constructs the buffer |
+| `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
+| Commit of a read-only / no-touch stage | **Zero clones** — the (empty) commit bundle is still recorded, but without buffer construction or state replay |
 
 Rules of thumb: keep shared-state values modest (the buffer clones the *whole*
-state, so one huge key taxes every stage); prefer `getValueDirect` for
-read-hot inner loops; batch array writes with `$batchArray`. The lazy-buffer
-and summary-tracking optimizations are planned (backlog Phase 3) and will
-revise this table.
+state on a stage's first write, so one huge key taxes every **writing** stage —
+read-only stages are free); prefer `getValueDirect` for read-hot inner loops;
+batch array writes with `$batchArray`. The read-tracking clone opt-in (backlog
+Phase 3, #14) is planned and will revise the tracked-read row.
 
 
 **Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —
@@ -147,8 +149,8 @@ each:**
   real persistence. A naked `DataCloneError` never escapes the executor.
 - **Shared state** (stage writes, the executor's `initialContext` /
   `defaultValuesForContext` options) — must be structured-cloneable from the
-  start: a function here rejects at **stage entry**, when the transaction
-  buffer clones the context — long before any pause.
+  start: a function here rejects at **write time**, when the transaction
+  buffer `structuredClone`s the staged value — long before any pause.
 
 `getSnapshot().sharedState` is different: in production it remains a
 **zero-copy live view** of working memory — treat it as read-only. In dev
@@ -165,6 +167,6 @@ fine for a one-off pause, real money for snapshot-polling consumers).
 | Concurrency | one in-flight execution per executor (guarded); executor-per-run on servers |
 | Chain length | unbounded (flat trampoline); depth guards tree NESTING only (default 500) |
 | Loop iterations | bounded by `maxIterations` (default 1000 per node, raisable per run) and by memory — not by stack depth |
-| State size | modest values; whole-state clone on first read per stage |
+| State size | modest values; whole-state clone on first WRITE per stage (read-only stages clone nothing) |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
 | Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |
