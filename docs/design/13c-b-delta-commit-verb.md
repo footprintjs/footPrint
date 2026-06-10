@@ -1,7 +1,14 @@
 # Design memo — #13c-B: the `append` commit verb (delta commits, lossless)
 
-> Status: **DRAFT — decisions pending** (see §8). Audience: library
-> maintainers + downstream consumers (agentfootprint, lens, explainable-ui).
+> Status: **ACCEPTED (2026-06-11)** — all §8 recommendations adopted, with one
+> naming amendment: the opt-in option is **`commitValues: 'full' | 'delta'`**
+> (NOT `commitVerbs: 'v1' | 'v2'` — opaque version tokens rejected; the name
+> completes the `readTracking`/`writeTracking` dial family and says what it
+> governs: how commit VALUES are encoded). The snapshot discriminant is
+> likewise **`snapshot.commitValues: 'full' | 'delta'`** (not
+> `commitLogFormat: 1 | 2`). The memo body below has been updated to the
+> accepted naming throughout. Audience: library maintainers + downstream
+> consumers (agentfootprint, lens, explainable-ui).
 > Base: footprintjs v9.5.0.
 > Related: [`commit-change-semantics.md`](commit-change-semantics.md) (the
 > change-only contract this extends),
@@ -32,9 +39,9 @@ shows every shipped consumer either reads only `trace.path`/indices
 (unaffected) or sits on the event tier, not the bundle tier (audit chain #20,
 OTel #19, narrative, eui CommitFlow — all unaffected). The one real semantic
 break is "read `bundle.overwrite[key]` as *the full value written*", which
-gets a replacement helper. Recommended path: opt-in
-`commitVerbs: 'v2'` in a minor release, agentfootprint opts in immediately,
-default flips at the next major (§5).
+gets a replacement helper. Accepted path: opt-in
+`commitValues: 'delta'` in a minor release, agentfootprint opts in
+immediately, default flips at the next major (§5).
 
 ---
 
@@ -135,11 +142,12 @@ export interface TraceEntry {
   ([`ScopeFacade.ts:577-580`](../../src/lib/scope/ScopeFacade.ts)) and the
   commit-observer type already names `operation: 'set'|'update'|'delete'`
   ([`StageContext.ts:422`](../../src/lib/memory/StageContext.ts)) — only the
-  **bundle** flattens delete into `set: undefined`. v2 maps `deleteValue`
-  through a real `delete` trace entry; replay removes the key
+  **bundle** flattens delete into `set: undefined`. Delta mode maps
+  `deleteValue` through a real `delete` trace entry; replay removes the key
   (`nativeDelete` to add in `pathOps.ts`).
 
-No `replace-at-index` / `truncate` verbs in v1 — open decision §8.1; any
+No `replace-at-index` / `truncate` verbs in the first release — decision
+§8.1; any
 non-append array change falls back to today's `set` (full value, lossless).
 
 ### 2.2 Detection — in `toChangeOnlyPayload()`, at commit
@@ -202,10 +210,10 @@ view (safe under the immutable-after-swap invariant already relied on by
 `stateView`, [`StageContext.ts:209-215`](../../src/lib/memory/StageContext.ts))
 so prefix elements compare by identity — is **deliberately a separate
 decision** (§8.5): it touches the #13 first-touch anchor that was
-adversarially reviewed for parallel forks. v1 of #13c-B works without it;
-heap is the OOM, and heap is fixed either way.
+adversarially reviewed for parallel forks. The first release of #13c-B works
+without it; heap is the OOM, and heap is fixed either way.
 
-(Also out of v1 scope, listed for honesty: the **write-time** clone in
+(Also out of first-release scope, listed for honesty: the **write-time** clone in
 `set()` ([`TransactionBuffer.ts:42`](../../src/lib/memory/TransactionBuffer.ts))
 and the **apply-time** whole-state clone in `applySmartMerge`
 ([`utils.ts:242`](../../src/lib/memory/utils.ts)) remain O(i)/O(state) wall
@@ -233,7 +241,7 @@ keeps seeing the changed key; only consumers that interpret the **value** as
 A worked example (agent loop, iteration 7, `history` had 6 messages):
 
 ```jsonc
-// v1 (today)                              // v2 (commitVerbs: 'v2')
+// 'full' (today's default)                // 'delta' (commitValues: 'delta')
 {                                          {
   "stage": "CallLLM",                        "stage": "CallLLM",
   "stageId": "call-llm",                     "stageId": "call-llm",
@@ -269,7 +277,7 @@ if (verb === 'append') {
 ```
 
 Because `applySmartMerge` is the single replay primitive, all three replay
-consumers inherit v2 automatically:
+consumers inherit the delta verbs automatically:
 - **live state** — `SharedMemory.applyPatch`
   ([`SharedMemory.ts:59-60`](../../src/lib/memory/SharedMemory.ts));
 - **time travel** — `EventLog.materialise()`
@@ -284,9 +292,9 @@ stage yield three `{path, verb:'set'}` trace entries, each surviving the
 net-change filter (each compares base vs the same final), and replay applies
 the same final value three times: **idempotent, merely redundant**. An
 `append` entry is **NOT idempotent** — replaying "tail" k times concatenates
-k tails. v2 therefore tightens the trace contract:
+k tails. Delta mode therefore tightens the trace contract:
 
-> **v2 trace rule: exactly ONE trace entry per surviving path.** The verb is
+> **Delta trace rule: exactly ONE trace entry per surviving path.** The verb is
 > resolved from the path's base→final relationship (and its op mix):
 > - any `set` op on the path → `append` if §2.2's predicate holds, else `set`;
 > - only `merge` ops → `merge` with the accumulated `updatePatch` delta
@@ -297,9 +305,10 @@ k tails. v2 therefore tightens the trace contract:
 > Entry order = order of each path's **last** touch, preserving
 > last-writer-wins for nested/overlapping paths (`set a` then `set a.b`).
 
-This is a (welcome) simplification of v1's redundant entries; the
+This is a (welcome) simplification of the full mode's redundant entries; the
 **replay-equivalence property test** (§3) is the guard that the dedup +
-ordering rule reproduces v1 byte-identically for every non-append sequence.
+ordering rule reproduces full-mode replay state exactly for every op
+sequence.
 
 ### 2.6 What does NOT change
 
@@ -309,7 +318,7 @@ ordering rule reproduces v1 byte-identically for every non-append sequence.
   (`commitLog.length`) are untouched.
 - **The two honest tiers.** `onWrite` stays op-level; the commit stays
   change-level ([`commit-change-semantics.md`](commit-change-semantics.md)).
-  v2 only changes the change-level **encoding**.
+  Delta mode only changes the change-level **encoding**.
 - **The `onCommit` observer payload** — it carries `{ ...this._stageWrites }`
   ([`StageContext.ts:473,510`](../../src/lib/memory/StageContext.ts)), the
   stage-writes tier, not the bundle. Unchanged.
@@ -323,9 +332,9 @@ ordering rule reproduces v1 byte-identically for every non-append sequence.
 ## 3. The reconstruction guarantee (the lossless-audit claim)
 
 > **Invariant (lossless delta replay).** For every commit log `L` produced
-> under `commitVerbs: 'v2'` and every step index `k ≤ L.length`:
-> `materialise_v2(L, k)` is **deep-equal** to `materialise_v1(L′, k)`, where
-> `L′` is the log the same program would have produced under v1. In
+> under `commitValues: 'delta'` and every step index `k ≤ L.length`:
+> `materialise(L, k)` is **deep-equal** to `materialise(L′, k)`, where
+> `L′` is the log the same program would have produced under `'full'`. In
 > particular, the full content of every tracked array at every step is
 > exactly `base ++ tail₁ ++ … ++ tailⱼ` for the appends since its last
 > `set` — nothing summarized, nothing dropped.
@@ -333,27 +342,27 @@ ordering rule reproduces v1 byte-identically for every non-append sequence.
 Corollaries: final shared state is byte-identical across modes; causal
 `keysWritten` sets are identical (same surviving paths, §2.5); audit
 reconstruction ("what was `history` when stage X ran?") loses zero
-information relative to v1.
+information relative to `'full'`.
 
 **Verification plan** (Convention 3 — the property tier is load-bearing):
 
 1. **Replay-equivalence property test** — randomized programs (op sequences
    drawn from {set, merge, array-push, $batchArray, write-revert, no-op
    write, deleteValue, nested-path set} over randomized state shapes) run
-   against a v1 buffer and a v2 buffer; assert (a) final state deep-equal,
-   (b) `materialise` deep-equal at **every** step, (c) v2 bundle payload
-   size ≤ v1's.
+   against a `'full'` buffer and a `'delta'` buffer; assert (a) final state
+   deep-equal, (b) `materialise` deep-equal at **every** step, (c) delta
+   bundle payload size ≤ full's.
 2. **Append-detection property** — for arrays built by k pushes over base
    length n: bundle stores exactly k elements; replay reconstructs all n+k.
 3. **Non-idempotency guard** — one append trace entry per path per bundle
    (the §2.5 rule), asserted structurally.
-4. **Byte-identity gate for the default** — with `commitVerbs: 'v1'`
-   (default at first release, §5), the entire existing suite (2900+) and
-   bench §E default rows must be **byte-identical** — same discipline as
-   #13/#13b/#7.
+4. **Byte-identity gate for the default** — with `commitValues: 'full'`
+   (the default), the entire existing suite (3000+) and bench §E default
+   rows must be **byte-identical** — same discipline as #13/#13b/#7.
 5. **Integration** — the §E growing-history chart asserts the commitLog
-   retained-heap row is linear (§7); `examples/runtime-features/long-loops/`
-   gains a v2 example (Convention 2).
+   retained-heap row is linear (§7);
+   `examples/runtime-features/commit-values/` gains a delta example
+   (Convention 2).
 
 ---
 
@@ -373,7 +382,7 @@ information relative to v1.
 | 10 | Lens milestones | `milestoneFor(id: string)` — `agentfootprint/src/conventions.ts:274` — classifies on the runtimeStageId **string** alone | **Unaffected.** |
 | 11 | **#20 audit chain** (agentfootprint `auditExport`) | `agentfootprint/src/adapters/observability/audit.ts` — hash-chains **typed `agentfootprint.*` event payloads** (`AuditRecord = {seq, timestamp, eventType, payload, meta, prevHash, hash}`, `hash = SHA-256(canonicalJson(...))`, `afp-cjson/1`). Verified: records embed registry event payloads (route decisions, tool calls, validation, permissions, credentials, costs) — **no `CommitBundle` shape is ever embedded or hashed** | **Unaffected — the hash contract does not see bundles.** The "schema change = hash contract change?" worry is empty: the audit chain hashes the event tier; #13c-B changes the commit tier. (Confirmed surprise — see report.) |
 | 12 | #19 OTel GenAI + decision evidence | `otel.ts:121,219` — `FlowDecisionEvent`/`FlowSelectedEvent.evidence` (event tier) | **Unaffected.** |
-| 13 | #5 causal memory snapshots | evidence harvested from events (`evidenceRecorder`); `memory/causal/loadSnapshot.ts:174` — "commitLog isn't yet captured in SnapshotEntry" | **Unaffected** (and when commitLog IS later persisted there, v2 makes it affordable). |
+| 13 | #5 causal memory snapshots | evidence harvested from events (`evidenceRecorder`); `memory/causal/loadSnapshot.ts:174` — "commitLog isn't yet captured in SnapshotEntry" | **Unaffected** (and when commitLog IS later persisted there, delta mode makes it affordable). |
 | 14 | Snapshot replay / time-travel from bundles | `EventLog.materialise()` is the **only** in-repo state-reconstruction-from-bundles — and it has **zero production callers** (verified: no `materialise` call sites in `src/` outside `EventLog.ts`; lens time-travel scrubs by *index sync*, not state replay) | **Needs-update = the §2.4 `applySmartMerge` change itself.** Nothing else replays. |
 | 15 | `getSubtreeSnapshot` / `listSubflowPaths` | [`getSubtreeSnapshot.ts:53-104`](../../src/lib/runner/getSubtreeSnapshot.ts) — `subflowResults` + `executionTree` only | **Unaffected.** |
 | 16 | Pause/resume checkpoints | [`pause/types.ts:190-215`](../../src/lib/pause/types.ts) — `sharedState`, no bundles | **Unaffected.** |
@@ -388,42 +397,43 @@ changes required in lens / agentfootprint / eui under option (ii).
 
 ## 5. Versioning & migration
 
-**Is v2 observable?** Yes — bundle *contents* differ wherever append
+**Is delta mode observable?** Yes — bundle *contents* differ wherever append
 detection fires (tail vs full array), and the §2.5 trace dedup removes
 duplicate entries. Anything byte-asserting bundles (downstream pinned
-fixtures, the §E default rows) sees the difference. So v2 cannot ship
-silently-on.
+fixtures, the §E default rows) sees the difference. So delta mode cannot
+ship silently-on.
 
 Options considered:
 
 | Path | Mechanics | Cost |
 |---|---|---|
 | A. Default-on, major (10.0.0) | clean break | forces a major for one feature; violates the "batch breaking changes" release lesson; downstream peer-range ripple (lens/af) for an opt-out-able change |
-| B. **Opt-in flag first** — `commitVerbs: 'v1' \| 'v2'` on `FlowChartExecutorOptions` (default `'v1'`), minor release; agentfootprint sets `'v2'` immediately (it owns the long-run pain); default flips to `'v2'` in the next major, batched with other breaking items | byte-identity by default; the one consumer that needs it gets it now | carries a mode flag for one major cycle |
+| B. **Opt-in flag first** — `commitValues: 'full' \| 'delta'` on `FlowChartExecutorOptions` (default `'full'`), minor release; agentfootprint sets `'delta'` immediately (it owns the long-run pain); default flips to `'delta'` in the next major, batched with other breaking items | byte-identity by default; the one consumer that needs it gets it now | carries a mode flag for one major cycle |
 | C. Default-on + auto-down-convert helper for old consumers | "lossless either way" | two code paths forever; the helper IS `commitValueAt`, which B ships anyway |
 
-**Recommendation: B.** It is the same discipline #13/#13b/#7 used
-(byte-identity until proven, then flip), matches the shipped dial precedent
-(`readTracking`/`writeTracking` naming family), and matches how
-agentfootprint already adopts engine dials (`AgentOptions.readTracking`).
-agentfootprint exposes `commitVerbs` on `AgentOptions` and defaults its
-agents to `'v2'` in the same release it bumps the footprintjs floor.
+**Accepted: B.** It is the same discipline #13/#13b/#7 used
+(byte-identity until proven, then flip), completes the shipped dial family
+(`readTracking`/`writeTracking`/`commitValues` — same `'full'` default, same
+plumbing), and matches how agentfootprint already adopts engine dials
+(`AgentOptions.readTracking`). agentfootprint exposes `commitValues` on
+`AgentOptions` and defaults its agents to `'delta'` in the same release it
+bumps the footprintjs floor.
 
 **Format discriminant.** Per-bundle version fields are wasteful (N copies of
-a constant). Recommend a **snapshot-level field** —
-`RuntimeSnapshot.commitLogFormat: 1 | 2`
+a constant). Accepted: a **snapshot-level field** —
+`RuntimeSnapshot.commitValues: 'full' | 'delta'`
 ([`ExecutionRuntime.ts:32,153`](../../src/lib/runner/ExecutionRuntime.ts)) —
 plus the verb union itself as the per-entry self-description. Offline
 tooling (U1 `validateTrace`) keys on the snapshot field; a bundle stream
-without context remains self-describing via verbs. (Open decision §8.7.)
+without context remains self-describing via verbs. (Decision §8.7.)
 
 **Migration notes for the changelog:**
 - `bundle.overwrite[key]` is now verb-qualified — use
   `commitValueAt(commitLog, idx, key)` when you mean "the full value at this
   commit".
 - Exhaustive `switch (entry.verb)` gains two arms.
-- Persisted v1 logs replay unchanged forever (`set`/`merge` arms are
-  untouched); v2 is a producer-side change, the replayer accepts both.
+- Persisted full-mode logs replay unchanged forever (`set`/`merge` arms are
+  untouched); delta is a producer-side change, the replayer accepts both.
 
 ---
 
@@ -447,10 +457,11 @@ the commit-channel observer event carries `_stageWrites`
 embeds `CommitBundle`, and widening the verb union cannot break any envelope
 contract. The coordination obligation runs the **other way**: if Block 6+
 later adds a first-class *commit envelope* (streaming bundles to a remote
-lens over the A3 worker transport), the **v2 delta bundle is the right wire
+lens over the A3 worker transport), the **delta bundle is the right wire
 unit** — O(tail) payloads instead of O(full array) make per-commit streaming
 affordable, and §2.3's encoding is JSON-shaped and structured-clone-safe by
-construction, satisfying A3 without a translation layer. Designing v2 now,
+construction, satisfying A3 without a translation layer. Designing the delta
+encoding now,
 before any commit envelope exists, is exactly the "consumers updated once"
 sequencing the joint design was meant to buy: the bundle contract evolves
 ONCE, and the future wire format inherits it.
@@ -484,14 +495,14 @@ decision §8.9.)
 All rows land in `bench/BASELINE.md` §E (the retained-heap probe,
 `bench:heap`) and the `bench:compare` two-gate guard, per the #13b precedent.
 
-| Target | Today (v9.5.0) | Expected under `commitVerbs: 'v2'` | Proven by |
+| Target | Today (v9.5.0) | Expected under `commitValues: 'delta'` | Proven by |
 |---|---|---|---|
-| commitLog retained heap, fp-only growing-history chart, N=200 | ≈18MB (§E Finding 5) | **O(Σ tail) ≈ 0.2MB of messages + per-bundle overhead — single-digit MB; the §E row becomes ~linear** | new §E row pair (v1 vs v2 same chart) |
+| commitLog retained heap, fp-only growing-history chart, N=200 | ≈18MB (§E Finding 5) | **O(Σ tail) ≈ 0.2MB of messages + per-bundle overhead — single-digit MB; the §E row becomes ~linear** | new §E row pair ('full' vs 'delta' same chart) |
 | Same, N=500 / N=1000 | quadratic (×6.25 / ×25 vs N=200) | **~linear (×2.5 / ×5 vs N=200)** — THE linearity proof: heap(N=1000) ≈ 2 × heap(N=500) | §E rows at 3 Ns; assert ratio < 3 |
 | af full stack N=1000 (with `summary` dials) | **OOM @ 2GB** (#13c-A re-measure) | **completes in a default heap** — acceptance bar for the backlog item | af-side re-measure (the #18 protocol, `chunkDelayMs: 0`) |
-| Default-mode (`'v1'`) heap + commit-release latency | 59.7MB @ N=200; commit p50 per `bench:compare` baseline | **byte-identical / Δ ≤ noise floor** — the §3.4 gate | `bench:compare` (25% + noise-floor two-gate) |
-| v2 commit wall on non-array charts | — | within the same two-gate vs v1 (detection only adds the array-prefix branch) | `bench:compare` v2 row |
-| v2 loop-iteration latency growth (46µs → 424µs over 100 iters today, §Micro) | 9.2× growth | reduced but **NOT flat** — write-time clone + applyPatch whole-state clone remain (§2.2 caveat); document the residual slope and attribute it | micro row + a follow-up note keyed to §8.5 |
+| Default-mode (`'full'`) heap + commit-release latency | 59.7MB @ N=200; commit p50 per `bench:compare` baseline | **byte-identical / Δ ≤ noise floor** — the §3.4 gate | `bench:compare` (25% + noise-floor two-gate) |
+| Delta commit wall on non-array charts | — | within the same two-gate vs 'full' (detection only adds the array-prefix branch) | `bench:compare` delta row |
+| Delta loop-iteration latency growth (46µs → 424µs over 100 iters today, §Micro) | 9.2× growth | reduced but **NOT flat** — write-time clone + applyPatch whole-state clone remain (§2.2 caveat); document the residual slope and attribute it | micro row + a follow-up note keyed to §8.5 |
 
 The honest claim the numbers must support: **#13c-B makes the commit log
 linear in delta size and removes the last *retained-heap* quadratic; the
@@ -515,7 +526,7 @@ with its own levers (§2.2 caveat, §8.5).
    §4 row 9).
 
 3. **Default-on vs opt-in flag.** **Recommend: opt-in
-   `commitVerbs: 'v2'` first** (§5 path B), default `'v1'` byte-identical,
+   `commitValues: 'delta'` first** (§5 path B), default `'full'` byte-identical,
    agentfootprint opts in in lockstep.
 
 4. **Major vs minor.** **Recommend: minor for the flag (9.6.0); the default
@@ -524,24 +535,26 @@ with its own levers (§2.2 caveat, §8.5).
 
 5. **Detection cost budget** — always-attempt prefix compare vs gated; and
    whether to take the companion `baseSnapshot`-as-reference change for the
-   pointer-fast path. **Recommend: always-attempt in v1** (worst case
+   pointer-fast path. **Recommend: always-attempt in the first release** (worst case
    bounded ≈ one extra structural compare per array-set path, §2.2) **and
    defer the baseSnapshot/reference companion to its own reviewed change** —
    it touches the adversarially-reviewed #13 first-touch anchor and is a
    wall optimization, not a heap one.
 
 6. **One-trace-entry-per-path dedup** (required for append idempotency,
-   §2.5) — adopt for ALL verbs in v2, or special-case append only.
-   **Recommend: all verbs in v2** — one rule, simpler spec, property-tested
-   replay equivalence; v1 mode keeps today's duplicates untouched.
+   §2.5) — adopt for ALL verbs in delta mode, or special-case append only.
+   **Recommend: all verbs in delta mode** — one rule, simpler spec,
+   property-tested replay equivalence; `'full'` mode keeps today's
+   duplicates untouched.
 
 7. **Format discriminant** — per-bundle field vs snapshot-level
-   `commitLogFormat: 1 | 2` vs none (verbs self-describe). **Recommend:
+   `commitValues: 'full' | 'delta'` vs none (verbs self-describe). **Recommend:
    snapshot-level field + verb self-description**, wired into the U1 schema
    when that lands (§5).
 
-8. **`commitValueAt(commitLog, idx, key)` helper** — ship with v2 or defer
-   until asked. **Recommend: ship with v2** in `footprintjs/trace` — it is
+8. **`commitValueAt(commitLog, idx, key)` helper** — ship with the delta
+   release or defer until asked. **Recommend: ship now** in
+   `footprintjs/trace` — it is
    the migration story for the one real semantic break (§4 row 3), and the
    docs' `findCommit(...).overwrite` pattern should be rewritten onto it in
    the same PR.
