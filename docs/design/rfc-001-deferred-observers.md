@@ -56,7 +56,10 @@ type OverflowPolicy = 'block' | 'drop-oldest' | 'sample';
 
 - **One merged queue.** `seq` is assigned at capture under the single JS
   thread ⇒ drain order == arrival order across all channels; per-listener
-  delivery is FIFO. `seq` is monotonic and **gap-detectable**: a dropped
+  delivery is FIFO in seq order — EXCEPT under `'block'` overflow, where
+  the refused event is delivered inline and overtakes the queued backlog
+  (`seq` preserves true arrival order; order-sensitive consumers re-sort —
+  see the block-mode section). `seq` is monotonic and **gap-detectable**: a dropped
   event leaves a visible hole in the delivered sequence — loss is part of
   the record, never hidden (tested).
 - **Scheduling.** Enqueue arms AT MOST one pending flush (armed flag) via
@@ -69,6 +72,10 @@ type OverflowPolicy = 'block' | 'drop-oldest' | 'sample';
   - `'clone'` — `structuredClone` at capture time. Unclonable payloads
     DEGRADE to `'summary'` with a `warn` — capture never throws into the
     producer. (`'clone'` ≈ retention `'full'`; see `capture/policies.ts`.)
+    Degradation is signaled ONLY via `hooks.warn`: the envelope carries no
+    `degraded` marker and `getStats()` has no degradation counter — a
+    consumer needing degradation accounting binds `hooks.warn` to its own
+    accumulator in the wiring layer.
   - `'ref'` — pass-through; the **caller asserts immutability** for the
     delivery window (safe for committed-state values, proven
     immutable-after-swap in #13/#13b). Dev-mode warned — see the seam below.
@@ -136,7 +143,9 @@ Rejections are counted separately from drops — they are not losses.
 
 Built ON TOP of the `summarize.ts` classification path (one code path with
 the `__readSummary`/`__writeSummary` retention markers), extended with
-bounded structural descent. Constants exported from `capture/envelope.ts`:
+bounded structural descent. Bounds constants: `PAYLOAD_SUMMARY_MAX_DEPTH` /
+`MAX_ENTRIES` / `MAX_NODES` are exported from `capture/envelope.ts`;
+`SUMMARY_PREVIEW_LENGTH` from `capture/summarize.ts` (all via the `capture/` barrel):
 
 | Bound | Value | On overflow |
 |---|---|---|

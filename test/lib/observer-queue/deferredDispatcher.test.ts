@@ -277,6 +277,49 @@ describe('DeferredDispatcher — property', () => {
       { numRuns: 60 },
     );
   });
+
+  it("B5/'block': nothing lost, inline overtakes the backlog, seq recovers true arrival order", async () => {
+    // Review finding: the FIFO property above runs under 'drop-oldest' only.
+    // Under 'block' a refused enqueue is delivered inline and OVERTAKES the
+    // queued backlog (the documented ordering trade) — pin (a) completeness,
+    // (b) the out-of-order delivery actually occurring when saturation hit,
+    // (c) that sorting by `seq` recovers the exact arrival order.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.constantFrom(...CHANNELS), { minLength: 1, maxLength: 60 }),
+        fc.integer({ min: 1, max: 4 }), // small ring → saturation is common
+        async (arrivals, maxQueue) => {
+          const d = new DeferredDispatcher({
+            flushBudgetMs: Infinity,
+            maxQueue,
+            overflow: 'block',
+          });
+          const delivered: CaptureEnvelope[] = [];
+          d.addListener('a', (e) => {
+            delivered.push(e);
+          });
+          for (const channel of arrivals) d.capture(input(channel));
+          await checkpoint();
+
+          // (a) completeness — 'block' never loses an event.
+          expect(delivered).toHaveLength(arrivals.length);
+          expect(d.getStats().drops).toBe(0);
+
+          // (c) seq is the true arrival order: sorting recovers it exactly.
+          const sorted = [...delivered].sort((x, y) => x.seq - y.seq);
+          expect(sorted.map((e) => e.seq)).toEqual(arrivals.map((_, i) => i));
+          expect(sorted.map((e) => e.channel)).toEqual(arrivals);
+
+          // (b) when saturation forced inline deliveries, raw arrival-at-
+          // listener order DIFFERS from seq order (the documented trade).
+          if (d.getStats().inlineDeliveries > 0) {
+            expect(delivered.map((e) => e.seq)).not.toEqual(sorted.map((e) => e.seq));
+          }
+        },
+      ),
+      { numRuns: 60 },
+    );
+  });
 });
 
 describe('DeferredDispatcher — security', () => {

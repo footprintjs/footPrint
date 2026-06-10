@@ -13,7 +13,10 @@
  * Delivery semantics (normative, RFC-001 §5 + amendments A2/A4):
  *   - Per-listener FIFO: every listener sees envelopes in seq order
  *     (invocation order; an async listener's COMPLETION order is its own
- *     concern).
+ *     concern) — EXCEPT under `'block'` overflow, where a refused enqueue
+ *     is delivered inline and overtakes the queued backlog. `seq` always
+ *     records true arrival order, so order-sensitive consumers re-sort;
+ *     see the `'block'` caveat below.
  *   - Error isolation: a throwing listener (sync) or rejecting listener
  *     (async) never affects siblings or the producer. Both failure modes
  *     route to the injected `onError`; a throwing `onError` is itself
