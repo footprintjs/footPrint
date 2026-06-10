@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **RFC-001 deferred-observer-delivery PURE MODULE (Blocks 1–5)** — internal,
+  NOT yet public API (dark until Block 6 wires the engine).
+  `src/lib/capture/envelope.ts`: `CaptureEnvelope` (seq-stamped,
+  shallow-frozen, structured-clone-safe), `capture()` with policies
+  `'summary' | 'clone' | 'ref'` (clone degrades to summary on unclonable
+  payloads; `'ref'` dev-warns through an engine-free `CaptureHooks.warn`
+  seam), and `summarizePayload()` — bounded (depth ≤ 3, ≤ 16 entries/level,
+  ≤ 128 nodes, 80-char previews), reference-free, cycle/getter/proto-safe.
+  `src/lib/observer-queue/`: `BoundedRing` (overflow policies
+  `'drop-oldest' | 'sample' | 'block'`, every loss counted — drops leave
+  visible seq gaps), `MergedQueue` (ONE totally-ordered queue across the
+  scope/flow/emit channels, seq assigned at capture, default `maxQueue`
+  10 000), `FlushDriver` (armed-once `queueMicrotask` batcher,
+  `flushBudgetMs` default 2 / `Infinity`, snapshot semantics — listener
+  cascades land next checkpoint), `DeferredDispatcher` (per-listener error
+  isolation incl. async rejections, never-await flush, inflight set +
+  `drain({timeoutMs})`, `'block'`→ synchronous inline delivery, A4 stats
+  getter with per-listener time accounting). 84 new tests (unit /
+  functional / property via fast-check / security / performance / load).
+  Design doc: `docs/design/rfc-001-deferred-observers.md` (accepted with
+  amendments A1–A4; engine wiring is Blocks 6–10).
+
 ## [9.4.0] - 2026-06-10
 
 ### Added
