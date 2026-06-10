@@ -99,6 +99,15 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * Propagated to TraversalContext so narrative entries carry the correct subflowId.
    */
   parentSubflowId?: string;
+  /**
+   * When this traverser runs inside a subflow, the runtimeStageId of the
+   * subflow MOUNT stage in the parent traverser. Used as the
+   * `parentRuntimeStageId` fallback for stages whose StageContext has no
+   * parent (the subflow's own root context is created fresh by
+   * SubflowExecutor) so runtime ancestor chains cross subflow boundaries
+   * (RFC-003 D1).
+   */
+  parentMountRuntimeStageId?: string;
   /** Shared execution counter from parent traverser. Subflows continue the parent's numbering. */
   executionCounter?: { value: number };
   /**
@@ -197,6 +206,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly logger: ILogger;
   private readonly signal?: AbortSignal;
   private readonly parentSubflowId?: string;
+  /** RFC-003 D1: runtimeStageId of the subflow mount stage in the parent
+   *  traverser. Fallback `parentRuntimeStageId` for stages whose context has
+   *  no parent (the subflow root). Undefined at the top level. */
+  private readonly parentMountRuntimeStageId?: string;
   /** Frozen value passed via `run({input})`. Surfaced on `onRunStart` at the
    *  top-level traversal so consumers (e.g. `InOutRecorder`) can bracket
    *  the run with the same payload shape that subflows already have. */
@@ -328,6 +341,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.logger = opts.logger;
     this.signal = opts.signal;
     this.parentSubflowId = opts.parentSubflowId;
+    this.parentMountRuntimeStageId = opts.parentMountRuntimeStageId;
     this.readOnlyContext = opts.readOnlyContext;
     this.runId = opts.runId;
 
@@ -415,6 +429,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         maxDepth: this._maxDepth,
         ...(this._maxIterations !== undefined && { maxIterations: this._maxIterations }),
         parentSubflowId: subflowOpts.subflowId,
+        // RFC-003 D1: the mount stage's runtimeStageId — parent fallback for
+        // the subflow's root stage so ancestor chains cross the boundary.
+        parentMountRuntimeStageId: subflowOpts.parentMountRuntimeStageId,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
         runId: this.runId, // Subflow inherits parent's runId — same logical run
         // Forward the resume-only subflow scope captures so nested
@@ -783,6 +800,14 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
 
+    // RFC-003 D1: runtime parent — the previous execution step's runtimeStageId.
+    // Falls back to the subflow MOUNT's runtimeStageId for the subflow root
+    // stage (its StageContext is created fresh with no parent), so runtime
+    // ancestor chains cross subflow boundaries. `||` (not `??`) on purpose:
+    // a parent context that never executed still carries the field's
+    // initial `''`, which must also fall through to the mount fallback.
+    const parentRuntimeStageId = context.parent?.runtimeStageId || this.parentMountRuntimeStageId;
+
     // Build traversal context for recorder events — created once per stage, shared by all events
     const traversalContext: TraversalContext = {
       runId: this.runId,
@@ -790,6 +815,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       runtimeStageId: context.runtimeStageId,
       stageName: node.name,
       parentStageId: context.parent?.stageId,
+      ...(parentRuntimeStageId && { parentRuntimeStageId }),
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
       depth: this.computeContextDepth(context),

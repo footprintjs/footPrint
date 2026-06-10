@@ -203,6 +203,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         executionRuntime: nestedRuntime,
         readOnlyContext: mappedInput,
         subflowId,
+        // RFC-003 D1: the mount stage's runtimeStageId — the subflow root
+        // stage's `parentRuntimeStageId` so ancestor chains cross the mount.
+        parentMountRuntimeStageId: parentTraversalContext?.runtimeStageId,
       });
 
       subflowOutput = await traverserHandle.execute();
