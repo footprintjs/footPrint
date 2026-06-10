@@ -16,6 +16,7 @@ export { TransactionBuffer } from './TransactionBuffer.js';
 // Types
 export type {
   CommitBundle,
+  CommitValuesMode,
   FlowControlType,
   FlowMessage,
   MemoryPatch,

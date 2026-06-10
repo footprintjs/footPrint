@@ -162,6 +162,16 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRootContext.useWriteTracking(parentWriteTracking);
     }
 
+    // Commit-values encoding (#13c-B): same inheritance hop as the two
+    // tracking dials above — subflow runtimes are isolated, so the
+    // parent-mount context's mode is pushed into the FINAL nested root with
+    // the same duck-type guard and the same skip-at-default fast path, so
+    // nested charts commit in the same encoding as the parent.
+    const parentCommitValues = parentContext.getCommitValues?.();
+    if (parentCommitValues !== undefined && parentCommitValues !== 'full') {
+      nestedRootContext.useCommitValues(parentCommitValues);
+    }
+
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
     //
     // PRESERVE `next`. Earlier revisions stripped `next` whenever the

@@ -263,7 +263,7 @@ sf-tools/execute-tool-calls#8       — subflow stage
 call-llm#9                          — same stageId, different execution (loop)
 ```
 
-**The commitLog:** An ordered array of `CommitBundle` — one per stage commit, recording what each stage wrote to shared state. Get it from `executor.getSnapshot().commitLog`.
+**The commitLog:** An ordered array of `CommitBundle` — one per stage commit, recording what each stage wrote to shared state. Get it from `executor.getSnapshot().commitLog`. Encoding is governed by the **`commitValues: 'full' | 'delta'` dial** (#13c-B — completes the `readTracking`/`writeTracking` family, but LOSSLESS in both modes): under `'delta'`, array growth commits an `append` trace verb storing only the tail (kills the growing-history O(N²) retained heap), `deleteValue()` commits a real `delete` verb, and bundles carry one trace entry per surviving path. Replay reconstructs every step exactly. `bundle.overwrite[key]` becomes verb-qualified — use `commitValueAt` when you mean the full value. Snapshot discriminant: `getSnapshot().commitValues`.
 
 ```typescript
 import { parseRuntimeStageId, findLastWriter, findCommit } from 'footprintjs/trace';
@@ -297,6 +297,7 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `findCommit(commitLog, stageId, key?)` | `CommitBundle \| undefined` | Find first commit by stageId |
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
+| `commitValueAt(commitLog, idx, key)` | `unknown` | Reconstruct the FULL value of a key at a commit index — required under `commitValues: 'delta'` (#13c-B), where an `append` bundle's `overwrite[key]` holds only the tail |
 | `causalChain` / `flattenCausalDAG` / `formatCausalChain` | functions | Backward program slicing over the commit-log DAG |
 | `KeyedStore<T>` | class | **Primary** 1:1 Map store — own as a field on your recorder |
 | `SequenceStore<T>` | class | **Primary** 1:N ordered store (has `getEntryRanges()` for O(1) time-travel) |

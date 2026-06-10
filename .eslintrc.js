@@ -1,4 +1,10 @@
 module.exports = {
+  // Stop config resolution here. Without this, eslint walks UP the directory
+  // tree — a checkout nested inside another checkout of this repo (e.g. a git
+  // worktree under .claude/worktrees/) loads BOTH copies of this file, and
+  // the duplicate `plugins` definitions (resolved from two node_modules)
+  // crash every lint/lint-staged run with "Cannot redefine plugin".
+  root: true,
   env: {
     browser: true,
     es2021: true,

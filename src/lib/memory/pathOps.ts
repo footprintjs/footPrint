@@ -66,6 +66,31 @@ export function nativeSet(obj: any, path: string | (string | number)[], value: a
   return obj;
 }
 
+/**
+ * Remove the own property at `path` in `obj` (the replay primitive for the
+ * `delete` commit verb, #13c-B). No-op when any intermediate segment is
+ * missing — deleting an absent key has nothing to remove.
+ *
+ * Security: same DENIED + hasOwnProperty discipline as nativeGet — every
+ * segment is checked, so `nativeDelete(obj, '__proto__x')` and
+ * prototype-chain walks are inert.
+ */
+export function nativeDelete(obj: any, path: string | (string | number)[]): void {
+  const segs = toSegments(path);
+  let curr = obj;
+  for (let i = 0; i < segs.length - 1; i++) {
+    const seg = segs[i];
+    if (DENIED.has(String(seg))) return;
+    if (curr == null || typeof curr !== 'object' || !Object.prototype.hasOwnProperty.call(curr, seg)) return;
+    curr = curr[seg];
+  }
+  const last = segs[segs.length - 1];
+  if (DENIED.has(String(last))) return;
+  if (curr != null && typeof curr === 'object') {
+    delete curr[last];
+  }
+}
+
 /** Returns true if `obj` has an own property at every segment of `path`. */
 export function nativeHas(obj: any, path: string | (string | number)[]): boolean {
   const segs = toSegments(path);

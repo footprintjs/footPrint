@@ -39,7 +39,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import type { ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
+import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -136,8 +136,8 @@ export interface FlowChartExecutorOptions<TScope = any> {
    * What it does NOT govern:
    * - The writes themselves: shared state, the transaction buffer, and the
    *   COMMIT LOG are identical in every mode (commitLog values keep their
-   *   full payloads — the lossless linear-cost fix for those is #13c-B's
-   *   delta verb, out of scope here).
+   *   full payloads — the lossless linear-cost fix for those is the
+   *   {@link commitValues} dial, #13c-B).
    * - Per-op `ScopeRecorder.onWrite` events — they fire with live values
    *   regardless (delivery tier, RFC-001's concern), so narrative output is
    *   identical in every mode.
@@ -151,6 +151,37 @@ export interface FlowChartExecutorOptions<TScope = any> {
    * Equivalent to calling `executor.setWriteTracking(mode)` before `run()`.
    */
   writeTracking?: WriteTrackingMode;
+
+  /**
+   * Encoding policy for COMMIT LOG values (#13c-B) — the third dial of the
+   * family, and unlike its siblings it is **lossless in both modes** (it
+   * changes the log's encoding, never its information).
+   *
+   * - `'full'` (default) — every surviving `set` path stores the full final
+   *   value; byte-identical to the historical behavior.
+   * - `'delta'` — array net-changes that are "base plus a tail" commit as an
+   *   `append` trace verb storing ONLY the tail (the growing-history commit
+   *   log becomes linear instead of O(N²) retained); `deleteValue()` commits
+   *   as a real `delete` verb (replay removes the key instead of leaving
+   *   `key: undefined`); bundles carry exactly ONE trace entry per surviving
+   *   path. Replay (`applySmartMerge` — live state, `materialise()`, the
+   *   redacted mirror) reconstructs every step's full state exactly.
+   *
+   * Consumers that read `bundle.overwrite[key]` as "the full value written"
+   * must switch to `commitValueAt(commitLog, idx, key)` from
+   * `footprintjs/trace` — under `'delta'` that value is verb-qualified (an
+   * `append` bundle holds only the tail). Path-tier consumers
+   * (`findLastWriter`, `causalChain`, narrative, lens highlights) are
+   * unaffected. The active mode is surfaced as
+   * `getSnapshot().commitValues`.
+   *
+   * Honest cost note: append detection is new wall work — an O(|base array|)
+   * structural prefix compare per array-set path per commit. On a hit the
+   * commit gets cheaper in both wall and heap; on a miss (prefix diverges)
+   * it pays compare + full clone. `'full'` pays zero.
+   * Equivalent to calling `executor.setCommitValues(mode)` before `run()`.
+   */
+  commitValues?: CommitValuesMode;
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -231,6 +262,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     scopeProtectionMode?: ScopeProtectionMode;
     readTracking?: ReadTrackingMode;
     writeTracking?: WriteTrackingMode;
+    commitValues?: CommitValuesMode;
   };
 
   /**
@@ -263,6 +295,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let scopeProtectionMode: ScopeProtectionMode | undefined;
     let readTracking: ReadTrackingMode | undefined;
     let writeTracking: WriteTrackingMode | undefined;
+    let commitValues: CommitValuesMode | undefined;
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
@@ -279,6 +312,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       scopeProtectionMode = opts.scopeProtectionMode;
       readTracking = opts.readTracking;
       writeTracking = opts.writeTracking;
+      commitValues = opts.commitValues;
     }
     this.flowChartArgs = {
       flowChart,
@@ -291,6 +325,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       scopeProtectionMode,
       readTracking,
       writeTracking,
+      commitValues,
     };
     this.traverser = this.createTraverser();
   }
@@ -452,6 +487,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       runtime.useWriteTracking(writeTracking);
     }
 
+    // Commit-values encoding (#13c-B): identical plumbing to the two dials
+    // above — root-context anchor, createNext/createChild inheritance,
+    // SubflowExecutor duck-push, resume-path re-application. Skipped for the
+    // default 'full' — zero work, byte-identical commit log.
+    const commitValues = args.commitValues;
+    if (commitValues !== undefined && commitValues !== 'full') {
+      runtime.useCommitValues(commitValues);
+    }
+
     return new FlowchartTraverser<TOut, TScope>({
       root: effectiveRoot,
       stageMap: fc.stageMap,
@@ -511,6 +555,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   setWriteTracking(mode: WriteTrackingMode): void {
     this.flowChartArgs.writeTracking = mode;
+  }
+
+  /**
+   * Set the commit-values encoding policy for the commit log (#13c-B).
+   * Must be called before run(). Equivalent to the `commitValues`
+   * constructor option — see {@link FlowChartExecutorOptions.commitValues}
+   * for the mode semantics ('full' default / 'delta'), the verb-qualified
+   * `overwrite` consequence, and the `commitValueAt` migration helper.
+   */
+  setCommitValues(mode: CommitValuesMode): void {
+    this.flowChartArgs.commitValues = mode;
   }
 
   /**

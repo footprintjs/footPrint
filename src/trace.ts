@@ -44,8 +44,11 @@ export {
 export type { WalkerItem, WalkerOptions } from './lib/engine/walkSubflowSpec.js';
 export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 
-// Commit log queries — typed utilities for backtracking
-export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+// Commit log queries — typed utilities for backtracking.
+// commitValueAt reconstructs the FULL value of a key at a commit index —
+// required under `commitValues: 'delta'` (#13c-B), where an `append`
+// bundle's `overwrite[key]` holds only the tail.
+export { commitValueAt, findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
 // Causal chain — backward program slicing on commit log (DAG)
 export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';

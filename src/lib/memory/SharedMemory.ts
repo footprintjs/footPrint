@@ -8,7 +8,7 @@
  */
 
 import { mergeContextWins } from './pathOps.js';
-import type { MemoryPatch } from './types.js';
+import type { MemoryPatch, TraceEntry } from './types.js';
 import { applySmartMerge, getNestedValue, getRunAndGlobalPaths, setNestedValue, updateNestedValue } from './utils.js';
 
 export class SharedMemory {
@@ -56,7 +56,7 @@ export class SharedMemory {
   }
 
   /** Applies a commit bundle from TransactionBuffer. */
-  applyPatch(overwrite: MemoryPatch, updates: MemoryPatch, trace: { path: string; verb: 'set' | 'merge' }[]): void {
+  applyPatch(overwrite: MemoryPatch, updates: MemoryPatch, trace: TraceEntry[]): void {
     this.context = applySmartMerge(this.context, updates, overwrite, trace);
   }
 }

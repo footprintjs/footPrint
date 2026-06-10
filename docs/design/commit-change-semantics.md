@@ -89,9 +89,12 @@ Downstream "did this stage change anything?" is therefore a one-liner:
 
 ## Known limitations / future work
 
-- **Key deletion** is still unrepresentable in `MemoryPatch`. Setting a key to
-  `undefined` is treated as a *change* (value differs from base), not a deletion.
-  A future `delete` verb would close this.
+- **Key deletion** — CLOSED by #13c-B (see
+  [13c-b-delta-commit-verb.md](13c-b-delta-commit-verb.md)): under
+  `commitValues: 'delta'`, `deleteValue()` commits a real `delete` trace verb
+  and replay removes the key. Under the default `'full'` mode the historical
+  flattening (set-of-`undefined`, treated as a *change*) is preserved
+  byte-for-byte.
 - **Array-merge dedup** in `deepSmartMerge` still uses reference equality
   (`new Set([...dst, ...src])`), so deep-equal *objects* in a merged array are
   not deduped. Orthogonal to this change; tracked separately.

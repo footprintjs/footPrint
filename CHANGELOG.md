@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **#13c-B — `commitValues: 'full' | 'delta'`: delta/append commit verbs,
+  the LOSSLESS commit-log encoding dial.** Completes the
+  `readTracking`/`writeTracking` dial family — and unlike its siblings it
+  is lossless in both modes: it changes the commit log's *encoding*, never
+  its *information*. Opt in via
+  `new FlowChartExecutor(chart, { commitValues: 'delta' })` or
+  `executor.setCommitValues('delta')`. Design memo:
+  [docs/design/13c-b-delta-commit-verb.md](docs/design/13c-b-delta-commit-verb.md).
+  - **`append` verb** — when a stage's net change to a tracked array is
+    "the old array plus a tail" (strict prefix, detected at the commit-time
+    net-change diff), the bundle records ONLY the tail in `overwrite` under
+    a `trace` entry with `verb: 'append'`. The growing-history commit log
+    becomes linear instead of O(N²) retained: measured at N=200 the
+    commit-log share (≈19.3MB) disappears; with all three dials the probe
+    chart's retained heap collapses 59.7MB → **1.9MB**, and grows linearly
+    (4.0MB @ N=500, 7.7MB @ N=1000) — bench §E Finding 7.
+  - **`delete` verb** (absorbs backlog B8) — `deleteValue()` now commits a
+    real `delete` trace entry under `'delta'`; replay REMOVES the key
+    instead of leaving `key: undefined` behind. The path stays enumerated
+    in `overwrite` so key-set consumers (e.g. lens highlights) still see
+    the changed key. Under `'full'` the historical set-of-undefined
+    flattening is preserved byte-for-byte.
+  - **One trace entry per surviving path** (delta mode only) — `append` is
+    not idempotent on replay, so delta bundles dedup the trace; entries are
+    ordered by each path's last touch. Mixed set+merge interleavings commit
+    the same value full-mode replay produces (property-tested replay
+    equivalence at EVERY step, not just final state).
+  - **Replay** — `applySmartMerge` gains `append` (concat) + `delete`
+    (prototype-pollution-safe `nativeDelete`) arms; live state, time-travel
+    `materialise()`, and the redacted mirror inherit both automatically.
+    Redacted append tails record `'REDACTED'` in the log exactly like
+    redacted sets; a redacted (non-array) tail degrades to the redacted
+    value on replay — never spread char-by-char.
+  - **`commitValueAt(commitLog, idx, key)`** in `footprintjs/trace` — the
+    migration helper for the ONE semantic change: under `'delta'`,
+    `bundle.overwrite[key]` is verb-qualified (an append bundle holds only
+    the tail). `commitValueAt` reconstructs the full value at any commit
+    index from either encoding, in O(key's commit span). Path-tier
+    consumers (`findCommit`/`findLastWriter`/`causalChain`, narrative, lens
+    shapes) are unaffected — pinned by tests over delta-mode logs.
+  - **Snapshot discriminant** — `getSnapshot().commitValues: 'full' | 'delta'`
+    reflects the active encoding for offline tooling.
+  - **Default `'full'` is byte-identical** — verified with
+    `scripts/byte-identity-probe.ts` against v9.6.0 (clean diff) and
+    `bench:compare` (0 regressions; §E default row +0.0%).
+  - **Honest wall-cost caveat** — append detection is NEW wall work: an
+    O(|base array|) structural prefix compare per array-set path per commit
+    (today's `deepEqual` fast-fails on length in O(1) for a grown array).
+    On a hit the commit gets cheaper in both wall and heap (the full-array
+    clone shrinks to a tail clone); on a miss it pays compare + full clone,
+    bounded ≈2× one of today's clones. `'full'` pays zero — detection is
+    mode-gated. The retained-heap quadratic is gone; a smaller *transient*
+    wall quadratic (write-time clone + applyPatch whole-state clone)
+    remains, tracked as the memo's §8.5 follow-up.
+  - Plumbing mirrors the sibling dials exactly: executor option/setter →
+    `ExecutionRuntime.useCommitValues` → root `StageContext` → inherited by
+    `createNext`/`createChild` → pushed into subflow roots by
+    `SubflowExecutor` → re-applied on the resume path.
+  - Example: [examples/runtime-features/commit-values/01-delta.ts](examples/runtime-features/commit-values/01-delta.ts).
+
 ## [9.6.0] - 2026-06-11
 
 ### Review hardening (blocks 6–9 wiring gate)

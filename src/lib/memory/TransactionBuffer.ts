@@ -19,8 +19,14 @@
  */
 
 import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
-import type { MemoryPatch } from './types.js';
+import type { CommitValuesMode, MemoryPatch, TraceEntry } from './types.js';
 import { deepEqual, deepSmartMerge, DELIM, normalisePath } from './utils.js';
+
+/** Op-level verbs staged into `opTrace`. `'delete'` is staged distinctly so
+ *  delta-mode commits (#13c-B) can emit a real `delete` trace entry; under
+ *  the default `'full'` mode it commits as `'set'` (of `undefined`) —
+ *  byte-identical to the historical flattening. */
+type OpVerb = 'set' | 'merge' | 'delete';
 
 export class TransactionBuffer {
   private readonly baseSnapshot: any;
@@ -28,12 +34,15 @@ export class TransactionBuffer {
 
   private overwritePatch: MemoryPatch = {};
   private updatePatch: MemoryPatch = {};
-  private opTrace: { path: string; verb: 'set' | 'merge' }[] = [];
+  private opTrace: { path: string; verb: OpVerb }[] = [];
   private redactedPaths = new Set<string>();
+  /** Commit-value encoding policy (#13c-B). `'full'` = historical bytes. */
+  private readonly commitValues: CommitValuesMode;
 
-  constructor(base: any) {
+  constructor(base: any, commitValues: CommitValuesMode = 'full') {
     this.baseSnapshot = structuredClone(base);
     this.workingCopy = structuredClone(base);
+    this.commitValues = commitValues;
   }
 
   /** Hard overwrite at the specified path. */
@@ -44,6 +53,26 @@ export class TransactionBuffer {
       this.redactedPaths.add(normalisePath(path));
     }
     this.opTrace.push({ path: normalisePath(path), verb: 'set' });
+  }
+
+  /**
+   * Explicit key deletion at the specified path (#13c-B; absorbs backlog B8).
+   *
+   * Stages EXACTLY the same buffer mutations as `set(path, undefined)` —
+   * `workingCopy`/`overwritePatch` get an own `undefined` at the path (the
+   * historical flattening, preserving read behavior and the dedup diff base
+   * across modes) — but records the op verb as `'delete'`. At commit:
+   * `'full'` mode maps it back to a `'set'` trace entry (byte-identical to
+   * today); `'delta'` mode emits a real `'delete'` entry whose replay
+   * REMOVES the key instead of leaving `key: undefined` behind.
+   */
+  delete(path: (string | number)[], shouldRedact = false): void {
+    _set(this.workingCopy, path, undefined);
+    _set(this.overwritePatch, path, undefined);
+    if (shouldRedact) {
+      this.redactedPaths.add(normalisePath(path));
+    }
+    this.opTrace.push({ path: normalisePath(path), verb: 'delete' });
   }
 
   /** Deep union merge at the specified path. */
@@ -110,10 +139,11 @@ export class TransactionBuffer {
    * commit-indexed slider stable while making the highlight truthful.
    *
    * ── KNOWN LIMITATIONS / FUTURE ──────────────────────────────────────────
-   *   • Explicit key DELETION is still unrepresentable in MemoryPatch (a removed
-   *     key cannot be expressed). Setting a key to `undefined` is treated as a
-   *     change (value differs from base), not a deletion. Tracked for a future
-   *     `delete` verb.
+   *   • Explicit key DELETION under the default 'full' mode is still
+   *     flattened to set-of-`undefined` (a removed key cannot be expressed
+   *     in MemoryPatch alone). CLOSED under `commitValues: 'delta'` (#13c-B):
+   *     {@link delete} stages a distinct op and the bundle carries a real
+   *     `delete` trace verb whose replay removes the key.
    *   • Array-merge dedup in {@link deepSmartMerge} still uses reference equality
    *     (`new Set`), so deep-equal *objects* in a merged array are not deduped.
    *     Orthogonal to this change; tracked separately.
@@ -124,9 +154,9 @@ export class TransactionBuffer {
     overwrite: MemoryPatch;
     updates: MemoryPatch;
     redactedPaths: Set<string>;
-    trace: { path: string; verb: 'set' | 'merge' }[];
+    trace: TraceEntry[];
   } {
-    const payload = this.toChangeOnlyPayload();
+    const payload = this.commitValues === 'delta' ? this.toDeltaPayload() : this.toChangeOnlyPayload();
 
     this.overwritePatch = {};
     this.updatePatch = {};
@@ -148,16 +178,21 @@ export class TransactionBuffer {
    * surviving `merge` paths copy their accumulated delta from `updatePatch` —
    * preserving the set-vs-merge verb so replay ({@link applySmartMerge}) is
    * byte-for-byte identical to recording only the real changes.
+   *
+   * This is the DEFAULT (`commitValues: 'full'`) payload — byte-identical to
+   * the historical behavior, including flattening staged `delete` ops into
+   * `set`-of-`undefined` trace entries. The delta encoding lives in
+   * {@link toDeltaPayload}.
    */
   private toChangeOnlyPayload(): {
     overwrite: MemoryPatch;
     updates: MemoryPatch;
     redactedPaths: Set<string>;
-    trace: { path: string; verb: 'set' | 'merge' }[];
+    trace: TraceEntry[];
   } {
     const overwrite: MemoryPatch = {};
     const updates: MemoryPatch = {};
-    const trace: { path: string; verb: 'set' | 'merge' }[] = [];
+    const trace: TraceEntry[] = [];
     const survivingPaths = new Set<string>();
 
     for (const op of this.opTrace) {
@@ -166,16 +201,149 @@ export class TransactionBuffer {
       const after = _get(this.workingCopy, segments);
       if (deepEqual(before, after)) continue; // no-op or write-then-revert → no net change
 
-      trace.push(op);
+      // Historical flattening: an explicit delete commits as set-of-undefined.
+      trace.push(op.verb === 'delete' ? { path: op.path, verb: 'set' } : op);
       survivingPaths.add(op.path);
-      if (op.verb === 'set') {
-        _set(overwrite, segments, structuredClone(_get(this.overwritePatch, segments)));
-      } else {
+      if (op.verb === 'merge') {
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
+      } else {
+        _set(overwrite, segments, structuredClone(_get(this.overwritePatch, segments)));
       }
     }
 
     const redactedPaths = new Set([...this.redactedPaths].filter((path) => survivingPaths.has(path)));
     return { overwrite, updates, redactedPaths, trace };
   }
+
+  /**
+   * Delta-encoded payload (`commitValues: 'delta'`, #13c-B) — same net-change
+   * filter as {@link toChangeOnlyPayload}, two encoding differences:
+   *
+   * 1. **One trace entry per surviving path** (the §2.5 dedup rule — `append`
+   *    is NOT idempotent on replay, so duplicate entries would multiply
+   *    tails). The verb is resolved from the path's op mix + base→final
+   *    relationship; entries are ordered by each path's LAST touch,
+   *    preserving last-writer-wins for nested/overlapping paths.
+   * 2. **Verb resolution per path**:
+   *    - last op `'delete'` AND final value gone → `delete` (the path stays
+   *      enumerated in `overwrite` with `undefined` for key-set consumers);
+   *    - ONLY `'merge'` ops → `merge` with the accumulated `updatePatch`
+   *      delta (replaying the accumulated delta once ≡ the full mode's
+   *      k sequential replays — `deepSmartMerge` is reference-idempotent
+   *      within one replay pass);
+   *    - otherwise (`set`/mixed): the committed value is computed by
+   *      replaying the path's op sequence EXACTLY the way `applySmartMerge`
+   *      replays the full-mode bundle ({@link replayPathVerbs}) — for
+   *      pure-set paths that is simply the last set value; for mixed
+   *      set+merge interleavings it reproduces the full mode's quirk of
+   *      applying the ACCUMULATED merge delta at every merge position
+   *      (which can differ from the buffer's read-your-writes view; parity
+   *      with the `'full'` mode's committed state is the contract). If base
+   *      and that value are arrays and base is a STRICT PREFIX → `append`
+   *      storing only the tail; else `set` storing the full value.
+   *
+   * Losslessness never depends on detection succeeding — every fallback is
+   * today's full-value `set`.
+   */
+  private toDeltaPayload(): {
+    overwrite: MemoryPatch;
+    updates: MemoryPatch;
+    redactedPaths: Set<string>;
+    trace: TraceEntry[];
+  } {
+    const overwrite: MemoryPatch = {};
+    const updates: MemoryPatch = {};
+    const trace: TraceEntry[] = [];
+    const survivingPaths = new Set<string>();
+
+    // Path → its op-verb sequence, ordered by LAST touch (delete +
+    // re-insert moves a re-touched path to the end of the Map's insertion
+    // order — preserving last-writer-wins for nested/overlapping paths).
+    const byPath = new Map<string, OpVerb[]>();
+    for (const op of this.opTrace) {
+      const prev = byPath.get(op.path);
+      if (prev) {
+        prev.push(op.verb);
+        byPath.delete(op.path);
+        byPath.set(op.path, prev);
+      } else {
+        byPath.set(op.path, [op.verb]);
+      }
+    }
+
+    for (const [path, verbs] of byPath) {
+      const segments = path.split(DELIM);
+      const before = _get(this.baseSnapshot, segments);
+      const after = _get(this.workingCopy, segments);
+      if (deepEqual(before, after)) continue; // no-op or write-then-revert → no net change (same filter as 'full')
+
+      survivingPaths.add(path);
+      const lastVerb = verbs[verbs.length - 1];
+      if (lastVerb === 'delete' && after === undefined) {
+        // Real deletion — replay removes the key. Keep the path enumerated
+        // in `overwrite` (undefined) so Object.keys consumers see it.
+        trace.push({ path, verb: 'delete' });
+        _set(overwrite, segments, undefined);
+      } else if (verbs.every((v) => v === 'merge')) {
+        trace.push({ path, verb: 'merge' });
+        _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
+      } else {
+        // Committed-equivalent value: replay this path's op sequence the way
+        // applySmartMerge replays the FULL-mode bundle, so both modes commit
+        // byte-identical state (see the method JSDoc).
+        const committed = this.replayPathVerbs(before, segments, verbs);
+        if (isStrictArrayPrefix(before, committed)) {
+          trace.push({ path, verb: 'append' });
+          _set(overwrite, segments, structuredClone((committed as unknown[]).slice((before as unknown[]).length)));
+        } else {
+          trace.push({ path, verb: 'set' });
+          _set(overwrite, segments, structuredClone(committed));
+        }
+      }
+    }
+
+    const redactedPaths = new Set([...this.redactedPaths].filter((path) => survivingPaths.has(path)));
+    return { overwrite, updates, redactedPaths, trace };
+  }
+
+  /**
+   * Replay ONE path's op-verb sequence against its base value, exactly the
+   * way `applySmartMerge` replays the corresponding full-mode bundle: every
+   * `set`/`delete` position applies the LAST staged overwrite value (the
+   * bag holds one value per path — last writer wins), every `merge`
+   * position applies the ACCUMULATED `updatePatch` delta. This reproduces
+   * the full mode's committed value for any interleaving — including the
+   * mixed set+merge quirk where the accumulated delta re-applies pre-set
+   * merge keys (full-mode replay semantics, kept for byte-parity across
+   * modes; property-tested in delta-replay-equivalence).
+   */
+  private replayPathVerbs(before: unknown, segments: string[], verbs: OpVerb[]): unknown {
+    const setValue = _get(this.overwritePatch, segments);
+    const mergeDelta = _get(this.updatePatch, segments);
+    let value: unknown = before;
+    for (const verb of verbs) {
+      value = verb === 'merge' ? deepSmartMerge(value ?? {}, mergeDelta) : setValue;
+    }
+    return value;
+  }
+}
+
+/**
+ * Append-detection predicate (#13c-B §2.2): both values are arrays, the
+ * final is strictly longer, and the base is a structural prefix of the
+ * final. Element compares short-circuit on reference identity (`deepEqual`'s
+ * `===` fast path) before walking structure, and bail at the first mismatch
+ * — worst case one structural compare of the base array, strictly cheaper
+ * than the full-value `structuredClone` the fallback pays.
+ *
+ * `before === undefined` (first write) fails `Array.isArray` → `set`, which
+ * keeps the first write as the causal anchor for "who initialized this key".
+ */
+function isStrictArrayPrefix(before: unknown, after: unknown): before is unknown[] {
+  if (!Array.isArray(before) || !Array.isArray(after)) return false;
+  if (after.length <= before.length) return false;
+  for (let i = 0; i < before.length; i++) {
+    if (!deepEqual(before[i], after[i])) return false;
+  }
+  return true;
 }

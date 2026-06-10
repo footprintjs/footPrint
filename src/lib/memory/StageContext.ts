@@ -15,7 +15,14 @@ import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
-import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './types.js';
+import type {
+  CommitValuesMode,
+  FlowControlType,
+  FlowMessage,
+  ReadTrackingMode,
+  StageSnapshot,
+  WriteTrackingMode,
+} from './types.js';
 import { redactPatch } from './utils.js';
 
 export class StageContext {
@@ -95,6 +102,18 @@ export class StageContext {
    */
   private writeTracking: WriteTrackingMode = 'full';
 
+  /**
+   * How commit-bundle values are encoded into the commit log (#13c-B) — the
+   * third dial of the family, with the same propagation pattern as
+   * {@link readTracking}/{@link writeTracking} (inherited via
+   * {@link createNext}/{@link createChild}, pushed into subflow root
+   * contexts by `SubflowExecutor`, re-applied on the resume path). Passed
+   * into each {@link TransactionBuffer} at construction; `'full'` (default)
+   * is byte-identical to history, `'delta'` enables append/delete verbs +
+   * one-trace-entry-per-path dedup. Lossless in both modes.
+   */
+  private commitValues: CommitValuesMode = 'full';
+
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
     mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
@@ -171,6 +190,23 @@ export class StageContext {
   /** Returns the active write-tracking policy (used for subflow propagation). */
   getWriteTracking(): WriteTrackingMode {
     return this.writeTracking;
+  }
+
+  /**
+   * Set the commit-values encoding policy for this context (#13c-B). Same
+   * plumbing as {@link useReadTracking}/{@link useWriteTracking}: called at
+   * the root by `ExecutionRuntime.useCommitValues()` (plumbed from
+   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
+   * and `SubflowExecutor` pushes the parent context's mode into each subflow
+   * root.
+   */
+  useCommitValues(mode: CommitValuesMode): void {
+    this.commitValues = mode;
+  }
+
+  /** Returns the active commit-values policy (used for subflow propagation). */
+  getCommitValues(): CommitValuesMode {
+    return this.commitValues;
   }
 
   /**
@@ -259,7 +295,7 @@ export class StageContext {
    *  {@link firstTouchState}. */
   getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
-      this.buffer = new TransactionBuffer(this.firstTouchState());
+      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues);
     }
     return this.buffer;
   }
@@ -294,7 +330,15 @@ export class StageContext {
     description?: string,
     operationOverride?: 'set' | 'delete',
   ) {
-    this.patch(path, key, value, shouldRedact ?? false);
+    if (operationOverride === 'delete') {
+      // Explicit deletion (ScopeFacade.deleteValue) stages a distinct op so
+      // delta-mode commits (#13c-B) can emit a real `delete` trace entry.
+      // Under the default 'full' mode the buffer commits it as a
+      // set-of-undefined — byte-identical to the historical flattening.
+      this.getTransactionBuffer().delete(this.withNamespace(path, key), shouldRedact ?? false);
+    } else {
+      this.patch(path, key, value, shouldRedact ?? false);
+    }
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
     const userKey = path.length > 0 ? [...path, key].join('.') : key;
@@ -537,6 +581,7 @@ export class StageContext {
       if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
       this.next.readTracking = this.readTracking;
       this.next.writeTracking = this.writeTracking;
+      this.next.commitValues = this.commitValues;
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -557,6 +602,7 @@ export class StageContext {
     if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
     child.readTracking = this.readTracking;
     child.writeTracking = this.writeTracking;
+    child.commitValues = this.commitValues;
     this.children.push(child);
     return child;
   }

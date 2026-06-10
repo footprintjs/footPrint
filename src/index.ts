@@ -304,6 +304,24 @@ export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js'
  */
 export type { RetentionPolicy, WriteSummaryMarker, WriteTrackingMode } from './lib/memory/index.js';
 
+/**
+ * @category Configuration
+ *
+ * Commit-values encoding for the COMMIT LOG (#13c-B) — the third dial of
+ * the family, and the only LOSSLESS one (it changes the log's encoding,
+ * never its information). `'full'` (default — every surviving `set` stores
+ * the full final value, byte-identical to history) / `'delta'` (array
+ * net-changes that are "base plus a tail" commit as an `append` verb
+ * storing only the tail; `deleteValue()` commits as a real `delete` verb;
+ * one trace entry per surviving path). Replay reconstructs every step's
+ * full state exactly. Consumers reading `bundle.overwrite[key]` as the full
+ * value must use `commitValueAt` from `footprintjs/trace`. Pass as
+ * `new FlowChartExecutor(chart, { commitValues })` or call
+ * `executor.setCommitValues(mode)` before `run()`; the active mode is the
+ * snapshot discriminant `getSnapshot().commitValues`.
+ */
+export type { CommitValuesMode } from './lib/memory/index.js';
+
 // ============================================================================
 // Contract & Validation
 // ============================================================================

@@ -21,8 +21,25 @@ export interface MemoryPatch {
 export interface TraceEntry {
   /** Canonical path string (segments joined by DELIM). */
   path: string;
-  /** 'set' = hard overwrite, 'merge' = deep union merge. */
-  verb: 'set' | 'merge';
+  /**
+   * - `'set'`    — hard overwrite; `overwrite[path]` holds the full final value.
+   * - `'merge'`  — deep union merge; `updates[path]` holds the accumulated delta.
+   * - `'append'` — (#13c-B, produced only under {@link CommitValuesMode}
+   *   `'delta'`) the path's final value is its base value plus a tail of new
+   *   trailing elements; `overwrite[path]` holds ONLY the tail. Replay
+   *   reconstructs by concatenation. NOT idempotent — delta-mode bundles
+   *   carry exactly one trace entry per surviving path.
+   * - `'delete'` — (#13c-B, produced only under `'delta'`; absorbs backlog
+   *   B8) the key was explicitly removed via `deleteValue()`. Replay removes
+   *   the key. `overwrite[path]` still ENUMERATES the path (value
+   *   `undefined`) so key-set consumers keep seeing the changed key.
+   *
+   * `overwrite` values are therefore VERB-QUALIFIED: consumers that read
+   * `bundle.overwrite[key]` as "the full value written" must use
+   * `commitValueAt(commitLog, idx, key)` (from `footprintjs/trace`) when the
+   * log may contain delta-mode bundles.
+   */
+  verb: 'set' | 'merge' | 'append' | 'delete';
 }
 
 /** The atomic bundle produced by TransactionBuffer.commit(). */
@@ -105,7 +122,9 @@ export type ReadTrackingMode = RetentionPolicy;
  * - `'off'` — writes are not recorded at all; `stageWrites` is absent from the
  *   snapshot. The writes themselves still commit to shared state and still
  *   appear in the commit log — only the per-stage snapshot bookkeeping (and
- *   therefore the commit observer's mutations payload) is affected.
+ *   therefore the commit observer's mutations payload) is affected. (The
+ *   commit log's own value encoding has its own lossless dial —
+ *   {@link CommitValuesMode}, #13c-B.)
  *
  * Set via `new FlowChartExecutor(chart, { writeTracking })` or
  * `executor.setWriteTracking(mode)` (before `run()`). See
@@ -113,6 +132,41 @@ export type ReadTrackingMode = RetentionPolicy;
  * contract (onCommit payload, redaction precedence, what is OUT of scope).
  */
 export type WriteTrackingMode = RetentionPolicy;
+
+/**
+ * Policy for how commit-bundle VALUES are encoded into the commit log
+ * (#13c-B) — completes the `readTracking`/`writeTracking` dial family.
+ * Unlike those two (which gate lossy snapshot bookkeeping), this dial is
+ * **lossless in both modes** — it changes the commit log's *encoding*,
+ * never its *information*; any step's full state stays exactly
+ * reconstructable by replay.
+ *
+ * - `'full'` (default) — every surviving `set` path stores the full final
+ *   value, one trace entry per operation. Byte-identical to the historical
+ *   behavior.
+ * - `'delta'` — two changes, both replay-covered by `applySmartMerge`:
+ *   1. **`append` detection**: when a path's net change is "the base array
+ *      plus new trailing elements" (strict prefix), the bundle records ONLY
+ *      the tail under a `verb: 'append'` trace entry — the growing-history
+ *      commit log becomes linear in tail size instead of O(N²) retained.
+ *      A real `verb: 'delete'` entry replaces the `set: undefined` flattening
+ *      for `deleteValue()` (closes the documented MemoryPatch limitation).
+ *   2. **One trace entry per surviving path** (append is not idempotent on
+ *      replay): the verb is resolved from the path's base→final relationship
+ *      and op mix; entries are ordered by each path's LAST touch.
+ *
+ * Honest cost note: append detection is NEW wall work — an O(|base|)
+ * structural prefix compare per array-set path per commit (today's
+ * `deepEqual` fast-fails on length in O(1) for a grown array). On a hit the
+ * commit gets cheaper in both wall and heap (the O(|final|) clone shrinks to
+ * O(|tail|)); on a miss it pays compare + full clone. `'full'` pays zero —
+ * the detection branch is mode-gated.
+ *
+ * Set via `new FlowChartExecutor(chart, { commitValues })` or
+ * `executor.setCommitValues(mode)` (before `run()`). The active mode is
+ * surfaced as the snapshot discriminant `RuntimeSnapshot.commitValues`.
+ */
+export type CommitValuesMode = 'full' | 'delta';
 
 // ── Stage Snapshot ─────────────────────────────────────────────────────────
 

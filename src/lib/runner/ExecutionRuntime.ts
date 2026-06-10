@@ -13,7 +13,13 @@
 import { EventLog } from '../memory/EventLog.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
+import type {
+  CommitBundle,
+  CommitValuesMode,
+  ReadTrackingMode,
+  StageSnapshot,
+  WriteTrackingMode,
+} from '../memory/types.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -31,6 +37,14 @@ export type RuntimeSnapshot = {
   sharedState: Record<string, unknown>;
   executionTree: StageSnapshot;
   commitLog: CommitBundle[];
+  /**
+   * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
+   * bundle stores the full final value (historical); `'delta'` — bundles may
+   * carry `append`/`delete` trace verbs with verb-qualified `overwrite`
+   * payloads (tails). Offline tooling keys on this field; a bundle stream
+   * without context remains self-describing via the verbs themselves.
+   */
+  commitValues: CommitValuesMode;
   /** Per-subflow execution results (keyed by subflowId). */
   subflowResults?: Record<string, unknown>;
   /** Snapshot data from recorders that implement toSnapshot(). */
@@ -62,6 +76,9 @@ export class ExecutionRuntime {
   private _snapshotRoot?: StageContext;
   private _initialState: unknown;
   private _defaultValues: unknown;
+  /** Active commit-values encoding (#13c-B) — surfaced as the snapshot
+   *  discriminant {@link RuntimeSnapshot.commitValues}. */
+  private commitValues: CommitValuesMode = 'full';
 
   constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
     this._initialState = initialState;
@@ -119,6 +136,21 @@ export class ExecutionRuntime {
     this.rootStageContext.useWriteTracking(mode);
   }
 
+  /**
+   * Set the commit-values encoding policy (#13c-B) on the root stage context
+   * — the third dial of the {@link useReadTracking}/{@link useWriteTracking}
+   * family, with identical plumbing: descendant contexts inherit via
+   * `createNext`/`createChild`; subflow root contexts inherit from their
+   * parent-mount context via `SubflowExecutor`. Called by
+   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
+   * the default `'full'` — including the resume path, where it is applied to
+   * the freshly-created continuation root.
+   */
+  useCommitValues(mode: CommitValuesMode): void {
+    this.commitValues = mode;
+    this.rootStageContext.useCommitValues(mode);
+  }
+
   /** Preserve the current rootStageContext for snapshots before changing it for resume. */
   preserveSnapshotRoot(): void {
     if (!this._snapshotRoot) {
@@ -159,6 +191,7 @@ export class ExecutionRuntime {
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
       executionTree: snapshotRoot.getSnapshot(),
       commitLog: this.executionHistory.list(),
+      commitValues: this.commitValues,
     };
   }
 }

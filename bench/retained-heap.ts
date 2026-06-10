@@ -34,7 +34,7 @@
  * growing ~1KB-per-iteration history key, no LLM layer.
  */
 
-import type { FlowChart, WriteTrackingMode } from '../src/index';
+import type { CommitValuesMode, FlowChart, ReadTrackingMode, WriteTrackingMode } from '../src/index';
 import { flowChart, FlowChartExecutor } from '../src/index';
 import {
   type BenchResult,
@@ -121,17 +121,20 @@ export interface RetainedHeapResult {
 /** Run the probe at `iterations`; returns gc-stable retained-heap deltas.
  *  `options.writeTracking` exercises the #13c-A retention dial — the growing
  *  history key makes `_stageWrites` clones the dominant per-iteration
- *  tracking cost, so 'summary'/'off' isolate that share. */
+ *  tracking cost, so 'summary'/'off' isolate that share.
+ *  `options.commitValues` exercises the #13c-B encoding dial — 'delta'
+ *  commits the growing history as O(tail) append bundles, collapsing the
+ *  commit log's retained share from quadratic to linear (losslessly). */
 export async function probeRetainedHeap(
   iterations: number,
-  options?: { writeTracking?: WriteTrackingMode },
+  options?: { readTracking?: ReadTrackingMode; writeTracking?: WriteTrackingMode; commitValues?: CommitValuesMode },
 ): Promise<RetainedHeapResult> {
   const chart = buildHistoryLoopChart(iterations);
   const baseline = heapAfterGc();
 
   let executor: FlowChartExecutor | undefined = new FlowChartExecutor(
     chart,
-    options?.writeTracking !== undefined ? { writeTracking: options.writeTracking } : undefined,
+    options && Object.keys(options).length > 0 ? { ...options } : undefined,
   );
   await executor.run({ maxIterations: iterations + 1 });
 
@@ -162,6 +165,15 @@ async function main() {
   // (the growing history key makes it the dominant tracking clone).
   const rSummary = await probeRetainedHeap(ITERATIONS, { writeTracking: 'summary' });
   const rOff = await probeRetainedHeap(ITERATIONS, { writeTracking: 'off' });
+  // #13c-B encoding-dial variants — 'delta' alone isolates the commit-log
+  // share; 'delta' + both retention dials 'off' shows the post-everything
+  // floor (what remains is narrative + per-bundle overhead, ~linear).
+  const rDelta = await probeRetainedHeap(ITERATIONS, { commitValues: 'delta' });
+  const rDeltaAllDials = await probeRetainedHeap(ITERATIONS, {
+    commitValues: 'delta',
+    readTracking: 'off',
+    writeTracking: 'off',
+  });
 
   const rows: BenchResult[] = [
     {
@@ -197,6 +209,20 @@ async function main() {
       value: formatBytes(rOff.retainedWithExecutorBytes),
       detail: '#13c-A dial: no stageWrites retention — commit log + narrative remain (#13c-B)',
       num: rOff.retainedWithExecutorBytes,
+      unit: 'bytes',
+    },
+    {
+      name: `Retained heap, commitValues 'delta' (N=${formatNum(rDelta.iterations)})`,
+      value: formatBytes(rDelta.retainedWithExecutorBytes),
+      detail: "#13c-B dial: commit log stores O(tail) append bundles — delta vs default row = the commit-log share, LOSSLESSLY removed",
+      num: rDelta.retainedWithExecutorBytes,
+      unit: 'bytes',
+    },
+    {
+      name: `Retained heap, commitValues 'delta' + read/writeTracking 'off' (N=${formatNum(rDeltaAllDials.iterations)})`,
+      value: formatBytes(rDeltaAllDials.retainedWithExecutorBytes),
+      detail: '#13c-B + #13c-A floor: the last retained-heap QUADRATIC is gone — what remains grows ~linearly',
+      num: rDeltaAllDials.retainedWithExecutorBytes,
       unit: 'bytes',
     },
   ];

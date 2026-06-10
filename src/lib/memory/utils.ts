@@ -5,8 +5,8 @@
  * Zero external dependencies.
  */
 
-import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
-import type { MemoryPatch } from './types.js';
+import { nativeDelete, nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
+import type { MemoryPatch, TraceEntry } from './types.js';
 
 /** ASCII Unit-Separator — cannot appear in JS identifiers, invisible in logs. */
 export const DELIM = '\u001F';
@@ -230,20 +230,39 @@ export function deepSmartMerge(dst: any, src: any): any {
 
 /**
  * Applies a commit bundle to a base state by replaying operations in order.
- * Two-phase: UPDATE (union-merge) then OVERWRITE (direct set).
  * Guarantees "last writer wins" semantics.
+ *
+ * The single replay primitive — three consumers inherit every verb from it:
+ * live state (`SharedMemory.applyPatch`), time travel
+ * (`EventLog.materialise`), and the redacted mirror
+ * (`StageContext.commit`'s second `applyPatch`).
+ *
+ * Verb arms:
+ *   - `'set'`    — overwrite with `overwrite[path]` (the full final value).
+ *   - `'merge'`  — `deepSmartMerge` the accumulated `updates[path]` delta in.
+ *   - `'append'` — (#13c-B delta mode) `overwrite[path]` holds ONLY the tail;
+ *     reconstruct by concatenating it onto the current array. When the
+ *     current value or the recorded tail is not an array (out-of-order
+ *     replay base, or a REDACTED tail — `redactPatch` replaces matched
+ *     payloads with the `'REDACTED'` string), degrade to a direct set of the
+ *     recorded value — the same terminal value a redacted/corrupt `'set'`
+ *     produces.
+ *   - `'delete'` — (#13c-B delta mode) remove the key (`nativeDelete`,
+ *     prototype-pollution-safe). The path stays enumerated in `overwrite`
+ *     (value `undefined`) for key-set consumers; replay ignores that value.
  */
-export function applySmartMerge(
-  base: any,
-  updates: MemoryPatch,
-  overwrite: MemoryPatch,
-  trace: { path: string; verb: 'set' | 'merge' }[],
-): any {
+export function applySmartMerge(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
   const out = structuredClone(base);
   for (const { path, verb } of trace) {
     const segs = path.split(DELIM);
     if (verb === 'set') {
       _set(out, segs, structuredClone(_get(overwrite, segs)));
+    } else if (verb === 'append') {
+      const tail = structuredClone(_get(overwrite, segs));
+      const current = _get(out, segs);
+      _set(out, segs, Array.isArray(current) && Array.isArray(tail) ? [...current, ...tail] : tail);
+    } else if (verb === 'delete') {
+      nativeDelete(out, segs);
     } else {
       const current = _get(out, segs) ?? {};
       _set(out, segs, deepSmartMerge(current, _get(updates, segs)));

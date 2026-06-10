@@ -232,6 +232,36 @@ non-default mode (markers are O(1), so `'summary'` ≈ `'off'`). The default
 row is byte-identical (59.7MB, 0.0% vs the committed baseline). What the
 dial deliberately does NOT shrink: the commit log (≈18MB here) — #13c-B.
 
+**Finding 7 (#13c-B shipped — `commitValues: 'delta'`, the LOSSLESS
+commit-log encoding, 2026-06-10):** two new §E rows run the same N=200
+chart with `commitValues: 'delta'` (alone) and `'delta'` + both retention
+dials `'off'`. Measured:
+
+| Configuration | N=200 | N=500 | N=1000 |
+|---|---|---|---|
+| default (`'full'`, all dials default) | 59.7MB (byte-identical, +0.0%) | 365.9MB (Finding 5) | — |
+| `commitValues: 'delta'` only | 40.4MB | 245.2MB | 971.6MB |
+| `'delta'` + `read/writeTracking: 'off'` | **1.6–1.9MB** | **4.0MB** | **7.7MB** |
+
+- The delta-only row isolates the **commit-log share: ≈19.3MB at N=200,
+  ≈120MB at N=500 — removed LOSSLESSLY** (append bundles store O(tail);
+  every step's full state stays exactly reconstructable — replay
+  property-tested, see test/lib/memory/property/delta-replay-equivalence).
+- The all-dials row is **THE linearity proof**: 1.9 → 4.0 → 7.7MB across
+  N=200/500/1000 — heap(N=1000) ≈ 1.9× heap(N=500), well under the <3
+  acceptance ratio. The last retained-heap quadratic is gone.
+- Honest attribution: delta-only is still super-linear at high N because
+  the `stageReads`/`stageWrites` snapshot clones remain quadratic at their
+  default `'full'` (this chart reads AND writes the full history array per
+  iteration) — those are #14/#13c-A's dials, not the commit log. The
+  commit-log term itself is linear under `'delta'`.
+- Honest wall caveat: append detection adds an O(|base array|) structural
+  prefix compare per array-set commit (today's `deepEqual` fast-fails on
+  length in O(1)) — heap becomes linear, the transient per-commit wall
+  keeps a small quadratic term (write-time clone + applyPatch whole-state
+  clone; §Micro loop-latency rows). Tracked as the §8.5 follow-up in the
+  design memo. `bench:compare` on defaults: clean, 0 regressions.
+
 ### PRE-#13b (v9.2.0 — historical)
 
 | Benchmark | Value | Detail |
