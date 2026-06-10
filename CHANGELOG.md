@@ -28,7 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (human or LLM) debugging from the slice must be TOLD when that happened.
   The stage's commit bundle now carries
   `untrackedSources?: ReadonlyArray<'args' | 'env' | 'silent'>`:
-
   - `'args'` — the stage called `getArgs()`/`$getArgs()` with actual run
     input present (an empty-args read carries no information and is not
     flagged);
@@ -63,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chains like
   `status ← [control: Good credit] ClassifyRisk ← [data: creditScore] PullBureau`
   resolve end-to-end. New shapes:
-
   - `CausalEdge { parent, kind: 'data' | 'control', key?, weight }` — one
     edge per dependency LINK on the new `CausalNode.parentEdges` (a node
     reading two keys from the same writer gets one `parents[]` entry but
@@ -81,7 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behavior is unchanged (existing backtrack suite green unmodified).
 
 - **RFC-003 D4 — `weigh` hook + truncation visibility** (additive).
-
   - `causalChain()` gains `weigh?: EdgeWeigher` —
     `(child, parent, key, kind) => number | undefined` — called once per
     created edge; `undefined` → 1.0. The ENGINE never computes weights
@@ -112,16 +109,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (nested decisions compose — the backtracker expands the decider and asks
   again); `asLookup()` plugs straight into
   `causalChain(..., { controlDeps })`. Correlation is by parent-runtime-id
-  - count, NOT stage name (subflow-mount events carry path-prefixed names;
-    selectors emit a synthetic fork event sharing the selector's own
-    runtimeStageId), and a branch that THROWS consumes its slot via
-    `onError` so best-effort fan-out convergence stages are never
-    misattributed. Convention-4 runId reset: each run (and each resume)
-    starts clean — control chains do not survive a pause/resume boundary.
-    Fixtures: decider, selector, nested subflow branches (single + double
-    nesting), loop re-entry (per-iteration decisions stay distinct).
-    Attach via `executor.attachFlowRecorder(ctrl)` or
-    `attachCombinedRecorder(ctrl)`.
+  + count, NOT stage name (subflow-mount events carry path-prefixed names;
+  selectors emit a synthetic fork event sharing the selector's own
+  runtimeStageId), and a branch that THROWS consumes its slot via
+  `onError` so best-effort fan-out convergence stages are never
+  misattributed. Convention-4 runId reset: each run (and each resume)
+  starts clean — control chains do not survive a pause/resume boundary.
+  Fixtures: decider, selector, nested subflow branches (single + double
+  nesting), loop re-entry (per-iteration decisions stay distinct).
+  Attach via `executor.attachFlowRecorder(ctrl)` or
+  `attachCombinedRecorder(ctrl)`.
 
 ## [9.7.0] - 2026-06-11
 
@@ -130,8 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **#13c-B — `commitValues: 'full' | 'delta'`: delta/append commit verbs,
   the LOSSLESS commit-log encoding dial.** Completes the
   `readTracking`/`writeTracking` dial family — and unlike its siblings it
-  is lossless in both modes: it changes the commit log's _encoding_, never
-  its _information_. Opt in via
+  is lossless in both modes: it changes the commit log's *encoding*, never
+  its *information*. Opt in via
   `new FlowChartExecutor(chart, { commitValues: 'delta' })` or
   `executor.setCommitValues('delta')`. Design memo:
   [docs/design/13c-b-delta-commit-verb.md](docs/design/13c-b-delta-commit-verb.md).
@@ -178,7 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     On a hit the commit gets cheaper in both wall and heap (the full-array
     clone shrinks to a tail clone); on a miss it pays compare + full clone,
     bounded ≈2× one of today's clones. `'full'` pays zero — detection is
-    mode-gated. The retained-heap quadratic is gone; a smaller _transient_
+    mode-gated. The retained-heap quadratic is gone; a smaller *transient*
     wall quadratic (write-time clone + applyPatch whole-state clone)
     remains, tracked as the memo's §8.5 follow-up.
   - Plumbing mirrors the sibling dials exactly: executor option/setter →
@@ -199,13 +196,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorder never receives scope-channel listener errors — inline-tier
   parity. (Review CRITICAL-1; negative-control test added.)
 
+
 ### Added
 
 - **RFC-001 deferred-observer delivery is WIRED (Blocks 6–9)** — the pure
   module shipped dark in 9.5.0 now powers a public delivery tier.
   - **Block 6 — tier router.** Every `attach*Recorder` accepts an options
     bag: `executor.attachScopeRecorder(rec, { delivery: 'deferred',
-capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
+    capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
     for `attachFlowRecorder` / `attachEmitRecorder` /
     `attachCombinedRecorder`; `CombinedRecorder` also supports the field
     form `{ id, delivery: 'deferred', ...hooks }`). Absent `delivery` is the
@@ -289,7 +287,7 @@ capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
   `maxIterations` budget (default 1000, tuned via `RunOptions.maxIterations`,
   propagates to subflows), erring in the loop guard's style:
   `Maximum dynamic-next continuations (N) exceeded at stage '…' (dynamic
-target '…'). Set maxIterations to increase the limit.` Legitimate chains
+  target '…'). Set maxIterations to increase the limit.` Legitimate chains
   are unaffected: hops under the budget run as before (byte-identical events/
   narrative), longer chains raise `maxIterations` exactly like long loops.
   **⚠ Behavior change:** a chart whose fn-bearing dynamic-next chain
@@ -325,7 +323,6 @@ target '…'). Set maxIterations to increase the limit.` Legitimate chains
   #13c-A) — the sibling of #14's `readTracking`; the two dials are
   independent. `new FlowChartExecutor(chart, { writeTracking })` or
   `executor.setWriteTracking(mode)` before `run()`:
-
   - `'full'` (default) — per-write `structuredClone` into the stage's write
     view. Byte-identical to the historical behavior (pinned by a
     negative-control clone counter).
@@ -335,23 +332,23 @@ target '…'). Set maxIterations to increase the limit.` Legitimate chains
   - `'off'` — no `stageWrites` at all; zero tracking cost. The WRITE itself
     is untouched: shared state, the transaction buffer, the commit log,
     `onWrite` events, and narrative are byte-identical in every mode.
-    Observable consequences: besides the snapshot, the commit observer payload
-    (`ScopeRecorder.onCommit` mutations is a spread of the retained
-    `_stageWrites`) carries the same markers under `'summary'` and arrives
-    empty under `'off'`; per-op `onWrite` always delivers live values (delivery
-    tier — RFC-001's concern). Redaction takes precedence over the dial:
-    `'[REDACTED]'` under `'full'`/`'summary'` (a marker would leak
-    size/preview), nothing retained under `'off'`. Plumbed exactly like
-    readTracking: root context → `createNext`/`createChild` inheritance →
-    subflow roots via `SubflowExecutor` → re-applied on the resume path.
-    Measured on the §E retained-heap probe (N=200 growing-history loop): the
-    `_stageWrites` share drops with `'summary'`/`'off'` while default rows are
-    unchanged. New example: `examples/runtime-features/write-tracking/01-basic.ts`;
-    25-test scenario suite `test/lib/memory/scenario/write-tracking.test.ts`.
-    OUT OF SCOPE (by design, documented on the option): commit-log value
-    payloads — deferred to **#13c-B's lossless delta/append verb** (one bundle-
-    contract evolution, designed jointly with the RFC-001 §12 envelope);
-    read tracking (shipped in #14); deferred observer delivery (RFC-001).
+  Observable consequences: besides the snapshot, the commit observer payload
+  (`ScopeRecorder.onCommit` mutations is a spread of the retained
+  `_stageWrites`) carries the same markers under `'summary'` and arrives
+  empty under `'off'`; per-op `onWrite` always delivers live values (delivery
+  tier — RFC-001's concern). Redaction takes precedence over the dial:
+  `'[REDACTED]'` under `'full'`/`'summary'` (a marker would leak
+  size/preview), nothing retained under `'off'`. Plumbed exactly like
+  readTracking: root context → `createNext`/`createChild` inheritance →
+  subflow roots via `SubflowExecutor` → re-applied on the resume path.
+  Measured on the §E retained-heap probe (N=200 growing-history loop): the
+  `_stageWrites` share drops with `'summary'`/`'off'` while default rows are
+  unchanged. New example: `examples/runtime-features/write-tracking/01-basic.ts`;
+  25-test scenario suite `test/lib/memory/scenario/write-tracking.test.ts`.
+  OUT OF SCOPE (by design, documented on the option): commit-log value
+  payloads — deferred to **#13c-B's lossless delta/append verb** (one bundle-
+  contract evolution, designed jointly with the RFC-001 §12 envelope);
+  read tracking (shipped in #14); deferred observer delivery (RFC-001).
 
 - **`src/lib/capture/` — shared value-capture/retention module** (#13c-A
   part 1; the module RFC-001's deferred-observer capture tier builds on).
@@ -407,13 +404,13 @@ target '…'). Set maxIterations to increase the limit.` Legitimate chains
 - **Machine-readable bench results + regression compare** (`fp-bench/1`).
   `bench:baseline` (sections A/B/C), `bench:depth` (D) and `bench:heap` (E)
   now ALSO write `bench/results/latest.json` — `{ schema: 'fp-bench/1',
-date, node, platform, commit, rows: [{ section, name, value, unit,
-detail }] }`, merged by section so `npm run bench` accumulates one
+  date, node, platform, commit, rows: [{ section, name, value, unit,
+  detail }] }`, merged by section so `npm run bench` accumulates one
   complete file. `bench/BASELINE.md` stays the human doc, unchanged format
   (header now documents the JSON as the machine contract). New
   `npm run bench:compare` (`bench/compare.ts` + pure `bench/compareCore.ts`,
   12 unit tests) diffs two result files (default `bench/results/
-baseline.json` vs `latest.json`), prints per-row deltas, highlights
+  baseline.json` vs `latest.json`), prints per-row deltas, highlights
   regressions (▲ red ANSI, exit 1 above `--threshold`, default 25%) and
   improvements (▼ green). Regression gating is two-stage — relative
   threshold AND a per-unit absolute noise floor (0.5ms / 1MiB / 0.25 count)
@@ -447,7 +444,7 @@ baseline.json` vs `latest.json`), prints per-row deltas, highlights
 
 - **`decide()`/`select()`: dev-mode warning on unknown filter operators +
   vacuous-truth docs** (backlog B5). An operator outside `eq, ne, gt, gte,
-lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the
+  lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the
   condition silently; with `enableDevMode()` it now warns, naming the
   operator and key. The empty-filter rule (`when: {}` NEVER matches —
   anti-vacuous-truth, deliberately inverting Prisma/SQL `where: {}`) is now
@@ -758,19 +755,14 @@ scope helpers move to a new opt-in `footprintjs/zod` entry.
   load with zod completely absent.
 
   Migration — import from the subpath and add `zod` to your dependencies:
-
   ```ts
   // before
   import { defineScopeFromZod, defineScopeSchema } from 'footprintjs';
   import { createScopeProxyFromZod, isScopeSchema, ZodScopeResolver } from 'footprintjs/advanced';
   // after
   import {
-    defineScopeFromZod,
-    defineScopeSchema,
-    createScopeProxyFromZod,
-    isScopeSchema,
-    ZodScopeResolver,
-    type DefineScopeOptions,
+    defineScopeFromZod, defineScopeSchema, createScopeProxyFromZod,
+    isScopeSchema, ZodScopeResolver, type DefineScopeOptions,
   } from 'footprintjs/zod';
   ```
 
@@ -797,8 +789,8 @@ Minor — the commit log now records **net state changes**, not raw writes.
   write-then-revert within a stage now produce an **empty** commit instead of a
   phantom entry.
 
-  This makes the commit log a faithful record of what each stage _changed_, not
-  merely what it _touched_ — so time-travel consumers (e.g. a UI that highlights
+  This makes the commit log a faithful record of what each stage *changed*, not
+  merely what it *touched* — so time-travel consumers (e.g. a UI that highlights
   the stages responsible for a value) light up only the stages that genuinely
   changed state.
 
@@ -833,27 +825,18 @@ Major — recorder model cleanup. One breaking change, removing long-deprecated 
   only recorder-storage model** — there is no base class to extend.
 
   Migration — replace inheritance with a composed store field:
-
   ```ts
   // before (7.0.0 removed this)
   class TokenRecorder extends KeyedRecorder<TokenEntry> {
-    onLLMCall(e) {
-      this.store(e.runtimeStageId, e.usage);
-    }
+    onLLMCall(e) { this.store(e.runtimeStageId, e.usage); }
   }
   // after
   class TokenRecorder implements ScopeRecorder {
     readonly id = 'tokens';
     private readonly store = new KeyedStore<TokenEntry>();
-    onLLMCall(e) {
-      this.store.set(e.runtimeStageId, e.usage);
-    }
-    getForStep(id) {
-      return this.store.get(id);
-    } // expose what you need
-    clear() {
-      this.store.clear();
-    }
+    onLLMCall(e) { this.store.set(e.runtimeStageId, e.usage); }
+    getForStep(id) { return this.store.get(id); }   // expose what you need
+    clear() { this.store.clear(); }
   }
   ```
 
@@ -864,7 +847,7 @@ Major — recorder model cleanup. One breaking change, removing long-deprecated 
   Their public query methods (`getByKey` / `aggregate` / `accumulate` /
   `getEntries` / `getEntriesForStep` / `getEntryRanges` / `getEntriesUpTo` / …) are
   unchanged — only the (deprecated) base-class identity is gone. `instanceof
-KeyedRecorder` / `SequenceRecorder` checks no longer apply.
+  KeyedRecorder` / `SequenceRecorder` checks no longer apply.
 
 ## [6.1.2]
 
@@ -996,7 +979,7 @@ discriminator on `FlowStageEvent`.
   stage run?" no longer need separate `onDecision`/`onFork`/`onSelected`
   handlers for the same purpose. Consumers that used `onStageExecuted` as
   a LINEAR-ONLY signal must filter: `if (event.stageType !== 'linear')
-return;`. See `MIGRATION-6.md` for the recipe.
+  return;`. See `MIGRATION-6.md` for the recipe.
 
 ### Changed (docs / JSDoc)
 
@@ -1151,14 +1134,14 @@ spec (the `.when()` / `.otherwise()` outputs) was un-extracted.
 
 Fixed sites:
 
-| #   | Class              | Method                      | Line (pre-fix) |
-| --- | ------------------ | --------------------------- | -------------- |
-| 1   | `DeciderList`      | `addSubFlowChartBranch`     | 179            |
-| 2   | `DeciderList`      | `addLazySubFlowChartBranch` | 224            |
-| 3   | `SelectorFnList`   | `addSubFlowChartBranch`     | 450            |
-| 4   | `SelectorFnList`   | `addLazySubFlowChartBranch` | 493            |
-| 5   | `FlowChartBuilder` | `addLazySubFlowChart`       | 1152           |
-| 6   | `FlowChartBuilder` | `addLazySubFlowChartNext`   | 1202           |
+| # | Class | Method | Line (pre-fix) |
+|---|---|---|---|
+| 1 | `DeciderList` | `addSubFlowChartBranch` | 179 |
+| 2 | `DeciderList` | `addLazySubFlowChartBranch` | 224 |
+| 3 | `SelectorFnList` | `addSubFlowChartBranch` | 450 |
+| 4 | `SelectorFnList` | `addLazySubFlowChartBranch` | 493 |
+| 5 | `FlowChartBuilder` | `addLazySubFlowChart` | 1152 |
+| 6 | `FlowChartBuilder` | `addLazySubFlowChartNext` | 1202 |
 
 All six now call `_applyExtractorToNode` after spec construction.
 Zero-risk for consumers without an extractor (helper is a no-op when
@@ -1188,7 +1171,7 @@ A new abstract base class for tracking **transient bracket-scoped state**. Sits 
 
 **Mental model:**
 
-> Existing recorder _interfaces_ (`Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf via `extends + implements` — the same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
+> Existing recorder *interfaces* (`Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf via `extends + implements` — the same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
 
 **API:**
 
@@ -1196,26 +1179,19 @@ A new abstract base class for tracking **transient bracket-scoped state**. Sits 
 import { BoundaryStateTracker } from 'footprintjs/trace';
 
 class LiveLLMTracker
-  extends BoundaryStateTracker<LLMLiveState>
-  // STORAGE shelf
-  implements EmitRecorder
+  extends BoundaryStateTracker<LLMLiveState>     // STORAGE shelf
+  implements EmitRecorder                         // OBSERVER interface
 {
-  // OBSERVER interface
   readonly id = 'live-llm';
   onEmit(e) {
     if (e.name === 'llm.start') this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
-    if (e.name === 'llm.token')
-      this.updateBoundary(e.runtimeStageId, (s) => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
-    if (e.name === 'llm.end') this.stopBoundary(e.runtimeStageId);
+    if (e.name === 'llm.token') this.updateBoundary(e.runtimeStageId, s => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
+    if (e.name === 'llm.end')   this.stopBoundary(e.runtimeStageId);
   }
 
   // O(1) reads
-  isInFlight(): boolean {
-    return this.hasActive;
-  }
-  getPartial(rid: string): string {
-    return this.getActive(rid)?.partial ?? '';
-  }
+  isInFlight(): boolean { return this.hasActive; }
+  getPartial(rid: string): string { return this.getActive(rid)?.partial ?? ''; }
 }
 ```
 
@@ -1323,7 +1299,6 @@ Pure addition. No breaking changes. Existing recorders unaffected.
 - **`narrative()` factory no longer decorates the recorder with `.lines()` / `.structured()` methods.** These were convenience aliases for `.getNarrative()` / `.getEntries()` on `CombinedNarrativeRecorder`. Callers now invoke those methods directly.
 
   Migration:
-
   ```typescript
   // Before
   const rec = narrative();
@@ -1358,11 +1333,10 @@ Pure addition. No breaking changes. Existing recorders unaffected.
 - **`TopologyRecorder`** — new primitive in `footprintjs/trace`. Reconstructs a live, queryable mini-flowchart of what your run actually traced, built from the three primitive recorder channels (Recorder / FlowRecorder / EmitRecorder). Fills the asymmetry between post-run consumers (walk `executor.getSnapshot()`) and streaming consumers (see only events).
 
 - **Three node kinds — complete composition coverage:**
-
   - `'subflow'` — via `onSubflowEntry` (mounted subflow boundary)
   - `'fork-branch'` — via `onFork` (synthesized one per child)
   - `'decision-branch'` — via `onDecision` (synthesized for chosen target)
-    When a fork/decision target is also a subflow, the subsequent `onSubflowEntry` nests as a child — layered shape preserves both "who branched" and "what the branch ran."
+  When a fork/decision target is also a subflow, the subsequent `onSubflowEntry` nests as a child — layered shape preserves both "who branched" and "what the branch ran."
 
 - **Query API:** `getTopology()` returns `{ nodes, edges, activeNodeId, rootId }`. Convenience: `getChildren(id)`, `getByKind(kind)`, `getSubflowNodes()`, `getParallelSiblings(id)`. Every edge carries `at: runtimeStageId` for time correlation.
 
@@ -1775,7 +1749,6 @@ Purely additive release. No existing APIs changed.
 ## [3.1.0]
 
 ### Fixed
-
 - **Concurrent FlowChartExecutor runs no longer race on shared FlowChart** (`engine/FlowchartTraverser.ts`) — `stageMap` and `subflows` were shared references from the compiled `FlowChart` object. Lazy-resolution writes (prefixed entries added during execution) mutated the shared dict, causing a race condition when two executors ran the same `FlowChart` concurrently (normal server-side behaviour). Both are now shallow-copied in the `FlowchartTraverser` constructor so per-run mutations stay scoped to the individual traverser. Additionally, the old `node.subflowResolver = undefined` write-back to the shared `StageNode` graph created a secondary race: the first concurrent traverser to resolve a lazy subflow would clear the resolver on the shared node, so a second concurrent traverser could not re-resolve it. The fix replaces the write-back with a per-traverser `resolvedLazySubflows: Set<string>` — the shared node is never mutated.
 - **Empty-array write now clears field** (`memory/utils.ts`) — `updateValue(obj, key, [])` and `deepSmartMerge(dst, [])` previously produced a silent no-op (spreading `[]` onto an existing array left the field unchanged). Both now treat an empty array as a replacement ("clear"), consistent with how `{}` is handled. Practically: `scope.customer.tags = []` now clears `tags` instead of being silently ignored.
   - Code that intentionally called `updateValue(obj, key, [])` or `deepSmartMerge(existing, [])` expecting a no-op must add an explicit `if (arr.length > 0)` guard.
@@ -1795,44 +1768,37 @@ Purely additive release. No existing APIs changed.
 ## [3.0.21]
 
 ### Added
-
 - **Curated API reference** — five hand-written MDX pages in the Starlight docs site (`api/flowchart`, `api/decide`, `api/executor`, `api/recorders`, `api/contract`), each with signatures, parameter tables, and runnable examples. Replaces the TypeDoc redirect links in the sidebar.
 - **"Try with your LLM" section in README** — highlights `toMCPTool()` with a one-liner example and links to the live Claude agent demo in the playground.
 
 ### Changed
-
 - **Docs theme** — accent colour updated from orange to purple (`#7c6cf0` dark / `#4f46e5` light) to match playground palette. Body font changed to Inter; code font to JetBrains Mono — same as playground.
 - **Docs auto-deploy** — `Deploy Docs` workflow now triggers on every push to `main` that touches `docs-site/**` or `src/**`, not only on release events.
 - **README** — badge updated from "TypeDoc" to "Docs"; "25+ examples" updated to "37+"; documentation table links updated to Starlight guide and API reference pages; `npx footprintjs-setup` replaced with `npx degit` one-liner (bin entry was removed in v3.0.19).
 
 ### Fixed
-
 - **`setup.sh` degit compatibility** — `CLAUDE.md` and `AGENTS.md` were silently skipped when running via `npx degit` because the script referenced `$PKG_DIR/../` which doesn't exist in a degit-downloaded directory. A `_copy_or_fetch` helper now falls back to fetching from the GitHub raw URL when the local path is absent.
 
 ## [3.0.20]
 
 ### Fixed
-
 - **CI publish fix** — `pathBuilder.test.ts` imported `lodash.get` which was not listed in `devDependencies`, causing `npm publish` to fail with `ERR_MODULE_NOT_FOUND`. Replaced with a 3-line inline `getByPath` helper; no behaviour change.
 
 ## [3.0.19]
 
 ### Changed
-
 - **Zero runtime dependencies** — replaced `lodash.get`, `lodash.has`, `lodash.set`, and `lodash.mergewith` with native implementations in `src/lib/memory/pathOps.ts`. All 1893 tests pass with identical behaviour. Prototype-pollution guards (`__proto__`, `constructor`, `prototype`) are preserved in the write path. This also fixes a latent edge case in `ScopeFacade._scrubFields` where a redaction field name containing a literal dot (e.g. `"key.sub"`) was not correctly redacted when that key existed as a flat property.
 - **npm tarball no longer ships `ai-instructions/`** — IDE setup snippets (Cursor, Cline, Copilot, etc.) are available in the GitHub repo but are no longer bundled with the package. The `bin.footprintjs-setup` entry has been removed accordingly. This reduces unpacked size.
 
 ## [3.0.18] - 2026-03-28
 
 ### Added
-
 - **`SECURITY.md`** — responsible disclosure policy with supported versions, private reporting link (GitHub private advisories), response timeline, scope definition (prototype pollution, redaction bypass, schema injection), and out-of-scope clarifications. Enterprise evaluators expect this.
 - **`CODE_OF_CONDUCT.md`** — Contributor Covenant v2.1. Enforcement via GitHub's private discussion and report-abuse channels.
 - **GitHub Issue Templates** — structured YAML templates for bug reports (Node/TS version, module format, repro snippet, area dropdown) and feature requests (problem-first framing, area dropdown). `config.yml` disables blank issues and links to playground + private security reporting.
 - **GitHub PR Template** — checklist covering build, tests, coverage, `any` annotation policy, and CHANGELOG requirement.
 
 ### Changed
-
 - **`package.json` description** updated to front-load high-signal search terms: `"Explainable backend flows — automatic causal traces, decision evidence, and MCP tool generation for AI agents"`. Previous description buried searchable terms.
 - **`package.json` homepage** updated to docs site (`https://footprintjs.github.io/footPrint/`) — npm displays this prominently on the package page.
 - **`package.json` keywords** expanded from 12 to 20: added `explainability`, `xai`, `ai-agent`, `mcp`, `decision-engine`, `rule-engine`, `audit-trail`, `openapi`, `tracing`. High-traffic terms that map to common npm/Google searches for this category of tool.
@@ -1840,7 +1806,6 @@ Purely additive release. No existing APIs changed.
 ## [3.0.17] - 2026-03-27
 
 ### Fixed
-
 - **`toMCPTool()` — MCP spec compliance** (3 fixes):
   - **`name` now uses `root.id`** (explicit machine-readable id) instead of lowercasing `root.name`. `flowChart('ProcessOrder', fn, 'process-order')` now emits `name: 'process-order'` instead of `'processorder'`.
   - **`name` is sanitized** to the MCP allowlist `[A-Za-z0-9_\-.]`. Any disallowed character is replaced with `_`. Leading/trailing underscores are trimmed.
@@ -1851,13 +1816,11 @@ Purely additive release. No existing APIs changed.
 - **`toMCPTool()` / `toOpenAPI()` now use `normalizeSchema` from `contract/schema.ts`** instead of a local duplicate with weaker typing.
 
 #### Migration — `MCPToolDescription.inputSchema`
-
 If you construct a `MCPToolDescription` literal manually (rare — most users call `.toMCPTool()` which constructs it), you must now include `inputSchema`. Add `inputSchema: { type: 'object', properties: {} }` for tools with no parameters.
 
 ## [3.0.16] - 2026-03-27
 
 ### Fixed
-
 - **`flowChart<T>()` typed overload** — calling `flowChart<LoanState>(name, fn, id)` now infers `scope: TypedScope<LoanState>` in the stage function, instead of `scope: any`. Added two overloads: single-type-param for TypedScope usage, explicit-generics for advanced/ScopeFacade usage.
 - **`StageFunction` return type widened to `TOut | void`** — stage functions that return nothing (i.e., `async (scope) => { scope.x = 1 }`) no longer produce a TypeScript error. `StageRunner` uses a cast internally to maintain `TOut` through the pipeline.
 - **`T extends object` replaces `T extends Record<string, unknown>`** — interfaces without index signatures (e.g. `interface OrderState { total: number }`) can now be passed to `flowChart<T>()`, `decide()`, `select()`, `TypedScope<T>`, and `createTypedScope()`. Changed across `reactive/`, `decide/`, and `builder/`.
@@ -1868,7 +1831,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.15] - 2026-03-27
 
 ### Changed
-
 - **`ScopeFacade` removed from main `footprintjs` export** — `ScopeFacade` was previously accessible from the main entry point, which encouraged an anti-pattern (custom `scopeFactory` overrides) that broke TypedScope auto-embedding, silently dropped `executionEnv`, and caused incompatibilities in subflow inheritance. `ScopeFacade` is now only available via `footprintjs/advanced` for internal/testing use. The correct pattern for observing reads/writes is `executor.attachRecorder(r)` — no custom `scopeFactory` needed.
 - **Internal tests updated** — Two scenario test files that explicitly passed `createTypedScopeFactory<T>()` to `FlowChartExecutor` were cleaned up to use `new FlowChartExecutor(chart)` (the factory is auto-embedded by `.build()` since v3.0.3).
 - **API conformance test moved** — The `ScopeFacade` conformance test moved from the "Public Exports" block to the "Removed from Main Export" block to correctly document the intent.
@@ -1876,7 +1838,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.14] - 2026-03-27
 
 ### Fixed
-
 - **`RunnableFlowChart` extends `builder.FlowChart` instead of `engine.FlowChart`** — `runner/RunnableChart.ts` was importing `FlowChart` from `engine/types.js`, whose `buildTimeStructure` is optional and wider (9-member `type` union). This made `RunnableFlowChart` unassignable to `builder.FlowChart` (which has a required, narrower `buildTimeStructure`), causing a type error when passing the result of `.build()` to `addSubFlowChartBranch` / `addSubFlowChartNext`. Fixed by importing `FlowChart` from `builder/types.js` — which already carries `buildTimeStructure` (required), `description`, `stageDescriptions`, `inputSchema`, `outputSchema`, and `outputMapper`, making the redundant field re-declarations in `RunnableFlowChart` unnecessary. `runner → builder → engine` has no circular dependency.
 - **Docs: `recording.mdx` narrative output corrected** — example output comments showed the old `[Set]`/`[Read]` format (e.g. `[Set] temperature = 38.5`). Updated to match the current `CombinedNarrativeRecorder` output: `Step N: Write key = value` / `Step N: Read key = value` with quoted strings for string values.
 - **Docs: `self-describing.mdx` `defineContract` section removed** — `defineContract` is deliberately not exported from the public API (enforced by conformance test — "use `.contract()`"). The section documented an unreachable import. Replaced with a corrected JSON Schema section referencing only `.contract()`.
@@ -1884,7 +1845,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.13] - 2026-03-26
 
 ### Added
-
 - **`@typescript-eslint/no-var-requires` lint rule enabled** — was explicitly disabled (`'off'`), allowing `require()` calls in TypeScript source. Now set to `'error'`. Catches any future ESM/CJS incompatibility at `git commit` time (pre-commit hook runs ESLint). The `require()` that broke `.toOpenAPI()` in ESM (fixed in v3.0.12) would have been caught at commit time with this rule active.
 - **Type structural compatibility test suite** (`test/api-conformance/type-structural-compat.test.ts`) — 5 `expectTypeOf` assertions that run on every `npm test` and in the release pipeline (Gate 3):
   - `RunnableFlowChart` is assignable to `FlowChart` (the v3.0.9 regression)
@@ -1896,14 +1856,12 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.12] - 2026-03-26
 
 ### Fixed
-
 - **`toOpenAPI()` now works correctly in ESM** — `normalizeSchema()` in `RunnableChart.ts` used a `require()` call to load `zodToJsonSchema`, which throws `ReferenceError: require is not defined` in ESM environments. The error was swallowed by a try/catch, causing `.toOpenAPI()` to silently emit a spec with no request/response schemas when the user's `inputSchema`/`outputSchema` was a Zod schema. Fixed by replacing `require()` with a static `import { zodToJsonSchema } from '../contract/schema.js'`.
 - **`ExecuteStageFn` in `SubflowExecutor` was a structural duplicate of `RunStageFn`** — identical four-parameter signature, different name, same directory. `SubflowExecutor` already re-exported `CallExtractorFn` from `handlers/types.ts` (added in v3.0.11) but kept its own `ExecuteStageFn`. Replaced with `RunStageFn` from `handlers/types.ts` throughout. The constructor parameter `executeStage` now correctly typed as `RunStageFn`. No runtime change — type-only.
 
 ## [3.0.11] - 2026-03-26
 
 ### Fixed
-
 - **Eliminated 5 duplicate type definitions across the codebase** — each was a structural mismatch risk (same class of bug as v3.0.10's `TraversalExtractor`):
   - `ScopeProtectionMode`: deleted redefinition from `builder/types.ts`; now imports canonical from `scope/protection/types.ts`
   - `FlowControlType` + `FlowMessage`: deleted duplicate definitions from `engine/types.ts`; now re-exported from `memory/types.ts` (their canonical home)
@@ -1915,82 +1873,69 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.10] - 2026-03-26
 
 ### Fixed
-
 - **`RunnableFlowChart` now assignable to `FlowChart` in `addSubFlowChartBranch`** — structural type mismatch caused by `TraversalExtractor` being defined twice with incompatible parameter types (`unknown` in `builder/types.ts` vs `StageSnapshot` in `engine/types.ts`). Fixed by removing the duplicate definition from `builder/types.ts` and re-exporting the canonical one from `engine/types.ts`. Also added `buildTimeStructure: SerializedPipelineStructure` (required) to `RunnableFlowChart`, narrowing the optional field inherited from `FlowChart`. Runtime was never affected — type-only bug.
 
 ## [3.0.9] - 2026-03-26
 
 ### Added
-
 - **`narrative()` exported from main `'footprintjs'` package** — previously required a sub-path import (`'footprintjs/recorders'`). Now importable directly: `import { flowChart, decide, narrative } from 'footprintjs'`.
 
 ### Changed
-
 - **README Quick Start** — restructured around the 3-step pattern (define state → build flowchart → run), and replaced `FlowChartExecutor` with `chart.recorder(narrative()).run()`. `FlowChartExecutor` remains in the public API for advanced use cases (multiple recorders, redaction policy, getSnapshot).
 
 ## [3.0.8] - 2026-03-26
 
 ### Fixed
-
 - **`RunnableFlowChart` now includes builder metadata fields** — `description`, `stageDescriptions`, `outputSchema`, and `outputMapper` were only on the builder's internal `FlowChart` type and were lost in the `RunnableFlowChart` interface. Now explicitly declared on `RunnableFlowChart`, matching what `FlowChartBuilder.build()` actually puts on the object. Fixes TypeScript errors in any code that accesses these fields on the built chart.
 
 ## [3.0.7] - 2026-03-26
 
 ### Added
-
 - **5-tier test coverage for subflow redaction boundary** — 7 new tests across all tiers:
-  - _Property_: invariant that once a key is in `_redactedKeys`, every subsequent `setValue` without `shouldRedact` still fires redacted
-  - _Scenario_: TypedScope top-level write path + cross-scope write via shared `_redactedKeys` Set (the outputMapper pattern)
-  - _Security_: end-to-end `FlowChartExecutor` test asserting raw PII never appears in parent narrative after subflow→outputMapper transfer
+  - *Property*: invariant that once a key is in `_redactedKeys`, every subsequent `setValue` without `shouldRedact` still fires redacted
+  - *Scenario*: TypedScope top-level write path + cross-scope write via shared `_redactedKeys` Set (the outputMapper pattern)
+  - *Security*: end-to-end `FlowChartExecutor` test asserting raw PII never appears in parent narrative after subflow→outputMapper transfer
 - **Sample `17-subflow-redaction`** — demonstrates the subflow PII boundary pattern: payment subflow marks `cardNumber` redacted per-call, `outputMapper` transfers it to parent without any explicit flag, parent narrative shows `[REDACTED]` throughout
 
 ## [3.0.6] - 2026-03-26
 
 ### Fixed
-
 - **`setValue` inherits dynamic redaction state** — if a key was previously marked redacted (via `setValue(key, val, true)` or policy), subsequent `setValue(key, newVal)` calls without an explicit `shouldRedact` flag now also fire as redacted. Previously, only the static policy was checked; the dynamic `_redactedKeys` set was ignored on writes. This closes the outputMapper edge case: when a subflow marks a key redacted and `outputMapper` writes it to the parent scope, the write event is now correctly redacted. 2 new tests added.
 
 ## [3.0.5] - 2026-03-26
 
 ### Fixed
-
 - **`outputMapper` shallow-clones subflow state** — previously passed the live `sharedState` reference to `outputMapper`, risking aliasing bugs if the mapper mutated the object. Now passes `{ ...sharedState }` (shallow clone). Documentation added explaining that `outputMapper` receives the full subflow scope (not just declared outputs) for TypedScope subflows, and that PII key redaction across subflow boundaries is the caller's responsibility until the full ScopeFacade-level redaction layer lands.
 
 ## [3.0.4] - 2026-03-25
 
 ### Fixed
-
 - **`outputMapper` now receives subflow scope state** — TypedScope subflow stages return `void`, so `outputMapper` previously received `undefined` as its first argument. It now falls back to the subflow's `sharedState` when the stage function returns `undefined`, making `outputMapper` usable with TypedScope subflows.
 - **`05-subflow` sample** — added `outputMapper` to properly propagate payment subflow results back to the parent scope. Sample previously showed "on hold -- payment undefined" due to missing output mapping.
 - **All samples** — added `executor.enableNarrative()` to 15 samples that called `getNarrative()` without enabling it; all samples now produce full narrative output.
 
 ### Added
-
 - **Sample integration tests** — 17 vitest snapshot tests in `footprint-samples/test/integration/` covering: linear pipeline, decider, decide()/select() evidence, loan application, and subflow. Snapshots are golden files that break on any API regression. Added as gate 6a in the release script.
 
 ## [3.0.3] - 2026-03-25
 
 ### Fixed
-
 - **Re-export `createTypedScopeFactory`** from main API — needed by playground and custom builder extensions that create `FlowChartBuilder` subclasses.
 
 ## [3.0.2] - 2026-03-25
 
 ### Added
-
 - **7-gate release pipeline** — release script now verifies: clean tree, doc check, API conformance (47 tests), build, full suite (1874 tests), sample projects, CHANGELOG entry. No release gets out with stale docs or broken samples.
 
 ## [3.0.1] - 2026-03-25
 
 ### Fixed
-
 - **All documentation updated to v3 API** — 19 `.md` files, 156 outdated references fixed (README, CLAUDE.md, AGENTS.md, all AI instructions, guides).
 - **Pre-release doc check** — `scripts/check-docs.sh` blocks releases if any `.md` file references removed APIs. Integrated into `release.sh`.
 
 ## [3.0.0] - 2026-03-25
 
 ### Breaking
-
 - **Removed `typedFlowChart()`** from public API — use `flowChart<T>()` instead. Auto-embeds TypedScope factory.
 - **Removed `createTypedScopeFactory()`** from public API — auto-embedded by `flowChart<T>()`.
 - **Removed `setEnableNarrative()`** from builder — use `.recorder(narrative())` at runtime.
@@ -1999,13 +1944,11 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **`flowChart()` now auto-embeds TypedScope factory** — stage functions receive TypedScope, use typed property access (`scope.name = 'Alice'`).
 
 ### Added
-
 - **API Conformance Tests** — 47 tests verify every v2 design decision. Run `npx vitest run test/api-conformance/` before every release.
 
 ## [2.0.0] - 2026-03-24
 
 ### Added
-
 - **`chart.run()`** — Execute a chart directly without creating a `FlowChartExecutor`. Returns `RunResult` with `state`, `output`, `narrative`.
 - **`chart.recorder(r).run()`** — d3-style chainable run configuration. Attach recorders and redaction per-run.
 - **`RunContext`** — Ephemeral run configuration returned by `chart.recorder()` and `chart.redact()`. Distinct type from `FlowChart`.
@@ -2016,7 +1959,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **Auto-embedded scopeFactory** — `typedFlowChart<T>()` embeds `createTypedScopeFactory<T>()` into the chart. `FlowChartExecutor` reads it automatically.
 
 ### Changed
-
 - **`FlowChartExecutor` scopeFactory parameter is now optional** — reads `chart.scopeFactory` if not provided.
 - **`FlowChartBuilder.build()` returns `RunnableFlowChart`** — extends `FlowChart` with `.run()`, `.recorder()`, `.redact()`, `.toOpenAPI()`, `.toMCPTool()`.
 - **All samples updated** — no `createTypedScopeFactory` needed. `FlowChartExecutor(chart)` is enough.
@@ -2024,14 +1966,12 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [1.0.1] - 2026-03-24
 
 ### Fixed
-
 - **TypedScope proxy unwrap** — `structuredClone` in `TransactionBuffer` failed when assigning proxy-wrapped values (e.g., `scope.backup = scope.customer`). Proxy values are now auto-unwrapped via JSON round-trip before storing. Regression tests added.
 - **AI coding instructions** — All AI tool instruction files (Copilot, Cursor, Kiro, Windsurf, Cline, AGENTS.md) updated to use `typedFlowChart<T>()`, `decide()`/`select()`, and typed property access. Previously referenced deprecated `ScopeFacade`/`getValue`/`setValue` API.
 
 ## [1.0.0] - 2026-03-22
 
 ### Added
-
 - **`TypedScope<T>`** — Reactive proxy for typed property access. `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)`. Deep nested writes (`scope.customer.address.zip = '90210'`), array copy-on-write (`scope.tags.push('vip')`), and 17 `$`-prefixed escape hatches (`$getValue`, `$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, etc.). New `reactive/` internal package.
 - **`decide()` / `select()`** — Decision reasoning capture. Auto-captures WHY a decider chose a branch or a selector picked paths. Two `when` formats: function `(s) => s.creditScore > 700` (auto-captures reads via temp recorder) and Prisma-style filter `{ creditScore: { gt: 700 } }` (captures operators + thresholds). Evidence flows into narrative: "It evaluated creditScore 750 gt 700, and chose Approve." New `decide/` internal package.
 - **`typedFlowChart<T>()`** — Convenience builder that infers `TypedScope<T>` for all stage functions.
@@ -2042,19 +1982,16 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **Dev-mode circular reference detection** — `enableDevMode()` activates runtime detection of circular references in `setValue()` / `updateValue()`.
 
 ### Changed
-
 - **`TypedScope<T>` is now the recommended API** — `getValue()` / `setValue()` still work via `ScopeFacade` but TypedScope eliminates the cast-hell DX problem. All samples and documentation updated.
 - **Evidence-aware narrative** — `CombinedNarrativeRecorder.onDecision()` and `onSelected()` render structured evidence when available. Filter evidence shows operators and thresholds with pass/fail markers. Function evidence shows which keys were read and their values.
 
 ### Fixed
-
 - **Spurious "Read getValue" in narrative** — `decide()` accessor helpers now check `$getValue` before `getValue` to avoid triggering TypedScope's Proxy get trap.
 - **Inline `import()` types** — Converted all inline type imports in narrative types to explicit top-level imports for consistency.
 
 ## [0.18.1] - 2026-03-20
 
 ### Fixed
-
 - **`Recorder.clear()` lifecycle** — Scope recorders are now cleared before each `run()`, preventing cross-run data accumulation. `MetricRecorder` and `DebugRecorder` implement it.
 - **`Recorder.toSnapshot()` in snapshots** — Scope recorders implementing `toSnapshot()` (like `MetricRecorder`) are now included in `executor.getSnapshot().recorders` alongside FlowRecorder data.
 - **Documentation sweep** — All samples, guides, and skill files updated to use `executor.attachRecorder()` instead of custom `scopeFactory` boilerplate.
@@ -2062,7 +1999,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.18.0] - 2026-03-20
 
 ### Added
-
 - **`executor.attachRecorder(recorder)`** — Attach scope recorders (MetricRecorder, DebugRecorder, custom) to the executor with a one-liner. No more custom `scopeFactory` boilerplate. Also adds `detachRecorder(id)` and `getRecorders()`. Works alongside narrative, FlowRecorders, and redaction.
 - **`Recorder.clear()` lifecycle hook** — Optional `clear?()` on the `Recorder` interface. Called before each `executor.run()` to prevent cross-run accumulation. `MetricRecorder` and `DebugRecorder` implement it.
 - **`Recorder.toSnapshot()` lifecycle hook** — Optional `toSnapshot?()` on the `Recorder` interface. Scope recorders with this method are now included in `executor.getSnapshot().recorders` alongside FlowRecorder snapshots.
@@ -2070,62 +2006,52 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.17.3] - 2026-03-20
 
 ### Fixed
-
 - **Narrative wording for parallel/selected** — `onFork` now says "Forking into N parallel paths" (future tense) instead of "N paths were executed in parallel" (past tense). `onSelected` says "selected for execution" instead of "were selected". Matches traversal order where the announcement fires before execution.
 
 ## [0.17.2] - 2026-03-20
 
 ### Fixed
-
 - **`traversalContext` on all FlowRecorder events** — `onFork`, `onSelected`, `onDecision`, `onLoop`, `onSubflowEntry`, `onSubflowExit`, and `onError` from handlers now pass `traversalContext` from the traverser. Previously only `onStageExecuted` and `onNext` carried it. This ensures all narrative entries have `stageId` for UI sync.
 
 ## [0.17.1] - 2026-03-20
 
 ### Added
-
 - **`stageId` on all narrative entries** — `CombinedNarrativeEntry` now carries `stageId` (from `TraversalContext.stageId`) on every entry type: stage, step, condition, fork, subflow, loop, break, error. This is the stable build-time identifier (matches spec node `id`) that enables exact UI sync between the execution tree timeline and recorder entries — no name matching needed.
 
 ## [0.17.0] - 2026-03-19
 
 ### Added
-
 - **Per-subflow stage numbering** — `CombinedNarrativeRecorder` resets stage counters when entering a subflow, so stages inside subflows start at "Stage 1" instead of continuing the parent's count. Counters reset on re-entry too.
 - **Recorder snapshots in `getSnapshot()`** — `FlowRecorder` interface gains optional `toSnapshot()` method. `FlowChartExecutor.getSnapshot()` collects data from recorders that implement it into a `recorders[]` field on `RuntimeSnapshot`. `MetricRecorder` and `ManifestFlowRecorder` implement `toSnapshot()`.
 - **`RecorderSnapshot` and `RuntimeSnapshot` types** — Exported from the public API for consumers building snapshot-aware UIs.
 - **All FlowEvent types exported** — `FlowStageEvent`, `FlowDecisionEvent`, `FlowBreakEvent`, `FlowNextEvent`, `FlowForkEvent`, `FlowSelectedEvent` now exported from `footprintjs` (previously only available via `footprintjs/advanced`).
 
 ### Fixed
-
 - **`onDecision` missing `subflowId` in `flushOps`** — Buffered data ops for decider stages inside subflows were tagged with `undefined` subflowId. Now correctly passes `event.traversalContext?.subflowId`.
 
 ## [0.16.0] - 2026-03-18
 
 ### Added
-
 - **TraversalContext on all FlowRecorder events** — Every recorder event now carries an optional `traversalContext` with `stageId`, `parentStageId`, `subflowId`, `subflowPath`, `depth`, `loopIteration`, and `forkBranch`. Created by the traverser during DFS traversal, passed as read-only data. Enables third-party recorders (Datadog, OpenTelemetry, Elastic) to build execution trees from `parentStageId` without post-processing.
 - **`CombinedNarrativeEntry.subflowId`** — Narrative entries are now tagged with the subflow they belong to. Set from `event.traversalContext.subflowId` (from the traverser), not a manual stack (eliminates parallel subflow interleaving bugs).
 - **`CombinedNarrativeRecorder.getEntriesBySubflow()`** — Returns entries grouped by subflowId for structured access.
 
 ### Changed
-
 - **CombinedNarrativeRecorder** — Removed manual `subflowStack` in favor of `traversalContext.subflowId` from events. Parallel subflows now tag correctly (each branch gets its own context from the traverser).
 
 ## [0.15.2] - 2026-03-18
 
 ### Fixed
-
 - **Subflow trace matching in drill-down** — `NodeResolver.resolveSubflowReference` now uses the inner root's `id` (`subflowDef.root.id`) instead of the mount node's `id`. Previously, the subflow execution tree's root stage got the mount ID (e.g., "auth"), which didn't match the spec node ID (e.g., "validate-token"), causing trace overlay to fail inside subflow drill-down views.
 
 ## [0.15.1] - 2026-03-18
 
 ### Fixed
-
 - **Decider continuation stage visible in snapshot** — Decider branches now use `createChild` instead of `createNext` for the selected branch context. Previously, the branch occupied the `context.next` slot, causing the continuation stage (the node after `.end()`) to share the branch's context and become invisible in the execution snapshot. Now the branch appears as `context.children[0]` and the continuation gets its own `context.next`, producing the correct trace: Decider → [Branch] → Continuation.
 
 ## [0.15.0] - 2026-03-18
 
 ### Added
-
 - **Lazy subflow resolution (`addLazySubFlowChartBranch`)** — Defers subflow tree cloning until first execution. Stores a factory function instead of eagerly expanding the subflow tree at build time. Enables the "graph-of-services" pattern at scale — 50+ service branches with zero build-time cost for unselected ones.
   - `addLazySubFlowChartBranch()` on `DeciderList` and `SelectorFnList`
   - `addLazySubFlowChart()` — lazy parallel child
@@ -2138,45 +2064,37 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.14.4] - 2026-03-17
 
 ### Added
-
 - **Structural-only dynamic subflows (pre-executed subflow pattern)** — A stage function can now return a StageNode with `isSubflowRoot: true` + `subflowDef: { buildTimeStructure }` but no `subflowDef.root`. The engine annotates the runtime structure for visualization without invoking SubflowExecutor. Use case: HTTP request tracing where the inner flow already executed in the route handler — only its shape needs to be attached for Trace Studio drill-down.
 - **`isStageNodeReturn` recognizes `isSubflowRoot`** — `isSubflowRoot === true` is now a valid continuation marker for dynamic StageNode return detection. Previously only `children`, `next`, and `nextNodeSelector` qualified.
 - **46 new tests** — Full 5-type test coverage (unit, scenario, property, boundary, security) for the structural subflow feature.
 
 ### Changed
-
 - **`subflowDef.root` is now optional** — The `StageNode.subflowDef` type allows omitting `root` for structural-only subflows. When `root` is absent, `autoRegisterSubflowDef` skips subflow registration and the traverser falls through to normal continuation.
 
 ### Fixed
-
 - **Deep-copy of `buildTimeStructure` in `RuntimeStructureManager.updateDynamicSubflow`** — The stored `subflowStructure` is now a deep copy (via `JSON.parse(JSON.stringify())`), preventing external mutation of the annotation after execution.
 
 ## [0.14.2] - 2026-03-17
 
 ### Fixed
-
 - **Snapshot `id` field now reflects builder stage ID** — `StageContext.getSnapshot()` was setting `id` to `runId` (empty string for sequential stages) instead of the builder's stage identifier. This broke trace overlay matching when runtime snapshots were merged across services (prefixed `name` was used as fallback). Added required `stageId` field to `StageContext`, propagated from builder `StageNode.id` through traverser and executor.
 
 ## [0.14.1] - 2026-03-16
 
 ### Fixed
-
 - **ESM import compliance** — All internal imports now use explicit `.js` extensions for proper ESM module resolution. Added `moduleResolution: "node"` to tsconfig for compatibility.
 
 ## [0.14.0] - 2026-03-16
 
 ### Fixed
-
 - **Subflow internal narrative events** — `SubflowExecutor` now fires `onStageExecuted`, `onNext`, and `onBreak` to the shared `CombinedNarrativeRecorder`, matching what `FlowchartTraverser` does for top-level stages. Previously, `getNarrativeEntries()` only contained "Entering/Exiting" markers for subflows with no internal stage detail — subflow drill-down views showed placeholder text instead of real narrative.
 
 ### Added
-
 - **`icon` hint on spec types** — Optional `icon` field on `SerializedPipelineStructure` and `FlowChartSpec` for semantic visualization hints (e.g., `"llm"`, `"tool"`, `"rag"`, `"agent"`).
 
 ## [0.13.0] - 2026-03-15
 
 ### Added
-
 - **`ComposableRunner` interface** — convention for runners that expose their internal flowChart via `toFlowChart()`. Enables mounting any runner as a subflow in a parent flowChart for UI drill-down into nested execution. Type-only export (zero runtime cost).
 - **`getSubtreeSnapshot(snapshot, path, narrativeEntries?)`** — navigate the execution snapshot tree by slash-separated subflow path (e.g. `"sf-payment"` or `"sf-outer/sf-inner"`). Returns `SubtreeSnapshot` with `{ subflowId, executionTree, sharedState, narrativeEntries }`. Pass `executor.getNarrativeEntries()` as third arg to get narrative scoped to that subflow.
 - **`listSubflowPaths(snapshot)`** — discover all available drill-down targets in a snapshot. Returns array of slash-separated subflow ID paths from `subflowResults`.
@@ -2184,18 +2102,15 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.12.0] - 2026-03-14
 
 ### Added
-
 - **`scope.getEnv()` — per-executor infrastructure context.** Introduces `ExecutionEnv`, a closed frozen type `{ signal?, timeoutMs?, traceId? }` that propagates through nested subflows like `process.env` for flowcharts. Pass via `executor.run({ env: { traceId, signal, timeoutMs } })`, read inside any stage with `scope.getEnv()`. Three scope access tiers: `getValue()` (tracked mutable state), `getArgs()` (frozen business input), `getEnv()` (frozen infrastructure context). Subflows inherit env automatically — no explicit mapping needed.
 
 ## [0.11.0] - 2026-03-14
 
 ### Fixed
-
 - **`loopTo()` runtime execution** — `loopTo(stageId)` built the graph structure correctly but the engine couldn't execute the loop at runtime. The bare reference node had no `fn` and no stageMap entry, causing "must define: embedded fn OR a stageMap entry" errors. Fixed by routing `isLoopRef` nodes through `ContinuationResolver` for proper ID resolution, iteration tracking, and narrative generation. Works with linear chains, mid-chain targets, and decider→branch→loopTo patterns.
 - **`loopTo()` build-time validation** — `loopTo(stageId)` now throws immediately if `stageId` is not a registered stage ID, catching name-vs-id mistakes at build time.
 
 ### Changed
-
 - **Single canonical `StageNode` type** — Eliminated the duplicate `StageNode` definition in `builder/types.ts`. Builder now re-exports the engine's canonical `StageNode` via `import type` (zero runtime dependency). Same consolidation for `ILogger`, `StageFunction`, `StreamCallback`, `StreamHandlers`, `SubflowMountOptions`.
 - **`StageNode.id` enforced at engine level** — The engine type now has `id: string` (required), matching the builder API which always required `id` since v0.10.0. Removed 16 `node.id ?? node.name` / `node.id || node.name` fallback patterns that were dead code.
 - **`PipelineStageFunction` deprecated** — Use `StageFunction` instead. The old name is preserved as a type alias for backward compatibility.
@@ -2203,7 +2118,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.3] - 2026-03-14
 
 ### Changed
-
 - **README restructured** — Condensed from 590 lines / 16 sections to ~130 lines / 7 sections. Leads with the problem and loan trace, not a toy example. Fixed Quick Start to use current API (`id` required since v0.10.0). Added Live Demo badge.
 - **Hero GIF** — Added animated demo GIF (`assets/hero.gif`) showing the BTS visualization with flowchart, memory inspector, and causal trace.
 - **API Reference moved to docs** — Full Builder, Executor, ScopeFacade, and Contract method tables now in `docs/guides/api-reference.md`.
@@ -2212,7 +2126,6 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.2] - 2026-03-13
 
 ### Added
-
 - **AI coding tool instructions** — Ship built-in instructions for Claude Code (`CLAUDE.md` + interactive skill), OpenAI Codex (`AGENTS.md`), GitHub Copilot, Cursor, Windsurf, Cline, and Kiro. Every file teaches the AI assistant the Builder, Executor, ScopeFacade APIs, recorder system, core principle (collect during traversal), and anti-patterns.
 - **`npx footprintjs-setup`** — Interactive installer that copies the right instruction files for your AI coding tool into your project. Files ship inside the npm package under `ai-instructions/`.
 - **README: AI Coding Tool Support section** — Documents all 7 supported tools with quick setup instructions.
@@ -2220,37 +2133,31 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.0] - 2026-03-12
 
 ### Breaking Changes
-
 - **`fn` and `id` are now required** on `.start()`, `.addFunction()`, `.addStreamingFunction()`, `.addDeciderFunction()`, `.addSelectorFunction()`, and `flowChart()` factory.
 - **`addStreamingFunction` parameter order changed** — new: `(name, fn, id, streamId?, description?)` (was: `name, streamId?, fn?, id?, description?`).
 - **`StageNode.id` is now required** in the type definition. All nodes must have a stable identifier for visualization matching and branch aggregation.
 
 ### Why
-
 Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the UI to guess identifiers from `name`, breaking visualization matching. Making both required ensures every stage is explicit and identifiable.
 
 ## [0.9.2] - 2026-03-12
 
 ### Added
-
 - **`stageReads` tracking** — `StageContext.getValue()` now records pre-namespace keys and their values at read time in `_stageReads`, exposed via `StageSnapshot.stageReads`. Enables the memory view to show a "read cursor" — which keys each stage accessed.
 - **`stageWrites` tracking** — `StageContext.setObject()` / `updateObject()` record pre-namespace keys and values in `_stageWrites`, exposed via `StageSnapshot.stageWrites`. The memory view can now show actual `setValue()`/`updateValue()` data separately from diagnostic logs.
 
 ### Fixed
-
 - **`writeTrace` no longer leaks into diagnostic logs** — `commit()` previously called `this.debug.addLog('writeTrace', commitBundle.trace)`, polluting the diagnostic layer with commit-level data that already exists in the event log. Removed.
 
 ## [0.9.1] - 2026-03-12
 
 ### Fixed
-
 - **Subflow metadata no longer pollutes diagnostic logs** — engine internal keys (`isSubflowContainer`, `subflowResult`, `mappedInput`, `subflowName`, `hasSubflowData`, etc.) were previously written to parent stage logs via `addLog()`, leaking into the user's scope/memory. These keys are now routed exclusively through the proper `subflowResultsMap` channel.
 - **`RuntimeSnapshot.subflowResults`** — new optional field on `RuntimeSnapshot` exposes subflow execution results (keyed by subflowId) via `FlowChartExecutor.getSnapshot()`. Previously only available via the separate `getSubflowResults()` method.
 
 ## [0.9.0] - 2026-03-12
 
 ### Added
-
 - **ManifestFlowRecorder** — lightweight subflow catalog built during traversal
   - Builds a tree of subflow IDs, names, and descriptions as a side effect of execution
   - `getManifest()` returns the tree (defensive copy); `getSpec(subflowId)` returns full specs on demand
@@ -2272,7 +2179,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - 41 new tests across 5 tiers: unit (15), scenario (7), property (4), boundary (9), security (3)
 
 ### Changed
-
 - `IControlFlowNarrative.onSubflowEntry()` / `onSubflowExit()` signatures widened (backward-compatible)
 - `ControlFlowNarrativeGenerator` includes description in subflow entry sentences when available
 - `NarrativeFlowRecorder` includes description in subflow entry sentences when available
@@ -2280,7 +2186,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.8.0] - 2026-03-10
 
 ### Added
-
 - **Structured error preservation** — errors flow through the narrative pipeline as structured objects, not flat strings
   - `extractErrorInfo(error)` — extracts `StructuredErrorInfo` from any thrown value (InputValidationError, Error, non-Error)
   - `formatErrorInfo(info)` — renders structured error to human-readable string at rendering boundaries
@@ -2293,18 +2198,15 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - 37 new tests across 5 tiers: unit (9), scenario (6), property-based (5), boundary (6), security (11)
 
 ### Changed
-
 - `IControlFlowNarrative.onError()` — `error` parameter is now **required** (was optional)
 - `FlowErrorEvent.structuredError` — field is now **required** (was optional)
 
 ### Fixed
-
 - `SubflowExecutor` — added missing `narrativeGenerator.onError()` call in catch block (pre-existing omission)
 
 ## [0.7.0] - 2026-03-10
 
 ### Added
-
 - **Schema library** (`src/lib/schema/`) — unified schema detection and validation gateway
   - `detectSchema(input)` — single function replaces 3 separate Zod detection strategies
   - `SchemaKind` type: `'zod' | 'parseable' | 'json-schema' | 'none'`
@@ -2321,7 +2223,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - All schema types and functions exported from `footprintjs` public API
 
 ### Changed
-
 - `isZodSchema()` in contract/schema.ts now delegates to `isZod()` from schema library (marked `@deprecated`)
 - `isZodNode()` in scope/state/zod delegates to `detectSchema()` from schema library (marked `@deprecated`)
 - Test suite migrated from `jest.fn()` to `vi.fn()` across 24+ test files (vitest compatibility)
@@ -2329,7 +2230,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.6.0] - 2026-03-09
 
 ### Added
-
 - **RedactionPolicy** — declarative, config-driven PII redaction
   - `RedactionPolicy` type with `keys`, `patterns`, and `fields` dimensions
   - `executor.setRedactionPolicy(policy)` — apply across all stages with one call
@@ -2349,7 +2249,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.5.0] - 2026-03-09
 
 ### Added
-
 - **PII Redaction** — `setValue(key, value, true)` now protects ALL recorders, not just EventLog
   - `_redactedKeys` tracking on ScopeFacade — scrubs values before dispatching to any recorder
   - `redacted?: boolean` field on `ReadEvent` and `WriteEvent` types for custom recorder logic
@@ -2360,7 +2259,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - PII Redaction row in README Key Features table
 
 ### Changed
-
 - Release script now validates CHANGELOG entry exists, extracts notes, and creates GitHub releases automatically
 - CHANGELOG backfilled for all historical versions (v0.2.1, v0.2.2)
 - All GitHub release notes updated to match CHANGELOG format
@@ -2369,7 +2267,6 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.4.0] - 2026-03-08
 
 ### Added
-
 - **FlowRecorder system** — pluggable observers for control flow narrative
   - 7 built-in strategies: Windowed, Silent, Adaptive, Progressive, Milestone, RLE, Separate
   - `attachFlowRecorder(recorder)` / `detachFlowRecorder(id)` on FlowChartExecutor
@@ -2378,18 +2275,15 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - Pre-push hook to run tests with coverage
 
 ### Fixed
-
 - Use double cast in FlowRecorderDispatcher for TS strict mode
 - Fix flaky `__proto__` property test
 
 ### Changed
-
 - README repositioned as a code pattern, not a pipeline builder
 
 ## [0.3.0] - 2026-03-08
 
 ### Added
-
 - **Contract layer** (`src/lib/contract/`) — standalone library for defining I/O boundaries on flowcharts
   - `defineContract(chart, options)` — create a typed contract with input/output schemas
   - `normalizeSchema(input)` — convert Zod or raw JSON Schema to normalized JSON Schema
@@ -2402,38 +2296,31 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.2.3] - 2026-03-07
 
 ### Fixed
-
 - Flaky property-based test (`recorder-never-breaks-execution`) using JSON.stringify comparison
 
 ### Changed
-
 - README: added quick-start snippet, comparison table, playground/samples links
 - Removed `displayName` — `name` IS the display name, `id` is optional
 
 ## [0.2.2] - 2026-03-07
 
 ### Fixed
-
 - README corrections to match actual project structure
 
 ### Changed
-
 - Clarified documentation for return values in dynamic stages
 
 ## [0.2.1] - 2026-03-06
 
 ### Removed
-
 - Deprecated `addDecider` method (use `addDeciderFunction` exclusively)
 
 ### Changed
-
 - Clarified that return values are only needed for dynamic stages (deciders/selectors)
 
 ## [0.2.0] - 2026-03-06
 
 ### Added
-
 - Causal trace narrative generation (NarrativeRecorder + ControlFlowNarrativeGenerator + CombinedNarrativeBuilder)
 - Auto-generated `chart.description` for LLM tool selection
 - `ScopeFacade` as the primary scope interface (replaces BaseState)
@@ -2447,17 +2334,14 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - Stage descriptions for build-time metadata
 
 ### Changed
-
 - Architecture reorganized into six independent libraries (memory, builder, scope, engine, runner, contract)
 - Moved `zod` to optional peer dependency
 
 ### Removed
-
 - Legacy `BaseState`, `Pipeline`, `PipelineRuntime`, `GlobalStore`, `WriteBuffer` classes
 - Old `src/core/`, `src/internal/`, `src/scope/`, `src/utils/` directories
 
 ## [0.1.0] - 2024-01-01
 
 ### Added
-
 - Initial release with FlowChartBuilder, FlowChartExecutor, and core pipeline execution
