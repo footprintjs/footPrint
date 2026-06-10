@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.3.0]
+
 ### Fixed — dynamic StageNode returns no longer mutate the shared built chart (backlog #7)
 
 - **Traverser-local dynamic-patch overlay.** Phase 4 of `FlowchartTraverser`
