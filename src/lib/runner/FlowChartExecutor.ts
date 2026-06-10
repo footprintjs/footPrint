@@ -754,6 +754,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         stageName: pausedNode.name,
         depth: 0,
       },
+      channel: 'flow' as const,
     };
     if (this.combinedRecorder) this.combinedRecorder.onResume(flowResumeEvent);
     for (const r of this.flowRecorders) r.onResume?.(flowResumeEvent);
@@ -765,6 +766,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       hasInput,
       pipelineId: '',
       timestamp: Date.now(),
+      channel: 'scope' as const,
     };
     for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
 

@@ -479,3 +479,103 @@ describe('CombinedRecorder — security', () => {
     expect(executor.getScopeRecorders()[0]).not.toBe(first);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. isFlowEvent — explicit channel discriminant (backlog B3)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('isFlowEvent — explicit channel discriminant (B3)', () => {
+  it('channel: "flow" wins even when pipelineId is present (wrapper-enriched event)', () => {
+    // Previously misclassified as a scope event — the legacy heuristic only
+    // looked at pipelineId presence. A wrapper that enriches a flow event
+    // with a pipelineId no longer flips the classification.
+    expect(isFlowEvent({ channel: 'flow', pipelineId: 'p1', stageName: 's' })).toBe(true);
+  });
+
+  it('channel: "scope" wins even when pipelineId is absent (field-stripped event)', () => {
+    // Previously misclassified as a flow event under the absence heuristic.
+    expect(isFlowEvent({ channel: 'scope', stageName: 's' })).toBe(false);
+  });
+
+  it('unstamped events fall back to the legacy pipelineId-absence shim', () => {
+    expect(isFlowEvent({ stageName: 's', message: 'm' })).toBe(true); // no pipelineId → flow
+    expect(isFlowEvent({ stageName: 's', pipelineId: 'p1' })).toBe(false); // pipelineId → scope
+  });
+
+  it('null / non-object inputs return false', () => {
+    expect(isFlowEvent(null)).toBe(false);
+    expect(isFlowEvent(undefined)).toBe(false);
+    expect(isFlowEvent('flow')).toBe(false);
+    expect(isFlowEvent(42)).toBe(false);
+  });
+
+  it('engine-dispatched flow error events carry channel: "flow"', async () => {
+    const captured: Array<{ channel?: string; flow: boolean }> = [];
+    const r: CombinedRecorder = {
+      id: 'b3-error',
+      onError: (e) => captured.push({ channel: e.channel, flow: isFlowEvent(e) }),
+    };
+    const chart = flowChart<{ x: number }>(
+      'Throw',
+      () => {
+        throw new Error('boom');
+      },
+      'throw',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachCombinedRecorder(r);
+
+    try {
+      await executor.run();
+    } catch {
+      /* expected */
+    }
+
+    expect(captured.length).toBeGreaterThanOrEqual(1);
+    for (const c of captured) {
+      // Every engine-dispatched shared-method event is stamped, and the
+      // helper agrees with the stamp.
+      expect(c.channel === 'flow' || c.channel === 'scope').toBe(true);
+      expect(c.flow).toBe(c.channel === 'flow');
+    }
+    expect(captured.some((c) => c.channel === 'flow')).toBe(true);
+  });
+
+  it('pause/resume events are stamped on both channels and discriminate coherently', async () => {
+    const captured: Array<{ hook: 'pause' | 'resume'; channel?: string; flow: boolean }> = [];
+    const r: CombinedRecorder = {
+      id: 'b3-pause',
+      onPause: (e) => captured.push({ hook: 'pause', channel: e.channel, flow: isFlowEvent(e) }),
+      onResume: (e) => captured.push({ hook: 'resume', channel: e.channel, flow: isFlowEvent(e) }),
+    };
+
+    const chart = flowChart<{ approved?: boolean }>(
+      'Approve',
+      {
+        execute: async () => ({ question: 'go?' }),
+        resume: async (scope, input) => {
+          scope.approved = (input as { approved: boolean }).approved;
+        },
+      },
+      'approve',
+    ).build();
+
+    const executor = new FlowChartExecutor(chart);
+    executor.attachCombinedRecorder(r);
+
+    await executor.run();
+    expect(executor.isPaused()).toBe(true);
+    const checkpoint = executor.getCheckpoint();
+    if (!checkpoint) throw new Error('expected a checkpoint after pause');
+    await executor.resume(checkpoint, { approved: true });
+
+    expect(captured.length).toBeGreaterThanOrEqual(2);
+    for (const c of captured) {
+      expect(c.channel === 'flow' || c.channel === 'scope').toBe(true);
+      expect(c.flow).toBe(c.channel === 'flow');
+    }
+    // The flow channel fires for both pause and resume.
+    expect(captured.some((c) => c.hook === 'pause' && c.channel === 'flow')).toBe(true);
+    expect(captured.some((c) => c.hook === 'resume' && c.channel === 'flow')).toBe(true);
+  });
+});

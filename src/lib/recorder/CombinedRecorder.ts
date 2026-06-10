@@ -63,7 +63,8 @@ import type { EmitRecorder } from './EmitRecorder.js';
  * Method names that appear on BOTH `ScopeRecorder` and `FlowRecorder` but with
  * different event payload types. For these, a `CombinedRecorder` declares
  * ONE handler that receives the union of both payloads — consumers
- * discriminate on `traversalContext`, which only control-flow events carry.
+ * discriminate with the exported `isFlowEvent()` helper (explicit `channel`
+ * discriminant, with a legacy pipelineId-absence fallback).
  */
 type SharedLifecycleOverlap = 'onError' | 'onPause' | 'onResume';
 
@@ -85,8 +86,8 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  * Both `ScopeRecorder` and `FlowRecorder` declare these with DIFFERENT payload
  * shapes. In a combined recorder, each such handler is called by BOTH
  * channels with its own variant. The parameter type is a union — consumers
- * can either handle both variants uniformly, or discriminate (control-flow
- * variants carry a `traversalContext` field that data-flow variants lack).
+ * can either handle both variants uniformly, or discriminate with
+ * `isFlowEvent()` (explicit `channel` discriminant stamped by the engine).
  *
  * ## Forward compatibility
  *
@@ -113,8 +114,9 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
 
     // Shared event method names with DIVERGENT payloads — declared as unions.
     // Consumers either handle both variants, or discriminate using the
-    // exported helper `isFlowEvent()` (which checks for the
-    // `traversalContext` field — present only on control-flow variants).
+    // exported helper `isFlowEvent()` (which checks the explicit `channel`
+    // discriminant stamped by the engine, falling back to pipelineId
+    // absence for unstamped events).
     //
     // @example
     // ```ts
@@ -143,12 +145,17 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
  *
  * ## How it discriminates
  *
- * Scope-channel events extend `RecorderContext`, which carries `pipelineId`.
- * Flow-channel events do not carry `pipelineId` (they carry an optional
- * `traversalContext` instead, but that field is optional and cannot be
- * relied on as a positive signal). We detect the flow variant by the
- * ABSENCE of `pipelineId` — this is schema-stable as long as scope events
- * continue to extend `RecorderContext`.
+ * 1. **Explicit `channel` field first** (backlog B3): every engine-dispatched
+ *    shared-method event is stamped `channel: 'flow'` (control-flow) or
+ *    `channel: 'scope'` (data-flow) at construction. This is the positive,
+ *    schema-robust signal — it survives wrappers that add/strip fields.
+ * 2. **Legacy fallback** for unstamped events (consumer-fabricated tests,
+ *    persisted traces from <9.2): scope-channel events extend
+ *    `RecorderContext`, which carries `pipelineId`; flow-channel events do
+ *    not. The flow variant is detected by the ABSENCE of `pipelineId` —
+ *    schema-stable as long as scope events continue to extend
+ *    `RecorderContext`, but fragile against field-stripping wrappers, which
+ *    is why the explicit discriminant now exists.
  *
  * @example
  * ```ts
@@ -163,7 +170,10 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
  */
 export function isFlowEvent<T>(event: T): event is Exclude<T, { pipelineId: string }> {
   if (typeof event !== 'object' || event === null) return false;
-  return (event as Record<string, unknown>).pipelineId === undefined;
+  const e = event as Record<string, unknown>;
+  if (e.channel === 'flow') return true;
+  if (e.channel === 'scope') return false;
+  return e.pipelineId === undefined;
 }
 
 /**
@@ -190,8 +200,8 @@ const RECORDER_EVENT_METHODS = [
  * NOTE: the `onError`, `onPause`, `onResume` methods exist on BOTH interfaces
  * with DIFFERENT event payload shapes. A `CombinedRecorder` that implements
  * any of these receives both variants (one from each channel). Consumers who
- * care about the distinction can discriminate on the presence of
- * `traversalContext` (which only control-flow events carry).
+ * care about the distinction discriminate with `isFlowEvent()` (explicit
+ * `channel` discriminant, legacy pipelineId-absence fallback).
  */
 const FLOW_RECORDER_EVENT_METHODS = [
   'onStageExecuted',

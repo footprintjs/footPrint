@@ -47,6 +47,13 @@ export interface ErrorEvent extends RecorderContext {
   error: Error;
   operation: 'read' | 'write' | 'commit';
   key?: string;
+  /**
+   * Explicit channel discriminant — `'scope'` on every engine-dispatched
+   * event. `isFlowEvent()` checks it first (backlog B3); optional so
+   * consumer-fabricated events (tests, replays) remain type-valid and fall
+   * back to the legacy pipelineId-presence heuristic.
+   */
+  channel?: 'scope';
 }
 
 export interface StageEvent extends RecorderContext {
@@ -55,10 +62,14 @@ export interface StageEvent extends RecorderContext {
 
 export interface PauseEvent extends RecorderContext {
   pauseData?: unknown;
+  /** Explicit channel discriminant — see {@link ErrorEvent.channel}. */
+  channel?: 'scope';
 }
 
 export interface ResumeEvent extends RecorderContext {
   hasInput: boolean;
+  /** Explicit channel discriminant — see {@link ErrorEvent.channel}. */
+  channel?: 'scope';
 }
 
 // ============================================================================

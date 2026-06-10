@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`isFlowEvent()`: explicit `channel` discriminant on shared-method
+  events** (backlog B3). Engine-dispatched `onError`/`onPause`/`onResume`
+  events are now stamped `channel: 'flow'` (control-flow) or
+  `channel: 'scope'` (data-flow) at construction, and `isFlowEvent()` checks
+  that field FIRST — a positive signal that survives wrappers which
+  add/strip fields. Unstamped events (consumer-fabricated tests, traces from
+  older versions) fall back to the legacy pipelineId-absence heuristic, so
+  existing behavior is preserved. The field is optional on the event types —
+  purely additive.
+
 - **`StageContext.createNext`: dev-mode warning when its arguments are
   silently ignored** (backlog B4). `createNext` is memoized — once `next`
   exists, later calls return it and ignore their arguments. With

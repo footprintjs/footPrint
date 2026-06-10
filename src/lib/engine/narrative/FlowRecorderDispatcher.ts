@@ -225,7 +225,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const structuredError = extractErrorInfo(error);
-    const event = { stageName, message: errorMessage, structuredError, traversalContext };
+    const event = { stageName, message: errorMessage, structuredError, traversalContext, channel: 'flow' as const };
     for (const r of this.recorders) {
       try {
         r.onError?.(event);
@@ -244,7 +244,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     traversalContext?: TraversalContext,
   ): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, stageId, pauseData, subflowPath, traversalContext };
+    const event = { stageName, stageId, pauseData, subflowPath, traversalContext, channel: 'flow' as const };
     for (const r of this.recorders) {
       try {
         r.onPause?.(event);
@@ -257,7 +257,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
 
   onResume(stageName: string, stageId: string, hasInput: boolean, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
-    const event = { stageName, stageId, hasInput, traversalContext };
+    const event = { stageName, stageId, hasInput, traversalContext, channel: 'flow' as const };
     for (const r of this.recorders) {
       try {
         r.onResume?.(event);

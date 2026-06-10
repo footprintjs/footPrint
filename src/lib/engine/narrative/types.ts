@@ -323,6 +323,13 @@ export interface FlowErrorEvent {
   /** Structured error details — preserves field-level issues, error codes, etc. */
   structuredError: StructuredErrorInfo;
   traversalContext?: TraversalContext;
+  /**
+   * Explicit channel discriminant — `'flow'` on every engine-dispatched
+   * event. `isFlowEvent()` checks it first (backlog B3); optional so
+   * consumer-fabricated events (tests, replays) remain type-valid and fall
+   * back to the legacy pipelineId-absence heuristic.
+   */
+  channel?: 'flow';
 }
 
 /** Event passed to FlowRecorder.onPause. */
@@ -334,6 +341,8 @@ export interface FlowPauseEvent {
   /** Path through subflows to the paused stage. Empty at root level. */
   subflowPath: readonly string[];
   traversalContext?: TraversalContext;
+  /** Explicit channel discriminant — see {@link FlowErrorEvent.channel}. */
+  channel?: 'flow';
 }
 
 /** Event passed to FlowRecorder.onResume. */
@@ -343,6 +352,8 @@ export interface FlowResumeEvent {
   /** Whether resume input was provided. */
   hasInput: boolean;
   traversalContext?: TraversalContext;
+  /** Explicit channel discriminant — see {@link FlowErrorEvent.channel}. */
+  channel?: 'flow';
 }
 
 /**

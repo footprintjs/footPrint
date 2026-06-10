@@ -165,6 +165,7 @@ export class ScopeFacade {
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       pauseData,
+      channel: 'scope' as const,
     });
   }
 
@@ -177,6 +178,7 @@ export class ScopeFacade {
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
       hasInput,
+      channel: 'scope' as const,
     });
   }
 
@@ -325,6 +327,7 @@ export class ScopeFacade {
           timestamp: Date.now(),
           error: error as Error,
           operation: 'write',
+          channel: 'scope' as const,
         });
       }
     }
@@ -734,6 +737,7 @@ export class ScopeFacade {
             timestamp: Date.now(),
             error: error as Error,
             operation: hook === 'onRead' ? 'read' : hook === 'onCommit' ? 'commit' : 'write',
+            channel: 'scope' as const,
           });
         }
       }
