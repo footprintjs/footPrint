@@ -1,14 +1,14 @@
 /**
- * Tests for the FlowchartTraverser maxDepth (recursion depth) guard.
+ * Tests for the FlowchartTraverser maxDepth (tree-nesting depth) guard.
  *
- * Fix: executeNode is recursive — each `await executeNode(next, ...)` keeps the
- * calling frame on the stack. Without a cap, an infinite loop or an excessively
- * deep stage chain would cause V8's call-stack to overflow with a cryptic
- * "Maximum call stack size exceeded" error.
- *
- * The guard increments a depth counter on entry and decrements on exit (try/finally).
- * When the counter exceeds MAX_EXECUTE_DEPTH (500), a descriptive Error is thrown
- * that names the stage and advises users to look for infinite loops.
+ * Trampoline model: `executeNode` is an iterative driver — linear `next`
+ * chains and loop edges are followed in a flat loop and consume NO depth.
+ * Depth grows only with true tree nesting: fork children, decider/selector
+ * branch dispatch (when the decider has its own continuation), recursive
+ * composition. The guard increments per driver invocation and decrements on
+ * exit (try/finally). When the counter exceeds MAX_EXECUTE_DEPTH (500), a
+ * descriptive Error is thrown that names the stage and explains what depth
+ * counts.
  */
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index';
@@ -205,18 +205,57 @@ describe('maxDepth guard — property: depth counter is correctly maintained', (
 // Pattern 5: security — depth error is thrown with a meaningful message
 // ---------------------------------------------------------------------------
 describe('maxDepth guard — security: error message quality', () => {
-  it('passing maxDepth=1 via RunOptions triggers a descriptive error on the second stage', async () => {
-    const chart = flowChart<any>('A', async () => {}, 'a')
-      .addFunction('B', async () => {}, 'b')
+  it('linear chains do NOT consume depth — a 3-stage chain runs even at maxDepth=1 (trampoline)', async () => {
+    const ran: string[] = [];
+    const chart = flowChart<any>(
+      'A',
+      async () => {
+        ran.push('A');
+      },
+      'a',
+    )
+      .addFunction(
+        'B',
+        async () => {
+          ran.push('B');
+        },
+        'b',
+      )
+      .addFunction(
+        'C',
+        async () => {
+          ran.push('C');
+        },
+        'c',
+      )
+      .build();
+
+    const ex = new FlowChartExecutor(chart);
+    await ex.run({ maxDepth: 1 }); // flat driver: whole chain is depth 1
+    expect(ran).toEqual(['A', 'B', 'C']);
+  });
+
+  it('nested dispatch DOES consume depth — maxDepth=1 rejects a decider-with-continuation branch', async () => {
+    // A decider that has its own `next` dispatches its branch recursively
+    // (the branch must complete before the continuation runs) — that nested
+    // driver is depth 2, which maxDepth=1 rejects.
+    const chart = flowChart<any>('Seed', async () => {}, 'seed')
+      .addDeciderFunction('Route', async () => 'go', 'route')
+      .addFunctionBranch('go', 'Branch', async () => {})
+      .end()
+      .addFunction('After', async () => {}, 'after')
       .build();
 
     const ex = new FlowChartExecutor(chart);
     await expect(ex.run({ maxDepth: 1 })).rejects.toThrow(/maximum traversal depth exceeded/i);
   });
 
-  it('error message mentions the limit and suggests checking for infinite loops', async () => {
-    const chart = flowChart<any>('StageAlpha', async () => {}, 'alpha')
-      .addFunction('StageBeta', async () => {}, 'beta')
+  it('error message mentions the limit and explains what depth counts', async () => {
+    const chart = flowChart<any>('Seed', async () => {}, 'seed')
+      .addDeciderFunction('Route', async () => 'go', 'route')
+      .addFunctionBranch('go', 'Branch', async () => {})
+      .end()
+      .addFunction('After', async () => {}, 'after')
       .build();
 
     const ex = new FlowChartExecutor(chart);
@@ -229,40 +268,81 @@ describe('maxDepth guard — security: error message quality', () => {
 
     expect(errorMessage).toMatch(/maximum traversal depth exceeded/i);
     expect(errorMessage).toMatch(/1/); // the limit value appears
+    expect(errorMessage).toMatch(/nested dispatch/i); // explains the new counting model
   });
 
   it('the guard fires at depth + 1, not before', async () => {
-    // With maxDepth=2 and a 3-stage chain, stages 1 and 2 run, stage 3 throws.
+    // maxDepth=1: the root chain (Seed → Route, depth 1) runs fine — only
+    // the nested branch dispatch (depth 2) trips the guard.
     const ran: string[] = [];
     const chart = flowChart<any>(
-      'S1',
+      'Seed',
       async () => {
-        ran.push('S1');
+        ran.push('Seed');
       },
-      's1',
+      'seed',
     )
-      .addFunction(
-        'S2',
+      .addDeciderFunction(
+        'Route',
         async () => {
-          ran.push('S2');
+          ran.push('Route');
+          return 'go';
         },
-        's2',
+        'route',
       )
+      .addFunctionBranch('go', 'Branch', async () => {
+        ran.push('Branch');
+      })
+      .end()
       .addFunction(
-        'S3',
+        'After',
         async () => {
-          ran.push('S3');
+          ran.push('After');
         },
-        's3',
+        'after',
       )
       .build();
 
     const ex = new FlowChartExecutor(chart);
-    await expect(ex.run({ maxDepth: 2 })).rejects.toThrow(/maximum traversal depth exceeded/i);
-    // S1 and S2 executed before the depth check fired on S3
-    expect(ran).toContain('S1');
-    expect(ran).toContain('S2');
-    expect(ran).not.toContain('S3');
+    await expect(ex.run({ maxDepth: 1 })).rejects.toThrow(/maximum traversal depth exceeded/i);
+    // Seed and the decider stage itself executed at depth 1 before the
+    // branch dispatch fired the guard at depth 2.
+    expect(ran).toContain('Seed');
+    expect(ran).toContain('Route');
+    expect(ran).not.toContain('Branch');
+    expect(ran).not.toContain('After');
+
+    // maxDepth=2 admits the same chart: one nesting level is exactly depth 2.
+    const ran2: string[] = [];
+    const chart2 = flowChart<any>(
+      'Seed',
+      async () => {
+        ran2.push('Seed');
+      },
+      'seed',
+    )
+      .addDeciderFunction(
+        'Route',
+        async () => {
+          ran2.push('Route');
+          return 'go';
+        },
+        'route',
+      )
+      .addFunctionBranch('go', 'Branch', async () => {
+        ran2.push('Branch');
+      })
+      .end()
+      .addFunction(
+        'After',
+        async () => {
+          ran2.push('After');
+        },
+        'after',
+      )
+      .build();
+    await new FlowChartExecutor(chart2).run({ maxDepth: 2 });
+    expect(ran2).toEqual(['Seed', 'Route', 'Branch', 'After']);
   });
 
   it('maxDepth < 1 throws in the constructor (invalid configuration)', async () => {

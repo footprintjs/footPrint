@@ -1,12 +1,15 @@
 /**
  * FlowchartTraverser — Pre-order DFS traversal of StageNode graph.
  *
- * Unified traversal algorithm for all node shapes:
- *   const pre = await prep();
- *   const [x, y] = await Promise.all([fx(pre), fy(pre)]);
- *   return await next(x, y);
+ * Unified traversal algorithm for all node shapes. `executeNode` is a
+ * TRAMPOLINE driver: it runs `executeNodeStep` (one node, all 7 phases) in
+ * a flat loop, following tail continuations (linear `next`, loop edges,
+ * dynamic next, flat decider dispatch) iteratively — so chain length and
+ * loop iterations never grow the call stack. Only true tree nesting (fork
+ * children, with-continuation decider/selector branches, subflow mounts)
+ * recurses.
  *
- * For each node, executeNode follows 7 phases:
+ * For each node, executeNodeStep follows 7 phases:
  *   0. CLASSIFY  — subflow detection, early delegation
  *   1. VALIDATE  — node invariants, role markers
  *   2. EXECUTE   — run stage fn, commit, break check
@@ -80,10 +83,17 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    */
   narrativeGenerator?: IControlFlowNarrative;
   /**
-   * Maximum recursive executeNode depth. Defaults to FlowchartTraverser.MAX_EXECUTE_DEPTH (500).
-   * Override in tests or unusually deep pipelines.
+   * Maximum nested executeNode depth (tree nesting — branch/fork dispatch and
+   * dynamic recursion, NOT linear chains or loop iterations, which run flat).
+   * Defaults to FlowchartTraverser.MAX_EXECUTE_DEPTH (500).
    */
   maxDepth?: number;
+  /**
+   * Maximum loop iterations per node (the ContinuationResolver guard).
+   * Defaults to DEFAULT_MAX_ITERATIONS (1000). Propagated to subflow
+   * traversers. Must be >= 1.
+   */
+  maxIterations?: number;
   /**
    * When this traverser runs inside a subflow, set this to the subflow's ID.
    * Propagated to TraversalContext so narrative entries carry the correct subflowId.
@@ -138,6 +148,45 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
   children?: StageNode<TOut, TScope>[];
   /** Dynamic output-based selector accompanying dynamic children. */
   nextNodeSelector?: Selector;
+}
+
+/**
+ * Trampoline brand — marks a continuation hop returned by `executeNodeStep`
+ * to the driver loop in `executeNode`. Module-private symbol so a stage's own
+ * return value (which can be any object) can never be mistaken for a hop.
+ */
+const CONTINUE_HOP: unique symbol = Symbol('footprintjs.executeNode.continue');
+
+/**
+ * A flat continuation — "execute this node next, in this context" — returned
+ * by `executeNodeStep` for every TAIL continuation (linear `next`, loop
+ * edges, dynamic next, dynamic-subflow re-entry, no-continuation decider
+ * dispatch). The driver loop in `executeNode` consumes hops iteratively:
+ * `current = hop; continue;` — so neither the call stack nor the retained
+ * promise chain grows with chain length or loop iterations.
+ */
+interface ContinuationHop<TOut = any, TScope = any> {
+  readonly [CONTINUE_HOP]: true;
+  readonly node: StageNode<TOut, TScope>;
+  readonly context: StageContext;
+  readonly branchPath: string | undefined;
+  /**
+   * Present when the hop is a decider's branch dispatch (decider without its
+   * own `next`). The driver records it so a PauseSignal thrown anywhere in
+   * the continued chain still gets the decider stamped as its invoker —
+   * exactly what the recursive dispatch's catch used to do.
+   */
+  readonly invokerStamp?: InvokerStamp;
+}
+
+/** Pause-invoker context recorded by the driver for flat decider dispatches. */
+interface InvokerStamp {
+  readonly invokerStageId: string;
+  readonly continuationStageId?: string;
+}
+
+function isContinuationHop<TOut, TScope>(value: unknown): value is ContinuationHop<TOut, TScope> {
+  return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[CONTINUE_HOP] === true;
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -196,11 +245,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private patchCount = 0;
 
   /**
-   * Recursion depth counter for executeNode.
-   * Each recursive executeNode call increments this; decrements on exit (try/finally).
-   * Prevents call-stack overflow on infinite loops or excessively deep stage chains.
+   * TREE-nesting depth counter for executeNode (the trampoline driver).
+   * Each driver invocation increments this; decrements on exit (try/finally).
+   *
+   * Linear `next` chains, loop edges, and dynamic continuations are followed
+   * ITERATIVELY inside one driver invocation, so they never grow this
+   * counter. Only true tree recursion does: fork children, decider/selector
+   * branch dispatch (when the decider has its own continuation), and
+   * unbounded dynamic recursion. Prevents call-stack overflow on runaway
+   * recursive composition.
    */
   private _executeDepth = 0;
+
+  /**
+   * Memoized parent-chain depth per StageContext. The context tree deepens
+   * by one per executed stage along a chain, so the naive parent-walk in
+   * `computeContextDepth` is O(chain length) per stage — O(n²) per run once
+   * the trampoline allows chains of tens of thousands of stages. Contexts
+   * are visited parent-before-child, so the memo makes each lookup O(1)
+   * amortized. WeakMap — dies with the traverser.
+   */
+  private readonly contextDepthCache = new WeakMap<StageContext, number>();
 
   /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
@@ -214,18 +279,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly _maxDepth: number;
 
   /**
-   * Default maximum recursive executeNode depth before an error is thrown.
-   * 500 comfortably covers any realistic pipeline depth (including deeply nested
-   * subflows) while preventing call-stack overflow (~10 000 frames in V8).
+   * Per-instance loop-iteration limit forwarded to the ContinuationResolver
+   * and propagated to subflow traversers. Undefined → resolver default (1000).
+   */
+  private readonly _maxIterations?: number;
+
+  /**
+   * Default maximum nested executeNode depth before an error is thrown.
    *
-   * **Note on counting:** the counter increments once per `executeNode` call, not once per
-   * logical user stage. Subflow root entry and subflow continuation after return each cost
-   * one tick. For pipelines with many nested subflows, budget roughly 2 × (avg stages per
-   * subflow) of headroom when computing a custom `maxDepth` via `RunOptions.maxDepth`.
+   * **What counts as depth (trampoline model):** `executeNode` is an iterative
+   * driver — linear `next` hops, loop edges (`loopTo`/dynamic next), and
+   * dynamic-subflow re-entry are followed in a flat loop and consume NO depth.
+   * Depth grows only with true tree nesting: one tick per fork child, one per
+   * decider/selector branch dispatch that must return to its invoker (decider
+   * with its own `next`), one per subflow mount frame in the parent (the
+   * subflow body itself runs on a FRESH traverser with its own budget).
    *
-   * **Note on loops:** for `loopTo()` pipelines, this depth guard and `ContinuationResolver`'s
-   * iteration limit are independent — the lower one fires first. The default depth guard (500)
-   * fires before the default iteration limit (1000) for loop-heavy pipelines.
+   * 500 therefore covers any realistic chart — it bounds recursive
+   * COMPOSITION, not chain length or loop count. Loops are bounded by
+   * `ContinuationResolver`'s independent iteration limit (default 1000,
+   * configurable via `RunOptions.maxIterations`), which is now the binding
+   * constraint for loop-heavy pipelines.
    *
    * @remarks Not safe for concurrent `.execute()` calls on the same instance — concurrent
    * executions race on `_executeDepth`. Use a separate `FlowchartTraverser` per concurrent
@@ -237,6 +311,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const maxDepth = opts.maxDepth ?? FlowchartTraverser.MAX_EXECUTE_DEPTH;
     if (maxDepth < 1) throw new Error('FlowchartTraverser: maxDepth must be >= 1');
     this._maxDepth = maxDepth;
+    if (opts.maxIterations !== undefined && opts.maxIterations < 1) {
+      throw new Error('FlowchartTraverser: maxIterations must be >= 1');
+    }
+    this._maxIterations = opts.maxIterations;
     this._executionCounter = opts.executionCounter ?? { value: 0 };
     this.root = opts.root;
     // Shallow-copy stageMap and subflows so that lazy-resolution mutations
@@ -293,8 +371,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.nodeResolver = new NodeResolver(deps, nodeIdMap, (n) => this.effChildren(n));
     this.childrenExecutor = new ChildrenExecutor(deps, this.executeNode.bind(this));
     this.stageRunner = new StageRunner(deps);
-    this.continuationResolver = new ContinuationResolver(deps, this.nodeResolver, (nodeId, count) =>
-      this.structureManager.updateIterationCount(nodeId, count),
+    this.continuationResolver = new ContinuationResolver(
+      deps,
+      this.nodeResolver,
+      (nodeId, count) => this.structureManager.updateIterationCount(nodeId, count),
+      this._maxIterations,
     );
     this.deciderHandler = new DeciderHandler(deps);
     this.selectorHandler = new SelectorHandler(deps, this.childrenExecutor);
@@ -332,6 +413,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         logger: parentOpts.logger,
         signal: parentOpts.signal,
         maxDepth: this._maxDepth,
+        ...(this._maxIterations !== undefined && { maxIterations: this._maxIterations }),
         parentSubflowId: subflowOpts.subflowId,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
         runId: this.runId, // Subflow inherits parent's runId — same logical run
@@ -487,22 +569,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   /**
    * Build an O(1) ID→node map from the root graph.
    * Used by NodeResolver to avoid repeated DFS on every loopTo() call.
-   * Depth-guarded at MAX_EXECUTE_DEPTH to prevent infinite recursion on cyclic graphs.
+   * Iterative worklist (no recursion) so arbitrarily long chains index fully;
+   * the `map.has` guard handles cyclic refs. First-visited node wins per ID —
+   * worklist order matches the old recursive pre-order (children, then next).
    * Dynamic subflows and lazy-resolved nodes are added to stageMap at runtime but not to this map —
    * those use the DFS fallback in NodeResolver.
    */
   private buildNodeIdMap(root: StageNode<TOut, TScope>): Map<string, StageNode<TOut, TScope>> {
     const map = new Map<string, StageNode<TOut, TScope>>();
-    const visit = (node: StageNode<TOut, TScope>, depth: number): void => {
-      if (depth > FlowchartTraverser.MAX_EXECUTE_DEPTH) return;
-      if (map.has(node.id)) return; // already visited (avoids infinite loops on cyclic refs)
+    const stack: StageNode<TOut, TScope>[] = [root];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (map.has(node.id)) continue; // already visited (avoids infinite loops on cyclic refs)
       map.set(node.id, node);
+      // Push in reverse visit order (LIFO stack): next first, then children
+      // reversed — so children are visited before next, first child first,
+      // matching the recursive pre-order exactly.
+      if (node.next) stack.push(node.next);
       if (node.children) {
-        for (const child of node.children) visit(child, depth + 1);
+        for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
       }
-      if (node.next) visit(node.next, depth + 1);
-    };
-    visit(root, 0);
+    }
     return map;
   }
 
@@ -592,8 +679,26 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
-   * Pre-order DFS traversal — the core algorithm.
-   * Each call processes one node through all 7 phases.
+   * Trampoline driver — pre-order DFS traversal entry point.
+   *
+   * Runs `executeNodeStep` (one node, all 7 phases) in a flat loop: every
+   * TAIL continuation (linear `next`, loop edge, dynamic next / dynamic
+   * re-entry, no-continuation decider dispatch) comes back as a
+   * `ContinuationHop` and is followed ITERATIVELY — neither the call stack
+   * nor the retained promise chain grows with chain length or loop count.
+   *
+   * Recursion remains ONLY for true tree nesting (each gets a nested driver
+   * call): fork children (`ChildrenExecutor`), selector branches (parallel
+   * fan-out), decider branch dispatch when the decider has its own `next`
+   * (the branch must complete BEFORE the decider's continuation runs), and
+   * subflow mounts (fresh traverser; the mount frame stays in the parent).
+   * `_executeDepth` therefore counts chart COMPOSITION depth only, guarded
+   * by `_maxDepth` (default `MAX_EXECUTE_DEPTH` = 500).
+   *
+   * PauseSignal: a flat decider dispatch records an `InvokerStamp`; if the
+   * continued chain later pauses, the driver stamps the signal during
+   * unwind — same invoker context the recursive dispatch's catch used to
+   * stamp, innermost (most recent dispatch) first.
    */
   private async executeNode(
     node: StageNode<TOut, TScope>,
@@ -601,459 +706,515 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     breakFlag: BreakFlag,
     branchPath?: string,
   ): Promise<any> {
-    // ─── Recursion depth guard ───
-    // Each `await executeNode(...)` keeps the calling frame on the stack.
-    // Without a cap, an infinite loop or an excessively deep stage chain will
-    // eventually overflow the V8 call stack (~10 000 frames) with a cryptic
-    // "Maximum call stack size exceeded" error.  We fail early with a clear
-    // message so users can diagnose the cause (infinite loop, missing break, etc.).
-    // The increment is inside `try` so `finally` always decrements — no fragile
-    // gap between check and try entry.
+    // Invoker stamps from flat decider dispatches in THIS driver — kept
+    // local so nested drivers (fork children, with-next decider branches)
+    // get their own windows, matching the old frame-on-stack stamping scope.
+    let pendingInvokers: InvokerStamp[] | undefined;
+    // ─── Tree-depth guard ───
+    // The increment is inside `try` so `finally` always decrements — no
+    // fragile gap between check and try entry.
     try {
       if (++this._executeDepth > this._maxDepth) {
         throw new Error(
           `FlowchartTraverser: maximum traversal depth exceeded (${this._maxDepth}). ` +
-            'Check for infinite loops or missing break conditions in your flowchart. ' +
+            'Depth counts NESTED dispatch (fork children, decider/selector branches, recursive composition) — ' +
+            'linear chains and loop iterations run flat and do not consume it. ' +
             `Last stage: '${node.name}'. ` +
-            'For loopTo() pipelines, consider adding a break condition or using RunOptions.maxDepth to raise the limit.',
+            'Check for unbounded recursive chart composition, or raise the limit via RunOptions.maxDepth.',
         );
       }
 
-      // Attach builder metadata to context for snapshot enrichment.
-      // Subflow meta reads go through the dynamic-patch overlay — a node
-      // patched by a dynamic-subflow return re-enters executeNode and must
-      // classify as a subflow without the shared node ever being mutated.
-      if (node.description) context.description = node.description;
-      const effSubflowId = this.effSubflowId(node);
-      if (this.effIsSubflowRoot(node) && effSubflowId) context.subflowId = effSubflowId;
-
-      // Assign runtimeStageId BEFORE traversalContext creation — ensures scope events
-      // (buffered by runtimeStageId) and flow events (flushed by traversalContext.runtimeStageId)
-      // use the same value. Must happen before executeStage AND before traversalContext.
-      const idx = this._executionCounter.value++;
-      context.runtimeStageId = buildRuntimeStageId(node.id, idx);
-
-      // Build traversal context for recorder events — created once per stage, shared by all events
-      const traversalContext: TraversalContext = {
-        runId: this.runId,
-        stageId: node.id ?? context.stageId,
-        runtimeStageId: context.runtimeStageId,
-        stageName: node.name,
-        parentStageId: context.parent?.stageId,
-        subflowId: context.subflowId ?? this.parentSubflowId,
-        subflowPath: branchPath || undefined,
-        depth: this.computeContextDepth(context),
-      };
-
-      // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
-      // Guard uses the per-traverser resolvedLazySubflows set (not the shared node) so
-      // concurrent traversers do not race on node.subflowResolver or clear it for each other.
-      if (node.isSubflowRoot && node.subflowResolver && !this.resolvedLazySubflows.has(node.subflowId!)) {
-        const resolved = node.subflowResolver();
-        const prefixedRoot = this.prefixNodeTree(resolved.root as StageNode<TOut, TScope>, node.subflowId!);
-
-        // Register the resolved subflow (same path as eager registration)
-        this.subflows[node.subflowId!] = { root: prefixedRoot };
-
-        // Merge stageMap entries
-        for (const [key, fn] of resolved.stageMap) {
-          const prefixedKey = `${node.subflowId}/${key}`;
-          if (!this.stageMap.has(prefixedKey)) {
-            this.stageMap.set(prefixedKey, fn as StageFunction<TOut, TScope>);
-          }
+      let current: ContinuationHop<TOut, TScope> = { [CONTINUE_HOP]: true, node, context, branchPath };
+      for (;;) {
+        const result = await this.executeNodeStep(current.node, current.context, breakFlag, current.branchPath);
+        if (!isContinuationHop<TOut, TScope>(result)) {
+          return result;
         }
-
-        // Merge nested subflows
-        if (resolved.subflows) {
-          for (const [key, def] of Object.entries(resolved.subflows)) {
-            const prefixedKey = `${node.subflowId}/${key}`;
-            if (!this.subflows[prefixedKey]) {
-              this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
-            }
-          }
-        }
-
-        // Update runtime structure with the now-resolved spec
-        this.structureManager.updateDynamicSubflow(
-          node.id,
-          node.subflowId!,
-          node.subflowName,
-          resolved.buildTimeStructure,
-        );
-
-        // Mark as resolved for THIS traverser — per-traverser set prevents re-entry
-        // without mutating the shared StageNode graph (which would race concurrent traversers).
-        this.resolvedLazySubflows.add(node.subflowId!);
+        if (result.invokerStamp) (pendingInvokers ??= []).push(result.invokerStamp);
+        current = result;
       }
-
-      // ─── Phase 0: CLASSIFY — subflow detection ───
-      if (this.effIsSubflowRoot(node) && effSubflowId) {
-        // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
-        // so SubflowExecutor/NodeResolver never read stale built fields.
-        const mountNode = this.effNode(node);
-        const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
-
-        const subflowOutput = await this.subflowExecutor.executeSubflow(
-          resolvedNode,
-          context,
-          breakFlag,
-          branchPath,
-          this.subflowResults,
-          traversalContext,
-        );
-
-        const isReferenceBasedSubflow = resolvedNode !== mountNode;
-        const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
-        const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
-
-        // ─── Break-flag check AFTER subflow returns ───
-        // If the subflow was mounted with `propagateBreak: true` and broke
-        // internally, `SubflowExecutor` has already flipped our breakFlag.
-        // Stop the outer traversal here — do not run the next linear stage.
-        if (breakFlag.shouldBreak) {
-          return subflowOutput;
-        }
-
-        if (node.next && shouldExecuteContinuation) {
-          const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
-          return await this.executeNode(node.next, nextCtx, breakFlag, branchPath);
-        }
-
-        return subflowOutput;
-      }
-
-      const stageFunc = this.getStageFn(node);
-      const hasStageFunction = Boolean(stageFunc);
-      const isScopeBasedDecider = Boolean(node.deciderFn);
-      const isScopeBasedSelector = Boolean(node.selectorFn);
-      const isDeciderNode = isScopeBasedDecider;
-      const hasChildren = Boolean(this.effChildren(node)?.length);
-      // `next` is never overlaid — a dynamic next applies only to the visit
-      // that produced it (handled via the `dynamicNext` local below), so the
-      // built chart's next is always the correct continuation here.
-      const hasNext = Boolean(node.next);
-      const originalNext = node.next;
-
-      // ─── Phase 1: VALIDATE — node invariants ───
-      if (!hasStageFunction && !isDeciderNode && !isScopeBasedSelector && !hasChildren) {
-        const errorMessage = `Node '${node.name}' must define: embedded fn OR a stageMap entry OR have children/decider`;
-        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
-        throw new Error(errorMessage);
-      }
-      if (isDeciderNode && !hasChildren) {
-        const errorMessage = 'Decider node needs to have children to execute';
-        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
-        throw new Error(errorMessage);
-      }
-      if (isScopeBasedSelector && !hasChildren) {
-        const errorMessage = 'Selector node needs to have children to execute';
-        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
-        throw new Error(errorMessage);
-      }
-
-      // Role markers for debug panels
-      if (!hasStageFunction) {
-        if (isDeciderNode) context.setAsDecider();
-        else if (hasChildren) context.setAsFork();
-      }
-
-      // Break handler wired to the scope. Captures the optional reason
-      // passed via `scope.$break(reason)` and parks it on the breakFlag so
-      // downstream code (FlowRecorder.onBreak, subflow propagation) can
-      // surface it. A second $break call in the same stage keeps the FIRST
-      // reason — first-break-wins — matching the "execution stopped" story.
-      const breakFn = (reason?: string) => {
-        breakFlag.shouldBreak = true;
-        if (reason !== undefined && breakFlag.reason === undefined) {
-          breakFlag.reason = reason;
-        }
-      };
-
-      // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
-      if (isScopeBasedSelector) {
-        const selectorResult = await this.selectorHandler.handleScopeBased(
-          node,
-          stageFunc!,
-          context,
-          breakFlag,
-          branchPath,
-          this.executeStage.bind(this),
-          this.executeNode.bind(this),
-          traversalContext,
-        );
-
-        if (hasNext) {
-          const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
-          return await this.executeNode(node.next!, nextCtx, breakFlag, branchPath);
-        }
-        return selectorResult;
-      }
-
-      // ─── Phase 2b: DECIDER — scope-based single-choice conditional branch ───
-      if (isDeciderNode) {
-        const deciderResult = await this.deciderHandler.handleScopeBased(
-          node,
-          stageFunc!,
-          context,
-          breakFlag,
-          branchPath,
-          this.executeStage.bind(this),
-          this.executeNode.bind(this),
-          traversalContext,
-        );
-
-        // After branch execution, follow decider's own next (e.g., loopTo target)
-        if (hasNext && !breakFlag.shouldBreak) {
-          const nextNode = originalNext!;
-          // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
-          // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
-          const isLoopRef =
-            nextNode.isLoopRef === true ||
-            (!this.getStageFn(nextNode) &&
-              !this.effChildren(nextNode)?.length &&
-              !nextNode.deciderFn &&
-              !nextNode.selectorFn &&
-              !this.effIsSubflowRoot(nextNode));
-
-          if (isLoopRef) {
-            return this.continuationResolver.resolve(
-              nextNode,
-              node,
-              context,
-              breakFlag,
-              branchPath,
-              this.executeNode.bind(this),
-            );
-          }
-
-          this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
-          const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
-          return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
-        }
-
-        return deciderResult;
-      }
-
-      // ─── Abort check — cooperative cancellation ───
-      if (this.signal?.aborted) {
-        const reason =
-          this.signal.reason instanceof Error ? this.signal.reason : new Error(this.signal.reason ?? 'Aborted');
-        throw reason;
-      }
-
-      // ─── Phase 3: EXECUTE — run stage function ───
-      let stageOutput: TOut | undefined;
-      let dynamicNext: StageNode<TOut, TScope> | undefined;
-
-      if (stageFunc) {
-        try {
-          stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
-        } catch (error: any) {
-          // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
-          if (isPauseSignal(error)) {
-            context.commit();
-            this.narrativeGenerator.onPause(node.name, node.id, error.pauseData, error.subflowPath, traversalContext);
-            throw error;
-          }
-          context.commit();
-          this.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
-          this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
-          context.addError('stageExecutionError', error.toString());
-          throw error;
-        }
-        context.commit();
-        this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'linear');
-
-        if (breakFlag.shouldBreak) {
-          // Forward the optional reason captured on breakFlag — set by the
-          // stage's $break(reason) call OR by a subflow's propagateBreak.
-          this.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
-          return stageOutput;
-        }
-
-        // ─── Phase 4: DYNAMIC — StageNode return detection ───
-        if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
-          const dynamicNode = stageOutput as StageNode<TOut, TScope>;
-          context.addLog('isDynamic', true);
-          context.addLog('dynamicPattern', 'StageNodeReturn');
-
-          // Dynamic subflow auto-registration. The subflow meta lands in the
-          // traverser-local overlay (NOT on the shared node); the immediate
-          // executeNode re-entry sees it through the eff* accessors and
-          // classifies the node as a subflow mount in Phase 0.
-          if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
-            context.addLog('dynamicPattern', 'dynamicSubflow');
-            context.addLog('dynamicSubflowId', dynamicNode.subflowId);
-
-            this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
-
-            this.getOrCreatePatch(node).subflowMeta = {
-              isSubflowRoot: true,
-              subflowId: dynamicNode.subflowId,
-              subflowName: dynamicNode.subflowName,
-              subflowMountOptions: dynamicNode.subflowMountOptions,
-            };
-
-            this.structureManager.updateDynamicSubflow(
-              node.id,
-              dynamicNode.subflowId!,
-              dynamicNode.subflowName,
-              dynamicNode.subflowDef?.buildTimeStructure,
-            );
-
-            return await this.executeNode(node, context, breakFlag, branchPath);
-          }
-
-          // Check children for subflowDef
-          if (dynamicNode.children) {
-            for (const child of dynamicNode.children) {
-              if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
-                this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id);
-                this.structureManager.updateDynamicSubflow(
-                  child.id,
-                  child.subflowId!,
-                  child.subflowName,
-                  child.subflowDef?.buildTimeStructure,
-                );
-              }
-            }
-          }
-
-          // Dynamic children (fork pattern) — patched into the overlay;
-          // Phase 5 below reads them back through effChildren/effSelector.
-          if (dynamicNode.children && dynamicNode.children.length > 0) {
-            this.getOrCreatePatch(node).children = dynamicNode.children;
-            context.addLog('dynamicChildCount', dynamicNode.children.length);
-            context.addLog(
-              'dynamicChildIds',
-              dynamicNode.children.map((c) => c.id),
-            );
-
-            this.structureManager.updateDynamicChildren(
-              node.id,
-              dynamicNode.children,
-              Boolean(dynamicNode.nextNodeSelector),
-              Boolean(dynamicNode.deciderFn),
-            );
-
-            if (typeof dynamicNode.nextNodeSelector === 'function') {
-              this.getOrCreatePatch(node).nextNodeSelector = dynamicNode.nextNodeSelector;
-              context.addLog('hasSelector', true);
-            }
-          }
-
-          // Dynamic next (linear continuation) — stays a LOCAL: it applies
-          // only to this visit (Phase 6 routes it through the
-          // ContinuationResolver), so the shared node's next is never touched
-          // and a loop revisit naturally sees the built continuation.
-          if (dynamicNode.next) {
-            dynamicNext = dynamicNode.next;
-            this.structureManager.updateDynamicNext(node.id, dynamicNode.next);
-            context.addLog('hasDynamicNext', true);
-          }
-
-          stageOutput = undefined;
+    } catch (error: unknown) {
+      // Replay invoker stamps most-recent-first. `setInvoker` is
+      // first-write-wins, so the innermost dispatch's stamp lands — exactly
+      // the old bubble-up order through nested catch frames.
+      if (pendingInvokers !== undefined && isPauseSignal(error)) {
+        for (let i = pendingInvokers.length - 1; i >= 0; i--) {
+          error.setInvoker(pendingInvokers[i].invokerStageId, pendingInvokers[i].continuationStageId);
         }
       }
-
-      // ─── Phase 5: CHILDREN — fork dispatch ───
-      // Re-read through the overlay: Phase 4 may have just patched dynamic
-      // children/selector for THIS visit (or an earlier visit in this run).
-      const childrenAfterStage = this.effChildren(node);
-      const hasChildrenAfterStage = Boolean(childrenAfterStage?.length);
-
-      if (hasChildrenAfterStage) {
-        context.addLog('totalChildren', childrenAfterStage?.length);
-        context.addLog('orderOfExecution', 'ChildrenAfterStage');
-
-        let nodeChildrenResults: Record<string, NodeResultType>;
-
-        const effSelectorFn = this.effSelector(node);
-        if (effSelectorFn) {
-          nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
-            effSelectorFn,
-            childrenAfterStage!,
-            stageOutput,
-            context,
-            branchPath as string,
-            traversalContext,
-            node.failFast,
-          );
-        } else {
-          const childCount = childrenAfterStage?.length ?? 0;
-          const childNames = childrenAfterStage?.map((c) => c.name).join(', ');
-          context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
-            count: childCount,
-            targetStage: childrenAfterStage?.map((c) => c.name),
-          });
-
-          // effNode: ChildrenExecutor reads node.children/node.failFast itself.
-          nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
-            this.effNode(node),
-            context,
-            undefined,
-            branchPath,
-            traversalContext,
-          );
-        }
-
-        // Fork-only: return bundle
-        if (!hasNext && !dynamicNext) {
-          return nodeChildrenResults!;
-        }
-
-        // Capture dynamic children as synthetic subflow result for UI
-        const isDynamic = context.debug?.logContext?.isDynamic;
-        if (isDynamic && childrenAfterStage && childrenAfterStage.length > 0) {
-          this.captureDynamicChildrenResult(node, childrenAfterStage, context);
-        }
-      }
-
-      // ─── Phase 6: CONTINUE — dynamic next / linear next ───
-      if (dynamicNext) {
-        return this.continuationResolver.resolve(
-          dynamicNext,
-          node,
-          context,
-          breakFlag,
-          branchPath,
-          this.executeNode.bind(this),
-        );
-      }
-
-      if (hasNext) {
-        const nextNode = originalNext!;
-
-        // Detect loop reference nodes created by loopTo() — marked with isLoopRef flag.
-        // Route through ContinuationResolver for proper ID resolution, iteration
-        // tracking, and narrative generation.
-        const isLoopReference = nextNode.isLoopRef;
-
-        if (isLoopReference) {
-          return this.continuationResolver.resolve(
-            nextNode,
-            node,
-            context,
-            breakFlag,
-            branchPath,
-            this.executeNode.bind(this),
-            traversalContext,
-          );
-        }
-
-        this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
-        context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
-          targetStage: nextNode.name,
-        });
-        const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
-        return await this.executeNode(nextNode, nextCtx, breakFlag, branchPath);
-      }
-
-      // ─── Phase 7: LEAF — no continuation ───
-      return stageOutput;
+      throw error;
     } finally {
       this._executeDepth--;
     }
+  }
+
+  /** Build a flat continuation hop for the driver loop. */
+  private hop(
+    node: StageNode<TOut, TScope>,
+    context: StageContext,
+    branchPath: string | undefined,
+    invokerStamp?: InvokerStamp,
+  ): ContinuationHop<TOut, TScope> {
+    return { [CONTINUE_HOP]: true, node, context, branchPath, ...(invokerStamp && { invokerStamp }) };
+  }
+
+  /**
+   * Execute ONE node through all 7 phases — the old recursive `executeNode`
+   * body; only the tail calls became `ContinuationHop` returns. Returns the
+   * node's result, or a hop for the driver loop to follow.
+   */
+  private async executeNodeStep(
+    node: StageNode<TOut, TScope>,
+    context: StageContext,
+    breakFlag: BreakFlag,
+    branchPath?: string,
+  ): Promise<any> {
+    // Attach builder metadata to context for snapshot enrichment.
+    // Subflow meta reads go through the dynamic-patch overlay — a node
+    // patched by a dynamic-subflow return re-enters executeNode and must
+    // classify as a subflow without the shared node ever being mutated.
+    if (node.description) context.description = node.description;
+    const effSubflowId = this.effSubflowId(node);
+    if (this.effIsSubflowRoot(node) && effSubflowId) context.subflowId = effSubflowId;
+
+    // Assign runtimeStageId BEFORE traversalContext creation — ensures scope events
+    // (buffered by runtimeStageId) and flow events (flushed by traversalContext.runtimeStageId)
+    // use the same value. Must happen before executeStage AND before traversalContext.
+    const idx = this._executionCounter.value++;
+    context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+
+    // Build traversal context for recorder events — created once per stage, shared by all events
+    const traversalContext: TraversalContext = {
+      runId: this.runId,
+      stageId: node.id ?? context.stageId,
+      runtimeStageId: context.runtimeStageId,
+      stageName: node.name,
+      parentStageId: context.parent?.stageId,
+      subflowId: context.subflowId ?? this.parentSubflowId,
+      subflowPath: branchPath || undefined,
+      depth: this.computeContextDepth(context),
+    };
+
+    // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
+    // Guard uses the per-traverser resolvedLazySubflows set (not the shared node) so
+    // concurrent traversers do not race on node.subflowResolver or clear it for each other.
+    if (node.isSubflowRoot && node.subflowResolver && !this.resolvedLazySubflows.has(node.subflowId!)) {
+      const resolved = node.subflowResolver();
+      const prefixedRoot = this.prefixNodeTree(resolved.root as StageNode<TOut, TScope>, node.subflowId!);
+
+      // Register the resolved subflow (same path as eager registration)
+      this.subflows[node.subflowId!] = { root: prefixedRoot };
+
+      // Merge stageMap entries
+      for (const [key, fn] of resolved.stageMap) {
+        const prefixedKey = `${node.subflowId}/${key}`;
+        if (!this.stageMap.has(prefixedKey)) {
+          this.stageMap.set(prefixedKey, fn as StageFunction<TOut, TScope>);
+        }
+      }
+
+      // Merge nested subflows
+      if (resolved.subflows) {
+        for (const [key, def] of Object.entries(resolved.subflows)) {
+          const prefixedKey = `${node.subflowId}/${key}`;
+          if (!this.subflows[prefixedKey]) {
+            this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
+          }
+        }
+      }
+
+      // Update runtime structure with the now-resolved spec
+      this.structureManager.updateDynamicSubflow(
+        node.id,
+        node.subflowId!,
+        node.subflowName,
+        resolved.buildTimeStructure,
+      );
+
+      // Mark as resolved for THIS traverser — per-traverser set prevents re-entry
+      // without mutating the shared StageNode graph (which would race concurrent traversers).
+      this.resolvedLazySubflows.add(node.subflowId!);
+    }
+
+    // ─── Phase 0: CLASSIFY — subflow detection ───
+    if (this.effIsSubflowRoot(node) && effSubflowId) {
+      // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
+      // so SubflowExecutor/NodeResolver never read stale built fields.
+      const mountNode = this.effNode(node);
+      const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
+
+      const subflowOutput = await this.subflowExecutor.executeSubflow(
+        resolvedNode,
+        context,
+        breakFlag,
+        branchPath,
+        this.subflowResults,
+        traversalContext,
+      );
+
+      const isReferenceBasedSubflow = resolvedNode !== mountNode;
+      const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
+      const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
+
+      // ─── Break-flag check AFTER subflow returns ───
+      // If the subflow was mounted with `propagateBreak: true` and broke
+      // internally, `SubflowExecutor` has already flipped our breakFlag.
+      // Stop the outer traversal here — do not run the next linear stage.
+      if (breakFlag.shouldBreak) {
+        return subflowOutput;
+      }
+
+      if (node.next && shouldExecuteContinuation) {
+        const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
+        return this.hop(node.next, nextCtx, branchPath);
+      }
+
+      return subflowOutput;
+    }
+
+    const stageFunc = this.getStageFn(node);
+    const hasStageFunction = Boolean(stageFunc);
+    const isScopeBasedDecider = Boolean(node.deciderFn);
+    const isScopeBasedSelector = Boolean(node.selectorFn);
+    const isDeciderNode = isScopeBasedDecider;
+    const hasChildren = Boolean(this.effChildren(node)?.length);
+    // `next` is never overlaid — a dynamic next applies only to the visit
+    // that produced it (handled via the `dynamicNext` local below), so the
+    // built chart's next is always the correct continuation here.
+    const hasNext = Boolean(node.next);
+    const originalNext = node.next;
+
+    // ─── Phase 1: VALIDATE — node invariants ───
+    if (!hasStageFunction && !isDeciderNode && !isScopeBasedSelector && !hasChildren) {
+      const errorMessage = `Node '${node.name}' must define: embedded fn OR a stageMap entry OR have children/decider`;
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+    if (isDeciderNode && !hasChildren) {
+      const errorMessage = 'Decider node needs to have children to execute';
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+    if (isScopeBasedSelector && !hasChildren) {
+      const errorMessage = 'Selector node needs to have children to execute';
+      this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error: errorMessage });
+      throw new Error(errorMessage);
+    }
+
+    // Role markers for debug panels
+    if (!hasStageFunction) {
+      if (isDeciderNode) context.setAsDecider();
+      else if (hasChildren) context.setAsFork();
+    }
+
+    // Break handler wired to the scope. Captures the optional reason
+    // passed via `scope.$break(reason)` and parks it on the breakFlag so
+    // downstream code (FlowRecorder.onBreak, subflow propagation) can
+    // surface it. A second $break call in the same stage keeps the FIRST
+    // reason — first-break-wins — matching the "execution stopped" story.
+    const breakFn = (reason?: string) => {
+      breakFlag.shouldBreak = true;
+      if (reason !== undefined && breakFlag.reason === undefined) {
+        breakFlag.reason = reason;
+      }
+    };
+
+    // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
+    if (isScopeBasedSelector) {
+      const selectorResult = await this.selectorHandler.handleScopeBased(
+        node,
+        stageFunc!,
+        context,
+        breakFlag,
+        branchPath,
+        this.executeStage.bind(this),
+        this.executeNode.bind(this),
+        traversalContext,
+      );
+
+      if (hasNext) {
+        const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
+        return this.hop(node.next!, nextCtx, branchPath);
+      }
+      return selectorResult;
+    }
+
+    // ─── Phase 2b: DECIDER — scope-based single-choice conditional branch ───
+    if (isDeciderNode) {
+      const dispatch = await this.deciderHandler.prepareDispatch(
+        node,
+        stageFunc!,
+        context,
+        breakFlag,
+        branchPath,
+        this.executeStage.bind(this),
+        traversalContext,
+      );
+
+      // No decider-level continuation → the branch dispatch is a tail
+      // call. Hand it to the driver as a flat hop so loop-heavy decider
+      // charts (e.g. agent ReAct loops with branch-sourced `loopTo`) stay
+      // flat-stacked. The invoker stamp preserves PauseSignal semantics —
+      // the decider is the invoker of whatever pauses in the chain.
+      if (!hasNext && dispatch.kind === 'dispatch') {
+        return this.hop(dispatch.chosen, dispatch.branchContext, branchPath, {
+          invokerStageId: node.id!,
+          continuationStageId: node.next?.id,
+        });
+      }
+
+      // Decider WITH its own next: the branch chain must complete BEFORE
+      // the decider's continuation runs — true tree nesting, kept
+      // recursive (a nested driver). Mirrors handleScopeBased exactly,
+      // including the PauseSignal invoker stamp on bubble-up.
+      let deciderResult: any;
+      if (dispatch.kind === 'break') {
+        deciderResult = dispatch.branchId;
+      } else {
+        try {
+          deciderResult = await this.executeNode(dispatch.chosen, dispatch.branchContext, breakFlag, branchPath);
+        } catch (error: unknown) {
+          if (isPauseSignal(error)) {
+            error.setInvoker(node.id!, node.next?.id);
+          }
+          throw error;
+        }
+      }
+
+      // After branch execution, follow decider's own next (e.g., loopTo target)
+      if (hasNext && !breakFlag.shouldBreak) {
+        const nextNode = originalNext!;
+        // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
+        // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
+        const isLoopRef =
+          nextNode.isLoopRef === true ||
+          (!this.getStageFn(nextNode) &&
+            !this.effChildren(nextNode)?.length &&
+            !nextNode.deciderFn &&
+            !nextNode.selectorFn &&
+            !this.effIsSubflowRoot(nextNode));
+
+        if (isLoopRef) {
+          const target = this.continuationResolver.resolveTarget(nextNode, node, context, branchPath);
+          return this.hop(target.node, target.context, branchPath);
+        }
+
+        this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
+        const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
+        return this.hop(nextNode, nextCtx, branchPath);
+      }
+
+      return deciderResult;
+    }
+
+    // ─── Abort check — cooperative cancellation ───
+    if (this.signal?.aborted) {
+      const reason =
+        this.signal.reason instanceof Error ? this.signal.reason : new Error(this.signal.reason ?? 'Aborted');
+      throw reason;
+    }
+
+    // ─── Phase 3: EXECUTE — run stage function ───
+    let stageOutput: TOut | undefined;
+    let dynamicNext: StageNode<TOut, TScope> | undefined;
+
+    if (stageFunc) {
+      try {
+        stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
+      } catch (error: any) {
+        // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
+        if (isPauseSignal(error)) {
+          context.commit();
+          this.narrativeGenerator.onPause(node.name, node.id, error.pauseData, error.subflowPath, traversalContext);
+          throw error;
+        }
+        context.commit();
+        this.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
+        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+        context.addError('stageExecutionError', error.toString());
+        throw error;
+      }
+      context.commit();
+      this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'linear');
+
+      if (breakFlag.shouldBreak) {
+        // Forward the optional reason captured on breakFlag — set by the
+        // stage's $break(reason) call OR by a subflow's propagateBreak.
+        this.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
+        return stageOutput;
+      }
+
+      // ─── Phase 4: DYNAMIC — StageNode return detection ───
+      if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
+        const dynamicNode = stageOutput as StageNode<TOut, TScope>;
+        context.addLog('isDynamic', true);
+        context.addLog('dynamicPattern', 'StageNodeReturn');
+
+        // Dynamic subflow auto-registration. The subflow meta lands in the
+        // traverser-local overlay (NOT on the shared node); the immediate
+        // executeNode re-entry sees it through the eff* accessors and
+        // classifies the node as a subflow mount in Phase 0.
+        if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
+          context.addLog('dynamicPattern', 'dynamicSubflow');
+          context.addLog('dynamicSubflowId', dynamicNode.subflowId);
+
+          this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
+
+          this.getOrCreatePatch(node).subflowMeta = {
+            isSubflowRoot: true,
+            subflowId: dynamicNode.subflowId,
+            subflowName: dynamicNode.subflowName,
+            subflowMountOptions: dynamicNode.subflowMountOptions,
+          };
+
+          this.structureManager.updateDynamicSubflow(
+            node.id,
+            dynamicNode.subflowId!,
+            dynamicNode.subflowName,
+            dynamicNode.subflowDef?.buildTimeStructure,
+          );
+
+          // Re-enter THIS node (same context): the overlay patch makes the
+          // next step classify it as a subflow mount in Phase 0.
+          return this.hop(node, context, branchPath);
+        }
+
+        // Check children for subflowDef
+        if (dynamicNode.children) {
+          for (const child of dynamicNode.children) {
+            if (child.isSubflowRoot && child.subflowDef && child.subflowId) {
+              this.autoRegisterSubflowDef(child.subflowId, child.subflowDef, child.id);
+              this.structureManager.updateDynamicSubflow(
+                child.id,
+                child.subflowId!,
+                child.subflowName,
+                child.subflowDef?.buildTimeStructure,
+              );
+            }
+          }
+        }
+
+        // Dynamic children (fork pattern) — patched into the overlay;
+        // Phase 5 below reads them back through effChildren/effSelector.
+        if (dynamicNode.children && dynamicNode.children.length > 0) {
+          this.getOrCreatePatch(node).children = dynamicNode.children;
+          context.addLog('dynamicChildCount', dynamicNode.children.length);
+          context.addLog(
+            'dynamicChildIds',
+            dynamicNode.children.map((c) => c.id),
+          );
+
+          this.structureManager.updateDynamicChildren(
+            node.id,
+            dynamicNode.children,
+            Boolean(dynamicNode.nextNodeSelector),
+            Boolean(dynamicNode.deciderFn),
+          );
+
+          if (typeof dynamicNode.nextNodeSelector === 'function') {
+            this.getOrCreatePatch(node).nextNodeSelector = dynamicNode.nextNodeSelector;
+            context.addLog('hasSelector', true);
+          }
+        }
+
+        // Dynamic next (linear continuation) — stays a LOCAL: it applies
+        // only to this visit (Phase 6 routes it through the
+        // ContinuationResolver), so the shared node's next is never touched
+        // and a loop revisit naturally sees the built continuation.
+        if (dynamicNode.next) {
+          dynamicNext = dynamicNode.next;
+          this.structureManager.updateDynamicNext(node.id, dynamicNode.next);
+          context.addLog('hasDynamicNext', true);
+        }
+
+        stageOutput = undefined;
+      }
+    }
+
+    // ─── Phase 5: CHILDREN — fork dispatch ───
+    // Re-read through the overlay: Phase 4 may have just patched dynamic
+    // children/selector for THIS visit (or an earlier visit in this run).
+    const childrenAfterStage = this.effChildren(node);
+    const hasChildrenAfterStage = Boolean(childrenAfterStage?.length);
+
+    if (hasChildrenAfterStage) {
+      context.addLog('totalChildren', childrenAfterStage?.length);
+      context.addLog('orderOfExecution', 'ChildrenAfterStage');
+
+      let nodeChildrenResults: Record<string, NodeResultType>;
+
+      const effSelectorFn = this.effSelector(node);
+      if (effSelectorFn) {
+        nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
+          effSelectorFn,
+          childrenAfterStage!,
+          stageOutput,
+          context,
+          branchPath as string,
+          traversalContext,
+          node.failFast,
+        );
+      } else {
+        const childCount = childrenAfterStage?.length ?? 0;
+        const childNames = childrenAfterStage?.map((c) => c.name).join(', ');
+        context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
+          count: childCount,
+          targetStage: childrenAfterStage?.map((c) => c.name),
+        });
+
+        // effNode: ChildrenExecutor reads node.children/node.failFast itself.
+        nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
+          this.effNode(node),
+          context,
+          undefined,
+          branchPath,
+          traversalContext,
+        );
+      }
+
+      // Fork-only: return bundle
+      if (!hasNext && !dynamicNext) {
+        return nodeChildrenResults!;
+      }
+
+      // Capture dynamic children as synthetic subflow result for UI
+      const isDynamic = context.debug?.logContext?.isDynamic;
+      if (isDynamic && childrenAfterStage && childrenAfterStage.length > 0) {
+        this.captureDynamicChildrenResult(node, childrenAfterStage, context);
+      }
+    }
+
+    // ─── Phase 6: CONTINUE — dynamic next / linear next ───
+    if (dynamicNext) {
+      const target = this.continuationResolver.resolveTarget(dynamicNext, node, context, branchPath);
+      return this.hop(target.node, target.context, branchPath);
+    }
+
+    if (hasNext) {
+      const nextNode = originalNext!;
+
+      // Detect loop reference nodes created by loopTo() — marked with isLoopRef flag.
+      // Route through ContinuationResolver for proper ID resolution, iteration
+      // tracking, and narrative generation. The resolved target comes back
+      // as a hop — loop edges consume no stack, so the iteration limit
+      // (not call-stack depth) is what bounds a loop.
+      const isLoopReference = nextNode.isLoopRef;
+
+      if (isLoopReference) {
+        const target = this.continuationResolver.resolveTarget(nextNode, node, context, branchPath, traversalContext);
+        return this.hop(target.node, target.context, branchPath);
+      }
+
+      this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
+      context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {
+        targetStage: nextNode.name,
+      });
+      const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
+      return this.hop(nextNode, nextCtx, branchPath);
+    }
+
+    // ─── Phase 7: LEAF — no continuation ───
+    return stageOutput;
   }
 
   // ─────────────────────── Private Helpers ───────────────────────
@@ -1103,12 +1264,34 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     });
   }
 
+  /**
+   * Parent-chain length of a StageContext — same value the pre-trampoline
+   * walk produced, memoized. The context tree deepens by one per executed
+   * stage along a chain, so the naive walk is O(chain length) per stage —
+   * O(n²) per run once chains reach trampoline scale. Contexts are visited
+   * parent-before-child, so the cached parent makes this O(1) amortized.
+   */
   private computeContextDepth(context: StageContext): number {
-    let depth = 0;
-    let current = context.parent;
+    const cached = this.contextDepthCache.get(context);
+    if (cached !== undefined) return cached;
+
+    // Walk up to the nearest cached ancestor (or the root), then fill the
+    // cache back down — iterative, so a cold deep chain can't overflow.
+    const uncached: StageContext[] = [];
+    let depth = -1; // depth of the node ABOVE the first uncached entry
+    let current: StageContext | undefined = context;
     while (current) {
-      depth++;
+      const hit = this.contextDepthCache.get(current);
+      if (hit !== undefined) {
+        depth = hit;
+        break;
+      }
+      uncached.push(current);
       current = current.parent;
+    }
+    for (let i = uncached.length - 1; i >= 0; i--) {
+      depth++;
+      this.contextDepthCache.set(uncached[i], depth);
     }
     return depth;
   }

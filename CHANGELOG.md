@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — trampolined next/loop continuations: the depth ceiling on chains and loops is gone (backlog #15)
+
+- **`executeNode` is now an iterative trampoline driver.** Every TAIL
+  continuation — linear `next` hops, loop edges (`loopTo` / dynamic next),
+  dynamic-subflow re-entry, and the branch dispatch of a decider with no
+  continuation of its own — returns a flat continuation hop consumed by a
+  driver loop (`current = next; continue`) instead of a recursive
+  `await executeNode(...)`. The call stack AND the retained promise chain
+  are now O(1) for chains and loops of any length. Per-node behavior is
+  byte-identical: the step body is the old function body — phases, commit
+  timing, recorder/narrative event order, break/pause/error semantics are
+  unchanged (locked by a hardcoded pre/post narrative snapshot test).
+- **What is now unbounded:** linear chain length and loop iterations.
+  Measured on the depth-probe chart (`bench:depth`): guard/chain depth
+  slopes 2.0/3.0 per iteration → **0.0**; the chart that hit the depth wall
+  at iteration 249 now runs 10,000 iterations in ~0.5 s at the DEFAULT
+  `maxDepth` with peak engine depth 1. A 5,000-stage linear chain completes
+  at the default depth too.
+- **What still bounds (honestly):**
+  - **Real tree nesting.** `maxDepth` (default 500) now counts ONLY nested
+    dispatch — fork children, selector branches, decider-with-continuation
+    branch dispatch, recursive composition. Its error message says so.
+  - **The loop-iteration limit** (default 1000 per node) — now actually
+    REACHABLE (pre-trampoline the depth guard always fired first) and the
+    binding constraint for loops, with its own actionable error.
+  - **Memory.** Per-iteration state deltas, commit-log entries, and
+    narrative entries still accumulate; appending to a tracked array each
+    iteration retains O(N²) commit-log bytes (OOMs near ~2k iterations on
+    an 8 GB machine). Keep tracked state bounded in long loops.
+- **`RunOptions.maxIterations` (new).** The loop-iteration limit was always
+  configurable on `ContinuationResolver` but never plumbed to the public
+  API — the error's advice ("Set maxIterations to increase the limit") was
+  previously unfollowable. Now: `run({ maxIterations })` /
+  `resume(..., { maxIterations })`, validated >= 1, propagated to subflow
+  traversers. Example: `examples/runtime-features/long-loops/`.
+- **PauseSignal invoker semantics preserved across flat dispatch.** A
+  decider whose branch is dispatched as a flat hop records an invoker stamp
+  on the driver; if the continued chain pauses (even hundreds of loop
+  iterations later), the signal is stamped with the innermost invoker on
+  unwind — exactly what the recursive dispatch's catch did. Pause→resume
+  inside a long loop (tested at iteration 600, past the old wall) works.
+- **`StageContext.getSnapshot()` is now iterative.** The execution tree
+  deepens by one level per executed stage along `next` chains; the old
+  recursive serializer overflowed the JS stack on trampoline-scale runs
+  (~2,000-iteration decider loops). Same output, explicit work stack.
+- Internal engine API additions for the trampoline:
+  `ContinuationResolver.resolveTarget(...)` (resolve a continuation without
+  executing it; `resolve(...)` unchanged) and
+  `DeciderHandler.prepareDispatch(...)` (run the decider stage + resolve the
+  branch without executing it; `handleScopeBased(...)` unchanged).
+
 ## [8.3.0]
 
 ### Fixed — dynamic StageNode returns no longer mutate the shared built chart (backlog #7)

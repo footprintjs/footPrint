@@ -8,6 +8,15 @@
  * - String ID → reference to existing node (resolve via NodeResolver)
  * - StageNode with fn → truly dynamic node (execute directly)
  * - StageNode without fn → reference by ID (resolve via NodeResolver)
+ *
+ * Two entry points:
+ * - `resolveTarget` — resolves the continuation to `{ node, context }` and
+ *   fires every side effect (iteration counting, debug logs, `onLoop`
+ *   narrative) WITHOUT executing. The traverser's trampoline driver uses
+ *   this to follow loop edges iteratively — flat stack, so the iteration
+ *   limit (not call-stack depth) is what bounds a loop.
+ * - `resolve` — resolveTarget + immediate execution via the provided
+ *   `executeNode` callback. Kept for direct/advanced callers.
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
@@ -18,6 +27,17 @@ import type { NodeResolver } from './NodeResolver.js';
 import type { ExecuteNodeFn } from './types.js';
 
 export const DEFAULT_MAX_ITERATIONS = 1000;
+
+/**
+ * A resolved continuation target — the node to execute next plus the
+ * StageContext to execute it in. All side effects (iteration counting,
+ * debug logs, `onLoop` narrative) have already fired by the time this
+ * is returned.
+ */
+export interface ResolvedContinuation<TOut = any, TScope = any> {
+  node: StageNode<TOut, TScope>;
+  context: StageContext;
+}
 
 export class ContinuationResolver<TOut = any, TScope = any> {
   /**
@@ -40,9 +60,10 @@ export class ContinuationResolver<TOut = any, TScope = any> {
   }
 
   /**
-   * Resolve a dynamic continuation.
-   * Dispatches to handleStringReference, handleDirectNode, or handleNodeReference
-   * based on the dynamicNext type.
+   * Resolve a dynamic continuation and execute it immediately.
+   * Equivalent to `executeNode(...resolveTarget(...))` — the traverser's
+   * driver loop calls `resolveTarget` directly instead so the continuation
+   * becomes a flat trampoline hop rather than a retained recursive frame.
    */
   async resolve(
     dynamicNext: string | StageNode<TOut, TScope>,
@@ -53,93 +74,51 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     executeNode: ExecuteNodeFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<any> {
-    if (typeof dynamicNext === 'string') {
-      return this.handleStringReference(
-        dynamicNext,
-        node,
-        context,
-        breakFlag,
-        branchPath,
-        executeNode,
-        traversalContext,
-      );
-    }
-
-    if (dynamicNext.fn) {
-      return this.handleDirectNode(dynamicNext, context, breakFlag, branchPath, executeNode);
-    }
-
-    return this.handleNodeReference(dynamicNext, node, context, breakFlag, branchPath, executeNode, traversalContext);
+    const target = this.resolveTarget(dynamicNext, node, context, branchPath, traversalContext);
+    return executeNode(target.node, target.context, breakFlag, branchPath);
   }
 
-  /** dynamicNext is a string ID → resolve from graph, track iteration. */
-  private async handleStringReference(
-    nodeId: string,
+  /**
+   * Resolve a dynamic continuation to its target node + next StageContext
+   * WITHOUT executing it. Fires the same side effects `resolve` always did
+   * (iteration counting + limit, `dynamicNext*` logs, loop debug message,
+   * `onLoop` narrative), in the same order.
+   *
+   * Three dynamicNext patterns:
+   * - StageNode with fn → truly dynamic node, returned as-is (no iteration
+   *   tracking — it is a fresh node, not a back-edge).
+   * - String ID → reference to an existing node, resolved via NodeResolver.
+   * - StageNode without fn → reference by ID, resolved via NodeResolver.
+   */
+  resolveTarget(
+    dynamicNext: string | StageNode<TOut, TScope>,
     currentNode: StageNode<TOut, TScope>,
     context: StageContext,
-    breakFlag: { shouldBreak: boolean },
     branchPath: string | undefined,
-    executeNode: ExecuteNodeFn<TOut, TScope>,
     traversalContext?: TraversalContext,
-  ): Promise<any> {
-    const targetNode = this.nodeResolver.findNodeById(nodeId);
-    if (!targetNode) {
-      const errorMessage = `dynamicNext target node not found: ${nodeId}`;
-      this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
-      throw new Error(errorMessage);
+  ): ResolvedContinuation<TOut, TScope> {
+    // Truly dynamic node (has fn) → execute directly, no iteration tracking.
+    if (typeof dynamicNext !== 'string' && dynamicNext.fn) {
+      context.addLog('dynamicNextDirect', true);
+      context.addLog('dynamicNextName', dynamicNext.name);
+
+      context.addFlowDebugMessage('next', `Moving to ${dynamicNext.name} stage (dynamic)`, {
+        targetStage: dynamicNext.name,
+      });
+
+      const nextStageContext = context.createNext(branchPath as string, dynamicNext.name, dynamicNext.id);
+      return { node: dynamicNext, context: nextStageContext };
     }
 
-    const iteration = this.getAndIncrementIteration(nodeId);
-    const iteratedStageName = this.getIteratedStageName(targetNode.name, iteration);
-    context.addLog('dynamicNextTarget', nodeId);
-    context.addLog('dynamicNextIteration', iteration);
-
-    context.addFlowDebugMessage('loop', `Looping back to ${targetNode.name} (iteration ${iteration + 1})`, {
-      targetStage: targetNode.name,
-      iteration: iteration + 1,
-    });
-
-    this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description, traversalContext);
-
-    const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
-    return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
-  }
-
-  /** dynamicNext is a StageNode with fn → execute directly (truly dynamic). */
-  private async handleDirectNode(
-    dynamicNode: StageNode<TOut, TScope>,
-    context: StageContext,
-    breakFlag: { shouldBreak: boolean },
-    branchPath: string | undefined,
-    executeNode: ExecuteNodeFn<TOut, TScope>,
-  ): Promise<any> {
-    context.addLog('dynamicNextDirect', true);
-    context.addLog('dynamicNextName', dynamicNode.name);
-
-    context.addFlowDebugMessage('next', `Moving to ${dynamicNode.name} stage (dynamic)`, {
-      targetStage: dynamicNode.name,
-    });
-
-    const nextStageContext = context.createNext(branchPath as string, dynamicNode.name, dynamicNode.id);
-    return executeNode(dynamicNode, nextStageContext, breakFlag, branchPath);
-  }
-
-  /** dynamicNext is a StageNode without fn → reference by ID, resolve + track iteration. */
-  private async handleNodeReference(
-    dynamicNode: StageNode<TOut, TScope>,
-    currentNode: StageNode<TOut, TScope>,
-    context: StageContext,
-    breakFlag: { shouldBreak: boolean },
-    branchPath: string | undefined,
-    executeNode: ExecuteNodeFn<TOut, TScope>,
-    traversalContext?: TraversalContext,
-  ): Promise<any> {
-    const nextNodeId = dynamicNode.id;
-    if (!nextNodeId) {
+    // Reference — by string ID or by node-without-fn ID. A node reference
+    // without an id is a usage error; a string reference is passed through
+    // verbatim (an unknown id surfaces as "target node not found" below).
+    if (typeof dynamicNext !== 'string' && !dynamicNext.id) {
       const errorMessage = 'dynamicNext node must have an id when used as reference';
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${currentNode.name}]:`, { error: errorMessage });
       throw new Error(errorMessage);
     }
+    const nextNodeId = typeof dynamicNext === 'string' ? dynamicNext : dynamicNext.id!;
 
     const targetNode = this.nodeResolver.findNodeById(nextNodeId);
     if (!targetNode) {
@@ -161,7 +140,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     this.deps.narrativeGenerator.onLoop(targetNode.name, iteration + 1, targetNode.description, traversalContext);
 
     const nextStageContext = context.createNext(branchPath as string, iteratedStageName, targetNode.id);
-    return executeNode(targetNode, nextStageContext, breakFlag, branchPath);
+    return { node: targetNode, context: nextStageContext };
   }
 
   /**

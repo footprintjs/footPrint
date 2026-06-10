@@ -382,12 +382,24 @@ export interface RunOptions {
    */
   env?: ExecutionEnv;
   /**
-   * Override the maximum recursive `executeNode` depth for this run.
+   * Override the maximum nested `executeNode` depth for this run.
    * Defaults to `FlowchartTraverser.MAX_EXECUTE_DEPTH` (500).
-   * Useful when deeply nested subflows or long chains need more headroom.
-   * Must be >= 1.
+   *
+   * Depth counts TREE nesting only — fork children, decider/selector branch
+   * dispatch, recursive composition. Linear chains and loop iterations run
+   * on a flat trampoline and never consume depth, so this rarely needs
+   * raising. Must be >= 1.
    */
   maxDepth?: number;
+  /**
+   * Override the maximum loop iterations per node for this run (the
+   * `ContinuationResolver` infinite-loop guard). Defaults to 1000.
+   * This is the binding constraint for loop-heavy pipelines — raise it for
+   * legitimately long loops (`loopTo` chains run with a flat stack, so high
+   * values are safe; memory for state/narrative still grows per iteration).
+   * Propagates to subflows. Must be >= 1.
+   */
+  maxIterations?: number;
 }
 
 // ---------------------------------------------------------------------------
