@@ -42,6 +42,20 @@ export interface TraceEntry {
   verb: 'set' | 'merge' | 'append' | 'delete';
 }
 
+/**
+ * RFC-003 D2 — read paths that BYPASS read tracking:
+ * - `'args'`   — the stage called `getArgs()` / `$getArgs()` with non-empty
+ *   run input (frozen, untracked by design)
+ * - `'env'`    — the stage called `getEnv()` / `$getEnv()` with a non-empty
+ *   execution environment (frozen, untracked by design)
+ * - `'silent'` — the stage performed a silent read (`getValueSilent` /
+ *   `getValueDirect`) of a key it never tracked-read in the same stage.
+ *   Silent reads SHADOWED by a tracked read of the same key in the same
+ *   stage (TypedScope array-proxy internals, `$batchArray`) are NOT
+ *   flagged — their read→write edge is already captured.
+ */
+export type UntrackedSource = 'args' | 'env' | 'silent';
+
 /** The atomic bundle produced by TransactionBuffer.commit(). */
 export interface CommitBundle {
   /** Auto-assigned step index (set by EventLog.record). */
@@ -60,6 +74,15 @@ export interface CommitBundle {
   overwrite: MemoryPatch;
   /** Deep merge patches. */
   updates: MemoryPatch;
+  /**
+   * RFC-003 D2 honesty markers — untracked read paths this stage consumed
+   * (see {@link UntrackedSource}). ABSENT when the stage used none, so
+   * charts that never touch those paths keep byte-identical commit logs.
+   * Causal-slice consumers (`causalChain`/`formatCausalChain`) surface this
+   * as "slice may be incomplete here". Residual limitation (by design):
+   * values smuggled through JS closures are undetectable.
+   */
+  untrackedSources?: ReadonlyArray<UntrackedSource>;
 }
 
 // ── Flow Control Narrative ─────────────────────────────────────────────────

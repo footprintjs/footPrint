@@ -55,7 +55,7 @@
  */
 
 import { findLastWriter } from './commitLogUtils.js';
-import type { CommitBundle } from './types.js';
+import type { CommitBundle, UntrackedSource } from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -75,6 +75,16 @@ export interface CausalNode {
   depth: number;
   /** Parent nodes — stages that wrote data this node read. DAG: multiple parents possible. */
   parents: CausalNode[];
+  /**
+   * RFC-003 D2 honesty marker — stamped from the stage's
+   * `CommitBundle.untrackedSources`. Present when this stage ALSO consumed
+   * untracked read paths (`args` / `env` / unshadowed `silent` reads): the
+   * backward slice through this node may be incomplete, because those reads
+   * produce no read→write edge to follow. `formatCausalChain` renders this
+   * as a `⚠ … slice may be incomplete here` line. Absent when the stage's
+   * reads were fully tracked.
+   */
+  incompleteSources?: ReadonlyArray<UntrackedSource>;
 }
 
 /** Options for causalChain(). */
@@ -183,6 +193,16 @@ function createWriterLookup(commitLog: CommitBundle[]): WriterLookup {
 // ── Core algorithm ─────────────────────────────────────────────────────
 
 /**
+ * RFC-003 D2: the `incompleteSources` node fragment for a commit — `{}`
+ * when the stage consumed no untracked read paths, keeping the field
+ * ABSENT (not empty-array-valued) for fully-tracked stages.
+ */
+function incompleteSourcesFragment(commit: CommitBundle): { incompleteSources?: ReadonlyArray<UntrackedSource> } {
+  if (!commit.untrackedSources || commit.untrackedSources.length === 0) return {};
+  return { incompleteSources: commit.untrackedSources };
+}
+
+/**
  * Build the causal DAG rooted at `startId` by walking backwards
  * through read→write dependencies in the commit log.
  *
@@ -233,6 +253,7 @@ export function causalChain(
     linkedBy: '',
     depth: 0,
     parents: [],
+    ...incompleteSourcesFragment(startCommit),
   };
   nodeMap.set(startId, root);
 
@@ -279,6 +300,7 @@ export function causalChain(
         linkedBy: key,
         depth: depth + 1,
         parents: [],
+        ...incompleteSourcesFragment(writer),
       };
       nodeMap.set(writerId, parentNode);
       node.parents.push(parentNode);
@@ -322,6 +344,10 @@ export function flattenCausalDAG(root: CausalNode): CausalNode[] {
 /**
  * Format a causal DAG as human-readable indented text.
  * Shows the dependency chain with depth indentation and linked-by keys.
+ *
+ * RFC-003 D2: nodes that consumed untracked read paths render an extra
+ * `⚠ also consumed … — slice may be incomplete here` line, so a consumer
+ * (human or LLM) debugging from the slice is TOLD when it is incomplete.
  */
 export function formatCausalChain(root: CausalNode): string {
   const lines: string[] = [];
@@ -337,6 +363,12 @@ export function formatCausalChain(root: CausalNode): string {
     const link = node.linkedBy ? ` ← via ${node.linkedBy}` : '';
     const writes = node.keysWritten.length > 0 ? ` [wrote: ${node.keysWritten.join(', ')}]` : '';
     lines.push(`${'  '.repeat(indent)}${node.stageName} (${node.runtimeStageId})${link}${writes}`);
+
+    if (node.incompleteSources && node.incompleteSources.length > 0) {
+      lines.push(
+        `${'  '.repeat(indent + 1)}⚠ also consumed ${node.incompleteSources.join('/')} — slice may be incomplete here`,
+      );
+    }
 
     for (const parent of node.parents) {
       walk(parent, indent + 1);

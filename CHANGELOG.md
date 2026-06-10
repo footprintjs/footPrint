@@ -22,6 +22,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine groundwork for control-dependence tracking (D5's
   `controlDepRecorder`) and contextual bug localization.
 
+- **RFC-003 D2 — untracked-read honesty flags
+  (`CommitBundle.untrackedSources`)** (additive). A causal slice is built
+  from TRACKED reads — but three read paths bypass tracking, and a consumer
+  (human or LLM) debugging from the slice must be TOLD when that happened.
+  The stage's commit bundle now carries
+  `untrackedSources?: ReadonlyArray<'args' | 'env' | 'silent'>`:
+
+  - `'args'` — the stage called `getArgs()`/`$getArgs()` with actual run
+    input present (an empty-args read carries no information and is not
+    flagged);
+  - `'env'` — the stage called `getEnv()`/`$getEnv()` with a non-empty
+    execution environment;
+  - `'silent'` — the stage silently read (`getValueSilent`) a key it never
+    TRACKED-read in the same stage. Silent reads SHADOWED by a tracked read
+    of the same key (the TypedScope array-proxy pattern, `$batchArray`) are
+    deliberately NOT flagged — their read→write edge is already captured,
+    and flagging them would teach consumers to ignore the marker. This is
+    the one refinement over the spec's literal "any `getValueSilent` use"
+    wording, for exactly that reason.
+
+  The field is ABSENT when a stage used none of these paths — charts that
+  never touch them keep byte-identical commit logs (probe-verified), and
+  the routine double-commit paths (fork children, subflow mounts) record
+  the field exactly once because markers release with the staging state
+  (#13b). The backtracker stamps `CausalNode.incompleteSources` from it and
+  `formatCausalChain` renders
+  `⚠ also consumed args/env — slice may be incomplete here`.
+  Documented residual: values smuggled through JS closures stay
+  undetectable. New type export: `UntrackedSource`
+  (`footprintjs/trace` + `/advanced`). Cost: one lazily-allocated Set per
+  stage that actually uses an untracked path; three boolean-ish checks
+  otherwise.
+
 ## [9.7.0] - 2026-06-11
 
 ### Added

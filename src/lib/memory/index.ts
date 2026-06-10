@@ -26,6 +26,7 @@ export type {
   ScopeFactory,
   StageSnapshot,
   TraceEntry,
+  UntrackedSource,
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './types.js';

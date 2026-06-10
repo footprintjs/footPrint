@@ -53,6 +53,9 @@ export { commitValueAt, findCommit, findCommits, findLastWriter } from './lib/me
 // Causal chain — backward program slicing on commit log (DAG)
 export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';
 export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';
+// RFC-003 D2 — honesty markers: the untracked read paths a stage consumed
+// (`CommitBundle.untrackedSources` → `CausalNode.incompleteSources`).
+export type { UntrackedSource } from './lib/memory/types.js';
 
 // ── v5 Stores (concrete, composable — primary recorder API) ─────
 // Compose these via `new Store<T>()` as a field on your recorder

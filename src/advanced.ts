@@ -34,6 +34,7 @@ export type {
   RetentionPolicy,
   StageSnapshot,
   TraceEntry,
+  UntrackedSource,
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './lib/memory/index.js';
