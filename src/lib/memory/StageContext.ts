@@ -8,6 +8,7 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
+import { isDevMode } from '../scope/detectCircular.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
@@ -459,6 +460,16 @@ export class StageContext {
 
   // ── Tree navigation ────────────────────────────────────────────────────
 
+  /**
+   * Create (or return) this context's linked successor.
+   *
+   * MEMOIZED: the first call creates `this.next`; every later call returns
+   * that SAME context and IGNORES its arguments. In normal traversal each
+   * context advances exactly once, so the memo never bites — but a caller
+   * expecting a fresh context for different `stageName`/`stageId` args gets
+   * the old one silently. Dev mode (`enableDevMode()`) warns on that
+   * mismatch (backlog B4).
+   */
   createNext(path: string, stageName: string, stageId: string, isDecider = false): StageContext {
     if (!this.next) {
       this.next = new StageContext(path, stageName, stageId, this.sharedMemory, '', this.eventLog, isDecider);
@@ -467,6 +478,13 @@ export class StageContext {
       // in the run writes to both views.
       if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
       this.next.readTracking = this.readTracking;
+    } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] StageContext.createNext: next context already exists as "${this.next.stageName}" ` +
+          `(id: "${this.next.stageId}") — arguments "${stageName}" (id: "${stageId}") are ignored ` +
+          'and the existing context is returned.',
+      );
     }
     return this.next;
   }

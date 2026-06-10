@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`StageContext.createNext`: dev-mode warning when its arguments are
+  silently ignored** (backlog B4). `createNext` is memoized — once `next`
+  exists, later calls return it and ignore their arguments. With
+  `enableDevMode()`, a call whose `stageName`/`stageId` differ from the
+  existing next context now warns (production behavior unchanged). Normal
+  traversal — linear chains, loops, resume — advances each context exactly
+  once and never triggers it (pinned by test).
+
 - **`decide()`/`select()`: dev-mode warning on unknown filter operators +
   vacuous-truth docs** (backlog B5). An operator outside `eq, ne, gt, gte,
   lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the

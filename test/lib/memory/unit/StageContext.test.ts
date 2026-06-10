@@ -1,3 +1,4 @@
+import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
@@ -134,6 +135,92 @@ describe('StageContext', () => {
       const n1 = ctx.createNext('p1', 'stage2', 'stage2');
       const n2 = ctx.createNext('p1', 'stage2', 'stage2');
       expect(n1).toBe(n2);
+    });
+
+    it('dev mode warns when createNext args mismatch the existing next (B4)', () => {
+      const { ctx } = createCtx();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      enableDevMode();
+      try {
+        ctx.createNext('p1', 'stage2', 'stage2');
+        const returned = ctx.createNext('p1', 'OTHER', 'other-id');
+        // Memoized semantics unchanged — existing context returned, args ignored.
+        expect(returned.stageName).toBe('stage2');
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const message = warnSpy.mock.calls[0]?.[0] as string;
+        expect(message).toContain('createNext');
+        expect(message).toContain('"stage2"');
+        expect(message).toContain('"OTHER"');
+      } finally {
+        disableDevMode();
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('dev mode stays silent when createNext args MATCH the existing next', () => {
+      const { ctx } = createCtx();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      enableDevMode();
+      try {
+        ctx.createNext('p1', 'stage2', 'stage2');
+        ctx.createNext('p1', 'stage2', 'stage2'); // same name + id → benign memo hit
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        disableDevMode();
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('production (dev mode OFF) never warns on createNext mismatch', () => {
+      const { ctx } = createCtx();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      disableDevMode();
+      try {
+        ctx.createNext('p1', 'stage2', 'stage2');
+        ctx.createNext('p1', 'OTHER', 'other-id');
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('normal traversal (linear chain + loop) never triggers the createNext dev warning', async () => {
+      // Guards against false positives: in legitimate engine flows each
+      // context advances exactly once, so the mismatch warn must stay silent
+      // even with dev mode on — including across loop iterations, where
+      // iterated stage names ("Work.1", "Work.2") flow through createNext.
+      interface LoopState {
+        count: number;
+      }
+      const chart = flowChart<LoopState>(
+        'Seed',
+        async (scope) => {
+          scope.count = 0;
+        },
+        'seed',
+      )
+        .addFunction(
+          'Work',
+          async (scope) => {
+            scope.count = scope.count + 1;
+            if (scope.count >= 3) scope.$break();
+          },
+          'work',
+        )
+        .loopTo('work')
+        .build();
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      enableDevMode();
+      try {
+        const executor = new FlowChartExecutor(chart);
+        await executor.run();
+        const createNextWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('createNext'));
+        expect(createNextWarns).toHaveLength(0);
+      } finally {
+        disableDevMode();
+        warnSpy.mockRestore();
+      }
     });
 
     it('createChild creates branch contexts', () => {
