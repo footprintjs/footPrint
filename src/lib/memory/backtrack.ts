@@ -73,8 +73,20 @@ export interface CausalNode {
   linkedBy: string;
   /** BFS depth from the starting node (0 = start). */
   depth: number;
-  /** Parent nodes — stages that wrote data this node read. DAG: multiple parents possible. */
+  /**
+   * Parent nodes — stages this node depends on. DAG: multiple parents
+   * possible. KEPT for compatibility; with the `controlDeps` option
+   * (RFC-003 D3) governing deciders appear here too. For typed/keyed/
+   * weighted detail use {@link parentEdges}.
+   */
   parents: CausalNode[];
+  /**
+   * RFC-003 D3 — one edge per dependency LINK (not per parent): a node
+   * reading two keys from the same writer has ONE entry in {@link parents}
+   * but TWO `'data'` edges here. Control dependencies (via the
+   * `controlDeps` option) add a `'control'` edge to the governing decider.
+   */
+  parentEdges: CausalEdge[];
   /**
    * RFC-003 D2 honesty marker — stamped from the stage's
    * `CommitBundle.untrackedSources`. Present when this stage ALSO consumed
@@ -87,12 +99,58 @@ export interface CausalNode {
   incompleteSources?: ReadonlyArray<UntrackedSource>;
 }
 
+/**
+ * RFC-003 D3 — a typed dependency edge from a child node to one parent.
+ *
+ * - `kind: 'data'`    — read→write dependency; `key` is the state key.
+ * - `kind: 'control'` — the parent is the decider/selector whose decision
+ *   allowed the child to run; `key` is the decide() rule label when present.
+ *
+ * `weight` defaults to 1.0; the `weigh` hook (RFC-003 D4) can override it.
+ * The engine itself NEVER computes weights — semantics belong to the
+ * consumer-injected weigher.
+ */
+export interface CausalEdge {
+  parent: CausalNode;
+  kind: 'data' | 'control';
+  key?: string;
+  weight: number;
+}
+
+/**
+ * RFC-003 D3 — a control dependency resolved for one execution step:
+ * which decider/selector execution allowed this stage to run.
+ */
+export interface ControlDependency {
+  /** runtimeStageId of the governing decider/selector execution step. */
+  deciderId: string;
+  /** The decide() rule label for the chosen branch, when present. */
+  label?: string;
+}
+
+/**
+ * RFC-003 D3 — callback resolving the governing decider for an execution
+ * step. Return `undefined` when the step is not control-dependent on any
+ * recorded decision. Build one with `controlDepRecorder()` from
+ * `footprintjs/trace`, or supply your own.
+ */
+export type ControlDepLookup = (runtimeStageId: string) => ControlDependency | undefined;
+
 /** Options for causalChain(). */
 export interface CausalChainOptions {
   /** Maximum BFS depth (default: 20). Prevents runaway traversal. */
   maxDepth?: number;
   /** Maximum total nodes to visit (default: 100). Hard cap for safety. */
   maxNodes?: number;
+  /**
+   * RFC-003 D3 — control-dependence lookup. When provided, expanding a node
+   * ALSO links a `'control'` edge to its governing decider (labeled by the
+   * decide() rule label when present); the decider node then expands
+   * normally through its own data reads, so chains like
+   * `status ← [control] ClassifyRisk ← [data: creditScore] PullBureau`
+   * resolve end-to-end. Without this option behavior is unchanged.
+   */
+  controlDeps?: ControlDepLookup;
 }
 
 /**
@@ -227,6 +285,7 @@ export function causalChain(
 ): CausalNode | undefined {
   const maxDepth = options?.maxDepth ?? 20;
   const maxNodes = options?.maxNodes ?? 100;
+  const controlDeps = options?.controlDeps;
 
   // Build position index: runtimeStageId → array position (O(n) once)
   const idxMap = new Map<string, number>();
@@ -253,6 +312,7 @@ export function causalChain(
     linkedBy: '',
     depth: 0,
     parents: [],
+    parentEdges: [],
     ...incompleteSourcesFragment(startCommit),
   };
   nodeMap.set(startId, root);
@@ -261,52 +321,81 @@ export function causalChain(
   const queue: Array<[CausalNode, number, number]> = [[root, startIdx, 0]];
   let visited = 1;
 
+  /**
+   * Link `node → parent` (creating + enqueueing the parent when new).
+   * Shared by data-edge expansion (read→write) and control-edge expansion
+   * (D3). One CausalEdge per distinct (parent, kind, key) link; `parents`
+   * keeps its historical one-entry-per-parent dedup.
+   */
+  function linkParent(
+    node: CausalNode,
+    parentCommit: CommitBundle,
+    kind: 'data' | 'control',
+    key: string | undefined,
+    depth: number,
+  ): void {
+    const parentId = parentCommit.runtimeStageId;
+
+    let parentNode = nodeMap.get(parentId);
+    if (!parentNode) {
+      // New node — create and enqueue (respecting the node budget)
+      if (visited >= maxNodes) return;
+
+      const parentIdx = idxMap.get(parentId);
+      if (parentIdx === undefined) return;
+
+      parentNode = {
+        runtimeStageId: parentId,
+        stageId: parentCommit.stageId,
+        stageName: parentCommit.stage,
+        keysWritten: parentCommit.trace.map((t) => t.path),
+        // linkedBy stays a DATA-key concept (back-compat) — control-linked
+        // nodes carry their label on the edge instead.
+        linkedBy: kind === 'data' ? key ?? '' : '',
+        depth: depth + 1,
+        parents: [],
+        parentEdges: [],
+        ...incompleteSourcesFragment(parentCommit),
+      };
+      nodeMap.set(parentId, parentNode);
+      visited++;
+      queue.push([parentNode, parentIdx, depth + 1]);
+    }
+
+    // DAG merge: one parents[] entry per distinct parent (historical shape)
+    if (!node.parents.some((p) => p.runtimeStageId === parentId)) {
+      node.parents.push(parentNode);
+    }
+    // One edge per distinct (parent, kind, key) link
+    if (!node.parentEdges.some((e) => e.parent.runtimeStageId === parentId && e.kind === kind && e.key === key)) {
+      node.parentEdges.push({ parent: parentNode, kind, key, weight: 1.0 });
+    }
+  }
+
   while (queue.length > 0) {
     const [node, commitIdx, depth] = queue.shift()!;
 
     if (depth >= maxDepth) continue;
 
+    // Data edges: for each key read, find who wrote it
     const keysRead = getKeysRead(node.runtimeStageId);
-    if (keysRead.length === 0) continue;
-
-    // For each key read, find who wrote it
     for (const key of keysRead) {
       const writer = findWriter(key, commitIdx);
       if (!writer) continue;
+      linkParent(node, writer, 'data', key, depth);
+    }
 
-      const writerId = writer.runtimeStageId;
-
-      // Check if we already have a node for this writer
-      let parentNode = nodeMap.get(writerId);
-      if (parentNode) {
-        // DAG merge: add as parent if not already linked
-        if (!node.parents.some((p) => p.runtimeStageId === writerId)) {
-          node.parents.push(parentNode);
+    // Control edge (RFC-003 D3): link the governing decider, labeled by the
+    // decide() rule label when present. The decider node then expands
+    // normally through its own data reads (and its own control parent).
+    if (controlDeps) {
+      const dep = controlDeps(node.runtimeStageId);
+      if (dep) {
+        const deciderIdx = idxMap.get(dep.deciderId);
+        if (deciderIdx !== undefined) {
+          linkParent(node, commitLog[deciderIdx], 'control', dep.label, depth);
         }
-        continue;
       }
-
-      // New node — create and enqueue
-      if (visited >= maxNodes) continue;
-
-      const writerIdx = idxMap.get(writerId);
-      if (writerIdx === undefined) continue;
-
-      parentNode = {
-        runtimeStageId: writerId,
-        stageId: writer.stageId,
-        stageName: writer.stage,
-        keysWritten: writer.trace.map((t) => t.path),
-        linkedBy: key,
-        depth: depth + 1,
-        parents: [],
-        ...incompleteSourcesFragment(writer),
-      };
-      nodeMap.set(writerId, parentNode);
-      node.parents.push(parentNode);
-      visited++;
-
-      queue.push([parentNode, writerIdx, depth + 1]);
     }
   }
 
@@ -348,19 +437,29 @@ export function flattenCausalDAG(root: CausalNode): CausalNode[] {
  * RFC-003 D2: nodes that consumed untracked read paths render an extra
  * `⚠ also consumed … — slice may be incomplete here` line, so a consumer
  * (human or LLM) debugging from the slice is TOLD when it is incomplete.
+ *
+ * RFC-003 D3: control edges render as `← [control: <rule label>]`
+ * (label omitted when the decision carried none). Data rendering is
+ * byte-identical to the pre-D3 output — `← via <key>` from the node's
+ * discovery-time `linkedBy`.
  */
 export function formatCausalChain(root: CausalNode): string {
   const lines: string[] = [];
   const visited = new Set<string>();
 
-  function walk(node: CausalNode, indent: number): void {
+  function walk(node: CausalNode, indent: number, edgesFromChild?: CausalEdge[]): void {
     if (visited.has(node.runtimeStageId)) {
       lines.push(`${'  '.repeat(indent)}↳ ${node.runtimeStageId} (see above)`);
       return;
     }
     visited.add(node.runtimeStageId);
 
-    const link = node.linkedBy ? ` ← via ${node.linkedBy}` : '';
+    const linkParts: string[] = [];
+    if (node.linkedBy) linkParts.push(`via ${node.linkedBy}`);
+    const controlEdge = edgesFromChild?.find((e) => e.kind === 'control');
+    if (controlEdge) linkParts.push(`[control${controlEdge.key ? `: ${controlEdge.key}` : ''}]`);
+    const link = linkParts.length > 0 ? ` ← ${linkParts.join(' ← ')}` : '';
+
     const writes = node.keysWritten.length > 0 ? ` [wrote: ${node.keysWritten.join(', ')}]` : '';
     lines.push(`${'  '.repeat(indent)}${node.stageName} (${node.runtimeStageId})${link}${writes}`);
 
@@ -371,7 +470,11 @@ export function formatCausalChain(root: CausalNode): string {
     }
 
     for (const parent of node.parents) {
-      walk(parent, indent + 1);
+      walk(
+        parent,
+        indent + 1,
+        node.parentEdges.filter((e) => e.parent === parent),
+      );
     }
   }
 

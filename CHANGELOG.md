@@ -55,6 +55,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stage that actually uses an untracked path; three boolean-ish checks
   otherwise.
 
+- **RFC-003 D3 — control-dependence edges in the backtracker** (additive).
+  `causalChain()` gains a `controlDeps?: ControlDepLookup` option: when
+  expanding a node, the backtracker ALSO links its governing decider with a
+  `kind: 'control'` edge, labeled by the decide() rule label when present.
+  The decider node then expands normally through its own data reads, so
+  chains like
+  `status ← [control: Good credit] ClassifyRisk ← [data: creditScore] PullBureau`
+  resolve end-to-end. New shapes:
+
+  - `CausalEdge { parent, kind: 'data' | 'control', key?, weight }` — one
+    edge per dependency LINK on the new `CausalNode.parentEdges` (a node
+    reading two keys from the same writer gets one `parents[]` entry but
+    two data edges). `weight` is 1.0 until the D4 `weigh` hook overrides
+    it.
+  - `ControlDependency` / `ControlDepLookup` — the lookup contract
+    (`footprintjs/trace`); `controlDepRecorder()` (D5) is the built-in
+    producer.
+
+  `CausalNode.parents` is KEPT and unchanged for compatibility (control
+  parents appear there too when the option is used); `formatCausalChain`
+  renders control links as `← [control: <label>]` and the data rendering
+  stays byte-identical to the pre-D3 output. Node/depth budgets apply to
+  control expansion exactly like data expansion. Without the option,
+  behavior is unchanged (existing backtrack suite green unmodified).
+
 ## [9.7.0] - 2026-06-11
 
 ### Added

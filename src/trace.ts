@@ -50,8 +50,18 @@ export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 // bundle's `overwrite[key]` holds only the tail.
 export { commitValueAt, findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
-// Causal chain — backward program slicing on commit log (DAG)
-export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';
+// Causal chain — backward program slicing on commit log (DAG).
+// RFC-003 D3: `CausalEdge` (typed/keyed/weighted parent links on
+// `CausalNode.parentEdges`) + the `controlDeps` option (`ControlDepLookup`)
+// add control-dependence edges to the slice.
+export type {
+  CausalChainOptions,
+  CausalEdge,
+  CausalNode,
+  ControlDependency,
+  ControlDepLookup,
+  KeysReadLookup,
+} from './lib/memory/backtrack.js';
 export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';
 // RFC-003 D2 — honesty markers: the untracked read paths a stage consumed
 // (`CommitBundle.untrackedSources` → `CausalNode.incompleteSources`).
