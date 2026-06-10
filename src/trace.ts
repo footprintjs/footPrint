@@ -60,6 +60,7 @@ export type {
   CausalNode,
   ControlDependency,
   ControlDepLookup,
+  EdgeWeigher,
   KeysReadLookup,
 } from './lib/memory/backtrack.js';
 export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';

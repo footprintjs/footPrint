@@ -80,6 +80,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   control expansion exactly like data expansion. Without the option,
   behavior is unchanged (existing backtrack suite green unmodified).
 
+- **RFC-003 D4 — `weigh` hook + truncation visibility** (additive).
+  - `causalChain()` gains `weigh?: EdgeWeigher` —
+    `(child, parent, key, kind) => number | undefined` — called once per
+    created edge; `undefined` → 1.0. The ENGINE never computes weights
+    (zero new dependencies): semantics like embedding similarity or FDL
+    influence are consumer-injected, the same plug-in pattern as
+    `NarrativeFormatter`. Control edges weigh too (their `key` is the rule
+    label). `formatCausalChain` renders weights as
+    `← via systemPrompt (0.18)` — only when ≠ 1.0, so unweighted output is
+    unchanged.
+  - **Truncation visibility:** the root `CausalNode` gains
+    `truncated?: { byDepth: boolean; byNodes: boolean }` — set only when a
+    limit actually CUT the slice (`byDepth`: a node at the `maxDepth`
+    horizon still had edges to expand; `byNodes`: the `maxNodes` budget
+    dropped a discovered parent). Absent on complete slices.
+    `formatCausalChain` appends
+    `⚠ slice truncated (…) — older causes exist beyond this horizon`, and
+    dev mode (`enableDevMode()`) warns — a consumer must never mistake a
+    truncated slice for a complete one.
+
 ## [9.7.0] - 2026-06-11
 
 ### Added

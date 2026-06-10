@@ -54,6 +54,7 @@
  * ```
  */
 
+import { isDevMode } from '../scope/detectCircular.js';
 import { findLastWriter } from './commitLogUtils.js';
 import type { CommitBundle, UntrackedSource } from './types.js';
 
@@ -97,6 +98,16 @@ export interface CausalNode {
    * reads were fully tracked.
    */
   incompleteSources?: ReadonlyArray<UntrackedSource>;
+  /**
+   * RFC-003 D4 truncation visibility — set on the ROOT node only, and only
+   * when a limit actually cut the slice: `byDepth` when a node at the
+   * `maxDepth` horizon still had edges to expand, `byNodes` when the
+   * `maxNodes` budget blocked creating a discovered parent. Absent when the
+   * slice is complete. Dev mode (`enableDevMode()`) also warns on
+   * truncation, and `formatCausalChain` appends a `⚠ slice truncated …`
+   * line — a consumer must never mistake a truncated slice for a full one.
+   */
+  truncated?: { byDepth: boolean; byNodes: boolean };
 }
 
 /**
@@ -136,6 +147,21 @@ export interface ControlDependency {
  */
 export type ControlDepLookup = (runtimeStageId: string) => ControlDependency | undefined;
 
+/**
+ * RFC-003 D4 — consumer-injected edge weigher. Called once per created
+ * edge; return a weight, or `undefined` to keep the default 1.0. The
+ * ENGINE never computes weights (zero new dependencies — semantics like
+ * embedding similarity or FDL influence belong to downstream libraries,
+ * the same plug-in pattern as `NarrativeFormatter`). Weights render in
+ * `formatCausalChain` as `← via systemPrompt (0.18)`.
+ */
+export type EdgeWeigher = (
+  child: CausalNode,
+  parent: CausalNode,
+  key: string | undefined,
+  kind: 'data' | 'control',
+) => number | undefined;
+
 /** Options for causalChain(). */
 export interface CausalChainOptions {
   /** Maximum BFS depth (default: 20). Prevents runaway traversal. */
@@ -151,6 +177,11 @@ export interface CausalChainOptions {
    * resolve end-to-end. Without this option behavior is unchanged.
    */
   controlDeps?: ControlDepLookup;
+  /**
+   * RFC-003 D4 — edge weigher. Stamps `CausalEdge.weight` at edge creation;
+   * `undefined` (or no weigher) → 1.0. See {@link EdgeWeigher}.
+   */
+  weigh?: EdgeWeigher;
 }
 
 /**
@@ -286,6 +317,13 @@ export function causalChain(
   const maxDepth = options?.maxDepth ?? 20;
   const maxNodes = options?.maxNodes ?? 100;
   const controlDeps = options?.controlDeps;
+  const weigh = options?.weigh;
+
+  // RFC-003 D4 — truncation visibility. Set only when a limit actually
+  // cuts the slice; surfaced on the root as `truncated` so a consumer can
+  // never mistake a truncated slice for a complete one.
+  let truncatedByDepth = false;
+  let truncatedByNodes = false;
 
   // Build position index: runtimeStageId → array position (O(n) once)
   const idxMap = new Map<string, number>();
@@ -339,7 +377,10 @@ export function causalChain(
     let parentNode = nodeMap.get(parentId);
     if (!parentNode) {
       // New node — create and enqueue (respecting the node budget)
-      if (visited >= maxNodes) return;
+      if (visited >= maxNodes) {
+        truncatedByNodes = true; // D4: a discovered parent was dropped
+        return;
+      }
 
       const parentIdx = idxMap.get(parentId);
       if (parentIdx === undefined) return;
@@ -366,16 +407,26 @@ export function causalChain(
     if (!node.parents.some((p) => p.runtimeStageId === parentId)) {
       node.parents.push(parentNode);
     }
-    // One edge per distinct (parent, kind, key) link
+    // One edge per distinct (parent, kind, key) link. The weigher (D4)
+    // stamps the weight at creation; `undefined` → 1.0 — the engine never
+    // computes weights itself.
     if (!node.parentEdges.some((e) => e.parent.runtimeStageId === parentId && e.kind === kind && e.key === key)) {
-      node.parentEdges.push({ parent: parentNode, kind, key, weight: 1.0 });
+      const weight = weigh ? weigh(node, parentNode, key, kind) ?? 1.0 : 1.0;
+      node.parentEdges.push({ parent: parentNode, kind, key, weight });
     }
   }
 
   while (queue.length > 0) {
     const [node, commitIdx, depth] = queue.shift()!;
 
-    if (depth >= maxDepth) continue;
+    if (depth >= maxDepth) {
+      // D4: only a node that still HAD something to expand counts as a cut
+      // (a leaf at the horizon truncates nothing).
+      if (getKeysRead(node.runtimeStageId).length > 0 || controlDeps?.(node.runtimeStageId) !== undefined) {
+        truncatedByDepth = true;
+      }
+      continue;
+    }
 
     // Data edges: for each key read, find who wrote it
     const keysRead = getKeysRead(node.runtimeStageId);
@@ -396,6 +447,20 @@ export function causalChain(
           linkParent(node, commitLog[deciderIdx], 'control', dep.label, depth);
         }
       }
+    }
+  }
+
+  // RFC-003 D4 — truncation visibility on the root (absent when complete).
+  if (truncatedByDepth || truncatedByNodes) {
+    root.truncated = { byDepth: truncatedByDepth, byNodes: truncatedByNodes };
+    if (isDevMode()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] causalChain('${startId}') truncated by ` +
+          `${[truncatedByDepth && `maxDepth (${maxDepth})`, truncatedByNodes && `maxNodes (${maxNodes})`]
+            .filter(Boolean)
+            .join(' + ')} — the slice is incomplete. Raise the limits or narrow keysRead.`,
+      );
     }
   }
 
@@ -442,10 +507,18 @@ export function flattenCausalDAG(root: CausalNode): CausalNode[] {
  * (label omitted when the decision carried none). Data rendering is
  * byte-identical to the pre-D3 output — `← via <key>` from the node's
  * discovery-time `linkedBy`.
+ *
+ * RFC-003 D4: edge weights from the `weigh` hook render as a suffix —
+ * `← via systemPrompt (0.18)` — only when ≠ 1.0, so unweighted output is
+ * unchanged. A truncated slice (root.truncated) appends a final
+ * `⚠ slice truncated …` line.
  */
 export function formatCausalChain(root: CausalNode): string {
   const lines: string[] = [];
   const visited = new Set<string>();
+
+  const weightSuffix = (edge: CausalEdge | undefined): string =>
+    edge !== undefined && edge.weight !== 1 ? ` (${edge.weight})` : '';
 
   function walk(node: CausalNode, indent: number, edgesFromChild?: CausalEdge[]): void {
     if (visited.has(node.runtimeStageId)) {
@@ -455,9 +528,14 @@ export function formatCausalChain(root: CausalNode): string {
     visited.add(node.runtimeStageId);
 
     const linkParts: string[] = [];
-    if (node.linkedBy) linkParts.push(`via ${node.linkedBy}`);
+    if (node.linkedBy) {
+      const dataEdge = edgesFromChild?.find((e) => e.kind === 'data');
+      linkParts.push(`via ${node.linkedBy}${weightSuffix(dataEdge)}`);
+    }
     const controlEdge = edgesFromChild?.find((e) => e.kind === 'control');
-    if (controlEdge) linkParts.push(`[control${controlEdge.key ? `: ${controlEdge.key}` : ''}]`);
+    if (controlEdge) {
+      linkParts.push(`[control${controlEdge.key ? `: ${controlEdge.key}` : ''}]${weightSuffix(controlEdge)}`);
+    }
     const link = linkParts.length > 0 ? ` ← ${linkParts.join(' ← ')}` : '';
 
     const writes = node.keysWritten.length > 0 ? ` [wrote: ${node.keysWritten.join(', ')}]` : '';
@@ -479,6 +557,14 @@ export function formatCausalChain(root: CausalNode): string {
   }
 
   walk(root, 0);
+
+  if (root.truncated) {
+    const causes = [root.truncated.byDepth && 'maxDepth reached', root.truncated.byNodes && 'maxNodes reached']
+      .filter(Boolean)
+      .join(', ');
+    lines.push(`⚠ slice truncated (${causes}) — older causes exist beyond this horizon`);
+  }
+
   return lines.join('\n');
 }
 
