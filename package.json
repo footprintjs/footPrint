@@ -45,6 +45,7 @@
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:examples": "tsc -p examples/tsconfig.json",
+    "example": "npx tsx",
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
     "release:major": "bash scripts/release.sh major",

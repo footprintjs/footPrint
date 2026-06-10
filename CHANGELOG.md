@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **RFC-001 deferred-observer delivery is WIRED (Blocks 6–9)** — the pure
+  module shipped dark in 9.5.0 now powers a public delivery tier.
+  - **Block 6 — tier router.** Every `attach*Recorder` accepts an options
+    bag: `executor.attachScopeRecorder(rec, { delivery: 'deferred',
+    capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
+    for `attachFlowRecorder` / `attachEmitRecorder` /
+    `attachCombinedRecorder`; `CombinedRecorder` also supports the field
+    form `{ id, delivery: 'deferred', ...hooks }`). Absent `delivery` is the
+    literal pre-RFC inline path — byte-identical (verified with
+    `scripts/byte-identity-probe.ts` against 9.5.0). ONE lazily-created
+    `DeferredDispatcher` per executor (zero allocation when nobody opts in);
+    attach stays idempotent by id ACROSS tiers — re-attaching an id with a
+    different `delivery` swaps tiers cleanly, never double delivery. The
+    module's warn seam is bound to a deduped `isDevMode()`-gated warner;
+    listener failures route into the recorder `onError` channel.
+  - **Block 7 — three dispatch sites.** Scope (`ScopeFacade._invokeHook`),
+    flow (`FlowRecorderDispatcher`), and emit (`ScopeFacade.emitEvent`)
+    channels route deferred listeners through `dispatcher.capture(...)` via
+    synthetic capture taps riding the existing recorder lists; inline
+    listeners keep the direct call. Both tiers invoke hooks through ONE
+    shared `invokeRecorderHook` helper so the paths cannot drift. Capture
+    runs strictly AFTER the redaction decision at each site
+    (property-tested: no pre-redaction value in any envelope on any channel,
+    under `'summary'`, `'clone'`, and `'ref'`).
+  - **Block 8 — terminal flush.** The queue drains synchronously at run
+    resolve, run reject, and pause — BEFORE `run()` returns / the rejection
+    reaches the caller / the checkpoint becomes available. `flushSync`'s
+    `remaining` is inspected: a pathological listener cascade that hits the
+    round cap is counted (`observerStats.terminalStranded`) and dev-warned,
+    never stranded silently. New `executor.drainObservers({ timeoutMs })`
+    settles async listener continuations (serverless / shutdown pattern).
+  - **Block 9 — `snapshot.observerStats`.** Additive optional field on
+    `RuntimeSnapshot`: the A4 stats shape (`depth`, `drops`, `flushes`,
+    `budgetExhausted`, `p95FlushMs`, `inlineDeliveries`, `inflight`,
+    `perListener`) plus `terminalStranded`. Absent unless a deferred
+    observer was attached (zero-cost discipline).
+  - Public type exports from the main barrel: `AttachRecorderOptions`,
+    `ObserverDelivery`, `ObserverStats`, `ObserverDrainResult`,
+    `CapturePolicy`, `OverflowPolicy`, `DispatcherStats`, `ListenerStats`.
+    The `observer-queue` module itself stays internal.
+  - 43 new wiring tests (unit / functional / integration / property via
+    fast-check / security / performance / load) + 4 runnable examples in
+    `examples/runtime-features/deferred-observers/` (basic, backpressure,
+    terminal flush, slow-listener bench) + `docs/guides/observers-deferred.md`.
+  - Block 10 (agentfootprint one-consumer collapse) is downstream work and
+    intentionally NOT part of this change.
+
 ## [9.5.0] - 2026-06-11
 
 ### Added

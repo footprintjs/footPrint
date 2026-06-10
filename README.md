@@ -163,6 +163,7 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
 | **Flow Recorders** | 8 narrative strategies for loop compression |
 | **Combined Recorders** | Single-hook observers that span data-flow + control-flow &mdash; `executor.attachCombinedRecorder(r)` |
+| **Deferred observers** *(new in 9.6)* | `attach*Recorder(rec, { delivery: 'deferred' })` &mdash; observers run "one beat behind" on a bounded queue instead of inside the engine hot path. Honest backpressure (`drop-oldest`/`sample`/`block`), terminal flush at run resolve/reject/pause, `snapshot.observerStats`. [Guide →](./docs/guides/observers-deferred.md) |
 | **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 + MCP tool generation |
 | **Cancellation** | AbortSignal, timeout, early termination via `scope.$break(reason?)` with optional reason |
 | **Subflow break propagation** | Mount a subflow with `propagateBreak: true` &mdash; inner `$break` terminates the parent loop, with drill-down preserved |
@@ -250,6 +251,19 @@ discuss before a PR.
   contract (a wrong comparator could drop real changes), so it ships with a
   documented contract + dev-mode validation. See
   [Commit change semantics](./docs/design/commit-change-semantics.md).
+
+## FAQ
+
+**Are recorders blocking? Do observers slow my chart down?**
+Inline (default) recorders run synchronously inside the producing statement.
+If an observer is heavy, opt it into the deferred tier:
+`executor.attachScopeRecorder(rec, { delivery: 'deferred' })` — events are
+captured into one bounded, totally-ordered queue and delivered at the next
+microtask checkpoint ("one beat behind"), fully drained before `run()`
+returns. Same record, same order; the engine stops paying for observation.
+Full model + FAQ: [Deferred observers guide](./docs/guides/observers-deferred.md).
+
+---
 
 ## Documentation
 

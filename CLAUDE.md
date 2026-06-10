@@ -204,6 +204,8 @@ a distinct invariant set.
 - Built-in recorders use auto-increment default IDs (`metrics-1`, `debug-1`, ...) so multiple instances with different configs coexist naturally.
 - Frameworks that auto-attach recorders should use a well-known ID (e.g., `new MetricRecorder('metrics')`) so the consumer can override it by passing the same ID, or add a second instance with `new MetricRecorder()` (gets unique ID).
 
+**Delivery tiers (RFC-001):** every `attach*Recorder` accepts an options bag — `{ delivery: 'deferred', capture?, maxQueue?, overflow?, flushBudgetMs? }` (CombinedRecorder also honors the field form `{ id, delivery: 'deferred', ...hooks }`). Deferred observers are captured into ONE bounded, totally-ordered queue per executor (lazy — zero alloc without opt-in) and delivered at the next microtask checkpoint, "one beat behind"; the queue drains synchronously at run resolve/reject/pause (terminal flush) and `executor.drainObservers({timeoutMs})` settles async listeners. Capture happens strictly AFTER redaction at each dispatch site. Accounting: `snapshot.observerStats` (absent without opt-in). Default capture policy `'summary'` hands hooks a bounded `PayloadSummary` — use `'clone'` for inline-shape parity. Wiring lives in `runner/DeferredObserverTier.ts`; the pure pipeline in `lib/observer-queue/` + `lib/capture/envelope.ts` stays engine-import-free (the engine imports IT, never the reverse). Guide: [docs/guides/observers-deferred.md](docs/guides/observers-deferred.md).
+
 **Scope Recorder** (`ScopeRecorder`; data ops — fires DURING stage execution):
 - `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onPause`/`onResume`, `onEmit`
 - Built-in: `MetricRecorder`, `DebugRecorder`
