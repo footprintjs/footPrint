@@ -94,6 +94,11 @@ read-hot inner loops; batch array writes with `$batchArray`. The lazy-buffer
 and summary-tracking optimizations are planned (backlog Phase 3) and will
 revise this table.
 
+
+**Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —
+`resume()` does not inherit the values passed to `run()`; supply them again
+(iteration counters reset on resume).
+
 ## Pause / resume — what a checkpoint captures
 
 A checkpoint is JSON-safe and contains: `sharedState`, the execution tree,
