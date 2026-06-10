@@ -367,11 +367,12 @@ describe('DeferredDispatcher — performance', () => {
     samples.sort((a, b) => a - b);
     const p95 = samples[Math.floor(rounds * 0.95)];
     // RFC-001 budget: 1ms per 1k no-op deliveries (~1µs/event) — standalone
-    // steady-state measures ~0.47ms p95 (p50 ~0.11ms). Asserted at 5ms
-    // because the FULL parallel suite adds CPU contention (measured 1.66ms
-    // in-suite) — same loosening rationale as runId.perf. Regression
-    // detection (>10x), not absolute perf.
-    expect(p95).toBeLessThan(5);
+    // steady-state measures ~0.47ms p95 (p50 ~0.11ms); full parallel suite
+    // 1.66ms; GitHub CI runners measured 10.2ms (the 9.7.0 publish run
+    // failed at a 5ms budget). Asserted at 25ms: this is a regression guard
+    // against the >100ms class (O(n) blowups), not a benchmark — the bench
+    // suite owns real numbers. Flag-don't-flake.
+    expect(p95).toBeLessThan(25);
   });
 });
 

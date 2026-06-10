@@ -363,6 +363,8 @@ describe('capture/envelope — performance', () => {
     // adds CPU contention (measured 2.46µs in-suite) — same loosening
     // rationale as runId.perf. Test intent is regression detection (>10x),
     // not absolute perf.
-    expect(p95).toBeLessThan(6_000);
+    // CI runners run 3-4x slower than the local M2 (the 9.7.0 publish
+    // failure class) — regression guard against the ms-class, not a bench.
+    expect(p95).toBeLessThan(25_000);
   });
 });
