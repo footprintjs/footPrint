@@ -397,6 +397,9 @@ export interface RunOptions {
    * This is the binding constraint for loop-heavy pipelines — raise it for
    * legitimately long loops (`loopTo` chains run with a flat stack, so high
    * values are safe; memory for state/narrative still grows per iteration).
+   * Also bounds the run-total chain of function-bearing dynamic `next`
+   * continuations (fresh nodes returned from stages) — a runaway dynamic
+   * chain errors instead of running forever.
    * Propagates to subflows. Must be >= 1.
    */
   maxIterations?: number;

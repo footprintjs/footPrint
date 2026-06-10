@@ -46,6 +46,19 @@ export class ContinuationResolver<TOut = any, TScope = any> {
    */
   private iterationCounters: Map<string, number> = new Map();
 
+  /**
+   * Total fn-bearing dynamic-next hops this traverser has followed.
+   *
+   * Fresh fn-bearing nodes bypass the per-node-id iteration counter (they
+   * are new nodes, often without stable ids — there is no back-edge to
+   * count). Without a bound, a stage that keeps returning a function-bearing
+   * dynamic `next` runs FOREVER on the flat trampoline (no stack overflow
+   * brakes it either). This run-total counter puts such chains under the
+   * same `maxIterations` budget (default 1000, tuned via
+   * `RunOptions.maxIterations`) that bounds loop edges.
+   */
+  private dynamicNextHops = 0;
+
   private readonly onIterationUpdate?: (nodeId: string, count: number) => void;
   private readonly maxIterations: number;
 
@@ -85,8 +98,9 @@ export class ContinuationResolver<TOut = any, TScope = any> {
    * `onLoop` narrative), in the same order.
    *
    * Three dynamicNext patterns:
-   * - StageNode with fn → truly dynamic node, returned as-is (no iteration
-   *   tracking — it is a fresh node, not a back-edge).
+   * - StageNode with fn → truly dynamic node, returned as-is (no per-node
+   *   iteration tracking — it is a fresh node, not a back-edge — but the
+   *   run-total dynamic-hop budget applies; see `dynamicNextHops`).
    * - String ID → reference to an existing node, resolved via NodeResolver.
    * - StageNode without fn → reference by ID, resolved via NodeResolver.
    */
@@ -97,8 +111,19 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     branchPath: string | undefined,
     traversalContext?: TraversalContext,
   ): ResolvedContinuation<TOut, TScope> {
-    // Truly dynamic node (has fn) → execute directly, no iteration tracking.
+    // Truly dynamic node (has fn) → execute directly, no per-node iteration
+    // tracking (fresh node, not a back-edge) — but the CHAIN of such hops is
+    // bounded by the run-total guard below, mirroring the loop budget.
     if (typeof dynamicNext !== 'string' && dynamicNext.fn) {
+      if (this.dynamicNextHops >= this.maxIterations) {
+        throw new Error(
+          `Maximum dynamic-next continuations (${this.maxIterations}) exceeded at stage '${
+            currentNode.id ?? currentNode.name
+          }' ` + `(dynamic target '${dynamicNext.name}'). Set maxIterations to increase the limit.`,
+        );
+      }
+      this.dynamicNextHops++;
+
       context.addLog('dynamicNextDirect', true);
       context.addLog('dynamicNextName', dynamicNext.name);
 

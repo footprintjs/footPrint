@@ -63,6 +63,13 @@ Practical consequences:
   (`Maximum loop iterations (N) exceeded for node '…'`). Raise it per run
   via `RunOptions.maxIterations` (propagates to subflows); the documented
   limit is now actually reachable instead of the depth guard firing first.
+- **Fn-bearing dynamic-next chains share that budget.** A stage that returns
+  a fresh function-bearing `next` node bypasses the per-node loop counter
+  (no back-edge to count), so the run-total chain of such hops is bounded by
+  the same `maxIterations` (default 1000) with its own error
+  (`Maximum dynamic-next continuations (N) exceeded at stage '…'`) — a
+  runaway dynamic chain errors instead of running forever on the flat
+  trampoline.
 - **Memory still bounds long loops.** Per-iteration state deltas, commit-log
   entries, and narrative entries all accumulate. In particular, appending to
   a tracked **array** each iteration makes every commit record the full
@@ -233,6 +240,7 @@ fine for a one-off pause, real money for snapshot-polling consumers).
 | Concurrency | one in-flight execution per executor (guarded); executor-per-run on servers |
 | Chain length | unbounded (flat trampoline); depth guards tree NESTING only (default 500) |
 | Loop iterations | bounded by `maxIterations` (default 1000 per node, raisable per run) and by memory — not by stack depth |
+| Dynamic-next chains | fn-bearing dynamic `next` hops bounded by the same `maxIterations` budget (run-total, default 1000) |
 | State size | modest values; whole-state clone on first WRITE per stage (read-only stages clone nothing) |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
 | Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |

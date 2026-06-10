@@ -33,6 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fn-bearing dynamic-next chains are now bounded by `maxIterations`** —
+  loop edges (`loopTo` / dynamic next BY REFERENCE) were always counted by
+  the `ContinuationResolver` per-node iteration counter and erred at
+  `maxIterations` (default 1000), but FRESH function-bearing dynamic `next`
+  nodes bypassed that counter (no back-edge, often no stable id): a stage
+  that kept returning a fn-bearing dynamic next ran FOREVER on the flat
+  trampoline (reproduced: 5000 hops with no budget while the `loopTo` twin
+  erred at 1001; post-9.0.0 there is no stack overflow to brake it either —
+  this was the known gap filed with the #15 trampoline release). A run-total
+  dynamic-hop counter in `resolveTarget` now puts such chains under the SAME
+  `maxIterations` budget (default 1000, tuned via `RunOptions.maxIterations`,
+  propagates to subflows), erring in the loop guard's style:
+  `Maximum dynamic-next continuations (N) exceeded at stage '…' (dynamic
+  target '…'). Set maxIterations to increase the limit.` Legitimate chains
+  are unaffected: hops under the budget run as before (byte-identical events/
+  narrative), longer chains raise `maxIterations` exactly like long loops.
+  Docs: `RunOptions.maxIterations` JSDoc + `docs/guides/execution-model.md`.
+  Regression suite: `test/lib/engine/traversal/dynamic-next-budget.test.ts`
+  (runaway errs at default + tuned budgets, 500/2500-hop legitimate chains
+  complete, reference-style dynamic next keeps the loop error, unit coverage
+  of the resolver branch).
+
 - **Nested-build description explosion** — `_appendSubflowDescription`
   embedded the mounted subflow's FULL builder-composed description inline on
   the `[Sub-Execution: …]` line AND re-listed its `Steps:` lines indented:
