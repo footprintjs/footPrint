@@ -51,7 +51,7 @@ import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { describeCheckpointCloneFailure, sanitizeDiagnosticBags } from './checkpointSanitize.js';
-import { type AttachRecorderOptions, DeferredObserverTier } from './DeferredObserverTier.js';
+import { type AttachRecorderOptions, type ObserverDrainResult, DeferredObserverTier } from './DeferredObserverTier.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { generateRunId } from './runId.js';
 import { validateInput } from './validateInput.js';
@@ -864,8 +864,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // flag); no await between the top-of-method check and here, so race-free.
     this._isExecuting = true;
     try {
-      return await this.traverser.execute();
+      const result = await this.traverser.execute();
+      // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
+      this.deferredTier?.terminalFlush();
+      return result;
     } catch (error: unknown) {
+      this.deferredTier?.terminalFlush();
       if (isPauseSignal(error)) {
         this.lastCheckpoint = this.buildPauseCheckpoint(error);
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
@@ -1408,8 +1412,19 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // no await between the top-of-method check and here, so this is race-free.
     this._isExecuting = true;
     try {
-      return await this.traverser.execute();
+      const result = await this.traverser.execute();
+      // Terminal flush (RFC-001 Block 8) at the RESOLVE boundary: every
+      // captured-but-undelivered observer event is delivered synchronously
+      // before run() returns — "one beat behind" never becomes "lost at exit".
+      this.deferredTier?.terminalFlush();
+      return result;
     } catch (error: unknown) {
+      // Terminal flush at the PAUSE and REJECT boundaries — this is the
+      // OUTERMOST handler (a pause re-throws through subflow traversers
+      // without exit events, so per-traverser hooks would miss it). Runs
+      // before the checkpoint is exposed and before the error reaches the
+      // caller.
+      this.deferredTier?.terminalFlush();
       if (isPauseSignal(error)) {
         // Build a detached checkpoint from current execution state — see
         // buildPauseCheckpoint() for the deep-copy rationale.
@@ -1422,6 +1437,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this._isExecuting = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * Flush the deferred-observer backlog, then await async listener
+   * completions under a deadline (RFC-001 Block 8 — the serverless /
+   * graceful-shutdown pattern: call before the process freezes or exits so
+   * "one beat behind" work is not lost). Resolves immediately with zeros
+   * when no deferred observer was ever attached. `pending === 0` means a
+   * full drain; a non-zero `pending` reports continuations (plus any queued
+   * events) still outstanding at the deadline — honest, never silent.
+   */
+  drainObservers(opts?: { timeoutMs?: number }): Promise<ObserverDrainResult> {
+    if (!this.deferredTier) return Promise.resolve({ done: 0, failed: 0, pending: 0 });
+    return this.deferredTier.drain(opts);
   }
 
   // ─── Introspection ───
