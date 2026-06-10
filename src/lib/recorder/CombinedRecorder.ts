@@ -103,6 +103,19 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
   Partial<Omit<EmitRecorder, SharedLifecycle>> & {
     readonly id: string;
 
+    /**
+     * Delivery tier for this recorder (RFC-001) — the FIELD form of the
+     * `attachCombinedRecorder(r, { delivery })` options bag, so a recorder
+     * can DECLARE its tier (`{ id, delivery: 'deferred', ...hooks }`) and
+     * every attach site honors it. `'deferred'` routes the recorder's
+     * events through the executor's bounded capture queue ("one beat
+     * behind"); absent / `'inline'` keeps the historical synchronous call.
+     * NOT an event method — channel routing detection counts event-METHOD
+     * properties only, so this string field never affects which channels
+     * the recorder lands on.
+     */
+    readonly delivery?: 'inline' | 'deferred';
+
     // Shared lifecycle hooks — same on both interfaces, shape compatible.
     clear?(): void;
     toSnapshot?(): {
@@ -182,7 +195,7 @@ export function isFlowEvent<T>(event: T): event is Exclude<T, { pipelineId: stri
  * in sync with the interface. If a method is added to `ScopeRecorder`, adding it
  * here is the ONLY change required to route combined-recorders correctly.
  */
-const RECORDER_EVENT_METHODS = [
+export const RECORDER_EVENT_METHODS = [
   'onRead',
   'onWrite',
   'onCommit',
@@ -203,7 +216,7 @@ const RECORDER_EVENT_METHODS = [
  * care about the distinction discriminate with `isFlowEvent()` (explicit
  * `channel` discriminant, legacy pipelineId-absence fallback).
  */
-const FLOW_RECORDER_EVENT_METHODS = [
+export const FLOW_RECORDER_EVENT_METHODS = [
   'onStageExecuted',
   'onNext',
   'onDecision',
@@ -231,7 +244,7 @@ const FLOW_RECORDER_EVENT_METHODS = [
  * interface. Same convention as the other two arrays above — kept as
  * the single source of truth for duck-type detection.
  */
-const EMIT_RECORDER_EVENT_METHODS = ['onEmit'] as const;
+export const EMIT_RECORDER_EVENT_METHODS = ['onEmit'] as const;
 
 /**
  * True iff the recorder declares a method named `m` either as an own

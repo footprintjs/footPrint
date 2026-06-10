@@ -1,5 +1,11 @@
 /* istanbul ignore file */
 export type { ComposableRunner } from './ComposableRunner.js';
+export type {
+  AttachRecorderOptions,
+  ObserverDelivery,
+  ObserverDrainResult,
+  ObserverStats,
+} from './DeferredObserverTier.js';
 export type { RecorderSnapshot, RuntimeSnapshot } from './ExecutionRuntime.js';
 export { ExecutionRuntime } from './ExecutionRuntime.js';
 export type { FlowChartExecutorOptions } from './FlowChartExecutor.js';

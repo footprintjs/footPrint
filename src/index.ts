@@ -108,6 +108,37 @@ export { DebugRecorder } from './lib/scope/index.js';
 /** @category Observe — Operation */
 export { RecorderOperation } from './lib/recorder/index.js';
 
+/**
+ * @category Observe — Delivery tier (RFC-001 deferred observers)
+ *
+ * Every `attach*Recorder` call accepts an options bag:
+ * `executor.attachScopeRecorder(rec, { delivery: 'deferred' })` takes the
+ * recorder OUT of the engine's hot path — events are captured into one
+ * bounded, totally-ordered queue and delivered at the next microtask
+ * checkpoint ("one beat behind"). Omit `delivery` for the historical
+ * synchronous call (byte-identical to previous releases). Accounting
+ * surfaces on `snapshot.observerStats`; `executor.drainObservers()` settles
+ * async listeners before shutdown. See `docs/guides/observers-deferred.md`.
+ */
+export type {
+  AttachRecorderOptions,
+  ObserverDelivery,
+  ObserverDrainResult,
+  ObserverStats,
+} from './lib/runner/index.js';
+
+/**
+ * @category Observe — Delivery tier (RFC-001 deferred observers)
+ *
+ * `CapturePolicy` — how a deferred event's payload is materialized at
+ * capture time (`'summary'` default / `'clone'` / `'ref'`). `OverflowPolicy`
+ * — what a saturated queue does (`'drop-oldest'` default / `'sample'` /
+ * `'block'`). `DispatcherStats` / `ListenerStats` — the accounting shapes
+ * embedded in `ObserverStats`. Types only — the observer-queue module
+ * itself is internal; consumers use the attach options.
+ */
+export type { CapturePolicy, DispatcherStats, ListenerStats, OverflowPolicy } from './lib/observer-queue/index.js';
+
 /** @category Observe — Combined (both data-flow and control-flow) */
 export type { CombinedRecorder } from './lib/recorder/index.js';
 /** @category Observe — Combined (both data-flow and control-flow) */

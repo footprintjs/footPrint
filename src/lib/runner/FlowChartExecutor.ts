@@ -51,6 +51,7 @@ import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { describeCheckpointCloneFailure, sanitizeDiagnosticBags } from './checkpointSanitize.js';
+import { type AttachRecorderOptions, DeferredObserverTier } from './DeferredObserverTier.js';
 import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { generateRunId } from './runId.js';
 import { validateInput } from './validateInput.js';
@@ -178,6 +179,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private combinedRecorder: CombinedNarrativeRecorder | undefined;
   private flowRecorders: FlowRecorder[] = [];
   private scopeRecorders: ScopeRecorder[] = [];
+  /**
+   * RFC-001 deferred-observer wiring — created LAZILY on the first
+   * `delivery: 'deferred'` attach. `undefined` for every executor that never
+   * opts in: zero allocation, zero per-event cost, byte-identical behavior
+   * (the emit fast-path precedent).
+   */
+  private deferredTier?: DeferredObserverTier;
   private redactionPolicy: RedactionPolicy | undefined;
   private sharedRedactedKeys = new Set<string>();
   private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
@@ -350,6 +358,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         }
       });
     }
+
 
     // 3. Redaction policy (conditional — only when policy is set)
     if (this.redactionPolicy) {
@@ -827,6 +836,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     };
     for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
 
+
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
     // flag); no await between the top-of-method check and here, so race-free.
     this._isExecuting = true;
@@ -1014,11 +1024,35 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * executor.attachScopeRecorder(new MetricRecorder('my-metrics'));
    * executor.attachScopeRecorder(new MetricRecorder('my-metrics')); // replaces previous
    * ```
+   *
+   * **Delivery tier (RFC-001):** pass `{ delivery: 'deferred' }` to take the
+   * recorder out of the engine's hot path — events are captured into a
+   * bounded queue and delivered at the next microtask checkpoint ("one beat
+   * behind"). Omitting `delivery` keeps the historical synchronous call,
+   * byte-identical to previous releases. Re-attaching the same `id` with a
+   * different tier SWAPS tiers cleanly — never double delivery. See
+   * `docs/guides/observers-deferred.md`.
    */
-  attachScopeRecorder(recorder: ScopeRecorder): void {
-    // Replace existing recorder with same ID (idempotent — prevents double-counting)
+  attachScopeRecorder(recorder: ScopeRecorder, options?: AttachRecorderOptions): void {
+    // Tier swap, both directions: an id lives on exactly ONE tier per list.
     this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== recorder.id);
+    if (options?.delivery === 'deferred') {
+      this.ensureDeferredTier(options).register(recorder, { scope: true }, options);
+      return;
+    }
+    this.deferredTier?.removeFromLists(recorder.id, { scope: true });
     this.scopeRecorders.push(recorder);
+  }
+
+  /**
+   * Lazily create the executor's ONE deferred-observer tier (one merged
+   * queue, total event order across all three channels). The FIRST deferred
+   * attach's options configure the dispatcher; later differing options are
+   * dev-warned and ignored (see `AttachRecorderOptions`).
+   */
+  private ensureDeferredTier(options?: AttachRecorderOptions): DeferredObserverTier {
+    if (!this.deferredTier) this.deferredTier = new DeferredObserverTier(options);
+    return this.deferredTier;
   }
 
   // ─── Detach (T4) ─────────────────────────────────────────────────────────
@@ -1073,14 +1107,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     _detachAndForget(driver, child, input, '__executor__');
   }
 
-  /** Detach all scope Recorders with the given ID. */
+  /** Detach all scope Recorders with the given ID — both delivery tiers. */
   detachScopeRecorder(id: string): void {
     this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== id);
+    this.deferredTier?.removeFromLists(id, { scope: true });
   }
 
-  /** Returns a defensive copy of attached scope Recorders. */
+  /** Returns a defensive copy of attached scope Recorders (both tiers). */
   getScopeRecorders(): ScopeRecorder[] {
-    return [...this.scopeRecorders];
+    return [...this.scopeRecorders, ...(this.deferredTier?.scopeListRecorders() ?? [])];
   }
 
   // ─── FlowRecorder Management ───
@@ -1091,22 +1126,31 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Must be called before run() — recorders are passed to the traverser at creation time.
    *
    * **Idempotent by ID:** replaces existing recorder with same `id`.
+   *
+   * **Delivery tier (RFC-001):** pass `{ delivery: 'deferred' }` for
+   * next-checkpoint delivery off the hot path — see `attachScopeRecorder`.
    */
-  attachFlowRecorder(recorder: FlowRecorder): void {
-    // Replace existing recorder with same ID (idempotent — prevents double-counting)
+  attachFlowRecorder(recorder: FlowRecorder, options?: AttachRecorderOptions): void {
+    // Tier swap, both directions: an id lives on exactly ONE tier per list.
     this.flowRecorders = this.flowRecorders.filter((r) => r.id !== recorder.id);
-    this.flowRecorders.push(recorder);
     this.narrativeEnabled = true;
+    if (options?.delivery === 'deferred') {
+      this.ensureDeferredTier(options).register(recorder, { flow: true }, options);
+      return;
+    }
+    this.deferredTier?.removeFromLists(recorder.id, { flow: true });
+    this.flowRecorders.push(recorder);
   }
 
-  /** Detach all FlowRecorders with the given ID. */
+  /** Detach all FlowRecorders with the given ID — both delivery tiers. */
   detachFlowRecorder(id: string): void {
     this.flowRecorders = this.flowRecorders.filter((r) => r.id !== id);
+    this.deferredTier?.removeFromLists(id, { flow: true });
   }
 
-  /** Returns a defensive copy of attached FlowRecorders. */
+  /** Returns a defensive copy of attached FlowRecorders (both tiers). */
   getFlowRecorders(): FlowRecorder[] {
-    return [...this.flowRecorders];
+    return [...this.flowRecorders, ...(this.deferredTier?.flowListRecorders() ?? [])];
   }
 
   // ─── Combined ScopeRecorder Management ───
@@ -1156,10 +1200,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * executor.attachCombinedRecorder(audit);
    * ```
    */
-  attachCombinedRecorder(recorder: CombinedRecorder): void {
+  attachCombinedRecorder(recorder: CombinedRecorder, options?: AttachRecorderOptions): void {
     const hasData = hasRecorderMethods(recorder);
     const hasFlow = hasFlowRecorderMethods(recorder);
     const hasEmit = hasEmitRecorderMethods(recorder);
+
+    // Delivery tier (RFC-001): options bag OR the recorder's own
+    // `delivery: 'deferred'` field. The field is a string — channel routing
+    // above counts event-METHOD properties only, so declaring it never
+    // changes which channels the recorder lands on.
+    const delivery = options?.delivery ?? recorder.delivery;
+    const tierOptions: AttachRecorderOptions | undefined = delivery === undefined ? options : { ...options, delivery };
 
     // Emit recorders live on the SAME channel as data-flow recorders
     // (ScopeFacade iterates `_recorders` for onEmit dispatch). So
@@ -1167,8 +1218,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // avoid double-attach when the recorder implements BOTH onEmit AND
     // other ScopeRecorder methods. Short-circuit: if hasData OR hasEmit, the
     // recorder lands on the scope-recorder list exactly once.
-    if (hasData || hasEmit) this.attachScopeRecorder(recorder as ScopeRecorder);
-    if (hasFlow) this.attachFlowRecorder(recorder as FlowRecorder);
+    if (hasData || hasEmit) this.attachScopeRecorder(recorder as ScopeRecorder, tierOptions);
+    if (hasFlow) this.attachFlowRecorder(recorder as FlowRecorder, tierOptions);
 
     if (!hasData && !hasFlow && !hasEmit && isDevMode()) {
       // Dev-mode only: silent skips are invisible and produce hard-to-debug
@@ -1221,8 +1272,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * });
    * ```
    */
-  attachEmitRecorder(recorder: EmitRecorder): void {
-    this.attachScopeRecorder(recorder as ScopeRecorder);
+  attachEmitRecorder(recorder: EmitRecorder, options?: AttachRecorderOptions): void {
+    this.attachScopeRecorder(recorder as ScopeRecorder, options);
   }
 
   /** Detach an `EmitRecorder` by id. Safe to call if never attached. */
@@ -1231,11 +1282,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Returns a defensive copy of attached recorders filtered to those that
-   * implement `onEmit`. Useful for inspection during testing.
+   * Returns a defensive copy of attached recorders (both delivery tiers)
+   * filtered to those that implement `onEmit`. Useful for inspection during
+   * testing.
    */
   getEmitRecorders(): EmitRecorder[] {
-    return this.scopeRecorders.filter(
+    return this.getScopeRecorders().filter(
       (r): r is EmitRecorder => typeof (r as { onEmit?: unknown }).onEmit === 'function',
     );
   }
@@ -1310,6 +1362,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     for (const r of this.scopeRecorders) {
       r.clear?.();
     }
+    this.deferredTier?.clearRecorders();
 
     this.lastCheckpoint = undefined;
     this._executionCounter = { value: 0 }; // Reset counter on fresh run
