@@ -44,10 +44,12 @@ import type {
   ILogger,
   NodeResultType,
   ScopeFactory,
+  Selector,
   SerializedPipelineStructure,
   StageFunction,
   StageNode,
   StreamHandlers,
+  SubflowMountOptions,
   SubflowResult,
   SubflowTraverserFactory,
   TraversalResult,
@@ -106,6 +108,38 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   runId: string;
 }
 
+/**
+ * Traverser-local overlay entry for a node whose stage function returned a
+ * StageNode (dynamic continuation). Holds the dynamic values that earlier
+ * versions wrote DIRECTLY onto the shared built-chart node — which leaked the
+ * dynamic shape into every later run of the same built chart and raced
+ * concurrent executors. The overlay keeps the built graph immutable: patches
+ * live in a per-traverser Map keyed by `node.id` and die with the run.
+ *
+ * `next` is intentionally ABSENT: a dynamic `next` only ever applies to the
+ * visit that produced it (the old code wrote `node.next` and restored it
+ * before anything could observe the write), so it stays a local variable in
+ * `executeNode` and is routed through `ContinuationResolver` directly.
+ */
+export interface DynamicNodePatch<TOut = any, TScope = any> {
+  /**
+   * Subflow mount metadata from a dynamic-subflow return. Grouped so the
+   * merged view reproduces the old field-wise overwrite exactly — including
+   * `subflowName`/`subflowMountOptions` becoming undefined when the dynamic
+   * return omitted them.
+   */
+  subflowMeta?: {
+    isSubflowRoot: true;
+    subflowId: string;
+    subflowName: string | undefined;
+    subflowMountOptions: SubflowMountOptions | undefined;
+  };
+  /** Dynamic fork children (replaces the built node's children for this run). */
+  children?: StageNode<TOut, TScope>[];
+  /** Dynamic output-based selector accompanying dynamic children. */
+  nextNodeSelector?: Selector;
+}
+
 export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly root: StageNode<TOut, TScope>;
   private stageMap: Map<string, StageFunction<TOut, TScope>>;
@@ -144,6 +178,22 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * resolver before another traverser has finished using it.
    */
   private readonly resolvedLazySubflows = new Set<string>();
+
+  /**
+   * Per-traverser overlay of dynamic StageNode returns, keyed by `node.id`.
+   * Phase 4 writes patches HERE instead of mutating the shared built-chart
+   * node objects (same isolation convention as `resolvedLazySubflows`).
+   * All engine reads of the patched fields go through the `eff*` accessors
+   * below. The map dies with the traverser — one run, one overlay — so a
+   * fresh executor over the same built chart always sees the original graph.
+   *
+   * Keyed by the node OBJECT (WeakMap), not `node.id`: a dynamic child that
+   * reuses a built node's id must NOT make the built node inherit the patch
+   * (id-keyed lookup caused phantom double-execution). `patchCount` is the
+   * fast-path check — WeakMap has no `size`.
+   */
+  private readonly dynamicPatches = new WeakMap<StageNode<TOut, TScope>, DynamicNodePatch<TOut, TScope>>();
+  private patchCount = 0;
 
   /**
    * Recursion depth counter for executeNode.
@@ -236,8 +286,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo())
     const nodeIdMap = this.buildNodeIdMap(opts.root);
 
-    // Initialize handler modules
-    this.nodeResolver = new NodeResolver(deps, nodeIdMap);
+    // Initialize handler modules.
+    // NodeResolver's DFS fallback resolves loop targets against the LIVE
+    // runtime shape, so it reads children through the dynamic-patch overlay
+    // (a loop can target a node added by a dynamic StageNode return).
+    this.nodeResolver = new NodeResolver(deps, nodeIdMap, (n) => this.effChildren(n));
     this.childrenExecutor = new ChildrenExecutor(deps, this.executeNode.bind(this));
     this.stageRunner = new StageRunner(deps);
     this.continuationResolver = new ContinuationResolver(deps, this.nodeResolver, (nodeId, count) =>
@@ -462,6 +515,71 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return this.stageMap.get(node.name);
   }
 
+  // ─────────────── Dynamic-patch overlay accessors ───────────────
+  //
+  // Every engine read of a field that Phase 4 can patch (children,
+  // nextNodeSelector, subflow meta) goes through these. Fast path: charts
+  // with no dynamic returns never allocate and pay one `size === 0` check.
+
+  private getPatch(node: StageNode<TOut, TScope>): DynamicNodePatch<TOut, TScope> | undefined {
+    if (this.patchCount === 0) return undefined;
+    return this.dynamicPatches.get(node);
+  }
+
+  private getOrCreatePatch(node: StageNode<TOut, TScope>): DynamicNodePatch<TOut, TScope> {
+    let patch = this.dynamicPatches.get(node);
+    if (!patch) {
+      patch = {};
+      this.dynamicPatches.set(node, patch);
+      this.patchCount++;
+    }
+    return patch;
+  }
+
+  /** Effective children: dynamic patch first, then the built node's children. */
+  private effChildren(node: StageNode<TOut, TScope>): StageNode<TOut, TScope>[] | undefined {
+    return this.getPatch(node)?.children ?? node.children;
+  }
+
+  /** Effective output-based selector: dynamic patch first, then the built node's. */
+  private effSelector(node: StageNode<TOut, TScope>): Selector | undefined {
+    return this.getPatch(node)?.nextNodeSelector ?? node.nextNodeSelector;
+  }
+
+  /** Effective subflow-root marker (true when a dynamic subflow was patched on). */
+  private effIsSubflowRoot(node: StageNode<TOut, TScope>): boolean | undefined {
+    const meta = this.getPatch(node)?.subflowMeta;
+    return meta ? true : node.isSubflowRoot;
+  }
+
+  /** Effective subflow id (patched verbatim by a dynamic subflow return). */
+  private effSubflowId(node: StageNode<TOut, TScope>): string | undefined {
+    const meta = this.getPatch(node)?.subflowMeta;
+    return meta ? meta.subflowId : node.subflowId;
+  }
+
+  /**
+   * Materialize the effective view of a node — field-identical to what the
+   * pre-overlay code produced by mutating the shared node. Used where a node
+   * is handed to a helper executor (NodeResolver / SubflowExecutor /
+   * ChildrenExecutor) so helpers never read stale built fields. Returns the
+   * node itself (no allocation) when it carries no patch.
+   */
+  private effNode(node: StageNode<TOut, TScope>): StageNode<TOut, TScope> {
+    const patch = this.getPatch(node);
+    if (!patch) return node;
+    const merged: StageNode<TOut, TScope> = { ...node };
+    if (patch.subflowMeta) {
+      merged.isSubflowRoot = true;
+      merged.subflowId = patch.subflowMeta.subflowId;
+      merged.subflowName = patch.subflowMeta.subflowName;
+      merged.subflowMountOptions = patch.subflowMeta.subflowMountOptions;
+    }
+    if (patch.children) merged.children = patch.children;
+    if (patch.nextNodeSelector) merged.nextNodeSelector = patch.nextNodeSelector;
+    return merged;
+  }
+
   private async executeStage(
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
@@ -501,9 +619,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         );
       }
 
-      // Attach builder metadata to context for snapshot enrichment
+      // Attach builder metadata to context for snapshot enrichment.
+      // Subflow meta reads go through the dynamic-patch overlay — a node
+      // patched by a dynamic-subflow return re-enters executeNode and must
+      // classify as a subflow without the shared node ever being mutated.
       if (node.description) context.description = node.description;
-      if (node.isSubflowRoot && node.subflowId) context.subflowId = node.subflowId;
+      const effSubflowId = this.effSubflowId(node);
+      if (this.effIsSubflowRoot(node) && effSubflowId) context.subflowId = effSubflowId;
 
       // Assign runtimeStageId BEFORE traversalContext creation — ensures scope events
       // (buffered by runtimeStageId) and flow events (flushed by traversalContext.runtimeStageId)
@@ -565,8 +687,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
 
       // ─── Phase 0: CLASSIFY — subflow detection ───
-      if (node.isSubflowRoot && node.subflowId) {
-        const resolvedNode = this.nodeResolver.resolveSubflowReference(node);
+      if (this.effIsSubflowRoot(node) && effSubflowId) {
+        // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
+        // so SubflowExecutor/NodeResolver never read stale built fields.
+        const mountNode = this.effNode(node);
+        const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
 
         const subflowOutput = await this.subflowExecutor.executeSubflow(
           resolvedNode,
@@ -577,8 +702,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           traversalContext,
         );
 
-        const isReferenceBasedSubflow = resolvedNode !== node;
-        const hasChildren = Boolean(node.children && node.children.length > 0);
+        const isReferenceBasedSubflow = resolvedNode !== mountNode;
+        const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
         const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
         // ─── Break-flag check AFTER subflow returns ───
@@ -602,7 +727,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       const isScopeBasedDecider = Boolean(node.deciderFn);
       const isScopeBasedSelector = Boolean(node.selectorFn);
       const isDeciderNode = isScopeBasedDecider;
-      const hasChildren = Boolean(node.children?.length);
+      const hasChildren = Boolean(this.effChildren(node)?.length);
+      // `next` is never overlaid — a dynamic next applies only to the visit
+      // that produced it (handled via the `dynamicNext` local below), so the
+      // built chart's next is always the correct continuation here.
       const hasNext = Boolean(node.next);
       const originalNext = node.next;
 
@@ -682,10 +810,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           const isLoopRef =
             nextNode.isLoopRef === true ||
             (!this.getStageFn(nextNode) &&
-              !nextNode.children?.length &&
+              !this.effChildren(nextNode)?.length &&
               !nextNode.deciderFn &&
               !nextNode.selectorFn &&
-              !nextNode.isSubflowRoot);
+              !this.effIsSubflowRoot(nextNode));
 
           if (isLoopRef) {
             return this.continuationResolver.resolve(
@@ -749,17 +877,22 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           context.addLog('isDynamic', true);
           context.addLog('dynamicPattern', 'StageNodeReturn');
 
-          // Dynamic subflow auto-registration
+          // Dynamic subflow auto-registration. The subflow meta lands in the
+          // traverser-local overlay (NOT on the shared node); the immediate
+          // executeNode re-entry sees it through the eff* accessors and
+          // classifies the node as a subflow mount in Phase 0.
           if (dynamicNode.isSubflowRoot && dynamicNode.subflowDef && dynamicNode.subflowId) {
             context.addLog('dynamicPattern', 'dynamicSubflow');
             context.addLog('dynamicSubflowId', dynamicNode.subflowId);
 
             this.autoRegisterSubflowDef(dynamicNode.subflowId, dynamicNode.subflowDef, node.id);
 
-            node.isSubflowRoot = true;
-            node.subflowId = dynamicNode.subflowId;
-            node.subflowName = dynamicNode.subflowName;
-            node.subflowMountOptions = dynamicNode.subflowMountOptions;
+            this.getOrCreatePatch(node).subflowMeta = {
+              isSubflowRoot: true,
+              subflowId: dynamicNode.subflowId,
+              subflowName: dynamicNode.subflowName,
+              subflowMountOptions: dynamicNode.subflowMountOptions,
+            };
 
             this.structureManager.updateDynamicSubflow(
               node.id,
@@ -786,9 +919,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             }
           }
 
-          // Dynamic children (fork pattern)
+          // Dynamic children (fork pattern) — patched into the overlay;
+          // Phase 5 below reads them back through effChildren/effSelector.
           if (dynamicNode.children && dynamicNode.children.length > 0) {
-            node.children = dynamicNode.children;
+            this.getOrCreatePatch(node).children = dynamicNode.children;
             context.addLog('dynamicChildCount', dynamicNode.children.length);
             context.addLog(
               'dynamicChildIds',
@@ -803,41 +937,42 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             );
 
             if (typeof dynamicNode.nextNodeSelector === 'function') {
-              node.nextNodeSelector = dynamicNode.nextNodeSelector;
+              this.getOrCreatePatch(node).nextNodeSelector = dynamicNode.nextNodeSelector;
               context.addLog('hasSelector', true);
             }
           }
 
-          // Dynamic next (linear continuation)
+          // Dynamic next (linear continuation) — stays a LOCAL: it applies
+          // only to this visit (Phase 6 routes it through the
+          // ContinuationResolver), so the shared node's next is never touched
+          // and a loop revisit naturally sees the built continuation.
           if (dynamicNode.next) {
             dynamicNext = dynamicNode.next;
             this.structureManager.updateDynamicNext(node.id, dynamicNode.next);
-            node.next = dynamicNode.next;
             context.addLog('hasDynamicNext', true);
           }
 
           stageOutput = undefined;
         }
-
-        // Restore original next to avoid stale reference on loop revisit
-        if (dynamicNext) {
-          node.next = originalNext;
-        }
       }
 
       // ─── Phase 5: CHILDREN — fork dispatch ───
-      const hasChildrenAfterStage = Boolean(node.children?.length);
+      // Re-read through the overlay: Phase 4 may have just patched dynamic
+      // children/selector for THIS visit (or an earlier visit in this run).
+      const childrenAfterStage = this.effChildren(node);
+      const hasChildrenAfterStage = Boolean(childrenAfterStage?.length);
 
       if (hasChildrenAfterStage) {
-        context.addLog('totalChildren', node.children?.length);
+        context.addLog('totalChildren', childrenAfterStage?.length);
         context.addLog('orderOfExecution', 'ChildrenAfterStage');
 
         let nodeChildrenResults: Record<string, NodeResultType>;
 
-        if (node.nextNodeSelector) {
+        const effSelectorFn = this.effSelector(node);
+        if (effSelectorFn) {
           nodeChildrenResults = await this.childrenExecutor.executeSelectedChildren(
-            node.nextNodeSelector,
-            node.children!,
+            effSelectorFn,
+            childrenAfterStage!,
             stageOutput,
             context,
             branchPath as string,
@@ -845,15 +980,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             node.failFast,
           );
         } else {
-          const childCount = node.children?.length ?? 0;
-          const childNames = node.children?.map((c) => c.name).join(', ');
+          const childCount = childrenAfterStage?.length ?? 0;
+          const childNames = childrenAfterStage?.map((c) => c.name).join(', ');
           context.addFlowDebugMessage('children', `Executing all ${childCount} children in parallel: ${childNames}`, {
             count: childCount,
-            targetStage: node.children?.map((c) => c.name),
+            targetStage: childrenAfterStage?.map((c) => c.name),
           });
 
+          // effNode: ChildrenExecutor reads node.children/node.failFast itself.
           nodeChildrenResults = await this.childrenExecutor.executeNodeChildren(
-            node,
+            this.effNode(node),
             context,
             undefined,
             branchPath,
@@ -868,8 +1004,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
         // Capture dynamic children as synthetic subflow result for UI
         const isDynamic = context.debug?.logContext?.isDynamic;
-        if (isDynamic && node.children && node.children.length > 0) {
-          this.captureDynamicChildrenResult(node, context);
+        if (isDynamic && childrenAfterStage && childrenAfterStage.length > 0) {
+          this.captureDynamicChildrenResult(node, childrenAfterStage, context);
         }
       }
 
@@ -922,14 +1058,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   // ─────────────────────── Private Helpers ───────────────────────
 
-  private captureDynamicChildrenResult(node: StageNode<TOut, TScope>, context: StageContext): void {
+  private captureDynamicChildrenResult(
+    node: StageNode<TOut, TScope>,
+    children: StageNode<TOut, TScope>[],
+    context: StageContext,
+  ): void {
     const parentStageId = context.getStageId();
 
     const childStructure: any = {
       id: `${node.id}-children`,
       name: 'Dynamic Children',
       type: 'fork',
-      children: node.children!.map((c) => ({
+      children: children.map((c) => ({
         id: c.id,
         name: c.name,
         type: 'stage',

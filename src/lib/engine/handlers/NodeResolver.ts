@@ -13,9 +13,21 @@ import type { HandlerDeps } from '../types.js';
 
 export class NodeResolver<TOut = any, TScope = any> {
   private readonly nodeIdMap: Map<string, StageNode<TOut, TScope>>;
+  private readonly getEffectiveChildren?: (node: StageNode<TOut, TScope>) => StageNode<TOut, TScope>[] | undefined;
 
-  constructor(private deps: HandlerDeps<TOut, TScope>, nodeIdMap?: Map<string, StageNode<TOut, TScope>>) {
+  constructor(
+    private deps: HandlerDeps<TOut, TScope>,
+    nodeIdMap?: Map<string, StageNode<TOut, TScope>>,
+    /**
+     * Overlay-aware children accessor injected by the traverser. The DFS
+     * fallback resolves loop targets against the LIVE runtime shape — a node
+     * patched by a dynamic StageNode return carries its children in the
+     * traverser-local overlay, not on the shared built-chart node.
+     */
+    getEffectiveChildren?: (node: StageNode<TOut, TScope>) => StageNode<TOut, TScope>[] | undefined,
+  ) {
     this.nodeIdMap = nodeIdMap ?? new Map();
+    this.getEffectiveChildren = getEffectiveChildren;
   }
 
   /**
@@ -41,8 +53,9 @@ export class NodeResolver<TOut = any, TScope = any> {
   private _dfs(nodeId: string, node: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
     if (node.id === nodeId) return node;
 
-    if (node.children) {
-      for (const child of node.children) {
+    const children = this.getEffectiveChildren ? this.getEffectiveChildren(node) : node.children;
+    if (children) {
+      for (const child of children) {
         const found = this._dfs(nodeId, child);
         if (found) return found;
       }
