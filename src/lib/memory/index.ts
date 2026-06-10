@@ -21,11 +21,14 @@ export type {
   MemoryPatch,
   ReadSummaryMarker,
   ReadTrackingMode,
+  RetentionPolicy,
   ScopeFactory,
   StageSnapshot,
   TraceEntry,
+  WriteSummaryMarker,
+  WriteTrackingMode,
 } from './types.js';
-export { READ_PREVIEW_LENGTH } from './types.js';
+export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from './types.js';
 
 // Utilities
 export {

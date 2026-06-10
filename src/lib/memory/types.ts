@@ -1,8 +1,14 @@
 /**
  * types.ts — Core type definitions for the memory library
  *
- * Zero dependencies on old code or other libraries in this package.
+ * Zero dependencies on old code or other libraries in this package, with one
+ * deliberate exception: `capture/` — the standalone leaf module holding the
+ * shared retention-policy family and summary-marker builders (extracted from
+ * here in #13c-A so the read and write dials, and later RFC-001, share one
+ * implementation).
  */
+
+import type { RetentionPolicy } from '../capture/policies.js';
 
 // ── Patch & Trace ──────────────────────────────────────────────────────────
 
@@ -55,7 +61,15 @@ export interface FlowMessage {
   timestamp?: number;
 }
 
-// ── Read Tracking (#14) ────────────────────────────────────────────────────
+// ── Read / Write Tracking (#14, #13c-A) ────────────────────────────────────
+//
+// The policy family and marker shapes are owned by `capture/` (shared with
+// the write dial and, later, RFC-001's deferred-observer capture tier).
+// Re-exported here so every pre-extraction import path keeps working.
+
+export type { RetentionPolicy } from '../capture/policies.js';
+export type { ReadSummaryMarker, WriteSummaryMarker } from '../capture/summarize.js';
+export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from '../capture/summarize.js';
 
 /**
  * Policy for how tracked reads are recorded into `StageSnapshot.stageReads`.
@@ -74,32 +88,31 @@ export interface FlowMessage {
  *
  * Set via `new FlowChartExecutor(chart, { readTracking })` or
  * `executor.setReadTracking(mode)` (before `run()`).
+ *
+ * Alias of the shared {@link RetentionPolicy} family (#13c-A) — kept as the
+ * shipped public name for the read dial.
  */
-export type ReadTrackingMode = 'full' | 'summary' | 'off';
+export type ReadTrackingMode = RetentionPolicy;
 
 /**
- * Marker recorded in `StageSnapshot.stageReads` under `readTracking: 'summary'`.
+ * Policy for how tracked writes are recorded into `StageSnapshot.stageWrites`
+ * (#13c-A) — the sibling of {@link ReadTrackingMode}.
  *
- * Honest cost note: `size` is a cheap proxy (string length / array length /
- * object key count), NOT a serialized byte count — computing real byte size
- * would require an O(value) serialization, which is exactly the cost the
- * summary mode removes. `preview` is only produced for primitives and strings
- * (first {@link READ_PREVIEW_LENGTH} characters); objects and arrays carry no
- * preview for the same reason.
+ * - `'full'` (default) — every tracked write `structuredClone`s the value into
+ *   the stage's write view. Byte-identical to the historical behavior.
+ * - `'summary'` — writes record a cheap {@link WriteSummaryMarker} instead of
+ *   the cloned value.
+ * - `'off'` — writes are not recorded at all; `stageWrites` is absent from the
+ *   snapshot. The writes themselves still commit to shared state and still
+ *   appear in the commit log — only the per-stage snapshot bookkeeping (and
+ *   therefore the commit observer's mutations payload) is affected.
+ *
+ * Set via `new FlowChartExecutor(chart, { writeTracking })` or
+ * `executor.setWriteTracking(mode)` (before `run()`). See
+ * `FlowChartExecutorOptions.writeTracking` for the full observable-consequence
+ * contract (onCommit payload, redaction precedence, what is OUT of scope).
  */
-export interface ReadSummaryMarker {
-  /** Discriminant — lets snapshot consumers detect marker entries. */
-  __readSummary: true;
-  /** `typeof` result, refined to 'array' / 'null' for objects. */
-  type: 'string' | 'number' | 'boolean' | 'bigint' | 'symbol' | 'function' | 'object' | 'array' | 'null';
-  /** Size proxy: string length, array length, or object key count. */
-  size?: number;
-  /** First {@link READ_PREVIEW_LENGTH} chars — primitives and strings only. */
-  preview?: string;
-}
-
-/** Max characters captured in {@link ReadSummaryMarker.preview}. */
-export const READ_PREVIEW_LENGTH = 80;
+export type WriteTrackingMode = RetentionPolicy;
 
 // ── Stage Snapshot ─────────────────────────────────────────────────────────
 

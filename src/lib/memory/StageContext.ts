@@ -8,45 +8,15 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
+import { summarizeReadValue } from '../capture/summarize.js';
 import { isDevMode } from '../scope/detectCircular.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
-import type { FlowControlType, FlowMessage, ReadSummaryMarker, ReadTrackingMode, StageSnapshot } from './types.js';
-import { READ_PREVIEW_LENGTH } from './types.js';
+import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot } from './types.js';
 import { redactPatch } from './utils.js';
-
-/**
- * Cheap summary of a read value for `readTracking: 'summary'` (#14).
- *
- * Deliberately avoids every O(value) operation: no clone, no serialization.
- * `size` is a proxy (string length / array length / shallow key count) and
- * `preview` exists only where producing it is O(preview) — primitives and
- * strings. See {@link ReadSummaryMarker} for the honest-cost contract.
- */
-function summarizeReadValue(value: unknown): ReadSummaryMarker {
-  if (value === null) return { __readSummary: true, type: 'null' };
-  if (typeof value === 'string') {
-    return { __readSummary: true, type: 'string', size: value.length, preview: value.slice(0, READ_PREVIEW_LENGTH) };
-  }
-  if (Array.isArray(value)) return { __readSummary: true, type: 'array', size: value.length };
-  if (value instanceof Map || value instanceof Set) {
-    // Object.keys() on a Map/Set is always [] — report the real entry count.
-    return { __readSummary: true, type: 'object', size: value.size };
-  }
-  if (typeof value === 'object') {
-    return { __readSummary: true, type: 'object', size: Object.keys(value as Record<string, unknown>).length };
-  }
-  if (typeof value === 'function') return { __readSummary: true, type: 'function' };
-  // number | boolean | bigint | symbol — String() is O(rendered length)
-  return {
-    __readSummary: true,
-    type: typeof value as ReadSummaryMarker['type'],
-    preview: String(value).slice(0, READ_PREVIEW_LENGTH),
-  };
-}
 
 export class StageContext {
   private sharedMemory: SharedMemory;
