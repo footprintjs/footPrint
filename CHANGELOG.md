@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target '…'). Set maxIterations to increase the limit.` Legitimate chains
   are unaffected: hops under the budget run as before (byte-identical events/
   narrative), longer chains raise `maxIterations` exactly like long loops.
+  **⚠ Behavior change:** a chart whose fn-bearing dynamic-next chain
+  legitimately exceeds 1000 hops — which previously ran unbounded — now
+  errs at the budget. Set `RunOptions.maxIterations` to the expected hop
+  count to keep it running; the error message says exactly this.
   Docs: `RunOptions.maxIterations` JSDoc + `docs/guides/execution-model.md`.
   Regression suite: `test/lib/engine/traversal/dynamic-next-budget.test.ts`
   (runaway errs at default + tuned budgets, 500/2500-hop legitimate chains
