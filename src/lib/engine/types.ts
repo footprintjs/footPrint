@@ -248,6 +248,12 @@ export type SubflowTraverserFactory<TOut = any, TScope = any> = (options: {
   readOnlyContext?: unknown;
   /** Subflow identifier — used as branchPath for narrative context. */
   subflowId?: string;
+  /**
+   * RFC-003 D1: runtimeStageId of the subflow MOUNT stage in the parent
+   * traverser. Becomes the `parentRuntimeStageId` fallback for the subflow's
+   * root stage so runtime ancestor chains cross subflow boundaries.
+   */
+  parentMountRuntimeStageId?: string;
 }) => SubflowTraverserHandle<TOut, TScope>;
 
 /**

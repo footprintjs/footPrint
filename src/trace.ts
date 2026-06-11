@@ -50,9 +50,23 @@ export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 // bundle's `overwrite[key]` holds only the tail.
 export { commitValueAt, findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
-// Causal chain — backward program slicing on commit log (DAG)
-export type { CausalChainOptions, CausalNode, KeysReadLookup } from './lib/memory/backtrack.js';
+// Causal chain — backward program slicing on commit log (DAG).
+// RFC-003 D3: `CausalEdge` (typed/keyed/weighted parent links on
+// `CausalNode.parentEdges`) + the `controlDeps` option (`ControlDepLookup`)
+// add control-dependence edges to the slice.
+export type {
+  CausalChainOptions,
+  CausalEdge,
+  CausalNode,
+  ControlDependency,
+  ControlDepLookup,
+  EdgeWeigher,
+  KeysReadLookup,
+} from './lib/memory/backtrack.js';
 export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/backtrack.js';
+// RFC-003 D2 — honesty markers: the untracked read paths a stage consumed
+// (`CommitBundle.untrackedSources` → `CausalNode.incompleteSources`).
+export type { UntrackedSource } from './lib/memory/types.js';
 
 // ── v5 Stores (concrete, composable — primary recorder API) ─────
 // Compose these via `new Store<T>()` as a field on your recorder
@@ -85,6 +99,13 @@ export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecor
 // including the top-level run and every subflow)
 export type { InOutEntry, InOutPhase, InOutRecorderOptions } from './lib/recorder/InOutRecorder.js';
 export { InOutRecorder, inOutRecorder, ROOT_RUNTIME_STAGE_ID, ROOT_SUBFLOW_ID } from './lib/recorder/InOutRecorder.js';
+
+// ControlDepRecorder — control-dependence tracking (RFC-003 D5): records
+// onDecision/onSelected + the D1 runtime ancestor chain, answers "which
+// decision allowed this stage to run?" — the built-in producer for
+// causalChain's `controlDeps` option.
+export type { ControlDecisionRecord, ControlDepRecorderOptions } from './lib/recorder/ControlDepRecorder.js';
+export { ControlDepRecorder, controlDepRecorder } from './lib/recorder/ControlDepRecorder.js';
 
 // QualityRecorder — per-step quality scoring with backtracking
 export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';

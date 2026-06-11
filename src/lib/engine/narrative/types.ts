@@ -195,6 +195,16 @@ export interface TraversalContext {
   readonly stageName: string;
   /** Parent stage ID — walk up to reconstruct the tree. Undefined at root. */
   readonly parentStageId?: string;
+  /**
+   * The parent EXECUTION step's runtimeStageId — the runtime twin of
+   * `parentStageId` (RFC-003 D1). Walk up to reconstruct the runtime
+   * ancestor chain; loop re-entries stay unambiguous because runtime ids
+   * (`stageId#executionIndex`) differ per iteration even when stage ids
+   * repeat. Crosses subflow boundaries: the first stage inside a subflow
+   * points at the MOUNT stage's runtimeStageId in the parent traverser.
+   * Undefined only at the first stage of the top-level chart.
+   */
+  readonly parentRuntimeStageId?: string;
   /** Subflow ID when inside a subflow. Undefined at root level. */
   readonly subflowId?: string;
   /** Full subflow path for nested subflows (e.g., "sf-outer/sf-inner"). */

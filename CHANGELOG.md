@@ -5,6 +5,121 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **RFC-003 D1 — `TraversalContext.parentRuntimeStageId`** (additive). Every
+  stage execution's traversal context now carries the runtimeStageId of the
+  execution step that preceded it — the runtime twin of `parentStageId`.
+  Loop re-entries stay unambiguous (runtime ids differ per iteration even
+  when stage ids repeat), and the chain CROSSES subflow boundaries: the
+  first stage inside a subflow points at the MOUNT stage's runtimeStageId in
+  the parent traverser (threaded via the new
+  `SubflowTraverserFactory.parentMountRuntimeStageId` /
+  `TraverserOptions.parentMountRuntimeStageId` plumbing). Absent — not
+  `undefined`-valued — on the top-level chart's first stage. This is the
+  engine groundwork for control-dependence tracking (D5's
+  `controlDepRecorder`) and contextual bug localization.
+
+- **RFC-003 D2 — untracked-read honesty flags
+  (`CommitBundle.untrackedSources`)** (additive). A causal slice is built
+  from TRACKED reads — but three read paths bypass tracking, and a consumer
+  (human or LLM) debugging from the slice must be TOLD when that happened.
+  The stage's commit bundle now carries
+  `untrackedSources?: ReadonlyArray<'args' | 'env' | 'silent'>`:
+  - `'args'` — the stage called `getArgs()`/`$getArgs()` with actual run
+    input present (an empty-args read carries no information and is not
+    flagged);
+  - `'env'` — the stage called `getEnv()`/`$getEnv()` with a non-empty
+    execution environment;
+  - `'silent'` — the stage silently read (`getValueSilent`) a key it never
+    TRACKED-read in the same stage. Silent reads SHADOWED by a tracked read
+    of the same key (the TypedScope array-proxy pattern, `$batchArray`) are
+    deliberately NOT flagged — their read→write edge is already captured,
+    and flagging them would teach consumers to ignore the marker. This is
+    the one refinement over the spec's literal "any `getValueSilent` use"
+    wording, for exactly that reason.
+
+  The field is ABSENT when a stage used none of these paths — charts that
+  never touch them keep byte-identical commit logs (probe-verified), and
+  the routine double-commit paths (fork children, subflow mounts) record
+  the field exactly once because markers release with the staging state
+  (#13b). The backtracker stamps `CausalNode.incompleteSources` from it and
+  `formatCausalChain` renders
+  `⚠ also consumed args/env — slice may be incomplete here`.
+  Documented residual: values smuggled through JS closures stay
+  undetectable. New type export: `UntrackedSource`
+  (`footprintjs/trace` + `/advanced`). Cost: one lazily-allocated Set per
+  stage that actually uses an untracked path; three boolean-ish checks
+  otherwise.
+
+- **RFC-003 D3 — control-dependence edges in the backtracker** (additive).
+  `causalChain()` gains a `controlDeps?: ControlDepLookup` option: when
+  expanding a node, the backtracker ALSO links its governing decider with a
+  `kind: 'control'` edge, labeled by the decide() rule label when present.
+  The decider node then expands normally through its own data reads, so
+  chains like
+  `status ← [control: Good credit] ClassifyRisk ← [data: creditScore] PullBureau`
+  resolve end-to-end. New shapes:
+  - `CausalEdge { parent, kind: 'data' | 'control', key?, weight }` — one
+    edge per dependency LINK on the new `CausalNode.parentEdges` (a node
+    reading two keys from the same writer gets one `parents[]` entry but
+    two data edges). `weight` is 1.0 until the D4 `weigh` hook overrides
+    it.
+  - `ControlDependency` / `ControlDepLookup` — the lookup contract
+    (`footprintjs/trace`); `controlDepRecorder()` (D5) is the built-in
+    producer.
+
+  `CausalNode.parents` is KEPT and unchanged for compatibility (control
+  parents appear there too when the option is used); `formatCausalChain`
+  renders control links as `← [control: <label>]` and the data rendering
+  stays byte-identical to the pre-D3 output. Node/depth budgets apply to
+  control expansion exactly like data expansion. Without the option,
+  behavior is unchanged (existing backtrack suite green unmodified).
+
+- **RFC-003 D4 — `weigh` hook + truncation visibility** (additive).
+  - `causalChain()` gains `weigh?: EdgeWeigher` —
+    `(child, parent, key, kind) => number | undefined` — called once per
+    created edge; `undefined` → 1.0. The ENGINE never computes weights
+    (zero new dependencies): semantics like embedding similarity or FDL
+    influence are consumer-injected, the same plug-in pattern as
+    `NarrativeFormatter`. Control edges weigh too (their `key` is the rule
+    label). `formatCausalChain` renders weights as
+    `← via systemPrompt (0.18)` — only when ≠ 1.0, so unweighted output is
+    unchanged.
+  - **Truncation visibility:** the root `CausalNode` gains
+    `truncated?: { byDepth: boolean; byNodes: boolean }` — set only when a
+    limit actually CUT the slice (`byDepth`: a node at the `maxDepth`
+    horizon still had edges to expand; `byNodes`: the `maxNodes` budget
+    dropped a discovered parent). Absent on complete slices.
+    `formatCausalChain` appends
+    `⚠ slice truncated (…) — older causes exist beyond this horizon`, and
+    dev mode (`enableDevMode()`) warns — a consumer must never mistake a
+    truncated slice for a complete one.
+
+- **RFC-003 D5 — `controlDepRecorder()` (`footprintjs/trace`)** — the
+  built-in producer for D3's `controlDeps` option. A `FlowRecorder` that
+  records every `onDecision`/`onSelected` as
+  `ControlDecisionRecord { deciderRuntimeStageId, chosen, evidence?, ruleLabel? }`
+  (the label extracted from decide() evidence), builds the runtime ancestor
+  chain from D1's `parentRuntimeStageId`, and maps every subsequently
+  executed stage whose chain passes through the chosen branch to its
+  governing decider. `lookup(runtimeStageId)` resolves the NEAREST decision
+  (nested decisions compose — the backtracker expands the decider and asks
+  again); `asLookup()` plugs straight into
+  `causalChain(..., { controlDeps })`. Correlation is by parent-runtime-id
+  + count, NOT stage name (subflow-mount events carry path-prefixed names;
+  selectors emit a synthetic fork event sharing the selector's own
+  runtimeStageId), and a branch that THROWS consumes its slot via
+  `onError` so best-effort fan-out convergence stages are never
+  misattributed. Convention-4 runId reset: each run (and each resume)
+  starts clean — control chains do not survive a pause/resume boundary.
+  Fixtures: decider, selector, nested subflow branches (single + double
+  nesting), loop re-entry (per-iteration decisions stay distinct).
+  Attach via `executor.attachFlowRecorder(ctrl)` or
+  `attachCombinedRecorder(ctrl)`.
+
 ## [9.7.0] - 2026-06-11
 
 ### Added

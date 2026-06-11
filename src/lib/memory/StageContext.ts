@@ -21,6 +21,7 @@ import type {
   FlowMessage,
   ReadTrackingMode,
   StageSnapshot,
+  UntrackedSource,
   WriteTrackingMode,
 } from './types.js';
 import { redactPatch } from './utils.js';
@@ -113,6 +114,17 @@ export class StageContext {
    * one-trace-entry-per-path dedup. Lossless in both modes.
    */
   private commitValues: CommitValuesMode = 'full';
+
+  /**
+   * RFC-003 D2 honesty markers — untracked read paths used during THIS
+   * stage's execution (`'args'` / `'env'` / `'silent'`). Marked by
+   * `ScopeFacade`, surfaced on the stage's CommitBundle as
+   * `untrackedSources`, then RELEASED with the staging state at commit end
+   * (so the routine double-commit paths — fork children, subflow mounts —
+   * record the field exactly once, on the first commit). Lazily allocated:
+   * stages that never touch an untracked path pay nothing.
+   */
+  private _untrackedSources?: Set<UntrackedSource>;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
@@ -460,6 +472,25 @@ export class StageContext {
 
   // ── Commit ─────────────────────────────────────────────────────────────
 
+  /**
+   * RFC-003 D2: record that this stage consumed an untracked read path.
+   * Called by `ScopeFacade` (`getArgs`/`getEnv`/unshadowed `getValueSilent`);
+   * surfaced as `CommitBundle.untrackedSources` on this stage's commit.
+   */
+  markUntrackedSource(source: UntrackedSource): void {
+    (this._untrackedSources ??= new Set()).add(source);
+  }
+
+  /**
+   * RFC-003 D2: the `untrackedSources` bundle fragment for commit() — `{}`
+   * when nothing was marked, so the spread keeps the field ABSENT (not
+   * empty-array-valued) and untouched charts stay byte-identical.
+   */
+  private untrackedSourcesFragment(): { untrackedSources?: UntrackedSource[] } {
+    if (!this._untrackedSources || this._untrackedSources.size === 0) return {};
+    return { untrackedSources: [...this._untrackedSources] };
+  }
+
   /** Register an observer that fires after commit() applies patches.
    *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
   setCommitObserver(
@@ -512,13 +543,15 @@ export class StageContext {
         stage: this.stageName,
         stageId: this.stageId,
         runtimeStageId: this.runtimeStageId,
+        ...this.untrackedSourcesFragment(),
       });
       if (this._commitObserver) {
         this._commitObserver({ ...this._stageWrites });
       }
       // #13b: drop the first-touch view — a read-only stage still pinned one
-      // full state generation through it.
+      // full state generation through it. D2 markers release with it.
       this.stateView = undefined;
+      this._untrackedSources = undefined;
       return;
     }
 
@@ -528,6 +561,7 @@ export class StageContext {
       stage: this.stageName,
       stageId: this.stageId,
       runtimeStageId: this.runtimeStageId,
+      ...this.untrackedSourcesFragment(),
     };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
@@ -556,8 +590,11 @@ export class StageContext {
 
     // #13b: release the staging state — see the method JSDoc. Done LAST so
     // the commit observer sees the exact same world as before the release.
+    // D2's untracked-source markers release with it: the routine
+    // double-commit paths then record the field exactly once.
     this.buffer = undefined;
     this.stateView = undefined;
+    this._untrackedSources = undefined;
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────

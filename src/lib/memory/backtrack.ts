@@ -54,8 +54,9 @@
  * ```
  */
 
+import { isDevMode } from '../scope/detectCircular.js';
 import { findLastWriter } from './commitLogUtils.js';
-import type { CommitBundle } from './types.js';
+import type { CommitBundle, UntrackedSource } from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -73,9 +74,93 @@ export interface CausalNode {
   linkedBy: string;
   /** BFS depth from the starting node (0 = start). */
   depth: number;
-  /** Parent nodes — stages that wrote data this node read. DAG: multiple parents possible. */
+  /**
+   * Parent nodes — stages this node depends on. DAG: multiple parents
+   * possible. KEPT for compatibility; with the `controlDeps` option
+   * (RFC-003 D3) governing deciders appear here too. For typed/keyed/
+   * weighted detail use {@link parentEdges}.
+   */
   parents: CausalNode[];
+  /**
+   * RFC-003 D3 — one edge per dependency LINK (not per parent): a node
+   * reading two keys from the same writer has ONE entry in {@link parents}
+   * but TWO `'data'` edges here. Control dependencies (via the
+   * `controlDeps` option) add a `'control'` edge to the governing decider.
+   */
+  parentEdges: CausalEdge[];
+  /**
+   * RFC-003 D2 honesty marker — stamped from the stage's
+   * `CommitBundle.untrackedSources`. Present when this stage ALSO consumed
+   * untracked read paths (`args` / `env` / unshadowed `silent` reads): the
+   * backward slice through this node may be incomplete, because those reads
+   * produce no read→write edge to follow. `formatCausalChain` renders this
+   * as a `⚠ … slice may be incomplete here` line. Absent when the stage's
+   * reads were fully tracked.
+   */
+  incompleteSources?: ReadonlyArray<UntrackedSource>;
+  /**
+   * RFC-003 D4 truncation visibility — set on the ROOT node only, and only
+   * when a limit actually cut the slice: `byDepth` when a node at the
+   * `maxDepth` horizon still had edges to expand, `byNodes` when the
+   * `maxNodes` budget blocked creating a discovered parent. Absent when the
+   * slice is complete. Dev mode (`enableDevMode()`) also warns on
+   * truncation, and `formatCausalChain` appends a `⚠ slice truncated …`
+   * line — a consumer must never mistake a truncated slice for a full one.
+   */
+  truncated?: { byDepth: boolean; byNodes: boolean };
 }
+
+/**
+ * RFC-003 D3 — a typed dependency edge from a child node to one parent.
+ *
+ * - `kind: 'data'`    — read→write dependency; `key` is the state key.
+ * - `kind: 'control'` — the parent is the decider/selector whose decision
+ *   allowed the child to run; `key` is the decide() rule label when present.
+ *
+ * `weight` defaults to 1.0; the `weigh` hook (RFC-003 D4) can override it.
+ * The engine itself NEVER computes weights — semantics belong to the
+ * consumer-injected weigher.
+ */
+export interface CausalEdge {
+  parent: CausalNode;
+  kind: 'data' | 'control';
+  key?: string;
+  weight: number;
+}
+
+/**
+ * RFC-003 D3 — a control dependency resolved for one execution step:
+ * which decider/selector execution allowed this stage to run.
+ */
+export interface ControlDependency {
+  /** runtimeStageId of the governing decider/selector execution step. */
+  deciderId: string;
+  /** The decide() rule label for the chosen branch, when present. */
+  label?: string;
+}
+
+/**
+ * RFC-003 D3 — callback resolving the governing decider for an execution
+ * step. Return `undefined` when the step is not control-dependent on any
+ * recorded decision. Build one with `controlDepRecorder()` from
+ * `footprintjs/trace`, or supply your own.
+ */
+export type ControlDepLookup = (runtimeStageId: string) => ControlDependency | undefined;
+
+/**
+ * RFC-003 D4 — consumer-injected edge weigher. Called once per created
+ * edge; return a weight, or `undefined` to keep the default 1.0. The
+ * ENGINE never computes weights (zero new dependencies — semantics like
+ * embedding similarity or FDL influence belong to downstream libraries,
+ * the same plug-in pattern as `NarrativeFormatter`). Weights render in
+ * `formatCausalChain` as `← via systemPrompt (0.18)`.
+ */
+export type EdgeWeigher = (
+  child: CausalNode,
+  parent: CausalNode,
+  key: string | undefined,
+  kind: 'data' | 'control',
+) => number | undefined;
 
 /** Options for causalChain(). */
 export interface CausalChainOptions {
@@ -83,6 +168,20 @@ export interface CausalChainOptions {
   maxDepth?: number;
   /** Maximum total nodes to visit (default: 100). Hard cap for safety. */
   maxNodes?: number;
+  /**
+   * RFC-003 D3 — control-dependence lookup. When provided, expanding a node
+   * ALSO links a `'control'` edge to its governing decider (labeled by the
+   * decide() rule label when present); the decider node then expands
+   * normally through its own data reads, so chains like
+   * `status ← [control] ClassifyRisk ← [data: creditScore] PullBureau`
+   * resolve end-to-end. Without this option behavior is unchanged.
+   */
+  controlDeps?: ControlDepLookup;
+  /**
+   * RFC-003 D4 — edge weigher. Stamps `CausalEdge.weight` at edge creation;
+   * `undefined` (or no weigher) → 1.0. See {@link EdgeWeigher}.
+   */
+  weigh?: EdgeWeigher;
 }
 
 /**
@@ -183,6 +282,16 @@ function createWriterLookup(commitLog: CommitBundle[]): WriterLookup {
 // ── Core algorithm ─────────────────────────────────────────────────────
 
 /**
+ * RFC-003 D2: the `incompleteSources` node fragment for a commit — `{}`
+ * when the stage consumed no untracked read paths, keeping the field
+ * ABSENT (not empty-array-valued) for fully-tracked stages.
+ */
+function incompleteSourcesFragment(commit: CommitBundle): { incompleteSources?: ReadonlyArray<UntrackedSource> } {
+  if (!commit.untrackedSources || commit.untrackedSources.length === 0) return {};
+  return { incompleteSources: commit.untrackedSources };
+}
+
+/**
  * Build the causal DAG rooted at `startId` by walking backwards
  * through read→write dependencies in the commit log.
  *
@@ -207,6 +316,14 @@ export function causalChain(
 ): CausalNode | undefined {
   const maxDepth = options?.maxDepth ?? 20;
   const maxNodes = options?.maxNodes ?? 100;
+  const controlDeps = options?.controlDeps;
+  const weigh = options?.weigh;
+
+  // RFC-003 D4 — truncation visibility. Set only when a limit actually
+  // cuts the slice; surfaced on the root as `truncated` so a consumer can
+  // never mistake a truncated slice for a complete one.
+  let truncatedByDepth = false;
+  let truncatedByNodes = false;
 
   // Build position index: runtimeStageId → array position (O(n) once)
   const idxMap = new Map<string, number>();
@@ -233,6 +350,8 @@ export function causalChain(
     linkedBy: '',
     depth: 0,
     parents: [],
+    parentEdges: [],
+    ...incompleteSourcesFragment(startCommit),
   };
   nodeMap.set(startId, root);
 
@@ -240,51 +359,118 @@ export function causalChain(
   const queue: Array<[CausalNode, number, number]> = [[root, startIdx, 0]];
   let visited = 1;
 
+  /**
+   * Link `node → parent` (creating + enqueueing the parent when new).
+   * Shared by data-edge expansion (read→write) and control-edge expansion
+   * (D3). One CausalEdge per distinct (parent, kind, key) link; `parents`
+   * keeps its historical one-entry-per-parent dedup.
+   */
+  function linkParent(
+    node: CausalNode,
+    parentCommit: CommitBundle,
+    kind: 'data' | 'control',
+    key: string | undefined,
+    depth: number,
+  ): void {
+    const parentId = parentCommit.runtimeStageId;
+
+    let parentNode = nodeMap.get(parentId);
+    if (!parentNode) {
+      // New node — create and enqueue (respecting the node budget)
+      if (visited >= maxNodes) {
+        truncatedByNodes = true; // D4: a discovered parent was dropped
+        return;
+      }
+
+      const parentIdx = idxMap.get(parentId);
+      if (parentIdx === undefined) return;
+
+      parentNode = {
+        runtimeStageId: parentId,
+        stageId: parentCommit.stageId,
+        stageName: parentCommit.stage,
+        keysWritten: parentCommit.trace.map((t) => t.path),
+        // linkedBy stays a DATA-key concept (back-compat) — control-linked
+        // nodes carry their label on the edge instead.
+        linkedBy: kind === 'data' ? key ?? '' : '',
+        depth: depth + 1,
+        parents: [],
+        parentEdges: [],
+        ...incompleteSourcesFragment(parentCommit),
+      };
+      nodeMap.set(parentId, parentNode);
+      visited++;
+      queue.push([parentNode, parentIdx, depth + 1]);
+    }
+
+    // DAG merge: one parents[] entry per distinct parent (historical shape)
+    if (!node.parents.some((p) => p.runtimeStageId === parentId)) {
+      node.parents.push(parentNode);
+    }
+    // One edge per distinct (parent, kind, key) link. The weigher (D4)
+    // stamps the weight at creation; `undefined` → 1.0 — the engine never
+    // computes weights itself.
+    if (!node.parentEdges.some((e) => e.parent.runtimeStageId === parentId && e.kind === kind && e.key === key)) {
+      // Error isolation (review finding): a consumer weigher that throws
+      // must degrade to the default weight, never crash the slice — the
+      // same contract every other consumer callback in the library gets.
+      let weight = 1.0;
+      if (weigh) {
+        try {
+          weight = weigh(node, parentNode, key, kind) ?? 1.0;
+        } catch {
+          /* weigher threw — keep 1.0, the slice stays usable */
+        }
+      }
+      node.parentEdges.push({ parent: parentNode, kind, key, weight });
+    }
+  }
+
   while (queue.length > 0) {
     const [node, commitIdx, depth] = queue.shift()!;
 
-    if (depth >= maxDepth) continue;
+    if (depth >= maxDepth) {
+      // D4: only a node that still HAD something to expand counts as a cut
+      // (a leaf at the horizon truncates nothing).
+      if (getKeysRead(node.runtimeStageId).length > 0 || controlDeps?.(node.runtimeStageId) !== undefined) {
+        truncatedByDepth = true;
+      }
+      continue;
+    }
 
+    // Data edges: for each key read, find who wrote it
     const keysRead = getKeysRead(node.runtimeStageId);
-    if (keysRead.length === 0) continue;
-
-    // For each key read, find who wrote it
     for (const key of keysRead) {
       const writer = findWriter(key, commitIdx);
       if (!writer) continue;
+      linkParent(node, writer, 'data', key, depth);
+    }
 
-      const writerId = writer.runtimeStageId;
-
-      // Check if we already have a node for this writer
-      let parentNode = nodeMap.get(writerId);
-      if (parentNode) {
-        // DAG merge: add as parent if not already linked
-        if (!node.parents.some((p) => p.runtimeStageId === writerId)) {
-          node.parents.push(parentNode);
+    // Control edge (RFC-003 D3): link the governing decider, labeled by the
+    // decide() rule label when present. The decider node then expands
+    // normally through its own data reads (and its own control parent).
+    if (controlDeps) {
+      const dep = controlDeps(node.runtimeStageId);
+      if (dep) {
+        const deciderIdx = idxMap.get(dep.deciderId);
+        if (deciderIdx !== undefined) {
+          linkParent(node, commitLog[deciderIdx], 'control', dep.label, depth);
         }
-        continue;
       }
+    }
+  }
 
-      // New node — create and enqueue
-      if (visited >= maxNodes) continue;
-
-      const writerIdx = idxMap.get(writerId);
-      if (writerIdx === undefined) continue;
-
-      parentNode = {
-        runtimeStageId: writerId,
-        stageId: writer.stageId,
-        stageName: writer.stage,
-        keysWritten: writer.trace.map((t) => t.path),
-        linkedBy: key,
-        depth: depth + 1,
-        parents: [],
-      };
-      nodeMap.set(writerId, parentNode);
-      node.parents.push(parentNode);
-      visited++;
-
-      queue.push([parentNode, writerIdx, depth + 1]);
+  // RFC-003 D4 — truncation visibility on the root (absent when complete).
+  if (truncatedByDepth || truncatedByNodes) {
+    root.truncated = { byDepth: truncatedByDepth, byNodes: truncatedByNodes };
+    if (isDevMode()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] causalChain('${startId}') truncated by ` +
+          `${[truncatedByDepth && `maxDepth (${maxDepth})`, truncatedByNodes && `maxNodes (${maxNodes})`]
+            .filter(Boolean)
+            .join(' + ')} — the slice is incomplete. Raise the limits or narrow keysRead.`,
+      );
     }
   }
 
@@ -322,28 +508,73 @@ export function flattenCausalDAG(root: CausalNode): CausalNode[] {
 /**
  * Format a causal DAG as human-readable indented text.
  * Shows the dependency chain with depth indentation and linked-by keys.
+ *
+ * RFC-003 D2: nodes that consumed untracked read paths render an extra
+ * `⚠ also consumed … — slice may be incomplete here` line, so a consumer
+ * (human or LLM) debugging from the slice is TOLD when it is incomplete.
+ *
+ * RFC-003 D3: control edges render as `← [control: <rule label>]`
+ * (label omitted when the decision carried none). Data rendering is
+ * byte-identical to the pre-D3 output — `← via <key>` from the node's
+ * discovery-time `linkedBy`.
+ *
+ * RFC-003 D4: edge weights from the `weigh` hook render as a suffix —
+ * `← via systemPrompt (0.18)` — only when ≠ 1.0, so unweighted output is
+ * unchanged. A truncated slice (root.truncated) appends a final
+ * `⚠ slice truncated …` line.
  */
 export function formatCausalChain(root: CausalNode): string {
   const lines: string[] = [];
   const visited = new Set<string>();
 
-  function walk(node: CausalNode, indent: number): void {
+  const weightSuffix = (edge: CausalEdge | undefined): string =>
+    edge !== undefined && edge.weight !== 1 ? ` (${edge.weight})` : '';
+
+  function walk(node: CausalNode, indent: number, edgesFromChild?: CausalEdge[]): void {
     if (visited.has(node.runtimeStageId)) {
       lines.push(`${'  '.repeat(indent)}↳ ${node.runtimeStageId} (see above)`);
       return;
     }
     visited.add(node.runtimeStageId);
 
-    const link = node.linkedBy ? ` ← via ${node.linkedBy}` : '';
+    const linkParts: string[] = [];
+    if (node.linkedBy) {
+      const dataEdge = edgesFromChild?.find((e) => e.kind === 'data');
+      linkParts.push(`via ${node.linkedBy}${weightSuffix(dataEdge)}`);
+    }
+    const controlEdge = edgesFromChild?.find((e) => e.kind === 'control');
+    if (controlEdge) {
+      linkParts.push(`[control${controlEdge.key ? `: ${controlEdge.key}` : ''}]${weightSuffix(controlEdge)}`);
+    }
+    const link = linkParts.length > 0 ? ` ← ${linkParts.join(' ← ')}` : '';
+
     const writes = node.keysWritten.length > 0 ? ` [wrote: ${node.keysWritten.join(', ')}]` : '';
     lines.push(`${'  '.repeat(indent)}${node.stageName} (${node.runtimeStageId})${link}${writes}`);
 
+    if (node.incompleteSources && node.incompleteSources.length > 0) {
+      lines.push(
+        `${'  '.repeat(indent + 1)}⚠ also consumed ${node.incompleteSources.join('/')} — slice may be incomplete here`,
+      );
+    }
+
     for (const parent of node.parents) {
-      walk(parent, indent + 1);
+      walk(
+        parent,
+        indent + 1,
+        node.parentEdges.filter((e) => e.parent === parent),
+      );
     }
   }
 
   walk(root, 0);
+
+  if (root.truncated) {
+    const causes = [root.truncated.byDepth && 'maxDepth reached', root.truncated.byNodes && 'maxNodes reached']
+      .filter(Boolean)
+      .join(', ');
+    lines.push(`⚠ slice truncated (${causes}) — older causes exist beyond this horizon`);
+  }
+
   return lines.join('\n');
 }
 

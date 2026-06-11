@@ -46,6 +46,22 @@ export class ScopeFacade {
   /** Execution environment — read-only, inherited from parent executor. */
   private readonly _executionEnv: Readonly<ExecutionEnv>;
 
+  /** RFC-003 D2: true when `getArgs()` can return actual data — an empty
+   *  `{}` read carries no information, so it is never flagged. */
+  private readonly _hasArgs: boolean;
+
+  /** RFC-003 D2: true when `getEnv()` can return actual data. */
+  private readonly _hasEnv: boolean;
+
+  /**
+   * RFC-003 D2: keys this stage has TRACKED-read (via `getValue(key)`).
+   * A silent read of a key in this set is SHADOWED — its read→write edge is
+   * already captured, so it is not flagged as an untracked source. This is
+   * what keeps TypedScope array-proxy internals (which always follow a
+   * tracked property read) and `$batchArray` honest-but-quiet.
+   */
+  private readonly _trackedReadKeys = new Set<string>();
+
   private _recorders: ScopeRecorder[] = [];
   private _redactedKeys: Set<string>;
   private _redactionPolicy: RedactionPolicy | undefined;
@@ -57,6 +73,8 @@ export class ScopeFacade {
     this._readOnlyValues = readOnlyValues;
     this._frozenArgs = createFrozenArgs(readOnlyValues);
     this._executionEnv = Object.freeze({ ...executionEnv });
+    this._hasArgs = Object.keys(this._frozenArgs).length > 0;
+    this._hasEnv = Object.keys(this._executionEnv).length > 0;
     this._redactedKeys = new Set<string>();
 
     // Register as commit observer so ScopeRecorder.onCommit fires when StageContext.commit() is called
@@ -409,8 +427,18 @@ export class ScopeFacade {
    *  internal array operations use this method to stay silent.
    *  NOTE: Like getValue(), returns the raw value to the caller. Redaction applies
    *  only to recorder dispatch — it does not filter the returned value. This matches
-   *  the existing getValue() contract where user code always receives raw data. */
+   *  the existing getValue() contract where user code always receives raw data.
+   *
+   *  RFC-003 D2: a silent read of a key this stage never TRACKED-read marks
+   *  the stage's commit with `untrackedSources: ['silent']` — a causal slice
+   *  built from onRead events would miss this dependency, and consumers must
+   *  be told. Silent reads shadowed by a tracked read of the same key (the
+   *  array-proxy pattern above) are not flagged: their edge is captured. A
+   *  whole-state silent read (no key) is always flagged. */
   getValueSilent(key?: string): unknown {
+    if (key === undefined || !this._trackedReadKeys.has(key)) {
+      this._stageContext.markUntrackedSource('silent');
+    }
     return this._stageContext.getValueDirect([], key);
   }
 
@@ -445,6 +473,10 @@ export class ScopeFacade {
    */
   getValue(key?: string) {
     const value = this._stageContext.getValue([], key);
+
+    // RFC-003 D2: remember tracked keys so later SILENT reads of the same
+    // key count as shadowed (edge already captured) instead of untracked.
+    if (key !== undefined) this._trackedReadKeys.add(key);
 
     if (this._recorders.length > 0) {
       const isRedacted = key !== undefined && this._isKeyRedacted(key);
@@ -625,8 +657,14 @@ export class ScopeFacade {
    * ```typescript
    * const { applicantName, income } = scope.getArgs<{ applicantName: string; income: number }>();
    * ```
+   *
+   * RFC-003 D2: args are untracked BY DESIGN, so calling this (with actual
+   * input present) marks the stage's commit with `untrackedSources: ['args']`
+   * — telling causal-slice consumers the backward slice may be incomplete
+   * here. An empty-args read carries no information and is not flagged.
    */
   getArgs<T = Record<string, unknown>>(): T {
+    if (this._hasArgs) this._stageContext.markUntrackedSource('args');
     return this._frozenArgs as T;
   }
 
@@ -640,8 +678,13 @@ export class ScopeFacade {
    * ```typescript
    * const { signal, traceId } = scope.getEnv();
    * ```
+   *
+   * RFC-003 D2: env is untracked BY DESIGN, so calling this (with a
+   * non-empty environment) marks the stage's commit with
+   * `untrackedSources: ['env']` — see {@link getArgs}.
    */
   getEnv(): Readonly<ExecutionEnv> {
+    if (this._hasEnv) this._stageContext.markUntrackedSource('env');
     return this._executionEnv;
   }
 

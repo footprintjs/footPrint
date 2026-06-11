@@ -337,6 +337,56 @@ class MyStrategy extends NarrativeFlowRecorder {
 
 ---
 
+## Causal Completeness (RFC-003 Part A)
+
+A causal slice built from `causalChain()` follows **data** edges (read→write
+from the commit log). Two things make a naive slice silently WRONG, and the
+library now surfaces both:
+
+1. **Control dependence.** A branch stage often reads nothing — it ran
+   BECAUSE a decider chose it. Attach `controlDepRecorder()` (from
+   `footprintjs/trace`) before running, then pass its lookup to the
+   backtracker:
+
+   ```typescript
+   import { causalChain, controlDepRecorder, formatCausalChain } from 'footprintjs/trace';
+
+   const ctrl = controlDepRecorder();
+   executor.attachFlowRecorder(ctrl);
+   await executor.run({ input });
+
+   const dag = causalChain(commitLog, statusStepId, keysRead, {
+     controlDeps: ctrl.asLookup(),
+   });
+   console.log(formatCausalChain(dag!));
+   // Approve (approved#2) [wrote: status]
+   //   ClassifyRisk (classify-risk#1) ← [control: Good credit]
+   //     PullBureau (pull-bureau#0) ← via creditScore [wrote: creditScore]
+   ```
+
+   The recorder builds the runtime ancestor chain from
+   `TraversalContext.parentRuntimeStageId` and resolves the NEAREST
+   governing decision per step — deciders, selectors, nested subflow
+   branches, and loop re-entries all correlate by runtime ids.
+
+2. **Honesty markers.** Reads through `getArgs()`/`getEnv()`/unshadowed
+   `getValueSilent` bypass tracking — the slice CANNOT follow them. The
+   stage's commit carries `untrackedSources`, the slice node carries
+   `incompleteSources`, and the formatted chain prints
+   `⚠ also consumed args — slice may be incomplete here`. A truncated
+   slice (depth/node limits) is equally explicit: `root.truncated` +
+   a `⚠ slice truncated …` footer + a dev-mode warning. A consumer —
+   human or LLM — debugging from a slice must be TOLD when the slice is
+   incomplete; never present a partial slice as the whole story.
+
+Edge weights are consumer-injected via `causalChain(..., { weigh })` — the
+engine never computes them (plug in embedding similarity, influence scores,
+etc., the same pattern as `NarrativeFormatter`).
+
+Example: [examples/runtime-features/causal-control-deps/01-credit-fixture.ts](../../examples/runtime-features/causal-control-deps/01-credit-fixture.ts)
+
+---
+
 ## Multiple Recorders
 
 Attach as many recorders as you need. Each receives every event independently.

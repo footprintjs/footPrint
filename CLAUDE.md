@@ -298,13 +298,15 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `findCommits(commitLog, stageId)` | `CommitBundle[]` | Find all commits by stageId |
 | `findLastWriter(commitLog, key, beforeIdx?)` | `CommitBundle \| undefined` | Search backwards for who wrote a key |
 | `commitValueAt(commitLog, idx, key)` | `unknown` | Reconstruct the FULL value of a key at a commit index — required under `commitValues: 'delta'` (#13c-B), where an `append` bundle's `overwrite[key]` holds only the tail |
-| `causalChain` / `flattenCausalDAG` / `formatCausalChain` | functions | Backward program slicing over the commit-log DAG |
+| `causalChain` / `flattenCausalDAG` / `formatCausalChain` | functions | Backward program slicing over the commit-log DAG. RFC-003: `causalChain(log, id, keysRead, { controlDeps?, weigh?, maxDepth?, maxNodes? })` — `controlDeps` adds `kind:'control'` edges to the governing decider (labeled by the decide() rule label); `weigh` stamps consumer-computed `CausalEdge.weight` (engine never computes weights). Nodes carry `parentEdges: CausalEdge[]` (typed/keyed/weighted; `parents` kept for compat), `incompleteSources` (D2 honesty: stage also consumed args/env/unshadowed-silent → `⚠ … slice may be incomplete here`), and root `truncated?: {byDepth, byNodes}` (+ `⚠ slice truncated` footer + dev-warn) |
 | `KeyedStore<T>` | class | **Primary** 1:1 Map store — own as a field on your recorder |
 | `SequenceStore<T>` | class | **Primary** 1:N ordered store (has `getEntryRanges()` for O(1) time-travel) |
 | `BoundaryStateStore<T>` | class | **Primary** transient bracket-scoped state store |
 | `CommitRangeIndex<TLabel>` | class | Interval index over commit indices (`open`/`close`/`enclosing`/`overlapping`) |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
 | `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
+| `controlDepRecorder()` / `ControlDepRecorder` | factory / class | RFC-003 D5: records `onDecision`/`onSelected` + the D1 runtime ancestor chain (`TraversalContext.parentRuntimeStageId`), answers "which decision allowed this stage to run?" — `ctrl.asLookup()` IS the `controlDeps` option. Nearest-decision semantics; correlates by runtime ids (never names); Convention-4 runId reset (control chains don't survive pause/resume) |
+| `UntrackedSource` | type | `'args' \| 'env' \| 'silent'` — `CommitBundle.untrackedSources` (D2 honesty flags; absent when a stage's reads were fully tracked; silent reads shadowed by a tracked read of the same key are NOT flagged) |
 | `QualityRecorder` + `qualityTrace`/`formatQualityTrace` | class / functions | Per-step quality scoring + Quality Stack Trace backtracking |
 
 ### TopologyRecorder — Composition Graph for Streaming Consumers
