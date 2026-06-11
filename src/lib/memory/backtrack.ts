@@ -411,7 +411,17 @@ export function causalChain(
     // stamps the weight at creation; `undefined` → 1.0 — the engine never
     // computes weights itself.
     if (!node.parentEdges.some((e) => e.parent.runtimeStageId === parentId && e.kind === kind && e.key === key)) {
-      const weight = weigh ? weigh(node, parentNode, key, kind) ?? 1.0 : 1.0;
+      // Error isolation (review finding): a consumer weigher that throws
+      // must degrade to the default weight, never crash the slice — the
+      // same contract every other consumer callback in the library gets.
+      let weight = 1.0;
+      if (weigh) {
+        try {
+          weight = weigh(node, parentNode, key, kind) ?? 1.0;
+        } catch {
+          /* weigher threw — keep 1.0, the slice stays usable */
+        }
+      }
       node.parentEdges.push({ parent: parentNode, kind, key, weight });
     }
   }

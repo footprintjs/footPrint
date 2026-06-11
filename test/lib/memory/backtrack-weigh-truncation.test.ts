@@ -195,3 +195,18 @@ describe('causalChain — truncation visibility (D4)', () => {
     expect(text).toContain('⚠ slice truncated (maxDepth reached, maxNodes reached)');
   });
 });
+
+describe('EdgeWeigher — error isolation (review finding)', () => {
+  it('a throwing weigher never crashes the slice; edges fall back to weight 1.0', () => {
+    const log = [commit('seed', 'seed#0', ['systemPrompt'], 0), commit('call-llm', 'call-llm#1', ['answer'], 1)];
+    const reads = readsFrom({ 'call-llm#1': ['systemPrompt'] });
+    const root = causalChain(log, 'call-llm#1', reads, {
+      weigh: () => {
+        throw new Error('weigher boom');
+      },
+    });
+    expect(root).toBeDefined();
+    expect(root!.parentEdges.length).toBeGreaterThan(0);
+    for (const edge of root!.parentEdges) expect(edge.weight).toBe(1.0);
+  });
+});
