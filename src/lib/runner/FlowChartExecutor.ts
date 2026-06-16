@@ -201,6 +201,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
   /** Shared execution counter — survives pause/resume. Reset on fresh run(). */
   private _executionCounter = { value: 0 };
+  /** Shared per-run visit counts (by stageId) driving TraversalContext.loopIteration.
+   *  Twin of _executionCounter: survives pause/resume, reset on fresh run(). */
+  private _visitCounts = new Map<string, number>();
   /** Per-`run()` identifier — generated fresh per run + per resume. Threaded
    *  through every TraversalContext so recorders can scope state to a single
    *  run. See `runId.ts`. */
@@ -513,6 +516,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionEnv: env,
       flowRecorders: this.buildFlowRecordersList(),
       executionCounter: this._executionCounter,
+      visitCounts: this._visitCounts,
       runId: this._currentRunId,
       ...(overrides?.subflowsOverride && { subflows: overrides.subflowsOverride }),
       ...(overrides?.subflowStatesForResume && {
@@ -1453,6 +1457,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     this.lastCheckpoint = undefined;
     this._executionCounter = { value: 0 }; // Reset counter on fresh run
+    this._visitCounts = new Map(); // Reset loop-iteration counts on fresh run (twin of _executionCounter)
     this._currentRunId = generateRunId(); // Fresh runId per run() call
     this._hasRunBefore = true; // mark so a later resume() takes the
     // same-executor branch (reuse runtime, accumulate execution tree).

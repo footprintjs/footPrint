@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { FlowRecorder, FlowStageEvent, TraversalContext } from '../../../../src';
+import type { FlowRecorder, FlowStageEvent, PausableHandler, TraversalContext } from '../../../../src';
 import { decide, flowChart, FlowChartExecutor } from '../../../../src';
 
 /** Capture (stageId, loopIteration) off every onStageExecuted event. */
@@ -187,6 +187,57 @@ describe('loopIteration — every stage kind (looped decider)', () => {
     expect(route[0]).toBeUndefined();
     expect(route.slice(1)).toEqual(route.slice(1).map((_, i) => i + 1));
     expect(route.length).toBeGreaterThan(1);
+  });
+});
+
+// ─── 3b. INTEGRATION — resume CONTINUES the count (twin of executionIndex) ──
+describe('loopIteration — pause/resume continuity', () => {
+  it('continues across same-executor resume — does NOT reset (mirrors executionCounter)', async () => {
+    interface S {
+      pass?: number;
+      approved?: boolean;
+    }
+    // seed → A(linear) → P(pausable) → loopTo(A). A breaks after 3 passes.
+    // P pauses on the first execute; after resume (approved) it continues.
+    const handler: PausableHandler<S> = {
+      execute: async (scope) => (scope.approved ? undefined : { question: 'approve?' }),
+      resume: async (scope, input) => {
+        scope.approved = (input as { approved: boolean }).approved;
+      },
+    };
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        if (s.pass === undefined) s.pass = 0;
+      },
+      'seed',
+    )
+      .addFunction(
+        'A',
+        (s) => {
+          s.pass = (s.pass ?? 0) + 1;
+          if ((s.pass ?? 0) >= 3) s.$break();
+        },
+        'step-a',
+      )
+      .addPausableFunction('P', handler, 'gate')
+      .loopTo('step-a')
+      .build();
+
+    const { recorder, rows } = captureLoopIterations();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(recorder);
+
+    await executor.run({ input: {} });
+    expect(executor.isPaused()).toBe(true);
+    // Before pause: A ran once → loopIteration absent.
+    expect(rows.filter((r) => r.stageId === 'step-a').map((r) => r.loopIteration)).toEqual([undefined]);
+
+    await executor.resume(executor.getCheckpoint()!, { approved: true });
+
+    // After resume A re-runs; its count must CONTINUE (1, 2 …) not restart at undefined.
+    const a = rows.filter((r) => r.stageId === 'step-a').map((r) => r.loopIteration);
+    expect(a).toEqual([undefined, 1, 2]); // NOT [undefined, undefined, 1] — counts survive resume
   });
 });
 
