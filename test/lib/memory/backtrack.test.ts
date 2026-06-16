@@ -348,35 +348,16 @@ describe('causalChain — loop scenarios', () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════
-// 5. SUBFLOW SCENARIOS
-// ════════════════════════════════════════════════════════════════════════
-
-describe('causalChain — subflow scenarios', () => {
-  it('subflow stage writes data consumed by parent stage after subflow', () => {
-    const log = [
-      commit('seed', 'seed#0', ['orderId', 'amount'], 0),
-      commit('sf-pay/validate', 'sf-pay/validate#1', ['cardValid'], 1),
-      commit('sf-pay/charge', 'sf-pay/charge#2', ['txnId'], 2),
-      commit('ship', 'ship#3', ['shipped'], 3),
-    ];
-    const reads = readsFrom({
-      'ship#3': ['txnId', 'orderId'],
-      'sf-pay/charge#2': ['cardValid', 'amount'],
-      'sf-pay/validate#1': ['amount'],
-      'seed#0': [],
-    });
-
-    const root = causalChain(log, 'ship#3', reads)!;
-    const flat = flattenCausalDAG(root);
-    const ids = flat.map((n) => n.runtimeStageId);
-
-    expect(ids).toContain('sf-pay/charge#2'); // wrote txnId
-    expect(ids).toContain('seed#0'); // wrote orderId
-    // Full chain should go: ship ← sf-pay/charge ← sf-pay/validate ← seed
-    expect(flat.length).toBe(4);
-  });
-});
+// NOTE (2026-06-16): a former "causalChain — subflow scenarios" block was REMOVED
+// here. It hand-built a SINGLE flat commit log with subflow-prefixed commits
+// (sf-pay/validate#1, sf-pay/charge#2) interleaved among parent commits and asserted
+// a cross-subflow chain — a shape the ENGINE NEVER PRODUCES. Subflows run in isolated
+// runtimes with their own commit logs (SubflowExecutor.ts:119); nested commits are NOT
+// merged into the run log. The test was an aspirational fiction (it implied a merge that
+// never happened) and was misleading about the engine's contract. The slicer's
+// pure-function BFS chaining is still covered by the `flattenCausalDAG` tests below;
+// honest per-scope-log coverage (where subflow-prefixed ids legitimately appear) lands
+// with the per-scope localization work. See docs/design/subflow-commit-visibility.md.
 
 // ════════════════════════════════════════════════════════════════════════
 // 6. UTILITIES

@@ -197,7 +197,13 @@ describe('Scenario: Subflow Execution', () => {
     await executor.run();
 
     const results = executor.getSubflowResults();
-    expect(results.size).toBe(1);
+    // Dual-keyed (design: docs/design/subflow-commit-visibility.md): the subflow PATH key
+    // ('sf', = last iteration) AND the per-execution mount runtimeStageId key. For a single,
+    // non-looping mount both point at the SAME result object.
+    expect(results.has('sf')).toBe(true);
+    const execKey = [...results.keys()].find((k) => k.includes('#'));
+    expect(execKey).toBeDefined();
+    expect(results.get(execKey!)).toBe(results.get('sf'));
 
     const sfResult = results.get('sf');
     expect(sfResult).toBeDefined();

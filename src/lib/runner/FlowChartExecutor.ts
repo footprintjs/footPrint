@@ -983,6 +983,26 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
     const snapshot = this.traverser.getSnapshot();
     const sfResults = this.traverser.getSubflowResults();
+    // Lean subflowResults for the checkpoint (design: docs/design/subflow-commit-visibility.md):
+    //   • DROP the per-iteration mount-runtimeStageId keys ('#') that the snapshot dual-keys —
+    //     they would DOUBLE the checkpoint, and resume restores scope from `subflowStates`, not these.
+    //   • STRIP each subflow's `treeContext.history` — resume NEVER reads `subflowResults` (it
+    //     restores from `subflowStates` + `sharedState`), so the per-subflow commit log is pure
+    //     checkpoint bloat. The flat agent's checkpoint carries no commit history either → symmetric.
+    const leanSubflowResults: Record<string, unknown> = {};
+    for (const [key, value] of sfResults) {
+      if (key.includes('#')) continue; // per-iteration keys are snapshot-only
+      const v = value as unknown as { treeContext?: Record<string, unknown> };
+      if (v?.treeContext) {
+        const treeCtxRest: Record<string, unknown> = {};
+        for (const ck of Object.keys(v.treeContext)) {
+          if (ck !== 'history') treeCtxRest[ck] = v.treeContext[ck]; // strip the per-subflow commit log
+        }
+        leanSubflowResults[key] = { ...(value as unknown as Record<string, unknown>), treeContext: treeCtxRest };
+      } else {
+        leanSubflowResults[key] = value;
+      }
+    }
     const checkpoint = {
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
@@ -990,7 +1010,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       subflowPath: signal.subflowPath,
       pauseData: signal.pauseData,
       subflowStates: signal.subflowStates,
-      ...(sfResults.size > 0 && { subflowResults: Object.fromEntries(sfResults) }),
+      ...(Object.keys(leanSubflowResults).length > 0 && { subflowResults: leanSubflowResults }),
       // Invoker context — collected during traversal bubble-up (not tree-walked)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
       ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),

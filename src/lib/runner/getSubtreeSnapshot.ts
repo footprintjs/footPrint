@@ -34,6 +34,16 @@ export interface SubtreeSnapshot {
   readonly executionTree: StageSnapshot;
   /** Shared state scoped to this subflow (from subflowResults if available). */
   readonly sharedState?: Record<string, unknown>;
+  /**
+   * The subflow's OWN commit log (`treeContext.history`) — the per-subflow audit trail.
+   * This is the public door to a subflow's commits (the run-level `commitLog` carries only
+   * the subflow's MOUNT boundary, not its inner stages — subflows run in isolated runtimes;
+   * see docs/design/subflow-commit-visibility.md). `findLastWriter`/`causalChain`/
+   * `commitValueAt` can run PER-SCOPE over this. Absent when `subflowResults` was not
+   * populated. For a LOOPING subflow this is the LAST iteration; address a specific
+   * iteration by passing its mount `runtimeStageId` as the path.
+   */
+  readonly history?: readonly unknown[];
   /** Narrative entries scoped to this subflow (between entry/exit events). */
   readonly narrativeEntries?: CombinedNarrativeEntry[];
 }
@@ -74,6 +84,7 @@ export function getSubtreeSnapshot(
       executionTree:
         (treeCtx?.stageContexts as unknown as StageSnapshot) ?? findSubflowInTree(snapshot.executionTree, lastSegment),
       sharedState: treeCtx?.globalContext as Record<string, unknown> | undefined,
+      history: treeCtx?.history as readonly unknown[] | undefined,
       narrativeEntries: allNarrativeEntries ? extractScopedNarrative(allNarrativeEntries, lastSegment) : undefined,
     };
   }
@@ -112,7 +123,11 @@ export function getSubtreeSnapshot(
  */
 export function listSubflowPaths(snapshot: RuntimeSnapshot): string[] {
   if (!snapshot?.subflowResults) return [];
-  return Object.keys(snapshot.subflowResults);
+  // `subflowResults` is dual-keyed (design: subflow-commit-visibility): subflow PATHS plus
+  // per-iteration mount `runtimeStageId`s (which contain '#'). This function's contract is
+  // path-only, so filter the '#' keys out — addressing a specific iteration is done by passing
+  // its runtimeStageId straight to getSubtreeSnapshot.
+  return Object.keys(snapshot.subflowResults).filter((k) => !k.includes('#'));
 }
 
 /**

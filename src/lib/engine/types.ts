@@ -297,6 +297,8 @@ export interface IExecutionRuntime {
     sharedState: Record<string, unknown>;
     executionTree: unknown;
     commitLog: unknown[];
+    /** Dual-keyed by subflow path (last iteration) AND per-execution mount runtimeStageId
+     *  (each iteration) — see RuntimeSnapshot.subflowResults / subflow-commit-visibility. */
     subflowResults?: Record<string, unknown>;
     recorders?: Array<{ id: string; name: string; data: unknown }>;
   };

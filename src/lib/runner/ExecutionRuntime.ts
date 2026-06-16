@@ -45,7 +45,16 @@ export type RuntimeSnapshot = {
    * without context remains self-describing via the verbs themselves.
    */
   commitValues: CommitValuesMode;
-  /** Per-subflow execution results (keyed by subflowId). */
+  /**
+   * Per-subflow execution results, DUAL-KEYED (design: docs/design/subflow-commit-visibility.md):
+   *   - by subflow PATH (`subflowId`, e.g. `'sf-pay'`) → the LAST iteration (back-compat); this
+   *     is what `getSubtreeSnapshot(path)` and `listSubflowPaths()` resolve.
+   *   - by per-execution mount `runtimeStageId` (e.g. `'sf-pay#5'`) → THAT iteration's result, so
+   *     a LOOPING subflow retains EVERY iteration (not just the last). Look up a specific
+   *     iteration as `subflowResults[node.runtimeStageId] ?? subflowResults[node.subflowId]`.
+   * Both keys point at the same object for a single mount; iterate with care (count via the
+   * path keys — those without `'#'`). The pause checkpoint carries only the path keys, lean.
+   */
   subflowResults?: Record<string, unknown>;
   /** Snapshot data from recorders that implement toSnapshot(). */
   recorders?: RecorderSnapshot[];

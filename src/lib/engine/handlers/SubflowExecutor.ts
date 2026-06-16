@@ -325,6 +325,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     }
 
     subflowResultsMap.set(subflowId, subflowResult);
+    // Additive per-execution key (design: docs/design/subflow-commit-visibility.md). A LOOPING
+    // subflow re-enters with the SAME subflowId, so the path key above is OVERWRITTEN each
+    // iteration (back-compat: it holds the LAST iteration — what getSubtreeSnapshot/listSubflowPaths
+    // and the eui fallback see, unchanged). ALSO key by the mount's UNIQUE runtimeStageId so EVERY
+    // iteration's result is retained and addressable (eui per-loop drill-down, per-scope localization).
+    // runtimeStageId always contains '#'; subflowId never does — so they never collide, and
+    // listSubflowPaths filters '#' keys to keep its path-only contract. The pause checkpoint filters
+    // these out (buildPauseCheckpoint) so it stays lean.
+    const mountRuntimeStageId = parentTraversalContext?.runtimeStageId;
+    if (mountRuntimeStageId && mountRuntimeStageId !== subflowId) {
+      subflowResultsMap.set(mountRuntimeStageId, subflowResult);
+    }
 
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
       targetStage: subflowId,
