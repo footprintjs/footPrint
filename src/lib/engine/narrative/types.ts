@@ -211,7 +211,14 @@ export interface TraversalContext {
   readonly subflowPath?: string;
   /** Nesting depth (0 = root, 1 = inside first subflow, etc.). */
   readonly depth: number;
-  /** Loop iteration number when revisiting a node via loopTo. */
+  /**
+   * How many times this stage has executed BEFORE in this run — the loop
+   * iteration count when a node is revisited (e.g. via `loopTo`). Absent on the
+   * first execution; `1` on the first loop-back, `2` on the next, … (i.e.
+   * `visitCount - 1`). Run-scoped (resets each `run()`/`resume()`) and monotonic
+   * across subflow re-mounts. Populated for every stage kind. Mirrors the
+   * narrative recorder's "pass N" count.
+   */
   readonly loopIteration?: number;
   /** Fork branch ID when inside a parallel or decider branch. */
   readonly forkBranch?: string;

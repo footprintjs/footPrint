@@ -111,6 +111,13 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   /** Shared execution counter from parent traverser. Subflows continue the parent's numbering. */
   executionCounter?: { value: number };
   /**
+   * Shared per-run visit-count map (keyed by stageId) from the parent traverser.
+   * Drives `TraversalContext.loopIteration`. Shared with subflows so a stage
+   * re-entered across a subflow re-mount keeps a correct, monotonic iteration
+   * count — the same single-map semantics the narrative recorder uses.
+   */
+  visitCounts?: Map<string, number>;
+  /**
    * Per-subflow scope captures from a checkpoint, on the resume path.
    * Forwarded to `HandlerDeps.subflowStatesForResume` so SubflowExecutor
    * can re-seed nested runtimes from pre-pause state instead of running
@@ -287,6 +294,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly _executionCounter: { value: number };
 
   /**
+   * Shared per-run visit counts keyed by stageId — how many times each stage
+   * has executed in this run. Shared with child traversers (subflows) so a
+   * looped-back stage's iteration count is monotonic across subflow re-mounts,
+   * matching the narrative recorder's single-map semantics. Drives
+   * `TraversalContext.loopIteration`.
+   */
+  private readonly _visitCounts: Map<string, number>;
+
+  /**
    * Per-instance maximum depth (set from TraverserOptions.maxDepth or the class default).
    */
   private readonly _maxDepth: number;
@@ -329,6 +345,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
     this._maxIterations = opts.maxIterations;
     this._executionCounter = opts.executionCounter ?? { value: 0 };
+    this._visitCounts = opts.visitCounts ?? new Map();
     this.root = opts.root;
     // Shallow-copy stageMap and subflows so that lazy-resolution mutations
     // (prefixed entries added during execution) stay scoped to THIS traverser
@@ -433,6 +450,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // the subflow's root stage so ancestor chains cross the boundary.
         parentMountRuntimeStageId: subflowOpts.parentMountRuntimeStageId,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
+        visitCounts: this._visitCounts, // Share visit counts — loopIteration stays monotonic across subflow re-mounts
         runId: this.runId, // Subflow inherits parent's runId — same logical run
         // Forward the resume-only subflow scope captures so nested
         // SubflowExecutors can re-seed deeper-nested runtimes (e.g.
@@ -808,14 +826,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // initial `''`, which must also fall through to the mount fallback.
     const parentRuntimeStageId = context.parent?.runtimeStageId || this.parentMountRuntimeStageId;
 
+    // loopIteration — how many times THIS stage has run before in this run.
+    // Keyed by the same stageId we stamp on the context (and the same value the
+    // narrative recorder counts on), run-scoped and shared across subflow
+    // re-mounts via `_visitCounts`. undefined on the first visit; 1 on the
+    // first loop-back, 2 on the next, … — i.e. visitCount - 1. Counted for
+    // EVERY stage kind (any node can be a loop target), unlike the narrative
+    // recorder which only renders it for linear stages.
+    const contextStageId = node.id ?? context.stageId;
+    const visitCount = (this._visitCounts.get(contextStageId) ?? 0) + 1;
+    this._visitCounts.set(contextStageId, visitCount);
+    const loopIteration = visitCount > 1 ? visitCount - 1 : undefined;
+
     // Build traversal context for recorder events — created once per stage, shared by all events
     const traversalContext: TraversalContext = {
       runId: this.runId,
-      stageId: node.id ?? context.stageId,
+      stageId: contextStageId,
       runtimeStageId: context.runtimeStageId,
       stageName: node.name,
       parentStageId: context.parent?.stageId,
       ...(parentRuntimeStageId && { parentRuntimeStageId }),
+      ...(loopIteration !== undefined && { loopIteration }),
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
       depth: this.computeContextDepth(context),
