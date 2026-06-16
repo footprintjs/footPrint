@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.9.0] - 2026-06-16
+
+### Fixed
+
+- **Subflow commit visibility — a looping subflow now retains EVERY iteration's
+  commit log, not just the last** (additive, non-breaking). A deep subflow runs in
+  an isolated runtime with its own commit log; `subflowResults` was keyed ONLY by the
+  path-prefixed `subflowId`, so a loop re-entering the same subflow OVERWROTE the
+  previous iteration — only the last survived. This silently broke per-loop causal
+  backtracking inside any deep subflow (e.g. an agent's `call-llm` wrapped in
+  `sf-llm-call`) and the explainable-ui drill-down (every loop iteration rendered the
+  last iteration's internals).
+
+### Added
+
+- `subflowResults` is now **dual-keyed**: by subflow path (`subflowId` → the LAST
+  iteration, back-compat — what `getSubtreeSnapshot` / `listSubflowPaths` resolve) AND
+  by the per-execution mount `runtimeStageId` (e.g. `sf-pay#5` → that iteration). Look
+  up a specific iteration as `subflowResults[node.runtimeStageId] ?? subflowResults[node.subflowId]`.
+- `getSubtreeSnapshot()` now exposes **`history`** (the subflow's own commit log) — the
+  first public door to a deep subflow's commits. `listSubflowPaths()` stays path-only
+  (the per-execution `#` keys are filtered).
+
+### Design
+
+- The 9-agent review rejected MERGING nested commits into the run commit log as
+  provably unsafe (bare-key cross-scope collision under the `runId===''` namespace); the
+  run-level commit-log isolation invariant is untouched. The pause checkpoint stays lean
+  (drops the per-iteration keys + strips per-subflow `history` — `resume()` never reads
+  `subflowResults`). See `docs/design/subflow-commit-visibility.md`.
+
 ## [9.8.0] - 2026-06-11
 
 ### Added
