@@ -4,12 +4,15 @@ on:
   release:
     types: [published]
 
+# Least privilege: NO id-token at the top level. OIDC publish power is granted ONLY to the
+# `publish` job, which consumes a PRE-PACKED tarball and does ZERO dependency resolution —
+# so the unpinned `npm install` (in `build`) never shares a runtime with the registry token
+# or `npm publish --provenance`.
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,21 +20,48 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          registry-url: https://registry.npmjs.org
 
-      - run: npm ci
+      # Fresh resolution — no committed lockfile (vitest 4.x pulls rolldown's per-OS native
+      # binding; a cross-OS lock breaks CI, npm #4828). This job has NO publish power.
+      - run: npm install
       - run: npm test
       - run: npm run build
 
-      # Trusted publishing requires npm >= 11.5.1, but newer npm
-      # changes optional peer-dep resolution in ways that break our
-      # test suite. Upgrade ONLY for the publish step, AFTER tests.
+      # Pack here, where node_modules + .git exist, so the `prepare` (husky) lifecycle runs
+      # cleanly. The publish job consumes this exact tarball — it does NOT re-pack (which
+      # would re-trigger lifecycle scripts in a node_modules-less runner).
+      - name: Pack the publishable tarball
+        run: |
+          npm pack
+          mv ./*.tgz package.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-tarball
+          path: package.tgz
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing — granted to THIS job only
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-tarball
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Upgrade npm ITSELF (trusted publishing needs >= 11.5.1) — not the project's deps.
       - run: npm install -g npm@latest
 
-      # Trusted publishing: no NODE_AUTH_TOKEN set. npm CLI authenticates
-      # to the registry via the GitHub OIDC token (granted by id-token:
-      # write permission above). npm verifies the publish is from a
-      # trusted GitHub workflow per the package's trusted-publisher config.
+      # Publish the pre-packed tarball directly. No node_modules, no dependency resolution,
+      # and lifecycle scripts (prepack/prepare) do NOT re-run — they already ran at pack time.
+      # Trusted publishing: no NODE_AUTH_TOKEN — npm authenticates via the GitHub OIDC token.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish ./package.tgz --provenance --access public

@@ -45,3 +45,8 @@ Thumbs.db
 .claude/
 .playwright-mcp/
 coverage
+
+# Published library: lockfile is dev-only (stripped on publish) and vitest 4.x pulls
+# rolldown's per-OS native binding (npm #4828), so a committed cross-OS lock breaks CI.
+# NOTE: docs-site/package-lock.json (the deployed docs APP) is intentionally NOT ignored.
+/package-lock.json

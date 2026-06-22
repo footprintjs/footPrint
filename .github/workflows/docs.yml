@@ -29,10 +29,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      # 1. Install library deps and build TypeDoc API reference
-      - run: npm ci
+      # 1. Install library deps and build TypeDoc API reference.
+      # No committed root lockfile (library policy); `cache: npm` dropped (it requires one).
+      # The docs-site app below keeps its own committed lock + npm ci.
+      - run: npm install
       - run: npm run docs
         # Outputs to api-docs/ — will be nested under /footPrint/api/
 
