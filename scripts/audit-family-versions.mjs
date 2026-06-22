@@ -14,12 +14,16 @@
  *
  * This is the polyrepo stand-in for syncpack's single-version-policy — syncpack can't see
  * across repos. Run locally (or as a cron) from any checkout:
- *   node scripts/audit-family-versions.mjs [orgRootDir]
+ *   node scripts/audit-family-versions.mjs [orgRootDir] [--deep]
  * orgRootDir defaults to the parent of this repo (the dir holding all the family checkouts).
- * Exits non-zero if any error-class issue is found.
+ * --deep adds a FLEET CANARY: installs every PUBLISHED family lib together in a throwaway
+ * consumer and asserts the singletons (footprintjs/react/react-dom) each resolve to ONE copy
+ * (catches an emergent diamond that the declared-range audit can't see). Exits non-zero on
+ * any error-class finding.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -35,9 +39,9 @@ const FAMILY = {
 const CONSUMERS = { 'neo-agentfootprint': 'neo-agentfootprint' };
 
 const FAMILY_NAMES = new Set(Object.keys(FAMILY));
-const orgRoot = resolve(
-  process.argv[2] || resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
-);
+// first NON-flag arg is the org root (so `--deep` isn't mistaken for a path)
+const rootArg = process.argv.slice(2).find((a) => !a.startsWith('--'));
+const orgRoot = resolve(rootArg || resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
 
 function npmLatest(pkg) {
   try {
@@ -108,6 +112,54 @@ for (const [, dir] of Object.entries({ ...FAMILY, ...CONSUMERS })) {
   }
   console.log(`• ${self} [${dir}]`);
   rows.forEach((r) => console.log(r));
+}
+
+// --deep: the FLEET CANARY. The range audit above checks DECLARED ranges; this resolves
+// REALITY — installs every PUBLISHED family lib together in a throwaway consumer and asserts
+// the singletons (footprintjs/react/react-dom) each collapse to ONE physical copy. Catches an
+// emergent diamond: two individually-valid ranges that are jointly unsatisfiable-as-single,
+// which silently breaks instanceof/Context. Opt-in (it does a real npm install).
+if (process.argv.includes('--deep')) {
+  console.log('\n--deep fleet canary: resolving all published family libs in a throwaway consumer…');
+  const tmp = mkdtempSync(resolve(tmpdir(), 'fp-canary-'));
+  try {
+    const deps = { react: '^18.3.1', 'react-dom': '^18.3.1' };
+    for (const pkg of FAMILY_NAMES) if (latest[pkg]) deps[pkg] = `^${latest[pkg]}`;
+    writeFileSync(
+      resolve(tmp, 'package.json'),
+      JSON.stringify({ name: 'fp-fleet-canary', private: true, dependencies: deps }, null, 2),
+    );
+    execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: tmp, stdio: 'ignore' });
+    let lsJson = '{}';
+    try {
+      lsJson = execFileSync('npm', ['ls', '--all', '--json'], {
+        cwd: tmp,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch (e) {
+      lsJson = e.stdout || '{}'; // npm ls exits non-zero on optional-peer warnings; JSON is still emitted
+    }
+    const singletons = new Set(['footprintjs', 'react', 'react-dom']);
+    const versions = {};
+    (function walk(node) {
+      for (const [name, info] of Object.entries(node?.dependencies || {})) {
+        if (singletons.has(name) && info.version) (versions[name] ||= new Set()).add(info.version);
+        walk(info);
+      }
+    })(JSON.parse(lsJson));
+    for (const name of singletons) {
+      const vs = [...(versions[name] || [])];
+      const dup = vs.length > 1;
+      if (dup)
+        errors.push(
+          `--deep: ${name} resolves to MULTIPLE versions [${vs.join(', ')}] — emergent diamond (silent dual-instance)`,
+        );
+      console.log(`    ${name.padEnd(14)} → ${vs.length ? vs.join(', ') : '(unresolved)'}  ${dup ? '✗ DUPLICATE' : '✓'}`);
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 console.log('');
