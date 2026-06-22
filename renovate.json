@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "packageRules": [
+    {
+      "description": "footprintjs family: group internal bumps and automerge minor/patch once CI is green",
+      "matchPackageNames": [
+        "footprintjs",
+        "agentfootprint",
+        "agentfootprint-lens",
+        "footprint-explainable-ui",
+        "agentthinkingui"
+      ],
+      "groupName": "footprintjs family",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "peer ranges stay manual: bump the floor deliberately at a real major, never auto-widen",
+      "matchDepTypes": ["peerDependencies"],
+      "enabled": false
+    },
+    {
+      "description": "majors always need a human",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}
