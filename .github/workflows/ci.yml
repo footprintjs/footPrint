@@ -38,8 +38,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - run: npm ci
+      # No committed lockfile (library policy); cache:npm dropped (it requires one).
+      - run: npm install
       - run: npm run lint
       - run: npm run format
