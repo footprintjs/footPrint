@@ -65,7 +65,7 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   executionRuntime: IExecutionRuntime;
   readOnlyContext?: unknown;
   /** Execution environment — propagates to subflows automatically. */
-  executionEnv?: import('../../engine/types').ExecutionEnv;
+  executionEnv?: import('../../engine/types.js').ExecutionEnv;
   throttlingErrorChecker?: (error: unknown) => boolean;
   streamHandlers?: StreamHandlers;
   scopeProtectionMode?: ScopeProtectionMode;

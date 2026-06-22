@@ -336,7 +336,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private createTraverser(
     signal?: AbortSignal,
     readOnlyContextOverride?: unknown,
-    env?: import('../engine/types').ExecutionEnv,
+    env?: import('../engine/types.js').ExecutionEnv,
     maxDepth?: number,
     maxIterations?: number,
     overrides?: {

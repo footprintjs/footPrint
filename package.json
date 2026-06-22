@@ -39,7 +39,7 @@
   },
   "scripts": {
     "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
-    "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild-esm.mjs",
+    "build": "rm -rf dist && tsc && tsc -p tsconfig.esm.json && node scripts/postbuild-esm.mjs",
     "prepare": "husky",
     "watch": "tsc -w",
     "test": "vitest run",
@@ -79,34 +79,73 @@
   "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.js",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./advanced": {
-      "types": "./dist/types/advanced.d.ts",
-      "import": "./dist/esm/advanced.js",
-      "require": "./dist/advanced.js"
+      "import": {
+        "types": "./dist/esm/advanced.d.ts",
+        "default": "./dist/esm/advanced.js"
+      },
+      "require": {
+        "types": "./dist/types/advanced.d.ts",
+        "default": "./dist/advanced.js"
+      }
     },
     "./recorders": {
-      "types": "./dist/types/recorders.d.ts",
-      "import": "./dist/esm/recorders.js",
-      "require": "./dist/recorders.js"
+      "import": {
+        "types": "./dist/esm/recorders.d.ts",
+        "default": "./dist/esm/recorders.js"
+      },
+      "require": {
+        "types": "./dist/types/recorders.d.ts",
+        "default": "./dist/recorders.js"
+      }
     },
     "./trace": {
-      "types": "./dist/types/trace.d.ts",
-      "import": "./dist/esm/trace.js",
-      "require": "./dist/trace.js"
+      "import": {
+        "types": "./dist/esm/trace.d.ts",
+        "default": "./dist/esm/trace.js"
+      },
+      "require": {
+        "types": "./dist/types/trace.d.ts",
+        "default": "./dist/trace.js"
+      }
     },
     "./detach": {
-      "types": "./dist/types/detach.d.ts",
-      "import": "./dist/esm/detach.js",
-      "require": "./dist/detach.js"
+      "import": {
+        "types": "./dist/esm/detach.d.ts",
+        "default": "./dist/esm/detach.js"
+      },
+      "require": {
+        "types": "./dist/types/detach.d.ts",
+        "default": "./dist/detach.js"
+      }
     },
     "./zod": {
-      "types": "./dist/types/zod.d.ts",
-      "import": "./dist/esm/zod.js",
-      "require": "./dist/zod.js"
+      "import": {
+        "types": "./dist/esm/zod.d.ts",
+        "default": "./dist/esm/zod.js"
+      },
+      "require": {
+        "types": "./dist/types/zod.d.ts",
+        "default": "./dist/zod.js"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "advanced": ["./dist/types/advanced.d.ts"],
+      "recorders": ["./dist/types/recorders.d.ts"],
+      "trace": ["./dist/types/trace.d.ts"],
+      "detach": ["./dist/types/detach.d.ts"],
+      "zod": ["./dist/types/zod.d.ts"]
     }
   },
   "lint-staged": {
@@ -125,6 +164,7 @@
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.1",
     "@typescript-eslint/eslint-plugin": "^5.61.0",
     "@typescript-eslint/parser": "^5.61.0",
     "@vitest/coverage-v8": "^4.1.8",
@@ -142,6 +182,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "prettier": "^2.8.1",
+    "publint": "^0.3.0",
     "typedoc": "^0.28.17",
     "typescript": "~5.4.5",
     "vitest": "^4.0.18",

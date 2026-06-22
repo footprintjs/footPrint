@@ -4,7 +4,7 @@
     "module": "ES2020",
     "moduleResolution": "bundler",
     "outDir": "./dist/esm",
-    "declaration": false,
-    "declarationDir": null
+    "declaration": true,
+    "declarationDir": "./dist/esm"
   }
 }
