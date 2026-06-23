@@ -633,9 +633,11 @@ flowChart('process', async (scope) => {
 }, 'process').build();
 ```
 
-**Built-in drivers** (more in v4.17.1):
+**Built-in drivers** (six kinds, from `footprintjs/detach`):
 - `microtaskBatchDriver` — coalesces N detaches into one `queueMicrotask` flush. Default for in-process.
 - `immediateDriver` — runs sync inside `schedule()`. Test fixture / debugging aid.
+- `setImmediateDriver` / `setTimeoutDriver` — defer to the macrotask queue.
+- `createSendBeaconDriver()` / `createWorkerThreadDriver()` — factory-only (no default singleton) for browser-beacon / worker-thread offload.
 
 **Custom drivers**: `createMicrotaskBatchDriver(runChild)` / `createImmediateDriver(runChild)` accept a custom `ChildRunner` so consumers can wrap the executor (e.g., for tracing context). Drivers are **passed explicitly** as the first arg — no library-default to keep the engine free of driver imports.
 

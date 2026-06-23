@@ -2,6 +2,24 @@
 
 Comprehensive guides for using FootPrint — the flowchart pattern for self-explainable backend code.
 
+**New here?** Read in this order: **[Patterns](patterns.md)** → **[Scope](scope.md)** → **[Flow Recorders](flow-recorders.md)**. The rest (Execution Control, Error Handling, Contracts, Performance) is reference to reach for when you need it.
+
+### Vocabulary
+
+footprint uses a few of its own terms — here's the standard concept behind each:
+
+| footprint term | = the thing you already know |
+|---|---|
+| **scope** | the run's shared **state** (working memory), but every read/write is tracked |
+| **narrative** | the execution **trace** as plain-English sentences (LLM-readable) |
+| **recorder** | an **observer** called on each read, write, and decision |
+| **subflow** | a nested flowchart composed like a **function** |
+| **decider** / **selector** | a **router** (one branch) / **parallel fan-out** (many) |
+| **commit log** | the ordered record of **what each step wrote** (powers time-travel) |
+| **runtimeStageId** | a **step id** — the key that links trace events, commit-log entries, and tree nodes |
+
+---
+
 | Guide | What it covers |
 |-------|---------------|
 | **[Patterns](patterns.md)** | All 7 flowchart composition patterns — linear, parallel, conditional, multi-select, subflow, streaming, and loops — with diagrams |

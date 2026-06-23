@@ -236,7 +236,8 @@ export interface FlowchartCheckpoint {
 /**
  * Handler for a pausable stage — has two phases: execute and resume.
  *
- * `execute` runs the first time. It can return `{ pause: true }` to pause.
+ * `execute` runs the first time. Return any non-void value to pause (that value
+ * becomes the checkpoint's `pauseData`); return void/undefined to continue normally.
  * `resume` runs when the flowchart is resumed. It receives the resume input.
  *
  * Both phases receive the same scope. After execute pauses, the scope state
@@ -249,7 +250,7 @@ export interface FlowchartCheckpoint {
  *   execute: async (scope) => {
  *     scope.orderId = '123';
  *     scope.amount = 299;
- *     return { pause: true, data: { question: `Approve $${scope.amount} refund?` } };
+ *     return { question: `Approve $${scope.amount} refund?` };
  *   },
  *   resume: async (scope, input) => {
  *     scope.approved = input.approved;

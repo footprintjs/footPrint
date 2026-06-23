@@ -1244,7 +1244,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * Add a pausable stage — can pause execution and resume later with input.
    *
    * The handler has two phases:
-   * - `execute`: runs first time. Return `{ pause: true }` to pause.
+   * - `execute`: runs first time. Return any non-void value to pause (it becomes
+   *   the checkpoint's `pauseData`); return void/undefined to continue normally.
    * - `resume`: runs when the flowchart is resumed with input.
    *
    * @example
@@ -1252,7 +1253,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * .addPausableFunction('ApproveOrder', {
    *   execute: async (scope) => {
    *     scope.orderId = '123';
-   *     return { pause: true, data: { question: 'Approve?' } };
+   *     return { question: 'Approve?' };
    *   },
    *   resume: async (scope, input) => {
    *     scope.approved = input.approved;
@@ -1994,6 +1995,28 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 // Factory Function
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Start a flowchart with its first stage; returns a fluent builder.
+ *
+ * Chain `.addFunction()` / `.addDeciderFunction()` / `.addSelectorFunction()` /
+ * `.addSubFlowChart()` etc. to add more stages, then finish with `.build()`.
+ *
+ * @param name    Human-readable display label for the stage (shown in the narrative/trace).
+ * @param fn      The stage's work — a `(scope) => …` function, or a `PausableHandler` for human-in-the-loop pauses.
+ * @param id      Stable stage id used in traces, the commit log, and `runtimeStageId`. Keep it unique within the chart.
+ * @param options Optional `{ description?, structureRecorders? }`.
+ *
+ * @example
+ * const chart = flowChart<State>('FetchUser', async (scope) => {
+ *   scope.user = await getUser();
+ * }, 'fetch-user')
+ *   .addFunction('Process', processFn, 'process')
+ *   .build();
+ *
+ * const trace = narrative();
+ * const result = await chart.recorder(trace).run();
+ * console.log(trace.getEntries().map((e) => e.text).join('\n'));
+ */
 // Overload 1: typed state with options object.
 export function flowChart<TState extends object>(
   name: string,

@@ -65,7 +65,7 @@ Stage 4: Next step: Generate rejection.
   Step 1: Write decision = "REJECTED — below-average credit; DTI exceeds 43%; Self-employed < 2yr"
 ```
 
-The LLM backtracks: `riskTier="high"` &larr; `dtiStatus="excessive"` &larr; `dtiRatio=0.6` &larr; `app.monthlyDebts=2100`. Every variable links to its cause:
+The LLM backtracks through the trace, reading `&larr;` as *caused-by* &mdash; each value links to the write that produced it: `riskTier="high"` &larr; `riskFactors` &larr; `creditScore=580`, `dti=0.6`. Every variable links to its cause:
 
 > **LLM:** "Your application was rejected because your debt-to-income ratio of 60% exceeds the 43% maximum, your credit score of 580 falls in the 'fair' tier, and your self-employment tenure of 1 year is below the 2-year minimum."
 
@@ -107,28 +107,43 @@ const chart = flowChart<State>('FetchUser', async (scope) => {
     .end()
   .build();
 
-// 3. Run — state + self-generated trace included
-const result = await chart.recorder(narrative()).run();
+// 3. Run — capture the narrative recorder so you can read the trace back
+const trace = narrative();
+const result = await chart.recorder(trace).run();
 
-console.log(result.state.lane);     // "VIP express"
-console.log(result.narrative);
-// [
-//   "Stage 1: The process began with FetchUser.",
-//   "  Step 1: Write user = {name, tier}",
-//   "Stage 2: Next, it moved on to ApplyDiscount.",
-//   "  Step 1: Read user = {name, tier}",
-//   "  Step 2: Write discount = 0.2",
-//   "Stage 3: Next step: Route by discount tier.",
-//   "  Step 1: Read discount = 0.2",
-//   "[Condition]: It evaluated Rule 0 \"High discount\": discount 0.2 gt 0.1 ✓, and chose VIPCheckout.",
-//   "Stage 4: Next, it moved on to VIPCheckout.",
-//   "  Step 1: Write lane = \"VIP express\"",
-// ]
+console.log(result.state.lane);                          // "VIP express"
+console.log(trace.getEntries().map((e) => e.text).join('\n'));
+// Stage 1: The process began with FetchUser.
+//   Step 1: Write user = {name, tier}
+// Stage 2: Next, it moved on to ApplyDiscount.
+//   Step 1: Read user = {name, tier}
+//   Step 2: Write discount = 0.2
+// Stage 3: Next step: Route by discount tier.
+//   Step 1: Read discount = 0.2
+// [Condition]: It evaluated Rule 0 "High discount": discount 0.2 gt 0.1 ✓, and chose VIPCheckout.
+// Stage 4: Next, it moved on to VIPCheckout.
+//   Step 1: Write lane = "VIP express"
 ```
 
 > **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
 >
 > **[Browse 37+ examples](https://footprintjs.github.io/footprint-playground/)** &mdash; patterns, recorders, subflows, integrations, and a full loan underwriting demo
+
+---
+
+## Vocabulary
+
+If you know agent or backend systems, you already know these &mdash; here's footprint's name for each:
+
+| footprint term | = the thing you already know |
+|---|---|
+| **scope** | the run's shared **state** (an agent's working memory) &mdash; but every read/write is tracked |
+| **stage** | a **step** / node in the flowchart |
+| **decider** / **selector** | a **router** (picks one branch) / **parallel fan-out** (picks many) |
+| **subflow** | a nested flowchart you compose like a **function** |
+| **recorder** | an **observer** &mdash; called on each read, write, and decision |
+| **narrative** | the execution **trace** rendered as plain-English sentences (the LLM-readable form) |
+| **commit log** | the ordered record of **what each step wrote** &mdash; powers time-travel replay |
 
 ---
 
@@ -138,7 +153,7 @@ Expose any flowchart as an MCP tool in one line &mdash; the description, input s
 
 ```typescript
 const tool = chart.toMCPTool();
-// { name: 'assesscredit', description: '1. AssessCredit\n2. ...', inputSchema: { ... } }
+// { name: 'AssessCredit', description: 'FlowChart: AssessCredit\nSteps:\n1. AssessCredit\n2. ...', inputSchema: { type: 'object', properties: {} } }
 
 // Register with any MCP server or pass directly to the Anthropic SDK:
 const anthropicTool = { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
@@ -161,7 +176,7 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 | **7 Patterns** | Linear, parallel fork, conditional, multi-select, subflow, streaming, loops |
 | **Transactional State** | Per-stage staged commits, safe merges, time-travel replay |
 | **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
-| **Flow Recorders** | 8 narrative strategies for loop compression |
+| **Flow Recorders** | 7 loop-compression strategies (+ a subflow Manifest recorder) |
 | **Combined Recorders** | Single-hook observers that span data-flow + control-flow &mdash; `executor.attachCombinedRecorder(r)` |
 | **Deferred observers** *(new in 9.6)* | `attach*Recorder(rec, { delivery: 'deferred' })` &mdash; observers run "one beat behind" on a bounded queue instead of inside the engine hot path. Honest backpressure (`drop-oldest`/`sample`/`block`), terminal flush at run resolve/reject/pause, `snapshot.observerStats`. [Guide →](./docs/guides/observers-deferred.md) |
 | **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 + MCP tool generation |

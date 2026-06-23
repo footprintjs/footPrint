@@ -650,8 +650,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * The checkpoint can come from `getCheckpoint()` on a previous run, or from
    * a serialized checkpoint stored in Redis/Postgres/localStorage.
    *
-   * **Narrative/recorder state is reset on resume.** To keep a unified narrative
-   * across pause/resume cycles, collect it before calling resume.
+   * **Recorder/narrative state depends on the resume mode.** Resuming on the SAME
+   * executor that ran preserves and accumulates narrative/metrics/debug across the
+   * pause/resume cycle (preserveRecorders). Resuming on a FRESH executor
+   * (reconstructed from a stored checkpoint) starts with empty recorder state —
+   * collect what you need before discarding the paused executor. A fresh `runId`
+   * is generated either way.
    *
    * @example
    * ```typescript
@@ -1431,6 +1435,23 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return recorders.length > 0 ? recorders : undefined;
   }
 
+  /**
+   * Execute the chart. Resolves when the run finishes — or pauses, if a
+   * pausable stage returned data (check `isPaused()` afterward).
+   *
+   * @param options `{ input, env }` — `input` is the frozen business input
+   *   (read in a stage via `scope.$getArgs()`); `env` is infrastructure context
+   *   like `{ signal, timeoutMs, traceId }` (read via `scope.$getEnv()`).
+   *
+   * After it resolves, read results off the executor:
+   * - `getSnapshot()` — full state, commit log, execution tree.
+   * - `getNarrativeEntries()` — the plain-English trace (call `enableNarrative()`
+   *   or attach a `narrative()` recorder first).
+   * - `isPaused()` — true if a stage paused; then use `getCheckpoint()` / `resume()`.
+   *
+   * One run at a time per executor — it holds per-run state (runId, recorders,
+   * checkpoint). Create one executor per concurrent run.
+   */
   async run(options?: RunOptions): Promise<ExecutorResult> {
     // Re-entrancy guard FIRST — before clearing recorders or touching any
     // per-run field, so a rejected concurrent call leaves the in-flight run
