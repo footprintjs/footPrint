@@ -281,7 +281,7 @@ const llmCommit = findCommit(commitLog, 'call-llm', 'adapterRawResponse');
 | `KeyedStore<T>` | class (v5 primary) | Storage shelf for 1:1 Map keyed by runtimeStageId (`set`/`get`/`aggregate`/`accumulate`/`filterByKeys`) |
 | `SequenceStore<T>` | class (v5 primary) | Storage shelf for 1:N ordered entries (`push`/`getByKey`/`getEntryRanges()` for O(1) time-travel/`getEntriesUpTo`) |
 | `BoundaryStateStore<TState>` | class (v5 primary) | Storage shelf for transient bracket-scoped state — live state DURING a `[start, stop]` interval; clears on stop. O(1) reads via `get` / `hasActive` / `activeCount`; lifecycle via `start` / `update` / `stop`. |
-| `KeyedRecorder<T>` / `SequenceRecorder<T>` / `BoundaryStateTracker<TState>` | abstract bases — **DEPRECATED** | v5 migration window only, slated for removal. Superseded by the `*Store` classes above — new code MUST own a store as a field and implement the channel interface itself. |
+| `KeyedRecorder<T>` / `SequenceRecorder<T>` / `BoundaryStateTracker<TState>` | abstract bases — **REMOVED in 7.0.0** | Gone — no inheritance path remains. Superseded by the `*Store` classes above: own a store as a field and implement the channel interface yourself. |
 | `CommitRangeIndex<TLabel>` | class | Interval index over commit indices (`open`/`close`/`enclosing`/`overlapping`) |
 | `topologyRecorder()` / `TopologyRecorder` | factory / class | Live composition graph for streaming consumers (subflow nodes + control-flow edges) |
 | `inOutRecorder()` / `InOutRecorder` | factory / class | Chart in/out stream — `entry`/`exit` pairs at every chart boundary (top-level run + every subflow) |
@@ -316,7 +316,7 @@ flowChart() builder      →  STATIC flowchart (design-time definition)
 
 **What it ISN'T:**
 - Not a full execution tree — that's `StageContext` / `executor.getSnapshot()`
-- Not per-stage data — that's `MetricRecorder` / custom `KeyedRecorder<T>`
+- Not per-stage data — that's `MetricRecorder` / a custom recorder composing `KeyedStore<T>`
 - Not agent-specific — agentfootprint composes it; footprintjs owns it
 
 **Why live consumers need it:** The executor already has the topology internally (execution tree in `StageContext`). But streaming consumers can't access that tree mid-run — they only see events. `TopologyRecorder` = "the tree, reconstructed from events, live-queryable."
@@ -388,7 +388,7 @@ Each chart execution → 2 boundaries:
 Loop re-entry produces distinct pairs because the parent stage's executionIndex increments.
 
 **What it IS:**
-- `SequenceRecorder<InOutEntry>` — flat ordered list + per-`runtimeStageId` index
+- composes `SequenceStore<InOutEntry>` — flat ordered list + per-`runtimeStageId` index
 - Captures the **payloads** at every chart boundary (what flowed IN and OUT)
 - Path-aware: `subflowPath` is decomposed from the engine's path-prefixed `subflowId` and rooted under `__root__`
 - Domain-agnostic — knows nothing about LLMs, tools, agents
@@ -436,7 +436,7 @@ inOut.getEntryRanges();              // O(1) per-step range index for time-trave
 
 Example: [examples/runtime-features/flow-recorder/07-inout.ts](examples/runtime-features/flow-recorder/07-inout.ts)
 
-**Three recorder STORAGE PRIMITIVES (v5 primary API)** — "one purpose per recorder": a store is storage ONLY. You own one as a field and implement the channel interface (`ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) yourself, delegating storage to the store. The abstract base classes (`KeyedRecorder` / `SequenceRecorder` / `BoundaryStateTracker`) are DEPRECATED — they exist only for the v5 migration window and are slated for removal. Choose a store by data shape and durability:
+**Three recorder STORAGE PRIMITIVES (v5 primary API)** — "one purpose per recorder": a store is storage ONLY. You own one as a field and implement the channel interface (`ScopeRecorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) yourself, delegating storage to the store. The abstract base classes (`KeyedRecorder` / `SequenceRecorder` / `BoundaryStateTracker`) were REMOVED in 7.0.0 — composition is the only model. Choose a store by data shape and durability:
 
 | Store | Relationship | Time scope | Use When |
 |------------|-------------|------------|----------|
@@ -486,7 +486,7 @@ class LiveLLMTracker implements EmitRecorder {
 // Lifecycle: call store.clear() between runs; dev-mode warns on leaked-stop bugs.
 ```
 
-**`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `emit()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
+**`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `push()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
 
 **`CombinedNarrativeEntry.direction`** — subflow entries carry `direction: 'entry' | 'exit'`. Use for programmatic subflow boundary detection instead of text scanning (which breaks with custom `NarrativeRenderer`).
 

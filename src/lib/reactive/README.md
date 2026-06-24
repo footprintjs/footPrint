@@ -22,7 +22,7 @@ scope.tags.push('vip')  // array mutation, tracked
 
 - scope.fieldName calls getValue -- fires onRead ONCE
 - scope.customer.address.zip fires onRead for 'customer' only -- nested navigates in-memory
-- scope.$read('customer.address.zip') fires onRead for 'customer', uses lodash.get for nested path
+- scope.$read('customer.address.zip') fires onRead for 'customer', then walks the nested path in-memory (lodash.get-style semantics, no lodash dependency)
 
 ## Write Semantics
 

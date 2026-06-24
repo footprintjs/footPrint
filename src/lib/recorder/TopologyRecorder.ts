@@ -67,7 +67,7 @@ export type TopologyIncomingKind = 'root' | 'next' | 'fork-branch' | 'decision-b
 export interface TopologyNode {
   /** Unique id. Subflows use their subflowId (with `#n` suffix on re-entry).
    *  Synthetic nodes (fork-branch / decision-branch) use
-   *  `fork-${runtimeStageId}-${i}` / `decision-${runtimeStageId}` form. */
+   *  `fork-${runtimeStageId}-${i}-${childName}` / `decision-${runtimeStageId}-${chosen}` form. */
   readonly id: string;
   /** What this node represents. */
   readonly kind: TopologyNodeKind;

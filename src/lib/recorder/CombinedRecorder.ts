@@ -7,7 +7,7 @@
  *
  * Before `CombinedRecorder`, a consumer who wanted to observe both streams
  * had to:
- *   1. Implement both `ScopeRecorder` (8 methods) and `FlowRecorder` (12 methods)
+ *   1. Implement both `ScopeRecorder` and `FlowRecorder`
  *      fully — stubbing every event they didn't care about.
  *   2. Remember to call BOTH `attachScopeRecorder(r)` AND `attachFlowRecorder(r)`.
  *      Forgetting the second call silently dropped half their events — no

@@ -6,7 +6,7 @@
  * each level adding its subflow ID to the path.
  *
  * The checkpoint captures:
- *   - pausedPath: full path to the paused stage (e.g., ['sf-payment', 'approve'])
+ *   - pausedStageId + subflowPath: the paused stage's id and its subflow path
  *   - sharedState: scope at the pause point
  *   - executionTree: completed stages for BTS/narrative
  *   - pauseData: question, reason, or metadata from $pause()

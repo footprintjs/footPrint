@@ -77,7 +77,7 @@ export interface ScopeMethods {
   $setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string): void;
   $update(key: string, value: unknown, description?: string): void;
   $delete(key: string, description?: string): void;
-  /** Proxy-synthesized: calls getValue(rootKey) then lodash.get for nested path. Not a direct delegation. */
+  /** Proxy-synthesized: calls getValue(rootKey) then walks the nested path (lodash.get-style, no lodash dep). Not a direct delegation. */
   $read(dotPath: string): unknown;
 
   // Input & environment (readonly)

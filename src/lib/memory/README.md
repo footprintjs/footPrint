@@ -229,7 +229,7 @@ SharedMemory  TransactionBuffer  DiagnosticCollector
   types (MemoryPatch, CommitBundle, TraceEntry, FlowMessage, etc.)
 ```
 
-External dependencies: `lodash.get`, `lodash.set`, `lodash.has`, `lodash.mergewith` (path traversal only).
+External dependencies: none — nested-path traversal uses the native `pathOps.ts` helpers, which replaced `lodash.get`/`lodash.set`/`lodash.has`/`lodash.mergewith`.
 
 ---
 
