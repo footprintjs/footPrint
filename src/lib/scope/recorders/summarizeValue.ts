@@ -1,8 +1,8 @@
 /**
  * summarizeValue — Human-readable summary of a scope value for narrative output.
  *
- * Shared by NarrativeRecorder and CombinedNarrativeRecorder to ensure consistent
- * narrative formatting. Truncates strings, summarizes arrays/objects by count.
+ * Shared by CombinedNarrativeRecorder and the decide()/select() evidence capture
+ * to ensure consistent value formatting. Truncates strings, summarizes arrays/objects by count.
  */
 
 export function summarizeValue(value: unknown, maxLen: number): string {

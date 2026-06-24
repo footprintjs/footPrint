@@ -57,7 +57,7 @@ Zod-driven schemas that reject bad writes immediately:
 
 ```typescript
 import { z } from 'zod';
-import { defineScopeFromZod } from 'footprintjs';
+import { defineScopeFromZod } from 'footprintjs/zod';
 
 const schema = z.object({
   creditScore: z.number(),
@@ -128,7 +128,7 @@ executor.attachScopeRecorder(new MetricRecorder());
 
 ### Custom Recorders
 
-Implement any subset of six hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`.
+Implement any subset of the `ScopeRecorder` hooks: `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onPause`, `onResume`, `onEmit`.
 
 ```typescript
 import type { ScopeRecorder, WriteEvent } from 'footprintjs';
@@ -310,10 +310,11 @@ Then apply it in the scope factory or via `executor.setRedactionPolicy(PatientSc
 
 ## Provider System
 
-The provider system normalizes different scope definitions to a single `ScopeFactory` interface. `toScopeFactory`, `defineScopeSchema`, and `registerScopeResolver` are engine-level helpers exported from `footprintjs/advanced`:
+The provider system normalizes different scope definitions to a single `ScopeFactory` interface. `toScopeFactory` and `registerScopeResolver` are engine-level helpers from `footprintjs/advanced`; the Zod helper `defineScopeSchema` lives in the opt-in `footprintjs/zod` entry:
 
 ```typescript
-import { toScopeFactory, defineScopeSchema, ScopeFacade } from 'footprintjs/advanced';
+import { toScopeFactory, ScopeFacade } from 'footprintjs/advanced';
+import { defineScopeSchema } from 'footprintjs/zod';
 
 // Class-based
 const factory1 = toScopeFactory(UserScope);

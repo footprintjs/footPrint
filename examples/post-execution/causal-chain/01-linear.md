@@ -45,7 +45,7 @@ footprintjs captures this for free because every scope read is recorded during t
 import { causalChain, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
 
 const quality = new QualityRecorder(() => ({ score: 1.0 }));
-executor.attachRecorder(quality);
+executor.attachScopeRecorder(quality);
 await executor.run();
 
 const { commitLog } = executor.getSnapshot();

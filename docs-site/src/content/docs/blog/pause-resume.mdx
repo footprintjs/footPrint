@@ -59,7 +59,7 @@ const approvalGate: PausableHandler<RefundState> = {
       riskLevel: scope.riskLevel,
     };
   },
-  resume: async (scope, input) => {
+  resume: async (scope, input: { approved: boolean; approver: string }) => {
     scope.approved = input.approved;
     scope.approver = input.approver;
   },

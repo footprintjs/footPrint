@@ -29,7 +29,7 @@ interface OrderState {
 const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
     scope.orderId = 'ORD-123';
     scope.amount = 49.99;
-  }, 'receive-order', undefined, 'Receive and validate the incoming order')
+  }, 'receive-order', { description: 'Receive and validate the incoming order' })
   .addFunction('ProcessPayment', (scope) => {
     const amount = scope.amount;
     scope.paymentStatus = amount < 100 ? 'approved' : 'review';
@@ -39,7 +39,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
 const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { orderId: 'ORD-123' } });
 
-console.log(executor.getNarrative());
+console.log(executor.getNarrativeEntries());
 // Stage 1: The process began with ReceiveOrder.
 //   Step 1: Write orderId = "ORD-123"
 //   Step 2: Write amount = 49.99
@@ -65,7 +65,7 @@ interface MyState {
   valueC: boolean;
 }
 
-const chart = flowChart<MyState>('StageA', fnA, 'stage-a', undefined, 'Description of A')
+const chart = flowChart<MyState>('StageA', fnA, 'stage-a', { description: 'Description of A' })
   .addFunction('StageB', fnB, 'stage-b', 'Description of B')
   .addFunction('StageC', fnC, 'stage-c', 'Description of C')
   .build();
@@ -273,7 +273,7 @@ const result = await executor.run({
 });
 
 // Get narrative (combined flow + data operations)
-const narrative: string[] = executor.getNarrative();
+const narrative: string[] = executor.getNarrativeEntries();
 // ["Stage 1: The process began with ReceiveApplication.",
 //  "  Step 1: Write applicantName = \"Bob\"",
 //  "Stage 2: Next, it moved on to AssessRisk.",
@@ -292,7 +292,7 @@ const snapshot = executor.getSnapshot();
 // { sharedState: { ... }, commitLog: [...], subflowResults: Map }
 
 // Flow-only narrative (no data operations)
-const flowOnly: string[] = executor.getFlowNarrative();
+const flowOnly: string[] = executor.getNarrativeEntries();
 ```
 
 ---
@@ -303,7 +303,7 @@ const flowOnly: string[] = executor.getFlowNarrative();
 
 ### Scope Recorders (data operations)
 
-Fire during typed property access (reads/writes). Attach via `executor.attachRecorder()`:
+Fire during typed property access (reads/writes). Attach via `executor.attachScopeRecorder()`:
 
 ```typescript
 import { MetricRecorder, DebugRecorder } from 'footprintjs';
@@ -313,13 +313,13 @@ const metrics = new MetricRecorder();
 const debug = new DebugRecorder('verbose'); // or 'minimal'
 
 // Attach to executor (one-liner, no custom scopeFactory needed)
-executor.attachRecorder(metrics);
-executor.attachRecorder(debug);
+executor.attachScopeRecorder(metrics);
+executor.attachScopeRecorder(debug);
 
 await executor.run({ input: data });
 
 // After execution
-metrics.getSummary(); // { totalReads: 12, totalWrites: 8, stages: {...} }
+metrics.getMetrics(); // { totalReads: 12, totalWrites: 8, stageMetrics: Map {...} }
 debug.getEntries();   // [{ type: 'read', key: 'app', value: {...}, stage: 'Intake' }, ...]
 ```
 
@@ -333,8 +333,9 @@ import { NarrativeFlowRecorder, AdaptiveNarrativeFlowRecorder } from 'footprintj
 // Attach before run()
 executor.attachFlowRecorder(new NarrativeFlowRecorder());
 
-// 8 built-in strategies:
+// 9 built-in strategies:
 // NarrativeFlowRecorder      — all events as sentences (default)
+// SilentNarrativeFlowRecorder — collapse loops to one summary sentence
 // AdaptiveNarrativeFlowRecorder — full detail then sampling for loops
 // WindowedNarrativeFlowRecorder — keep last N iterations only
 // RLENarrativeFlowRecorder    — run-length encode repeated loops
@@ -355,7 +356,7 @@ const myRecorder: FlowRecorder = {
     console.log(`Executed: ${event.stageName}`);
   },
   onDecision(event: FlowDecisionEvent) {
-    console.log(`Decision at ${event.stageName}: chose ${event.chosen}`);
+    console.log(`Decision at ${event.decider}: chose ${event.chosen}`);
     // event.evidence available when using decide()
     if (event.evidence) {
       console.log(`Evidence: ${JSON.stringify(event.evidence)}`);
@@ -371,7 +372,7 @@ executor.attachFlowRecorder(myRecorder);
 
 ### CombinedNarrativeRecorder (the inline dual-channel recorder)
 
-This is what powers `getNarrative()` and `getNarrativeEntries()`. It implements BOTH `Recorder` (scope) and `FlowRecorder` (engine) interfaces. It buffers scope ops per-stage, then flushes when the flow event arrives — producing merged entries in a single pass.
+This is what powers `getNarrativeEntries()` and `getNarrativeEntries()`. It implements BOTH `Recorder` (scope) and `FlowRecorder` (engine) interfaces. It buffers scope ops per-stage, then flushes when the flow event arrives — producing merged entries in a single pass.
 
 **You don't need to create this manually.** Use `executor.recorder(narrative())` at runtime to attach it.
 
@@ -402,8 +403,8 @@ const report = executor.getRedactionReport();
 import { flowChart } from 'footprintjs';
 import { z } from 'zod';
 
-const chart = flowChart('ProcessLoan', receiveFn)
-  .addFunction('Assess', assessFn)
+const chart = flowChart('ProcessLoan', receiveFn, 'process-loan')
+  .addFunction('Assess', assessFn, 'assess')
   .contract({
     input: z.object({
       applicantName: z.string(),
@@ -531,7 +532,7 @@ const chart = flowChart<LoanState>('Receive', (scope) => {
 
 const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { applicantName: 'Bob', income: 42000 } });
-const trace = executor.getNarrative();
+const trace = executor.getNarrativeEntries();
 // Feed trace to LLM for grounded explanations
 ```
 
@@ -566,8 +567,8 @@ const main = flowChart<MainState>('Main', mainFn, 'main')
 ```typescript
 import { ManifestFlowRecorder, MilestoneNarrativeFlowRecorder, MetricRecorder } from 'footprintjs';
 
-// Scope recorder (data ops) — via executor.attachRecorder()
-executor.attachRecorder(new MetricRecorder());
+// Scope recorder (data ops) — via executor.attachScopeRecorder()
+executor.attachScopeRecorder(new MetricRecorder());
 
 // Flow recorders (control flow) — via executor.attachFlowRecorder()
 executor.attachFlowRecorder(new ManifestFlowRecorder());
@@ -576,5 +577,5 @@ executor.attachFlowRecorder(new MilestoneNarrativeFlowRecorder());
 await executor.run({ input: data });
 
 const manifest = executor.getSubflowManifest(); // subflow catalog
-const milestones = executor.getFlowNarrative();  // key events only
+const milestones = executor.getNarrativeEntries();  // key events only
 ```

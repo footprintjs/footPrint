@@ -55,7 +55,7 @@ const chart = flowChart<State>('Intake', async (scope) => {
 
 const executor = new FlowChartExecutor(chart);
 await executor.run();
-executor.getNarrative();  // causal trace with decision evidence
+executor.getNarrativeEntries();  // causal trace with decision evidence
 ```
 
 ### TypedScope $-methods (escape hatches)
@@ -93,10 +93,10 @@ select(scope, [
 ```typescript
 const executor = new FlowChartExecutor(chart);
 await executor.run({ input, env: { traceId: 'req-123' } });
-executor.getNarrative()            // string[]
+executor.getNarrativeEntries()            // string[]
 executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
 executor.getSnapshot()             // memory state
-executor.attachRecorder(recorder)  // scope observer
+executor.attachScopeRecorder(recorder)  // scope observer
 executor.attachFlowRecorder(r)     // flow observer
 executor.setRedactionPolicy({ keys, patterns, fields })
 ```

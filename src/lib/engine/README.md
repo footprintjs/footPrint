@@ -71,7 +71,7 @@ const result = await traverser.execute();
 
 ### 2. Handlers — "The Specialists"
 
-Ten focused modules, each owning one aspect of execution. The traverser delegates to them — it never does the work itself.
+Nine focused modules, each owning one aspect of execution. The traverser delegates to them — it never does the work itself.
 
 **Why they connect to the main goal:** Each handler captures domain-specific trace information that the traverser can't know about. The DeciderHandler records *which* branch was chosen and *why*. The ContinuationResolver records *which* iteration this is. The SubflowExecutor records entry/exit boundaries. If all of this lived in the traverser, it would be a monolith again — and worse, you couldn't test branch tracing without also testing loop tracing and subflow tracing.
 
@@ -129,7 +129,7 @@ import { FlowChartExecutor, NarrativeFlowRecorder } from 'footprintjs';
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
-executor.getFlowNarrative(); // plain-English sentences
+executor.getNarrativeEntries().map((e) => e.text); // plain-English sentences
 
 // Custom FlowRecorder
 const metricsRecorder = {

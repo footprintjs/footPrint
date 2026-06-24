@@ -122,7 +122,7 @@ class TokenRecorder {
 ```
 
 <Aside type="note">
-  The abstract `KeyedRecorder<T>` / `SequenceRecorder<T>` base classes still ship for the v5 migration window but are deprecated and slated for removal — new code should compose a `KeyedStore<T>` / `SequenceStore<T>` instead. Same three operations, no inheritance.
+  The abstract `KeyedRecorder<T>` / `SequenceRecorder<T>` base classes were removed in 7.0.0 — compose a `KeyedStore<T>` / `SequenceStore<T>` field instead. Same three operations, no inheritance (composition is the only model).
 </Aside>
 
 **One interface. Three operations. Collected during traversal. Never stale.**

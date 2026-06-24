@@ -37,7 +37,7 @@ Accepted by all four `attach*Recorder` methods:
 | Option | Default | Meaning |
 |---|---|---|
 | `delivery` | `'inline'` | `'deferred'` opts this recorder into the queue |
-| `capture` | `'summary'` | Payload materialization — see below |
+| `capture` | `'clone'` | Payload materialization — see below |
 | `maxQueue` | `10000` | Queue bound (envelopes) |
 | `overflow` | `'drop-oldest'` | Policy at the bound: `'drop-oldest'` / `'sample'` / `'block'` |
 | `sampleEvery` | `10` | `'sample'` only — admit 1 in N saturated arrivals |

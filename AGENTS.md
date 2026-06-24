@@ -124,10 +124,10 @@ const executor = new FlowChartExecutor(chart);
 const executor = new FlowChartExecutor(chart, { scopeFactory: myFactory });
 await executor.run({ input: data, env: { traceId: 'req-123' } });
 
-executor.attachRecorder(recorder) // plug scope observer
-executor.getNarrative()           // combined flow + data narrative
+executor.attachScopeRecorder(recorder) // plug scope observer
+executor.getNarrativeEntries()           // combined flow + data narrative
 executor.getNarrativeEntries()    // structured entries with type/depth/stageName/stageId
-executor.getFlowNarrative()       // flow-only (no data ops)
+executor.getNarrativeEntries()       // flow-only (no data ops)
 executor.getSnapshot()            // full memory state (includes recorder snapshots)
 executor.attachFlowRecorder(r)    // plug flow observer
 executor.setRedactionPolicy({})   // PII protection

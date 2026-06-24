@@ -56,7 +56,7 @@ const result = await executor.run();
 // Introspection — what happened?
 executor.getSnapshot();          // full runtime state (global + per-stage)
 executor.getRuntime();           // raw ExecutionRuntime (advanced)
-executor.getNarrative();         // flow narrative sentences
+executor.getNarrativeEntries();  // structured narrative entries (.map(e => e.text) for strings)
 executor.getRuntimeRoot();       // graph as executed (may differ from build-time)
 executor.getRuntimeStructure();  // serialized graph shape for visualization
 executor.getBranchIds();         // child branch IDs from fan-out
@@ -84,7 +84,7 @@ executor.getSubflowResults();    // per-subflow results
 
 4. Consumer queries results
    → executor.getSnapshot()     → traverser.getSnapshot()     → runtime.getSnapshot()
-   → executor.getNarrative()    → traverser.getNarrative()    → narrative.getSentences()
+   → executor.getNarrativeEntries() → traverser.getNarrative() → narrative.getSentences()
    → executor.getRuntimeRoot()  → traverser.getRuntimeRoot()  → root StageNode
 ```
 

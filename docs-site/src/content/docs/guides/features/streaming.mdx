@@ -9,7 +9,7 @@ Streaming stages emit tokens incrementally via `StreamHandlers` callbacks. Use t
 
 ## Adding a streaming stage
 
-`.addStreamingFunction(name, fn, id?, streamId?)` adds a stage that receives a `streamCallback` in its third argument:
+`.addStreamingFunction(name, fn, id, streamId?, description?)` adds a stage that receives a `streamCallback` in its third argument:
 
 ```ts
 import { flowChart, FlowChartExecutor, type StreamHandlers } from 'footprintjs';

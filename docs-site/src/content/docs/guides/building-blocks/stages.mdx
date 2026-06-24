@@ -28,7 +28,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 
 ## Adding sequential stages
 
-`.addFunction(name, fn, id?, description?)` appends a stage that runs after the previous one.
+`.addFunction(name, fn, id, description?)` appends a stage that runs after the previous one (`id` is required).
 
 ```ts
 const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
@@ -45,7 +45,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 
 ## Branching with deciders
 
-`.addDeciderFunction(name, fn, id?, description?)` adds a stage whose return value selects the next branch.
+`.addDeciderFunction(name, fn, id, description?)` adds a stage whose return value selects the next branch (`id` is required).
 
 The decider function can return a plain string **or** a `DecisionResult` from `decide()` (which also captures evidence).
 
@@ -88,7 +88,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 
 ## Parallel fan-out with selectors
 
-`.addSelectorFunction(name, fn, id?, description?)` adds a stage that selects **multiple** branches and runs them in parallel.
+`.addSelectorFunction(name, fn, id, description?, options?)` adds a stage that selects **multiple** branches and runs them in parallel (`id` is required; `options` carries `{ failFast }`).
 
 ```ts
 import { flowChart, select } from 'footprintjs';
@@ -180,7 +180,7 @@ flowChart<{ counter: number; target: number }>('Init', async (scope) => {
 
 ## Streaming stages
 
-`.addStreamingFunction(name, fn, id?, streamId?, description?)` adds a stage that emits tokens incrementally. The stage function receives `(scope, breakFn, streamCallback)` — call `streamCallback(token)` once per chunk. The executor routes each token through its `StreamHandlers` lifecycle (`onStart` → `onToken` → `onEnd`), wired via `new FlowChartExecutor(chart, { streamHandlers })`.
+`.addStreamingFunction(name, fn, id, streamId?, description?)` adds a stage that emits tokens incrementally (`id` is required). The stage function receives `(scope, breakFn, streamCallback)` — call `streamCallback(token)` once per chunk. The executor routes each token through its `StreamHandlers` lifecycle (`onStart` → `onToken` → `onEnd`), wired via `new FlowChartExecutor(chart, { streamHandlers })`.
 
 ```ts
 .addStreamingFunction('StreamAnswer', async (scope, _breakFn, streamCallback) => {

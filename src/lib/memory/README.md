@@ -105,13 +105,13 @@ Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and pro
 - **Commit orchestration** — The triple-write (SharedMemory + EventLog + DiagnosticCollector) happens inside `commit()`. If stages managed this themselves, someone would forget to record history and the trace would have a gap.
 
 ```typescript
-const ctx = new StageContext('run-1', 'validate', sharedMemory, '', eventLog);
+const ctx = new StageContext('run-1', 'validate', 'validate', sharedMemory, '', eventLog);
 ctx.setObject([], 'userName', 'Alice');   // staged
 ctx.getValue([], 'userName');             // 'Alice' (read-after-write)
 ctx.commit();                             // one step: applies + records + logs
 
-const next = ctx.createNext('run-1', 'process');
-const child = ctx.createChild('run-1', 'branch-1', 'parallelTask');
+const next = ctx.createNext('run-1', 'process', 'process');
+const child = ctx.createChild('run-1', 'branch-1', 'parallelTask', 'parallelTask');
 ```
 
 **Key design decision:** TransactionBuffer is lazily created — you only pay the `structuredClone` cost if the stage actually writes. Many stages are read-only; lazy instantiation saves real time.

@@ -57,13 +57,10 @@ await executor.run({ input: { name: 'Alice' } });
 | Method | Description |
 |--------|-------------|
 | `run(options?)` | Execute the flowchart. Options: `{ input?, signal?, timeoutMs? }` |
-| `getNarrative()` | Combined narrative (flow + data) with ScopeFacade; flow-only otherwise |
-| `getFlowNarrative()` | Flow-only narrative sentences |
-| `getNarrativeEntries()` | Structured `CombinedNarrativeEntry[]` for programmatic use |
+| `getNarrativeEntries()` | Structured `CombinedNarrativeEntry[]` — the plain-English trace; `.map(e => e.text)` for flat strings |
 | `attachFlowRecorder(recorder)` | Attach a FlowRecorder for pluggable narrative control |
 | `detachFlowRecorder(id)` | Detach a FlowRecorder by id |
 | `getSnapshot()` | Full execution tree + state |
-| `getEnrichedResults()` | Enriched snapshots (scope state, debug info, output) |
 | `getSubflowResults()` | Nested subflow execution data |
 | `getSubflowManifest()` | Subflow catalog tree (requires ManifestFlowRecorder) |
 | `getSubflowSpec(id)` | Full spec for a specific subflow |
@@ -89,8 +86,8 @@ const myStage = (scope: ScopeFacade) => {
 | `updateValue(key, partial)` | Deep merge (tracked) |
 | `deleteValue(key)` | Delete a value (tracked) |
 | `getArgs<T>()` | Frozen readonly input (NOT tracked) |
-| `attachRecorder(recorder)` | Attach a scope-level recorder |
-| `detachRecorder(id)` | Detach a scope-level recorder |
+| `attachScopeRecorder(recorder)` | Attach a scope-level recorder |
+| `detachScopeRecorder(id)` | Detach a scope-level recorder by id |
 
 ## Stage Function Signature
 
@@ -111,7 +108,7 @@ type StageFn = (
 ```typescript
 import { flowChart } from 'footprintjs';
 
-const chart = flowChart('Greet', greetFn)
+const chart = flowChart('Greet', greetFn, 'greet')
   .contract({
     input: z.object({ name: z.string() }),
     output: z.object({ result: z.string() }),
@@ -125,8 +122,6 @@ const openapi = chart.toOpenAPI({ version: '1.0.0' });
 |----------|-------------|
 | `.contract({ input?, output?, mapper? })` | Set I/O schemas on the builder |
 | `chart.toOpenAPI(options)` | Generate OpenAPI 3.1 spec |
-| `normalizeSchema(input)` | Convert Zod or raw JSON Schema to normalized form |
-| `zodToJsonSchema(zodSchema)` | Zod v3/v4 → JSON Schema converter |
 
 ---
 

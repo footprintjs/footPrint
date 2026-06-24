@@ -29,6 +29,9 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm test
+      # Examples are integration tests; doc code snippets must reference the real API.
+      - run: npm run test:examples
+      - run: npm run check:doc-snippets
       # Packaging-correctness gate: dual CJS/ESM types resolve in every consumer mode.
       # attw exits non-zero on a types masquerade / internal resolution error.
       - run: npx publint

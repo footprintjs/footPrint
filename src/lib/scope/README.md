@@ -70,13 +70,13 @@ Recorders don't exist *on top of* the data layer. They exist *because of* it. Th
 ```typescript
 import { narrative } from 'footprintjs/recorders';
 
+const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);
-executor.attachScopeRecorder(new MetricRecorder());
-executor.recorder(narrative());   // combined flow + data narrative
+executor.attachScopeRecorder(metrics);
+executor.attachCombinedRecorder(narrative());   // combined flow + data narrative
 
 await executor.run();
 
-const metrics = executor.getScopeRecorders().find(r => r instanceof MetricRecorder);
 console.log(metrics.getMetrics().totalReads);
 ```
 

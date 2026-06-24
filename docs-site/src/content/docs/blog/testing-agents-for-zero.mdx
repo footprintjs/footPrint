@@ -129,7 +129,7 @@ const agent = Agent.create({ provider, model: 'mock' })
   .recorder({
     id: 'observability',
     onEmit: (e) => {
-      if (e.type === 'agentfootprint.stream.llm_end') llmCalls++;
+      if (e.name === 'agentfootprint.stream.llm_end') llmCalls++;
     },
   })
   .build();

@@ -109,7 +109,7 @@ executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
 ```
 
 <Aside>
-  The narrative shows "Looped back to X (pass N)" for each iteration. Custom recorders get the iteration number directly: `FlowRecorder.onLoop(event)` carries `event.iteration` (and `event.target`), and every flow event's `traversalContext.loopIteration` reflects the current pass — use either for custom loop reporting.
+  The narrative shows "On pass N through X." for each iteration (FlowRecorder strategies). Custom recorders get the iteration number directly: `FlowRecorder.onLoop(event)` carries `event.iteration` (and `event.target`), and every flow event's `traversalContext.loopIteration` reflects the current pass — use either for custom loop reporting.
 </Aside>
 
 ## Try it live

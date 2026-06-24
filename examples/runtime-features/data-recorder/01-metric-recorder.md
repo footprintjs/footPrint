@@ -29,7 +29,7 @@ Stage: ValidateCard
 import { MetricRecorder, FlowChartExecutor } from 'footprintjs';
 
 const metrics = new MetricRecorder();
-executor.attachRecorder(metrics);
+executor.attachScopeRecorder(metrics);
 
 await executor.run();
 
@@ -60,15 +60,15 @@ Other stages are skipped — zero overhead.
 `MetricRecorder` plays well with anything else:
 
 ```typescript
-executor.attachRecorder(new MetricRecorder('metric-1'));
-executor.attachRecorder(new DebugRecorder({ id: 'debug-1', verbosity: 'verbose' }));
+executor.attachScopeRecorder(new MetricRecorder('metric-1'));
+executor.attachScopeRecorder(new DebugRecorder({ id: 'debug-1', verbosity: 'verbose' }));
 executor.attachFlowRecorder(new NarrativeFlowRecorder());
 ```
 
 Three recorders, three different concerns, zero coupling. Or use `CompositeRecorder` to bundle them under one ID:
 
 ```typescript
-executor.attachRecorder(
+executor.attachScopeRecorder(
   new CompositeRecorder('observability', [new MetricRecorder(), new DebugRecorder()])
 );
 ```
@@ -104,7 +104,7 @@ logger.info({ metrics: report }, 'Flow complete');
 ## Key API
 
 - `new MetricRecorder(id?, options?)` — create.
-- `executor.attachRecorder(metrics)` — attach.
+- `executor.attachScopeRecorder(metrics)` — attach.
 - `metrics.getMetrics()` — full report.
 - `metrics.reset()` — clear for next run.
 - `options.stageFilter: string[]` — restrict to specific stages.

@@ -24,7 +24,7 @@ Two tools for understanding your flow — one for runtime, one for build time.
 import { DebugRecorder, FlowChartExecutor } from 'footprintjs';
 
 const debug = new DebugRecorder({ verbosity: 'verbose' });
-executor.attachRecorder(debug);
+executor.attachScopeRecorder(debug);
 
 await executor.run();
 

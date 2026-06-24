@@ -21,7 +21,7 @@ This page is about the storage shelf. Three primitives, three different durabili
 All three are imported from `'footprintjs/trace'`.
 
 <Aside type="caution">
-**v5 composition model — stores, not base classes.** Under the "one purpose per recorder" rule, the storage shelf ships as **concrete stores** you own as a field (`new SequenceStore<T>()`, `new KeyedStore<T>()`, `new BoundaryStateStore<TState>()`) and compose with the observer interface you implement. The older **abstract base classes** `SequenceRecorder<T>` / `KeyedRecorder<T>` / `BoundaryStateTracker<TState>` (which you `extends`) are **deprecated** during the v5 migration window and slated for removal — prefer the stores in new code. The examples below show the composition pattern with stores.
+**v5 composition model — stores, not base classes.** Under the "one purpose per recorder" rule, the storage shelf ships as **concrete stores** you own as a field (`new SequenceStore<T>()`, `new KeyedStore<T>()`, `new BoundaryStateStore<TState>()`) and compose with the observer interface you implement. The abstract base classes `SequenceRecorder<T>` / `KeyedRecorder<T>` / `BoundaryStateTracker<TState>` were **removed in 7.0.0** — there is no inheritance path; composing the concrete stores is the only model. The examples below show that pattern.
 </Aside>
 
 ## When to pick which
@@ -247,4 +247,4 @@ A complete `LiveLLMTracker` example demonstrating bracket-scoped transient state
 npx tsx examples/runtime-features/data-recorder/06-boundary-state-tracker.ts
 ```
 
-The example also doubles as an integration test in the suite — examples in `examples/` run end-to-end on every release. (The shipped example still uses the deprecated `BoundaryStateTracker` base class; the store-based composition shown above is the recommended v5 form.)
+The example also doubles as an integration test in the suite — examples in `examples/` run end-to-end on every release. It uses the store-based composition shown above (`implements EmitRecorder` + an owned `BoundaryStateStore` field) — the only model since 7.0.0.

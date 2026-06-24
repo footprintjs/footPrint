@@ -43,11 +43,11 @@ The main class. Provides a fluent API for constructing the execution graph node 
 3. **stageMap registration** — Every function is registered in a Map<name, fn> as it's added. The engine looks up functions by name at runtime. If you forgot to register one, execution would fail silently. The builder makes this automatic.
 
 ```typescript
-import { flowChart } from 'footprint/builder';
+import { flowChart } from 'footprintjs';
 
-const chart = flowChart('validate', validateFn)
-  .addFunction('process', processFn)
-  .addFunction('respond', respondFn)
+const chart = flowChart('validate', validateFn, 'validate')
+  .addFunction('process', processFn, 'process')
+  .addFunction('respond', respondFn, 'respond')
   .build();
 
 // chart.root          → StageNode tree (runtime)
@@ -184,8 +184,8 @@ From the names alone, an LLM can't tell them apart. It will try both. It will gu
 When developers write descriptions for each stage, the builder accumulates them automatically:
 
 ```typescript
-const getUserInfo = flowChart('lookupByEmail', lookupFn, undefined, undefined, undefined, 'search user table by email')
-  .addFunction('fetchProfile', fetchFn, undefined, undefined, 'load profile from cache')
+const getUserInfo = flowChart('lookupByEmail', lookupFn, 'lookupByEmail', { description: 'search user table by email' })
+  .addFunction('fetchProfile', fetchFn, 'fetchProfile', 'load profile from cache')
   .build();
 
 // getUserInfo.description =
@@ -194,8 +194,8 @@ const getUserInfo = flowChart('lookupByEmail', lookupFn, undefined, undefined, u
 // 1. lookupByEmail — search user table by email
 // 2. fetchProfile — load profile from cache"
 
-const getUserDetails = flowChart('registerUser', registerFn, undefined, undefined, undefined, 'create user in DB if not exists')
-  .addFunction('getUser', getFn, undefined, undefined, 'fetch full user record with relations')
+const getUserDetails = flowChart('registerUser', registerFn, 'registerUser', { description: 'create user in DB if not exists' })
+  .addFunction('getUser', getFn, 'getUser', 'fetch full user record with relations')
   .build();
 
 // getUserDetails.description =

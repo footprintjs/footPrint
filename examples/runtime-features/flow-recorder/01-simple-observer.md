@@ -44,7 +44,7 @@ const auditRecorder: FlowRecorder = {
   id: 'audit',
   onDecision(event) {
     log.info({
-      stage: event.stageName,
+      stage: event.decider,
       branch: event.chosen,
       evidence: event.evidence,
     }, 'Decision made');

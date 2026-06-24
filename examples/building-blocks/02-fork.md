@@ -57,7 +57,7 @@ footprintjs captures all writes in the commit log, so you can audit after the fa
 
 ## Key API
 
-- `.addFunction(...)` followed by `.addFork(...)` — mount a fork.
+- `.addFunction(...)` followed by `.addListOfFunction([{ id, name, fn }, ...])` — mount a parallel fork.
 - Each branch runs to completion; `scope.$break()` in one branch does **not** cancel the others.
 
 ## Related concepts
