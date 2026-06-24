@@ -335,7 +335,6 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 | `TopologyRecorder` | Live composition graph for streaming consumers |
 | `InOutRecorder` | Chart in/out stream — entry/exit pairs at every boundary |
 | `QualityRecorder` | Per-step quality scoring with backtracking |
-| `KeyedRecorder<T>` / `SequenceRecorder<T>` | Abstract bases (deprecated; use stores) |
 
 ---
 

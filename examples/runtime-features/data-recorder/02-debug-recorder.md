@@ -36,19 +36,18 @@ debug.getErrors();    // just the errors
 
 | Level | Records |
 |---|---|
-| `quiet` | Errors only |
-| `normal` | Writes + errors |
+| `minimal` (default) | Errors + pauses/resumes only |
 | `verbose` | Reads + writes + commits + errors (everything) |
 
-Start with `verbose` during development. Drop to `normal` or `quiet` if entries grow too large in production (MetricRecorder is the counterpart for hot-path production use).
+Start with `verbose` during development. Drop to `minimal` if entries grow too large in production (MetricRecorder is the counterpart for hot-path production use).
 
 ## Production caveat
 
 DebugRecorder stores every event in memory. For long-running flows with many stages, this can grow. Options:
 
-- Use `normal` or `quiet` verbosity.
+- Use `minimal` verbosity.
 - Use a `stageFilter` to narrow scope.
-- Flush periodically by reading + resetting.
+- Flush periodically by reading + clearing (`debug.clear()`).
 - Use **MetricRecorder** instead if you only need counts, not values.
 
 ## toMermaid — when to use
@@ -90,10 +89,10 @@ Pair them: share the Mermaid diagram in a bug report + the DebugRecorder entries
 
 ## Key API — DebugRecorder
 
-- `new DebugRecorder(options?)` — create. `options.verbosity`: `'quiet' | 'normal' | 'verbose'`.
+- `new DebugRecorder(options?)` — create. `options.verbosity`: `'minimal' | 'verbose'` (default `'minimal'`).
 - `debug.getEntries()` — all events.
 - `debug.getErrors()` — errors only.
-- `debug.reset()` — clear for next run.
+- `debug.clear()` — clear for next run.
 
 ## Key API — toMermaid
 

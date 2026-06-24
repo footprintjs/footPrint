@@ -62,7 +62,7 @@ No decorators, no subclasses — just a plain object with the hooks you care abo
 
 ## Built-in strategies
 
-footprintjs ships eight narrative strategies so you don't have to build one from scratch:
+footprintjs ships nine narrative strategies so you don't have to build one from scratch:
 
 | Strategy | Use |
 |---|---|
@@ -74,6 +74,7 @@ footprintjs ships eight narrative strategies so you don't have to build one from
 | `ProgressiveNarrativeFlowRecorder` | Render in chunks — streaming UI |
 | `SeparateNarrativeFlowRecorder` | Emits a separate stream per event type |
 | `SilentNarrativeFlowRecorder` | Nothing — for quiet runs |
+| `ManifestFlowRecorder` | Lightweight subflow manifest — tree + spec catalog for LLM exploration |
 
 Swap them without changing a line of stage code.
 
@@ -103,10 +104,10 @@ executor.attachFlowRecorder({ id: 'extra-audit', onDecision: log3 });  // coexis
 - `executor.attachFlowRecorder(recorder)` — attach.
 - `executor.detachFlowRecorder(id)` — remove.
 - `onStageExecuted`, `onDecision`, `onFork`, `onLoop`, etc. — hook into any event.
-- `CombinedNarrativeRecorder` — ships both Recorder + FlowRecorder interfaces; attach via `executor.recorder(narrative())`.
+- `CombinedNarrativeRecorder` — ships both Recorder + FlowRecorder interfaces; attach via `executor.attachCombinedRecorder(narrative())` (or `chart.recorder(narrative())`).
 
 ## Related
 
 - **[Metrics](./05-metrics.md)** — the data-plane counterpart; typical partner for a FlowRecorder.
 - **[decide() / select()](../building-blocks/03-decider.md)** — the source of the `evidence` field in `onDecision`.
-- **[Full guide](https://footprintjs.github.io/footPrint/guides/features/flow-recorders/)** — all 8 built-in strategies and custom recorder patterns.
+- **[Full guide](https://footprintjs.github.io/footPrint/guides/features/flow-recorders/)** — all 9 built-in strategies and custom recorder patterns.

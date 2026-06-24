@@ -105,7 +105,7 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 
 - **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
 - **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
-- 8 built-in FlowRecorder strategies
+- 9 built-in FlowRecorder strategies
 - Narrative via `executor.recorder(narrative())` at runtime
 
 ## Rules

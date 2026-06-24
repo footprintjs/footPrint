@@ -52,6 +52,6 @@ In v4, recorder classes extended `SequenceRecorder<T>`, `KeyedRecorder<T>`, or `
 
 In v5: stores ARE storage; recorders ARE event handlers; consumers COMPOSE. One purpose per class.
 
-The abstract bases are still exported during the v5 migration window for downstream consumers that haven't migrated yet, but they're slated for removal before 5.0 final.
+The abstract bases were removed in 7.0.0 — there is no inheritance path; composition (own a `SequenceStore`/`KeyedStore`/`BoundaryStateStore` as a field) is the only model.
 
 Run any example with `npx tsx examples/recorders/<file>.ts`.

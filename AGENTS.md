@@ -205,7 +205,7 @@ Four pluggable observer channels — three fire at runtime (Scope, Flow, Emit) a
 - `onStageExecuted` (universal "did this stage run", carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`), `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onSubflowRegistered`, `onLoop`, `onBreak`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`, `onRunFailed`
 - All events carry `traversalContext: TraversalContext` (includes per-run `runId`)
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
-- Built-in: 8 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
+- Built-in: 9 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)
 
 **Emit Recorder** (consumer-emitted events — fired by `scope.$emit(name, payload)`):
 - `onEmit(EmitEvent)` — see the "Emit Channel" section below.

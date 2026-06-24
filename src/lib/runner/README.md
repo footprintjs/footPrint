@@ -109,11 +109,12 @@ The executor is a thin delegation layer. Every introspection method forwards to 
 An interface for runners that expose their internal flowChart for subflow mounting. Any runner implementing `ComposableRunner` can be mounted in a parent flowChart via `addSubFlowChart()`, enabling full UI drill-down into nested execution.
 
 ```typescript
-import type { ComposableRunner } from 'footprint';
+import { flowChart, type ComposableRunner } from 'footprintjs';
 
 class MyAgent implements ComposableRunner<string, AgentResult> {
+  private chart = flowChart('agent-seed', async () => {}, 'agent-seed').build();
   toFlowChart() { return this.chart; }
-  async run(input) { /* ... */ }
+  async run(input: string) { /* ... */ }
 }
 
 // Mount in a parent chart — UI can drill into MyAgent's internal stages
@@ -127,7 +128,7 @@ flowChart('Seed', seedFn, 'seed')
 Navigate the execution snapshot tree by subflow path. Useful for LLM drill-down: instead of dumping the full trace, fetch only the relevant subtree.
 
 ```typescript
-import { getSubtreeSnapshot } from 'footprint';
+import { getSubtreeSnapshot } from 'footprintjs';
 
 const snapshot = executor.getSnapshot();
 

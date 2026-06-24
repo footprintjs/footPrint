@@ -13,7 +13,7 @@ Narrative without redaction:
   Step 1: Write ssn = "123-45-6789"        ← leaked to logs, LLM prompts, audit DBs
 
 Narrative with redaction:
-  Step 1: Write ssn = <REDACTED>           ← same story, zero leakage
+  Step 1: Write ssn = [REDACTED]           ← same story, zero leakage
 ```
 
 ## When to use
@@ -29,7 +29,6 @@ Narrative with redaction:
 executor.setRedactionPolicy({
   keys: ['ssn', 'creditCard', 'apiKey'],            // exact key matches
   patterns: [/password/i, /token$/i],                // regex on key name
-  replacement: '<REDACTED>',                          // optional custom mask
 });
 
 await executor.run({ input });
@@ -40,10 +39,10 @@ await executor.run({ input });
 
 Redaction applies **at the recorder layer** — scope operations (reads, writes, decisions) happen with real values, but any event dispatched to a recorder gets scrubbed first:
 
-- `onWrite({ key: 'ssn', value: '<REDACTED>' })`
-- `onCommit({ mutations: [{ key: 'ssn', value: '<REDACTED>' }] })`
-- Narrative lines: `"Write ssn = <REDACTED>"`
-- Commit log entries: `{ updates: { ssn: '<REDACTED>' } }`
+- `onWrite({ key: 'ssn', value: '[REDACTED]' })`
+- `onCommit({ mutations: [{ key: 'ssn', value: '[REDACTED]' }] })`
+- Narrative lines: `"Write ssn = [REDACTED]"`
+- Commit log entries: `{ updates: { ssn: '[REDACTED]' } }`
 
 **Your business logic still sees the real values.** Stages can read, write, and compute on sensitive data — it only gets masked when observed.
 
@@ -75,10 +74,10 @@ In the playground, click **Insights → Story → Copy for LLM**. The narrative 
 
 ## Key API
 
-- `executor.setRedactionPolicy({ keys, patterns, replacement? })` — attach a policy.
+- `executor.setRedactionPolicy({ keys, patterns, fields? })` — attach a policy.
 - `setRedactionPolicy({ keys })` — common case: match by exact key name.
 - `patterns` — regex against key names (e.g., `/^pw/i` catches `password`, `pwHash`).
-- Default replacement: `'<REDACTED>'` (configurable).
+- The mask is the fixed string `'[REDACTED]'` (not configurable).
 
 ## Related
 

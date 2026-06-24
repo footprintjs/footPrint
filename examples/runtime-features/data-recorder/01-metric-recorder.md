@@ -50,7 +50,7 @@ No wrapping, no decorators — attach and run. Every stage is observed automatic
 If you only want metrics on hot stages, pass a filter:
 
 ```typescript
-new MetricRecorder({ stageFilter: ['call-llm', 'db-query'] });
+new MetricRecorder({ stageFilter: (name) => name === 'call-llm' || name === 'db-query' });
 ```
 
 Other stages are skipped — zero overhead.
@@ -107,7 +107,7 @@ logger.info({ metrics: report }, 'Flow complete');
 - `executor.attachScopeRecorder(metrics)` — attach.
 - `metrics.getMetrics()` — full report.
 - `metrics.reset()` — clear for next run.
-- `options.stageFilter: string[]` — restrict to specific stages.
+- `options.stageFilter: (stageName: string) => boolean` — restrict to specific stages.
 
 ## Related
 

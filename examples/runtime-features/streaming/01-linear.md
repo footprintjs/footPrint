@@ -25,20 +25,27 @@ UserQuery → CallLLM (streaming) → Format
 ## The StreamCallback lifecycle
 
 ```typescript
-.addStreamingFunction('CallLLM', async (scope, stream) => {
-  stream.onChunk((token) => {
-    // Fires for every chunk — route to UI, aggregate, log.
-    console.log(token);
-  });
-
-  // Call your LLM. stream.emit() pushes a chunk.
+// The streaming stage's 3rd arg is `streamCallback` — call it once per chunk.
+.addStreamingFunction('CallLLM', async (scope, _breakFn, streamCallback) => {
+  let full = '';
   for await (const token of llmClient.stream(prompt)) {
-    stream.emit(token);
+    streamCallback(token);   // push a chunk to the executor's stream handlers
+    full += token;
   }
-
-  stream.done();  // signals end-of-stream
-  scope.fullResponse = stream.fullText();  // final assembled text
+  scope.fullResponse = full;  // assemble the final text yourself
 }, 'call-llm')
+```
+
+The consumer observes tokens by passing `StreamHandlers` to the executor:
+
+```typescript
+const executor = new FlowChartExecutor(chart, {
+  streamHandlers: {
+    onStart: (ctx) => {/* stream began */},
+    onToken: (token, ctx) => console.log(token),  // per chunk → route to UI
+    onEnd: (ctx) => {/* stream complete */},
+  },
+});
 ```
 
 ## What the narrative captures
@@ -57,30 +64,29 @@ Click into the Inspector to see individual tokens with timestamps. The full text
 ## Back-pressure and cancellation
 
 - Upstream can cancel via `scope.$break()` — the stream stops cleanly.
-- `stream.abort(error)` — signal a streaming error (LLM disconnect, rate limit).
+- Throwing from the stage signals a streaming error (LLM disconnect, rate limit) — it propagates as a normal stage error.
 - Timeouts and `AbortSignal` via `run({ env: { signal } })` cancel in-flight streams.
 
 ## Consumer patterns
 
-**React**: `stream.onChunk` → setState → user sees live updates.
+**React**: `streamHandlers.onToken` → setState → user sees live updates.
 
-**Node server**: `stream.onChunk` → `res.write(chunk)` → browser's fetch sees Server-Sent Events.
+**Node server**: `streamHandlers.onToken` → `res.write(token)` → browser's fetch sees Server-Sent Events.
 
 **Recorder**: Attach a custom StreamRecorder to log tokens to a DB for audit.
 
 ## Streaming ≠ async iterator
 
-A streaming stage is still **one stage** — the flow moves to the next stage only when `stream.done()` is called. It doesn't branch or fork. Inside the stage, you decide what to do with each chunk.
+A streaming stage is still **one stage** — the flow moves to the next stage when the stage function **returns**. It doesn't branch or fork. Inside the stage, you decide what to do with each chunk.
 
 If you need **multiple parallel streams**, combine streaming with Fork or Subflow.
 
 ## Key API
 
-- `.addStreamingFunction('Name', fn, 'id')` — declare a streaming stage.
-- `stream.emit(chunk)` — push a chunk.
-- `stream.onChunk(handler)` — listen for chunks.
-- `stream.fullText()` — assembled text at end.
-- `stream.done()` / `stream.abort(error)` — terminate.
+- `.addStreamingFunction('Name', fn, 'id', streamId?, description?)` — declare a streaming stage.
+- `streamCallback(chunk)` — the stage fn's 3rd arg; push a chunk.
+- `new FlowChartExecutor(chart, { streamHandlers })` — observe via `{ onStart, onToken, onEnd }`.
+- The stage ends when its function returns; throwing signals a stream error.
 
 ## Related
 
