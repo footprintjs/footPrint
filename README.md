@@ -5,6 +5,8 @@
   </p>
 </p>
 
+<p align="center"><sub>Part of the <a href="https://footprintjs.github.io/"><b>footprintjs ecosystem</b></a> &mdash; the self-explaining stack.</sub></p>
+
 <p align="center">
   <a href="https://github.com/footprintjs/footPrint/actions"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <!-- coverage-badge --><img src="https://img.shields.io/badge/coverage-93%25-brightgreen.svg" alt="coverage: 93%"><!-- /coverage-badge -->
@@ -288,6 +290,20 @@ Full model + FAQ: [Deferred observers guide](./docs/guides/observers-deferred.md
 | **Guides** | [Building](https://footprintjs.github.io/footPrint/guides/building/) &middot; [Decision branching](https://footprintjs.github.io/footPrint/guides/decision-branching/) &middot; [Recorders](https://footprintjs.github.io/footPrint/guides/recording/) &middot; [Subflows](https://footprintjs.github.io/footPrint/guides/subflows/) &middot; [Self-describing APIs](https://footprintjs.github.io/footPrint/guides/self-describing/) &middot; [Execution model & limits](./docs/guides/execution-model.md) |
 | **API Reference** | [flowChart() / Builder](https://footprintjs.github.io/footPrint/api/flowchart/) &middot; [decide() / select()](https://footprintjs.github.io/footPrint/api/decide/) &middot; [FlowChartExecutor](https://footprintjs.github.io/footPrint/api/executor/) &middot; [Recorders](https://footprintjs.github.io/footPrint/api/recorders/) &middot; [Contract & Self-describing](https://footprintjs.github.io/footPrint/api/contract/) |
 | **Try it** | [Interactive Playground](https://footprintjs.github.io/footprint-playground/) &middot; [Try with your LLM](https://footprintjs.github.io/footprint-playground/try-with-ai) &middot; [Live Demo](https://footprintjs.github.io/footprint-demo/) |
+
+---
+
+## The footprintjs ecosystem
+
+The self-explaining stack — from backend pipelines to AI agents. → **[overview](https://footprintjs.github.io/)**
+
+| Project | Role |
+|---|---|
+| **footprintjs** ← you are here | the flowchart pattern (core engine) |
+| [agentfootprint](https://footprintjs.github.io/agentfootprint/) | build self-explaining AI agents |
+| [Explainable UI](https://footprintjs.github.io/explainable-ui/) | visualize a footprintjs run |
+| [Lens](https://github.com/footprintjs/agentfootprint-lens) | debug an agentfootprint run |
+| [Thinking UI](https://footprintjs.github.io/agentThinkingUI/) | replay an agent run for non-devs |
 
 ---
 
