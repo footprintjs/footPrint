@@ -192,3 +192,22 @@ export {
 export type { ExecutionCounter } from './lib/engine/runtimeStageId.js';
 export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/engine/runtimeStageId.js';
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+
+// ============================================================================
+// Decide — pure guard evaluation (for custom availability/decision engines)
+// ============================================================================
+// evaluateFilter is engine-free: a pure function over (getValue, isRedacted)
+// callbacks that evaluates a WhereFilter and returns per-condition evidence.
+// External drivers (e.g. hcifootprint's available()) evaluate edge guards with
+// it outside any run — no scope, no commit, worker-safe.
+export type { FilterCondition } from './lib/decide/index.js';
+export { evaluateFilter } from './lib/decide/index.js';
+
+// ============================================================================
+// Contract — schema normalization (for custom tool emitters)
+// ============================================================================
+// Pure chart-metadata helpers behind toMCPTool/toOpenAPI. Custom emitters
+// (per-edge MCP descriptors) reuse the Zod→JSON-Schema conversion without
+// importing the runner. Gate inputs with detectSchema (main barrel): a
+// non-Zod 'parseable' schema (yup/superstruct) passes through unconverted.
+export { normalizeSchema, zodToJsonSchema } from './lib/contract/index.js';
