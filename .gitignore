@@ -41,8 +41,11 @@ Thumbs.db
 /docs-site/dist
 /docs-site/.astro
 
-# Claude Code
-.claude/
+# Claude Code — local state stays ignored, but .claude/rules/ is TRACKED
+# (path-scoped agent rules, e.g. backtracking.md, belong in the repo).
+# Note: git can't re-include inside an excluded DIR, hence .claude/* not .claude/
+.claude/*
+!.claude/rules/
 .playwright-mcp/
 coverage
 
