@@ -1,4 +1,4 @@
-<!-- analyzed-at: d92a5e9 @ 2026-07-02 | model: fable-5 -->
+<!-- analyzed-at: 22953d9 @ 2026-07-02 | model: fable-5 -->
 # footprintjs — feature-work map
 
 Self-explaining flowchart engine: a fluent builder emits a static chart; one DFS pass executes it while observer channels + a commit log capture everything ("collect during traversal, never post-process"). This file maps seams and blast radius; for API description read the code/README — **trust the code** where any doc disagrees.

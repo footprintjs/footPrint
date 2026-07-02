@@ -21,7 +21,7 @@ paths:
   - src/lib/recorder/QualityRecorder.ts
   - src/lib/slice/**
 ---
-<!-- analyzed-at: d92a5e9 @ 2026-07-02 | model: fable-5 -->
+<!-- analyzed-at: 22953d9 @ 2026-07-02 | model: fable-5 -->
 # Backtracking in footprintjs — 5 mechanisms + the slice query layer, ZERO rollback
 
 There is NO state rollback anywhere. M1 is commit-on-error by design (`TransactionBuffer.ts:13-18` — "What it is NOT: a rollback mechanism").
