@@ -39,7 +39,13 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
+import type {
+  CommitValuesMode,
+  ReadTrackingMode,
+  StageSnapshot,
+  WriteProvenanceMode,
+  WriteTrackingMode,
+} from '../memory/types.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -183,6 +189,17 @@ export interface FlowChartExecutorOptions<TScope = any> {
    */
   commitValues?: CommitValuesMode;
 
+  /**
+   * Per-write read provenance (#P1) — the fourth dial of the family. Default
+   * `'off'`: zero cost, byte-identical commit logs. `'reads-prefix'`: every
+   * committed `TraceEntry` carries `readKeys` — the keys tracked-read BEFORE
+   * that write — enabling per-write causal attribution (`causalChain`'s
+   * `edgeAttribution: 'per-write'` and variable slices). Cost: one small
+   * array copy per write. Snapshot discriminant:
+   * `getSnapshot().writeProvenance`.
+   */
+  writeProvenance?: WriteProvenanceMode;
+
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
@@ -266,6 +283,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     readTracking?: ReadTrackingMode;
     writeTracking?: WriteTrackingMode;
     commitValues?: CommitValuesMode;
+    writeProvenance?: WriteProvenanceMode;
   };
 
   /**
@@ -299,6 +317,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let readTracking: ReadTrackingMode | undefined;
     let writeTracking: WriteTrackingMode | undefined;
     let commitValues: CommitValuesMode | undefined;
+    let writeProvenance: WriteProvenanceMode | undefined;
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
@@ -316,6 +335,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       readTracking = opts.readTracking;
       writeTracking = opts.writeTracking;
       commitValues = opts.commitValues;
+      writeProvenance = opts.writeProvenance;
     }
     this.flowChartArgs = {
       flowChart,
@@ -329,6 +349,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       readTracking,
       writeTracking,
       commitValues,
+      writeProvenance,
     };
     this.traverser = this.createTraverser();
   }
@@ -497,6 +518,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const commitValues = args.commitValues;
     if (commitValues !== undefined && commitValues !== 'full') {
       runtime.useCommitValues(commitValues);
+    }
+
+    // Per-write read provenance (#P1): identical plumbing to the three dials
+    // above — root-context anchor, createNext/createChild inheritance,
+    // SubflowExecutor duck-push, resume-path re-application. Skipped for the
+    // default 'off' — zero work, byte-identical commit log.
+    const writeProvenance = args.writeProvenance;
+    if (writeProvenance !== undefined && writeProvenance !== 'off') {
+      runtime.useWriteProvenance(writeProvenance);
     }
 
     return new FlowchartTraverser<TOut, TScope>({

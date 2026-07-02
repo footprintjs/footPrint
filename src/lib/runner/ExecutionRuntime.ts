@@ -18,6 +18,7 @@ import type {
   CommitValuesMode,
   ReadTrackingMode,
   StageSnapshot,
+  WriteProvenanceMode,
   WriteTrackingMode,
 } from '../memory/types.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
@@ -45,6 +46,9 @@ export type RuntimeSnapshot = {
    * without context remains self-describing via the verbs themselves.
    */
   commitValues: CommitValuesMode;
+  /** Per-write read-provenance dial (#P1) the run executed under — the
+   *  offline-tooling discriminant for `TraceEntry.readKeys` availability. */
+  writeProvenance: WriteProvenanceMode;
   /**
    * Per-subflow execution results, DUAL-KEYED (design: docs/design/subflow-commit-visibility.md):
    *   - by subflow PATH (`subflowId`, e.g. `'sf-pay'`) → the LAST iteration (back-compat); this
@@ -88,6 +92,9 @@ export class ExecutionRuntime {
   /** Active commit-values encoding (#13c-B) — surfaced as the snapshot
    *  discriminant {@link RuntimeSnapshot.commitValues}. */
   private commitValues: CommitValuesMode = 'full';
+
+  /** Mirror of the writeProvenance dial for the snapshot discriminant (#P1). */
+  private writeProvenance: WriteProvenanceMode = 'off';
 
   constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
     this._initialState = initialState;
@@ -160,6 +167,19 @@ export class ExecutionRuntime {
     this.rootStageContext.useCommitValues(mode);
   }
 
+  /**
+   * Set the per-write read-provenance policy (#P1) on the root stage context
+   * — the fourth dial of the family, identical plumbing: descendant contexts
+   * inherit via `createNext`/`createChild`; subflow root contexts inherit
+   * from their parent-mount context via `SubflowExecutor`. Called by
+   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
+   * the default `'off'` — including the resume path.
+   */
+  useWriteProvenance(mode: WriteProvenanceMode): void {
+    this.writeProvenance = mode;
+    this.rootStageContext.useWriteProvenance(mode);
+  }
+
   /** Preserve the current rootStageContext for snapshots before changing it for resume. */
   preserveSnapshotRoot(): void {
     if (!this._snapshotRoot) {
@@ -201,6 +221,7 @@ export class ExecutionRuntime {
       executionTree: snapshotRoot.getSnapshot(),
       commitLog: this.executionHistory.list(),
       commitValues: this.commitValues,
+      writeProvenance: this.writeProvenance,
     };
   }
 }

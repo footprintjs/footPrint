@@ -1,6 +1,6 @@
 {
   "name": "footprintjs",
-  "version": "9.9.0",
+  "version": "9.10.0",
   "description": "Explainable backend flows — automatic causal traces, decision evidence, and MCP tool generation for AI agents",
   "license": "MIT",
   "author": "Sanjay Krishna Anbalagan",
@@ -143,11 +143,21 @@
   },
   "typesVersions": {
     "*": {
-      "advanced": ["./dist/types/advanced.d.ts"],
-      "recorders": ["./dist/types/recorders.d.ts"],
-      "trace": ["./dist/types/trace.d.ts"],
-      "detach": ["./dist/types/detach.d.ts"],
-      "zod": ["./dist/types/zod.d.ts"]
+      "advanced": [
+        "./dist/types/advanced.d.ts"
+      ],
+      "recorders": [
+        "./dist/types/recorders.d.ts"
+      ],
+      "trace": [
+        "./dist/types/trace.d.ts"
+      ],
+      "detach": [
+        "./dist/types/detach.d.ts"
+      ],
+      "zod": [
+        "./dist/types/zod.d.ts"
+      ]
     }
   },
   "lint-staged": {

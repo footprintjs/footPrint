@@ -34,15 +34,30 @@ export class TransactionBuffer {
 
   private overwritePatch: MemoryPatch = {};
   private updatePatch: MemoryPatch = {};
-  private opTrace: { path: string; verb: OpVerb }[] = [];
+  private opTrace: { path: string; verb: OpVerb; readKeys?: string[] }[] = [];
   private redactedPaths = new Set<string>();
   /** Commit-value encoding policy (#13c-B). `'full'` = historical bytes. */
   private readonly commitValues: CommitValuesMode;
 
-  constructor(base: any, commitValues: CommitValuesMode = 'full') {
+  /** Per-write read-provenance source (#P1). When set (the
+   *  `writeProvenance: 'reads-prefix'` dial), every staged op snapshots the
+   *  keys tracked-read so far — the temporal-prefix attribution consumed by
+   *  causal slicing. Undefined (default) = zero cost, byte-identical ops. */
+  private readonly readKeysProvider?: () => string[];
+
+  constructor(base: any, commitValues: CommitValuesMode = 'full', readKeysProvider?: () => string[]) {
     this.baseSnapshot = structuredClone(base);
     this.workingCopy = structuredClone(base);
     this.commitValues = commitValues;
+    this.readKeysProvider = readKeysProvider;
+  }
+
+  /** Stamp the current read prefix onto a staged op — only when the
+   *  provenance dial is on (provider present), so the default path allocates
+   *  nothing and commit bundles stay byte-identical. */
+  private stampReadKeys(op: { path: string; verb: OpVerb; readKeys?: string[] }): typeof op {
+    if (this.readKeysProvider) op.readKeys = this.readKeysProvider();
+    return op;
   }
 
   /** Hard overwrite at the specified path. */
@@ -52,7 +67,7 @@ export class TransactionBuffer {
     if (shouldRedact) {
       this.redactedPaths.add(normalisePath(path));
     }
-    this.opTrace.push({ path: normalisePath(path), verb: 'set' });
+    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'set' }));
   }
 
   /**
@@ -72,7 +87,7 @@ export class TransactionBuffer {
     if (shouldRedact) {
       this.redactedPaths.add(normalisePath(path));
     }
-    this.opTrace.push({ path: normalisePath(path), verb: 'delete' });
+    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'delete' }));
   }
 
   /** Deep union merge at the specified path. */
@@ -84,7 +99,7 @@ export class TransactionBuffer {
     if (shouldRedact) {
       this.redactedPaths.add(normalisePath(path));
     }
-    this.opTrace.push({ path: normalisePath(path), verb: 'merge' });
+    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'merge' }));
   }
 
   /** Read current value at path (includes uncommitted changes). */
@@ -202,7 +217,12 @@ export class TransactionBuffer {
       if (deepEqual(before, after)) continue; // no-op or write-then-revert → no net change
 
       // Historical flattening: an explicit delete commits as set-of-undefined.
-      trace.push(op.verb === 'delete' ? { path: op.path, verb: 'set' } : op);
+      // Per-write provenance (#P1) rides each surviving entry untouched.
+      trace.push(
+        op.verb === 'delete'
+          ? { path: op.path, verb: 'set' as const, ...(op.readKeys !== undefined && { readKeys: op.readKeys }) }
+          : op,
+      );
       survivingPaths.add(op.path);
       if (op.verb === 'merge') {
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
@@ -259,19 +279,23 @@ export class TransactionBuffer {
     // Path → its op-verb sequence, ordered by LAST touch (delete +
     // re-insert moves a re-touched path to the end of the Map's insertion
     // order — preserving last-writer-wins for nested/overlapping paths).
-    const byPath = new Map<string, OpVerb[]>();
+    // Per-write provenance (#P1): the LAST op's readKeys is kept — read
+    // prefixes only grow within a stage, so last == union across the path.
+    const byPath = new Map<string, { verbs: OpVerb[]; readKeys?: string[] }>();
     for (const op of this.opTrace) {
       const prev = byPath.get(op.path);
       if (prev) {
-        prev.push(op.verb);
+        prev.verbs.push(op.verb);
+        if (op.readKeys !== undefined) prev.readKeys = op.readKeys;
         byPath.delete(op.path);
         byPath.set(op.path, prev);
       } else {
-        byPath.set(op.path, [op.verb]);
+        byPath.set(op.path, { verbs: [op.verb], ...(op.readKeys !== undefined && { readKeys: op.readKeys }) });
       }
     }
 
-    for (const [path, verbs] of byPath) {
+    for (const [path, { verbs, readKeys }] of byPath) {
+      const prov = readKeys !== undefined ? { readKeys } : undefined;
       const segments = path.split(DELIM);
       const before = _get(this.baseSnapshot, segments);
       const after = _get(this.workingCopy, segments);
@@ -282,10 +306,10 @@ export class TransactionBuffer {
       if (lastVerb === 'delete' && after === undefined) {
         // Real deletion — replay removes the key. Keep the path enumerated
         // in `overwrite` (undefined) so Object.keys consumers see it.
-        trace.push({ path, verb: 'delete' });
+        trace.push({ path, verb: 'delete', ...prov });
         _set(overwrite, segments, undefined);
       } else if (verbs.every((v) => v === 'merge')) {
-        trace.push({ path, verb: 'merge' });
+        trace.push({ path, verb: 'merge', ...prov });
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
       } else {
         // Committed-equivalent value: replay this path's op sequence the way
@@ -293,10 +317,10 @@ export class TransactionBuffer {
         // byte-identical state (see the method JSDoc).
         const committed = this.replayPathVerbs(before, segments, verbs);
         if (isStrictArrayPrefix(before, committed)) {
-          trace.push({ path, verb: 'append' });
+          trace.push({ path, verb: 'append', ...prov });
           _set(overwrite, segments, structuredClone((committed as unknown[]).slice((before as unknown[]).length)));
         } else {
-          trace.push({ path, verb: 'set' });
+          trace.push({ path, verb: 'set', ...prov });
           _set(overwrite, segments, structuredClone(committed));
         }
       }

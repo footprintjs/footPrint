@@ -19,11 +19,23 @@ paths:
   - src/lib/recorder/ControlDepRecorder.ts
   - src/lib/recorder/qualityTrace.ts
   - src/lib/recorder/QualityRecorder.ts
+  - src/lib/slice/**
 ---
-<!-- analyzed-at: a8a1840 @ 2026-07-02 | model: fable-5 -->
-# Backtracking in footprintjs — 5 mechanisms, ZERO rollback
+<!-- analyzed-at: d92a5e9 @ 2026-07-02 | model: fable-5 -->
+# Backtracking in footprintjs — 5 mechanisms + the slice query layer, ZERO rollback
 
 There is NO state rollback anywhere. M1 is commit-on-error by design (`TransactionBuffer.ts:13-18` — "What it is NOT: a rollback mechanism").
+
+**#P1 per-write read provenance (fourth dial):** `writeProvenance: 'reads-prefix'`
+(FlowChartExecutorOptions) makes every staged write stamp `TraceEntry.readKeys` —
+the keys tracked-read BEFORE that write (temporal prefix; monotone within a
+stage, so delta-mode's one-entry-per-path keeps the LAST prefix == the union).
+Capture: StageContext keeps a lazy `_provenanceReads` Set filled in `getValue`
+(INDEPENDENT of readTracking — key strings only); `getTransactionBuffer` hands
+the buffer a live `readKeysProvider` closure; both commit payloads
+(`toChangeOnlyPayload` per-op, `toDeltaPayload` last-op-per-path) carry it.
+Default `'off'` = byte-identical logs. Same 6-site propagation as the other
+three dials. Snapshot discriminant: `getSnapshot().writeProvenance`.
 
 ## M1 — TransactionBuffer staging + net-change commit
 Files: `TransactionBuffer.ts:31` (ctor clones base twice :42-46; set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory.ts:59` applyPatch → `utils.ts:254-272` applySmartMerge (clone-whole-state, apply verbs, SWAP). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
@@ -101,10 +113,34 @@ at runtime:  if next.isLoopRef: {node,ctx} = resolveTarget(id)  // count++, thro
              return hop(node, ctx)                              // flat re-entry, state as-is
 ```
 
+## M6 — slice/ query layer (variable-first triage over M3+M5)
+
+Files: `src/lib/slice/` — `sliceForKey.ts` (anchor at `findLastWriter` →
+delegate to causalChain; honest absence `missing: 'empty-log'|'never-written'`;
+DEFAULTS to `edgeAttribution: 'per-write'` + `rootLinkKeys: [key]` — safe, logs
+without readKeys degrade to stage level per node) · `elementProvenance.ts`
+(append-fold: replays the commitValueAt verb fold from the FIRST touch — never
+anchor-skip, that erases full-mode births — carrying index-aligned
+`ElementBirth`s labeled `'append-verb'`(exact)/`'prefix-inference'`(heuristic)/
+`'whole-value'`(reset); absence `missing: …|'not-an-array'`) ·
+`keysReadSources.ts` (strategy interface; execution-tree source carries
+`coverage` — `stepsWithReads === 0` is the readTracking-off signature) ·
+`serialize.ts` (`sliceToJSON` flat/linear; `formatSlice` bounded string —
+**never `JSON.stringify` a slice root**: shared-node DAG explodes
+combinatorially on diamonds).
+
+Invariants: births index-aligned with the folded value (property-pinned
+against commitValueAt); per-write slice ⊆ stage-level slice (property-pinned).
+Breaks when: slicing across a subflow MOUNT (isolated runtime — re-anchor with
+the subflow's own `treeContext.history` + tree, see slice/README.md); an
+initial-state-seeded key (never-written blind spot shared with findLastWriter).
+
 ## M5 — Backward causal slicing over the commit log (read-only analysis)
 Files: `backtrack.ts` (`causalChain` :311-478 — idxMap :329-332, BFS :359, `linkParent` :368-427 with control edges + weigher isolation, truncation flags :464-475; strategy switch linear-scan vs reverse-index at N=256 :204) · `commitLogUtils.ts:23` findLastWriter · `ControlDepRecorder.ts` (controlDeps lookup) · `qualityTrace.ts:56-108` (per-step scores; root cause = biggest score drop :88-100).
 
-Invariant: every data edge the slice follows is a tracked read matched to a `trace.path` in an earlier bundle; untracked consumption (args/env/silent) flags the node `incompleteSources` — never silently complete.
+**edgeAttribution (#P1):** `'stage'` (default) expands every node through ALL its stage reads; `'per-write'` expands a node reached via key k through only k's write-prefix `readKeys` (worklist: late links via other keys re-enqueue the DELTA, monotone toward the stage ceiling; `rootLinkKeys` anchors the root; any entry lacking readKeys → per-node stage-level fallback — mixed logs degrade exactly, never narrower).
+
+Invariant: every data edge the slice follows is a tracked read matched to a `trace.path` in an earlier bundle; untracked consumption (args/env/silent) flags the node `incompleteSources` — never silently complete. Per-write refinement is SUBSET-safe: it removes spurious edges, never adds.
 Breaks when: a stage derives its write purely from `$getArgs()`/`getEnv()`/silent reads — the slice stops early (marked `⚠ slice may be incomplete`, `backtrack.ts:554-557`); or `getKeysRead` comes from a different run's recorder (ids don't match → empty slice).
 
 ```

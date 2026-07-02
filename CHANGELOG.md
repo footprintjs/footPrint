@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.10.0] - 2026-07-02
+
+### Added
+
+- **`writeProvenance: 'off' | 'reads-prefix'` (#P1)** — the fourth
+  observability dial (readTracking/writeTracking/commitValues family, same
+  propagation pattern incl. subflow inheritance). Under `'reads-prefix'`,
+  every committed `TraceEntry` carries `readKeys`: the keys the stage had
+  tracked-read BEFORE that write (temporal prefix — monotone, so delta-mode's
+  one-entry-per-path keeps the union). Default `'off'` = byte-identical commit
+  logs, zero cost. Independent of `readTracking` (key strings need no value
+  retention). Snapshot discriminant: `getSnapshot().writeProvenance`.
+- **`causalChain` `edgeAttribution: 'per-write'`** (+ `rootLinkKeys`) —
+  consumes the provenance: a node reached via key `k` expands through only the
+  reads that fed its write of `k` (incremental worklist for multi-key links),
+  so a stage reading `a,b` and writing `x,y` no longer makes `x` appear to
+  depend on `b`. HONEST FALLBACK: entries without `readKeys` expand that node
+  at stage level — mixed or dial-off logs degrade to `'stage'` behavior
+  exactly. Property-pinned: the refined slice is always a subset of the
+  stage-level ceiling. `sliceForKey` DEFAULTS to `'per-write'` (safe by the
+  fallback rule) and anchors `rootLinkKeys` to the sliced key.
+
+- **`slice/` — variable-first backward slicing (the triage query layer)**, new
+  tiny library at `src/lib/slice/` (DAG position `memory ← slice`), exported
+  from `footprintjs/trace`. One contract for every triage surface — a human
+  clicking a key in a UI, an LLM calling a `backtrack` tool, an offline autopsy
+  agent — so their answers can never disagree:
+  - `sliceForKey(commitLog, key, keysRead, opts?)` → `VariableSlice` — "why is
+    this variable what it is?": anchors at the key's last writer
+    (`findLastWriter`) and delegates the transitive walk to `causalChain`
+    (controlDeps/weigh/maxDepth/maxNodes pass through). Honest absence is a
+    first-class result: `missing: 'empty-log' | 'never-written'`.
+  - `arrayProvenance(commitLog, key)` / `elementProvenance(commitLog, key, i)`
+    — **append-fold provenance**: element-level birth records for array keys
+    ("which stage produced `history[7]`?" — the fix for the agent mega-key
+    problem). Zero new capture: folds the verbs the commit log already records.
+    Every birth is honesty-labeled (`basis: 'append-verb'` — exact, delta mode;
+    `'prefix-inference'` — full-mode growth heuristic; `'whole-value'` — reset).
+    A property test pins value-equivalence with `commitValueAt`'s fold.
+  - `KeysReadSource` strategy interface for where per-stage reads come from:
+    `keysReadFromExecutionTree(tree)` (post-hoc, zero setup — reads live in the
+    snapshot when `readTracking ≠ 'off'`), `keysReadFromMap(map)`, or any bare
+    `KeysReadLookup` fn; the chosen strategy is recorded on
+    `VariableSlice.keysReadKind`, plus `readsCoverage` telemetry so a
+    reads-less provider (`readTracking: 'off'` signature) is machine-detectable
+    — "reads were not recorded" is never confused with "no dependencies".
+  - `sliceToJSON(slice)` + `formatSlice(slice)` — the ONLY safe
+    serializations. `VariableSlice.root` is a shared-node DAG;
+    `JSON.stringify` on it explodes combinatorially on diamonds. `sliceToJSON`
+    is flat/id-referenced/linear (wire transfer, structured consumers);
+    `formatSlice` is one bounded string for LLM triage tools, rendering the
+    honesty envelope (missing reasons, reads-coverage warning, truncation).
+  - Keys accept `StateKey = string | (string|number)[]` — nested paths are
+    normalised internally; engine delimiters never appear in the public
+    contract.
+  - Examples: `examples/post-execution/variable-slice/` — zero-recorder key
+    slice; loop-chart element provenance in both `commitValues` modes; and
+    `03-llm-triage-tool.ts`, the `backtrack(variable, element?)` LLM tool
+    contract on a plain chart (bounded strings, no LLM dependency).
+
 ## [9.9.0] - 2026-06-16
 
 ### Fixed

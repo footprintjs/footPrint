@@ -172,6 +172,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRootContext.useCommitValues(parentCommitValues);
     }
 
+    // Per-write read provenance (#P1): fourth dial, same inheritance hop —
+    // duck-type guard, skip-at-default ('off') fast path, so nested charts
+    // stamp TraceEntry.readKeys exactly when the parent does.
+    const parentWriteProvenance = parentContext.getWriteProvenance?.();
+    if (parentWriteProvenance !== undefined && parentWriteProvenance !== 'off') {
+      nestedRootContext.useWriteProvenance(parentWriteProvenance);
+    }
+
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
     //
     // PRESERVE `next`. Earlier revisions stripped `next` whenever the

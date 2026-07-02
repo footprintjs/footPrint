@@ -68,6 +68,38 @@ export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/b
 // (`CommitBundle.untrackedSources` → `CausalNode.incompleteSources`).
 export type { UntrackedSource } from './lib/memory/types.js';
 
+// ── slice/ — variable-first backward slicing (the triage query layer) ──
+// One contract for every triage surface (UI panel, LLM tool, offline
+// autopsy agent): variable in → slice out. `sliceForKey` anchors at the
+// key's last writer then delegates to causalChain; `arrayProvenance` /
+// `elementProvenance` (append-fold) answer element-level questions like
+// "which stage produced history[7]?" — the fix for the agent mega-key
+// problem, with honest attribution labels. See src/lib/slice/README.md.
+export type {
+  ArrayProvenance,
+  AttributionBasis,
+  ElementBirth,
+  KeysReadSource,
+  MissingProvenanceReason,
+  MissingSliceReason,
+  ReadsCoverage,
+  SliceJSON,
+  StateKey,
+  VariableSlice,
+} from './lib/slice/index.js';
+export type { SliceForKeyOptions } from './lib/slice/index.js';
+export {
+  arrayProvenance,
+  elementProvenance,
+  formatSlice,
+  keysReadFromExecutionTree,
+  keysReadFromMap,
+  normaliseStateKey,
+  resolveKeysReadSource,
+  sliceForKey,
+  sliceToJSON,
+} from './lib/slice/index.js';
+
 // ── v5 Stores (concrete, composable — primary recorder API) ─────
 // Compose these via `new Store<T>()` as a field on your recorder
 // class. One purpose per recorder: stores are storage; recorders

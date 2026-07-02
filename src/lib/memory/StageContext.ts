@@ -22,6 +22,7 @@ import type {
   ReadTrackingMode,
   StageSnapshot,
   UntrackedSource,
+  WriteProvenanceMode,
   WriteTrackingMode,
 } from './types.js';
 import { redactPatch } from './utils.js';
@@ -114,6 +115,24 @@ export class StageContext {
    * one-trace-entry-per-path dedup. Lossless in both modes.
    */
   private commitValues: CommitValuesMode = 'full';
+
+  /**
+   * Per-write read-provenance policy (#P1) — the fourth dial of the family,
+   * same propagation pattern as {@link readTracking}/{@link writeTracking}/
+   * {@link commitValues}. Under `'reads-prefix'` this context keeps a
+   * lightweight ordered set of the keys tracked-read so far, and the
+   * transaction buffer stamps that prefix onto every staged write
+   * ({@link TraceEntry.readKeys}). INDEPENDENT of readTracking: provenance
+   * needs only the key STRINGS, so it works even under readTracking 'off'
+   * (and costs nothing when it is itself 'off' — the default).
+   */
+  private writeProvenance: WriteProvenanceMode = 'off';
+
+  /** Lazily-allocated ordered registry of keys tracked-read in THIS stage —
+   *  the source of the per-write prefix. Only allocated under the
+   *  `'reads-prefix'` dial; insertion-ordered (a Set) and monotonic, which
+   *  is what makes "last write's prefix == union" hold in delta mode. */
+  private _provenanceReads?: Set<string>;
 
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
@@ -222,6 +241,23 @@ export class StageContext {
   }
 
   /**
+   * Set the per-write read-provenance policy (#P1). Same plumbing as the
+   * other three dials: called at the root by
+   * `ExecutionRuntime.useWriteProvenance()` (plumbed from
+   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
+   * and `SubflowExecutor` pushes the parent context's mode into each subflow
+   * root so nested charts inherit too.
+   */
+  useWriteProvenance(mode: WriteProvenanceMode): void {
+    this.writeProvenance = mode;
+  }
+
+  /** Returns the active write-provenance policy (used for subflow propagation). */
+  getWriteProvenance(): WriteProvenanceMode {
+    return this.writeProvenance;
+  }
+
+  /**
    * Record a tracked user-level write into `_stageWrites`, policy-gated
    * (#13c-A) — the single bookkeeping path for {@link setObject} and
    * {@link updateObject}.
@@ -307,7 +343,12 @@ export class StageContext {
    *  {@link firstTouchState}. */
   getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
-      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues);
+      // Per-write provenance (#P1): hand the buffer a live view of this
+      // stage's read prefix — evaluated AT EACH WRITE, so each staged op
+      // captures exactly the reads that preceded it (temporal prefix).
+      const readKeysProvider =
+        this.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
+      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues, readKeysProvider);
     }
     return this.buffer;
   }
@@ -432,6 +473,11 @@ export class StageContext {
    */
   getValue(path: string[], key?: string, description?: string) {
     const value = this.readState(path, key);
+    // Per-write provenance registry (#P1) — key strings only, independent of
+    // the readTracking retention dial (which governs VALUE retention below).
+    if (key !== undefined && this.writeProvenance === 'reads-prefix') {
+      (this._provenanceReads ??= new Set()).add(path.length > 0 ? [...path, key].join('.') : key);
+    }
     // Track user-level read (pre-namespace) for memory view
     if (key !== undefined && this.readTracking !== 'off') {
       const userKey = path.length > 0 ? [...path, key].join('.') : key;
@@ -619,6 +665,7 @@ export class StageContext {
       this.next.readTracking = this.readTracking;
       this.next.writeTracking = this.writeTracking;
       this.next.commitValues = this.commitValues;
+      this.next.writeProvenance = this.writeProvenance;
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -640,6 +687,7 @@ export class StageContext {
     child.readTracking = this.readTracking;
     child.writeTracking = this.writeTracking;
     child.commitValues = this.commitValues;
+    child.writeProvenance = this.writeProvenance;
     this.children.push(child);
     return child;
   }

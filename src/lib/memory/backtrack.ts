@@ -182,6 +182,32 @@ export interface CausalChainOptions {
    * `undefined` (or no weigher) → 1.0. See {@link EdgeWeigher}.
    */
   weigh?: EdgeWeigher;
+  /**
+   * #P1 — how a node's expansion read-set is derived:
+   *
+   * - `'stage'` (default, historical) — every visited node expands through
+   *   ALL of its stage's reads (`getKeysRead`). A stage reading `a,b` and
+   *   writing `x,y` links both reads as causes of both writes — a sound but
+   *   coarse over-approximation.
+   * - `'per-write'` — when the commit log carries per-write read provenance
+   *   (`TraceEntry.readKeys`, recorded under the executor's
+   *   `writeProvenance: 'reads-prefix'` dial), a node reached via key `k`
+   *   expands through ONLY the reads that preceded its write of `k`
+   *   (temporal prefix). Nodes linked later via additional keys are
+   *   incrementally re-expanded with just the new reads (worklist — the
+   *   slice only ever GROWS toward the stage-level ceiling). HONEST
+   *   FALLBACK: any link whose trace entry lacks `readKeys` expands that
+   *   node at stage level — mixed or dial-off logs degrade to `'stage'`
+   *   behavior exactly, never to silence.
+   */
+  edgeAttribution?: 'stage' | 'per-write';
+  /**
+   * #P1 — the written keys that anchor the ROOT's expansion under
+   * `'per-write'` (e.g. `sliceForKey` passes the sliced key, so the root
+   * expands through the reads that fed THAT write, not the whole stage).
+   * Ignored under `'stage'`. Unset → root expands at stage level.
+   */
+  rootLinkKeys?: string[];
 }
 
 /**
@@ -318,6 +344,7 @@ export function causalChain(
   const maxNodes = options?.maxNodes ?? 100;
   const controlDeps = options?.controlDeps;
   const weigh = options?.weigh;
+  const perWrite = options?.edgeAttribution === 'per-write';
 
   // RFC-003 D4 — truncation visibility. Set only when a limit actually
   // cuts the slice; surfaced on the root as `truncated` so a consumer can
@@ -355,8 +382,45 @@ export function causalChain(
   };
   nodeMap.set(startId, root);
 
-  // BFS queue: [node, commitIdx, depth]
-  const queue: Array<[CausalNode, number, number]> = [[root, startIdx, 0]];
+  // ── #P1 per-write attribution machinery (inert under 'stage') ──────────
+  // expandedReads: per node, the reads already queued for expansion — late
+  // links via additional keys re-enqueue only the DELTA, so the slice grows
+  // monotonically toward the stage-level ceiling and terminates (each key
+  // expands at most once per node). fullyExpanded: nodes that fell back to
+  // stage level (no readKeys on a linking entry) — nothing left to add.
+  const expandedReads = new Map<string, Set<string>>();
+  const fullyExpanded = new Set<string>();
+
+  /**
+   * Resolve a node's expansion read-set for the given linking WRITTEN keys.
+   * Per-write mode with provenance present → union of the linking writes'
+   * temporal-prefix `readKeys`. Any linking entry WITHOUT `readKeys` (or no
+   * linkKeys at all) → honest stage-level fallback, flagged via the second
+   * tuple member so the caller marks the node fully expanded.
+   */
+  function readsForLinks(commit: CommitBundle, linkKeys: string[] | undefined): [string[], boolean] {
+    if (!perWrite || !linkKeys || linkKeys.length === 0) {
+      return [getKeysRead(commit.runtimeStageId), true];
+    }
+    const union = new Set<string>();
+    for (const linkKey of linkKeys) {
+      const entry = commit.trace.find((t) => t.path === linkKey);
+      if (!entry || entry.readKeys === undefined) {
+        // Mixed/dial-off log — degrade THIS node to stage level, honestly.
+        return [getKeysRead(commit.runtimeStageId), true];
+      }
+      for (const rk of entry.readKeys) union.add(rk);
+    }
+    return [[...union], false];
+  }
+
+  // BFS/worklist queue: [node, commitIdx, depth, keysToExpand]
+  const [rootReads, rootIsFull] = perWrite
+    ? readsForLinks(startCommit, options?.rootLinkKeys)
+    : [getKeysRead(startId), true];
+  expandedReads.set(startId, new Set(rootReads));
+  if (rootIsFull) fullyExpanded.add(startId);
+  const queue: Array<[CausalNode, number, number, string[]]> = [[root, startIdx, 0, rootReads]];
   let visited = 1;
 
   /**
@@ -373,6 +437,15 @@ export function causalChain(
     depth: number,
   ): void {
     const parentId = parentCommit.runtimeStageId;
+    // #P1: the parent's expansion reads, resolved LAZILY (only for new nodes
+    // or per-write re-expansion — duplicate links under 'stage' pay nothing).
+    // Data links expand through the reads that fed the parent's write of
+    // `key`; control links expand the decider at stage level (a decision
+    // depends on everything it read).
+    const resolveLinkReads = (): [string[], boolean] =>
+      kind === 'data'
+        ? readsForLinks(parentCommit, key !== undefined ? [key] : undefined)
+        : [getKeysRead(parentId), true];
 
     let parentNode = nodeMap.get(parentId);
     if (!parentNode) {
@@ -400,7 +473,24 @@ export function causalChain(
       };
       nodeMap.set(parentId, parentNode);
       visited++;
-      queue.push([parentNode, parentIdx, depth + 1]);
+      const [linkReads, linkIsFull] = resolveLinkReads();
+      expandedReads.set(parentId, new Set(linkReads));
+      if (linkIsFull) fullyExpanded.add(parentId);
+      queue.push([parentNode, parentIdx, depth + 1, linkReads]);
+    } else if (perWrite && !fullyExpanded.has(parentId)) {
+      // #P1 worklist: an EXISTING node linked via another key may owe more
+      // expansion — enqueue only the reads not yet expanded (monotone; the
+      // node budget is untouched, no node is created). Re-expansion keeps
+      // the node's ORIGINAL depth so its parents get a consistent depth+1.
+      const [linkReads, linkIsFull] = resolveLinkReads();
+      const expanded = expandedReads.get(parentId)!;
+      const delta = linkReads.filter((k) => !expanded.has(k));
+      if (linkIsFull) fullyExpanded.add(parentId);
+      if (delta.length > 0) {
+        for (const k of delta) expanded.add(k);
+        const parentIdx = idxMap.get(parentId);
+        if (parentIdx !== undefined) queue.push([parentNode, parentIdx, parentNode.depth, delta]);
+      }
     }
 
     // DAG merge: one parents[] entry per distinct parent (historical shape)
@@ -427,19 +517,22 @@ export function causalChain(
   }
 
   while (queue.length > 0) {
-    const [node, commitIdx, depth] = queue.shift()!;
+    const [node, commitIdx, depth, keysToExpand] = queue.shift()!;
 
     if (depth >= maxDepth) {
       // D4: only a node that still HAD something to expand counts as a cut
       // (a leaf at the horizon truncates nothing).
-      if (getKeysRead(node.runtimeStageId).length > 0 || controlDeps?.(node.runtimeStageId) !== undefined) {
+      if (keysToExpand.length > 0 || controlDeps?.(node.runtimeStageId) !== undefined) {
         truncatedByDepth = true;
       }
       continue;
     }
 
-    // Data edges: for each key read, find who wrote it
-    const keysRead = getKeysRead(node.runtimeStageId);
+    // Data edges: for each key in this expansion's read-set, find who wrote
+    // it. Under 'stage' this is the node's full read-set (historical
+    // behavior); under 'per-write' it is the linking writes' temporal prefix
+    // (or a worklist delta on re-expansion).
+    const keysRead = keysToExpand;
     for (const key of keysRead) {
       const writer = findWriter(key, commitIdx);
       if (!writer) continue;

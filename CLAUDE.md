@@ -1,10 +1,10 @@
-<!-- analyzed-at: a8a1840 @ 2026-07-02 | model: fable-5 -->
+<!-- analyzed-at: d92a5e9 @ 2026-07-02 | model: fable-5 -->
 # footprintjs — feature-work map
 
 Self-explaining flowchart engine: a fluent builder emits a static chart; one DFS pass executes it while observer channels + a commit log capture everything ("collect during traversal, never post-process"). This file maps seams and blast radius; for API description read the code/README — **trust the code** where any doc disagrees.
 
 ## Module map
-Entry points: `footprintjs` (public API) · `/recorders` (factories) · `/trace` (commitLog queries, stores, causalChain) · `/advanced` (engine internals) · `/detach` · `/zod` (opt-in; zod never imported by core). New public symbols must be wired through these barrels (src/index.ts, advanced.ts, trace.ts, recorders.ts).
+Entry points: `footprintjs` (public API) · `/recorders` (factories) · `/trace` (commitLog queries, stores, causalChain) · `/advanced` (engine internals) · `/detach` · `/zod` (opt-in; zod never imported by core). New public symbols are wired through the barrel that OWNS them (canonical path); `/advanced` re-exports only a small hand-picked trace subset — do not assume `export *` chaining.
 
 | src/lib/ | one job |
 |---|---|
@@ -16,6 +16,7 @@ Entry points: `footprintjs` (public API) · `/recorders` (factories) · `/trace`
 | reactive/ | TypedScope deep Proxy over the facade |
 | decide/ | decide()/select() evidence capture |
 | recorder/ | stores (KeyedStore/SequenceStore/BoundaryStateStore), CombinedRecorder routing, built-ins (Topology/InOut/ControlDep/Quality) |
+| slice/ | variable-first backward slicing (triage query layer): sliceForKey (anchor at last writer → causalChain) + arrayProvenance/elementProvenance (append-fold element births — the agent mega-key fix) + KeysReadSource strategies. Pure post-hoc queries; imports memory/ ONLY (see src/lib/slice/README.md) |
 | pause/ | PauseSignal / FlowchartCheckpoint types |
 | engine/ | FlowchartTraverser + handlers/; narrative/ = the whole FlowRecorder channel (dispatcher + 9 strategies), not just text |
 | runner/ | FlowChartExecutor wiring (runtime, recorders, pause/resume, snapshot, DeferredObserverTier). RunContext.ts is a fluent run builder, NOT the threaded per-run context |
@@ -40,12 +41,12 @@ Entry points: `footprintjs` (public API) · `/recorders` (factories) · `/trace`
 - **Contract**: builder.contract() (:1056) → makeRunnable toOpenAPI/toMCPTool (runner/RunnableChart.ts:83/153). BYO schema is duck-typed (schema/detect.ts:24).
 - **Scope provider**: ProviderResolver (scope/providers/types.ts:35) via registerScopeResolver (registry.ts:15; exported from /advanced). Simpler: custom scopeFactory (engine/types.ts:73).
 - **Detach driver**: DetachDriver (detach/types.ts:186); no registry — passed explicitly.
-- **Observability dial** (pattern): capture/ primitive + FlowChartExecutorOptions option + snapshot discriminant (see readTracking/writeTracking/commitValues, FlowChartExecutor.ts:118/153/184).
+- **Observability dial** (pattern): capture/ primitive + FlowChartExecutorOptions option + snapshot discriminant — FOUR dials now: readTracking/writeTracking/commitValues/writeProvenance (#P1: `'reads-prefix'` stamps `TraceEntry.readKeys` = keys tracked-read before each write; consumed by causalChain `edgeAttribution: 'per-write'` and sliceForKey's default). Propagation is the same 6-site pattern for all four.
 - **Closed seams that look open**: ExecutionEnv (fixed type); decide() operators (evaluator.ts:19 module-private); METHOD_ROUTES; the executeNodeStep phase chain; emit dispatcher (rides scope channel).
 
 ## Change-impact map
 - **Trace verbs** (`set|merge|append|delete`, memory/types.ts:42) → FOUR verb-switch replicas in lockstep: applySmartMerge (utils.ts:254 — live commit AND EventLog.materialise), commitValueAt (commitLogUtils.ts:82), TransactionBuffer.toDeltaPayload/replayPathVerbs (:248-328); plus causalChain/findLastWriter readers.
-- **StageContext.commit / dials** → dial propagation is TRIPLICATED: ExecutionRuntime.use* (:131-161), createNext/createChild inheritance (StageContext.ts:619/640), SubflowExecutor duck-push (:151-173) — miss one and subflows silently run the default.
+- **StageContext.commit / dials** → dial propagation is TRIPLICATED: ExecutionRuntime.use* (:131-161), createNext/createChild inheritance (StageContext.ts:619/640), SubflowExecutor duck-push (:151-173) — miss one and subflows silently run the default. Applies to all FOUR dials incl. writeProvenance (#P1).
 - **runtimeStageId format** (`#`/`/` delimiters) → string parsers everywhere: parseRuntimeStageId, ScopeFacade._getSubflowPath, subflowResults dual-keying, checkpoint lean-filter, narrative buffering, store keys.
 - **Subflow id prefixing** → DUPLICATED prefixer: builder _prefixNodeTree (:1968) and traverser prefixNodeTree (FlowchartTraverser.ts:1356) are byte-twins; change both + stageMap key composition + resume drilling.
 - **Checkpoint shape** → buildPauseCheckpoint (FlowChartExecutor.ts:987) ↔ resume() validation (:690) ↔ checkpointSanitize ↔ SubflowExecutor resume-seed (skip-inputMapper, :69-72).
@@ -61,7 +62,7 @@ loop: Phase 6 sees isLoopRef → ContinuationResolver.resolveTarget (:107): id-m
 end: onRunEnd (throw → onRunFailed; pause → neither) → deferred terminalFlush → getSnapshot() = {sharedState (LIVE view; dev-mode frozen clone), commitLog, executionTree, subflowResults (dual-keyed), recorders}.
 
 ## Backtracking
-Five mechanisms, no state rollback anywhere: **M1** TransactionBuffer staging + net-change commit — commit-on-error by design, explicitly NOT rollback (TransactionBuffer.ts:13-18; error path commits then rethrows). **M2** Pause/Resume checkpointing — the only resume-from-prior-point; checkpoint is one detached structuredClone; resume rebuilds the cursor from pausedStageId+subflowPath and only overrides the LEAF subflow root (2+-deep pause re-executes outer pre-mount stages). **M3** commit-log replay (EventLog.materialise, commitValueAt — required under delta mode). **M4** loopTo re-entry — forward execution over accumulated state, bounded by maxIterations + dynamicNextHops. **M5** causalChain backward slicing (read-only analysis; honesty flags for untracked reads). Deep dive + step tables: [.claude/rules/backtracking.md](.claude/rules/backtracking.md).
+Five mechanisms, no state rollback anywhere: **M1** TransactionBuffer staging + net-change commit — commit-on-error by design, explicitly NOT rollback (TransactionBuffer.ts:13-18; error path commits then rethrows). **M2** Pause/Resume checkpointing — the only resume-from-prior-point; checkpoint is one detached structuredClone; resume rebuilds the cursor from pausedStageId+subflowPath and only overrides the LEAF subflow root (2+-deep pause re-executes outer pre-mount stages). **M3** commit-log replay (EventLog.materialise, commitValueAt — required under delta mode). **M4** loopTo re-entry — forward execution over accumulated state, bounded by maxIterations + dynamicNextHops. **M5** causalChain backward slicing (read-only analysis; honesty flags for untracked reads; `edgeAttribution: 'per-write'` refines edges via `TraceEntry.readKeys` when the writeProvenance dial recorded them — worklist, subset-of-ceiling safe). **M6 (query layer)** slice/ — variable-first triage: sliceForKey + append-fold element provenance + the ONLY safe serializations (sliceToJSON/formatSlice — never JSON.stringify a slice root). Deep dive + step tables: [.claude/rules/backtracking.md](.claude/rules/backtracking.md).
 
 ## Invariants (assumed, not stated)
 - Committed state immutable-after-swap; first-touch views hold bare references on that guarantee — in-place mutation of SharedMemory.context corrupts every in-flight stage.

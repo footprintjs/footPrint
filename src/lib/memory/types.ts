@@ -22,6 +22,19 @@ export interface TraceEntry {
   /** Canonical path string (segments joined by DELIM). */
   path: string;
   /**
+   * Per-write read provenance (#P1) — the keys this stage had TRACKED-READ at
+   * the moment this path was (last) written: the temporal-prefix attribution
+   * that lets slices link a specific write to only the reads that could have
+   * fed it (a stage reading `a,b` and writing `x,y` no longer implies x←b).
+   * ABSENT unless the `writeProvenance: 'reads-prefix'` dial is on — charts
+   * that never enable it keep byte-identical commit logs. Read prefixes only
+   * grow during a stage, so under delta mode's one-entry-per-path dedup the
+   * LAST write's prefix == the union across all of that path's writes.
+   * Honest ceiling: a write with NO tracked reads before it records `[]` —
+   * "depended on no tracked reads" is information, not absence.
+   */
+  readKeys?: string[];
+  /**
    * - `'set'`    — hard overwrite; `overwrite[path]` holds the full final value.
    * - `'merge'`  — deep union merge; `updates[path]` holds the accumulated delta.
    * - `'append'` — (#13c-B, produced only under {@link CommitValuesMode}
@@ -110,6 +123,20 @@ export interface FlowMessage {
 export type { RetentionPolicy } from '../capture/policies.js';
 export type { ReadSummaryMarker, WriteSummaryMarker } from '../capture/summarize.js';
 export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from '../capture/summarize.js';
+
+/**
+ * Per-write read-provenance policy (#P1) — the fourth dial of the
+ * readTracking/writeTracking/commitValues family, same 6-site propagation
+ * pattern (executor option → ExecutionRuntime.use* → root StageContext →
+ * createNext/createChild inheritance → SubflowExecutor duck-push).
+ *
+ * - `'off'` (default) — zero cost, byte-identical commit logs.
+ * - `'reads-prefix'` — every committed {@link TraceEntry} carries
+ *   `readKeys`: the keys tracked-read BEFORE that write (temporal-prefix
+ *   attribution). Cost: one Set-to-array copy per write. Consumed by
+ *   `causalChain`'s `edgeAttribution: 'per-write'` and the slice layer.
+ */
+export type WriteProvenanceMode = 'off' | 'reads-prefix';
 
 /**
  * Policy for how tracked reads are recorded into `StageSnapshot.stageReads`.
