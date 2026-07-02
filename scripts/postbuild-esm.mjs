@@ -11,11 +11,16 @@
  * (true-ESM-resolvable) and the only `require()` (worker-thread detach driver)
  * is guarded by `typeof require === 'function'`, so it degrades gracefully in
  * ESM instead of crashing.
+ *
+ * `sideEffects: false` MUST be repeated here: bundlers resolve sideEffects from
+ * the NEAREST enclosing package.json, so this manifest would otherwise shadow
+ * the root declaration for every ESM file — measured +40% retained bytes on
+ * representation-only bundles (ScopeFacade et al. kept despite being unused).
  */
 import { writeFileSync } from 'node:fs';
 
 writeFileSync(
   new URL('../dist/esm/package.json', import.meta.url),
-  JSON.stringify({ type: 'module' }, null, 0) + '\n',
+  JSON.stringify({ type: 'module', sideEffects: false }, null, 0) + '\n',
 );
-console.log('postbuild-esm: wrote dist/esm/package.json {type:module} ✓');
+console.log('postbuild-esm: wrote dist/esm/package.json {type:module, sideEffects:false} ✓');
