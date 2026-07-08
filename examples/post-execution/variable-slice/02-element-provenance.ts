@@ -39,7 +39,8 @@ const chart = flowChart<State>('Seed', async (scope) => {
   await executor.run();
   const { commitLog } = executor.getSnapshot();
 
-  const prov = arrayProvenance(commitLog, 'msgs')!;
+  const prov = arrayProvenance(commitLog, 'msgs');
+  if (!prov.births) throw new Error(`no provenance for msgs — ${prov.missing}`); // honest absence
   console.log(`msgs has ${prov.length} elements — where did each come from?\n`);
   for (const b of prov.births) {
     console.log(`  msgs[${b.index}] = ${JSON.stringify(b.value)}  ← ${b.runtimeStageId} (${b.basis})`);
