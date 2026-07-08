@@ -67,7 +67,7 @@ Files: `pause/types.ts` (`PauseSignal` :29, `captureSubflowScope` :116, `Flowcha
 | pause throw | pre-pause writes committed (M1); pauseData on signal | — | — |
 | bubble-up | per-subflow sharedState captures + subflowPath + invoker stamps | — | nested runtimes (GC'd) |
 | checkpoint | one deep-cloned detached FlowchartCheckpoint | — | per-iteration `#` subflowResults keys + per-subflow commit history stripped (:996-1009); recorder state NEVER captured |
-| resume() | fresh runId | sharedState → runtime; subflowStates re-seed nested runtimes (inputMapper skipped) | cross-executor narrative/recorders start empty |
+| resume() | fresh runId | sharedState → runtime; subflowStates re-seed nested runtimes (inputMapper skipped); `executionCount`/`visitCounts` re-seed the shared counter + per-stage visit map (by mutation — traverser holds them by ref) so runtimeStageIds stay unique + loopIteration monotonic on cross-executor resume | cross-executor narrative/recorders start empty |
 
 Invariant: the chart graph is static and id-stable — resume reconstructs the cursor purely from `pausedStageId + subflowPath` against the CURRENT chart; checkpoint fully detached.
 Breaks when: pause is **two subflow levels deep** (`['sf-a','sf-b']`) — resume enters through subflowPath[0]'s mount and only overrides the LEAF root (:841-856, "single-level covers all current use cases"), so sf-a's stages before the sf-b mount re-execute. Also non-cloneable pauseData (a function) → contract error after sanitize retry.

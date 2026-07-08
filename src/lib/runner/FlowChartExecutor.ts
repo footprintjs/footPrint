@@ -736,6 +736,32 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throw new Error('Invalid checkpoint: subflowPath must be an array of strings.');
     }
 
+    // ── Seed the shared execution counter + per-stage visit counts ──
+    //
+    // MUST run before the counter is READ below (the resume-node runtimeStageId
+    // reconstruction) AND before createTraverser() hands the traverser these
+    // objects BY REFERENCE. Seeding keeps runtimeStageIds unique and
+    // loopIteration monotonic across a CROSS-executor resume (a fresh executor
+    // starts both at 0/empty; the checkpoint carries the pause-time values).
+    //
+    // MUTATE, never REPLACE: `_executionCounter` and `_visitCounts` are shared
+    // by reference into the traverser (and, transitively, every subflow
+    // traverser — see FlowchartTraverser's sub-traverser factory). Assigning a
+    // fresh object here would sever that shared reference. Both fields are
+    // optional on the checkpoint (older persisted checkpoints omit them) — skip
+    // seeding when absent, preserving the previous behavior. Same-executor
+    // resume is idempotent: at pause the instance values already equal the
+    // checkpoint's, so re-seeding them changes nothing.
+    if (typeof checkpoint.executionCount === 'number') {
+      this._executionCounter.value = checkpoint.executionCount;
+    }
+    if (checkpoint.visitCounts) {
+      this._visitCounts.clear();
+      for (const [stageId, count] of Object.entries(checkpoint.visitCounts)) {
+        this._visitCounts.set(stageId, count);
+      }
+    }
+
     // Find the paused node in the graph
     const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
     if (!pausedNode) {
@@ -1044,6 +1070,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       subflowPath: signal.subflowPath,
       pauseData: signal.pauseData,
       subflowStates: signal.subflowStates,
+      // Counter continuity — seeded back in resume() so runtimeStageIds stay
+      // unique and loopIteration stays monotonic across a CROSS-executor resume
+      // (both are plain number/record, so they ride the single structuredClone
+      // below untouched). See test/lib/pause/resume-execution-counter-continuity.test.ts.
+      executionCount: this._executionCounter.value,
+      visitCounts: Object.fromEntries(this._visitCounts),
       ...(Object.keys(leanSubflowResults).length > 0 && { subflowResults: leanSubflowResults }),
       // Invoker context — collected during traversal bubble-up (not tree-walked)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),

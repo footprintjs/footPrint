@@ -221,6 +221,28 @@ export interface FlowchartCheckpoint {
    */
   readonly subflowStates: Record<string, Record<string, unknown>>;
 
+  /**
+   * The shared execution counter at the moment of pause — the number of stages
+   * executed so far this run. Resume seeds it so post-resume `runtimeStageId`s
+   * (`stageId#executionIndex`) keep climbing and never collide with pre-pause
+   * ones, which is what the whole event-correlation model rests on.
+   *
+   * Optional for backward compatibility: a checkpoint persisted before this
+   * field existed (older Redis/Postgres rows) still validates and resumes with
+   * the previous (counter-restarting) behavior.
+   */
+  readonly executionCount?: number;
+
+  /**
+   * Per-`stageId` loop visit counts at the moment of pause. Resume seeds them
+   * so `TraversalContext.loopIteration` stays continuous across the pause (a
+   * mid-loop resume keeps counting up, not restarting at 0) and the
+   * ContinuationResolver iteration budget is not silently refilled.
+   *
+   * Optional for the same backward-compatibility reason as `executionCount`.
+   */
+  readonly visitCounts?: Readonly<Record<string, number>>;
+
   /** Stage that invoked the paused child (decider, selector, fork). Absent for linear pauses. */
   readonly invokerStageId?: string;
 

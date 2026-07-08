@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.10.1] - 2026-07-08
+
+### Fixed
+
+- **Cross-executor resume restarted the execution counter** — the documented
+  resume pattern (`new FlowChartExecutor(chart)` + `resume(checkpoint)`)
+  started `_executionCounter` at 0 and `_visitCounts` empty because
+  `FlowchartCheckpoint` carried neither. Post-resume stages could RE-USE
+  pre-pause `runtimeStageId`s (silently overwriting recorder entries keyed by
+  them — observed as a resumed agent's `call-llm#18` clobbering its pre-pause
+  entry), the resume cursor itself was rebuilt at `#0`, and `loopIteration` +
+  the `maxIterations` budget restarted — violating the invariant
+  "executionIndex … NOT reset on resume", which only held for same-executor
+  resume. `FlowchartCheckpoint` now carries OPTIONAL `executionCount` +
+  `visitCounts`; `buildPauseCheckpoint` stamps them (they ride the existing
+  single structuredClone) and `resume()` seeds both BY MUTATION — the
+  `{value}` box and the visit Map are shared by reference into every
+  traverser including subflows — before the resume cursor's `runtimeStageId`
+  is rebuilt. Backward compatible: old persisted checkpoints (Redis etc.)
+  resume unchanged. New suite `resume-execution-counter-continuity`
+  (cross-executor monotonicity, resume-cursor label, same-executor unchanged,
+  back-compat, loop continuity).
+
 ## [9.10.0] - 2026-07-02
 
 ### Added
