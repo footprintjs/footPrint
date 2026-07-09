@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.11.0] - 2026-07-09
+
+### Added
+
+- **`getSnapshot().runId`** — the run's id, surfaced read-only on the
+  snapshot. `runId` already existed internally (generated per
+  `run()`/`resume()`, stamped on every `TraversalContext`/recorder event) but
+  `RuntimeSnapshot` never carried it, so a snapshot could not be joined
+  against the event stream or an external correlation table without
+  scraping a recorder. `FlowchartTraverser.getSnapshot()` is now the single
+  authority: it stamps the same `runId` it already stamps on events onto
+  the returned snapshot; `ExecutionRuntime.getSnapshot()` stays run-agnostic
+  (`Omit<RuntimeSnapshot, 'runId'>`) — nested subflow runtimes deliberately
+  carry no `runId` of their own. Stable within a run; regenerates across
+  both `run()` and `resume()` (resume is logically a distinct run). Note:
+  `runtimeStageId` collides across independent runs — `runId` is what
+  disambiguates them for cross-run consumers.
+
 ## [9.10.1] - 2026-07-08
 
 ### Fixed
