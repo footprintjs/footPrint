@@ -567,7 +567,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   getSnapshot(options?: { redact?: boolean }) {
-    return this.executionRuntime.getSnapshot(options);
+    // Stamp the run's id onto the runtime snapshot here — the traverser is
+    // the single authority for `runId` (it already stamps the same value on
+    // every TraversalContext/event), while the runtime is run-agnostic
+    // memory (its getSnapshot returns Omit<RuntimeSnapshot, 'runId'>).
+    // Fresh per run() AND per resume() — see runner/runId.ts.
+    return { ...this.executionRuntime.getSnapshot(options), runId: this.runId };
   }
 
   getRuntime() {
