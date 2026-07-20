@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+type: software
+title: "footprintjs: the self-explaining flowchart engine"
+authors:
+  - family-names: "Anbalagan"
+    given-names: "Sanjay Krishna"
+license: MIT
+repository-code: "https://github.com/footprintjs/footPrint"
+url: "https://footprintjs.github.io/footPrint/"
+keywords:
+  - "explainable AI"
+  - "causal trace"
+  - "flowchart pattern"
+  - "agent observability"
+  - "self-explaining systems"
+  - "backward slicing"

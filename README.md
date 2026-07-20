@@ -307,4 +307,22 @@ The self-explaining stack — from backend pipelines to AI agents. → **[overvi
 
 ---
 
+## Citing
+
+footprintjs is part of a research program on making software systems explain themselves — every run records *why* it did what it did, as a causal trace. Researching agent transparency, observability, or explainable AI? The [ecosystem map](https://footprintjs.github.io/) is a good starting point.
+
+If you use footprintjs in academic work, please cite it (or use the "Cite this repository" button on GitHub):
+
+```bibtex
+@software{anbalagan_footprintjs,
+  author  = {Anbalagan, Sanjay Krishna},
+  title   = {footprintjs: the self-explaining flowchart engine},
+  url     = {https://github.com/footprintjs/footPrint},
+  license = {MIT},
+  year    = {2024}
+}
+```
+
+---
+
 [MIT](./LICENSE) &copy; [Sanjay Krishna Anbalagan](https://github.com/sanjay1909)
