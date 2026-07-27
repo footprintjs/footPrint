@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`meta` on a recorder's snapshot bundle** — `toSnapshot()` may now return a
+  small `meta` object, and it is copied through to
+  `getSnapshot().recorders[i].meta` unchanged. It is for facts about the
+  BUNDLE, not about the run: which projection of the recorder's data this is,
+  how it was produced, what it deliberately left out. The row a consumer reads
+  is rebuilt field by field (deliberately — a recorder must not be able to
+  rename itself in a snapshot consumers index by `id`), which means anything
+  the list forgot was dropped in silence, and the only place a recorder could
+  say which of two bundle shapes you were holding was the prose in
+  `description`. String-matching a sentence is not a thing offline readers do:
+  they render the empty panel instead. `agentfootprint`'s boundary recorder is
+  the case in hand — it can emit a full bundle or a content-free lean one, and
+  a viewer that cannot tell them apart shows blank detail panes rather than
+  saying "this recording carries structure only". Keys are the recorder's to
+  choose; keep the values JSON-safe, since this rides the snapshot to disk.
+  Nothing changes for a recorder that omits it: no `meta`, no key.
+- **The narrative rides the snapshot** — `CombinedNarrativeRecorder` now
+  implements `toSnapshot()`, so an attached `narrative()` lands in
+  `getSnapshot().recorders` as `{ name: 'Narrative', preferredOperation:
+  'translate', data: entries }`. It was the one built-in recorder with no
+  snapshot bundle, which left every consumer holding only a frozen snapshot
+  (a trace viewer, an exported run, a UI narrative panel that never sees the
+  executor) with no way to read the run's story — `getNarrativeEntries()` is
+  an executor method and reads only the executor's own internal narrative
+  recorder. The snapshot entries deliberately DROP `rawValue`: it is a live
+  reference to scope/emit payloads by contract, so carrying it would alias
+  engine memory into an artifact that is supposed to be detached AND break
+  `structuredClone`/`JSON.stringify` on any non-serializable payload. The
+  rendered `text` already carries the value summary and `key` carries the
+  scope key, so nothing a snapshot consumer can act on is lost; in-process
+  consumers that need the live value keep using `getEntries()`. The
+  executor-internal narrative path is unchanged — `enableNarrative()` alone
+  adds no snapshot row, and `getNarrativeEntries()` returns exactly what it
+  returned before.
+
+### Fixed
+
+- **A recorder that rides two channels was listed TWICE in
+  `getSnapshot().recorders`** — `onError`/`onPause`/`onResume` are declared
+  on BOTH the scope and flow recorder interfaces, so
+  `attachCombinedRecorder` legitimately registers such a recorder on both
+  inline lists (each channel calls the hook with its own payload variant —
+  that is the design). The snapshot's serialization walked both lists with
+  no shared `seen` set and emitted one row per registration, so
+  `metrics()` — a pure data-flow recorder whose `onPause` counts pauses —
+  appeared twice, breaking every consumer that indexes `snapshot.recorders`
+  by id. Collection now emits ONE row per recorder id across both channels
+  AND both delivery tiers (the deferred branch already deduped within
+  itself; the dedupe is now shared). A recorder with no `toSnapshot` never
+  claims an id, so it cannot shadow a same-id recorder that has one. The
+  routing arrays in `CombinedRecorder.ts` are deliberately unchanged —
+  they also drive the deferred tier's capture taps, and removing a shared
+  hook name from one of them would silently blind deferred observers to
+  that event (pinned by a new regression suite).
+
 ## [9.11.0] - 2026-07-09
 
 ### Added

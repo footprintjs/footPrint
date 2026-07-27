@@ -32,6 +32,23 @@ export interface RecorderSnapshot {
   /** Preferred read-time operation — hints the UI about which view to show prominently. */
   preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
   data: unknown;
+  /**
+   * Small machine-readable facts about the BUNDLE — how it was produced,
+   * which projection of the recorder's data it is, what it deliberately
+   * left out. Whatever the recorder's `toSnapshot()` put here, copied
+   * through unchanged.
+   *
+   * The split with `description`: `description` is the sentence a human
+   * reads; `meta` is what an offline consumer BRANCHES on. A recorder with
+   * a "full" and a "lean" bundle shape that says so only in its
+   * description forces every reader to string-match prose — and a reader
+   * that doesn't renders an empty panel instead of saying "this recording
+   * carries structure only".
+   *
+   * Not interpreted by the engine, so keys are the recorder's to choose;
+   * keep the values JSON-safe, since this rides the snapshot out to disk.
+   */
+  meta?: Readonly<Record<string, unknown>>;
 }
 
 export type RuntimeSnapshot = {

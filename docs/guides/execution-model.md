@@ -233,6 +233,37 @@ state. Clone-always in production is deferred until benchmarked (a 1 MB
 state costs ~4 ms per `structuredClone`, measured on Node 22/M-series —
 fine for a one-off pause, real money for snapshot-polling consumers).
 
+## Saving a run so something else can draw it
+
+A snapshot is what HAPPENED. It is not what the chart LOOKS like — and a
+viewer needs both. Save three things together:
+
+```ts
+const chart = flowChart<State>('Seed', seedFn, 'seed').addFunction(/* … */).build();
+
+const executor = new FlowChartExecutor(chart);
+executor.attachCombinedRecorder(narrative());   // the story, on the snapshot
+await executor.run({ input });
+
+const recording = {
+  snapshot:  executor.getSnapshot(),      // state + commit log + every recorder's data
+  structure: chart.buildTimeStructure,    // THE CHART. Nothing else can draw it.
+};
+fs.writeFileSync('run.json', JSON.stringify(recording));
+```
+
+`buildTimeStructure` is stamped on the built chart by the build-time structure
+recorder — stages, edges, and nesting, with no run in it. It is the one
+required ingredient `getSnapshot()` deliberately does NOT carry: the snapshot
+is per-run and the structure is per-chart, and a chart executed a thousand
+times would otherwise ship a thousand copies of the same drawing.
+
+The practical consequence is worth stating plainly: **a saved `getSnapshot()`
+on its own cannot draw a chart.** It can colour one — the commit log says
+which stage wrote what, in order — but the shape has to come from
+`buildTimeStructure`. Save one without the other and the viewer that reads it
+has to either go dark or invent a shape; a good one goes dark and says so.
+
 ## Summary — the envelope in one box
 
 | Dimension | Supported today |

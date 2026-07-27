@@ -573,6 +573,31 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     return this.store.getEntriesUpTo(visibleIds);
   }
 
+  /**
+   * Snapshot bundle for inclusion in `executor.getSnapshot().recorders` —
+   * the narrative rides the snapshot, so a consumer holding only the frozen
+   * snapshot (a trace viewer, an exported run, a UI panel that never sees the
+   * executor) can read the run's story without calling back into the engine.
+   *
+   * `rawValue` is deliberately DROPPED from the snapshot entries. It is a
+   * live reference to scope/emit payloads by contract (see
+   * `CombinedNarrativeEntry.rawValue`), so keeping it would both alias engine
+   * memory into an artifact that is supposed to be detached AND make the
+   * snapshot fail `structuredClone`/`JSON.stringify` whenever a payload is
+   * not serializable. The rendered `text` already carries the value summary
+   * (`includeValues`, default on) and `key` carries the scope key, so nothing
+   * a snapshot consumer can act on is lost. In-process consumers that need
+   * the live value keep using `getEntries()`.
+   */
+  toSnapshot() {
+    return {
+      name: 'Narrative',
+      description: 'Translator (SequenceStore) — plain-English trace merged from flow + data events',
+      preferredOperation: 'translate' as const,
+      data: this.getEntries().map(({ rawValue: _rawValue, ...entry }) => entry),
+    };
+  }
+
   /** Clears all state. Called automatically before each run. */
   clear(): void {
     this.store.clear();

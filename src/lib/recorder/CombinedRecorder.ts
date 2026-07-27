@@ -123,6 +123,9 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
       description?: string;
       preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
       data: unknown;
+      /** Machine-readable facts about the bundle itself — see
+       *  {@link import('../runner/ExecutionRuntime.js').RecorderSnapshot.meta}. */
+      meta?: Readonly<Record<string, unknown>>;
     };
 
     // Shared event method names with DIVERGENT payloads — declared as unions.

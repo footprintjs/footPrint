@@ -105,6 +105,55 @@ interface FlowRecorder {
 
 All hooks are **optional**. Implement only the events you care about. The `id` field is used for `detachFlowRecorder(id)`.
 
+### Reading recorder data off the snapshot
+
+A recorder that implements `toSnapshot()` is collected into
+`executor.getSnapshot().recorders` — the hand-off to anyone who does not have
+the executor (a trace viewer, an exported run, a UI panel handed a frozen JSON
+blob).
+
+```ts
+const story = narrative();
+executor.attachCombinedRecorder(story);
+await executor.run();
+
+const rows = executor.getSnapshot().recorders ?? [];
+rows.find((r) => r.name === 'Narrative');  // { id, name, description?, preferredOperation?, data, meta? }
+```
+
+Three rules worth knowing:
+
+- **One row per recorder `id`.** A recorder that implements a shared hook name
+  (`onError` / `onPause` / `onResume` — declared on both the data-flow and
+  control-flow interfaces) is registered on both channels so each can call it
+  with its own payload variant. It is still a single recorder, so it is a
+  single row.
+- **Rows must survive `structuredClone` / `JSON.stringify`.** The snapshot is a
+  detached artifact. Built-ins hold to this: the narrative's rows drop the
+  `rawValue` field, which is a live reference to scope/emit payloads by
+  contract — read it in-process via `getEntries()` instead.
+- **Only the listed fields make the trip.** The row is rebuilt field by field
+  (so a recorder cannot rename itself in the snapshot), which means anything
+  else you return from `toSnapshot()` is dropped in silence. If your recorder
+  can emit more than one shape of bundle, say which one this is in `meta` —
+  the one free-form field that is copied through:
+
+```ts
+toSnapshot() {
+  return {
+    name: 'BoundaryEvents',
+    description: 'boundary log, without captured content',
+    data: this.events.map(stripContent),
+    meta: { mode: 'lean' },   // what an offline reader BRANCHES on
+  };
+}
+```
+
+  `description` is the sentence a human reads; `meta` is what code reads. A
+  consumer that has to string-match prose to tell a stripped bundle from a
+  complete one usually doesn't — and then renders an empty panel instead of
+  saying "this recording carries structure only".
+
 ### Event Types
 
 | Event | When it fires | Key fields |

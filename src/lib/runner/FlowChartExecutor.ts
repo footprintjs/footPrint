@@ -1654,52 +1654,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       snapshot.subflowResults = Object.fromEntries(sfResults);
     }
 
-    // Collect snapshot data from recorders that implement toSnapshot()
-    const recorderSnapshots: RecorderSnapshot[] = [];
-    for (const r of this.scopeRecorders) {
-      if (r.toSnapshot) {
-        const snap = r.toSnapshot();
-        recorderSnapshots.push({
-          id: r.id,
-          name: snap.name,
-          description: snap.description,
-          preferredOperation: snap.preferredOperation,
-          data: snap.data,
-        });
-      }
-    }
-    for (const r of this.flowRecorders) {
-      if (r.toSnapshot) {
-        const snap = r.toSnapshot();
-        recorderSnapshots.push({
-          id: r.id,
-          name: snap.name,
-          description: snap.description,
-          preferredOperation: snap.preferredOperation,
-          data: snap.data,
-        });
-      }
-    }
-    if (this.deferredTier) {
-      // Deferred recorders are attached observers too — collect their
-      // snapshots once per id (a combined recorder registers once in the
-      // tier, unlike the two inline lists).
-      const seen = new Set<string>();
-      for (const r of [...this.deferredTier.scopeListRecorders(), ...this.deferredTier.flowListRecorders()]) {
-        if (seen.has(r.id)) continue;
-        seen.add(r.id);
-        if (r.toSnapshot) {
-          const snap = r.toSnapshot();
-          recorderSnapshots.push({
-            id: r.id,
-            name: snap.name,
-            description: snap.description,
-            preferredOperation: snap.preferredOperation,
-            data: snap.data,
-          });
-        }
-      }
-    }
+    const recorderSnapshots = this.collectRecorderSnapshots();
     if (recorderSnapshots.length > 0) {
       snapshot.recorders = recorderSnapshots;
     }
@@ -1712,6 +1667,57 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
 
     return snapshot;
+  }
+
+  /**
+   * Collect `toSnapshot()` bundles from every attached recorder — ONE entry
+   * per recorder id, across all channels and both delivery tiers.
+   *
+   * The dedupe is load-bearing, not tidiness. A recorder that implements a
+   * shared-name hook (`onError` / `onPause` / `onResume` — declared on BOTH
+   * the scope and flow interfaces) is legitimately registered on BOTH inline
+   * lists by `attachCombinedRecorder`, and that is by design: each channel
+   * calls the hook with its own payload variant. `MetricRecorder.onPause` is
+   * the everyday case. Walking the lists without a shared `seen` set turned
+   * that into a DUPLICATED snapshot entry (same id twice), which breaks every
+   * consumer that indexes `snapshot.recorders` by id.
+   *
+   * Ordering is scope list → flow list → deferred tier, and the FIRST bundle
+   * for an id wins. A recorder with no `toSnapshot` never claims an id, so it
+   * cannot shadow a same-id recorder that does have one.
+   *
+   * The row is REBUILT field by field rather than spread, so that a recorder
+   * cannot smuggle an `id` of its own choosing into the snapshot (the id is
+   * the executor's, and consumers index by it). The cost of that is real:
+   * anything the recorder returns and this list forgets is dropped in
+   * silence. `meta` is on the list for exactly that reason — a recorder that
+   * ships more than one bundle shape needs one field an offline reader can
+   * branch on, and until it was copied here the only place to say which
+   * shape you were holding was the prose in `description`.
+   */
+  private collectRecorderSnapshots(): RecorderSnapshot[] {
+    const out: RecorderSnapshot[] = [];
+    const seen = new Set<string>();
+    const collect = (r: ScopeRecorder | FlowRecorder): void => {
+      if (!r.toSnapshot || seen.has(r.id)) return;
+      seen.add(r.id);
+      const snap = r.toSnapshot();
+      out.push({
+        id: r.id,
+        name: snap.name,
+        description: snap.description,
+        preferredOperation: snap.preferredOperation,
+        data: snap.data,
+        meta: snap.meta,
+      });
+    };
+    for (const r of this.scopeRecorders) collect(r);
+    for (const r of this.flowRecorders) collect(r);
+    if (this.deferredTier) {
+      for (const r of this.deferredTier.scopeListRecorders()) collect(r);
+      for (const r of this.deferredTier.flowListRecorders()) collect(r);
+    }
+    return out;
   }
 
   /** @internal */
