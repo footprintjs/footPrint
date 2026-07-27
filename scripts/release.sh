@@ -82,7 +82,13 @@ fi
 npm install --package-lock-only
 
 # ── Commit + tag + push ───────────────────────────────────────────────
-git add package.json package-lock.json
+# The root lockfile is gitignored here (see .gitignore) — `npm install
+# --package-lock-only` above still writes it, and `git add` on an ignored path
+# is a hard error under `set -e`, which killed the release after the version
+# bump had already landed. Stage it only when this repo actually tracks it, so
+# the same script works whether or not the lockfile is committed.
+git add package.json
+git check-ignore -q package-lock.json || git add package-lock.json
 git commit -m "chore: release v$VERSION"
 git tag "v$VERSION"
 git push
