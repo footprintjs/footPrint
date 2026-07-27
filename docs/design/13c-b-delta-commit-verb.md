@@ -310,6 +310,49 @@ This is a (welcome) simplification of the full mode's redundant entries; the
 ordering rule reproduces full-mode replay state exactly for every op
 sequence.
 
+#### 2.5.1 Amendment — ordering alone does NOT cover overlapping paths
+
+The last-touch ordering rule above was necessary but **not sufficient**, and
+the property test caught it (fast-check seed `-1006859621`; fixed in
+`toDeltaPayload` rule 3). `overwrite` / `updates` are nested path **trees**,
+so the entries for `a` and `a.p` do not have separate storage — the second
+`_set` writes through the first. Full mode is immune because every entry
+stores the FULL value at its path, drawn from one coherent patch tree, so a
+nested entry only ever re-states what its ancestor already contains. Delta's
+encodings break that: `append` stores a **tail** (indices shifted relative to
+the whole array) and `delete` stores an `undefined` marker, so ancestor and
+descendant entries destroy or corrupt each other — one recorded write is
+simply gone at replay. Symptoms seen: a nested value missing from the
+materialised state, and an appended array replaying with phantom elements
+(a whole-array index written into a tail-relative one).
+
+> **Overlap rule (rule 3).** Group the surviving paths of a commit by their
+> shallowest surviving ancestor. A group of one keeps the encodings above.
+> A group of two or more is committed as plain full-value `set`s, valued from
+> ONE replay of that group's staged ops over the group root's base value
+> (`replayFamilyVerbs`, the multi-path generalisation of `replayPathVerbs` —
+> identical to what `applySmartMerge` produces for the corresponding
+> full-mode entries), with the group's root emitted LAST. One coherent tree
+> in, one coherent tree out: entries cannot clobber each other, and the
+> replayed subtree is exact regardless of entry order.
+
+Two neighbouring encodings needed the same "can replay actually express
+this?" test:
+
+- **`append` requires index-only arrays on both sides.** Replay rebuilds an
+  append as `[...current, ...tail]`, and a spread carries only indexed
+  elements — a named property parked on the array (`nativeSet` hangs one off
+  the array object for a write like `history.note`) or a hole would be
+  dropped, where full mode stores the value whole.
+- **`delete` requires a container parent.** `nativeDelete` walks away from a
+  primitive/absent parent, while full mode's `_set`-of-`undefined` flattening
+  coerces it into an object — which is also what the stage's own working copy
+  saw. When they disagree, delta keeps the flattening.
+
+Cost of the fallback: paths written BOTH wholly and nested in the same stage
+lose delta compression (they store the same bytes full mode does). That is
+rare, and it is the only shape where the two encodings could disagree.
+
 ### 2.6 What does NOT change
 
 - **Commit cadence.** One bundle per executed stage, empty commits preserved

@@ -17,7 +17,7 @@
  */
 import { nativeDelete } from '../../../../src/lib/memory/pathOps';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-import { applySmartMerge, DELIM } from '../../../../src/lib/memory/utils';
+import { applySmartMerge, DELIM, redactPatch } from '../../../../src/lib/memory/utils';
 
 describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
   describe('append detection', () => {
@@ -165,6 +165,115 @@ describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
     });
   });
 
+  describe('overlapping paths in ONE commit (the patch bag is a TREE)', () => {
+    /**
+     * Commit the same ops through both modes and replay each bundle. Cross-mode
+     * state equality is the invariant every delta encoding owes: `overwrite` /
+     * `updates` are nested path TREES, so an entry for `a` and an entry for
+     * `a.p` share storage — and delta's encodings (append = TAIL only, delete =
+     * `undefined` marker) are not the full value at their path, so a naive
+     * per-path encoding lets one entry destroy the other.
+     *
+     * `ops` runs twice, so it must build its own values — `set` keeps the RAW
+     * reference in workingCopy (see the class landmine).
+     */
+    function replayBothModes(base: Record<string, unknown>, ops: (buf: TransactionBuffer) => void) {
+      const commitOf = (mode: 'full' | 'delta') => {
+        const buf = new TransactionBuffer(base, mode);
+        ops(buf);
+        return buf.commit();
+      };
+      const fullBundle = commitOf('full');
+      const deltaBundle = commitOf('delta');
+      return {
+        fullBundle,
+        deltaBundle,
+        fullState: applySmartMerge(base, fullBundle.updates, fullBundle.overwrite, fullBundle.trace),
+        deltaState: applySmartMerge(base, deltaBundle.updates, deltaBundle.overwrite, deltaBundle.trace),
+      };
+    }
+
+    it('a push + a nested write on the SAME key keeps both (pinned counterexample, seed -1006859621)', () => {
+      const { fullState, deltaState } = replayBothModes({ a: [false] }, (buf) => {
+        buf.set(['a'], [...(buf.get(['a']) as unknown[]), false]); // append-shaped
+        buf.set(['a', 'p'], 0); // nested write INTO the appended array
+        buf.set(['a'], structuredClone(buf.get(['a']))); // no-op rewrite
+      });
+      // Delta used to encode `a` as an append (tail only) and then write
+      // `a.p` into that TAIL — the nested write was gone at replay.
+      expect((deltaState.a as Record<string, unknown>).p).toBe(0);
+      expect(deltaState).toEqual(fullState);
+    });
+
+    it('a nested write inside a freshly appended element never corrupts the tail (indices are shifted)', () => {
+      const { fullState, deltaState, deltaBundle } = replayBothModes({ history: [{ v: 1 }] }, (buf) => {
+        buf.set(['history'], [...(buf.get(['history']) as unknown[]), { v: 2 }]);
+        buf.set(['history', '1', 'w'], 5); // index 1 of the ARRAY = index -1 of the tail
+      });
+      expect(deltaState.history).toHaveLength(2); // a tail-relative write used to add a phantom element
+      expect(deltaState).toEqual(fullState);
+      expect(deltaBundle.trace.every((t) => t.verb === 'set')).toBe(true); // family → full-value fallback
+    });
+
+    it('an array that grew a NAMED property never appends — replay spreads the tail and would drop it', () => {
+      const { fullState, deltaState, deltaBundle } = replayBothModes({ history: ['a'] }, (buf) => {
+        buf.set(['history'], ['a', 'b']); // looks like an append…
+        buf.delete(['history', 'note']); // …but parks a named key on the array (nets nothing at its OWN path)
+      });
+      expect(deltaBundle.trace).toEqual([{ path: 'history', verb: 'set' }]);
+      expect(Object.prototype.hasOwnProperty.call(deltaState.history, 'note')).toBe(true);
+      expect(deltaState).toEqual(fullState);
+    });
+
+    it('a nested delete under a NON-container parent keeps the historical flattening', () => {
+      // nativeDelete walks away from a string parent; the 'full' flattening
+      // (_set of undefined) COERCES it into an object. Committing `delete`
+      // there would silently drop a change the stage really made.
+      const { fullState, deltaState, deltaBundle } = replayBothModes({ b: 'yy' }, (buf) => {
+        buf.delete(['b', '1']);
+      });
+      expect(deltaBundle.trace).toEqual([{ path: ['b', '1'].join(DELIM), verb: 'set' }]);
+      expect(deltaState).toEqual(fullState);
+      expect(typeof deltaState.b).toBe('object');
+    });
+
+    it('merge + nested set on one key commit ONE coherent value', () => {
+      const { fullState, deltaState } = replayBothModes({ cfg: { a: 1 } }, (buf) => {
+        buf.merge(['cfg'], { b: 2 });
+        buf.set(['cfg', 'c'], 3);
+      });
+      expect(deltaState).toEqual({ cfg: { a: 1, b: 2, c: 3 } });
+      expect(deltaState).toEqual(fullState);
+    });
+
+    it('3-level families and delete-inside-a-family stay in lockstep with full mode', () => {
+      const deep = replayBothModes({ a: { b: { c: 1, keep: 'x' } } }, (buf) => {
+        buf.set(['a', 'b', 'c'], 2);
+        buf.set(['a'], { b: { c: 3, d: 4 } }); // whole-key set between two nested writes
+        buf.set(['a', 'b', 'd'], 5);
+      });
+      expect(deep.deltaState).toEqual({ a: { b: { c: 3, d: 5 } } });
+      expect(deep.deltaState).toEqual(deep.fullState);
+
+      const removed = replayBothModes({ a: { p: 1, q: 2 } }, (buf) => {
+        buf.delete(['a', 'p']);
+        buf.set(['a'], { q: 3 });
+      });
+      expect(removed.deltaState).toEqual({ a: { q: 3 } });
+      expect(removed.deltaState).toEqual(removed.fullState);
+    });
+
+    it('UNRELATED nested paths are not a family — a plain push still appends (no size regression)', () => {
+      const { fullState, deltaState, deltaBundle } = replayBothModes({ history: ['a'], meta: {} }, (buf) => {
+        buf.set(['history'], ['a', 'b']);
+        buf.set(['meta', 'note'], 1); // different subtree — cannot collide
+      });
+      expect(deltaBundle.trace).toContainEqual({ path: 'history', verb: 'append' });
+      expect(deltaBundle.overwrite.history).toEqual(['b']); // tail only
+      expect(deltaState).toEqual(fullState);
+    });
+  });
+
   describe('delete verb', () => {
     it('an explicit delete commits verb "delete" and still ENUMERATES the path in overwrite', () => {
       const buf = new TransactionBuffer({ secret: 'x', keep: 1 }, 'delta');
@@ -243,6 +352,30 @@ describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
       expect(bundle.trace).toEqual([{ path: 'history', verb: 'append' }]);
       expect([...bundle.redactedPaths]).toEqual(['history']);
       expect(bundle.overwrite.history).toEqual(['pii-message']); // raw tail — redactPatch scrubs downstream
+    });
+
+    it('a redacted nested write inside an overlapping family never leaks through its ancestor entry', () => {
+      // The family fallback commits the ancestor's WHOLE value, which contains
+      // the redacted leaf — but both live in one patch tree, so redactPatch
+      // scrubs the leaf once and every entry that covers it sees 'REDACTED'.
+      const base = { a: { p: 'old', q: 1 } };
+      const buf = new TransactionBuffer(base, 'delta');
+      buf.set(['a'], { p: 'SECRET', q: 2 });
+      buf.set(['a', 'p'], 'SECRET', true);
+      const bundle = buf.commit();
+
+      const mirror = applySmartMerge(
+        base,
+        bundle.updates,
+        redactPatch(bundle.overwrite, bundle.redactedPaths),
+        bundle.trace,
+      );
+      expect(JSON.stringify(mirror)).not.toContain('SECRET');
+      expect(mirror).toEqual({ a: { p: 'REDACTED', q: 2 } });
+      // …while the real commit still carries the real value.
+      expect(applySmartMerge(base, bundle.updates, bundle.overwrite, bundle.trace)).toEqual({
+        a: { p: 'SECRET', q: 2 },
+      });
     });
 
     it('redacted delete paths survive into redactedPaths', () => {

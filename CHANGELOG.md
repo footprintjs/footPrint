@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [9.12.0] - 2026-07-27
 
 ### Added
-
 - **`meta` on a recorder's snapshot bundle** — `toSnapshot()` may now return a
   small `meta` object, and it is copied through to
   `getSnapshot().recorders[i].meta` unchanged. It is for facts about the
@@ -43,9 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor-internal narrative path is unchanged — `enableNarrative()` alone
   adds no snapshot row, and `getNarrativeEntries()` returns exactly what it
   returned before.
-
 ### Fixed
-
 - **A recorder that rides two channels was listed TWICE in
   `getSnapshot().recorders`** — `onError`/`onPause`/`onResume` are declared
   on BOTH the scope and flow recorder interfaces, so
@@ -63,6 +60,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they also drive the deferred tier's capture taps, and removing a shared
   hook name from one of them would silently blind deferred observers to
   that event (pinned by a new regression suite).
+
+- **`commitValues: 'delta'` could silently lose a write** — when one stage wrote
+  a whole key AND a path inside that same key (`scope.$setValue('a', […])` plus
+  a nested `a.p` write), the delta-encoded commit could drop one of them, so the
+  state you replay out of the commit log no longer matched the state the run
+  actually produced. The default `'full'` mode was never affected. Why it
+  happened: a commit's values are stored in a nested patch TREE keyed by path,
+  so an entry for `a` and an entry for `a.p` share storage. In `'full'` mode
+  every entry holds the FULL value at its path, drawn from one coherent tree, so
+  a nested entry always agrees with its ancestor. Delta's encodings do not — an
+  `append` stores only the array's new TAIL (whose indices are shifted relative
+  to the whole array) and a `delete` stores an `undefined` marker — so whichever
+  of the two entries was written second overwrote or corrupted the other, and
+  the losing write was simply gone at replay. Depending on which side lost, a
+  nested value vanished from the materialised state or an appended array grew
+  phantom elements. Now any path that has a surviving ancestor or descendant in
+  the same commit is recorded as a plain full-value `set` taken from one replay
+  of that whole path family (the same value `'full'` mode commits), and the
+  family's shallowest path is written last — the two entries can no longer
+  destroy each other. Two neighbouring cases in the same encoder are fixed with
+  it: an array carrying a named property (or a hole) no longer takes the
+  `append` encoding, because replay rebuilds an append with a spread and a
+  spread carries only indexed elements; and a nested `delete` whose parent is
+  not a container (`b` is a string, the write is `b.1`) keeps the historical
+  set-of-`undefined` flattening, because the `delete` verb's replay walks away
+  from a non-container parent while the flattening coerces it — matching what
+  the stage itself saw. Appends, deletes and merges on a key written alone —
+  the shape delta mode exists for, and the overwhelming majority of commits —
+  are byte-for-byte unchanged, tails included. Found by the delta/full replay
+  equivalence property test (fast-check seed `-1006859621`); that counterexample
+  is now pinned as a deterministic regression test, the property's generator was
+  widened to cover deeper paths, array-index writes and nested deletes, and a
+  300k-program differential fuzz over both modes now finds no divergence.
 
 ## [9.11.0] - 2026-07-09
 

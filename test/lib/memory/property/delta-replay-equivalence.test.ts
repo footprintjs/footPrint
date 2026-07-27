@@ -38,7 +38,9 @@ type Op =
   | { kind: 'merge'; key: string; value: Record<string, unknown> }
   | { kind: 'delete'; key: string }
   | { kind: 'noop-rewrite'; key: string } // re-write current value (fresh ref)
-  | { kind: 'nested-set'; key: string; sub: string; value: unknown };
+  | { kind: 'nested-set'; key: string; sub: string; value: unknown }
+  | { kind: 'nested-delete'; key: string; sub: string }
+  | { kind: 'deep-set'; key: string; sub: string; leaf: string; value: unknown };
 
 const opArb: fc.Arbitrary<Op> = fc.oneof(
   fc.record({ kind: fc.constant('set' as const), key: keyArb, value: valueArb }),
@@ -54,10 +56,20 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
   }),
   fc.record({ kind: fc.constant('delete' as const), key: keyArb }),
   fc.record({ kind: fc.constant('noop-rewrite' as const), key: keyArb }),
+  // Nested paths that OVERLAP the whole-key ops above — named keys AND array
+  // indices (an index write lands inside a tail an append would encode).
   fc.record({
     kind: fc.constant('nested-set' as const),
     key: keyArb,
-    sub: fc.constantFrom('p', 'q'),
+    sub: fc.constantFrom('p', 'q', '0', '1'),
+    value: scalarArb,
+  }),
+  fc.record({ kind: fc.constant('nested-delete' as const), key: keyArb, sub: fc.constantFrom('p', 'q', '0', '1') }),
+  fc.record({
+    kind: fc.constant('deep-set' as const),
+    key: keyArb,
+    sub: fc.constantFrom('p', 'q', '0'),
+    leaf: fc.constantFrom('p', 'q', '0'),
     value: scalarArb,
   }),
 );
@@ -87,6 +99,12 @@ function applyOp(buf: TransactionBuffer, op: Op): void {
     }
     case 'nested-set':
       buf.set([op.key, op.sub], op.value);
+      break;
+    case 'nested-delete':
+      buf.delete([op.key, op.sub]);
+      break;
+    case 'deep-set':
+      buf.set([op.key, op.sub, op.leaf], op.value);
       break;
   }
 }
@@ -215,6 +233,41 @@ describe('Property: delta-mode replay equivalence (#13c-B)', () => {
       ),
       { numRuns: 300 },
     );
+  });
+
+  it('REGRESSION (seed -1006859621): a nested write is not lost when the same key is also appended', () => {
+    // The counterexample the property above shrank to. Stage 2 pushes onto
+    // `a`, stamps the nested `a.p`, then re-writes `a` unchanged:
+    //   delta encoded `a` as an APPEND (tail only) and then wrote `a.p` into
+    //   that tail — one shared patch tree, so the nested value was destroyed
+    //   and `p` silently vanished from the materialised state.
+    // Fresh op values per run: `set` keeps the raw reference in workingCopy.
+    const program = (): Op[][] => [
+      [{ kind: 'push', key: 'a', items: [false] }],
+      [
+        { kind: 'push', key: 'a', items: [false] },
+        { kind: 'nested-set', key: 'a', sub: 'p', value: 0 },
+        { kind: 'noop-rewrite', key: 'a' },
+      ],
+      [
+        { kind: 'merge', key: 'a', value: { x: '' } },
+        { kind: 'push', key: 'log', items: [false] },
+      ],
+      [{ kind: 'noop-rewrite', key: 'a' }],
+    ];
+
+    const fullSteps = materialiseSteps({}, runProgram({}, program(), 'full'));
+    const deltaSteps = materialiseSteps({}, runProgram({}, program(), 'delta'));
+
+    expect(deltaSteps.length).toBe(fullSteps.length);
+    for (let k = 0; k < fullSteps.length; k++) {
+      expect(JSON.parse(JSON.stringify(deltaSteps[k]))).toEqual(JSON.parse(JSON.stringify(fullSteps[k])));
+    }
+    // The concrete loss, spelled out: `p: 0` reached the final state.
+    expect(JSON.parse(JSON.stringify(deltaSteps[deltaSteps.length - 1]))).toEqual({
+      a: { 0: false, 1: false, p: 0, x: '' },
+      log: [false],
+    });
   });
 
   it('final shared state is deep-equal across modes for ANY program (the corollary)', () => {
