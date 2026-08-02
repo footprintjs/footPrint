@@ -11,6 +11,7 @@
  *
  * For each node, executeNodeStep follows 7 phases:
  *   0. CLASSIFY  — subflow detection, early delegation
+ *   0b. PARALLEL-FOR-EACH — dynamic fan-out (branches generated from the payload)
  *   1. VALIDATE  — node invariants, role markers
  *   2. EXECUTE   — run stage fn, commit, break check
  *   3. DYNAMIC   — StageNode return detection, subflow auto-registration, structure updates
@@ -31,6 +32,7 @@ import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
+import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { StageRunner } from '../handlers/StageRunner.js';
@@ -233,6 +235,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly continuationResolver: ContinuationResolver<TOut, TScope>;
   private readonly deciderHandler: DeciderHandler<TOut, TScope>;
   private readonly selectorHandler: SelectorHandler<TOut, TScope>;
+  private readonly parallelForEachHandler: ParallelForEachHandler<TOut, TScope>;
   private readonly structureManager: RuntimeStructureManager;
   private readonly narrativeGenerator: IControlFlowNarrative;
   private readonly flowRecorderDispatcher: FlowRecorderDispatcher | undefined;
@@ -411,6 +414,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.deciderHandler = new DeciderHandler(deps);
     this.selectorHandler = new SelectorHandler(deps, this.childrenExecutor);
     this.subflowExecutor = new SubflowExecutor(deps, this.createSubflowTraverserFactory(opts));
+    this.parallelForEachHandler = new ParallelForEachHandler(deps, this.childrenExecutor, {
+      prefixNodeTree: (n, prefix) => this.prefixNodeTree(n, prefix),
+      registerBranchSubflow: (subflowId, root, chart) => this.registerBranchSubflow(subflowId, root, chart),
+      branchSharedState: (subflowId) =>
+        this.subflowResults.get(subflowId)?.treeContext?.globalContext as Record<string, unknown> | undefined,
+      recordBranchStructure: (nodeId, branches) => this.structureManager.updateDynamicChildren(nodeId, branches),
+    });
   }
 
   /**
@@ -934,6 +944,23 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       return subflowOutput;
     }
 
+    // ─── Phase 0b: PARALLEL-FOR-EACH — dynamic fan-out, one branch per item ───
+    //
+    // Sits BEFORE Phase 1 (VALIDATE) on purpose: this node legitimately has no
+    // stage function, no static children, and no decider — its branches do not
+    // exist until `items()` runs — so the "must define fn OR children" check
+    // would reject a perfectly valid chart. The handler owns its own commit
+    // (the ordered results array), like the decider and selector phases do.
+    if (node.isDynamicParallel && node.parallelForEach) {
+      const results = await this.parallelForEachHandler.run(node, context, branchPath, traversalContext);
+
+      if (node.next) {
+        const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
+        return this.hop(node.next, nextCtx, branchPath);
+      }
+      return results;
+    }
+
     const stageFunc = this.getStageFn(node);
     const hasStageFunction = Boolean(stageFunc);
     const isScopeBasedDecider = Boolean(node.deciderFn);
@@ -1358,6 +1385,57 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return depth;
   }
 
+  /**
+   * Register a generated `parallelForEach` branch as a subflow — OVERWRITING
+   * any registration from a previous visit.
+   *
+   * Deliberate divergence from `autoRegisterSubflowDef`'s first-write-wins.
+   * Generated segments are stable across loop iterations (`<stageId>~<index>`
+   * is derived from the stage id and the branch index, neither of which
+   * changes), so first-write-wins would mean a LOOPING fan-out silently
+   * re-executing iteration 1's branch charts forever — even when the branch
+   * factory returns a different chart each time. That is the "would not crash,
+   * would silently corrupt" failure class this whole design is built to avoid,
+   * so a regenerated branch always replaces its predecessor. Per-iteration
+   * results stay addressable via the mount's `runtimeStageId` key, exactly as
+   * for a hand-authored looping subflow.
+   */
+  private registerBranchSubflow(
+    subflowId: string,
+    root: StageNode<TOut, TScope>,
+    chart: { stageMap: Map<string, StageFunction<TOut, TScope>>; subflows?: Record<string, { root: StageNode }> },
+  ): void {
+    this.subflows[subflowId] = { root };
+
+    // Stage functions land under the branch's prefix, matching the prefixed ids.
+    for (const [key, fn] of chart.stageMap) {
+      this.stageMap.set(`${subflowId}/${key}`, fn as StageFunction<TOut, TScope>);
+    }
+
+    // Nested subflows inside the branch chart, same prefixing.
+    if (chart.subflows) {
+      for (const [key, def] of Object.entries(chart.subflows)) {
+        this.subflows[`${subflowId}/${key}`] = def as { root: StageNode<TOut, TScope> };
+      }
+    }
+  }
+
+  /**
+   * Prefix a node tree with a subflow path segment.
+   *
+   * ── BYTE-TWIN CONTRACT ──────────────────────────────────────────────────
+   * This function and `FlowChartBuilder._prefixNodeTree` are byte-twins by
+   * contract: the builder prefixes at MOUNT time, this one at RUN time (lazy
+   * subflows, and the generated branches of `addParallelForEach`), and a chart
+   * must come out identical either way. `test/lib/engine/branch-segment-prefixer-equivalence.test.ts`
+   * pins that — any edit here must be mirrored there, and vice versa.
+   *
+   * Generated branch segments (`<stageId>~<index>`, see `engine/branchSegment.ts`)
+   * ride this exact path with no special case: the segment is just a prefix, so
+   * a branch's inner ids become `<segment>/<id>` and its stages address as
+   * `<segment>/<id>#<n>` — the shipped grammar, which is why every trace query
+   * reads branch commits unmodified. Design: docs/design/execution-control.md.
+   */
   private prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };

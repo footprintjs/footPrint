@@ -60,6 +60,23 @@ onError:      commit(); rethrow          // NO abort path exists
 ```
 
 ## M2 — Pause/Resume checkpointing (the only resume-from-prior-point)
+
+**TWO raise shapes, ONE checkpoint (9.14.0).** `addPausableFunction` returns
+non-void → StageRunner throws PauseSignal → resume runs the node's `resumeFn`.
+`interrupt(scope, {reason, expects?})` throws an InterruptSignal that
+StageRunner converts to `new PauseSignal(payload, node.id, 'interrupt')` — the
+ONE conversion point every stage function passes through (linear, decider,
+selector, fork child, subflow body). The checkpoint shape is unchanged apart
+from an optional `pausedBy:'interrupt'`; `resume()` reads it to pick the
+re-entry, and the interrupt re-entry RE-RUNS THE STAGE'S OWN FUNCTION FROM ITS
+TOP (stages are atomic), depositing the resume input in a WeakMap keyed by the
+scope object so the `interrupt()` call that threw returns it. Consequences:
+the pre-interrupt half runs twice (keep it idempotent — no rollback exists),
+`onStageEnd` does NOT fire (the fn threw — the error path's shape), and an
+interrupt inside a GENERATED `parallelForEach` branch pauses but cannot resume
+(the branch is not in the static chart; refused via the shipped
+`findNodeInGraph` miss, no marker special-casing).
+
 Files: `pause/types.ts` (`PauseSignal` :29, `captureSubflowScope` :116, `FlowchartCheckpoint` :190) · `StageRunner.ts:94-100` (pausable stage returns non-void → throw PauseSignal) · `FlowchartTraverser.ts:1083-1086` (commit + onPause + rethrow; invoker stamps replayed innermost-first :771-780) · `SubflowExecutor.ts:225-238` (bubble-up: snapshot nested sharedState onto signal, prepend subflowId; resume-seed skip-inputMapper :69-72, :126-128) · `FlowChartExecutor.ts` (`buildPauseCheckpoint` :987-1036 — ONE structuredClone :1024, sanitize retry :1028-1033; `resume()` :672 — validation :690-707, loop-ref stub resolution :762-768, synthetic resume node :783-789, fresh runId :812, outer-mount entry + LEAF-root swap :847-855, `preserveRecorders: true` :871).
 
 | Step | SAVED | RESTORED | DISCARDED |

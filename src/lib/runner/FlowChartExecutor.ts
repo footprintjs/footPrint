@@ -33,6 +33,7 @@ import {
   type RunOptions,
   type ScopeFactory,
   type SerializedPipelineStructure,
+  type StageFunction,
   type StageNode,
   type StreamHandlers,
   type SubflowResult,
@@ -46,6 +47,7 @@ import type {
   WriteProvenanceMode,
   WriteTrackingMode,
 } from '../memory/types.js';
+import { provideInterruptAnswer } from '../pause/interrupt.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -770,20 +772,55 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           'The chart may have changed since the checkpoint was created.',
       );
     }
-    if (!pausedNode.resumeFn) {
+    // Two re-entry shapes, chosen by HOW the pause was raised:
+    //
+    //   • interrupt()      → RE-RUN THE STAGE'S OWN FUNCTION FROM ITS TOP.
+    //     Stages are atomic (the same law `resumeOnError` states): a stage that
+    //     stopped mid-body has no half to resume into, so the whole body runs
+    //     again and the answer comes back out of the `interrupt()` call itself.
+    //     Everything the body did before the interrupt is re-done — which is
+    //     why the docs tell you to keep that half idempotent.
+    //   • addPausableFunction → run the declared `resumeFn`.
+    //
+    // The discriminant is on the checkpoint, so this works cross-executor
+    // (a checkpoint restored from Redis on a fresh process resumes the same way).
+    const isInterruptResume = checkpoint.pausedBy === 'interrupt';
+    if (!pausedNode.resumeFn && !isInterruptResume) {
       throw new Error(
         `Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) has no resumeFn. ` +
-          'Only stages created with addPausableFunction() can be resumed.',
+          'Only stages created with addPausableFunction(), or stages that paused via interrupt(), can be resumed.',
       );
     }
     this.lastCheckpoint = undefined;
 
-    // Build a synthetic resume node: calls resumeFn with resumeInput, then continues.
+    // Build a synthetic resume node: runs the resume half, then continues.
     // resumeFn signature is (scope, input) per PausableHandler — wrap to match StageFunction(scope, breakFn).
-    const resumeFn = pausedNode.resumeFn;
-    const resumeStageFn = (scope: TScope) => {
-      return resumeFn(scope, resumeInput);
-    };
+    let resumeStageFn: StageFunction<TOut, TScope>;
+    if (isInterruptResume) {
+      const originalFn =
+        pausedNode.fn ??
+        this.flowChartArgs.flowChart.stageMap.get(pausedNode.id) ??
+        this.flowChartArgs.flowChart.stageMap.get(pausedNode.name);
+      if (!originalFn) {
+        throw new Error(
+          `Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) paused via interrupt() but its ` +
+            'stage function is no longer in the chart. The chart may have changed since the checkpoint ' +
+            'was created.',
+        );
+      }
+      resumeStageFn = (scope, breakFn, streamCallback) => {
+        // Deposit the answer for THIS scope instance before the body runs, so
+        // the `interrupt()` call that threw last time returns it this time.
+        // Keyed by scope identity — safe when several branches resume at once.
+        provideInterruptAnswer(scope, resumeInput);
+        return originalFn(scope, breakFn, streamCallback);
+      };
+    } else {
+      const resumeFn = pausedNode.resumeFn!;
+      resumeStageFn = (scope: TScope) => {
+        return resumeFn(scope, resumeInput) as TOut | Promise<TOut>;
+      };
+    }
 
     // Determine continuation: for branch children (decider/selector),
     // pausedNode.next is undefined. The checkpoint's
@@ -1080,6 +1117,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Invoker context — collected during traversal bubble-up (not tree-walked)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
       ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
+      // HOW the pause was raised. One checkpoint shape, one extra optional
+      // field — an interrupt() pause is not a second kind of checkpoint, it is
+      // the same checkpoint that resume() re-enters differently (stage top vs
+      // resumeFn). Absent for every pre-9.14.0 checkpoint, which is correct.
+      ...(signal.pausedBy && { pausedBy: signal.pausedBy }),
       pausedAt: Date.now(),
     };
     try {

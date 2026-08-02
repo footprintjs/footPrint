@@ -23,6 +23,13 @@ export function computeNodeType(
   // (Runtime: StageNode.isLoopRef; Spec: SerializedPipelineStructure.isLoopReference)
   if (node.isLoopRef) return 'loop';
   if (node.isSubflowRoot) return 'subflow';
+  // A parallel-for-each node fans out one branch per item — it IS a fork, and
+  // it says so in the ONE mapping the compiler cannot check for us. It carries
+  // no static `children`, so without this line it would serialize as 'stage'
+  // and every consumer would render a fan-out as a plain step. The
+  // "one branch per item" detail rides the `isDynamicParallel` flag instead of
+  // a new type, so existing `switch (type)` consumers keep working.
+  if (node.isDynamicParallel) return 'fork';
   if (node.selectorFn) return 'selector';
   // nextNodeSelector is an output-based routing function (not scope-based), grouped with
   // deciderFn as 'decider' rather than 'selector'. The two branches differ in what they

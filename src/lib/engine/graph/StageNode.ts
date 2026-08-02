@@ -9,7 +9,7 @@
  * - Isolated sub-traversals via `isSubflowRoot` (subflow)
  */
 
-import type { StageFunction, SubflowMountOptions } from '../types.js';
+import type { ParallelForEachConfig, StageFunction, SubflowMountOptions } from '../types.js';
 
 /**
  * Resume function for pausable stages.
@@ -92,6 +92,18 @@ export type StageNode<TOut = any, TScope = any> = {
   subflowMountOptions?: SubflowMountOptions;
   /** When true, parallel children use fail-fast semantics (reject on first error) */
   failFast?: boolean;
+
+  // ── Parallel-for-each (dynamic fan-out) ──
+
+  /**
+   * True when this node fans out one branch PER ITEM, with the branch count
+   * decided at runtime from the payload (`addParallelForEach`). A flag, not a
+   * node type — kinds are flags here, and the serialized `type` stays `'fork'`
+   * because a fan-out is what it is. Design: docs/design/execution-control.md.
+   */
+  isDynamicParallel?: boolean;
+  /** The runtime fan-out config. Present exactly when `isDynamicParallel` is true. */
+  parallelForEach?: ParallelForEachConfig<any, TScope>;
 
   // ── Pause/Resume ──
 

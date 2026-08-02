@@ -24,6 +24,15 @@ export type { FlowChart, StageFunction as StageHandler, StreamHandlers } from '.
 /** @category Quick Start */
 export { flowChart, FlowChartBuilder, flowChartSelector } from './lib/builder/index.js';
 
+/**
+ * @category Quick Start
+ *
+ * Config for `.addParallelForEach()` — one branch per item, branch count
+ * decided at run time from the payload. `maxBranches` and `into` are required
+ * on purpose (see docs/design/execution-control.md).
+ */
+export type { BranchChart, ParallelForEachConfig } from './lib/builder/index.js';
+
 /** @category Quick Start — build-time observer (twin of FlowRecorder) */
 export type {
   StructureDeciderCompleteEvent,
@@ -265,6 +274,19 @@ export { CompositeRecorder } from './lib/recorder/index.js';
 /** @category Pause/Resume */
 /** @category Pause/Resume */
 export type { FlowchartCheckpoint, PausableHandler } from './lib/pause/index.js';
+
+/**
+ * @category Pause/Resume
+ *
+ * `interrupt(scope, { reason, expects? })` — stop mid-stage to ask a question,
+ * and get the answer back at the same call site when the run resumes. Resume
+ * re-enters the stage from its TOP (stages are atomic), so keep the half
+ * before the call idempotent.
+ */
+export type { InterruptPayload } from './lib/pause/index.js';
+
+/** @category Pause/Resume */
+export { interrupt } from './lib/pause/index.js';
 
 /** @category ScopeRecorder */
 export type { CompositeSnapshot } from './lib/recorder/index.js';

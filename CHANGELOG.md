@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.14.0] - 2026-08-02
+
+### Added
+- **A fan-out whose branch COUNT comes from the data — `.addParallelForEach()`.**
+  Every parallel shape in the library until now named its branches when you
+  wrote the chart. Two independent consumers arrived at the same wall from
+  opposite directions: the work to do is decided at run time — three chunks
+  make three branches, ten make ten — and the only way to express that was to
+  hand-roll a fork whose children the chart could not see, which meant the
+  trace could not see them either.
+
+  ```ts
+  .addParallelForEach('Review each chunk', 'review-chunks', {
+    items: (scope) => scope.chunks,
+    branch: (chunk, i) => buildReviewChart(chunk, i),
+    maxBranches: 8,
+    into: 'reviews',
+  })
+  ```
+
+  **Each branch is a real subflow, and that is the whole design.** A branch
+  gets its own isolated runtime, its own commit log, and an address in the
+  grammar that already ships: `review-chunks~2/score#14` — a subflow path
+  segment, not a new kind of id. Which means `parseRuntimeStageId`,
+  `causalChain`, `sliceForKey` and `forwardSliceForKey` read branch commits
+  with **zero changes**, because the id shape IS the shipped shape. That claim
+  is cheap to assert, so it is proven by tests against a real fan-out's real
+  log rather than asserted in prose. The item each branch received is seeded
+  into that branch's scope, so it appears in the branch's own commit log —
+  provenance, instead of a value hidden in a closure.
+
+  **Two laws you can rely on.** `into` receives ONE ordered array write, and
+  `into[i]` is branch `i`'s result in ITEMS order no matter which branch
+  finished first (property-tested against random completion interleavings) —
+  because a results array that reorders itself under load is a bug you find in
+  production, not in review. And `maxBranches` is REQUIRED: an unbounded
+  fan-out driven by model output or an upstream API is a resource attack, so
+  there is deliberately no default to forget. Items past the ceiling do not
+  run and the truncation is written into the stage's own log — bounded, and
+  stated. A failing branch follows the failure policy the rest of the
+  library's parallelism already uses: `failFast` rejects the stage, best-effort
+  runs them all and leaves `undefined` in the failed branch's slot so the
+  array still lines up with your items one for one.
+
+  **`~` is now reserved in subflow ids.** The generated branch segment is
+  `<stageId>~<index>`, and a hand-authored id carrying the same marker could
+  collide with it. This codebase already tolerates a deliberate id-collision
+  class (loop-ref stubs), so a collision here would not crash — it would
+  silently mis-attribute a trace, which is worse. The builder now refuses `~`
+  in user-authored subflow ids and in the `addParallelForEach` id, at BUILD
+  time, with a sentence naming the reservation and the design doc. Charts that
+  do not use the character are byte-identical; the character appears in no id
+  in this repo or any known consumer, which is how it was chosen.
+
+- **`interrupt(scope, { reason, expects? })` — pause from inside ANY stage
+  body, and get the answer back at the same call site.** `addPausableFunction`
+  splits a stage you declared pausable into execute/resume halves. That shape
+  fits an approval gate; it does not fit a stage that gets halfway through its
+  work and discovers it needs to ask something. Now:
+
+  ```ts
+  const approval = interrupt<{ approved: boolean }>(scope, {
+    reason: `Approve a $${scope.amount} refund?`,
+    expects: { approved: 'boolean' },
+  });
+  scope.approved = approval.approved;   // reached only after resume()
+  ```
+
+  It works in every stage kind — linear, decider branch, selector branch, fork
+  child, subflow body — because the conversion happens at the one boundary
+  every stage function passes through. It reuses the shipped pause machinery
+  end to end: one `FlowchartCheckpoint` (no second shape), your payload as its
+  `pauseData`, `run()` returning the existing paused outcome, the same
+  detached clone you already persist. A pause under a decider keeps its
+  invoker, and `executionIndex` stays monotonic across the resume.
+
+  **The law that decides how you write the body: resume re-enters the stage
+  from its TOP.** Stages are atomic — a stage that stopped mid-body has no
+  half to resume into — so everything before the `interrupt()` call runs
+  again. This is the same law `resumeOnError` states, and it is stated here
+  too, in the docs and in the JSDoc, because leaving it implicit once already
+  cost a consumer a debugging session. Keep the half before the call
+  idempotent; put what must happen exactly once after it.
+
+  One honest limitation, documented and pinned rather than hidden: an
+  `interrupt()` inside a `parallelForEach` branch pauses correctly but cannot
+  be resumed — a generated branch is not in the static chart, which is what
+  `resume()` rebuilds its cursor against. It refuses loudly through the
+  existing "stage not found in flowchart" message. A silent partial resume
+  would be the failure this whole design was built to avoid.
+
+### Changed
+- `SerializedPipelineStructure` / `FlowChartSpec` / `SerializedPipelineNode`
+  gain an optional `isDynamicParallel` boolean. A `parallelForEach` stage
+  serializes with `type: 'fork'` — a fan-out is what it is — so every existing
+  consumer renders it correctly with no changes; the flag is there for
+  consumers that want to say "one branch per item". No new node type was
+  introduced, following `isPausable` / `isLazy` / `isStreaming`.
+- `FlowchartCheckpoint` gains an optional `pausedBy: 'interrupt'`. Absent on
+  every checkpoint written before this release, which is exactly right — it
+  records HOW the pause was raised so `resume()` picks the matching re-entry.
+
 ## [9.13.0] - 2026-08-02
 
 ### Added

@@ -91,6 +91,66 @@ export interface StreamHandlers {
 }
 
 // ---------------------------------------------------------------------------
+// Parallel-for-each (dynamic fan-out)
+// ---------------------------------------------------------------------------
+
+/**
+ * A built chart, as `addParallelForEach`'s `branch` factory returns it.
+ *
+ * Structurally the subset of `FlowChart` the engine needs to mount a branch —
+ * declared here rather than imported so `engine/` keeps its one-way dependency
+ * on `builder/`. Any `flowChart(...).build()` result satisfies it.
+ */
+export interface BranchChart<TOut = any, TScope = any> {
+  root: StageNode<TOut, TScope>;
+  stageMap: Map<string, StageFunction<TOut, TScope>>;
+  subflows?: Record<string, { root: StageNode<TOut, TScope> }>;
+  buildTimeStructure?: unknown;
+}
+
+/**
+ * Runtime fan-out config — one branch per item, branch COUNT decided at
+ * runtime from the payload. Design: docs/design/execution-control.md (D2).
+ *
+ * Each branch runs as a generated SUBFLOW (isolated runtime, own commit log,
+ * addressable at `<stageId>~<index>` in every trace query), which is what
+ * makes branches unable to corrupt each other's in-flight state.
+ */
+export interface ParallelForEachConfig<TItem = any, TScope = any> {
+  /**
+   * Picks the items to fan out over, from the live scope. Reads here are
+   * tracked like any other stage read, so the fan-out's own inputs show up in
+   * the trace and in a backward slice.
+   */
+  items: (scope: TScope) => readonly TItem[];
+  /**
+   * Builds the chart for ONE item. Called once per executed branch, with the
+   * item and its index — close over them, or read the `item` / `index` values
+   * seeded into the branch's own scope.
+   */
+  branch: (item: TItem, index: number) => BranchChart;
+  /**
+   * Hard ceiling on branches per execution. REQUIRED: an unbounded fan-out
+   * driven by model output is a resource attack, so there is no default to
+   * forget. Extra items do not run — the truncation is recorded, never silent.
+   */
+  maxBranches: number;
+  /**
+   * State key the ordered results array is written to on the parent scope.
+   * REQUIRED — a key derived from the stage id could silently overwrite state
+   * the chart already owns.
+   */
+  into: string;
+  /**
+   * Fan-out error policy — the SAME policy the existing parallel fan-out uses.
+   * `true` = `Promise.all` (the first failing branch rejects the stage);
+   * omitted/false = best-effort `Promise.allSettled` (every branch runs; a
+   * failed branch's slot in the results array is `undefined`).
+   */
+  failFast?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Subflow
 // ---------------------------------------------------------------------------
 
@@ -428,6 +488,8 @@ export interface RuntimeStructureMetadata {
   subflowId?: string;
   isSubflowRoot?: boolean;
   subflowName?: string;
+  /** True for an `addParallelForEach` fan-out (type stays `'fork'`). */
+  isDynamicParallel?: boolean;
   isParallelChild?: boolean;
   parallelGroupId?: string;
   loopTarget?: string;
@@ -505,6 +567,13 @@ export interface SerializedPipelineNode {
   isDynamic?: boolean;
   /** When true, this stage can pause execution (PausableHandler pattern). */
   isPausable?: boolean;
+  /**
+   * True for an `addParallelForEach` fan-out — branch COUNT decided at runtime
+   * from the payload. A flag, not a type: `type` stays `'fork'` so every
+   * existing consumer renders it correctly (it IS a fan-out), and a consumer
+   * that wants to say "one branch per item" can read this.
+   */
+  isDynamicParallel?: boolean;
 }
 
 // ---------------------------------------------------------------------------

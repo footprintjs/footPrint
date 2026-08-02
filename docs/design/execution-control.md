@@ -120,3 +120,71 @@ against their own pause vocabulary.
    against the new entry path).
 6. Ordered-array result law: branch order == items order, independent of
    completion order.
+
+---
+
+## BUILT — Round B, shipped in 9.14.0 (2026-08-02)
+
+Round A above is unchanged; this section records what Round B built and the
+four places the build had to decide something Round A left open.
+
+**Shipped surface.** `.addParallelForEach(name, id, config)` and
+`interrupt(scope, payload)`.
+
+**Names.** DynamicParallel stays the concept word in this document; the public
+method is `addParallelForEach` — plain names win over working names, and the
+rename cost is zero before first publish.
+
+**The marker: `~` (U+007E).** Chosen from an audit of all 852 distinct id
+literals in this repo's src/tests/examples/docs/bench plus every id in the
+known consumer libraries: `~` appears in NONE of them. It is RFC-3986
+*unreserved* (survives a URL unescaped — trace viewers put path segments in
+links) and is not a regex metacharacter, so a consumer building a `RegExp`
+from a segment cannot be silently surprised. The grammar lives in ONE module,
+`src/lib/engine/branchSegment.ts`.
+
+**Nine build-time refusals, not eight.** Round A reserved the marker in
+user-authored subflow ids (8 mount entry points). Round B added a ninth: the
+id passed to `addParallelForEach` itself, because the generated segment embeds
+that id and a marker inside it would make `parseBranchSegment` ambiguous.
+Refusing it on a brand-new method costs no back-compat and keeps the parse
+rule a split at the last marker rather than a heuristic.
+
+**Four decisions Round A under-specified, settled here.**
+1. `into: string` is REQUIRED — a result key derived from the stage id could
+   silently overwrite state the chart already owns.
+2. `items: (scope) => readonly T[]` — scope-first, like every other
+   user-supplied function in the builder.
+3. `interrupt(scope, payload)` is scope-first for the same reason
+   `decide(scope, …)` is: there is no ambient stage register in this library,
+   and inventing one would be unsafe under parallel fan-out. The scope object
+   identifies the stage; a WeakMap keyed by it carries the one-shot answer.
+4. A failed branch in best-effort mode leaves `undefined` in its slot. The
+   which-branch-failed gap stays exactly as wide as it already was.
+
+**Two implementation laws with their own tests.**
+- *Re-registration.* Generated segments are stable across loop iterations, so
+  the usual first-write-wins subflow registration would make a LOOPING
+  fan-out silently re-execute iteration 1's branch charts forever. Generated
+  branches overwrite on every visit instead.
+- *The prefixers needed no behavioural change.* Finding 1's mechanical
+  tolerance covers prefixing too — a segment is just a prefix. So the lockstep
+  deliverable is the pin plus centralisation, not invented behaviour:
+  `test/lib/engine/branch-segment-prefixer-equivalence.test.ts` fails if either
+  twin drifts, including drift that keeps them equal to each other.
+
+**No parser site learned the marker.** All eight audited sites read a generated
+branch as an ordinary path segment, unmodified — proven by test 3, not
+asserted. The one visible consequence: an `interrupt()` inside a branch pauses
+correctly but cannot be resumed, because a generated subflow is not in the
+static chart. It refuses through the shipped "stage not found in flowchart"
+message — no marker special-casing anywhere — and that refusal is documented
+and pinned (`test/lib/pause/interrupt-in-parallel-branch.test.ts`).
+
+**Not a new node type.** `isDynamicParallel` is a spec BOOLEAN and the
+serialized `type` stays `'fork'` (following `isPausable`/`isLazy`/`isStreaming`,
+which are all flags on a `'stage'`). A fan-out is what it is, and every
+existing `switch (type)` consumer keeps working.
+
+D4's refusals all held: no third delimiter class, no unbounded fan-out, no
+durability policy.

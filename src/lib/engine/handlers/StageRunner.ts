@@ -9,6 +9,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseResult, PauseSignal } from '../../pause/types.js';
 import { BREAK_SETTER, IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
@@ -61,20 +62,50 @@ export class StageRunner<TOut = any, TScope = any> {
       (rawScope as any).notifyStageStart();
     }
 
-    // Execute the stage function
-    const output = stageFunc(scope, breakFn, streamCallback);
-
-    // Sync+async safety: only await real Promises to avoid thenable assimilation
+    // ── Execute the stage function ──
+    //
+    // THE stage boundary for `interrupt()` (design: docs/design/execution-control.md
+    // D3). Every stage function in the engine funnels through this one call —
+    // linear stages, decider and selector stages (their handlers are handed
+    // `executeStage`), fork children, subflow bodies — so converting here is
+    // what makes `interrupt()` work in ALL of them. Catching it in a traverser
+    // phase instead would have left decider/selector stages silently unable to
+    // interrupt.
+    //
+    // The conversion is deliberately total: an InterruptSignal becomes the
+    // library's existing PauseSignal, stamped with the node id the free
+    // function could not know and with `pausedBy: 'interrupt'` so resume()
+    // re-enters the stage from its top. Everything downstream — commit-then-
+    // rethrow, onPause, subflow scope capture, invoker stamping, the one
+    // detached checkpoint clone — is the shipped pause machinery, untouched.
+    //
+    // `notifyStageEnd` deliberately does NOT fire on this path: the stage
+    // function did not return, exactly like the error path below it. (The
+    // pausable-handler path further down DOES fire it — there the function
+    // returned normally and the engine turned its value into a pause.)
     let result: TOut;
-    if (output instanceof Promise) {
-      // Race against AbortSignal if provided
-      if (this.deps.signal) {
-        result = (await raceAbort(output, this.deps.signal)) as TOut;
+    try {
+      const output = stageFunc(scope, breakFn, streamCallback);
+
+      // Sync+async safety: only await real Promises to avoid thenable assimilation
+      if (output instanceof Promise) {
+        // Race against AbortSignal if provided
+        if (this.deps.signal) {
+          result = (await raceAbort(output, this.deps.signal)) as TOut;
+        } else {
+          result = (await output) as TOut;
+        }
       } else {
-        result = (await output) as TOut;
+        result = output as TOut;
       }
-    } else {
-      result = output as TOut;
+    } catch (error: unknown) {
+      if (isInterruptSignal(error)) {
+        if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
+          (rawScope as any).notifyPause(error.payload);
+        }
+        throw new PauseSignal(error.payload, node.id, 'interrupt');
+      }
+      throw error;
     }
 
     // Notify recorders of stage end (if scope supports it)

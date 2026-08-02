@@ -39,6 +39,21 @@ export {
   splitStageId,
 } from './lib/engine/runtimeStageId.js';
 
+// Generated branch segments — the subflow path segments `addParallelForEach`
+// mints for its branches (`<stageId>~<index>`). A branch is addressed by the
+// ORDINARY grammar above, so nothing here is needed to READ one; these exist so
+// a consumer can TELL a generated branch from a hand-authored subflow (to label
+// it "branch 2 of review-chunks" instead of a subflow name), and so the
+// reserved marker is discoverable rather than folklore.
+// Design: docs/design/execution-control.md.
+export {
+  BRANCH_SEGMENT_MARKER,
+  buildBranchSegment,
+  hasBranchSegmentMarker,
+  isBranchSegment,
+  parseBranchSegment,
+} from './lib/engine/branchSegment.js';
+
 // walkSubflowSpec — flat ordered traversal of a subflow's structure
 // (consume via StructureRecorder.onSubflowMounted's subflowSpec payload)
 export type { WalkerItem, WalkerOptions } from './lib/engine/walkSubflowSpec.js';

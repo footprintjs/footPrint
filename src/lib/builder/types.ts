@@ -20,7 +20,9 @@ import type { StructureRecorder } from './structure/StructureRecorder.js';
 
 export type { ResumeFn, StageNode } from '../engine/graph/StageNode.js';
 export type {
+  BranchChart,
   ILogger,
+  ParallelForEachConfig,
   StageFunction,
   StreamCallback,
   StreamHandlers,
@@ -83,6 +85,12 @@ export interface SerializedPipelineStructure {
   /** When true, this stage can pause execution (PausableHandler pattern). */
   isPausable?: boolean;
   /**
+   * True for an `addParallelForEach` fan-out — one branch per item, count
+   * decided at runtime. A flag, not a type: `type` stays `'fork'` so existing
+   * consumers keep rendering it as the fan-out it is.
+   */
+  isDynamicParallel?: boolean;
+  /**
    * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
    * id its convergence `next` edge points to, instead of the shared next-stage
    * its siblings converge at. Set from `SubflowMountOptions.convergeAt`; read by
@@ -120,6 +128,8 @@ export interface FlowChartSpec {
   subflowName?: string;
   /** True when this node is a back-edge reference created by loopTo() — not an executable stage. */
   isLoopReference?: boolean;
+  /** True for an `addParallelForEach` fan-out (`type` stays `'fork'`). */
+  isDynamicParallel?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

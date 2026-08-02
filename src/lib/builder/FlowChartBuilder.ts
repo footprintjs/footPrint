@@ -12,7 +12,8 @@
  * it belongs in the runner layer (Phase 5).
  */
 
-import type { ScopeFactory } from '../engine/types.js';
+import { branchSegmentReservationMessage, hasBranchSegmentMarker } from '../engine/branchSegment.js';
+import type { ParallelForEachConfig, ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
@@ -40,6 +41,28 @@ import type {
 
 const fail = (msg: string): never => {
   throw new Error(`[FlowChartBuilder] ${msg}`);
+};
+
+/**
+ * Refuse the reserved branch-segment marker in a user-authored SUBFLOW id.
+ *
+ * A subflow id IS a path segment in `runtimeStageId`, which is the same
+ * position `addParallelForEach` generates its branch segments into. A
+ * hand-authored id carrying the marker could therefore collide with a
+ * generated branch — and, because this codebase deliberately tolerates
+ * id-collision classes (loop-ref stubs), such a collision would not crash. It
+ * would silently mis-attribute a trace, which is worse. So the marker is
+ * refused at BUILD time, on NEW charts only: a chart that was legal before
+ * 9.14.0 and does not use the marker behaves byte-identically.
+ *
+ * Called at every user-authored subflow-id entry point. Stage ids elsewhere
+ * stay unvalidated by design — they occupy the `stageId` position, never the
+ * `subflowPath` position, so they cannot collide with a segment.
+ * (`addParallelForEach`'s own id is the one exception, refused at that method.)
+ * Design: docs/design/execution-control.md.
+ */
+const assertSubflowIdAllowed = (id: string): void => {
+  if (hasBranchSegmentMarker(id)) fail(branchSegmentReservationMessage('subflow id', id));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +193,7 @@ export class DeciderList<TOut = any, TScope = any> {
     options?: SubflowMountOptions,
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
+    assertSubflowIdAllowed(id);
     this.branchIds.add(id);
 
     const subflowName = mountName || id;
@@ -226,6 +250,7 @@ export class DeciderList<TOut = any, TScope = any> {
     options?: SubflowMountOptions,
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
+    assertSubflowIdAllowed(id);
     this.branchIds.add(id);
 
     const subflowName = mountName || id;
@@ -535,6 +560,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    assertSubflowIdAllowed(id);
     this.branchIds.add(id);
 
     const subflowName = mountName || id;
@@ -592,6 +618,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
+    assertSubflowIdAllowed(id);
     this.branchIds.add(id);
 
     const subflowName = mountName || id;
@@ -1574,6 +1601,116 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  /**
+   * Run ONE BRANCH PER ITEM, in parallel — with the number of branches decided
+   * at RUN time from the payload rather than at build time.
+   *
+   * `addListOfFunction` fans out a fixed set of branches you name in the chart.
+   * This fans out over data the chart has not seen yet: three chunks make three
+   * branches, ten make ten. Each branch runs as its own isolated subflow — its
+   * own memory, its own commit log, addressable in every trace query at
+   * `<stageId>~<index>` — so branches cannot corrupt each other's in-flight
+   * state, and a backward slice through a branch result works with no special
+   * handling. Design: docs/design/execution-control.md.
+   *
+   * @param name   Display label for the fan-out stage.
+   * @param id     Stable stage id. May not contain `~` (reserved — the branch
+   *               segments are built from this id).
+   * @param config `{ items, branch, maxBranches, into, failFast? }`:
+   *   - `items(scope)` picks what to fan out over (reads are tracked);
+   *   - `branch(item, index)` builds the chart for ONE item (each branch's
+   *     scope is also seeded with `item` and `index`, so the input is in the
+   *     trace rather than hidden in a closure);
+   *   - `maxBranches` is REQUIRED — an unbounded fan-out driven by model output
+   *     is a resource attack, so there is no default to forget. Extra items do
+   *     not run and the truncation is recorded;
+   *   - `into` is REQUIRED — the state key the ordered results array is written
+   *     to. `into[i]` is branch `i`'s result, in ITEMS order, whatever order
+   *     the branches finished in;
+   *   - `failFast` is the same policy the rest of the library's parallelism
+   *     uses: `true` rejects on the first failing branch, omitted runs them all
+   *     best-effort (a failed branch's slot is `undefined`).
+   *
+   * @example
+   * ```ts
+   * flowChart<State>('Split', splitFn, 'split')
+   *   .addParallelForEach('Review each chunk', 'review-chunks', {
+   *     items: (scope) => scope.chunks,
+   *     branch: (chunk, i) => buildReviewChart(chunk, i),
+   *     maxBranches: 8,
+   *     into: 'reviews',
+   *   })
+   *   .addFunction('Merge', mergeFn, 'merge')   // reads scope.reviews
+   *   .build();
+   * ```
+   */
+  addParallelForEach<TItem = any>(
+    name: string,
+    id: string,
+    config: ParallelForEachConfig<TItem, TScope>,
+    description?: string,
+  ): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+    const parentSpec = curSpec;
+
+    // The generated branch segments embed this id verbatim
+    // (`<id>~<index>`), so a marker inside it would make the segment
+    // ambiguous to parse. Refusing it here — on a brand-new method, at zero
+    // back-compat cost — kills the ambiguity class outright and keeps
+    // `parseBranchSegment` a split at the last marker instead of a heuristic.
+    if (hasBranchSegmentMarker(id)) {
+      fail(branchSegmentReservationMessage('parallelForEach stage id', id));
+    }
+    if (!config || typeof config.items !== 'function' || typeof config.branch !== 'function') {
+      fail(`addParallelForEach('${id}') requires items(scope) and branch(item, index) functions.`);
+    }
+    // REQUIRED, both of them — see docs/design/execution-control.md (D2).
+    if (typeof config.maxBranches !== 'number' || !Number.isInteger(config.maxBranches) || config.maxBranches < 1) {
+      fail(
+        `addParallelForEach('${id}') requires maxBranches — a positive integer ceiling on how many ` +
+          'branches one execution may start. There is deliberately no default: an unbounded fan-out ' +
+          'driven by runtime data (model output, an upstream API) is a resource attack. Pick the ' +
+          'largest number this flow can afford. See docs/design/execution-control.md.',
+      );
+    }
+    if (typeof config.into !== 'string' || config.into === '') {
+      fail(
+        `addParallelForEach('${id}') requires into — the state key its ordered results array is ` +
+          'written to. There is deliberately no default derived from the stage id: a derived key ' +
+          'could silently overwrite state the chart already owns. See docs/design/execution-control.md.',
+      );
+    }
+
+    const node: StageNode<TOut, TScope> = {
+      name,
+      id,
+      isDynamicParallel: true,
+      parallelForEach: config as ParallelForEachConfig<any, TScope>,
+    };
+    if (description) node.description = description;
+    if (config.failFast !== undefined) node.failFast = config.failFast;
+
+    // `type: 'fork'` — a fan-out is what this is, and every existing consumer
+    // already knows how to draw one. The "branches are decided at runtime"
+    // detail rides `isDynamicParallel` rather than a new node type, so nothing
+    // downstream has to learn a new word to keep working.
+    const spec: SerializedPipelineStructure = { name, id, type: 'fork', isDynamicParallel: true };
+    if (description) spec.description = description;
+
+    cur.next = node;
+    curSpec.next = spec;
+    this._cursor = node;
+    this._advanceCursorSpec(spec);
+    this._knownStageIds.add(id);
+
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(parentSpec, id);
+
+    this._appendDescriptionLine(name, description ?? `Runs one branch per item into '${config.into}'`);
+    return this;
+  }
+
   // ── Subflow Mounting ──
 
   addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
@@ -1583,6 +1720,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
+    assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
     const forkId = cur.id;
@@ -1645,6 +1783,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
+    assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
     const forkId = cur.id;
@@ -1702,6 +1841,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.next) {
       fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
     }
+    assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
 
@@ -1756,6 +1896,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.next) {
       fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
     }
+    assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
     const prefixedRoot = this._prefixNodeTree(subflow.root, id);
@@ -1965,6 +2106,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     }
   }
 
+  /**
+   * Prefix a node tree with a subflow path segment.
+   *
+   * ── BYTE-TWIN CONTRACT ──────────────────────────────────────────────────
+   * This function and `FlowchartTraverser.prefixNodeTree` are byte-twins by
+   * contract: this one prefixes at MOUNT time, the traverser's at RUN time
+   * (lazy subflows, and the generated branches of `addParallelForEach`), and a
+   * chart must come out identical either way.
+   * `test/lib/engine/branch-segment-prefixer-equivalence.test.ts` pins that —
+   * any edit here must be mirrored there, and vice versa.
+   *
+   * Generated branch segments (`<stageId>~<index>`, see
+   * `engine/branchSegment.ts`) ride this exact path with no special case: a
+   * segment is just a prefix. That is the mechanical tolerance the design
+   * relies on — the runtimeStageId grammar accepts it unchanged, which is why
+   * no parser in the library had to learn the marker.
+   * Design: docs/design/execution-control.md.
+   */
   _prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
     if (!node) return node;
     const clone: StageNode<TOut, TScope> = { ...node };

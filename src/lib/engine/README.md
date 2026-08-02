@@ -40,6 +40,7 @@ The core algorithm. Recursive pre-order DFS that processes each node through 7 p
 | Phase | Name | What it does | What it captures |
 |-------|------|--------------|-----------------|
 | 0 | CLASSIFY | Detect subflow references, delegate to SubflowExecutor | "Entering the LLM Core subflow" |
+| 0b | PARALLEL-FOR-EACH | Dynamic fan-out: resolve items, generate one branch subflow per item, commit the ordered results | "Reviewed 3 chunks in parallel" |
 | 1 | VALIDATE | Check node invariants (decider has children? selector has children?) | Fail-fast errors before wasted work |
 | 2 | EXECUTE | Run stage function, commit patch, check break | "The process began with Validate Input" |
 | 3 | DYNAMIC | Detect StageNode returns, auto-register subflows | Dynamic graph extension (stages that produce new stages) |
@@ -48,6 +49,8 @@ The core algorithm. Recursive pre-order DFS that processes each node through 7 p
 | 6 | LEAF | No continuation — return output | Terminal node, trace complete for this branch |
 
 Each phase is independently testable. Adding a new cross-cutting concern (say, timing) means adding observation calls to the right phase, not editing a 450-line method.
+
+**Why is PARALLEL-FOR-EACH numbered 0b?** Because it must run BEFORE VALIDATE. A `addParallelForEach` node legitimately has no stage function, no static children and no decider — its branches do not exist until `items()` runs against live scope — so VALIDATE's "must define fn OR children" check would reject a perfectly valid chart. Like the decider and selector phases, it owns its own commit (the ordered results array). Each branch executes as a generated SUBFLOW at path segment `<stageId>~<index>` (see `branchSegment.ts`), which is why every trace query reads branch commits with no changes at all. Design: `docs/design/execution-control.md`.
 
 ```typescript
 const traverser = new FlowchartTraverser({

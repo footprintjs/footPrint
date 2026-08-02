@@ -31,6 +31,15 @@ export class PauseSignal extends Error {
   readonly pauseData: unknown;
   /** ID of the stage that called $pause(). */
   readonly stageId: string;
+  /**
+   * HOW the pause was raised — `'interrupt'` when a stage body called
+   * `interrupt(scope, payload)`, absent for the `addPausableFunction`
+   * execute/resume path. Set at the stage boundary (`StageRunner`), carried
+   * onto the checkpoint, and read by `resume()` to pick the re-entry: an
+   * interrupted stage re-runs its OWN function from the top (stages are
+   * atomic), a pausable stage runs its `resumeFn`.
+   */
+  readonly pausedBy?: 'interrupt';
   /** Path through subflows to the paused stage. Built during bubble-up. */
   private _subflowPath: string[];
 
@@ -62,11 +71,12 @@ export class PauseSignal extends Error {
    */
   private _subflowStates: Record<string, Record<string, unknown>> = {};
 
-  constructor(data: unknown, stageId: string) {
+  constructor(data: unknown, stageId: string, pausedBy?: 'interrupt') {
     super('Execution paused');
     this.name = 'PauseSignal';
     this.pauseData = data;
     this.stageId = stageId;
+    if (pausedBy) this.pausedBy = pausedBy;
     this._subflowPath = [];
     // PauseSignal is control flow, not a real error — stack trace has no diagnostic value.
     this.stack = '';
@@ -204,6 +214,19 @@ export interface FlowchartCheckpoint {
 
   /** Data from $pause() — question, reason, metadata. */
   readonly pauseData?: unknown;
+
+  /**
+   * HOW the pause was raised. `'interrupt'` means a stage body called
+   * `interrupt(scope, { reason, expects? })` and `pauseData` IS that payload;
+   * absent means the `addPausableFunction` execute/resume path (every
+   * checkpoint written before 9.14.0 omits it, which is exactly right).
+   *
+   * `resume()` reads this to pick the re-entry, and the two differ by law:
+   * an interrupted stage RE-RUNS ITS OWN FUNCTION FROM THE TOP (stages are
+   * atomic — the answer comes back out of the `interrupt()` call), while a
+   * pausable stage runs its separate `resumeFn`.
+   */
+  readonly pausedBy?: 'interrupt';
 
   /** Subflow results collected before the pause. */
   readonly subflowResults?: Record<string, unknown>;

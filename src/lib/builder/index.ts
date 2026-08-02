@@ -14,11 +14,13 @@ export { flowChart, flowChartSelector, specToStageNode } from './FlowChartBuilde
 
 // Types
 export type {
+  BranchChart,
   ExecOptions,
   FlowChart,
   FlowChartOptions,
   FlowChartSpec,
   ILogger,
+  ParallelForEachConfig,
   ScopeProtectionMode,
   SerializedPipelineStructure,
   SimplifiedParallelSpec,
