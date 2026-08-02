@@ -68,18 +68,36 @@ export { causalChain, flattenCausalDAG, formatCausalChain } from './lib/memory/b
 // (`CommitBundle.untrackedSources` → `CausalNode.incompleteSources`).
 export type { UntrackedSource } from './lib/memory/types.js';
 
-// ── slice/ — variable-first backward slicing (the triage query layer) ──
+// ── slice/ — variable-first slicing, both directions (triage query layer) ──
 // One contract for every triage surface (UI panel, LLM tool, offline
-// autopsy agent): variable in → slice out. `sliceForKey` anchors at the
-// key's last writer then delegates to causalChain; `arrayProvenance` /
-// `elementProvenance` (append-fold) answer element-level questions like
-// "which stage produced history[7]?" — the fix for the agent mega-key
-// problem, with honest attribution labels. See src/lib/slice/README.md.
+// autopsy agent): variable in → slice out.
+//
+// BACKWARD — `sliceForKey` anchors at the key's last writer then delegates
+// to causalChain; `arrayProvenance` / `elementProvenance` (append-fold)
+// answer element-level questions like "which stage produced history[7]?" —
+// the fix for the agent mega-key problem, with honest attribution labels.
+//
+// FORWARD — `forwardSliceForKey` walks the other way: from a write, through
+// the value's LIVE RANGE (it lives until the key's next write), to every
+// stage that read it and every write those reads fed. `keyTimeline` is the
+// flat chronological view of the same facts. Fed edges are EXACT under the
+// `writeProvenance: 'reads-prefix'` dial and stamped CONSERVATIVE without
+// it — never the other way round. See src/lib/slice/README.md.
 export type {
   ArrayProvenance,
   AttributionBasis,
   ElementBirth,
+  FedBasis,
+  ForwardEdge,
+  ForwardNode,
+  ForwardRead,
+  ForwardSlice,
+  ForwardSliceJSON,
+  HonestyNote,
+  HonestyNoteCode,
+  KeyMoment,
   KeysReadSource,
+  KeyTimeline,
   MissingProvenanceReason,
   MissingSliceReason,
   ReadsCoverage,
@@ -87,13 +105,18 @@ export type {
   StateKey,
   VariableSlice,
 } from './lib/slice/index.js';
-export type { SliceForKeyOptions } from './lib/slice/index.js';
+export type { ForwardSliceForKeyOptions, KeyTimelineOptions, SliceForKeyOptions } from './lib/slice/index.js';
 export {
   arrayProvenance,
   elementProvenance,
+  formatForwardSlice,
   formatSlice,
+  formatTimeline,
+  forwardSliceForKey,
+  forwardSliceToJSON,
   keysReadFromExecutionTree,
   keysReadFromMap,
+  keyTimeline,
   normaliseStateKey,
   resolveKeysReadSource,
   sliceForKey,

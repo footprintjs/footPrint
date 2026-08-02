@@ -1,8 +1,12 @@
-# slice/ — variable-first backward slicing
+# slice/ — variable-first slicing, both directions
 
 The **triage query layer** of footprintjs: given a *variable* (a state key, or one
-element of an array-valued key), produce the backward slice that explains it —
-who wrote it, what those writers read, which decisions allowed them to run.
+element of an array-valued key), answer the two questions every investigation
+asks about it —
+
+- **backward**: why is it what it is? who wrote it, what did those writers read,
+  which decisions allowed them to run;
+- **forward**: who *read* it, and what did that value *feed*?
 
 One contract, three consumers:
 
@@ -17,6 +21,8 @@ All three call the same queries below, so their answers can never disagree.
 **Picking an entry point:** know the failing **variable** → `sliceForKey` /
 `elementProvenance` (here). Know only that **quality dropped** somewhere →
 `qualityTrace` (`footprintjs/trace`) finds the step; then slice from there.
+Know a value was **wrong or poisoned** and need its blast radius →
+`forwardSliceForKey` (below).
 
 ## The queries
 
@@ -59,6 +65,47 @@ Absence mirrors `VariableSlice`: `missing: 'empty-log' | 'never-written' |
 did THAT run?"): a birth's `commitIdx` is inclusive; `sliceForKey`'s `before`
 is exclusive — anchor the follow-up with `before: birth.commitIdx + 1`.
 
+### `forwardSliceForKey(commitLog, key, keysRead, options?)` → `ForwardSlice`
+
+"Who read this value, and what did it feed?" — the same anchor idiom as
+`sliceForKey` (the last write, or the last write before `before`), walked the
+other way. The unit is not a step but a **value's life**:
+
+1. a write starts a life; it ends at the key's **next write** (`nextWriteIdx`);
+2. every stage that read the key inside that window is a `read`;
+3. a reading stage that also wrote something carried the value onward — a
+   `fed` edge to that write, itself the start of a new life;
+4. descend breadth-first, visited-set guarded, budgeted (`maxDepth` 20 /
+   `maxNodes` 100 — `causalChain`'s numbers).
+
+`before` bounds the **anchor** only; the walk then runs forward past it,
+because "what did the value at step 12 go on to feed?" is the question.
+
+**The live range is `(writeIdx, nextWriteIdx]`** — open below, closed on top,
+and both ends follow from the engine firing `onRead` PRE-commit: a
+read-modify-write stage's own read saw the *previous* value, and the
+overwriting stage's read still saw *this* one. A read after that commit
+attributes to the new write, never the old. (Granularity limit, stated because
+it cannot be seen: a stage that writes the key and then re-reads it within the
+same stage read its own value; at commit-index resolution that is
+indistinguishable.)
+
+**`fed` edges are EXACT only under recorded read provenance.** With
+`writeProvenance: 'reads-prefix'` on, the child write's `TraceEntry.readKeys`
+names the keys read before it — this key present is an exact edge
+(`basis: 'per-write'`), this key *absent* is an exact **exclusion** (no edge).
+With the dial off there is only stage-level co-occurrence: every edge is
+stamped `basis: 'stage'` and the slice carries a `'conservative-fed-edges'`
+note. A conservative edge is never presented as an exact one.
+
+### `keyTimeline(commitLog, key, keysRead, options?)` → `KeyTimeline`
+
+The whole life of one key in commit order: every write (with its verb) and
+every recorded read, each moment carrying `runtimeStageId` **and** `commitIdx`
+— the two universal join keys. A read's `fromWriteIdx` says which value it saw,
+by the *same* live-range rule the walk uses (a property test pins the two doors
+to identical attribution). No graph, no budgets, no live references.
+
 ### `sliceToJSON(slice)` / `formatSlice(slice)` — the ONLY safe serializations
 
 `VariableSlice.root` is an in-memory DAG with **shared nodes** — never
@@ -70,6 +117,20 @@ blow-up). Use:
 - `formatSlice(slice)` — ONE bounded string for LLM tools; renders the honesty
   envelope too (missing reason, "⚠ reads were not recorded" when coverage says
   so, truncation footers).
+
+The forward half has the same hazard (two values read by one stage feed the
+same child write — shared nodes again) and the same two projections:
+`forwardSliceToJSON(slice)` and `formatForwardSlice(slice)`, which renders
+`[exact]` / `[conservative]` per edge and every honesty note as a `⚠` line.
+Forward node ids are **opaque** (`n0`, `n1`, … in BFS order) rather than
+`runtimeStageId` as in `SliceJSON`: a forward node is a *(key, write)* pair, so
+one stage that wrote two keys owns two nodes. Never parse them — join on
+`runtimeStageId` / `commitIdx` / `key`, which every node carries.
+
+`KeyTimeline` is the deliberate exception, stated so nobody adds a pointless
+twin: it is a flat list of plain fields with no sharing and no live references,
+so `JSON.stringify(timeline)` is already correct and linear. What it still
+needs is the bounded string — `formatTimeline(timeline)`.
 
 ## KeysRead strategies
 
@@ -103,14 +164,37 @@ cross a mount.)
 
 ## Honesty model (inherited + added)
 
-- `CausalNode.incompleteSources` / `truncated` pass through from `causalChain`.
+- `CausalNode.incompleteSources` / `truncated` pass through from `causalChain`;
+  `ForwardNode` carries the same two, stamped from the writer's bundle.
 - `VariableSlice.missing` / `ArrayProvenance.missing` — absence with a reason,
   never a silent empty object.
-- `ElementBirth.basis` — exact vs inferred vs reset, on every record.
+- `ElementBirth.basis` — exact vs inferred vs reset, on every record;
+  `ForwardEdge.basis` — exact vs conservative, on every edge.
 - `keysReadKind` + `readsCoverage` — a slice can always be traced to its reads
   provider, and a reads-less provider is detectable, not silent.
+- `HonestyNote[]` (forward) — the machine-readable envelope: a consumer
+  branches on `code`, a human/LLM reads `detail`. Five codes:
+  `'unknown-key'`, `'reads-not-recorded'`, `'pre-run-origin'`,
+  `'conservative-fed-edges'`, `'truncated'`.
 - Redaction: this layer re-serves commit-log bytes; a redacted key's
-  `'[REDACTED]'` placeholder stays redacted. No new leak surface.
+  `'[REDACTED]'` placeholder stays redacted. No new leak surface. (Forward
+  nodes carry identity and position only — no values at all.)
+
+**The typo guard**, split by what the recording affords — because
+"nothing read it" and "you spelled it wrong" must never render alike:
+
+| the log has | forward answer |
+|---|---|
+| no write, no read, **reads recorded elsewhere** | `missing: 'never-written'`, no root + an `'unknown-key'` note naming a bounded list of keys the log *does* know |
+| no write, no read, **no reads recorded at all** | a `'pre-run'` origin life (the only honest answer) + BOTH the `'unknown-key'` and `'reads-not-recorded'` notes |
+| no write, but the key **was read** | a `'pre-run'` origin life + the `'pre-run-origin'` note — a seeded/`input`/closure value that stages really did consume |
+
+**Forward blind spot worth naming:** a stage that consumed the value through an
+untracked path (`getValueSilent`, `getArgs`, `getEnv`) is invisible to the reads
+provider, so it cannot appear as a reader. Its own commit carries
+`untrackedSources`, which is why every node stamps `incompleteSources` — but the
+missing *edge* is in another stage's life, not this one. Treat a forward slice
+as a lower bound on consumers, exactly as a backward slice is on causes.
 
 ## What this library deliberately does NOT do
 
@@ -124,9 +208,10 @@ cross a mount.)
 
 ## Evolution path
 
-- Per-write read-sets (planned dial) will let `causalChain` attribute a
-  stage's writes to only the reads that preceded them; this library's contract
-  doesn't change — slices just get tighter.
+- Per-write read-sets SHIPPED (`writeProvenance: 'reads-prefix'`): `causalChain`
+  attributes a stage's writes to only the reads that preceded them, and the
+  forward walk uses the same evidence to make `fed` edges exact. This library's
+  contract did not change — slices just got tighter, and honest without it.
 - LLM triage tools (`backtrack(variable, element?)`) and UI panels consume
   these queries; they live above this layer, never inside it.
 - A subflow-boundary-crossing helper (auto re-anchoring through

@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.13.0] - 2026-08-02
+
+### Added
+- **The forward half of variable-first slicing — `forwardSliceForKey()` and
+  `keyTimeline()`** (`footprintjs/trace`). The slice layer could only answer
+  backward: *why is this value what it is?* An integration running in
+  production hit the other direction and had no query for it — a value was
+  wrong, and the question was *who read it, and what did it feed?* (their
+  words, about a recipe id flowing through a chart). The commit log already
+  held the answer; nothing asked it. Reconstructing it by hand means scrolling
+  a trace viewer for reads, matching them against the writes they sit between,
+  and hoping you did not miss one — for every value you suspect.
+
+  `forwardSliceForKey(commitLog, key, keysRead, options?)` answers it in one
+  call, and takes exactly what the backward door takes (same anchor idiom:
+  the last write, or the last write before `before`; same `KeysReadSource`
+  strategies, since reads live in the execution tree, not the log). The unit
+  of the walk is a **value's life**: a write starts one, the key's NEXT write
+  ends it, every stage that read the key in between saw THAT value, and a
+  reading stage that also wrote something carried the value onward — a `fed`
+  edge, followed breadth-first under the same budgets `causalChain` uses.
+  `keyTimeline()` is the flat companion: every write (with its verb) and every
+  recorded read of one key in commit order, each moment carrying both join
+  keys (`runtimeStageId` and `commitIdx`), and each read attributed to the
+  value it actually saw.
+
+  Where the boundary falls is a decision, not an accident: reads fire BEFORE
+  their stage's commit, so a read-modify-write stage's own read belongs to the
+  PREVIOUS life, and the stage that overwrites a key still read the old value.
+  A read after that commit attributes to the new write, never the old. The
+  timeline and the walk use one rule (a property test pins them to identical
+  attribution — two doors, one truth).
+
+  **A `fed` edge is exact only when the log can prove it.** With
+  `writeProvenance: 'reads-prefix'` on, a write records the keys read before
+  it, so an edge is exact — and the same evidence EXCLUDES exactly (a write
+  whose recorded reads omit this key gets no edge at all). With the dial off
+  there is only "this stage read that key and wrote this one", which is a
+  sound over-approximation and nothing more: every such edge is stamped
+  `basis: 'stage'` and the answer carries a note saying so. A conservative
+  edge is never rendered like an exact one — the string projection prints
+  `[conservative]` next to it.
+
+  Absence is answered rather than shrugged at. A key this log never wrote and
+  never read comes back as `missing: 'never-written'` with a note NAMING a
+  bounded list of the keys it does know, because the overwhelmingly likely
+  cause is a typo, and a typo must never read as "this variable has no
+  history". When the log records no reads at all, that distinction is
+  genuinely unavailable — so the answer says THAT instead, rather than
+  implying the value went unread. A value that predates every write (initial
+  state, frozen run `input`, a closure) gets a `'pre-run'` origin life with
+  its own note: the reads are real, the author is outside the log.
+
+  Serialization follows the module's existing law — a forward graph shares
+  nodes exactly as a backward one does, so `JSON.stringify` on a root is still
+  the wrong move. `forwardSliceToJSON()` (flat, id-referenced, linear) and
+  `formatForwardSlice()` (one bounded string, honesty notes rendered) join
+  `sliceToJSON` / `formatSlice`, and `formatTimeline()` bounds a key's life for
+  an LLM tool. A timeline holds no live references and no sharing, so its JSON
+  needs no helper — that is stated in the code rather than papered over with a
+  no-op function.
+
+  Nothing changes for existing callers: no engine change, no new capture, no
+  new dial. Both directions are pure post-hoc queries over what the run
+  already recorded. Thanks to the integration team who asked the question in
+  the first place.
+
 ## [9.12.0] - 2026-07-28
 
 ### Added
