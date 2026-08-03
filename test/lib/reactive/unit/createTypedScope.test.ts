@@ -490,6 +490,214 @@ describe('createTypedScope -- unit: non-plain objects', () => {
   });
 });
 
+// -- Read/serialize agreement ------------------------------------------------
+//
+// LAW: property access, enumeration and serialization of a proxied value say
+// the SAME thing as $getValue. Two read paths that disagree on the bytes is a
+// bug consumers only find in production — this section is the regression net
+// for the release where JSON.stringify(scope.structured) returned `{}`.
+
+/** Every read path a consumer might use, as comparable strings. */
+function readPaths(scope: any, key: string) {
+  const viaProp = scope[key];
+  return {
+    stringify: JSON.stringify(viaProp),
+    keys: JSON.stringify(Object.keys(viaProp)),
+    spread: JSON.stringify(Array.isArray(viaProp) ? [...viaProp] : { ...viaProp }),
+    forIn: JSON.stringify(
+      (() => {
+        const out: string[] = [];
+        for (const k in viaProp) out.push(k);
+        return out;
+      })(),
+    ),
+    entries: JSON.stringify(Object.entries(viaProp)),
+  };
+}
+
+/** The same read paths against the value $getValue hands back. */
+function referencePaths(scope: any, key: string) {
+  const raw = scope.$getValue(key) as any;
+  return {
+    stringify: JSON.stringify(raw),
+    keys: JSON.stringify(Object.keys(raw)),
+    spread: JSON.stringify(Array.isArray(raw) ? [...raw] : { ...raw }),
+    forIn: JSON.stringify(
+      (() => {
+        const out: string[] = [];
+        for (const k in raw) out.push(k);
+        return out;
+      })(),
+    ),
+    entries: JSON.stringify(Object.entries(raw)),
+  };
+}
+
+describe('createTypedScope -- read/serialize agreement', () => {
+  it('object-valued members survive every read path (the reported bug)', () => {
+    const target = mockTarget({ results: { a: { x: 1 }, b: { y: 2 } } });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(readPaths(scope, 'results')).toEqual(referencePaths(scope, 'results'));
+    expect(JSON.stringify(scope.results)).toBe('{"a":{"x":1},"b":{"y":2}}');
+  });
+
+  it('nesting is preserved all the way down, not just one level', () => {
+    const target = mockTarget({ deep: { l1: { l2: { l3: 'bottom' } } } });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(JSON.parse(JSON.stringify(scope.deep))).toEqual({ l1: { l2: { l3: 'bottom' } } });
+    expect(JSON.stringify(scope.deep.l1)).toBe(JSON.stringify((target.state.deep as any).l1));
+  });
+
+  it('arrays with object elements enumerate and serialize correctly', () => {
+    const target = mockTarget({
+      rows: [
+        { id: 1, meta: { z: 9 } },
+        { id: 2, meta: { z: 8 } },
+      ],
+      wrapper: { rows: [{ id: 3 }] },
+    });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(readPaths(scope, 'rows')).toEqual(referencePaths(scope, 'rows'));
+    expect(readPaths(scope, 'wrapper')).toEqual(referencePaths(scope, 'wrapper'));
+    expect(JSON.parse(JSON.stringify(scope.rows))).toEqual([
+      { id: 1, meta: { z: 9 } },
+      { id: 2, meta: { z: 8 } },
+    ]);
+    expect(scope.rows.map((r: any) => r.meta.z)).toEqual([9, 8]);
+  });
+
+  it('non-plain members serialize exactly as the raw state does (Date, Map, null)', () => {
+    const target = mockTarget({
+      mixed: { when: new Date('2020-01-01T00:00:00.000Z'), m: new Map([['k', 'v']]), nothing: null, n: 1 },
+    });
+    const scope = createTypedScope<any>(target) as any;
+
+    // Same bytes as $getValue: Date -> ISO string, Map -> {}, null kept.
+    expect(readPaths(scope, 'mixed')).toEqual(referencePaths(scope, 'mixed'));
+    expect(JSON.parse(JSON.stringify(scope.mixed)).when).toBe('2020-01-01T00:00:00.000Z');
+  });
+
+  it('the whole scope serializes faithfully', () => {
+    const target = mockTarget({ a: { x: { y: 1 } }, b: [{ id: 1 }], c: 'flat' });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(JSON.parse(JSON.stringify(scope))).toEqual({ a: { x: { y: 1 } }, b: [{ id: 1 }], c: 'flat' });
+  });
+
+  it('serializing BORROWS: an acyclic value is handed over by reference, never cloned', () => {
+    const raw = { a: { x: 1 }, when: new Date('2020-01-01T00:00:00.000Z') };
+    const target = mockTarget({ obj: raw });
+    const scope = createTypedScope<any>(target) as any;
+
+    // toJSON returns the state object ITSELF — no copy on the serialize path.
+    expect(scope.obj.toJSON()).toBe(target.state.obj);
+    // Non-plain leaves come back as the same reference through the property path.
+    expect(scope.obj.when).toBe(raw.when);
+  });
+
+  it('a held proxy stays a live view of state, not a snapshot', () => {
+    const target = mockTarget({ obj: { n: 1 } });
+    const scope = createTypedScope<any>(target) as any;
+
+    const held = scope.obj;
+    (target.state.obj as any).n = 2; // mutate the borrowed reference
+
+    expect(held.n).toBe(2);
+    expect(JSON.parse(JSON.stringify(held))).toEqual({ n: 2 });
+  });
+});
+
+// -- Read tracking: protocol probes ------------------------------------------
+//
+// LAW: the read set holds keys a STAGE asked for. JSON.stringify asks every
+// value for a `toJSON` method before serializing it — that question comes from
+// the runtime, and a key no chart ever names must not show up in causalChain
+// or sliceForKey. The suppression is proof-based, never assumed: it applies
+// only when the target can tell us, silently, that the key does not exist.
+
+describe('createTypedScope -- read tracking: protocol probes', () => {
+  it('JSON.stringify(scope) records no phantom read of toJSON', () => {
+    const target = mockTarget({ amount: 100, customer: { name: 'Alice' } });
+    const scope = createTypedScope<any>(target) as any;
+
+    JSON.stringify(scope);
+
+    expect(target.reads).not.toContain('toJSON');
+    // The keys it genuinely serialized ARE reads — their values flowed out.
+    expect(target.reads).toEqual(['amount', 'customer']);
+  });
+
+  it('touching scope.toJSON on a scope without that key records nothing', () => {
+    const target = mockTarget({ amount: 100 });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(scope.toJSON).toBeUndefined();
+    expect(target.reads).toEqual([]);
+  });
+
+  it('a state key literally named toJSON is still a real, tracked read', () => {
+    // Pathological but legal. Presence is what decides — never the name alone.
+    const target = mockTarget({ toJSON: 'i am state', other: 1 });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(scope.toJSON).toBe('i am state');
+    expect(target.reads).toEqual(['toJSON']);
+
+    // JSON.stringify sees a non-callable toJSON, ignores it, serializes the
+    // state — and that read is tracked, not swallowed.
+    expect(JSON.parse(JSON.stringify(scope))).toEqual({ toJSON: 'i am state', other: 1 });
+    expect(target.reads).toContain('toJSON');
+  });
+
+  it('a target that cannot answer silently keeps tracking — never silently untracked', () => {
+    // No getStateKeys => no proof of absence => the read stays tracked. Truth
+    // beats noise reduction when the two conflict.
+    const reads: string[] = [];
+    const state: Record<string, unknown> = { amount: 1 };
+    const bareTarget = {
+      getValue: (key?: string) => {
+        if (key === undefined) return { ...state };
+        reads.push(key);
+        return state[key];
+      },
+      setValue: () => {},
+      updateValue: () => {},
+      deleteValue: () => {},
+      getArgs: () => ({}),
+      getEnv: () => ({}),
+      attachScopeRecorder: () => {},
+      detachScopeRecorder: () => {},
+      getScopeRecorders: () => [],
+      addDebugInfo: () => {},
+      addDebugMessage: () => {},
+      addErrorInfo: () => {},
+      addMetric: () => {},
+      addEval: () => {},
+    } as unknown as ReactiveTarget;
+
+    const scope = createTypedScope<any>(bareTarget) as any;
+    expect(scope.toJSON).toBeUndefined();
+    expect(reads).toEqual(['toJSON']);
+  });
+
+  it('the `in` operator is unchanged by the probe guard', () => {
+    const target = mockTarget({ amount: 1 });
+    const scope = createTypedScope<any>(target) as any;
+
+    // The `in` operator IS the subject here — it exercises the proxy's `has`
+    // trap, which the toJSON probe guard must not disturb. The repo-wide ban
+    // exists to keep `in` out of production logic, not out of its own test.
+    /* eslint-disable no-restricted-syntax */
+    expect('amount' in scope).toBe(true);
+    expect('missing' in scope).toBe(false);
+    expect('$getValue' in scope).toBe(true);
+    /* eslint-enable no-restricted-syntax */
+  });
+});
+
 // -- Boundary: edge cases ----------------------------------------------------
 
 describe('createTypedScope -- boundary', () => {
@@ -659,7 +867,7 @@ describe('createTypedScope -- circular references', () => {
     });
   });
 
-  it('JSON.stringify on circular scope value does not throw', () => {
+  it('JSON.stringify on circular scope value prunes the back-edge, keeps the data', () => {
     const alice: any = { name: 'Alice' };
     const bob: any = { name: 'Bob' };
     alice.friend = bob;
@@ -668,12 +876,39 @@ describe('createTypedScope -- circular references', () => {
     const target = mockTarget({ alice });
     const scope = createTypedScope<{ alice: any }>(target);
 
-    // Should not throw — toJSON strips object-typed keys
+    // Contract (pre-existing): circular scope values never throw here.
     expect(() => JSON.stringify(scope.alice)).not.toThrow();
     const result = JSON.parse(JSON.stringify(scope.alice));
     expect(result.name).toBe('Alice');
-    // friend is stripped because it's an object (prevents circular JSON error)
-    expect(result.friend).toBeUndefined();
+    // Real data survives — only the reference BACK to an ancestor is pruned.
+    expect(result.friend).toEqual({ name: 'Bob' });
+    expect(result.friend.friend).toBeUndefined();
+  });
+
+  it('a diamond is not a cycle — the shared object serializes on both paths', () => {
+    const shared = { value: 42 };
+    const parent: any = { left: shared, right: shared };
+
+    const target = mockTarget({ parent });
+    const scope = createTypedScope<{ parent: any }>(target);
+
+    expect(JSON.parse(JSON.stringify(scope.parent))).toEqual({
+      left: { value: 42 },
+      right: { value: 42 },
+    });
+  });
+
+  it('the cyclic divergence is deliberate: $getValue throws where the property path prunes', () => {
+    const node: any = { name: 'root' };
+    node.self = node;
+
+    const target = mockTarget({ node });
+    const scope = createTypedScope<{ node: any }>(target);
+
+    // Property path: pruned, no throw.
+    expect(JSON.parse(JSON.stringify(scope.node))).toEqual({ name: 'root' });
+    // $getValue hands back the raw value — standard JSON.stringify behavior.
+    expect(() => JSON.stringify(scope.$getValue('node'))).toThrow(TypeError);
   });
 });
 
@@ -733,6 +968,31 @@ describe('createTypedScope -- property: roundtrip', () => {
       { numRuns: 50 },
     );
   });
+
+  it('for ANY acyclic structure, the property path and $getValue serialize identically', () => {
+    fc.assert(
+      fc.property(fc.object({ maxDepth: 4 }), (value) => {
+        const target = mockTarget({ state: value });
+        const scope = createTypedScope(target) as any;
+        expect(JSON.stringify(scope.state)).toBe(JSON.stringify(scope.$getValue('state')));
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it('for ANY acyclic structure, a proxy-to-proxy copy commits the value unchanged', () => {
+    fc.assert(
+      fc.property(fc.object({ maxDepth: 4 }), (value) => {
+        const target = mockTarget({ source: value });
+        const scope = createTypedScope(target) as any;
+        scope.copy = scope.source;
+        // The write path round-trips through JSON (documented), so compare on
+        // that footing — what must NOT happen is members going missing.
+        expect(JSON.stringify(target.state.copy)).toBe(JSON.stringify(JSON.parse(JSON.stringify(value))));
+      }),
+      { numRuns: 200 },
+    );
+  });
 });
 
 // -- Performance: benchmark --------------------------------------------------
@@ -763,6 +1023,26 @@ describe('createTypedScope -- performance', () => {
     }
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(50);
+  });
+
+  it('1K reads of a deep structured value do not clone it', () => {
+    // The serialize view must not turn into a per-read deep copy. Reading is
+    // borrowing: 1K reads should cost the same as 1K reads of a primitive.
+    const deep: any = { level: 0 };
+    let cursor = deep;
+    for (let i = 1; i < 20; i++) {
+      cursor.child = { level: i, tags: ['a', 'b', 'c'] };
+      cursor = cursor.child;
+    }
+    const target = mockTarget({ deep });
+    const scope = createTypedScope<{ deep: any }>(target);
+
+    const start = performance.now();
+    for (let i = 0; i < 1000; i++) {
+      expect(scope.deep.child.child.level).toBe(2);
+    }
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(250); // CI-safe ceiling, same intent as above
   });
 });
 
@@ -833,6 +1113,55 @@ describe('createTypedScope -- proxy unwrap', () => {
     expect(() => {
       scope.copy = { address };
     }).not.toThrow();
+
+    // ...and the stored value is the WHOLE address, not a husk. Asserting the
+    // absence of a throw was what let truncation ship unnoticed.
+    expect(target.state.copy).toEqual({ address: { city: 'Portland', state: 'OR' } });
+  });
+
+  it('copying a proxy into another key stores the full structure, not a husk', () => {
+    const target = mockTarget({ results: { a: { x: 1 }, b: { y: [2, { z: 3 }] } } });
+    const scope = createTypedScope<any>(target) as any;
+
+    scope.copy = scope.results;
+
+    expect(target.state.copy).toEqual({ a: { x: 1 }, b: { y: [2, { z: 3 }] } });
+    // A copy, not the same reference — the write path round-trips through JSON.
+    expect(target.state.copy).not.toBe(target.state.results);
+  });
+
+  it('the write path keeps its documented round-trip semantics', () => {
+    // Landmine, deliberately unchanged: assigning through the property proxy
+    // JSON round-trips the value. Date becomes a string, Map becomes {},
+    // undefined members drop. $setValue is the bypass. What the round-trip
+    // must NOT do is drop object-valued members.
+    const target = mockTarget({
+      source: { when: new Date('2020-01-01T00:00:00.000Z'), m: new Map([['k', 'v']]), gone: undefined, keep: { n: 1 } },
+    });
+    const scope = createTypedScope<any>(target) as any;
+
+    scope.copy = scope.source;
+
+    expect(target.state.copy).toEqual({ when: '2020-01-01T00:00:00.000Z', m: {}, keep: { n: 1 } });
+    expect(Object.prototype.hasOwnProperty.call(target.state.copy, 'gone')).toBe(false);
+
+    // $setValue bypasses the round-trip — the two write paths still differ.
+    scope.$setValue('raw', scope.$getValue('source'));
+    expect((target.state.raw as any).when).toBeInstanceOf(Date);
+  });
+
+  it('copying a circular proxy value still stores something cloneable', () => {
+    const node: any = { name: 'root', tags: ['a'] };
+    node.self = node;
+    const target = mockTarget({ node });
+    const scope = createTypedScope<any>(target) as any;
+
+    expect(() => {
+      scope.copy = scope.node;
+    }).not.toThrow();
+    // Back-edge pruned, real data kept, and the result survives structuredClone.
+    expect(target.state.copy).toEqual({ name: 'root', tags: ['a'] });
+    expect(() => structuredClone(target.state.copy)).not.toThrow();
   });
 
   it('array proxy values are unwrapped on commit', () => {

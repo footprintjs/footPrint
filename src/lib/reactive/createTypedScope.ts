@@ -17,6 +17,7 @@
 import { nativeGet as lodashGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { createArrayProxy } from './arrayTraps.js';
+import { toJSONView } from './jsonProjection.js';
 import { buildNestedPatch } from './pathBuilder.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
@@ -99,6 +100,24 @@ const GUARD_PROPS: Record<string | symbol, unknown> = {
   [Symbol.toStringTag]: 'TypedScope',
 };
 
+// -- Silent existence check --------------------------------------------------
+
+/**
+ * Does this key exist in state, answered with NO tracking side effect at all?
+ *
+ * `getStateKeys()` is the only inspection a ScopeFacade answers without routing
+ * through the tracked read path. `hasKey()` deliberately DOES route through it:
+ * `'k' in scope` is a real question about state that a stage can branch on, so
+ * it registers as a read — which is exactly why this probe must not use it.
+ *
+ * Returns `undefined` when the target offers no silent answer; callers must
+ * then choose deliberately rather than assume.
+ */
+function silentlyKnownKey(target: ReactiveTarget, key: string): boolean | undefined {
+  if (!target.getStateKeys) return undefined;
+  return target.getStateKeys().includes(key);
+}
+
 // -- Mutable state per proxy instance ----------------------------------------
 
 interface ReactiveState {
@@ -132,16 +151,9 @@ function createTerminalProxy(
       if (prop === 'then') return undefined;
       if (prop === 'asymmetricMatch') return undefined;
       if (prop === 'constructor') return Object;
-      if (prop === 'toJSON')
-        return () => {
-          // Strip object-typed values to prevent circular JSON errors
-          const safe: Record<string, unknown> = {};
-          for (const k of Object.keys(raw)) {
-            const v = (raw as any)[k];
-            if (v === null || typeof v !== 'object') safe[k] = v;
-          }
-          return safe;
-        };
+      // Law: serializing a proxied value equals serializing $getValue's value.
+      // Only a cycle back-edge is pruned (jsonProjection.ts).
+      if (prop === 'toJSON') return () => toJSONView(raw);
 
       const value = (raw as any)[prop];
 
@@ -188,16 +200,12 @@ function createNestedProxy(
       if (prop === 'then') return undefined;
       if (prop === 'asymmetricMatch') return undefined;
       if (prop === 'constructor') return Object;
-      if (prop === 'toJSON')
-        return () => {
-          // Strip object-typed values to prevent circular JSON errors
-          const safe: Record<string, unknown> = {};
-          for (const k of Object.keys(raw)) {
-            const v = (raw as any)[k];
-            if (v === null || typeof v !== 'object') safe[k] = v;
-          }
-          return safe;
-        };
+      // Law: serializing a proxied value equals serializing $getValue's value —
+      // nested objects, arrays and Dates included. Only a cycle back-edge is
+      // pruned, so circular state still never throws here (jsonProjection.ts).
+      // This trap also carries the WRITE path: unwrapProxy() round-trips
+      // through JSON, so `scope.copy = scope.results` commits via this view.
+      if (prop === 'toJSON') return () => toJSONView(raw);
 
       const value = (raw as any)[prop];
 
@@ -309,7 +317,17 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
         return (target as any)[prop].bind(target);
       }
 
-      // 6. State key -- call getValue (fires onRead ONCE)
+      // 6. Serialization protocol probe. JSON.stringify asks EVERY value for a
+      //    `toJSON` method before serializing it. That question comes from the
+      //    runtime, not from the stage author, so it must not enter the read
+      //    set — causalChain and sliceForKey would carry a key no chart names.
+      //    A state key literally called 'toJSON' is legal, though: when the key
+      //    really EXISTS this is a genuine read and stays tracked. And when the
+      //    target cannot answer silently (silentlyKnownKey -> undefined), truth
+      //    wins over noise: fall through and track. Never silently untracked.
+      if (prop === 'toJSON' && silentlyKnownKey(target, prop) === false) return undefined;
+
+      // 7. State key -- call getValue (fires onRead ONCE)
       const value = target.getValue(prop);
 
       // Primitive or null/undefined -- return as-is

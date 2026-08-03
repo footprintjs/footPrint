@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.14.1] - 2026-08-03
+
+### Fixed
+- **A structured value read back through `scope.x` serialized to `{}` — and a
+  copy of it COMMITTED `{}`.** A consumer merged an object-of-objects into a
+  parent key from a subflow's `outputMapper`, read it back in the next stage,
+  and got an empty object. `$getValue('x')` returned the real record, so they
+  worked around it by reading through `$getValue` everywhere.
+
+  **This was not only a read bug.** Assigning a proxied value to another key
+  (`scope.copy = scope.results`) unwraps it by round-tripping through JSON — the
+  same code path — so the truncated object is what landed in the commit log and
+  in shared state. Anyone diffing recordings across 9.14.0 → 9.14.1 will see
+  those committed bytes change from corrupt to complete. That is the fix, not a
+  regression, but it is a real change in what a recording of the same chart
+  contains.
+
+  The cause was a cycle guard that never checked for a cycle. Reading a nested
+  object mints a new proxy on every property access, which defeats
+  JSON.stringify's identity-based cycle detection, so `toJSON` returned a copy
+  with every object-valued member stripped — unconditionally, at every depth.
+  Enumeration was never affected: `Object.keys`, spread, `for...in` and
+  `Object.entries` were always correct, which is exactly why this survived 238
+  reactive tests. Every one of them used flat objects whose leaves were
+  primitives, and the single `JSON.stringify` test asserted the loss as if it
+  were intended.
+
+  Now `toJSON` hands JSON.stringify the underlying state object **by reference**
+  when it is acyclic — no clone, and `JSON.stringify(scope.x)` is byte-identical
+  to `JSON.stringify(scope.$getValue('x'))` by construction. Only a back-edge to
+  an ancestor is pruned, so circular scope values still never throw through the
+  property path (a diamond is not a cycle and serializes on both paths). The
+  write-path round-trip is otherwise untouched: Date still becomes a string, Map
+  still becomes `{}`, undefined members still drop, and `$setValue` is still the
+  bypass. What no longer happens is members going missing.
+
+- **Serializing the scope no longer records a read of a key no chart ever
+  names.** `JSON.stringify(scope)` asks the object for a `toJSON` method before
+  serializing it. That question comes from the JS runtime, but it arrived at the
+  scope as a state lookup, so `toJSON` was recorded as a tracked read — in the
+  `onRead` channel and, under `writeProvenance: 'reads-prefix'`, inside
+  `TraceEntry.readKeys`, where `causalChain` and `sliceForKey` then carried it.
+  Recorded read sets now shrink by exactly that phantom and nothing else: the
+  keys `JSON.stringify` genuinely reads are still recorded, because their values
+  really do flow into the output. Strictly less noise, never less truth.
+
+  The suppression is proof-based rather than name-based. A state key literally
+  called `toJSON` is legal, and when the key actually exists the read is real and
+  stays tracked; when the scope cannot answer the existence question silently,
+  the read stays tracked too. A key is never dropped from tracking on a guess.
+
 ## [9.14.0] - 2026-08-02
 
 ### Added

@@ -61,15 +61,40 @@ scope.$setValue('tags', [...scope.$getValue('tags'), ...items]);
 
 Same guidance as MobX: prefer batch assignment over repeated mutations for large collections.
 
+## Serialization
+
+`JSON.stringify(scope.someObject)` returns exactly what `JSON.stringify(scope.$getValue('someObject'))`
+returns -- nested objects, arrays and Dates included. The proxy's `toJSON` hands
+JSON.stringify the underlying state object BY REFERENCE (no clone), so the two
+read paths cannot drift apart. See `jsonProjection.ts`.
+
+Two consequences worth knowing:
+
+- **Assignment inherits this.** `scope.copy = scope.results` unwraps the proxy by
+  round-tripping through JSON, so it commits the full structure. The round-trip
+  itself is unchanged and still applies (Date becomes a string, Map becomes `{}`,
+  undefined members drop) -- `$setValue` is the bypass.
+- **structuredClone cannot clone a Proxy.** `structuredClone(scope.obj)` throws
+  `DataCloneError`; that is a JS limitation, not a footprint one. It is loud, not
+  silent. Clone `scope.$getValue('obj')` instead.
+
 ## Limitations
 
 - Cannot track if conditions (JS Proxy cannot intercept comparison operators)
 - Nested reads fire onRead only at top-level key, not per nested property
-- JSON.stringify(scope) fires get traps -- use scope.$toRaw() for serialization
+- JSON.stringify(scope) fires a get trap per state key -- each is a real tracked
+  read (the value is serialized). The `toJSON` probe JSON.stringify makes first is
+  NOT tracked, unless `toJSON` is genuinely a state key.
+- String coercion of the scope itself (`` `${scope}` ``) throws
+  "Cannot convert object to primitive value" -- `toString`/`valueOf` resolve to
+  state lookups, not methods. Serialize or read a key instead.
 - User state keys starting with $ collide with ScopeMethods
 - Class instances in state are returned unwrapped (no deep write tracking)
 - Frozen/sealed objects are returned unwrapped (replace entire value to update)
 - Circular references: detected via ancestor tracking (Set<object> per access chain).
   At the cycle break point, a terminal proxy is returned -- reads pass through (correct
   values), writes are tracked at any depth (terminal proxies chain for nested objects).
-  JSON.stringify on circular scope values strips object-typed keys to prevent errors.
+  Serializing a circular scope value prunes the back-edge (that key is omitted;
+  an array slot becomes null) and does NOT throw -- the one place the property
+  path deliberately differs from `$getValue`, which throws like standard
+  JSON.stringify. A diamond is not a cycle and serializes on both paths.
