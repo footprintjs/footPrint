@@ -167,6 +167,40 @@ The LLM calls the tool, gets back the decision and causal trace, and explains th
 
 ---
 
+## Human-in-the-Loop
+
+A stage can stop in the middle of its body to ask a person, and pick the run back up later &mdash; minutes or days later, in a different process.
+
+```typescript
+import { flowChart, FlowChartExecutor, interrupt } from 'footprintjs';
+
+interface RefundState { amount: number; approved: boolean; [key: string]: unknown }
+
+const refundChart = flowChart<RefundState>('Assess refund', (scope) => {
+  scope.amount = 4200;                              // runs AGAIN on resume — keep it idempotent
+
+  const answer = interrupt<{ approved: boolean }>(scope, {
+    reason: `Approve a $${scope.amount} refund?`,
+    expects: { approved: 'boolean' },               // carried verbatim, so a UI can render the form
+  });
+
+  scope.approved = answer.approved;                 // reached only after resume()
+}, 'assess').build();
+
+const refundExecutor = new FlowChartExecutor(refundChart);
+await refundExecutor.run();
+
+if (refundExecutor.isPaused()) {
+  const checkpoint = refundExecutor.getCheckpoint()!;   // plain JSON — persist it anywhere
+  // ...a human answers; then, possibly on another server:
+  await new FlowChartExecutor(refundChart).resume(checkpoint, { approved: true });
+}
+```
+
+Resume re-enters the stage **from its top** &mdash; stages are atomic, so everything before the `interrupt()` call runs again and the answer comes back out of that call. When you don't want the first half re-run, `addPausableFunction` is the declared alternative: it splits the stage into an `execute` half and a `resume` half.
+
+---
+
 ## Features
 
 | Feature | Description |
