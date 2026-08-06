@@ -231,6 +231,10 @@ export const FLOW_RECORDER_EVENT_METHODS = [
   'onLoop',
   'onBreak',
   'onError',
+  // Declarative per-stage retry (9.15) — one event per failed attempt that
+  // will be retried. Listed here so a retry-only recorder is routed to the
+  // flow channel AND so the deferred tier taps the event.
+  'onStageRetry',
   'onPause',
   'onResume',
   // Run-boundary methods — included so a recorder whose ONLY event hook

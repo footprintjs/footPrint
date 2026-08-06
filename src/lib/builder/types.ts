@@ -10,7 +10,7 @@
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
-import type { ILogger, ScopeFactory, StageFunction } from '../engine/types.js';
+import type { ILogger, RetryPolicy, ScopeFactory, StageFunction } from '../engine/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { StructureRecorder } from './structure/StructureRecorder.js';
 
@@ -23,6 +23,7 @@ export type {
   BranchChart,
   ILogger,
   ParallelForEachConfig,
+  RetryPolicy,
   StageFunction,
   StreamCallback,
   StreamHandlers,
@@ -91,6 +92,19 @@ export interface SerializedPipelineStructure {
    */
   isDynamicParallel?: boolean;
   /**
+   * Total attempts this stage's function may run, from its declared
+   * {@link RetryPolicy}. Present only when a policy was declared — the COUNT
+   * only, because `backoffMs` and `retryOn` can be functions and a JSON-safe
+   * spec cannot carry those.
+   *
+   * Read it from the BUILT spec (`chart.buildTimeStructure` / `toSpec()`), not
+   * from a `StructureRecorder.onStageAdded` event: the `.retry()` modifier is
+   * chained AFTER the stage is added, so the event fires first. That is why
+   * there is no `retryAttempts` discriminator on the event payload — it would
+   * be `undefined` at fire time for exactly the stages that have a policy.
+   */
+  retryAttempts?: number;
+  /**
    * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
    * id its convergence `next` edge points to, instead of the shared next-stage
    * its siblings converge at. Set from `SubflowMountOptions.convergeAt`; read by
@@ -130,6 +144,9 @@ export interface FlowChartSpec {
   isLoopReference?: boolean;
   /** True for an `addParallelForEach` fan-out (`type` stays `'fork'`). */
   isDynamicParallel?: boolean;
+  /** Total attempts allowed by this stage's declared retry policy — the count
+   *  only (see `SerializedPipelineStructure.retryAttempts`). */
+  retryAttempts?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +180,12 @@ export interface FlowChartOptions {
    * expose.
    */
   failFast?: boolean;
+  /**
+   * Declarative retry policy for the chart's FIRST stage (the one this factory
+   * declares). Later stages use the `.retry()` modifier, or the `retry` option
+   * at their own declaration site. See {@link RetryPolicy}.
+   */
+  retry?: RetryPolicy;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,6 +219,9 @@ export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   id: string;
   name: string;
   fn?: StageFunction<TOut, TScope>;
+  /** Declarative retry policy for this fork child. Fork branches are where
+   *  flaky I/O usually lives, so each child declares its own. */
+  retry?: RetryPolicy;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

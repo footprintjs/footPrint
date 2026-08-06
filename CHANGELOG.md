@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.15.0] - 2026-08-05
+
+### Added
+- **Per-stage declarative retry, recorded as evidence — `.retry({ attempts,
+  backoffMs, retryOn })`.** A retry hand-rolled inside a stage function works,
+  and it is invisible. The narrative shows one stage, the commit log shows one
+  entry, and the two failed calls that happened first left no mark anywhere —
+  so when someone later asks why a run took four seconds, the trace has no
+  answer. That is an unexplained behaviour in a library whose whole thesis is
+  that nothing invisible happens.
+
+  Declared on the stage instead, every attempt is part of the record. Each
+  failed attempt that is followed by another fires a new
+  `FlowRecorder.onStageRetry` event carrying the attempt number, the ceiling,
+  the wait, and the structured error — and the narrative renders it IN ORDER,
+  inside the stage, between the attempts' own reads and writes:
+
+  ```
+  Stage 2: Ask the rate service for today's conversion rate.
+    Step 1: Read currency = "EUR"
+    [Retry]: attempt 1 of 3 at Fetch rate failed (service unavailable). Waited 100ms…
+    Step 3: Read currency = "EUR"
+    Step 4: Write rate = 1.09
+  ```
+
+  **What an attempt is.** A failed non-final attempt's staged writes are
+  DISCARDED — nothing was applied, so there is nothing to roll back, and the
+  next attempt starts from committed state rather than from the wreckage of the
+  last try. The FINAL attempt keeps the shipped law exactly: on success it
+  commits, on failure it commits what it wrote and rethrows. Commit-on-error is
+  untouched, and a chart with no policy is byte-identical to before.
+
+  **Attempts are internal to one stage execution** — one `runtimeStageId`, one
+  execution index, one commit bundle, however many times the function ran.
+  Retries do not consume loop iterations.
+
+  **Never retried:** a pause (neither `addPausableFunction` nor `interrupt()` —
+  both suspend the run rather than fail), a cancelled run, or `$break()`. A
+  `retryOn` predicate that throws is treated as "do not retry", so a broken
+  gate can never become an endless loop.
+
+  **The arithmetic is exact, and documented:** an exhausted policy emits
+  `attempts - 1` retry events then one error event; a `retryOn` that declines
+  emits zero retry events and one error event. There is no event for "the
+  policy chose not to act" — the error event already says everything.
+
+  Declare it with `.retry(policy)` after `start` / `addFunction` /
+  `addStreamingFunction` / `addPausableFunction`, via `flowChart(…, { retry })`
+  for the first stage, or through the `retry` option on `addDeciderFunction`,
+  `addSelectorFunction`, `addFunctionBranch`, `addPausableFunctionBranch` and
+  `addListOfFunction` children — the sites where a chained modifier would be
+  ambiguous about which stage it meant. The builder refuses a policy that could
+  never fire (a subflow mount, a `addParallelForEach` fan-out, a loop
+  reference) or that would silently land on the wrong stage, rather than
+  accepting it and doing nothing.
+
+  The declared attempt count also lands on the built spec as `retryAttempts`,
+  so a visualiser can show that a stage retries. It carries the COUNT only —
+  `backoffMs` and `retryOn` can be functions, which a JSON-safe spec cannot
+  hold.
+
+  Backoff is a plain awaited timer, cancelled by the run's `AbortSignal`. It is
+  not a pause: a chart cannot be checkpointed in the middle of a backoff.
+  Per-stage timeouts are deliberately out of scope for this release. Each
+  attempt gets a fresh scope — which is what makes attempt isolation real — so
+  scope-channel `onStageStart` fires once per attempt and `onStageEnd` only for
+  an attempt whose function returned, the same shape a failing stage already
+  has today.
+
+  Guide: [docs/guides/error-handling.md#declarative-retry](./docs/guides/error-handling.md#declarative-retry).
+  Examples: `examples/runtime-features/retry/`.
+
 ## [9.14.1] - 2026-08-03
 
 ### Fixed

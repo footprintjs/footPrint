@@ -207,6 +207,47 @@ function isContinuationHop<TOut, TScope>(value: unknown): value is ContinuationH
   return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[CONTINUE_HOP] === true;
 }
 
+/**
+ * Resolve a {@link RetryPolicy}'s `backoffMs` for the attempt that just failed
+ * (1-based). Anything that is not a finite, positive number — a missing dial, a
+ * negative value, a `NaN` from a consumer's arithmetic, or a throwing function
+ * — becomes `0`, i.e. retry immediately. A backoff dial must never be able to
+ * crash a run or park it forever.
+ */
+function resolveBackoffMs(backoffMs: number | ((attempt: number) => number) | undefined, attempt: number): number {
+  if (backoffMs === undefined) return 0;
+  let value: unknown;
+  if (typeof backoffMs === 'function') {
+    try {
+      value = backoffMs(attempt);
+    } catch {
+      return 0;
+    }
+  } else {
+    value = backoffMs;
+  }
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * Await `ms`, cut short by an abort. Resolves either way — the caller re-checks
+ * `signal.aborted` and rethrows the original stage error, so a cancelled run
+ * never sits out a long backoff and never loses the failure that caused it.
+ * The timer and the listener are always cleaned up.
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
+}
+
 export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly root: StageNode<TOut, TScope>;
   private stageMap: Map<string, StageFunction<TOut, TScope>>;
@@ -717,15 +758,88 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return merged;
   }
 
+  /**
+   * THE single funnel every stage function passes through — linear stages
+   * (Phase 3), decider stages and selector stages (their handlers are handed
+   * this method as `runStage`), and by extension fork children and
+   * subflow-internal stages, which re-enter Phase 3 in their own traverser.
+   *
+   * Which is exactly why the declarative retry loop lives HERE and nowhere
+   * else: one implementation gives `retry` to every stage kind that has a
+   * function to retry. (Putting it in `StageRunner` would have been wrong —
+   * the runner owns the scope and the interrupt boundary, but not the
+   * `StageContext` whose staged writes a failed attempt must discard.)
+   *
+   * With no `retry` policy this is a single call, byte-identical to the
+   * pre-9.15 path.
+   */
   private async executeStage(
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
     breakFn: () => void,
-  ) {
+    traversalContext?: TraversalContext,
+  ): Promise<TOut> {
     // runtimeStageId is assigned in executeNode() before traversalContext creation,
-    // ensuring scope events and flow events use the same value.
-    return this.stageRunner.run(node, stageFunc, context, breakFn);
+    // ensuring scope events and flow events use the same value. It does NOT
+    // change across attempts: attempts are internal to ONE stage execution —
+    // one runtimeStageId, one execution index, one final CommitBundle.
+    const policy = node.retry;
+    const maxAttempts = policy ? Math.floor(policy.attempts) : 1;
+    if (!policy || !(maxAttempts > 1)) {
+      return this.stageRunner.run(node, stageFunc, context, breakFn);
+    }
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.stageRunner.run(node, stageFunc, context, breakFn);
+      } catch (error: unknown) {
+        const isFinalAttempt = attempt >= maxAttempts;
+        // A PauseSignal is control flow, not a failure — retrying it would
+        // re-run a stage that asked to SUSPEND (and would break resume, which
+        // re-enters this stage from its top). Covers both raise shapes:
+        // `addPausableFunction` returning data, and `interrupt()`.
+        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error)) {
+          throw error;
+        }
+        // A cancelled run must not sit through a backoff and then try again.
+        if (this.signal?.aborted) throw error;
+
+        // Attempt isolation: drop everything this attempt staged BEFORE the
+        // next one starts. Nothing was applied, so there is nothing to roll
+        // back — see StageContext.discardStaged().
+        context.discardStaged();
+
+        const delayMs = resolveBackoffMs(policy.backoffMs, attempt);
+        // Fired BEFORE the wait: a live monitor learns "retrying in 500ms"
+        // when the decision is made, not once it has already elapsed.
+        this.narrativeGenerator.onStageRetry(
+          node.name,
+          node.id,
+          attempt,
+          maxAttempts,
+          delayMs,
+          error,
+          traversalContext,
+        );
+        if (delayMs > 0) await sleep(delayMs, this.signal);
+        if (this.signal?.aborted) throw error;
+      }
+    }
+  }
+
+  /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
+   *  predicate must never turn a failing stage into an endless retry loop. */
+  private shouldRetry(policy: NonNullable<StageNode<TOut, TScope>['retry']>, error: unknown): boolean {
+    if (!policy.retryOn) return true;
+    try {
+      return policy.retryOn(error) === true;
+    } catch (predicateError) {
+      this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
+        error: predicateError,
+      });
+      return false;
+    }
   }
 
   /**
@@ -1109,7 +1223,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     if (stageFunc) {
       try {
-        stageOutput = await this.executeStage(node, stageFunc, context, breakFn);
+        stageOutput = await this.executeStage(node, stageFunc, context, breakFn, traversalContext);
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {

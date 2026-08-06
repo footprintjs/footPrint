@@ -13,7 +13,7 @@
  */
 
 import { branchSegmentReservationMessage, hasBranchSegmentMarker } from '../engine/branchSegment.js';
-import type { ParallelForEachConfig, ScopeFactory } from '../engine/types.js';
+import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
@@ -42,6 +42,37 @@ import type {
 const fail = (msg: string): never => {
   throw new Error(`[FlowChartBuilder] ${msg}`);
 };
+
+/**
+ * Attach a declarative retry policy to a stage node + its spec node.
+ *
+ * The ONE place a policy lands on a node, shared by the `.retry()` cursor
+ * modifier and by every `options.retry` declaration site, so validation and the
+ * spec's `retryAttempts` mirror can never drift between them.
+ *
+ * `attempts` is validated at BUILD time rather than defended at runtime: a
+ * typo'd `attempts: 0` should fail while you are writing the chart, not
+ * silently turn a stage into a no-op run three months later. `attempts: 1` is
+ * accepted on purpose — it means "policy declared, currently off", so a policy
+ * can be dialled down without deleting the declaration.
+ */
+function applyRetryPolicy(
+  node: StageNode<any, any>,
+  spec: SerializedPipelineStructure,
+  retry: RetryPolicy | undefined,
+  where: string,
+): void {
+  if (!retry) return;
+  if (typeof retry.attempts !== 'number' || !Number.isInteger(retry.attempts) || retry.attempts < 1) {
+    fail(
+      `${where}: retry.attempts must be a whole number >= 1 (got ${String(retry.attempts)}). ` +
+        'It counts TOTAL runs including the first, so `attempts: 3` means one run plus up to two retries; ' +
+        '`attempts: 1` means the policy is declared but currently off.',
+    );
+  }
+  node.retry = retry;
+  spec.retryAttempts = retry.attempts;
+}
 
 /**
  * Refuse the reserved branch-segment marker in a user-authored SUBFLOW id.
@@ -110,8 +141,9 @@ export class DeciderList<TOut = any, TScope = any> {
     fn?: StageFunction<TOut, TScope>,
     description?: string,
     /** `{ loopTo }` declares this branch loops back to an already-declared
-     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider). */
-    options?: { readonly loopTo?: string },
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
+     *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy. */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -125,6 +157,7 @@ export class DeciderList<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -153,8 +186,11 @@ export class DeciderList<TOut = any, TScope = any> {
     handler: PausableHandler<TScope>,
     description?: string,
     /** `{ loopTo }` declares this branch loops back to an already-declared
-     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider). */
-    options?: { readonly loopTo?: string },
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
+     *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
+     *  `resume` half runs without it — a different function, a different
+     *  contract). */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -172,6 +208,7 @@ export class DeciderList<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -485,6 +522,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
     name: string,
     fn?: StageFunction<TOut, TScope>,
     description?: string,
+    /** `{ retry }` gives THIS BRANCH's stage a declarative retry policy. */
+    options?: { readonly retry?: RetryPolicy },
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -498,6 +537,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -523,6 +563,10 @@ export class SelectorFnList<TOut = any, TScope = any> {
     name: string,
     handler: PausableHandler<TScope>,
     description?: string,
+    /** `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
+     *  `resume` half runs without it — a different function, a different
+     *  contract). */
+    options?: { readonly retry?: RetryPolicy },
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -540,6 +584,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -1098,6 +1143,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
     id: string,
     description?: string,
+    options?: { retry?: RetryPolicy },
   ): this {
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1119,6 +1165,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage' };
     if (isPausable) spec.isPausable = true;
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `start('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1151,7 +1198,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
-    options?: { failFast?: boolean },
+    options?: { failFast?: boolean; retry?: RetryPolicy },
   ): SelectorFnList<TOut, TScope> {
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1165,6 +1212,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `startSelector('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1462,6 +1510,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
+    /** `{ retry }` gives the DECIDER STAGE a retry policy. Declared here rather
+     *  than via `.retry()` because this method returns a `DeciderList`, where a
+     *  chained modifier could mean the decider OR the branch just added. */
+    options?: { retry?: RetryPolicy },
   ): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -1475,6 +1527,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addDeciderFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1507,7 +1560,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
-    options?: { failFast?: boolean },
+    /** `{ retry }` gives the SELECTOR STAGE a retry policy — same reasoning as
+     *  `addDeciderFunction`: this method returns a sub-builder, so a chained
+     *  `.retry()` would be ambiguous. */
+    options?: { failFast?: boolean; retry?: RetryPolicy },
   ): SelectorFnList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -1529,6 +1585,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
+    applyRetryPolicy(node, spec, options?.retry, `addSelectorFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1565,7 +1622,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.type = 'fork';
     if (options?.failFast) cur.failFast = true;
 
-    for (const { id, name, fn } of children) {
+    for (const { id, name, fn, retry } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
       if (cur.children?.some((c) => c.id === id)) {
         fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1584,6 +1641,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         isParallelChild: true,
         parallelGroupId: forkId,
       };
+      applyRetryPolicy(node, spec, retry, `addListOfFunction child '${id}'`);
 
       cur.children = cur.children || [];
       cur.children.push(node);
@@ -1598,6 +1656,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stepCounter++;
     this._descriptionParts.push(`${this._stepCounter}. Runs in parallel: ${childNames}`);
 
+    this._cursorTail = `the parallel children (${childNames})`;
     return this;
   }
 
@@ -1768,6 +1827,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._mergeSubflows(subflow.subflows, id);
     this._appendSubflowDescription(id, subflowName, subflow);
 
+    this._cursorTail = `the subflow mount '${subflowName}'`;
     return this;
   }
 
@@ -1826,6 +1886,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._stageStepMap.set(id, this._stepCounter);
     this._descriptionParts.push(`${this._stepCounter}. [Lazy Sub-Execution: ${subflowName}]`);
 
+    this._cursorTail = `the lazy subflow mount '${subflowName}'`;
     return this;
   }
 
@@ -1939,6 +2000,79 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._mergeSubflows(subflow.subflows, id);
     this._appendSubflowDescription(id, subflowName, subflow);
 
+    return this;
+  }
+
+  // ── Retry ──
+
+  /**
+   * Give the stage you JUST added a declarative retry policy.
+   *
+   * ## Why declare it instead of writing a loop inside the stage
+   *
+   * A retry hand-rolled inside a stage function is invisible to the trace. The
+   * narrative shows one stage, the commit log shows one entry, and the two
+   * failed calls that came before the successful one left no mark anywhere —
+   * an unexplained behaviour in a library whose whole point is that nothing
+   * invisible happens. Declared here, every attempt is part of the record: each
+   * failed attempt fires `FlowRecorder.onStageRetry` and appears in the
+   * narrative, in order, between the attempts' own reads and writes.
+   *
+   * ## What an attempt is
+   *
+   * A failed attempt's staged writes are DISCARDED — the next attempt starts
+   * from committed state, never from the wreckage of the last try. The final
+   * attempt behaves exactly as a stage with no policy does: on success it
+   * commits; on failure it commits what it wrote and rethrows (footprint has
+   * never had rollback, and retry does not introduce one).
+   *
+   * A pause is not a failure: neither `addPausableFunction`'s pause nor
+   * `interrupt()` is ever retried. Nor is a cancelled run.
+   *
+   * @example
+   * ```ts
+   * flowChart<State>('Fetch user', fetchFn, 'fetch-user')
+   *   .addFunction('Charge card', chargeFn, 'charge')
+   *   .retry({ attempts: 3, backoffMs: (n) => 100 * 2 ** (n - 1) })
+   *   .addFunction('Confirm', confirmFn, 'confirm')
+   * ```
+   *
+   * Applies to the CURRENT cursor — the stage added by the immediately
+   * preceding `start()` / `addFunction()` / `addStreamingFunction()` /
+   * `addPausableFunction()`. Where the cursor would be ambiguous (a decider,
+   * selector, branch, or fork child), declare the policy in that method's own
+   * `retry` option instead.
+   */
+  retry(policy: RetryPolicy): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    // A subflow mount / parallel fork hangs CHILDREN off the current stage and
+    // leaves the cursor on that stage. Attaching the policy to the cursor here
+    // would silently retry the stage BEFORE the thing you just wrote.
+    if (this._cursorTail) {
+      fail(
+        `retry() cannot follow ${this._cursorTail} — that attaches to '${cur.name}' without moving the cursor, so ` +
+          `the policy would land on '${cur.name}' rather than on what you just added. Declare the policy at its own ` +
+          'site instead: on the stages INSIDE a subflow chart, or via the `retry` field on an addListOfFunction child.',
+      );
+    }
+    if (cur.retry) fail(`retry already defined at '${cur.name}'`);
+    if (cur.isSubflowRoot) {
+      fail(
+        `retry() cannot be applied to the subflow mount '${cur.name}' — a mount has no stage function of its own. ` +
+          'Declare the policy on the stages INSIDE the subflow chart instead.',
+      );
+    }
+    if (cur.isDynamicParallel) {
+      fail(
+        `retry() cannot be applied to the parallel-for-each stage '${cur.name}' — it has no stage function of its ` +
+          'own. Declare the policy on the stages inside the branch chart its `branch` factory returns.',
+      );
+    }
+    if (cur.isLoopRef) fail(`retry() cannot be applied to the loop reference '${cur.name}'`);
+
+    applyRetryPolicy(cur, curSpec, policy, `retry() at '${cur.name}'`);
     return this;
   }
 
@@ -2078,7 +2212,23 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * Advance the spec cursor. Retained as a method so call sites stay
    * one-liners and future cursor-related side effects have a hook.
    */
+  /**
+   * What was attached to the CURSOR without advancing it — a subflow mount, a
+   * parallel fork's children. Cleared by {@link _advanceCursorSpec}, the single
+   * choke point every cursor-advancing method already goes through, so this
+   * marker cannot drift as new builder methods are added.
+   *
+   * Exists for `.retry()`. Those methods hang children off the current stage
+   * and leave the cursor pointing at that stage, so a chained `.retry()` would
+   * silently attach the policy to the stage BEFORE the thing you just wrote —
+   * exactly the silent mis-attribution this codebase refuses elsewhere (see
+   * the branch-segment marker rules). Naming what was last added lets the
+   * refusal say something useful.
+   */
+  private _cursorTail?: string;
+
   private _advanceCursorSpec(newSpec: SerializedPipelineStructure | undefined): void {
+    this._cursorTail = undefined;
     this._cursorSpec = newSpec;
   }
 
@@ -2209,7 +2359,9 @@ export function flowChart<TOut = any, TScope = any>(
       builder.attachStructureRecorder(rec);
     }
   }
-  return builder.start(name, fn as any, id, options?.description);
+  return builder.start(name, fn as any, id, options?.description, {
+    ...(options?.retry && { retry: options.retry }),
+  });
 }
 
 /**
@@ -2240,6 +2392,7 @@ export function flowChartSelector<TOut = any, TScope = any>(
   }
   return builder.startSelector(name, fn, id, options?.description, {
     ...(options?.failFast !== undefined && { failFast: options.failFast }),
+    ...(options?.retry && { retry: options.retry }),
   });
 }
 

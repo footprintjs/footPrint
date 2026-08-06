@@ -25,7 +25,7 @@ footprint uses a few of its own terms — here's the standard concept behind eac
 | **[Patterns](patterns.md)** | All 7 flowchart composition patterns — linear, parallel, conditional, multi-select, subflow, streaming, and loops — with diagrams |
 | **[Scope](scope.md)** | Typed, raw, and Zod scope; pluggable recorders; PII redaction; scope protection; provider system |
 | **[Execution Control](execution.md)** | `breakFn()`, cancellation via AbortSignal, timeout, fail-fast forks, loop control |
-| **[Error Handling](error-handling.md)** | Commit-on-error, DebugRecorder, error narrative, post-mortem snapshots |
+| **[Error Handling](error-handling.md)** | Commit-on-error, declarative per-stage retry, DebugRecorder, error narrative, post-mortem snapshots |
 | **[Flow Recorders](flow-recorders.md)** | Pluggable observers for control flow narrative — 7 built-in loop strategies to control narrative size |
 | **[Contracts](contracts.md)** | `.contract()`, OpenAPI 3.1 generation, Zod vs JSON Schema |
 | **[API Reference](api-reference.md)** | Complete Builder, Executor, ScopeFacade, Contract method tables |

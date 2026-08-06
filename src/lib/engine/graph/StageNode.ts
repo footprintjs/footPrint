@@ -9,7 +9,7 @@
  * - Isolated sub-traversals via `isSubflowRoot` (subflow)
  */
 
-import type { ParallelForEachConfig, StageFunction, SubflowMountOptions } from '../types.js';
+import type { ParallelForEachConfig, RetryPolicy, StageFunction, SubflowMountOptions } from '../types.js';
 
 /**
  * Resume function for pausable stages.
@@ -104,6 +104,20 @@ export type StageNode<TOut = any, TScope = any> = {
   isDynamicParallel?: boolean;
   /** The runtime fan-out config. Present exactly when `isDynamicParallel` is true. */
   parallelForEach?: ParallelForEachConfig<any, TScope>;
+
+  // ── Retry ──
+
+  /**
+   * Declarative retry policy for THIS stage's function. A POLICY, not a stage
+   * kind — the node's serialized `type` is unchanged (the same call the engine
+   * makes for `isPausable`/`isStreaming`).
+   *
+   * Honoured by `FlowchartTraverser.executeStage`, the one funnel every stage
+   * function passes through, so it applies uniformly to linear, streaming,
+   * pausable, decider, selector, fork-child and subflow-internal stages.
+   * See {@link RetryPolicy}.
+   */
+  retry?: RetryPolicy;
 
   // ── Pause/Resume ──
 

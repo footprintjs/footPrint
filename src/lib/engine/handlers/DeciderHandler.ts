@@ -100,7 +100,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     let branchId: string;
     let decisionEvidence: DecisionEvidence | undefined;
     try {
-      const stageOutput = await runStage(node, stageFunc, context, breakFn);
+      const stageOutput = await runStage(node, stageFunc, context, breakFn, traversalContext);
       // Detect DecisionResult from decide() helper via Symbol brand
       if (stageOutput && typeof stageOutput === 'object' && Reflect.has(stageOutput as object, DECISION_RESULT)) {
         branchId = (stageOutput as any).branch;

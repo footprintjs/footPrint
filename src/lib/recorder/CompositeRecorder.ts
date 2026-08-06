@@ -53,6 +53,7 @@ import type {
   FlowRecorder,
   FlowSelectedEvent,
   FlowStageEvent,
+  FlowStageRetryEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
 } from '../engine/narrative/types.js';
@@ -161,6 +162,10 @@ export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
 
   onBreak(event: FlowBreakEvent): void {
     for (const c of this.children) if ((c as FlowRecorder).onBreak) (c as FlowRecorder).onBreak!(event);
+  }
+
+  onStageRetry(event: FlowStageRetryEvent): void {
+    for (const c of this.children) if ((c as FlowRecorder).onStageRetry) (c as FlowRecorder).onStageRetry!(event);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

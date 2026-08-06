@@ -91,6 +91,7 @@ FlowRecorder
 ├── onLoop                 — loop iteration
 ├── onBreak                — $break() called
 ├── onError                — stage threw
+├── onStageRetry           — an attempt failed and is being retried (declared `retry` policy)
 ├── onPause/onResume       — pause/resume signal
 └── onRunStart/onRunEnd    — top-level run boundary
 ```

@@ -151,6 +151,62 @@ export interface ParallelForEachConfig<TItem = any, TScope = any> {
 }
 
 // ---------------------------------------------------------------------------
+// Retry (per-stage declarative policy)
+// ---------------------------------------------------------------------------
+
+/**
+ * Declarative per-stage retry policy.
+ *
+ * WHY this exists: a retry hand-rolled inside a stage function is invisible to
+ * the trace. The stage shows one execution, the commit log shows one bundle,
+ * and the two failed calls that preceded the successful one left no mark
+ * anywhere — an unexplained behaviour in a library whose whole thesis is that
+ * nothing invisible happens. Declared here instead, every attempt is part of
+ * the record: each failed attempt fires `FlowRecorder.onStageRetry` with the
+ * attempt number, the wait, and the structured error.
+ *
+ * A POLICY, not a stage kind — `retry` sits on a normal stage the way
+ * `isPausable` / `isStreaming` do. The serialized node `type` is unchanged and
+ * every existing consumer keeps rendering the stage exactly as before.
+ *
+ * @example
+ * ```ts
+ * flowChart<State>('Fetch user', fetchFn, 'fetch-user')
+ *   .retry({ attempts: 3, backoffMs: (n) => 100 * 2 ** (n - 1) })
+ * ```
+ */
+export interface RetryPolicy {
+  /**
+   * How many times the stage function may run in total, INCLUDING the first
+   * run. Must be an integer >= 1; `1` means "no retry" (a declared no-op,
+   * accepted so a policy can be switched off without deleting it).
+   */
+  attempts: number;
+  /**
+   * How long to wait before the NEXT attempt. Either a fixed number of
+   * milliseconds, or a function of the attempt that just FAILED (1-based)
+   * returning milliseconds — `(n) => 100 * 2 ** (n - 1)` is exponential
+   * backoff. Omitted (or a non-finite / negative result) means no wait.
+   *
+   * The wait is a plain awaited timer that is CANCELLED by the run's
+   * `AbortSignal`. It is not a pause: a chart cannot be checkpointed in the
+   * middle of a backoff.
+   */
+  backoffMs?: number | ((attempt: number) => number);
+  /**
+   * Is THIS error worth another attempt? Defaults to retrying every error.
+   * Returning `false` ends the stage immediately on the normal error path —
+   * exactly as if no policy had been declared, and with no retry event (the
+   * policy chose not to act; there is nothing to report that the error event
+   * does not already say).
+   *
+   * A throw from this predicate is treated as `false` — a broken predicate
+   * must not turn a failing stage into an infinite retry loop.
+   */
+  retryOn?: (error: unknown) => boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Subflow
 // ---------------------------------------------------------------------------
 
@@ -574,6 +630,13 @@ export interface SerializedPipelineNode {
    * that wants to say "one branch per item" can read this.
    */
   isDynamicParallel?: boolean;
+  /**
+   * Total attempts this stage's function may run, from its declared
+   * {@link RetryPolicy}. Present only when a policy was declared. The COUNT
+   * only — `backoffMs` and `retryOn` can be functions, which a JSON-safe spec
+   * cannot carry.
+   */
+  retryAttempts?: number;
 }
 
 // ---------------------------------------------------------------------------

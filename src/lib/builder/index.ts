@@ -21,6 +21,7 @@ export type {
   FlowChartSpec,
   ILogger,
   ParallelForEachConfig,
+  RetryPolicy,
   ScopeProtectionMode,
   SerializedPipelineStructure,
   SimplifiedParallelSpec,

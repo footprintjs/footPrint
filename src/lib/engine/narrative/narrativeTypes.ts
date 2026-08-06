@@ -23,7 +23,11 @@ export interface CombinedNarrativeEntry {
     | 'error'
     | 'pause'
     | 'resume'
-    | 'emit';
+    | 'emit'
+    /** A failed attempt at a stage with a declared retry policy, which was
+     *  retried. Rendered as a depth-1 sub-item of its stage, IN ORDER between
+     *  the attempts' reads and writes. */
+    | 'retry';
   text: string;
   depth: number;
   stageName?: string;
@@ -134,6 +138,24 @@ export interface ErrorRenderContext {
 }
 
 /**
+ * Context passed to `NarrativeFormatter.renderRetry` — one failed attempt at a
+ * stage with a declared retry policy, which the engine then retried. Fires only
+ * for attempts followed by another attempt; the final failure goes to
+ * `renderError`.
+ */
+export interface RetryRenderContext {
+  stageName: string;
+  /** Which attempt just failed, 1-based. */
+  attempt: number;
+  /** Total attempts the policy allows, including the first. */
+  maxAttempts: number;
+  /** Milliseconds waited before the next attempt. `0` = immediate. */
+  delayMs: number;
+  /** The failed attempt's error message. */
+  message: string;
+}
+
+/**
  * Context passed to `NarrativeFormatter.renderEmit` — fires for every
  * consumer-emitted event (`scope.$emit(name, payload)`). Carries the full
  * `EmitEvent` shape so formatters can render name + payload with full
@@ -204,6 +226,12 @@ export interface NarrativeFormatter {
   renderLoop?(ctx: LoopRenderContext): string;
   renderBreak?(ctx: BreakRenderContext): string;
   renderError?(ctx: ErrorRenderContext): string;
+  /**
+   * Format a retried attempt into a narrative line. Rendered as a depth-1
+   * sub-item of its stage, positioned between the attempts' reads and writes
+   * so the narrative reads in the order things actually happened.
+   */
+  renderRetry?(ctx: RetryRenderContext): string;
   /**
    * Format a consumer-emitted event (from `scope.$emit(name, payload)`)
    * into a narrative line.

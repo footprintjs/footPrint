@@ -643,6 +643,48 @@ export class StageContext {
     this._untrackedSources = undefined;
   }
 
+  /**
+   * Throw away everything this stage has STAGED, without committing any of it.
+   *
+   * The isolation primitive behind declarative retry: when a non-final attempt
+   * fails, the writes it staged must not be visible to the next attempt, must
+   * not reach shared state, and must not appear in the commit log or in this
+   * stage's snapshot. Dropping the staging state achieves all four at once —
+   * there is no rollback machinery to invoke because nothing was ever applied
+   * (M1: the transaction buffer holds writes until `commit()` flushes them).
+   *
+   * What is released, and why each one matters for the next attempt:
+   *  - `buffer`      — the staged writes themselves; the next attempt starts
+   *                    with nothing staged;
+   *  - `stateView`   — the first-touch anchor; the next attempt re-anchors on
+   *                    committed state as it stands NOW (a sibling fork branch
+   *                    may legitimately have committed in between);
+   *  - `_stageWrites` / `_stageReads` — the snapshot payload; without the
+   *                    reset the execution tree would report writes that were
+   *                    discarded, which is the exact lie this feature exists
+   *                    to prevent;
+   *  - `_provenanceReads` — the per-write read prefix (#P1); a discarded
+   *                    attempt's reads must never appear in the next attempt's
+   *                    `TraceEntry.readKeys`, or a backward slice would follow
+   *                    an edge that no committed write ever had;
+   *  - `_untrackedSources` — the D2 honesty markers, released with the rest.
+   *
+   * What is deliberately KEPT: `debug` (logs, metrics, errors, flow messages).
+   * Diagnostics are the append-only record of what every attempt did, and the
+   * retry feature's whole point is that the earlier attempts stay visible.
+   *
+   * No commit is recorded and no observer fires — a discarded attempt is not a
+   * cursor stop, because from shared state's point of view it never happened.
+   */
+  discardStaged(): void {
+    this.buffer = undefined;
+    this.stateView = undefined;
+    this._untrackedSources = undefined;
+    this._provenanceReads = undefined;
+    this._stageWrites = {};
+    this._stageReads = {};
+  }
+
   // ── Tree navigation ────────────────────────────────────────────────────
 
   /**

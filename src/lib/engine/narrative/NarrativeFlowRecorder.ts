@@ -21,6 +21,7 @@ import type {
   FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
+  FlowStageRetryEvent,
   FlowSubflowEvent,
 } from './types.js';
 
@@ -127,6 +128,15 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     }
 
     this.sentences.push(sentence);
+    this.stageNames.push(event.stageName);
+  }
+
+  onStageRetry(event: FlowStageRetryEvent): void {
+    const wait = event.delayMs > 0 ? ` after waiting ${event.delayMs}ms` : '';
+    this.sentences.push(
+      `Attempt ${event.attempt} of ${event.maxAttempts} at ${event.stageName} failed ` +
+        `(${event.message}), so it tried again${wait}.`,
+    );
     this.stageNames.push(event.stageName);
   }
 

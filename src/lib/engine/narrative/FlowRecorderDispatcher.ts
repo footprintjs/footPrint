@@ -19,6 +19,7 @@ import type {
   FlowBreakEvent,
   FlowRecorder,
   FlowStageEvent,
+  FlowStageRetryEvent,
   IControlFlowNarrative,
   StageType,
   TraversalContext,
@@ -232,6 +233,38 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       } catch (err) {
         if (isDevMode())
           console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onError: ${err}`);
+      }
+    }
+  }
+
+  onStageRetry(
+    stageName: string,
+    stageId: string,
+    attempt: number,
+    maxAttempts: number,
+    delayMs: number,
+    error: unknown,
+    traversalContext?: TraversalContext,
+  ): void {
+    if (this.recorders.length === 0) return;
+    const structuredError = extractErrorInfo(error);
+    const event: FlowStageRetryEvent = {
+      stageName,
+      stageId,
+      attempt,
+      maxAttempts,
+      delayMs,
+      message: structuredError.message,
+      structuredError,
+      traversalContext,
+      channel: 'flow' as const,
+    };
+    for (const r of this.recorders) {
+      try {
+        r.onStageRetry?.(event);
+      } catch (err) {
+        if (isDevMode())
+          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onStageRetry: ${err}`);
       }
     }
   }

@@ -173,6 +173,7 @@ interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  onStageRetry?(event: FlowStageRetryEvent): void;
 }
 ```
 

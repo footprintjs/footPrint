@@ -31,7 +31,7 @@ export { flowChart, FlowChartBuilder, flowChartSelector } from './lib/builder/in
  * decided at run time from the payload. `maxBranches` and `into` are required
  * on purpose (see docs/design/execution-control.md).
  */
-export type { BranchChart, ParallelForEachConfig } from './lib/builder/index.js';
+export type { BranchChart, ParallelForEachConfig, RetryPolicy } from './lib/builder/index.js';
 
 /** @category Quick Start — build-time observer (twin of FlowRecorder) */
 export type {
@@ -186,6 +186,7 @@ export type {
   FlowRunFailedEvent,
   FlowSelectedEvent,
   FlowStageEvent,
+  FlowStageRetryEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
   TraversalContext,

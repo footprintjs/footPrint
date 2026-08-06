@@ -45,6 +45,7 @@ export type {
   FlowRunFailedEvent,
   FlowSelectedEvent,
   FlowStageEvent,
+  FlowStageRetryEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
   TraversalContext,

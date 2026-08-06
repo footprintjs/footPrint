@@ -109,6 +109,26 @@ export interface IControlFlowNarrative {
   /** Called when a stage throws an error. Raw error is extracted into structured details. */
   onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
 
+  /**
+   * Called when an attempt at a stage with a declared `retry` policy failed
+   * AND another attempt will run. Fires after the failed attempt's staged
+   * writes are discarded and BEFORE the backoff wait, so a live monitor learns
+   * "retrying in 500 ms" when the decision is made, not after the wait.
+   *
+   * Event arithmetic: an exhausted policy fires `attempts - 1` of these and
+   * then one `onError`; a `retryOn` that declines fires ZERO of these and one
+   * `onError`. The final attempt never fires this event.
+   */
+  onStageRetry(
+    stageName: string,
+    stageId: string,
+    attempt: number,
+    maxAttempts: number,
+    delayMs: number,
+    error: unknown,
+    traversalContext?: TraversalContext,
+  ): void;
+
   /** Called when a pausable stage pauses execution. */
   onPause(
     stageName: string,
@@ -349,6 +369,40 @@ export interface FlowErrorEvent {
   channel?: 'flow';
 }
 
+/**
+ * Event passed to FlowRecorder.onStageRetry — one failed attempt at a stage
+ * that carries a declared {@link import('../types.js').RetryPolicy}, and which
+ * WILL be attempted again.
+ *
+ * WHY this event exists: a retry hand-rolled inside a stage function leaves no
+ * mark on the trace at all. This event is what makes a declared retry part of
+ * the record — which attempt failed, why, how long the engine waited, and how
+ * many attempts the policy allows.
+ *
+ * Fires only for attempts followed by another attempt. The final failure takes
+ * the ordinary error path (`onError`), so the two never double-report the same
+ * failure: an exhausted `attempts: 3` policy emits 2 retry events + 1 error
+ * event; a `retryOn` that declines emits 0 retry events + 1 error event.
+ */
+export interface FlowStageRetryEvent {
+  stageName: string;
+  /** Stable stage identifier from the builder (matches spec node id). */
+  stageId: string;
+  /** Which attempt just FAILED, 1-based. */
+  attempt: number;
+  /** Total attempts the policy allows, including the first. */
+  maxAttempts: number;
+  /** Milliseconds the engine will wait before the next attempt. `0` = immediate. */
+  delayMs: number;
+  /** Human-readable message — the same string `onError` would carry. */
+  message: string;
+  /** Structured details of the error that ended this attempt. */
+  structuredError: StructuredErrorInfo;
+  traversalContext?: TraversalContext;
+  /** Explicit channel discriminant — see {@link FlowErrorEvent.channel}. */
+  channel?: 'flow';
+}
+
 /** Event passed to FlowRecorder.onPause. */
 export interface FlowPauseEvent {
   stageName: string;
@@ -436,6 +490,13 @@ export interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  /**
+   * Called once per failed attempt that WILL be retried, for stages carrying a
+   * declared `retry` policy. The final failure arrives via `onError` instead,
+   * so a stage never reports the same failure twice. See
+   * {@link FlowStageRetryEvent} for the exact event arithmetic.
+   */
+  onStageRetry?(event: FlowStageRetryEvent): void;
   onPause?(event: FlowPauseEvent): void;
   onResume?(event: FlowResumeEvent): void;
   /**

@@ -8,6 +8,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
+import type { TraversalContext } from '../narrative/types.js';
 import type { StageFunction } from '../types.js';
 
 /**
@@ -37,10 +38,17 @@ export type ExecuteNodeFn<TOut = any, TScope = any> = (
   branchPath?: string,
 ) => Promise<any>;
 
-/** Run a stage function with commit. */
+/**
+ * Run a stage function. Bound to `FlowchartTraverser.executeStage`, which is
+ * also where a stage's declarative `retry` policy is honoured — so a handler
+ * that passes `traversalContext` gets retry evidence stamped with the right
+ * stage automatically. The parameter is optional purely for compatibility with
+ * hand-written callers; the engine's own handlers always pass it.
+ */
 export type RunStageFn<TOut = any, TScope = any> = (
   node: StageNode<TOut, TScope>,
   stageFunc: StageFunction<TOut, TScope>,
   context: StageContext,
   breakFn: () => void,
+  traversalContext?: TraversalContext,
 ) => Promise<TOut>;

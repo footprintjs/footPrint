@@ -879,6 +879,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       description: pausedNode.description,
       fn: resumeStageFn,
       next: continuationNext,
+      // A declared `retry` policy follows the stage only on the INTERRUPT
+      // re-entry, because that path re-runs the stage's OWN function — the
+      // exact function the policy was declared for. The `addPausableFunction`
+      // re-entry runs a different function (`resumeFn`) under a different
+      // contract, so it deliberately runs without the policy.
+      ...(isInterruptResume && pausedNode.retry && { retry: pausedNode.retry }),
     };
 
     // Don't clear recorders — resume continues from previous state.

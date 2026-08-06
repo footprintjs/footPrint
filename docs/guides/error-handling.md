@@ -40,6 +40,128 @@ What gets preserved:
 
 ---
 
+## Declarative Retry
+
+### Why this exists
+
+The obvious way to retry a flaky call is a loop inside the stage function:
+
+```typescript
+// Don't do this — it works, and it is invisible
+for (let i = 0; i < 3; i++) {
+  try { scope.rate = await fetchRate(); break; } catch { await wait(100); }
+}
+```
+
+The narrative shows one stage. The commit log shows one entry. The two failed calls that happened first left no mark anywhere — so when someone later asks *"why did this run take four seconds?"*, the trace has no answer. That is an unexplained behaviour in a library whose whole thesis is that nothing invisible happens.
+
+Declare the policy instead, and every attempt becomes part of the record:
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const chart = flowChart<QuoteState>('Read request', readFn, 'read-request')
+  .addFunction('Fetch rate', fetchRateFn, 'fetch-rate')
+  .retry({ attempts: 3, backoffMs: (attempt) => 100 * attempt })
+  .addFunction('Build quote', buildQuoteFn, 'build-quote')
+  .build();
+```
+
+`attempts` counts **total runs including the first** — `attempts: 3` is one run plus up to two retries. `attempts: 1` is a declared-but-off policy, so you can dial one down without deleting it.
+
+### What an attempt is
+
+| | Behaviour |
+|---|---|
+| **Failed non-final attempt** | Its staged writes are **discarded**. Nothing was applied, so there is nothing to roll back — footprint stages writes in a buffer and only flushes them on commit, and a discarded attempt simply never commits. The next attempt starts from committed state, never from the wreckage of the last try. |
+| **Final attempt** | Exactly today's law. On success it commits; on failure it commits what it wrote and rethrows. Commit-on-error is unchanged. |
+| **A chart with no `retry`** | Byte-identical to before the feature existed. |
+
+Attempts are internal to **one** stage execution: one `runtimeStageId`, one execution index, **one commit bundle** — no matter how many times the function ran. Retries also do not consume loop iterations (`maxIterations`).
+
+### The evidence
+
+Each failed attempt that is followed by another fires `FlowRecorder.onStageRetry`:
+
+```typescript
+executor.attachFlowRecorder({
+  id: 'retry-log',
+  onStageRetry: (event) => {
+    console.log(
+      `${event.stageName}: attempt ${event.attempt}/${event.maxAttempts} failed ` +
+        `(${event.message}) — waiting ${event.delayMs}ms`,
+    );
+  },
+});
+```
+
+The narrative renders it **in order, inside the stage**, between the attempts' own reads and writes:
+
+```
+Stage 2: Ask the rate service for today's conversion rate.
+  Step 1: Read currency = "EUR"
+  [Retry]: attempt 1 of 3 at Fetch rate failed (rate service unavailable). Waited 100ms before the next attempt.
+  Step 3: Read currency = "EUR"
+  [Retry]: attempt 2 of 3 at Fetch rate failed (rate service unavailable). Waited 200ms before the next attempt.
+  Step 5: Read currency = "EUR"
+  Step 6: Write rate = 1.09
+```
+
+**The event arithmetic, stated exactly** — so you can count what you should be seeing:
+
+| Outcome | `onStageRetry` events | `onError` events |
+|---|---|---|
+| Succeeds on the first try | 0 | 0 |
+| Succeeds on attempt N | N − 1 | 0 |
+| Exhausts the policy | `attempts` − 1 | 1 |
+| `retryOn` declines | **0** | 1 |
+
+A declining `retryOn` is simply the error path behaving as if no policy existed — there is no event for "the policy chose not to act", because the error event already says everything that happened.
+
+### Deciding what is worth retrying
+
+A timeout deserves another go. "Card declined" does not — retrying it wastes time and can double-charge.
+
+```typescript
+.retry({
+  attempts: 5,
+  retryOn: (error) => !(error instanceof DeclinedError),
+})
+```
+
+A `retryOn` that **throws** is treated as "do not retry" — a broken predicate must never turn a failing stage into an endless loop.
+
+### What is never retried
+
+- **A pause.** Neither `addPausableFunction`'s pause nor `interrupt()` is a failure — both suspend the run, and retrying them would break resume.
+- **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again.
+- **`scope.$break()`.** Breaking is not an error.
+
+### Where you declare it
+
+`.retry(policy)` applies to the stage you just added. Where the cursor would be ambiguous, the policy goes in that method's own option bag:
+
+| Stage | How |
+|---|---|
+| `start()` / `addFunction()` / `addStreamingFunction()` / `addPausableFunction()` | `.retry(policy)` chained after it |
+| The chart's first stage | `flowChart(name, fn, id, { retry })` |
+| `addDeciderFunction()` / `addSelectorFunction()` | `options.retry` (these return a sub-builder, so a chained `.retry()` could mean the decider *or* the branch just added) |
+| `addFunctionBranch()` / `addPausableFunctionBranch()` | `options.retry` |
+| `addListOfFunction()` fork children | the child's `retry` field |
+
+The builder **refuses** `.retry()` where it could never fire or could silently hit the wrong stage: on a subflow mount (declare it on the stages *inside* the subflow), on a `addParallelForEach` fan-out (declare it inside the branch chart), on a loop reference, twice on one stage, and directly after a subflow mount or `addListOfFunction` — those attach children without moving the cursor, so the policy would land on the stage *before* what you just wrote.
+
+### Scope of this release
+
+- **Backoff is a plain awaited timer**, cancelled by the run's `AbortSignal`. It is not a pause: a chart **cannot be checkpointed in the middle of a backoff**.
+- **A resumed stage.** After `interrupt()`, resume re-runs the stage's own function and the policy comes with it. After an `addPausableFunction` pause, resume runs `resumeFn` — a different function under a different contract — **without** the policy.
+- **Per-stage timeouts are out of scope.** Use `RunOptions.timeoutMs` or an `AbortSignal` for deadlines.
+- Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
+
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence) and `02-attempt-isolation-and-limits.ts` (the two safety rules).
+
+---
+
 ## Error Narrative
 
 A validation pipeline fails. The trace tells the story:

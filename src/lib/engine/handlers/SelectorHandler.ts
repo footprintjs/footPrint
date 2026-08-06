@@ -43,7 +43,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
     let selectedIds: string[];
     let selectionEvidence: SelectionEvidence | undefined;
     try {
-      const stageOutput = await runStage(node, stageFunc, context, breakFn);
+      const stageOutput = await runStage(node, stageFunc, context, breakFn, traversalContext);
       // Detect SelectionResult from select() helper via Symbol brand
       if (
         stageOutput &&
