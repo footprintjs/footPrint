@@ -139,7 +139,8 @@
         "types": "./dist/types/zod.d.ts",
         "default": "./dist/zod.js"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
