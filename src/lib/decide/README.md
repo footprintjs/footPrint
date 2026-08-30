@@ -22,11 +22,48 @@ return select(scope, [
 ]);
 ```
 
+## Naming the default branch
+
+Every branch is named by the rule that chose it — the rule's `label` travels out
+on `evidence.rules[].label`. The default branch is chosen by **no rule**: it
+fires precisely when every rule failed, so no rule exists to carry its name. It
+is the one branch evidence cannot otherwise name, and anything generated from
+evidence (narrative, audit, a published "what each verdict means" map) has a
+hole exactly where the run's own outcome sits.
+
+Pass the default as an object to close it:
+
+```typescript
+decide(scope, [
+  { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
+  { when: { riskScore: { gt: 50 } }, then: 'flagged',     label: 'Risk above the review line' },
+], { branch: 'protected', label: 'No rule fired — asset stays protected' });
+//  ↑ was: 'protected'
+```
+
+The label lands on `DecisionEvidence.defaultLabel`:
+
+```typescript
+evidence.defaultLabel; // 'No rule fired — asset stays protected'
+evidence.default;      // 'protected'
+```
+
+- **The bare string still works, byte for byte.** `'protected'` produces exactly
+  the evidence it always did — `defaultLabel` is absent, not `undefined`.
+- **The label is recorded on every decision**, including runs where a rule won.
+  The default's meaning belongs to the decider, not to the run; emitting it only
+  on the fallthrough would make a harvested meanings map appear and disappear
+  with the data.
+- **Narrative** prints it the way a matched rule's label is printed:
+  `[Condition]: No rules matched, fell back to default "No rule fired — asset stays protected": Protect.`
+
+Example: [examples/build-time-features/decide-select/05-default-label.ts](../../../examples/build-time-features/decide-select/05-default-label.ts)
+
 ## Architecture
 
 ```
 decide/
-  types.ts      -- DecideRule, FilterOps, WhereFilter, DecisionResult (Symbol brand)
+  types.ts      -- DecideRule, FilterOps, WhereFilter, DefaultBranch, DecisionResult (Symbol brand)
   evaluator.ts  -- Prisma-style filter evaluator (8 ops, prototype denylist)
   evidence.ts   -- EvidenceCollector (temp recorder for function path)
   decide.ts     -- decide() (first-match) + select() (all-match)
@@ -106,4 +143,10 @@ Filter evidence:
 Function evidence:
 ```
 [Condition]: It examined "Complex case": creditScore=750, dti=0.38, and chose manual-review.
+```
+
+Default branch (labelled, and the unchanged unlabelled line beneath it):
+```
+[Condition]: No rules matched, fell back to default "No rule fired — asset stays protected": Protect.
+[Condition]: No rules matched, fell back to default: Protect.
 ```

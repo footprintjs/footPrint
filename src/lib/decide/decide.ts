@@ -17,6 +17,7 @@ import type {
   DecideRule,
   DecisionEvidence,
   DecisionResult,
+  DefaultBranch,
   FilterCondition,
   FilterRuleEvidence,
   FunctionRuleEvidence,
@@ -146,6 +147,18 @@ function evaluateRule<S extends object>(
   }
 }
 
+// -- default branch normalization --------------------------------------------
+
+/**
+ * Collapses both {@link DefaultBranch} forms to one shape, once, at the top of
+ * `decide()`. A bare string yields `label: undefined`, which every downstream
+ * spread then omits — so the string call site produces exactly the evidence it
+ * produced before this parameter was widened.
+ */
+function normalizeDefaultBranch(defaultBranch: DefaultBranch): { branch: string; label?: string } {
+  return typeof defaultBranch === 'string' ? { branch: defaultBranch } : defaultBranch;
+}
+
 // -- decide() ----------------------------------------------------------------
 
 /**
@@ -153,7 +166,11 @@ function evaluateRule<S extends object>(
  *
  * @param scope - TypedScope or ScopeFacade
  * @param rules - Array of DecideRule (function or filter when clauses)
- * @param defaultBranch - Branch ID if no rule matches
+ * @param defaultBranch - Branch taken when no rule matches. Either the branch
+ *   id (`'rejected'`) or the id plus what falling back to it MEANS
+ *   (`{ branch: 'rejected', label: 'No rule fired' }`). The label lands on
+ *   `evidence.defaultLabel` — the default is chosen by no rule, so it is the
+ *   one branch that `rules[].label` can never describe.
  *
  * **Error behavior:** If a `when` function throws during evaluation, the rule is
  * treated as non-matching (`matched: false`) and the error message is captured in
@@ -166,11 +183,23 @@ function evaluateRule<S extends object>(
  * nothing must not win a branch on vacuous truth. Use `defaultBranch` for the
  * catch-all instead. Unknown filter operators also never match (dev mode warns).
  */
-export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defaultBranch: string): DecisionResult {
+export function decide<S extends object>(
+  scope: S,
+  rules: DecideRule<S>[],
+  defaultBranch: DefaultBranch,
+): DecisionResult {
   const attachFn = getAttachFn(scope);
   const detachFn = getDetachFn(scope);
   const valueFn = getValueFn(scope);
   const redactedFn = getRedactedFn(scope);
+
+  const { branch: defaultBranchId, label: defaultLabel } = normalizeDefaultBranch(defaultBranch);
+  // Declared once, spread into BOTH exits below — deliberately. A default's
+  // meaning is a property of the DECIDER, not of the run: it must be in the
+  // evidence of the run where a rule won just as much as in the run that fell
+  // through. Emit it only on the fallthrough and any consumer harvesting branch
+  // meanings would watch them appear and disappear with the data.
+  const defaultMeaning = defaultLabel !== undefined ? { defaultLabel } : undefined;
 
   const evaluatedRules: RuleEvidence[] = [];
 
@@ -182,7 +211,8 @@ export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defau
       const evidence: DecisionEvidence = {
         rules: evaluatedRules,
         chosen: rule.then,
-        default: defaultBranch,
+        default: defaultBranchId,
+        ...defaultMeaning,
       };
       return { branch: rule.then, [DECISION_RESULT]: true, evidence };
     }
@@ -191,10 +221,11 @@ export function decide<S extends object>(scope: S, rules: DecideRule<S>[], defau
   // Default: no rule matched
   const evidence: DecisionEvidence = {
     rules: evaluatedRules,
-    chosen: defaultBranch,
-    default: defaultBranch,
+    chosen: defaultBranchId,
+    default: defaultBranchId,
+    ...defaultMeaning,
   };
-  return { branch: defaultBranch, [DECISION_RESULT]: true, evidence };
+  return { branch: defaultBranchId, [DECISION_RESULT]: true, evidence };
 }
 
 // -- select() ----------------------------------------------------------------

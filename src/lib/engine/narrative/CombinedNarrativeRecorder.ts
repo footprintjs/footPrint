@@ -834,7 +834,12 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       } else {
         const erroredCount = evidence.rules?.filter((r: any) => r.matchError !== undefined).length ?? 0;
         const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
-        conditionText = `No rules matched${errorNote}, fell back to default: ${branchName}.`;
+        // The default branch is chosen by no rule, so no rule label can explain
+        // it. When decide() was given the object form of its default, evidence
+        // carries that meaning — print it, exactly as a matched rule's label is
+        // printed. Absent, the sentence is unchanged from before this field.
+        const defaultLabel = evidence.defaultLabel ? ` "${evidence.defaultLabel}"` : '';
+        conditionText = `No rules matched${errorNote}, fell back to default${defaultLabel}: ${branchName}.`;
       }
     } else if (ctx.description && ctx.rationale) {
       conditionText = `It ${ctx.description}: ${ctx.rationale}, so it chose ${branchName}.`;

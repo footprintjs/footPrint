@@ -85,6 +85,17 @@ import { decide, select } from 'footprintjs';
 // Narrative: "It evaluated Rule 0 'Good credit': creditScore 750 gt 700, and chose approved."
 ```
 
+**Naming the default branch.** The default is chosen by no rule, so no
+`rules[].label` can describe it — it is the one branch evidence cannot
+otherwise name. Declare it beside the rules by passing an object instead of a
+string; the label lands on `DecisionEvidence.defaultLabel` and is recorded on
+every decision, not just the runs that fell through.
+
+```typescript
+decide(scope, rules, { branch: 'rejected', label: 'No rule fired — application rejected' });
+// bare string still works, byte-identical: decide(scope, rules, 'rejected')
+```
+
 ### Builder
 
 ```typescript

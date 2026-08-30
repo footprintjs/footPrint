@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.16.0] - 2026-08-30
+
+### Added
+
+- **`decide()` can name its DEFAULT branch — `{ branch, label }`.** Every branch
+  of a decider is named by the rule that chose it: the rule carries a `label`,
+  and that label travels out on the decision evidence for narratives, audits and
+  anything downstream that publishes what each outcome means.
+
+  The default branch is chosen by no rule. It fires precisely when every rule
+  failed, so no rule exists to carry its name — it was the one branch evidence
+  could not name, and a meanings map generated from evidence had its hole
+  exactly where the run's own outcome sat.
+
+  The default is now declared beside the rules it competes with:
+
+  ```ts
+  decide(scope, [
+    { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
+    { when: { riskScore: { gt: 50 } }, then: 'flagged',     label: 'Risk above the review line' },
+  ], { branch: 'protected', label: 'No rule fired — asset stays protected' });
+  //  ↑ was: 'protected'
+  ```
+
+  The label lands on `DecisionEvidence.defaultLabel` and rides the same evidence
+  channel as every other label — no second declaration surface, nothing a caller
+  can assert that the rules did not say. The narrative prints it the way it
+  prints a matched rule's:
+
+  ```
+  [Condition]: No rules matched, fell back to default "No rule fired — asset stays protected": Protect.
+  ```
+
+  It is recorded on **every** decision, including runs where a rule won: the
+  default's meaning belongs to the decider, not to the run, and emitting it only
+  on the fallthrough would make a harvested meanings map appear and disappear
+  with the data.
+
+  New exported type `DefaultBranch = string | { branch: string; label?: string }`.
+  The bare string is untouched, byte for byte: `defaultLabel` is absent — not
+  `undefined` — from evidence produced by a string default, pinned by test.
+  `select()` takes no default and is unchanged.
+
+  Example: `examples/build-time-features/decide-select/05-default-label.ts`
+
 ## [9.15.1] - 2026-08-18
 
 ### Fixed

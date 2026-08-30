@@ -45,6 +45,38 @@ export interface DecideRule<T extends object = Record<string, unknown>> {
   label?: string;
 }
 
+// -- Default Branch ----------------------------------------------------------
+
+/**
+ * The fallback branch of a `decide()` — taken when NO rule matched.
+ *
+ * Two forms, and the bare string is the original one:
+ * - `'protected'` — just the branch id. Behaves exactly as it always has.
+ * - `{ branch: 'protected', label: 'No rule fired — asset stays protected' }`
+ *   — the branch id PLUS what that branch means.
+ *
+ * **Why the object form exists.** Every other branch of a decider is named by
+ * the rule that chose it: the rule carries a `label`, and that label travels
+ * out through `DecisionEvidence.rules[].label` for narratives, audits and
+ * downstream harvesters. The default branch is chosen by no rule, so there is
+ * no rule to carry its label — it is the one branch evidence could not name.
+ * Declaring the label here puts the default's meaning beside the rules that it
+ * competes with, and sends it out through the same evidence channel.
+ *
+ * @example
+ * ```ts
+ * decide(scope, rules, { branch: 'protected', label: 'Nothing matched — leave it protected' });
+ * ```
+ */
+export type DefaultBranch =
+  | string
+  | {
+      /** The branch id to fall back to. */
+      readonly branch: string;
+      /** What falling back to this branch MEANS. Lands on `DecisionEvidence.defaultLabel`. */
+      readonly label?: string;
+    };
+
 // -- Symbol Brand (duck-type safety) -----------------------------------------
 
 export const DECISION_RESULT = Symbol('footprint:decide:result');
@@ -131,6 +163,17 @@ export interface DecisionEvidence {
   chosen: string;
   /** The fallback branch passed as defaultBranch. Always set. */
   default: string;
+  /**
+   * What the DEFAULT branch means — present only when the caller declared it
+   * via the object form of {@link DefaultBranch}.
+   *
+   * The default branch is chosen by no rule, so no `rules[].label` describes
+   * it: it is the one branch evidence cannot otherwise name. This field is that
+   * name, and it is recorded on EVERY decision — the run where a rule won as
+   * well as the run that fell through — so a consumer harvesting meanings sees
+   * the same set of branch meanings regardless of which way the data went.
+   */
+  defaultLabel?: string;
 }
 
 export interface SelectionEvidence {

@@ -81,7 +81,8 @@ examples/
 │       ├── 01-filter-rules.ts    → Filter object rules with evidence
 │       ├── 02-function-rules.ts  → Function-based rules with read tracking
 │       ├── 03-mixed-rules.ts     → Mixed filter + function in one decide()
-│       └── 04-select-parallel.ts → select() multi-match fan-out
+│       ├── 04-select-parallel.ts → select() multi-match fan-out
+│       └── 05-default-label.ts   → naming the default branch (chosen by no rule)
 │
 ├── post-execution/               → After execution (query the results)
 │   ├── causal-chain/

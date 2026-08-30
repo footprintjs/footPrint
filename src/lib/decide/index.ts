@@ -11,6 +11,7 @@ export type {
   DecideRule,
   DecisionEvidence,
   DecisionResult,
+  DefaultBranch,
   FilterCondition,
   FilterOps,
   FilterRuleEvidence,

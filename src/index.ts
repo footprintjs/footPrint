@@ -62,6 +62,7 @@ export type {
   DecideRule,
   DecisionEvidence,
   DecisionResult,
+  DefaultBranch,
   FilterOps,
   RuleEvidence,
   SelectionEvidence,
