@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.16.1] - 2026-08-30
+
+### Fixed
+
+- **`decide()` called without a default threw a TypeError (9.16.0 only).** The
+  third argument is required by the type, and JavaScript callers omit it anyway:
+  a rule set that covers every case never consults a default, and before 9.16.0
+  that missing argument simply landed on `evidence.default` as `undefined`.
+  9.16.0's normalization understood a string or the new object and nothing else,
+  so those call sites started failing inside the decider with `Cannot destructure
+  property 'branch'`. Now only the object form is unwrapped and every other value
+  — `undefined` included — passes through as the branch, exactly as before.
+  Found by a downstream test suite the same afternoon; pinned here by two tests
+  that call `decide()` with two arguments.
+
 ## [9.16.0] - 2026-08-30
 
 ### Added

@@ -154,9 +154,18 @@ function evaluateRule<S extends object>(
  * `decide()`. A bare string yields `label: undefined`, which every downstream
  * spread then omits — so the string call site produces exactly the evidence it
  * produced before this parameter was widened.
+ *
+ * ONLY the object form is unwrapped; every other value passes through as the
+ * branch, untouched. That is deliberate: JavaScript callers reach `decide()`
+ * with the third argument MISSING (a rule set that covers every case never
+ * consults a default), and before the parameter widened that `undefined`
+ * simply landed on `evidence.default`. It still does — a normalization that
+ * only understood strings would turn those call sites into a TypeError.
  */
 function normalizeDefaultBranch(defaultBranch: DefaultBranch): { branch: string; label?: string } {
-  return typeof defaultBranch === 'string' ? { branch: defaultBranch } : defaultBranch;
+  return typeof defaultBranch === 'object' && defaultBranch !== null
+    ? defaultBranch
+    : { branch: defaultBranch as string };
 }
 
 // -- decide() ----------------------------------------------------------------

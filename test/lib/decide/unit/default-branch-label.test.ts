@@ -206,6 +206,34 @@ describe('decide -- labelled default', () => {
   });
 });
 
+// -- Boundary: the third argument omitted (JS callers) -----------------------
+
+describe('decide -- no default at all', () => {
+  // TypeScript asks for the third argument; JavaScript does not, and a rule set
+  // that covers every case never consults a default. Those call sites worked
+  // before `defaultBranch` widened and must keep working — this is the exact
+  // shape that a string-only normalization turned into a TypeError.
+  const noDefault = (scope: object, rules: DecideRule<any>[]) =>
+    (decide as unknown as (s: object, r: DecideRule<any>[]) => ReturnType<typeof decide>)(scope, rules);
+
+  it('does not throw when a rule matches', () => {
+    const result = noDefault(mockScope({ score: 750 }), [{ when: { score: { gt: 700 } }, then: 'a' }]);
+
+    expect(result.branch).toBe('a');
+    expect(result.evidence.chosen).toBe('a');
+    expect(result.evidence.default).toBeUndefined();
+  });
+
+  it('does not throw when NO rule matches — the undefined default passes through', () => {
+    const result = noDefault(mockScope({ score: 100 }), [{ when: { score: { gt: 700 } }, then: 'a' }]);
+
+    expect(result.branch).toBeUndefined();
+    expect(result.evidence.chosen).toBeUndefined();
+    expect(result.evidence.default).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(result.evidence, 'defaultLabel')).toBe(false);
+  });
+});
+
 // -- Boundary: object without a label ----------------------------------------
 
 describe('decide -- object default without a label', () => {
