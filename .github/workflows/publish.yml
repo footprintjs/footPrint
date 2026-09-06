@@ -6,8 +6,8 @@ on:
 
 # Least privilege: NO id-token at the top level. OIDC publish power is granted ONLY to the
 # `publish` job, which consumes a PRE-PACKED tarball and does ZERO dependency resolution —
-# so the unpinned `npm install` (in `build`) never shares a runtime with the registry token
-# or `npm publish --provenance`.
+# so the lockfile-free `npm install` (in `build`) never shares a runtime with the registry
+# token or `npm publish --provenance`.
 permissions:
   contents: read
 
@@ -20,6 +20,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Pin the resolver. With no committed lockfile every job resolves fresh, so a
+      # dependency published upstream can break resolution without this repo changing:
+      # npm 10.9.x's arborist crashes ("Cannot read properties of null (reading
+      # 'edgesOut')") in #loadPeerSet on vitest 4.x's optional peer set. npm 11 resolves
+      # the same package.json cleanly, and the publish job has always pinned it.
+      - run: npm install -g npm@11
 
       # Fresh resolution — no committed lockfile (vitest 4.x pulls rolldown's per-OS native
       # binding; a cross-OS lock breaks CI, npm #4828). This job has NO publish power.

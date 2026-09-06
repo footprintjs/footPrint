@@ -30,6 +30,13 @@ jobs:
         with:
           node-version: 22
 
+      # Pin the resolver. With no committed lockfile every job resolves fresh, so a
+      # dependency published upstream can break resolution without this repo changing:
+      # npm 10.9.x's arborist crashes ("Cannot read properties of null (reading
+      # 'edgesOut')") in #loadPeerSet on vitest 4.x's optional peer set. npm 11 resolves
+      # the same package.json cleanly, and the publish job has always pinned it.
+      - run: npm install -g npm@11
+
       # 1. Install library deps and build TypeDoc API reference.
       # No committed root lockfile (library policy); `cache: npm` dropped (it requires one).
       # The docs-site app below keeps its own committed lock + npm ci.
