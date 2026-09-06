@@ -55,7 +55,10 @@ export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx
  *   delete. Caveat: values derived purely from the run's INITIAL state (no
  *   `set` anchor in the log — e.g. merges onto a seeded key) fold from
  *   absent; the commit log alone cannot see the pre-run base (the same blind
- *   spot `findLastWriter` has).
+ *   spot `findLastWriter` has). Since 9.17.0 the base TRAVELS with the log, so
+ *   `stateAt(snapshot, idx).state[key]` (footprintjs/trace) answers this case
+ *   correctly — it folds from `RuntimeSnapshot.initialState`, which this
+ *   function never receives.
  */
 export function commitValueAt(commitLog: CommitBundle[], idx: number, key: string): unknown {
   const end = Math.min(idx, commitLog.length - 1);
@@ -95,4 +98,56 @@ export function commitValueAt(commitLog: CommitBundle[], idx: number, key: strin
     }
   }
   return value;
+}
+
+/**
+ * Position index over a commit log: `runtimeStageId` → the ARRAY INDEX of the
+ * FIRST bundle that stage committed.
+ *
+ * "First" is the contract, and it is load-bearing. A stage normally commits
+ * exactly one bundle, but a subflow MOUNT commits two that share one
+ * `runtimeStageId` (the output-mapping commit, then the mount-exit commit).
+ * A cursor asks "where does this stage start?", so the first wins — the
+ * grouping a reader's axis uses (`commitStops`) anchors at the same place.
+ *
+ * Build this ONCE when resolving many ids; use {@link commitIndexOf} for a
+ * single lookup.
+ *
+ * @param commitLog Ordered commit bundles — `getSnapshot().commitLog`.
+ * @returns A fresh Map, owned by the caller.
+ */
+export function buildCommitIndex(commitLog: readonly CommitBundle[]): Map<string, number> {
+  const index = new Map<string, number>();
+  for (let i = 0; i < commitLog.length; i++) {
+    const id = commitLog[i].runtimeStageId;
+    if (!index.has(id)) index.set(id, i);
+  }
+  return index;
+}
+
+/**
+ * The ARRAY INDEX of the first commit a given `runtimeStageId` produced, or
+ * `-1` when that stage is not in this log (`indexOf` semantics — the name's
+ * promise).
+ *
+ * This is the address translation every reader needs and nobody exported: a
+ * `runtimeStageId` is the id an event carries, a commit index is what
+ * `commitValueAt` / `stateAt` / `CommitRangeIndex` speak. O(n) — for many
+ * lookups build the map once with {@link buildCommitIndex}.
+ *
+ * A stage that ran inside a SUBFLOW is not in the run-level log (subflows
+ * commit to their own isolated log); look it up in that subflow's own
+ * `history` instead — see `getSubtreeSnapshot`.
+ *
+ * @example
+ * ```typescript
+ * const idx = commitIndexOf(snapshot.commitLog, 'score-risk#7');
+ * const before = idx > 0 ? commitValueAt(snapshot.commitLog, idx - 1, 'risk') : undefined;
+ * ```
+ */
+export function commitIndexOf(commitLog: readonly CommitBundle[], runtimeStageId: string): number {
+  for (let i = 0; i < commitLog.length; i++) {
+    if (commitLog[i].runtimeStageId === runtimeStageId) return i;
+  }
+  return -1;
 }

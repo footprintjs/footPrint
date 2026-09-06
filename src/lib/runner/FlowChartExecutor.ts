@@ -665,8 +665,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * which is the same value as `getSnapshot().commitLog.length`. The
    * naming asymmetry is historical — the underlying `EventLog` field
    * is named `executionHistory` but stores the `CommitBundle[]` that
-   * `commitLog` exposes. They are the SAME array (verified by the
-   * "matches commitLog.length" integration test).
+   * `commitLog` exposes. They always report the same LENGTH (verified by the
+   * "matches commitLog.length" integration test); since 9.17.0 the snapshot
+   * serves a detached frozen COPY of the array, not the live one.
    */
   getCommitCount(): number {
     const runtime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime> | undefined;

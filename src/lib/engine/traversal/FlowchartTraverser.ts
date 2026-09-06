@@ -1461,6 +1461,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         globalContext: {},
         stageContexts: childStages as unknown as Record<string, unknown>,
         history: [],
+        initialState: {},
       },
       parentStageId,
       pipelineStructure: childStructure,

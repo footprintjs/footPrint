@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.17.0] - 2026-09-06
+
+### Added
+
+- **A reader's cursor over a finished run — `timeTravel()`, in
+  `footprintjs/trace`.** Time travel here is READ-TIME: the run is over, the
+  commit log is the trace it left, and the cursor is a reader moving over that
+  trace with a fold at each stop. It is not the engine's walk, and it never
+  becomes a second live cursor — nothing in it can resume, re-run or edit an
+  execution.
+
+  Every consumer was already doing this, separately: the same commit-index
+  arithmetic, hand-written against the same log, in a why-panel, a flow view and
+  a dashboard — three implementations that could disagree about which stage a
+  step number meant. This is that arithmetic once, in the library that owns the
+  substrate.
+
+  ```ts
+  import { timeTravel } from 'footprintjs/trace';
+
+  const cursor = timeTravel(executor.getSnapshot());
+  cursor.jumpTo('score-risk#7');
+  cursor.changedSince();          // ['riskScore', 'tier'] — read off the traces
+  cursor.stateAt().state;         // the state that stage left, detached + frozen
+  cursor.mark('where it went wrong');
+  const inner = cursor.drill('sf-payment#7');   // its own cursor, its own log
+  ```
+
+  Five laws hold everywhere, and each is pinned by a test:
+
+  - **One cursor.** `drill()` returns a SEPARATE cursor over a subflow's
+    separate log — never a second position on this axis. A stop inside a subflow
+    is not a stop of the outer cursor, and jumping to one is a miss.
+  - **A miss never moves.** `Move` is `{ moved: true, from, to }` or
+    `{ moved: false, reason: 'clamped' | 'miss' | 'empty', at, nearest }`. A bad
+    id leaves the panel showing exactly what it showed before, with a reason and
+    the nearest stop it could name.
+  - **A fold result is detached.** `stateAt()` returns a deeply frozen clone that
+    shares nothing with the engine, and says how it was derived.
+  - **Marks live beside the log.** They are the reader's notes; nothing writes
+    them into the commit log or the snapshot. A mark names its stop by
+    `runtimeStageId`, not by step number, so it survives a change of strategy.
+  - **Stops are derived from the recorded log.** A strategy reads what the run
+    actually committed; it never re-walks the execution tree to synthesize a
+    stop for something nobody recorded. That is what keeps a custom strategy
+    honest when it replaces the one shipped here.
+
+- **`stateAt(snapshot | subtree, commitIdx)`** — the fold, on its own. Replays
+  the log from its base through `applySmartMerge`, the same verb switch the live
+  commit uses (no fifth verb-switch replica). Accepts a run snapshot
+  (`commitLog`) or a subflow subtree (`history`), a live one or one
+  round-tripped through JSON. The result carries its own honesty:
+  `basis: 'initial+log'` when the real fold base was available and
+  `'log-only'` when it was not, plus `redacted` / `redactedPaths` where the
+  engine scrubbed values at write time — a partial answer that says it is
+  partial, never a silent one.
+
+- **`commitIndexOf(log, runtimeStageId)` and `buildCommitIndex(log)`** — the
+  address translation between the id an event carries and the index every
+  commit-log query speaks. FIRST occurrence wins, because a subflow mount and a
+  parallel fork child each commit more than one bundle under one id and a cursor
+  asks where a stage *starts*.
+
+- **`TimeTravelStrategy` — how stops are derived is a seam.** footprintjs ships
+  exactly one strategy, `commitStops` (one stop per executed stage, with
+  `'start'` / `'end'` bookends), because that is the only stop grammar the
+  substrate itself knows. A consumer with a richer vocabulary supplies its own
+  and gets the same cursor over it; a drilled cursor inherits it.
+
+- **`RuntimeSnapshot.initialState`** — the commit log's fold BASE now travels
+  with the log, deeply frozen and fully detached. Bundles are diffs, so the log
+  alone could never rebuild a value seeded before the run and only merged since;
+  the base was private to the engine, so an offline consumer could not fold at
+  all. A subflow carries its own alongside its own log
+  (`SubflowResult.treeContext.initialState`, surfaced as
+  `getSubtreeSnapshot(...).initialState`). The field is **optional by type and
+  always present at runtime**: every snapshot the engine builds carries it (so a
+  live fold reports `basis: 'initial+log'`), while code that CONSTRUCTS a
+  snapshot literal — a UI fixture, a stored 9.16.x trace — still compiles and
+  folds honestly as `'log-only'`. **`getSnapshot({ redact: true })` OMITS it**:
+  the base is the raw pre-run seed and no redaction policy ever touched it
+  (policies scrub writes, and nothing wrote the base), so serving it on the
+  safe-to-share view would hand back the original value of a seeded secret a
+  later commit had scrubbed. A redacted snapshot therefore folds
+  `basis: 'log-only'` — the channel built for exactly this.
+
+### Fixed
+
+- **The event log's fold base now matches the state the run actually starts
+  from.** `EventLog` was seeded with `initialContext` alone, leaving
+  `defaultValuesForContext` out of every replay — so a fold could not reproduce
+  what a stage saw. It is now seeded from the store's own starting state
+  (`initialContext` merged with the defaults), and normalised to `{}` instead of
+  `undefined`, which is what made `materialise()` throw on the first `set` for a
+  run with no initial context.
+
+### Changed
+
+- **`getSnapshot().commitLog` is now a detached, frozen array.** It used to
+  alias `EventLog`'s live internal array: a snapshot taken mid-run kept growing
+  under whoever held it, and a consumer could splice the engine's own history. A
+  snapshot is a fold result, and a fold result does not change under its holder.
+  The bundles inside are the engine's own objects, immutable after record, and
+  are not copied. `getCommitCount()` still reports the same number the array
+  has. Every consumer in the repository was checked first; none read the log
+  through the alias, and the full suite passes unchanged.
+
 ## [9.16.1] - 2026-08-30
 
 ### Fixed

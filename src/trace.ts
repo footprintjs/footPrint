@@ -63,7 +63,47 @@ export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 // commitValueAt reconstructs the FULL value of a key at a commit index —
 // required under `commitValues: 'delta'` (#13c-B), where an `append`
 // bundle's `overwrite[key]` holds only the tail.
-export { commitValueAt, findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+export {
+  buildCommitIndex,
+  commitIndexOf,
+  commitValueAt,
+  findCommit,
+  findCommits,
+  findLastWriter,
+} from './lib/memory/commitLogUtils.js';
+
+// ── time-travel/ — the READER'S cursor over a finished trace ──────────────
+// A Trace is what the run recorded; time travel is a cursor over it with a
+// Fold at each stop. It is NOT the engine's walk and never becomes a second
+// live cursor: everything below is a read-time query over already-collected
+// data.
+//
+// `stateAt(snapshot | subtree, commitIdx)` is the fold — the run's
+// `initialState` replayed through `commitLog[0..commitIdx]` with the SAME verb
+// switch the live commit uses, returned detached and frozen, and honest about
+// how it was derived (`basis`) and where the log was scrubbed (`redacted`).
+//
+// `timeTravel(snapshot)` is the cursor: stops, prev/next/jumpTo, marks beside
+// the log, and `drill(mount)` into a subflow's own log — the same interface,
+// its own base. How stops are DERIVED is the seam (`TimeTravelStrategy`);
+// footprintjs ships `commitStops` (one stop per executed stage) because that
+// is the only stop grammar the substrate itself knows.
+// See src/lib/time-travel/README.md.
+export type {
+  FoldBasis,
+  FoldedState,
+  FoldSource,
+  Mark,
+  Move,
+  MoveRefusal,
+  Stop,
+  StopKind,
+  TimeTravel,
+  TimeTravelOptions,
+  TimeTravelSource,
+  TimeTravelStrategy,
+} from './lib/time-travel/index.js';
+export { commitStops, commitStopsStrategy, stateAt, timeTravel } from './lib/time-travel/index.js';
 
 // Causal chain — backward program slicing on commit log (DAG).
 // RFC-003 D3: `CausalEdge` (typed/keyed/weighted parent links on

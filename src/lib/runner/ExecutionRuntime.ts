@@ -21,6 +21,7 @@ import type {
   WriteProvenanceMode,
   WriteTrackingMode,
 } from '../memory/types.js';
+import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -66,6 +67,32 @@ export type RuntimeSnapshot = {
   readonly runId: string;
   sharedState: Record<string, unknown>;
   executionTree: StageSnapshot;
+  /**
+   * The commit log's fold BASE — the run's state before its first commit
+   * (`initialContext` merged with `defaultValuesForContext`; on a resume, the
+   * checkpoint's state). Deeply frozen and fully detached from the engine.
+   *
+   * Commit bundles are DIFFS, so the log alone cannot rebuild a value that
+   * was seeded before the run and only ever merged afterwards. Shipping the
+   * base WITH the log is what makes an offline fold — `stateAt(snapshot, i)`
+   * from `footprintjs/trace` — reproduce the state a stage actually saw.
+   *
+   * OPTIONAL BY TYPE, and absent in exactly two cases. A plain `getSnapshot()`
+   * always carries it, so a live fold reports `basis: 'initial+log'`. Under
+   * `getSnapshot({ redact: true })` it is OMITTED — the base is the raw pre-run
+   * seed and the redaction policy is not plumbed into the fold — so a fold of
+   * a redacted snapshot degrades honestly to `basis: 'log-only'`. And it is
+   * declared optional so that code written against 9.16.x — a test fixture or
+   * a UI mock that CONSTRUCTS a `RuntimeSnapshot` literal — still compiles.
+   * `stateAt` handles absence by saying so, never by folding a lie.
+   */
+  readonly initialState?: Record<string, unknown>;
+  /**
+   * The run's commit bundles, one per executed stage, in execution order —
+   * a DETACHED, frozen copy of the engine's live log (a snapshot is a fold
+   * result: it must not keep changing under the consumer that holds it).
+   * The bundles inside are the engine's own objects, immutable after record.
+   */
   commitLog: CommitBundle[];
   /**
    * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
@@ -125,11 +152,20 @@ export class ExecutionRuntime {
   /** Mirror of the writeProvenance dial for the snapshot discriminant (#P1). */
   private writeProvenance: WriteProvenanceMode = 'off';
 
+  /** Memoized frozen fold base — see {@link RuntimeSnapshot.initialState}. */
+  private _foldBase?: Record<string, unknown>;
+
   constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
-    this.executionHistory = new EventLog(initialState);
     this.globalStore = new SharedMemory(defaultValues, initialState);
+    // The event log's fold base must be the SAME state the store starts from
+    // — `initialContext` merged with `defaultValuesForContext`, which is what
+    // `SharedMemory` computed above. Seeding the log from `initialState` alone
+    // left `defaultValues` out of every replay, so a fold could not reproduce
+    // the state a stage actually saw. `getState()` is the live context; the
+    // EventLog constructor clones it, so the base stays detached.
+    this.executionHistory = new EventLog(this.globalStore.getState());
     this.rootStageContext = new StageContext('', rootName, rootId, this.globalStore, '', this.executionHistory);
   }
 
@@ -216,6 +252,20 @@ export class ExecutionRuntime {
     }
   }
 
+  /**
+   * The frozen, detached fold base served as {@link RuntimeSnapshot.initialState}.
+   * Computed once (the base never changes after construction) and shared —
+   * safe because it is deeply frozen, so no holder can mutate it or reach the
+   * engine through it.
+   */
+  private getFoldBase(): Record<string, unknown> {
+    if (!this._foldBase) {
+      const base = this.executionHistory.getInitialState();
+      this._foldBase = deepFreeze(base && typeof base === 'object' ? base : {}) as Record<string, unknown>;
+    }
+    return this._foldBase;
+  }
+
   getPipelines(): string[] {
     const state = this.globalStore.getState();
     return state.pipelines ? Object.keys(state.pipelines as Record<string, unknown>) : [];
@@ -242,6 +292,16 @@ export class ExecutionRuntime {
    * the commit log is already redacted at write-time, and the execution
    * tree only carries structural metadata.
    *
+   * `initialState` (the fold base) is OMITTED under `redact: true`. It is the
+   * run's raw pre-run seed — `initialContext` merged with
+   * `defaultValuesForContext` — and it never passed through a redaction
+   * policy: the policy scrubs WRITES at the scope facade, and the base was
+   * never written by a stage. Serving it on the redacted surface would hand
+   * back the original value of a seeded secret that a later commit had
+   * scrubbed. A consumer folding without it gets `basis: 'log-only'` from
+   * `stateAt`, which is the honest signal that the base did not travel with
+   * this log — a partial answer that says it is partial, never a silent one.
+   *
    * Returns `Omit<RuntimeSnapshot, 'runId'>`: the runtime is the memory
    * container and doesn't know which run it serves — `runId` is per-run
    * executor state, stamped by `FlowchartTraverser.getSnapshot()` (which
@@ -255,7 +315,15 @@ export class ExecutionRuntime {
     return {
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
       executionTree: snapshotRoot.getSnapshot(),
-      commitLog: this.executionHistory.list(),
+      // REDACTION: the fold base is the raw pre-run seed and no policy ever
+      // touched it (policies scrub writes; nothing wrote the base). Omit it
+      // rather than leak it — `stateAt` degrades to `basis: 'log-only'`.
+      ...(useRedacted ? {} : { initialState: this.getFoldBase() }),
+      // DETACHED: the engine keeps its live EventLog; the snapshot gets a
+      // frozen copy of the array. Serving `list()` directly aliased the
+      // internal array, so a snapshot taken mid-run kept growing under its
+      // holder and a consumer could splice the engine's own history.
+      commitLog: Object.freeze(this.executionHistory.list().slice()) as CommitBundle[],
       commitValues: this.commitValues,
       writeProvenance: this.writeProvenance,
     };

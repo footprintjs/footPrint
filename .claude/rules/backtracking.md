@@ -20,9 +20,10 @@ paths:
   - src/lib/recorder/qualityTrace.ts
   - src/lib/recorder/QualityRecorder.ts
   - src/lib/slice/**
+  - src/lib/time-travel/**
 ---
 <!-- analyzed-at: 22953d9 @ 2026-07-02 | model: fable-5 -->
-# Backtracking in footprintjs — 5 mechanisms + the slice query layer, ZERO rollback
+# Backtracking in footprintjs — 7 mechanisms (M6 and M7 are read-time query layers over the others), ZERO rollback
 
 There is NO state rollback anywhere. M1 is commit-on-error by design (`TransactionBuffer.ts:13-18` — "What it is NOT: a rollback mechanism").
 
@@ -169,6 +170,43 @@ while queue: node = pop
   if controlDeps: link(node → governingDecider, 'control', ruleLabel)
 stamp root.truncated if any budget cut
 ```
+
+## M7 — time-travel/ read-time cursor (the reader's cursor over M3)
+
+Files: `src/lib/time-travel/` — `types.ts` (Stop/Move/Mark/FoldedState/
+TimeTravelStrategy — the seam) · `commitStops.ts` (THE shipped strategy: one
+stop per executed stage, a mount's entry/exit bundles collapsed onto the first,
+`'start'`/`'end'` bookends; `Stop.lastCommitIdx` is the end of the stop's slice
+— fold through IT, not `commitIdx`, or a mount's state lags its own output
+mapping) · `stateAt.ts` (detached frozen fold via `applySmartMerge` — the ONE
+replay primitive, never a fifth verb-switch replica; `basis: 'initial+log' |
+'log-only'` is the honesty channel) · `timeTravel.ts` (the cursor; `drill()`
+returns a SEPARATE cursor over the subflow's own log). Exported from
+`footprintjs/trace`.
+
+Substrate this needed (9.17.0): the fold base now TRAVELS with the log —
+`RuntimeSnapshot.initialState` (`ExecutionRuntime.getSnapshot`) and
+`SubflowResult.treeContext.initialState` — and `snapshot.commitLog` is a
+detached frozen copy instead of the live `EventLog.list()` array.
+
+| step | what happens |
+|---|---|
+| derive | `strategy.stopsFor(log, tree)` partitions the log into stops. Read-only; a strategy may group/filter/label what was recorded, never synthesize a stop for something never committed. |
+| move | `first/last/prev/next/jumpTo/jumpToMark` return a `Move`. A refusal NEVER touches the position (`reason: 'clamped' \| 'miss' \| 'empty'`). |
+| fold | `stateAt(stop)` replays `initialState` → `commitLog[0..stop.lastCommitIdx]` and deep-freezes the result. |
+| diff | `changedSince(from)` reads keys straight off the bundles' traces — no fold. |
+| drill | `drill(mountRuntimeStageId)` opens a new cursor over `subflowResults[mount].treeContext.history` + its own base. |
+
+Laws: ONE cursor (drill is a separate cursor, never a second position) · a miss
+never moves · a fold result is detached · marks live BESIDE the log (never
+written into it) · stops are derived from the recorded log.
+
+Breaks when: `getSnapshot({ redact: true })` — `initialState` is deliberately
+OMITTED there (the raw pre-run seed never passed a redaction policy), so a
+redacted snapshot folds `basis: 'log-only'` · a key seeded before the run and
+only MERGED afterwards needs the base, which is exactly why it travels · a
+fresh-executor resume restarts `bundle.idx` at 0, so commit indices are
+RUN-LOCAL — a cursor spans one run's log, never two.
 
 ## Cross-mechanism blast radius
 - M1's trace verbs are the contract everything replays: `applySmartMerge` (utils.ts:254) has 3 consumers — live commit (StageContext.ts:567), the redacted mirror (StageContext.ts:577), and `EventLog.materialise`; `commitValueAt` independently reimplements the same per-key verb fold (commitLogUtils.ts:82-96). New/renamed verb touches all of M1+M3 including commitValueAt's own switch + delta-parity tests.

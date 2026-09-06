@@ -335,6 +335,17 @@ export interface SubflowResult {
     globalContext: Record<string, unknown>;
     stageContexts: Record<string, unknown>;
     history: unknown[];
+    /**
+     * The subflow's OWN fold base — the state its isolated runtime started
+     * from, before its first commit. The sibling of
+     * `RuntimeSnapshot.initialState`, carried here so a subflow's `history`
+     * can be folded offline exactly like the run's log (`stateAt`,
+     * `timeTravel(...).drill(mount)`). Frozen and detached.
+     *
+     * Normally `{}`: a subflow's `inputMapper` seed is itself the first
+     * COMMIT in `history` (the root context commits it), not a pre-run base.
+     */
+    initialState?: Record<string, unknown>;
   };
   parentStageId: string;
   pipelineStructure?: unknown;
@@ -412,6 +423,8 @@ export interface IExecutionRuntime {
   getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;
     executionTree: unknown;
+    /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */
+    initialState?: Record<string, unknown>;
     commitLog: unknown[];
     /** Dual-keyed by subflow path (last iteration) AND per-execution mount runtimeStageId
      *  (each iteration) — see RuntimeSnapshot.subflowResults / subflow-commit-visibility. */

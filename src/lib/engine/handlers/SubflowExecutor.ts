@@ -323,6 +323,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         globalContext: subflowTreeContext.sharedState,
         stageContexts: subflowTreeContext.executionTree as unknown as Record<string, unknown>,
         history: subflowTreeContext.commitLog,
+        // The subflow's own fold base travels with its own log — same
+        // contract as the run-level `RuntimeSnapshot.initialState`.
+        initialState: subflowTreeContext.initialState,
       },
       parentStageId: parentContext.getStageId(),
     };

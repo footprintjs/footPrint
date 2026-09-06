@@ -44,6 +44,15 @@ export interface SubtreeSnapshot {
    * iteration by passing its mount `runtimeStageId` as the path.
    */
   readonly history?: readonly unknown[];
+  /**
+   * The subflow's OWN fold base — the state its isolated runtime started from,
+   * before its first commit (`treeContext.initialState`). Pair it with
+   * `history` to fold the subflow's state at any of its commits:
+   * `stateAt(subtree, i)` from `footprintjs/trace` reads exactly these two
+   * fields. Normally `{}` — a subflow's `inputMapper` seed is its first
+   * COMMIT, not a pre-run base.
+   */
+  readonly initialState?: Record<string, unknown>;
   /** Narrative entries scoped to this subflow (between entry/exit events). */
   readonly narrativeEntries?: CombinedNarrativeEntry[];
 }
@@ -85,6 +94,7 @@ export function getSubtreeSnapshot(
         (treeCtx?.stageContexts as unknown as StageSnapshot) ?? findSubflowInTree(snapshot.executionTree, lastSegment),
       sharedState: treeCtx?.globalContext as Record<string, unknown> | undefined,
       history: treeCtx?.history as readonly unknown[] | undefined,
+      initialState: treeCtx?.initialState as Record<string, unknown> | undefined,
       narrativeEntries: allNarrativeEntries ? extractScopedNarrative(allNarrativeEntries, lastSegment) : undefined,
     };
   }
