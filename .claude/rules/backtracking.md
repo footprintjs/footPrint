@@ -181,8 +181,15 @@ stop per executed stage, a mount's entry/exit bundles collapsed onto the first,
 mapping) · `stateAt.ts` (detached frozen fold via `applySmartMerge` — the ONE
 replay primitive, never a fifth verb-switch replica; `basis: 'initial+log' |
 'log-only'` is the honesty channel) · `timeTravel.ts` (the cursor; `drill()`
-returns a SEPARATE cursor over the subflow's own log). Exported from
-`footprintjs/trace`.
+returns a SEPARATE cursor over the subflow's own log) · 9.18.0: `axis.ts`
+(`splitAxis` reads the `[start,…stages,end]` contract; `filterStops` composes a
+filtering strategy — re-partition, `Stop.meta`, `Stop.prologue`) · `bundles.ts`
+(`unknown[]` rows narrowed per bundle; a non-bundle is an index-holding GAP in
+`FoldedState.skipped`) · `chain.ts` (`timeTravel([paused, resumed])` — one axis
+over a cross-executor resume, run-local indices + `Stop.sourceIdx`, refused when
+an id repeats, execution indices are not monotonic across legs, or a leg's
+`initialState` is not the state the earlier legs fold to — the last check is
+SKIPPED, not faked, when a leg has no base). Exported from `footprintjs/trace`.
 
 Substrate this needed (9.17.0): the fold base now TRAVELS with the log —
 `RuntimeSnapshot.initialState` (`ExecutionRuntime.getSnapshot`) and
@@ -206,7 +213,13 @@ OMITTED there (the raw pre-run seed never passed a redaction policy), so a
 redacted snapshot folds `basis: 'log-only'` · a key seeded before the run and
 only MERGED afterwards needs the base, which is exactly why it travels · a
 fresh-executor resume restarts `bundle.idx` at 0, so commit indices are
-RUN-LOCAL — a cursor spans one run's log, never two.
+RUN-LOCAL — a cursor over ONE snapshot spans one leg; `timeTravel([paused,
+resumed])` (9.18.0) chains the legs into one axis of STEPS while every stop's
+`commitIdx` keeps indexing its own leg (`Stop.sourceIdx`) — no global index is
+invented, and a chain is refused when an id repeats, execution indices are not
+monotonic, or a leg's `initialState` is not the state the legs before it fold to
+(that third check needs the base on the record; without it the chain rests on
+the two index checks and `basis` says so).
 
 ## Cross-mechanism blast radius
 - M1's trace verbs are the contract everything replays: `applySmartMerge` (utils.ts:254) has 3 consumers — live commit (StageContext.ts:567), the redacted mirror (StageContext.ts:577), and `EventLog.materialise`; `commitValueAt` independently reimplements the same per-key verb fold (commitLogUtils.ts:82-96). New/renamed verb touches all of M1+M3 including commitValueAt's own switch + delta-parity tests.

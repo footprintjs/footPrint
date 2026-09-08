@@ -59,6 +59,14 @@ function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
  *
  * An EMPTY log yields NO stops at all — not two bookends around nothing. A
  * cursor with nowhere to stand says so (`Move.reason === 'empty'`).
+ *
+ * **THE SHAPE IS A CONTRACT (9.18.0).** For a non-empty log the result is
+ * `[start, …stages, end]` — `'start'` first, `'end'` last, one stop per
+ * executed stage between them, in execution order — and for an empty log it
+ * is `[]`. A strategy that COMPOSES this one (keep some stages, drop the rest)
+ * rests on that shape; it is pinned by `test/lib/time-travel/`, and
+ * {@link splitAxis} is the one guard that reads it — a composer calls that, or
+ * {@link filterStops} which calls it, instead of writing its own.
  */
 export function commitStops(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): Stop[] {
   if (commitLog.length === 0) return [];

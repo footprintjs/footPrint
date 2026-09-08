@@ -90,20 +90,33 @@ export {
 // is the only stop grammar the substrate itself knows.
 // See src/lib/time-travel/README.md.
 export type {
+  AxisRefusal,
+  AxisSplit,
+  BookendedAxis,
   FoldBasis,
   FoldedState,
   FoldSource,
+  LogGap,
   Mark,
   Move,
   MoveRefusal,
   Stop,
+  StopFilter,
   StopKind,
   TimeTravel,
   TimeTravelOptions,
   TimeTravelSource,
   TimeTravelStrategy,
 } from './lib/time-travel/index.js';
-export { commitStops, commitStopsStrategy, stateAt, timeTravel } from './lib/time-travel/index.js';
+export {
+  commitStops,
+  commitStopsStrategy,
+  filterStops,
+  isCommitBundle,
+  splitAxis,
+  stateAt,
+  timeTravel,
+} from './lib/time-travel/index.js';
 
 // Causal chain — backward program slicing on commit log (DAG).
 // RFC-003 D3: `CausalEdge` (typed/keyed/weighted parent links on

@@ -5,6 +5,143 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.18.0] - 2026-09-08
+
+### Added
+
+Five edges of the reader's cursor, reported by the two consumers that built on
+9.17.0 in the same week — a FILTERING strategy (keep the stages a domain
+classifies) and a cursor that maps its own position list into stops. All five
+are additive: a 9.17.0 consumer compiles and behaves identically, and
+`test/lib/time-travel/backcompat.test.ts` pins that with a 9.17.0-shaped
+strategy — hand-rolled bookend guard, hand-rolled re-partition, a domain kind
+re-derived from the id at every read — left untouched and asserted stop for
+stop against the composed one (`[start -1..0] [LLM turn 1..1] [Tool call 2..3]
+[end 3..3]`, both ways).
+
+- **`Stop.meta` — a strategy's own vocabulary rides ON the stop.** `Stop.kind`
+  is the port's vocabulary (`'commit' | 'mount' | 'start' | 'end'`), so a domain
+  strategy had nowhere to put its own classification and re-derived it from
+  `runtimeStageId` at every read — a second run of the classifier that just
+  ran. `Stop<TMeta>`, `TimeTravelStrategy<TMeta>`, `TimeTravel<TMeta>`,
+  `Move<TMeta>` and `TimeTravelOptions<TMeta>` are now generic over that
+  vocabulary, defaulting to `unknown` so every bare 9.17.0 signature still means
+  what it meant. The port assigns `meta` no meaning: it never reads, validates
+  or branches on it, and copies it verbatim through `timeTravel`, `jumpTo`,
+  `drill` and marks — BY REFERENCE, never cloned or frozen, so a mutation
+  through one holder is visible to every other. Absent — not `null` — on every
+  stop `commitStops` makes, and never inherited by `filterStops`: a `true`
+  decision over an axis that already carries another strategy's `meta` keeps
+  the stop and drops that meta, so a `Stop<TMeta>` only ever carries the
+  decision's own.
+
+- **`Stop.prologue` — what `'start'` folds on a FILTERING axis, said out
+  loud.** The docs described `'start'` as the fold BASE. A strategy that filters
+  cannot honour that and also partition the log: the commits before its first
+  surviving stop have to fold somewhere, and `'start'` is the only place.
+  Measured by the consumer: `commitStops`' start folds `-1..-1` and 0 keys; the
+  milestone axis's start folds `-1..0` and 32 keys, `userMessage` among them —
+  so a renderer keying on `kind === 'start'` for "the run's raw base" was wrong
+  on every derived axis. The decision is a FLAG, not a fifth kind: widening
+  `StopKind` would hand a compile error to every consumer with an exhaustive
+  `switch` over it. `StopKind`'s docs now state both meanings, and
+  `prologue: true` marks a start that absorbed stages the axis does not show.
+  A reader that means "before anything ran" checks
+  `kind === 'start' && !prologue`. On the example chart, the per-stage start
+  has 0 keys; the beat axis's start folds `-1..1`, has 3 keys (`tenant`,
+  `needle`, `prepared`), equals `stateAt(snapshot, 1)`, and carries the flag.
+
+- **`splitAxis` and `filterStops` — the `[start, …stages, end]` shape, stated
+  once.** `commitStops` returned a bare `Stop[]`, so the shape every composer
+  relied on was not pinned and each defended it with its own runtime kind check
+  and a mocked-substrate test. The invariant is now documented on
+  `commitStops`, pinned here on an empty log, a one-stage log, a log with a
+  mount and a fork, and READ by `splitAxis`:
+  `{ ok: true, start, stages, end }` or
+  `{ ok: false, reason: 'empty' | 'not-bookended', kinds }` — two different
+  facts, kept apart, because a composer that treats them alike reports a broken
+  strategy as an empty run. `filterStops(stops, keep)` does the whole
+  composition on top of it — guard, filter, re-partition so the survivors give
+  the log back (nothing orphaned; `stateAt(stop)` stays "what the next kept
+  stage read"), `label`/`meta` on the survivors, `prologue` on the start — so a
+  composing strategy is now one expression. A run the strategy recognises
+  nothing in yields the two bookends and nowhere to stand, NOT the `[]` that
+  says the log was empty.
+
+- **`timeTravel([paused, resumed])` — a pause and its resume read as ONE
+  axis.** A cross-executor resume produces two snapshots; the resumed run has a
+  fresh runtime, so its `commitLog` restarts at 0 and holds only the
+  post-resume commits (`seed#0@0 prepare#1@1 gate#2@2` on one side,
+  `gate#3@0 finish#4@1` on the other). The cursor had no way to read the second
+  as a continuation of the first, so a reader scrubbing a resumed run silently
+  saw half of it. An ARRAY of sources is now a chain: one axis, one pair of
+  bookends, 7 stops for those 5 bundles, steps `0…6` running across the seam.
+  THE HONEST BIT: commit indices are RUN-LOCAL and the library invents no
+  global one — `commitIdx` keeps indexing its own source
+  (`-1, 0, 1, 2, 0, 1, 1`), every stop carries `sourceIdx`, `stateAt` folds in
+  that source (a leg with its own `initialState` restarts the fold from it — on
+  a resume that base IS the state at the pause) and reports `sourceIdx` too,
+  `changedSince` walks a seam-crossing range leg by leg, and `drill` looks in
+  every leg. The strategy is called once per source with that source's own log
+  and tree, so no strategy ever knows it is chained. THE REFUSAL: a chain that
+  is not in run order or not from one lineage is refused with a reason, never
+  guessed at. Three checks, each with its own reason: no `runtimeStageId` in
+  two legs (a same-executor resume, whose one snapshot already holds both
+  halves, fails with "sources 0 and 1 both record 'gate#2'"); each leg's first
+  execution index past the previous leg's last (the counter is never reset on
+  resume, so `[resumed, paused]` fails with "source 1 starts at execution
+  index 0, which is not past source 0's last (4)" and an unrelated run with
+  "both record 'seed#0'"); and each leg's `initialState` deep-equal to the
+  state the legs before it fold to — on a resume the fresh runtime is seeded
+  from the checkpoint, so that base IS the state at the pause, and a leg from
+  some OTHER lineage whose indices merely happen to be higher fails with
+  "source 1's initialState is not the state source 0 folds to". The third
+  check runs only where the record allows it (the later leg carries an
+  `initialState`; the earlier legs fold from a real base with no unreadable
+  rows; redacted paths are excluded) and is otherwise SKIPPED, not faked — an
+  older recording with no base is chained on the two index checks alone and
+  the fold's `basis` says so. Stops' index ranges partition each LEG and never
+  span the seam. A one-element array is the plain cursor, and a single source
+  has no `sourceIdx` anywhere — the 9.17.0 shape exactly.
+
+- **A stored recording needs no cast.** `TimeTravelSource.commitLog` was
+  `readonly CommitBundle[]`, but a recording arrives as parsed JSON and a
+  careful consumer types its rows `readonly unknown[]`; one consumer documented
+  the resulting cast as a known wart. `commitLog` / `history` now take
+  `readonly unknown[]` and `executionTree` / `subflowResults` take `unknown`,
+  with the narrowing done inside, per bundle, where the fold reads one. A live
+  snapshot is assignable exactly as before and the clean path returns the same
+  array — nothing copied, nothing allocated, byte-identical folds. A row that
+  is not a bundle becomes a GAP that KEEPS ITS INDEX: it contributes no state,
+  gets no stop, and is reported in `FoldedState.skipped` as `{ index, reason }`
+  (`'not an object (null)'`, `'runtimeStageId is missing, not a string'`,
+  `'trace is a object, not an array'`). With row 1 of a 3-row recording
+  replaced by `null`, the axis is `start@-1 → collect@0 → report@2 → end@2` —
+  `report` is still at 2 — and the fold through 2 reports
+  `skipped: [{ index: 1, reason: 'not an object (null)' }]` with `verdict`
+  honestly absent; a fold that stops before the gap reports nothing. A tree or
+  a results map that is not an object is read as absent (the mount is then
+  found by the shape heuristic, and `drill` answers `undefined`).
+  A row with no `trace` at all — the one field every reader WALKS — is a gap
+  too (`'trace is missing, not an array'`), never a crash in the fold.
+  `FoldSource` takes the same all-optional shape as `TimeTravelSource`, so a
+  consumer's stored-recording type (`commitLog?: readonly unknown[]`) drives
+  `stateAt` and `timeTravel` alike. `TimeTravelSource` and `FoldSource` are
+  INPUT shapes: nothing typed as one promises its rows are bundles, so code
+  that reads `CommitBundle` fields back out of such a value must narrow each
+  row with `isCommitBundle` first.
+  `isCommitBundle(row)` is exported for a consumer that wants to validate rows
+  itself. `skipped`, `sourceIdx`, `meta` and `prologue` are ABSENT as keys on
+  every clean, single-source, shipped-strategy result — a 9.17.0 consumer that
+  enumerates a stop or a fold sees no new key.
+
+Exported from `footprintjs/trace`: `filterStops`, `splitAxis`,
+`isCommitBundle`, and the types `StopFilter`, `BookendedAxis`, `AxisSplit`,
+`AxisRefusal`, `LogGap`. Three new examples under
+`examples/post-execution/time-travel/` (03 compose a strategy · 04 chain a
+pause and resume · 05 a stored recording needs no cast). `test/lib/time-travel`
+grows to 126 tests across 8 files.
+
 ## [9.17.0] - 2026-09-06
 
 ### Added

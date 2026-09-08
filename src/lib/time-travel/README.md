@@ -89,9 +89,15 @@ reading one.
 
 The fold. `source` is a run snapshot (`commitLog` + `initialState`) or a subflow
 subtree (`history` + `initialState`) — both spellings are accepted, so a caller
-never reshapes a snapshot to ask a question. `commitIdx` is an ARRAY index,
-inclusive; `-1` folds nothing and returns the base; past the end clamps, and
-`throughCommitIdx` reports where the fold actually stopped.
+never reshapes a snapshot to ask a question. The rows may be typed
+`readonly unknown[]` (a stored recording — see [gap 5](#5-a-stored-recording-needs-no-cast)
+below); they are narrowed per bundle where the fold reads them. `FoldSource` has
+the same all-optional shape as `TimeTravelSource`, so a stored-recording type
+with `commitLog?: readonly unknown[]` drives `stateAt` and `timeTravel` alike
+— an absent log folds to the base and reports `throughCommitIdx: -1`.
+`commitIdx` is an ARRAY index, inclusive; `-1` folds nothing and returns the
+base; past the end clamps, and `throughCommitIdx` reports where the fold
+actually stopped.
 
 ```ts
 import { stateAt } from 'footprintjs/trace';
@@ -145,7 +151,9 @@ cursor.drill('sf-payment#7');    // a separate cursor over the subflow's log
 ```
 
 `options.marks` seeds bookmarks (e.g. restored from a saved reading session);
-`options.strategy` chooses how stops are derived.
+`options.strategy` chooses how stops are derived. An ARRAY of snapshots is a
+chain — a pause and its resume read as one axis (see
+[gap 4](#4-a-pause-and-its-resume-read-as-one-axis) below).
 
 ### `commitStops(log, tree?)` — the one strategy shipped
 
@@ -165,9 +173,13 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
 - **`'start'`** is the position before the first stage ran: the fold base, plus
   any id-less leading commit — which is how a subflow's `inputMapper` seed
   reaches the log. So on a drilled cursor, `'start'` is "the input this subflow
-  began with".
+  began with". On a FILTERING strategy's axis `'start'` means more than that and
+  says so with `prologue: true` — see [gap 2](#2-what-start-folds-on-a-filtering-axis).
 - An **empty log yields no stops at all**, and every move then refuses with
   `'empty'`.
+- **The shape is a contract.** Non-empty log ⇒ `[start, …stages, end]`; empty
+  log ⇒ `[]`. `splitAxis` reads it so a composer never guards it by hand — see
+  [gap 3](#3-the-start-stages-end-shape-is-stated-once).
 
 ### `TimeTravelStrategy` — the seam
 
@@ -177,21 +189,239 @@ vocabulary — milestones, turns, tool calls — supplies its own and gets the s
 cursor over it.
 
 ```ts
-import { commitStops, timeTravel } from 'footprintjs/trace';
+import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
 import type { TimeTravelStrategy } from 'footprintjs/trace';
 
 const milestonesOnly: TimeTravelStrategy = {
   stopsFor: (log, tree) =>
-    commitStops(log, tree)
-      .filter((stop) => stop.kind !== 'commit' || stop.stageId.startsWith('milestone-'))
-      .map((stop, step) => ({ ...stop, step })),   // steps stay 0..n-1
+    filterStops(commitStops(log, tree), (stop) => stop.stageId.startsWith('milestone-')),
 };
 
 timeTravel(executor.getSnapshot(), { strategy: milestonesOnly });
 ```
 
 A strategy is inherited by `drill()`, so a subflow's axis follows the same
-grammar as its parent's.
+grammar as its parent's. `TimeTravelStrategy<TMeta>` is generic over the
+strategy's OWN vocabulary — what it puts on `Stop.meta` — and the cursor it
+drives is `TimeTravel<TMeta>`; the bare forms default to `unknown`, so every
+9.17.0 strategy still compiles unchanged.
+
+## What composing consumers hit (9.18.0)
+
+Two consumers built on the cursor in the same week — one with a FILTERING
+strategy (keep the stages its domain classifies), one mapping its own position
+list into stops — and each hit the same five edges. Their reports are the
+specification of everything below. All of it is additive: a 9.17.0 consumer
+compiles and behaves identically (`test/lib/time-travel/backcompat.test.ts`
+pins that with a 9.17.0-shaped strategy, unchanged, asserted stop for stop
+against the composed one).
+
+### 1. A strategy's own vocabulary rides on the stop — `Stop.meta`
+
+**Why.** `Stop.kind` is the PORT's vocabulary: the four positions the substrate
+knows (`'commit' | 'mount' | 'start' | 'end'`). A domain strategy classifies
+stages in its own terms — a turn, a tool call, a beat — and had nowhere to put
+that, so the answer travelled by RE-DERIVING it from `runtimeStageId` at every
+read: a second run of the classifier that just ran, and a second chance to
+disagree with it.
+
+`Stop<TMeta>` now carries `meta?: TMeta`. The port assigns it no meaning: it
+never reads, validates or branches on it, and passes it through `timeTravel`,
+`jumpTo`, `drill` and marks **by reference** — never cloned, never frozen. The
+stop holds the very object the strategy put there, so a mutation through one
+holder is visible to every other holder. It is absent (not `null`) on every
+stop `commitStops` produces, and `filterStops` never inherits it: a `true`
+decision over an axis that already carries another strategy's `meta` keeps the
+stop and drops that meta — only the decision's own `meta` rides on a
+`Stop<TMeta>`.
+
+```ts
+import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
+import type { TimeTravelStrategy } from 'footprintjs/trace';
+
+interface Beat { kind: 'turn' | 'tool'; title: string }
+declare function beatFor(runtimeStageId: string): Beat | null;
+
+const beatStops: TimeTravelStrategy<Beat> = {
+  stopsFor: (log, tree) =>
+    filterStops<Beat>(commitStops(log, tree), (stop) => {
+      const beat = beatFor(stop.runtimeStageId);
+      return beat ? { label: beat.title, meta: beat } : null;   // null drops the stage
+    }),
+};
+
+const beatCursor = timeTravel(executor.getSnapshot(), { strategy: beatStops });
+beatCursor.at()?.meta?.kind;   // 'turn' — the strategy's answer, not a second derivation
+```
+
+### 2. What `'start'` folds on a FILTERING axis
+
+**Why.** The docs said `'start'` is the fold BASE — "the state before the first
+stage ran, plus any id-less leading commit". A strategy that FILTERS cannot
+honour that and also partition the log: the commits before its first surviving
+stop have to fold somewhere, and `'start'` is the only place. Measured by the
+consumer: `commitStops`' start folds `-1..-1` and 0 keys; the milestone axis's
+start folds `-1..0` and 32 keys, `userMessage` among them. Any renderer keying
+on `kind === 'start'` to mean "the run's raw base" was wrong on every derived
+axis.
+
+**The decision: (a), a flag — not a fifth kind.** `StopKind` is not widened; a
+new member would break every consumer with an exhaustive `switch` over it — a
+compile error handed to readers who did nothing wrong. Instead `StopKind`'s
+docs now state both meanings precisely, and `Stop.prologue?: true` says which
+one a given start is: present when the start folds stages this axis does not
+show, absent when it is the raw base. `filterStops` sets it; a hand-written
+strategy that absorbs stages into its start should too. A reader that means
+"before anything ran" checks `kind === 'start' && !stop.prologue`.
+
+```ts
+import { stateAt, timeTravel } from 'footprintjs/trace';
+
+const snapshot = executor.getSnapshot();
+const beats = timeTravel(snapshot, { strategy: beatStops });
+const start = beats.stops[0];
+start.prologue;                                  // true — seed + prepare folded in here
+start.lastCommitIdx;                             // 1
+beats.stateAt(start).state;                      // === stateAt(snapshot, 1).state — what the first beat READ
+timeTravel(snapshot).stops[0].prologue;          // undefined — the shipped axis's start is the raw base
+```
+
+Run `examples/post-execution/time-travel/03-compose-a-strategy.ts`: the
+per-stage start has 0 keys; the beat axis's start has 3 (`tenant`, `needle`,
+`prepared`) and `prologue: true`.
+
+### 3. The `[start, …stages, end]` shape is stated once
+
+**Why.** `commitStops` returns a bare `Stop[]`, so the shape every composing
+strategy relies on was not pinned. Each composer defended it with its own
+runtime kind check and a mocked-substrate test — one invariant, discovered in
+every repo.
+
+The invariant is now documented on `commitStops` (non-empty log ⇒ `'start'`
+first, `'end'` last, one stop per executed stage between them in execution
+order; empty log ⇒ `[]`), pinned by tests on an empty log, a one-stage log, a
+log with a mount and a fork, and READ by `splitAxis`, which returns
+`{ ok: true, start, stages, end }` or `{ ok: false, reason: 'empty' | 'not-bookended', kinds }`.
+The two refusals are different facts: `'empty'` means the run committed
+nothing; `'not-bookended'` means a strategy broke the contract. `filterStops`
+calls it, so most composers never see it.
+
+```ts
+import { commitStops, splitAxis } from 'footprintjs/trace';
+
+const snapshot = executor.getSnapshot();
+const axis = splitAxis(commitStops(snapshot.commitLog, snapshot.executionTree));
+if (axis.ok === false) {
+  axis.reason;                 // 'empty' | 'not-bookended' — two different facts
+} else {
+  axis.start.commitIdx;        // -1
+  axis.stages.length;          // one per executed stage
+  axis.end.lastCommitIdx;      // the last bundle in the log
+}
+```
+
+### 4. A pause and its resume, read as ONE axis
+
+**Why.** A cross-executor resume produces TWO snapshots: the resumed run has a
+fresh runtime, so its `commitLog` starts again at 0 and holds only the
+post-resume commits. `TimeTravel` had no way to read the second as a
+continuation of the first, so a reader scrubbing a resumed run silently saw
+only the second half unless the application had kept the paused snapshot and
+stitched the halves itself.
+
+`timeTravel([paused, resumed])` reads both as one axis. **The honest bit:
+commit indices are RUN-LOCAL.** No global index is invented — `commitIdx` and
+`lastCommitIdx` keep indexing their own source, every stop carries
+`sourceIdx`, `stateAt` folds in that source (a leg with its own `initialState`
+restarts the fold from it — on a resume that base IS the state at the pause),
+and `FoldedState.sourceIdx` says which leg the fold ended in. Only the STEPS
+run across the seam; a stop's `commitIdx..lastCommitIdx` range partitions its
+own LEG and never spans the seam. `changedSince` walks a seam-crossing range
+leg by leg.
+`drill` looks for a mount in every leg. The strategy is called once per source
+with that source's own log and tree, so a strategy never knows it is chained.
+
+**The refusal.** A chain that is not in run order, or whose legs are not from
+one lineage, is refused with a reason rather than guessed at. Exactly three
+things are checked, each with its own reason:
+
+1. **No `runtimeStageId` appears in two legs.** Ids are unique within a run, so
+   a repeat is the same execution recorded twice — a same-executor resume,
+   whose single snapshot already holds both halves.
+2. **Each leg's first execution index is past the previous leg's last.** The
+   engine never resets the counter across a resume, so a backwards chain or an
+   unrelated run (which restarts at `#0`) fails here.
+3. **Each leg's `initialState` deep-equals the state the legs before it fold
+   to.** On a resume the fresh runtime is seeded from the checkpoint, so that
+   base IS the state at the pause. This is what catches a leg from some OTHER
+   lineage whose indices merely happen to be higher — a different chart's
+   resume, say — which checks 1 and 2 cannot see. Paths the log was redacted
+   at are excluded (the fold holds `'REDACTED'` there; the checkpoint holds
+   the value).
+
+**What check 3 needs, said out loud.** It runs only where the record allows
+it: the later leg must carry an `initialState`, and the earlier legs must fold
+from a real base (`basis: 'initial+log'`) with no unreadable rows. A leg
+recorded before 9.17 has no `initialState`; on such a chain the check is
+SKIPPED — not faked — and the chain rests on checks 1 and 2 alone. The fold
+then CONTINUES across the seam (the leg rule), which is the right state for a
+real resume, and every fold's `basis` still says what it stood on.
+
+```ts
+import { timeTravel } from 'footprintjs/trace';
+
+// paused = executor A's snapshot at the pause; resumed = executor B's after resume(checkpoint)
+const cursor = timeTravel([paused, resumed]);
+cursor.sourceCount;                               // 2
+cursor.stops.map((s) => [s.step, s.sourceIdx, s.commitIdx]);
+// [[0,0,-1], [1,0,0], [2,0,1], [3,0,2], [4,1,0], [5,1,1], [6,1,1]] — steps run on, indices restart
+cursor.jumpTo('finish#4');                        // found in the second leg
+cursor.stateAt().sourceIdx;                       // 1
+
+timeTravel([resumed, paused]);                    // throws: "source 1 starts at execution index 0, which is not past source 0's last (4)"
+timeTravel([paused, someOtherChartsResumedLeg]);  // throws: "source 1's initialState is not the state source 0 folds to. …"
+```
+
+Run `examples/post-execution/time-travel/04-chain-a-pause-and-resume.ts` for
+the measured axis: 3 + 2 bundles, 7 stops, one pair of bookends.
+
+### 5. A stored recording needs no cast
+
+**Why.** `TimeTravelSource.commitLog` was `readonly CommitBundle[]`, but a
+recording arrives as parsed JSON and a careful consumer types its rows
+`readonly unknown[]` — it will not claim a stored bundle is a `CommitBundle`.
+One consumer documented the resulting cast in its README as a known wart.
+
+`commitLog` / `history` now take `readonly unknown[]`, and `executionTree` /
+`subflowResults` take `unknown`; the narrowing happens inside, per bundle,
+where the fold reads one. A live snapshot is assignable exactly as before and
+folds byte for byte as before (the clean path returns the same array and
+allocates nothing). A row that is not a bundle becomes a GAP: it **keeps its
+index** (so every `commitIdx` still addresses the same row), contributes no
+state, gets no stop, and is reported in `FoldedState.skipped` as
+`{ index, reason }`. One corrupt row loses that row, not the recording — and
+a fold that stops short of the gap says nothing, because it lost nothing.
+`isCommitBundle(row)` is exported for a consumer that wants to validate rows
+itself.
+
+```ts
+import { stateAt, timeTravel } from 'footprintjs/trace';
+
+interface StoredRecording {
+  readonly commitLog: readonly unknown[];        // honest: parsed JSON
+  readonly initialState?: Record<string, unknown>;
+  readonly executionTree?: unknown;
+}
+declare const stored: StoredRecording;
+
+const cursor = timeTravel(stored);               // no cast
+stateAt(stored, 2).skipped;                      // undefined on a clean log — the 9.17.0 shape
+// with row 1 replaced by `null`:
+//   stops: start@-1 → collect@0 → report@2 → end@2   (report is STILL at 2)
+//   skipped: [{ index: 1, reason: 'not an object (null)' }]
+```
+
+Run `examples/post-execution/time-travel/05-a-stored-recording-needs-no-cast.ts`.
 
 ## What this is NOT
 
@@ -234,3 +464,6 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
 
 - `examples/post-execution/time-travel/01-a-readers-cursor.ts`
 - `examples/post-execution/time-travel/02-fold-a-stored-run.ts`
+- `examples/post-execution/time-travel/03-compose-a-strategy.ts` — `filterStops`, `Stop.meta`, `Stop.prologue`, `splitAxis`
+- `examples/post-execution/time-travel/04-chain-a-pause-and-resume.ts` — a chained cursor and its refusals
+- `examples/post-execution/time-travel/05-a-stored-recording-needs-no-cast.ts` — `unknown[]` rows, gaps by index
