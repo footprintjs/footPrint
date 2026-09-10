@@ -270,6 +270,54 @@ describe('Property: delta-mode replay equivalence (#13c-B)', () => {
     });
   });
 
+  it('REGRESSION (seed 768917944): deleting an ABSENT key inside a re-written container is not a change', () => {
+    // The counterexample property (c) shrank to — found by CI's random seed
+    // in the 9.19.0 publish job, latent since before 9.19.0. Stage 2's
+    // `delete a.0` is a real deletion: full mode commits it as the shell
+    // `a.0 = undefined`, delta's `delete` verb REMOVES the key — so the two
+    // modes enter stage 3 holding the same state spelled two ways,
+    // `{a:{0:undefined}}` and `{a:{}}`. Stage 3 re-writes `a` unchanged and
+    // deletes `a.0` again (now absent). The staged delete puts the shell back
+    // into the working copy, and the net-change filter compared `{}` against
+    // `{0: undefined}` with a deepEqual that counted own keys — so delta
+    // committed `a` as a SET of a shell (16 bytes) where full, whose base
+    // already held the shell, committed only `b` (9 bytes). An own key holding
+    // `undefined` and an absent key are the SAME state (a deleted key) in every
+    // consumer's lens; the filter must not tell the spellings apart.
+    const program = (): Op[][] => [
+      [
+        { kind: 'deep-set', key: 'a', sub: '0', leaf: 'p', value: 0 },
+        { kind: 'delete', key: 'list' },
+      ],
+      [
+        { kind: 'nested-delete', key: 'a', sub: '0' },
+        { kind: 'noop-rewrite', key: 'c' },
+      ],
+      [
+        { kind: 'noop-rewrite', key: 'a' },
+        { kind: 'nested-delete', key: 'a', sub: '0' },
+        { kind: 'set', key: 'b', value: 0 },
+      ],
+      [{ kind: 'delete', key: 'a' }],
+    ];
+
+    const fullBundles = runProgram({}, program(), 'full');
+    const deltaBundles = runProgram({}, program(), 'delta');
+    for (let i = 0; i < fullBundles.length; i++) {
+      expect(payloadSize(deltaBundles[i])).toBeLessThanOrEqual(payloadSize(fullBundles[i]));
+    }
+    // The concrete leak, spelled out: stage 3 changed only `b` — in BOTH encodings.
+    expect(deltaBundles[2].trace).toEqual([{ path: 'b', verb: 'set' }]);
+    expect(deltaBundles[2].overwrite).toStrictEqual({ b: 0 });
+    expect(payloadSize(deltaBundles[2])).toBe(payloadSize(fullBundles[2]));
+    // Replay equivalence holds at every step, as before.
+    const fullSteps = materialiseSteps({}, fullBundles);
+    const deltaSteps = materialiseSteps({}, deltaBundles);
+    for (let k = 0; k < fullSteps.length; k++) {
+      expect(JSON.parse(JSON.stringify(deltaSteps[k]))).toEqual(JSON.parse(JSON.stringify(fullSteps[k])));
+    }
+  });
+
   it('final shared state is deep-equal across modes for ANY program (the corollary)', () => {
     fc.assert(
       fc.property(baseArb, programArb, (base, stages) => {

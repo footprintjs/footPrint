@@ -58,8 +58,24 @@ describe('deepEqual', () => {
     expect(deepEqual(a, b)).toBe(true);
   });
 
-  it('missing key on one side is unequal even with same key count edge', () => {
-    expect(deepEqual({ a: 1, b: undefined }, { a: 1, c: undefined })).toBe(false);
+  it('a missing key is unequal even when the key COUNTS agree', () => {
+    expect(deepEqual({ a: 1, b: 2 }, { a: 1, c: 2 })).toBe(false);
+  });
+
+  it('an own key holding undefined is a DELETED key — the same state as an absent one (9.19.1)', () => {
+    // Full mode flattens delete into `key: undefined`; delta mode removes the
+    // key. Two spellings, one state — the net-change filter must not see a
+    // change between them (the seed-768917944 counterexample).
+    expect(deepEqual({}, { k: undefined })).toBe(true);
+    expect(deepEqual({ k: undefined }, {})).toBe(true);
+    expect(deepEqual({ a: 1, b: undefined }, { a: 1, c: undefined })).toBe(true);
+    expect(deepEqual({ a: { 0: undefined } }, { a: {} })).toBe(true);
+    // A HELD value is never equal to a deleted key, whichever way it is spelled.
+    expect(deepEqual({ k: 1 }, { k: undefined })).toBe(false);
+    expect(deepEqual({ k: undefined }, { k: 1 })).toBe(false);
+    expect(deepEqual({ k: null }, { k: undefined })).toBe(false);
+    // Arrays are positional: a slot holding undefined is still a slot.
+    expect(deepEqual([undefined], [])).toBe(false);
   });
 });
 

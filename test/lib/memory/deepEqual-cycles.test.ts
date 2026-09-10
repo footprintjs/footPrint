@@ -118,7 +118,10 @@ describe('deepEqual — cyclic values', () => {
     expect(deepEqual([1, 2, 3], [3, 2, 1])).toBe(false);
     expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
     expect(deepEqual({ a: { b: { c: 1 } } }, { a: { b: { c: 2 } } })).toBe(false);
-    expect(deepEqual({ a: 1, b: undefined }, { a: 1, c: undefined })).toBe(false);
+    // 9.19.1: an own key holding `undefined` is a DELETED key (absent), so the
+    // key-count edge is pinned with HELD values — see utils.test.ts.
+    expect(deepEqual({ a: 1, b: 2 }, { a: 1, c: 2 })).toBe(false);
+    expect(deepEqual({ a: 1, b: undefined }, { a: 1, c: undefined })).toBe(true);
 
     // A DAG (one object reachable twice) is not a cycle: each occurrence is
     // compared against its own counterpart.

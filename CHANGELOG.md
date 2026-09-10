@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.19.1] - 2026-09-10
+
+### Fixed
+
+- **A stage that only re-spells a deleted key no longer commits the whole
+  container.** Found by CI's random property seed (768917944) in the 9.19.0
+  publish job; it reproduces identically on 9.18.1, so it is a latent defect
+  in the net-change filter, not a 9.19.0 regression. The library has two
+  spellings of "this key is deleted": `'full'` mode flattens `delete` into an
+  own `key: undefined`, `'delta'` mode's `delete` verb removes the key — and
+  every consumer (JSON, the fold, `commitValueAt`, the mirror) reads them as
+  one state. `deepEqual`, the ONE net-change compare every commit runs, told
+  them apart: it counted own keys, so `{}` and `{ 0: undefined }` were "a
+  change". A staged `delete` writes the own-`undefined` spelling into the
+  working copy, so under `'delta'` — whose committed state really lacks the
+  key — deleting an ABSENT key inside a container the stage also re-wrote
+  (unchanged) made the container "survive" the filter and commit as a `set`
+  of a shell: a delta bundle of 16 bytes where the full bundle was 9, and the
+  very shell delta mode exists to remove was written back into its state.
+  Example (base `{}`): stage 1 sets `a.0.p = 0` and deletes `list`; stage 2
+  deletes `a.0` and re-writes `c`; stage 3 re-writes `a` unchanged, deletes
+  `a.0` again and sets `b = 0`; stage 4 deletes `a` — stage 3's delta bundle
+  carried `a: {}` beside `b: 0`. Fixed at the root, not the symptom:
+  `deepEqual` now compares the keys that HOLD a value, so an own `undefined`
+  is absent (arrays are untouched — a slot is a slot). Both encodings inherit
+  it: a `'full'` stage that deletes an absent key inside a container it
+  re-wrote now commits nothing there either — the committed state is the same
+  through every consumer's lens, and "a stage that changes nothing commits an
+  empty patch" is what the filter has always promised. Verbs, replay and the
+  four verb switches are unchanged. Pinned as `REGRESSION (seed 768917944)`
+  in `test/lib/memory/property/delta-replay-equivalence.test.ts`; property
+  (c) keeps its claim.
+
 ## [9.19.0] - 2026-09-10
 
 ### Fixed

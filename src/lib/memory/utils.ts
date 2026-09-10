@@ -159,7 +159,14 @@ export function normalisePath(path: (string | number)[]): string {
  *   - reference / identical-primitive short-circuits first (cheap fast path)
  *   - `NaN` equals `NaN` (primitive compare falls back to `Object.is`)
  *   - arrays: equal length AND deep-equal element-wise (order-sensitive)
- *   - objects: identical own-key set AND deep-equal per key
+ *   - objects: identical set of keys that HOLD a value AND deep-equal per key.
+ *     An own key whose value is `undefined` counts as ABSENT: it is this
+ *     library's other spelling of a deleted key (`'full'` mode flattens
+ *     `delete` into `key: undefined`; `'delta'` mode's `delete` verb removes
+ *     the key), and every consumer — JSON, the fold, `commitValueAt`, the
+ *     mirror — reads the two spellings as one state. So must the net-change
+ *     filter (9.19.1): `{}` and `{ k: undefined }` are not a change. Arrays
+ *     are untouched — a slot holding `undefined` is still a slot.
  *   - mismatched kinds (array vs object, object vs null) → not equal
  *
  * Cost & safety:
@@ -213,14 +220,18 @@ function equalPairs(a: any, b: any, seen: SeenPairs | undefined): boolean {
     return true;
   }
 
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
+  // Objects: only keys that HOLD a value take part — an own `undefined` is a
+  // deleted key, the same state as an absent one (see the contract above).
+  let aHeld = 0;
+  for (const key of Object.keys(a)) {
+    if (a[key] === undefined) continue;
+    aHeld++;
     if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
     if (!equalPairs(a[key], b[key], seen)) return false;
   }
-  return true;
+  let bHeld = 0;
+  for (const key of Object.keys(b)) if (b[key] !== undefined) bHeld++;
+  return aHeld === bHeld;
 }
 
 /**

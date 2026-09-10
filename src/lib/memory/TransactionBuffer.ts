@@ -94,6 +94,11 @@ export class TransactionBuffer {
    * `'full'` mode maps it back to a `'set'` trace entry (byte-identical to
    * today); `'delta'` mode emits a real `'delete'` entry whose replay
    * REMOVES the key instead of leaving `key: undefined` behind.
+   *
+   * The net-change filter reads that staged own `undefined` as ABSENT
+   * (`deepEqual`, 9.19.1) — so under `'delta'`, whose committed state really
+   * lacks the key, deleting an absent key inside a container the stage also
+   * re-wrote is the no-op it is, not a `set` of the whole container.
    */
   delete(path: (string | number)[], shouldRedact = false): void {
     _set(this.workingCopy, path, undefined);
