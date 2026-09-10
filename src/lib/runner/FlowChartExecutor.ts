@@ -19,6 +19,7 @@
 
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
+import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
@@ -1685,6 +1686,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    *   The commit log is already redacted at write-time regardless of this
    *   flag, and the execution tree carries only structural metadata.
+   *   `subflowResults[*].treeContext.globalContext` follows the flag too
+   *   (9.20.0): under `redact: true` it is each subflow's own redacted
+   *   mirror; plain, the subflow's live heap.
    *
    * **Treat `sharedState` as READ-ONLY.** In production it is a live view of
    * the engine's working memory (zero copy cost) — mutating it corrupts
@@ -1706,7 +1710,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
     const sfResults = this.traverser.getSubflowResults();
     if (sfResults.size > 0) {
-      snapshot.subflowResults = Object.fromEntries(sfResults);
+      // Under `redact: true` each subflow's `globalContext` is its own mirror
+      // (9.20.0) — served, never written into the record (see
+      // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.
+      snapshot.subflowResults = servedSubflowResults(sfResults, options?.redact === true);
     }
 
     const recorderSnapshots = this.collectRecorderSnapshots();

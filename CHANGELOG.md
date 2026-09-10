@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.20.0] - 2026-09-10
+
+### Fixed
+
+- **A subflow's served state is its own redacted mirror — the 9.19.0 law's
+  one named limit is closed.** `getSnapshot({ redact: true })` served
+  `subflowResults[*].treeContext.globalContext` (and its `#n` twin) as the
+  subflow's RAW heap: the redacted mirror existed only at the run level
+  (`ExecutionRuntime.enableRedactedMirror`), while `SubflowExecutor` built
+  each nested runtime bare and read its heap into the result. A served
+  subflow state is retained, so the law said it must be covered; the scope
+  guide called it a "Known limit", and agentfootprint's `servableSnapshot`
+  had to work around it — refold every subflow's final state from its
+  scrubbed `history` with `stateAt` before a model could see a snapshot. The
+  exit event had the same hole: `onSubflowExit`'s `outputState` handed every
+  FlowRecorder the raw heap (the exit twin of the `Input:` line 9.19.0
+  closed).
+
+  Fixed at the root, one owner, no second scrub. `SubflowExecutor` now
+  enables the mirror on the nested runtime exactly when the parent-mount
+  context carries the run's mirror — the same triplicated hop the four dials
+  and the rule take (root install · `createNext`/`createChild` · the subflow
+  push): on the runtime's first root, so the seed commit lands in the mirror
+  as the placeholder, and again on the final root after the seed swap. The
+  mirror's final state is remembered BESIDE the raw result, by identity
+  (`engine/handlers/servedSubflowResults.ts`), and `getSnapshot({ redact:
+  true })` serves it as one substituted object per mount — the path key and
+  the `#n` twin still point at ONE object. `onSubflowExit.outputState`
+  carries the same served view. Unchanged: the plain `getSnapshot()` (the
+  subflow's live heap, the traverser's own record), the checkpoint's
+  `subflowStates` (real values — resumption replays them; a resumed subflow
+  re-seeds through the same commit, so its mirror is seeded too), the
+  run-level mirror, and every no-policy byte — with no policy there is no
+  mirror and the served objects ARE the plain ones. Cost: one `SharedMemory`
+  per subflow run, only under a policy.
+
+  Example — policy `{ keys: ['apiKey'], fields: { profile: ['auth.token'] } }`,
+  an outer chart mounting `sf`, which mounts `sf-deep`, both seeded by
+  `inputMapper`:
+
+  ```typescript
+  const served = executor.getSnapshot({ redact: true }).subflowResults!;
+  served['sf/sf-deep'].treeContext.globalContext;
+  // { apiKey: 'REDACTED', profile: { name: 'Ada', auth: { token: 'REDACTED' } }, deepSeen: 26 }
+  executor.getSnapshot().subflowResults!['sf/sf-deep'].treeContext.globalContext.apiKey;
+  // 'sk-live-…'  — the live heap, as before
+  ```
+
+  For every entry, under both encodings, the served state equals
+  `stateAt({ history, initialState }, history.length - 1).state` — the fold
+  agentfootprint computed by hand is now what the library serves. Pinned by
+  `test/lib/engine/security/redaction-subflow-served-state.test.ts` (served,
+  dual keys, checkpoint, resume, loop iterations, exit event, allocation
+  count); the no-policy served view is byte-identical to 9.19.1 by
+  `test/lib/engine/scenario/redaction-no-policy-byte-identity.test.ts`, whose
+  reference was generated on the 9.19.1 tree before the change.
+
 ## [9.19.1] - 2026-09-10
 
 ### Fixed

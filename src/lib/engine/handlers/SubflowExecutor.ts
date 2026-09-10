@@ -13,6 +13,7 @@
  * and abort signals all work inside subflows automatically.
  */
 
+import type { RedactionRule } from '../../memory/redaction.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -24,6 +25,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
+import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
@@ -89,6 +91,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // the seed COMMITTED below both retain under it; the subflow's stages
     // still compute on the real `mappedInput` (their frozen args).
     const redactionRule = parentContext.getRedactionRule?.();
+    // The run's redacted mirror (9.20.0): the parent-mount context carries it
+    // exactly when the root enabled one (`ExecutionRuntime.enableRedactedMirror`
+    // under a policy, inherited by createNext/createChild) — read the way the
+    // dials are. When it does, the nested runtime keeps a mirror of its own,
+    // so the subflow's SERVED state is a mirror too — the fold of its own
+    // scrubbed log — and never a second scrub. No policy: no mirror, no
+    // allocation, and the served state is the raw heap it always was.
+    const keepsMirror = parentContext.getRedactedSharedMemory?.() !== undefined;
     // Narrative receives the RETAINED form of the mapped input — an
     // inputMapper may inject values from anywhere, so the seed is scrubbed
     // under the policy before any recorder sees it. Same object when nothing
@@ -134,9 +144,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const seedValues: Record<string, unknown> = isResumeForThisSubflow ? resumeCapture! : mappedInput;
     if (Object.keys(seedValues).length > 0) {
       // The seed is committed as the subflow's `history[0]` by its root
-      // context, not by a facade — install the rule on THAT context first so
-      // the seed commit retains under the policy like every other write.
-      if (redactionRule) nestedRootContext.useRedactionRule(redactionRule);
+      // context, not by a facade — install the rule (and the mirror) on THAT
+      // context first so the seed commit retains under the policy like every
+      // other write, and lands in the mirror as the placeholder.
+      this.inheritRedaction(nestedRuntime, nestedRootContext, redactionRule, keepsMirror);
       seedSubflowGlobalStore(nestedRuntime, seedValues);
       // Refresh rootStageContext so WriteBuffer sees committed data
       const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
@@ -165,10 +176,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       nestedRootContext.useReadTracking(parentReadTracking);
     }
 
-    // Redaction rule (9.19.0): same hop as the dials, applied to the FINAL
-    // nested root (the seeding block above may have replaced it) so every
-    // stage context the subflow creates inherits the run's rule.
-    if (redactionRule) nestedRootContext.useRedactionRule(redactionRule);
+    // Redaction rule (9.19.0) and mirror (9.20.0): same hop as the dials,
+    // applied to the FINAL nested root (the seeding block above may have
+    // replaced it) so every stage context the subflow creates inherits both.
+    this.inheritRedaction(nestedRuntime, nestedRootContext, redactionRule, keepsMirror);
 
     // Write-tracking policy (#13c-A): same inheritance hop as readTracking
     // above — subflow runtimes are isolated, so the parent-mount context's
@@ -354,6 +365,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       subflowResult.pipelineStructure = (subflowDef as any).buildTimeStructure;
     }
 
+    // The served state (9.20.0): the nested mirror's final state, remembered
+    // BESIDE the result — `treeContext.globalContext` stays the live heap for
+    // the plain snapshot and the checkpoint; `getSnapshot({ redact: true })`
+    // substitutes the mirror through `servedSubflowResults`. Absent without
+    // a policy. The exit event below carries the same served view; without a
+    // mirror it carries the heap retained under the rule (per-call marks
+    // alone keep no mirror) — the same object when nothing is redacted.
+    const rawState = subflowResult.treeContext.globalContext;
+    const mirrorState = nestedRuntime.redactedStore?.getState();
+    if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
+    const exitState = mirrorState ?? (redactionRule ? redactionRule.retainRecord(rawState) : rawState);
+
     subflowResultsMap.set(subflowId, subflowResult);
     // Additive per-execution key (design: docs/design/subflow-commit-visibility.md). A LOOPING
     // subflow re-enters with the SAME subflowId, so the path key above is OVERWRITTEN each
@@ -371,12 +394,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.addFlowDebugMessage('subflow', `Exiting ${subflowName} subflow`, {
       targetStage: subflowId,
     });
-    this.deps.narrativeGenerator.onSubflowExit(
-      subflowName,
-      subflowId,
-      parentTraversalContext,
-      subflowResult.treeContext?.globalContext,
-    );
+    this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId, parentTraversalContext, exitState);
 
     parentContext.commit();
 
@@ -385,5 +403,28 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     }
 
     return subflowOutput;
+  }
+
+  /**
+   * Push the run's redaction into a nested root the way the dials are pushed
+   * — the triplicated propagation (root install · createNext/createChild ·
+   * this hop). Called TWICE on purpose: on the runtime's first root, so the
+   * SEED commit (`history[0]`) retains and mirrors under the policy, and on
+   * the FINAL root after the seeding block replaces it. Rule before mirror,
+   * as the executor orders them (the mirror's seed is scrubbed with the rule;
+   * for a nested runtime that seed is empty — its input arrives as a commit).
+   * `enableRedactedMirror` is idempotent, so the second call only re-installs
+   * the ONE mirror on the fresh root.
+   */
+  private inheritRedaction(
+    runtime: IExecutionRuntime,
+    root: StageContext,
+    rule: RedactionRule | undefined,
+    keepsMirror: boolean,
+  ): void {
+    if (rule) root.useRedactionRule(rule);
+    if (!keepsMirror) return;
+    runtime.enableRedactedMirror?.();
+    if (runtime.redactedStore) root.useRedactedMirror(runtime.redactedStore);
   }
 }

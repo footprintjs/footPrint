@@ -378,9 +378,12 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     const rid = event.traversalContext?.runtimeStageId;
     const sid = event.traversalContext?.stageId;
     const sfId = event.traversalContext?.subflowId;
-    // NOTE: output state is NOT emitted as step entries because it may contain
-    // unredacted values from the subflow's internal scope. The subflow exit
-    // header is sufficient — drill into the subflow for details.
+    // NOTE: output state is NOT emitted as step entries — the subflow's own
+    // stages already narrated each write, so the exit header is sufficient;
+    // drill into the subflow for details. Since 9.20.0 `outputState` is the
+    // subflow's SERVED state (its redacted mirror under a policy), so a
+    // renderer that does show it shows what `getSnapshot({ redact: true })`
+    // serves, never the raw heap.
     const ctx: SubflowRenderContext = {
       name: event.name,
       direction: 'exit',

@@ -166,6 +166,7 @@ scope.setValue('publicName', 'Alice'); // not redacted
 | MetricRecorder | Counts only (safe by default) |
 | Custom recorders | `[REDACTED]` |
 | EventLog (time-travel) | `REDACTED` |
+| Served state — the redacted mirror, `subflowResults[*].globalContext` and `onSubflowExit.outputState` under a policy | `REDACTED` (a per-call mark alone, with no policy, leaves the exit event carrying `[REDACTED]`) |
 
 Redaction is **declare-once, applied everywhere**. Once a key is marked sensitive via `setValue(..., true)`, subsequent reads of that key also send `[REDACTED]` to recorders:
 
@@ -241,7 +242,7 @@ Protect sensitive data in everything the run keeps or shows. Two approaches: man
 
 ### The one law — what a policy covers
 
-A redaction policy covers **everything the run retains or serves** — the commit log (both encodings), the redacted mirror (`getSnapshot({ redact: true })`), each stage's `stageReads` / `stageWrites` in the execution tree, recorder events and the narrative, a subflow's `inputMapper` seed (its `history[0]` and its narrative `Input:` line) and its `outputMapper` merge-back into the parent — and **never** the live heap the run computes on (`getSnapshot().sharedState`, what your stage functions read) nor the resume checkpoint (resumption must replay real values; the checkpoint is handed to the runner, never served).
+A redaction policy covers **everything the run retains or serves** — the commit log (both encodings), the redacted mirror (`getSnapshot({ redact: true })`), each stage's `stageReads` / `stageWrites` in the execution tree, recorder events and the narrative, a subflow's `inputMapper` seed (its `history[0]` and its narrative `Input:` line), its `outputMapper` merge-back into the parent, and its **served state** — `subflowResults[*].treeContext.globalContext` under `getSnapshot({ redact: true })` and the `outputState` an `onSubflowExit` recorder receives are the subflow's own redacted mirror (9.20.0) — and **never** the live heap the run computes on (`getSnapshot().sharedState`, what your stage functions read) nor the resume checkpoint (resumption must replay real values; the checkpoint is handed to the runner, never served).
 
 One owner keeps it. Every staged write and every tracked read passes through `StageContext`, which decides with the run's `RedactionRule` (`memory/redaction.ts`) — so a write that never passes the scope object (a subflow seed, an `outputMapper` merge-back, a resume re-seed) is retained under the same verdict as `scope.ssn = …`. Two placeholders, both historical: the log and the mirror carry `'REDACTED'`; every scope-tier view (recorder events, `stageReads`/`stageWrites`, narrative) carries `'[REDACTED]'`.
 
@@ -276,11 +277,13 @@ snapshot.commitLog[0].overwrite.profile;           // { auth: { token: 'REDACTED
 executor.getSnapshot({ redact: true }).sharedState; // the mirror agrees with the log
 const sub = snapshot.subflowResults!['sf'] as { treeContext: { history: Array<{ overwrite: Record<string, unknown> }> } };
 sub.treeContext.history[0].overwrite.apiKey;       // 'REDACTED'   — the subflow's seed commit
+const served = executor.getSnapshot({ redact: true }).subflowResults!['sf'] as { treeContext: { globalContext: Record<string, unknown> } };
+served.treeContext.globalContext.apiKey;           // 'REDACTED'   — the subflow's own mirror (9.20.0); plain getSnapshot() serves its live heap
 ```
 
 A consumer that sets no policy sees no change. A consumer with a policy now sees **more** scrubbed than before 9.19.0, when five paths bypassed it: an `outputMapper` merge-back, an `inputMapper` seed and its narrative `Input:` line, a tracked read's `stageReads` retention, and a `fields` (dot-path) policy, which scrubbed recorder events only while the log kept the field.
 
-**Known limit:** `subflowResults[*].treeContext.globalContext` (and its per-iteration `#n` twin) is the subflow's own raw heap even under `getSnapshot({ redact: true })` — only the run-level runtime keeps a mirror. Its `history` is scrubbed, so fold that with `stateAt` from `footprintjs/trace` to serve a subflow's final state (this is what agentfootprint's `servableSnapshot` does).
+**A limit closed in 9.20.0:** until 9.19.x, `subflowResults[*].treeContext.globalContext` (and its per-iteration `#n` twin) was the subflow's raw heap even under `getSnapshot({ redact: true })`, because only the run-level runtime kept a mirror — a consumer had to refold the subflow's scrubbed `history` with `stateAt` to serve its final state. Each subflow now keeps its own mirror whenever the run does, and the served state IS that mirror: `stateAt(sub.treeContext, sub.treeContext.history.length - 1).state` equals it exactly, so the refold is no longer needed (it still works).
 
 ### Manual Redaction
 

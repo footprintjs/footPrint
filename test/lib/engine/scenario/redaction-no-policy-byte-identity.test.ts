@@ -19,11 +19,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runNoPolicyFixture } from './redaction-no-policy-fixture.js';
+import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const reference = (encoding: 'full' | 'delta') =>
   readFileSync(join(here, 'reference', `no-policy-9.18.1.${encoding}.json`), 'utf8');
+const redactViewReference = (encoding: 'full' | 'delta') =>
+  readFileSync(join(here, 'reference', `no-policy-redact-view-9.19.1.${encoding}.json`), 'utf8');
 
 describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => {
   it('commitValues: full', async () => {
@@ -39,5 +41,33 @@ describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => 
     expect(JSON.stringify(full)).toContain('tok-1');
     expect(JSON.stringify(full)).not.toContain('REDACTED');
     expect(full.report).toEqual({ redactedKeys: [], fieldRedactions: {}, patterns: [] });
+  });
+});
+
+/**
+ * The 9.20.0 half: the SERVED view. `getSnapshot({ redact: true })` now serves
+ * each subflow's own mirror — but a run with no policy keeps no mirror, at
+ * the run level or in any subflow, so its served view (state, fold base,
+ * log, tree, subflow results) must be byte-identical to what 9.19.1 served.
+ * `reference/no-policy-redact-view-9.19.1.{full,delta}.json` were generated
+ * on 2026-09-10 by running `runNoPolicyRedactViewFixture` on the 9.19.1 tree
+ * (fd458f4) BEFORE the 9.20.0 source edits, twice, and checking the two runs
+ * agreed. Regenerate only from the old code, never from the new.
+ */
+describe('redaction — no policy, no mirror: the served view is byte-identical to 9.19.1', () => {
+  it('commitValues: full', async () => {
+    expect(await runNoPolicyRedactViewFixture('full')).toBe(redactViewReference('full'));
+  });
+
+  it('commitValues: delta', async () => {
+    expect(await runNoPolicyRedactViewFixture('delta')).toBe(redactViewReference('delta'));
+  });
+
+  it('the reference is the RAW subflow heap — plaintext, served as the plain snapshot is', () => {
+    const full = JSON.parse(redactViewReference('full'));
+    expect(JSON.stringify(full.subflowResults)).toContain('tok-1');
+    expect(JSON.stringify(full)).not.toContain('REDACTED');
+    // No mirror → the runtime serves the plain view, fold base included.
+    expect(full.initialState).toEqual({});
   });
 });

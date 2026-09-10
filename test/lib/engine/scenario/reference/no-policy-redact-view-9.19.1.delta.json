@@ -1,0 +1,489 @@
+{
+  "sharedState": {
+    "profile": {
+      "name": "Ada L.",
+      "auth": {
+        "token": "tok-1"
+      },
+      "seen": true
+    },
+    "tags": [
+      "a",
+      "b",
+      "z"
+    ],
+    "count": 4,
+    "note": "n",
+    "summary": "Ada L.:2:4",
+    "finished": true
+  },
+  "initialState": {},
+  "commitLog": [
+    {
+      "overwrite": {
+        "profile": {
+          "name": "Ada",
+          "auth": {
+            "token": "tok-1"
+          }
+        },
+        "tags": [
+          "a",
+          "b"
+        ],
+        "count": 2,
+        "note": "n",
+        "temp": "t"
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "profile",
+          "verb": "set"
+        },
+        {
+          "path": "tags",
+          "verb": "set"
+        },
+        {
+          "path": "count",
+          "verb": "set"
+        },
+        {
+          "path": "note",
+          "verb": "set"
+        },
+        {
+          "path": "temp",
+          "verb": "set"
+        }
+      ],
+      "stage": "Seed",
+      "stageId": "seed",
+      "runtimeStageId": "seed#0",
+      "idx": 0
+    },
+    {
+      "overwrite": {
+        "count": 4
+      },
+      "updates": {
+        "profile": {
+          "name": "Ada L."
+        }
+      },
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "profile",
+          "verb": "merge"
+        },
+        {
+          "path": "temp",
+          "verb": "delete"
+        },
+        {
+          "path": "count",
+          "verb": "set"
+        }
+      ],
+      "stage": "Touch",
+      "stageId": "touch",
+      "runtimeStageId": "touch#1",
+      "idx": 1
+    },
+    {
+      "overwrite": {
+        "summary": "Ada L.:2:4",
+        "tags": [
+          "z"
+        ],
+        "profile": {
+          "seen": true
+        }
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "summary",
+          "verb": "set"
+        },
+        {
+          "path": "tags",
+          "verb": "append"
+        },
+        {
+          "path": "profile\u001fseen",
+          "verb": "set"
+        }
+      ],
+      "stage": "Sub",
+      "stageId": "sf",
+      "runtimeStageId": "sf#2",
+      "idx": 2
+    },
+    {
+      "overwrite": {},
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [],
+      "stage": "Sub",
+      "stageId": "sf",
+      "runtimeStageId": "sf#2",
+      "idx": 3
+    },
+    {
+      "overwrite": {
+        "finished": true
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "finished",
+          "verb": "set"
+        }
+      ],
+      "stage": "Finish",
+      "stageId": "finish",
+      "runtimeStageId": "finish#4",
+      "idx": 4
+    }
+  ],
+  "commitValues": "delta",
+  "executionTree": {
+    "id": "seed",
+    "runtimeStageId": "seed#0",
+    "name": "Seed",
+    "isDecider": false,
+    "isFork": false,
+    "logs": {},
+    "errors": {},
+    "metrics": {},
+    "evals": {},
+    "stageWrites": {
+      "profile": {
+        "name": "Ada",
+        "auth": {
+          "token": "tok-1"
+        }
+      },
+      "tags": [
+        "a",
+        "b"
+      ],
+      "count": 2,
+      "note": "n",
+      "temp": "t"
+    },
+    "flowMessages": [
+      {
+        "type": "next",
+        "description": "Moving to Touch stage",
+        "targetStage": "Touch"
+      }
+    ],
+    "next": {
+      "id": "touch",
+      "runtimeStageId": "touch#1",
+      "name": "Touch",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "message": "[WRITE] deleted temp"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "profile": {
+          "name": "Ada L."
+        },
+        "count": 4
+      },
+      "stageReads": {
+        "count": 2,
+        "tags": [
+          "a",
+          "b"
+        ]
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Sub stage",
+          "targetStage": "Sub"
+        }
+      ],
+      "next": {
+        "id": "sf",
+        "runtimeStageId": "sf#2",
+        "name": "Sub",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "profile.seen": true
+        },
+        "subflowId": "sf",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Sub subflow",
+            "targetStage": "sf"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Sub subflow",
+            "targetStage": "sf"
+          }
+        ],
+        "next": {
+          "id": "finish",
+          "runtimeStageId": "finish#4",
+          "name": "Finish",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "finished": true
+          },
+          "stageReads": {
+            "summary": "Ada L.:2:4",
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "tok-1"
+              },
+              "seen": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "subflowResults": {
+    "sf": {
+      "subflowId": "sf",
+      "subflowName": "Sub",
+      "treeContext": {
+        "globalContext": {
+          "profile": {
+            "name": "Ada L.",
+            "auth": {
+              "token": "tok-1"
+            }
+          },
+          "tags": [
+            "a",
+            "b"
+          ],
+          "count": 4,
+          "summary": "Ada L.:2:4"
+        },
+        "stageContexts": {
+          "id": "sf/inner",
+          "runtimeStageId": "sf/inner#3",
+          "name": "sf/Inner",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "summary": "Ada L.:2:4"
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "tok-1"
+              }
+            },
+            "tags": [
+              "a",
+              "b"
+            ],
+            "count": 4
+          }
+        },
+        "history": [
+          {
+            "overwrite": {
+              "profile": {
+                "name": "Ada L.",
+                "auth": {
+                  "token": "tok-1"
+                }
+              },
+              "tags": [
+                "a",
+                "b"
+              ],
+              "count": 4
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "profile\u001fname",
+                "verb": "set"
+              },
+              {
+                "path": "profile\u001fauth",
+                "verb": "set"
+              },
+              {
+                "path": "tags",
+                "verb": "set"
+              },
+              {
+                "path": "count",
+                "verb": "set"
+              }
+            ],
+            "stage": "sf/Inner",
+            "stageId": "sf/inner",
+            "runtimeStageId": "",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "summary": "Ada L.:2:4"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "summary",
+                "verb": "set"
+              }
+            ],
+            "stage": "sf/Inner",
+            "stageId": "sf/inner",
+            "runtimeStageId": "sf/inner#3",
+            "idx": 1
+          }
+        ],
+        "initialState": {}
+      },
+      "parentStageId": "Sub"
+    },
+    "sf#2": {
+      "subflowId": "sf",
+      "subflowName": "Sub",
+      "treeContext": {
+        "globalContext": {
+          "profile": {
+            "name": "Ada L.",
+            "auth": {
+              "token": "tok-1"
+            }
+          },
+          "tags": [
+            "a",
+            "b"
+          ],
+          "count": 4,
+          "summary": "Ada L.:2:4"
+        },
+        "stageContexts": {
+          "id": "sf/inner",
+          "runtimeStageId": "sf/inner#3",
+          "name": "sf/Inner",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "summary": "Ada L.:2:4"
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "tok-1"
+              }
+            },
+            "tags": [
+              "a",
+              "b"
+            ],
+            "count": 4
+          }
+        },
+        "history": [
+          {
+            "overwrite": {
+              "profile": {
+                "name": "Ada L.",
+                "auth": {
+                  "token": "tok-1"
+                }
+              },
+              "tags": [
+                "a",
+                "b"
+              ],
+              "count": 4
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "profile\u001fname",
+                "verb": "set"
+              },
+              {
+                "path": "profile\u001fauth",
+                "verb": "set"
+              },
+              {
+                "path": "tags",
+                "verb": "set"
+              },
+              {
+                "path": "count",
+                "verb": "set"
+              }
+            ],
+            "stage": "sf/Inner",
+            "stageId": "sf/inner",
+            "runtimeStageId": "",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "summary": "Ada L.:2:4"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "summary",
+                "verb": "set"
+              }
+            ],
+            "stage": "sf/Inner",
+            "stageId": "sf/inner",
+            "runtimeStageId": "sf/inner#3",
+            "idx": 1
+          }
+        ],
+        "initialState": {}
+      },
+      "parentStageId": "Sub"
+    }
+  }
+}

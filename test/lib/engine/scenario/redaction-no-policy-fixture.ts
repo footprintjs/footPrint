@@ -97,3 +97,25 @@ export async function runNoPolicyFixture(commitValues: CommitValuesMode): Promis
     report: executor.getRedactionReport(),
   });
 }
+
+/**
+ * The SERVED view of the same fixture — `getSnapshot({ redact: true })` — as
+ * stable bytes. Behind `redaction-no-policy-byte-identity.test.ts`'s second
+ * proof (9.20.0): with no policy there is no mirror, at the run level or in
+ * any subflow, so the served view must stay byte-identical to what 9.19.1
+ * served (`reference/no-policy-redact-view-9.19.1.*.json`).
+ */
+export async function runNoPolicyRedactViewFixture(commitValues: CommitValuesMode): Promise<string> {
+  const executor = new FlowChartExecutor(buildFixtureChart(), { commitValues });
+  executor.enableNarrative();
+  await executor.run();
+  const served = executor.getSnapshot({ redact: true });
+  return stableJSON({
+    sharedState: served.sharedState,
+    initialState: served.initialState,
+    commitLog: served.commitLog,
+    commitValues: served.commitValues,
+    executionTree: served.executionTree,
+    subflowResults: served.subflowResults,
+  });
+}

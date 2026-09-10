@@ -118,6 +118,12 @@ export type RuntimeSnapshot = {
    *     iteration as `subflowResults[node.runtimeStageId] ?? subflowResults[node.subflowId]`.
    * Both keys point at the same object for a single mount; iterate with care (count via the
    * path keys — those without `'#'`). The pause checkpoint carries only the path keys, lean.
+   *
+   * Under `getSnapshot({ redact: true })` each entry's `treeContext.globalContext` is that
+   * subflow's OWN redacted mirror (9.20.0) — the fold of its scrubbed `history` — served as
+   * one substituted object per mount (both keys still agree) — the wrapper is fresh per
+   * `getSnapshot` call, the `globalContext` inside it is the stable mirror; plain, it is the subflow's
+   * live heap. Without a policy there is no mirror and the two views are the same objects.
    */
   subflowResults?: Record<string, unknown>;
   /** Snapshot data from recorders that implement toSnapshot(). */

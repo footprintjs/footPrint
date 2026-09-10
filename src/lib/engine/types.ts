@@ -5,6 +5,7 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
+import type { SharedMemory } from '../memory/SharedMemory.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { FlowControlType, FlowMessage } from '../memory/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
@@ -332,6 +333,13 @@ export interface SubflowResult {
   subflowId: string;
   subflowName: string;
   treeContext: {
+    /**
+     * The subflow's final state. The traverser's record holds the LIVE heap
+     * — what a plain `getSnapshot()` and the checkpoint see. Under
+     * `getSnapshot({ redact: true })` the executor serves the subflow's own
+     * redacted mirror here instead (9.20.0; `handlers/servedSubflowResults`),
+     * which is exactly what `stateAt` folds `history` to.
+     */
     globalContext: Record<string, unknown>;
     stageContexts: Record<string, unknown>;
     history: unknown[];
@@ -418,8 +426,21 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
  */
 export interface IExecutionRuntime {
   globalStore: { getState(): Record<string, unknown> };
+  /**
+   * The redacted mirror of `globalStore` — present once
+   * {@link enableRedactedMirror} ran (a run with a policy), else absent.
+   * `SubflowExecutor` reads it to serve a subflow's state (9.20.0).
+   */
+  redactedStore?: SharedMemory;
   rootStageContext: StageContext;
   executionHistory: { list(): unknown[] };
+  /**
+   * Opt in to the redacted mirror — `ExecutionRuntime.enableRedactedMirror`.
+   * Optional on the duck type so bare runtimes (tests) need not implement it;
+   * `SubflowExecutor` calls it on a nested runtime exactly when the
+   * parent-mount context carries the run's mirror.
+   */
+  enableRedactedMirror?(): void;
   getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;
     executionTree: unknown;
