@@ -119,6 +119,23 @@ export type StageNode<TOut = any, TScope = any> = {
    */
   retry?: RetryPolicy;
 
+  // ── Declared tags ──
+
+  /**
+   * Declared tags (9.21.0) — the NAMES the author put on this stage at build
+   * time. A POLICY-like field, not a kind: no `computeNodeType` edit, no
+   * type-union site, and both prefixer twins spread `{ ...node }` so the field
+   * rides subflow prefixing untouched.
+   *
+   * `FlowchartTraverser.executeNodeStep` stamps it on the stage's
+   * `StageContext` beside `runtimeStageId`; `StageContext.commit` records it
+   * on the bundle (`CommitBundle.tags`) exactly once per execution. Never a
+   * value — a runtime string could carry data past every redaction point —
+   * and refused at build when empty, non-string, or carrying the reserved
+   * branch-segment marker. See `FlowChartBuilder.tag`.
+   */
+  tags?: readonly string[];
+
   // ── Pause/Resume ──
 
   /** When true, this stage can pause execution (PausableHandler pattern). */

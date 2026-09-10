@@ -68,6 +68,15 @@ export class StageContext {
   public stageId: string;
   /** Unique per-execution-step identifier. Set by traverser before stage execution. */
   public runtimeStageId = '';
+  /**
+   * Declared tags (9.21.0) for the stage this context is executing. Set by
+   * the traverser beside `runtimeStageId` (per-node identity — NOT inherited
+   * by `createNext` / `createChild`), recorded on the first bundle
+   * `commit()` writes, then released so a routine second commit on the same
+   * context (a fork child's fan-out repeat, a mount's exit bundle) carries
+   * none — the same once-per-execution law `_untrackedSources` keeps.
+   */
+  public tags?: readonly string[];
   public runId: string;
   public branchId?: string;
   public isDecider: boolean;
@@ -654,6 +663,17 @@ export class StageContext {
     return { untrackedSources: [...this._untrackedSources] };
   }
 
+  /**
+   * The `tags` bundle fragment for commit() — `{}` when the stage declares
+   * none, so an untagged chart's log is byte-identical to 9.20.0. Added after
+   * the payload encoding, so it is independent of `commitValues`; names, so
+   * redaction never sees it.
+   */
+  private tagsFragment(): { tags?: readonly string[] } {
+    if (!this.tags || this.tags.length === 0) return {};
+    return { tags: this.tags };
+  }
+
   /** Register an observer that fires after commit() applies patches.
    *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
   setCommitObserver(
@@ -707,14 +727,18 @@ export class StageContext {
         stageId: this.stageId,
         runtimeStageId: this.runtimeStageId,
         ...this.untrackedSourcesFragment(),
+        ...this.tagsFragment(),
       });
       if (this._commitObserver) {
         this._commitObserver({ ...this._stageWrites });
       }
       // #13b: drop the first-touch view — a read-only stage still pinned one
-      // full state generation through it. D2 markers release with it.
+      // full state generation through it. D2 markers release with it, and so
+      // do the declared tags (an empty commit is a deliberate, tagged stop —
+      // once).
       this.stateView = undefined;
       this._untrackedSources = undefined;
+      this.tags = undefined;
       return;
     }
 
@@ -725,6 +749,7 @@ export class StageContext {
       stageId: this.stageId,
       runtimeStageId: this.runtimeStageId,
       ...this.untrackedSourcesFragment(),
+      ...this.tagsFragment(),
     };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
@@ -754,10 +779,12 @@ export class StageContext {
     // #13b: release the staging state — see the method JSDoc. Done LAST so
     // the commit observer sees the exact same world as before the release.
     // D2's untracked-source markers release with it: the routine
-    // double-commit paths then record the field exactly once.
+    // double-commit paths then record the field exactly once. Declared tags
+    // release on the same law: one stamp per execution of the stage.
     this.buffer = undefined;
     this.stateView = undefined;
     this._untrackedSources = undefined;
+    this.tags = undefined;
   }
 
   /**

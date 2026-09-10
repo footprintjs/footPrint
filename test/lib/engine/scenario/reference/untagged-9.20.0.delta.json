@@ -1,0 +1,1646 @@
+{
+  "paused": {
+    "sharedState": {
+      "n": null,
+      "trail": [
+        "seed",
+        "fork",
+        "sub"
+      ],
+      "attempts": 3,
+      "runs": {
+        "child-a": {
+          "a": 11
+        },
+        "child-b": {
+          "b": 21
+        }
+      },
+      "route": "low",
+      "summary": "NaN:3"
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "n": 1,
+          "trail": [
+            "seed"
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "n",
+            "verb": "set"
+          },
+          {
+            "path": "trail",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Idle",
+        "stageId": "idle",
+        "runtimeStageId": "idle#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "attempts": 3
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "attempts",
+            "verb": "set"
+          }
+        ],
+        "stage": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "trail": [
+            "fork"
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "trail",
+            "verb": "append"
+          }
+        ],
+        "stage": "Fork",
+        "stageId": "fork",
+        "runtimeStageId": "fork#3",
+        "idx": 3
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "child-a": {
+              "a": 11
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fchild-a\u001fa",
+            "verb": "set"
+          }
+        ],
+        "stage": "Child A",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#4",
+        "idx": 4
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "child-b": {
+              "b": 21
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fchild-b\u001fb",
+            "verb": "set"
+          }
+        ],
+        "stage": "Child B",
+        "stageId": "child-b",
+        "runtimeStageId": "child-b#5",
+        "idx": 5
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Child A",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#4",
+        "idx": 6
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Child B",
+        "stageId": "child-b",
+        "runtimeStageId": "child-b#5",
+        "idx": 7
+      },
+      {
+        "overwrite": {
+          "n": null
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "n",
+            "verb": "set"
+          }
+        ],
+        "stage": "Merge",
+        "stageId": "merge",
+        "runtimeStageId": "merge#6",
+        "idx": 8
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Route",
+        "stageId": "route",
+        "runtimeStageId": "route#7",
+        "idx": 9
+      },
+      {
+        "overwrite": {
+          "route": "low"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "route",
+            "verb": "set"
+          }
+        ],
+        "stage": "Low",
+        "stageId": "low",
+        "runtimeStageId": "low#8",
+        "idx": 10
+      },
+      {
+        "overwrite": {
+          "summary": "NaN:3",
+          "trail": [
+            "sub"
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "summary",
+            "verb": "set"
+          },
+          {
+            "path": "trail",
+            "verb": "append"
+          }
+        ],
+        "stage": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "idx": 11
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "idx": 12
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Gate",
+        "stageId": "gate",
+        "runtimeStageId": "gate#12",
+        "idx": 13
+      }
+    ],
+    "commitValues": "delta",
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "n": 1,
+        "trail": [
+          "seed"
+        ]
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Idle stage",
+          "targetStage": "Idle"
+        }
+      ],
+      "next": {
+        "id": "idle",
+        "runtimeStageId": "idle#1",
+        "name": "Idle",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageReads": {
+          "n": 1
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Flaky stage",
+            "targetStage": "Flaky"
+          }
+        ],
+        "next": {
+          "id": "flaky",
+          "runtimeStageId": "flaky#2",
+          "name": "Flaky",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "attempts": 3
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Fork stage",
+              "targetStage": "Fork"
+            }
+          ],
+          "next": {
+            "id": "fork",
+            "runtimeStageId": "fork#3",
+            "name": "Fork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "trail": [
+                "seed",
+                "fork"
+              ]
+            },
+            "stageReads": {
+              "trail": [
+                "seed"
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: Child A, Child B",
+                "count": 2,
+                "targetStage": [
+                  "Child A",
+                  "Child B"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to Merge stage",
+                "targetStage": "Merge"
+              }
+            ],
+            "next": {
+              "id": "merge",
+              "runtimeStageId": "merge#6",
+              "name": "Merge",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "n": null
+              },
+              "stageReads": {},
+              "flowMessages": [
+                {
+                  "type": "next",
+                  "description": "Moving to Route stage",
+                  "targetStage": "Route"
+                }
+              ],
+              "next": {
+                "id": "route",
+                "runtimeStageId": "route#7",
+                "name": "Route",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageReads": {
+                  "n": null
+                },
+                "flowMessages": [
+                  {
+                    "type": "branch",
+                    "description": "Evaluated scope and returned 'low' → chose Low path.",
+                    "targetStage": "Low",
+                    "rationale": "returned branchId: low"
+                  }
+                ],
+                "next": {
+                  "id": "sf",
+                  "runtimeStageId": "sf#9",
+                  "name": "Sub",
+                  "isDecider": false,
+                  "isFork": false,
+                  "logs": {},
+                  "errors": {},
+                  "metrics": {},
+                  "evals": {},
+                  "subflowId": "sf",
+                  "flowMessages": [
+                    {
+                      "type": "subflow",
+                      "description": "Entering Sub subflow",
+                      "targetStage": "sf"
+                    },
+                    {
+                      "type": "subflow",
+                      "description": "Exiting Sub subflow",
+                      "targetStage": "sf"
+                    }
+                  ],
+                  "next": {
+                    "id": "gate",
+                    "runtimeStageId": "gate#12",
+                    "name": "Gate",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {}
+                  }
+                },
+                "children": [
+                  {
+                    "id": "low",
+                    "runtimeStageId": "low#8",
+                    "name": "Low",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "route": "low"
+                    }
+                  }
+                ]
+              }
+            },
+            "children": [
+              {
+                "id": "child-a",
+                "runtimeStageId": "child-a#4",
+                "name": "Child A",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "a": 11
+                },
+                "stageReads": {
+                  "n": 1
+                }
+              },
+              {
+                "id": "child-b",
+                "runtimeStageId": "child-b#5",
+                "name": "Child B",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "b": 21
+                },
+                "stageReads": {
+                  "n": 1
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "subflowResults": {
+      "sf": {
+        "subflowId": "sf",
+        "subflowName": "Sub",
+        "treeContext": {
+          "globalContext": {
+            "n": null,
+            "trail": [
+              "seed",
+              "fork"
+            ],
+            "count": 3,
+            "summary": "NaN:3"
+          },
+          "stageContexts": {
+            "id": "sf/inner-seed",
+            "runtimeStageId": "sf/inner-seed#10",
+            "name": "sf/Inner seed",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "count": 3
+            },
+            "stageReads": {
+              "trail": [
+                "seed",
+                "fork"
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to sf/Inner summary stage",
+                "targetStage": "sf/Inner summary"
+              }
+            ],
+            "next": {
+              "id": "sf/inner-summary",
+              "runtimeStageId": "sf/inner-summary#11",
+              "name": "sf/Inner summary",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "summary": "NaN:3"
+              },
+              "stageReads": {
+                "n": null,
+                "count": 3
+              }
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "n": null,
+                "trail": [
+                  "seed",
+                  "fork"
+                ]
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "n",
+                  "verb": "set"
+                },
+                {
+                  "path": "trail",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner seed",
+              "stageId": "sf/inner-seed",
+              "runtimeStageId": "",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "count": 3
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "count",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner seed",
+              "stageId": "sf/inner-seed",
+              "runtimeStageId": "sf/inner-seed#10",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "summary": "NaN:3"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "summary",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner summary",
+              "stageId": "sf/inner-summary",
+              "runtimeStageId": "sf/inner-summary#11",
+              "idx": 2
+            }
+          ],
+          "initialState": {}
+        },
+        "parentStageId": "Sub"
+      },
+      "sf#9": {
+        "subflowId": "sf",
+        "subflowName": "Sub",
+        "treeContext": {
+          "globalContext": {
+            "n": null,
+            "trail": [
+              "seed",
+              "fork"
+            ],
+            "count": 3,
+            "summary": "NaN:3"
+          },
+          "stageContexts": {
+            "id": "sf/inner-seed",
+            "runtimeStageId": "sf/inner-seed#10",
+            "name": "sf/Inner seed",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "count": 3
+            },
+            "stageReads": {
+              "trail": [
+                "seed",
+                "fork"
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to sf/Inner summary stage",
+                "targetStage": "sf/Inner summary"
+              }
+            ],
+            "next": {
+              "id": "sf/inner-summary",
+              "runtimeStageId": "sf/inner-summary#11",
+              "name": "sf/Inner summary",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "summary": "NaN:3"
+              },
+              "stageReads": {
+                "n": null,
+                "count": 3
+              }
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "n": null,
+                "trail": [
+                  "seed",
+                  "fork"
+                ]
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "n",
+                  "verb": "set"
+                },
+                {
+                  "path": "trail",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner seed",
+              "stageId": "sf/inner-seed",
+              "runtimeStageId": "",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "count": 3
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "count",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner seed",
+              "stageId": "sf/inner-seed",
+              "runtimeStageId": "sf/inner-seed#10",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "summary": "NaN:3"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "summary",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf/Inner summary",
+              "stageId": "sf/inner-summary",
+              "runtimeStageId": "sf/inner-summary#11",
+              "idx": 2
+            }
+          ],
+          "initialState": {}
+        },
+        "parentStageId": "Sub"
+      }
+    },
+    "narrative": [
+      {
+        "type": "stage",
+        "text": "Stage 1: The process began with Seed.",
+        "depth": 0,
+        "stageName": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Write n = 1",
+        "depth": 1,
+        "stageName": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "stepNumber": 1,
+        "key": "n",
+        "rawValue": 1
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Write trail = (1 item)",
+        "depth": 1,
+        "stageName": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "stepNumber": 2,
+        "key": "trail",
+        "rawValue": [
+          "seed"
+        ]
+      },
+      {
+        "type": "stage",
+        "text": "Stage 2: Next, it moved on to Idle.",
+        "depth": 0,
+        "stageName": "Idle",
+        "stageId": "idle",
+        "runtimeStageId": "idle#1"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read n = 1",
+        "depth": 1,
+        "stageName": "Idle",
+        "stageId": "idle",
+        "runtimeStageId": "idle#1",
+        "stepNumber": 1,
+        "key": "n",
+        "rawValue": 1
+      },
+      {
+        "type": "stage",
+        "text": "Stage 3: Next, it moved on to Flaky.",
+        "depth": 0,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Write attempts = 1",
+        "depth": 1,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "stepNumber": 1,
+        "key": "attempts",
+        "rawValue": 1
+      },
+      {
+        "type": "retry",
+        "text": "[Retry]: attempt 1 of 3 at Flaky failed (flaky attempt 1).",
+        "depth": 1,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "stepNumber": 2
+      },
+      {
+        "type": "step",
+        "text": "Step 3: Write attempts = 2",
+        "depth": 1,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "stepNumber": 3,
+        "key": "attempts",
+        "rawValue": 2
+      },
+      {
+        "type": "retry",
+        "text": "[Retry]: attempt 2 of 3 at Flaky failed (flaky attempt 2).",
+        "depth": 1,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "stepNumber": 4
+      },
+      {
+        "type": "step",
+        "text": "Step 5: Write attempts = 3",
+        "depth": 1,
+        "stageName": "Flaky",
+        "stageId": "flaky",
+        "runtimeStageId": "flaky#2",
+        "stepNumber": 5,
+        "key": "attempts",
+        "rawValue": 3
+      },
+      {
+        "type": "stage",
+        "text": "Stage 4: Next, it moved on to Fork.",
+        "depth": 0,
+        "stageName": "Fork",
+        "stageId": "fork",
+        "runtimeStageId": "fork#3"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read trail = (1 item)",
+        "depth": 1,
+        "stageName": "Fork",
+        "stageId": "fork",
+        "runtimeStageId": "fork#3",
+        "stepNumber": 1,
+        "key": "trail",
+        "rawValue": [
+          "seed"
+        ]
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Write trail = (2 items)",
+        "depth": 1,
+        "stageName": "Fork",
+        "stageId": "fork",
+        "runtimeStageId": "fork#3",
+        "stepNumber": 2,
+        "key": "trail",
+        "rawValue": [
+          "seed",
+          "fork"
+        ]
+      },
+      {
+        "type": "fork",
+        "text": "[Parallel]: Forking into 2 parallel paths: Child A, Child B.",
+        "depth": 0,
+        "stageId": "fork",
+        "runtimeStageId": "fork#3"
+      },
+      {
+        "type": "stage",
+        "text": "Stage 5: Next, it moved on to Child A.",
+        "depth": 0,
+        "stageName": "Child A",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#4"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read n = 1",
+        "depth": 1,
+        "stageName": "Child A",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#4",
+        "stepNumber": 1,
+        "key": "n",
+        "rawValue": 1
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Write a = 11",
+        "depth": 1,
+        "stageName": "Child A",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#4",
+        "stepNumber": 2,
+        "key": "a",
+        "rawValue": 11
+      },
+      {
+        "type": "stage",
+        "text": "Stage 6: Next, it moved on to Child B.",
+        "depth": 0,
+        "stageName": "Child B",
+        "stageId": "child-b",
+        "runtimeStageId": "child-b#5"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read n = 1",
+        "depth": 1,
+        "stageName": "Child B",
+        "stageId": "child-b",
+        "runtimeStageId": "child-b#5",
+        "stepNumber": 1,
+        "key": "n",
+        "rawValue": 1
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Write b = 21",
+        "depth": 1,
+        "stageName": "Child B",
+        "stageId": "child-b",
+        "runtimeStageId": "child-b#5",
+        "stepNumber": 2,
+        "key": "b",
+        "rawValue": 21
+      },
+      {
+        "type": "stage",
+        "text": "Stage 7: Next, it moved on to Merge.",
+        "depth": 0,
+        "stageName": "Merge",
+        "stageId": "merge",
+        "runtimeStageId": "merge#6"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read a = undefined",
+        "depth": 1,
+        "stageName": "Merge",
+        "stageId": "merge",
+        "runtimeStageId": "merge#6",
+        "stepNumber": 1,
+        "key": "a"
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Read b = undefined",
+        "depth": 1,
+        "stageName": "Merge",
+        "stageId": "merge",
+        "runtimeStageId": "merge#6",
+        "stepNumber": 2,
+        "key": "b"
+      },
+      {
+        "type": "step",
+        "text": "Step 3: Write n = NaN",
+        "depth": 1,
+        "stageName": "Merge",
+        "stageId": "merge",
+        "runtimeStageId": "merge#6",
+        "stepNumber": 3,
+        "key": "n",
+        "rawValue": null
+      },
+      {
+        "type": "stage",
+        "text": "Stage 8: Next, it moved on to Route.",
+        "depth": 0,
+        "stageName": "Route",
+        "stageId": "route",
+        "runtimeStageId": "route#7"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read n = NaN",
+        "depth": 1,
+        "stageName": "Route",
+        "stageId": "route",
+        "runtimeStageId": "route#7",
+        "stepNumber": 1,
+        "key": "n",
+        "rawValue": null
+      },
+      {
+        "type": "condition",
+        "text": "[Condition]: A decision was made, and the path taken was Low.",
+        "depth": 1,
+        "stageName": "Route",
+        "stageId": "route",
+        "runtimeStageId": "route#7"
+      },
+      {
+        "type": "stage",
+        "text": "Stage 9: Next, it moved on to Low.",
+        "depth": 0,
+        "stageName": "Low",
+        "stageId": "low",
+        "runtimeStageId": "low#8"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Write route = \"low\"",
+        "depth": 1,
+        "stageName": "Low",
+        "stageId": "low",
+        "runtimeStageId": "low#8",
+        "stepNumber": 1,
+        "key": "route",
+        "rawValue": "low"
+      },
+      {
+        "type": "subflow",
+        "text": "Entering the Sub subflow.",
+        "depth": 0,
+        "stageName": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "subflowId": "sf",
+        "direction": "entry"
+      },
+      {
+        "type": "step",
+        "text": "Input: n = NaN",
+        "depth": 1,
+        "stageName": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "subflowId": "sf",
+        "key": "n",
+        "rawValue": null
+      },
+      {
+        "type": "step",
+        "text": "Input: trail = (2 items)",
+        "depth": 1,
+        "stageName": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "subflowId": "sf",
+        "key": "trail",
+        "rawValue": [
+          "seed",
+          "fork"
+        ]
+      },
+      {
+        "type": "stage",
+        "text": "Stage 1: The process began with sf/Inner seed.",
+        "depth": 0,
+        "stageName": "sf/Inner seed",
+        "stageId": "sf/inner-seed",
+        "runtimeStageId": "sf/inner-seed#10",
+        "subflowId": "sf"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read trail = (2 items)",
+        "depth": 1,
+        "stageName": "sf/Inner seed",
+        "stageId": "sf/inner-seed",
+        "runtimeStageId": "sf/inner-seed#10",
+        "stepNumber": 1,
+        "subflowId": "sf",
+        "key": "trail",
+        "rawValue": [
+          "seed",
+          "fork"
+        ]
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Write count = 3",
+        "depth": 1,
+        "stageName": "sf/Inner seed",
+        "stageId": "sf/inner-seed",
+        "runtimeStageId": "sf/inner-seed#10",
+        "stepNumber": 2,
+        "subflowId": "sf",
+        "key": "count",
+        "rawValue": 3
+      },
+      {
+        "type": "stage",
+        "text": "Stage 2: Next, it moved on to sf/Inner summary.",
+        "depth": 0,
+        "stageName": "sf/Inner summary",
+        "stageId": "sf/inner-summary",
+        "runtimeStageId": "sf/inner-summary#11",
+        "subflowId": "sf"
+      },
+      {
+        "type": "step",
+        "text": "Step 1: Read n = NaN",
+        "depth": 1,
+        "stageName": "sf/Inner summary",
+        "stageId": "sf/inner-summary",
+        "runtimeStageId": "sf/inner-summary#11",
+        "stepNumber": 1,
+        "subflowId": "sf",
+        "key": "n",
+        "rawValue": null
+      },
+      {
+        "type": "step",
+        "text": "Step 2: Read count = 3",
+        "depth": 1,
+        "stageName": "sf/Inner summary",
+        "stageId": "sf/inner-summary",
+        "runtimeStageId": "sf/inner-summary#11",
+        "stepNumber": 2,
+        "subflowId": "sf",
+        "key": "count",
+        "rawValue": 3
+      },
+      {
+        "type": "step",
+        "text": "Step 3: Write summary = \"NaN:3\"",
+        "depth": 1,
+        "stageName": "sf/Inner summary",
+        "stageId": "sf/inner-summary",
+        "runtimeStageId": "sf/inner-summary#11",
+        "stepNumber": 3,
+        "subflowId": "sf",
+        "key": "summary",
+        "rawValue": "NaN:3"
+      },
+      {
+        "type": "subflow",
+        "text": "Exiting the Sub subflow.",
+        "depth": 0,
+        "stageName": "Sub",
+        "stageId": "sf",
+        "runtimeStageId": "sf#9",
+        "subflowId": "sf",
+        "direction": "exit"
+      },
+      {
+        "type": "pause",
+        "text": "Execution paused at Gate.",
+        "depth": 0,
+        "stageName": "Gate",
+        "stageId": "gate",
+        "runtimeStageId": "gate#12"
+      }
+    ]
+  },
+  "checkpoint": {
+    "sharedState": {
+      "n": null,
+      "trail": [
+        "seed",
+        "fork",
+        "sub"
+      ],
+      "attempts": 3,
+      "runs": {
+        "child-a": {
+          "a": 11
+        },
+        "child-b": {
+          "b": 21
+        }
+      },
+      "route": "low",
+      "summary": "NaN:3"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "n": 1,
+        "trail": [
+          "seed"
+        ]
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Idle stage",
+          "targetStage": "Idle"
+        }
+      ],
+      "next": {
+        "id": "idle",
+        "runtimeStageId": "idle#1",
+        "name": "Idle",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageReads": {
+          "n": 1
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Flaky stage",
+            "targetStage": "Flaky"
+          }
+        ],
+        "next": {
+          "id": "flaky",
+          "runtimeStageId": "flaky#2",
+          "name": "Flaky",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "attempts": 3
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Fork stage",
+              "targetStage": "Fork"
+            }
+          ],
+          "next": {
+            "id": "fork",
+            "runtimeStageId": "fork#3",
+            "name": "Fork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "trail": [
+                "seed",
+                "fork"
+              ]
+            },
+            "stageReads": {
+              "trail": [
+                "seed"
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: Child A, Child B",
+                "count": 2,
+                "targetStage": [
+                  "Child A",
+                  "Child B"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to Merge stage",
+                "targetStage": "Merge"
+              }
+            ],
+            "next": {
+              "id": "merge",
+              "runtimeStageId": "merge#6",
+              "name": "Merge",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "n": null
+              },
+              "stageReads": {},
+              "flowMessages": [
+                {
+                  "type": "next",
+                  "description": "Moving to Route stage",
+                  "targetStage": "Route"
+                }
+              ],
+              "next": {
+                "id": "route",
+                "runtimeStageId": "route#7",
+                "name": "Route",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageReads": {
+                  "n": null
+                },
+                "flowMessages": [
+                  {
+                    "type": "branch",
+                    "description": "Evaluated scope and returned 'low' → chose Low path.",
+                    "targetStage": "Low",
+                    "rationale": "returned branchId: low"
+                  }
+                ],
+                "next": {
+                  "id": "sf",
+                  "runtimeStageId": "sf#9",
+                  "name": "Sub",
+                  "isDecider": false,
+                  "isFork": false,
+                  "logs": {},
+                  "errors": {},
+                  "metrics": {},
+                  "evals": {},
+                  "subflowId": "sf",
+                  "flowMessages": [
+                    {
+                      "type": "subflow",
+                      "description": "Entering Sub subflow",
+                      "targetStage": "sf"
+                    },
+                    {
+                      "type": "subflow",
+                      "description": "Exiting Sub subflow",
+                      "targetStage": "sf"
+                    }
+                  ],
+                  "next": {
+                    "id": "gate",
+                    "runtimeStageId": "gate#12",
+                    "name": "Gate",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {}
+                  }
+                },
+                "children": [
+                  {
+                    "id": "low",
+                    "runtimeStageId": "low#8",
+                    "name": "Low",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "route": "low"
+                    }
+                  }
+                ]
+              }
+            },
+            "children": [
+              {
+                "id": "child-a",
+                "runtimeStageId": "child-a#4",
+                "name": "Child A",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "a": 11
+                },
+                "stageReads": {
+                  "n": 1
+                }
+              },
+              {
+                "id": "child-b",
+                "runtimeStageId": "child-b#5",
+                "name": "Child B",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "b": 21
+                },
+                "stageReads": {
+                  "n": 1
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "pausedStageId": "gate",
+    "subflowPath": [],
+    "pauseData": {
+      "question": "Approve?"
+    },
+    "subflowStates": {},
+    "executionCount": 13,
+    "visitCounts": {
+      "seed": 1,
+      "idle": 1,
+      "flaky": 1,
+      "fork": 1,
+      "child-a": 1,
+      "child-b": 1,
+      "merge": 1,
+      "route": 1,
+      "low": 1,
+      "sf": 1,
+      "sf/inner-seed": 1,
+      "sf/inner-summary": 1,
+      "gate": 1
+    },
+    "subflowResults": {
+      "sf": {
+        "subflowId": "sf",
+        "subflowName": "Sub",
+        "treeContext": {
+          "globalContext": {
+            "n": null,
+            "trail": [
+              "seed",
+              "fork"
+            ],
+            "count": 3,
+            "summary": "NaN:3"
+          },
+          "stageContexts": {
+            "id": "sf/inner-seed",
+            "runtimeStageId": "sf/inner-seed#10",
+            "name": "sf/Inner seed",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "count": 3
+            },
+            "stageReads": {
+              "trail": [
+                "seed",
+                "fork"
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to sf/Inner summary stage",
+                "targetStage": "sf/Inner summary"
+              }
+            ],
+            "next": {
+              "id": "sf/inner-summary",
+              "runtimeStageId": "sf/inner-summary#11",
+              "name": "sf/Inner summary",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "summary": "NaN:3"
+              },
+              "stageReads": {
+                "n": null,
+                "count": 3
+              }
+            }
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Sub"
+      }
+    }
+  },
+  "resumed": {
+    "sharedState": {
+      "n": null,
+      "trail": [
+        "seed",
+        "fork",
+        "sub"
+      ],
+      "attempts": 3,
+      "runs": {
+        "child-a": {
+          "a": 11
+        },
+        "child-b": {
+          "b": 21
+        }
+      },
+      "route": "low",
+      "summary": "NaN:3",
+      "approved": true,
+      "done": true
+    },
+    "initialState": {
+      "n": null,
+      "trail": [
+        "seed",
+        "fork",
+        "sub"
+      ],
+      "attempts": 3,
+      "runs": {
+        "child-a": {
+          "a": 11
+        },
+        "child-b": {
+          "b": 21
+        }
+      },
+      "route": "low",
+      "summary": "NaN:3"
+    },
+    "commitLog": [
+      {
+        "overwrite": {
+          "approved": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "approved",
+            "verb": "set"
+          }
+        ],
+        "stage": "Gate",
+        "stageId": "gate",
+        "runtimeStageId": "gate#13",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "done": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "done",
+            "verb": "set"
+          }
+        ],
+        "stage": "Finish",
+        "stageId": "finish",
+        "runtimeStageId": "finish#14",
+        "idx": 1
+      }
+    ],
+    "commitValues": "delta",
+    "executionTree": {
+      "id": "gate",
+      "runtimeStageId": "gate#13",
+      "name": "Gate",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "approved": true
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Finish stage",
+          "targetStage": "Finish"
+        }
+      ],
+      "next": {
+        "id": "finish",
+        "runtimeStageId": "finish#14",
+        "name": "Finish",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "done": true
+        },
+        "stageReads": {
+          "approved": true,
+          "summary": "NaN:3"
+        }
+      }
+    },
+    "narrative": [
+      {
+        "type": "stage",
+        "text": "Next, it moved on to Gate.",
+        "depth": 0
+      },
+      {
+        "type": "stage",
+        "text": "Next, it moved on to Finish.",
+        "depth": 0
+      },
+      {
+        "type": "stage",
+        "text": "Next, it moved on to Finish.",
+        "depth": 0
+      }
+    ]
+  }
+}

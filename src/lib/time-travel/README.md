@@ -183,10 +183,12 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
 
 ### `TimeTravelStrategy` — the seam
 
-footprintjs ships exactly one strategy, because one stop per executed stage is
-the only stop grammar the substrate itself knows. A consumer with a richer
-vocabulary — milestones, turns, tool calls — supplies its own and gets the same
-cursor over it.
+footprintjs ships one stop grammar of its own — `commitStops`, one stop per
+executed stage, the only grammar the substrate itself knows — and, since
+9.21.0, one reader over the names a chart DECLARED: `tagStops` (see
+"Declared vs derived tags" below). A consumer with a richer vocabulary —
+milestones, turns, tool calls — supplies its own and gets the same cursor over
+it.
 
 ```ts
 import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
@@ -422,6 +424,108 @@ stateAt(stored, 2).skipped;                      // undefined on a clean log —
 ```
 
 Run `examples/post-execution/time-travel/05-a-stored-recording-needs-no-cast.ts`.
+
+## Declared vs derived tags (9.21.0)
+
+"Filter stops by tag — is a tag commit-based or state-based?" Both exist, as
+different things, and the split IS the design. Three marks end in the same
+operation (`filterStops`: keep these stops, fold the rest into them) and differ
+in who puts the mark and when:
+
+| Mark | Who, when | Lives | Example |
+|---|---|---|---|
+| **Declared tag** | the author, at build time | the Map (`SerializedPipelineStructure.tags`) → stamped into the Trace (`CommitBundle.tags`) | `'milestone:llm-turn'` |
+| **Derived tag** | the reader, at read time, from the fold or the write set | computed by a strategy; never stored | "the answer changed here" |
+| **Bookmark** | the reader, at read time, by choice | on the cursor (`mark` / `marks`); beside a recording, never in it | "come back here" |
+
+Only the first was missing from the record. Its laws:
+
+1. **A tag is a NAME declared at build time; a value is never a tag.** There is
+   no run-time `$tag()`: a runtime string could carry a value (`'user:' +
+   email`) past every redaction point. Data-dependent marks are derived (a keep
+   rule, below) or telemetry (`$emit`) — never the log.
+2. **Absent when empty.** An untagged chart's log, snapshot, checkpoint and
+   every recorder output are byte-identical to 9.20.0
+   (`test/lib/engine/scenario/declared-tags-byte-identity.test.ts`, reference
+   generated on the 9.20.0 tree).
+3. **The tag is the fact; a derivation is the fallback.** A consumer that
+   classified stops from ids reads `bundle.tags` first and derives only for
+   recordings made before tags existed.
+4. **Free strings in the substrate.** footprintjs owns no vocabulary; a consumer
+   declares its own (`'milestone:<kind>'`). Any-of is `tagStops`'s keep rule;
+   all-of, or anything richer, is a `filterStops` call away; `meta` carries the
+   bundle's full array.
+5. **Attribution by precedence.** Untagged stages fold into the tagged stop
+   BEFORE them — what `filterStops` does. Not a per-tag flag.
+6. **The Map advertises the vocabulary.** The spec node carries `tags` as-is,
+   so a lens draws its legend before the run exists; the Trace shows which a
+   run DID hit.
+
+Stamped once per execution of the stage, on its FIRST bundle: retry attempts
+share one stamp, a failed stage keeps its tag (the error path commits before it
+rethrows), an empty commit is a tagged stop, a fork child's fan-out repeat and
+a mount's exit bundle carry none, and a stage that pauses and is resumed on a
+fresh executor is two tagged stops on a chained axis — it ran twice.
+
+**Example 1 — declared, scrubbed by `tagStops`.**
+
+```ts
+import { flowChart } from 'footprintjs';
+import { tagStops, timeTravel } from 'footprintjs/trace';
+
+interface State { messages?: string[]; answer?: string; route?: string; [key: string]: unknown }
+
+const chart = flowChart<State>('Seed', (s) => { s.messages = ['hi']; }, 'seed')
+  .addFunction('Call model', (s) => { s.answer = ' draft '; }, 'call-llm')
+  .tag('milestone:llm-turn')
+  .addFunction('Trim', (s) => { s.answer = s.answer?.trim(); }, 'trim')
+  .addFunction('Route', (s) => { s.route = 'done'; }, 'route')
+  .tag('milestone:decision', 'audit')
+  .build();
+
+chart.buildTimeStructure.next?.tags;   // ['milestone:llm-turn'] — the Map, before any run
+
+// …run it on an executor, keep the snapshot; later, anywhere:
+const cursor = timeTravel(executor.getSnapshot(), { strategy: tagStops(['milestone:llm-turn', 'audit']) });
+cursor.stops.map((s) => s.label);   // ['Run start', 'Call model', 'Route', 'Run end']
+cursor.stops[1].meta;               // ['milestone:llm-turn']  — the bundle's whole array
+cursor.stops[0].prologue;           // true — 'seed' ran before the first tagged stage
+cursor.stateAt(cursor.stops[1]);    // the fold through 'trim' too: it belongs to the turn before it
+```
+
+**Example 2 — the same axis DERIVED, by a write-set predicate.** No new API:
+a keep rule over the bundle's own trace, computed at read time and never
+stored. This is what "the current skill changed here" looks like — and it is
+the fallback for a recording made before its chart declared tags.
+
+```ts
+import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
+import type { TimeTravelStrategy } from 'footprintjs/trace';
+
+/** A stop wherever `answer` or `route` was written — derived from the write set. */
+const changedAnswerOrRoute: TimeTravelStrategy<readonly string[]> = {
+  stopsFor: (log, tree) =>
+    filterStops<readonly string[]>(commitStops(log, tree), (stop) => {
+      const written = log[stop.commitIdx].trace.map((entry) => entry.path);
+      const hit = written.filter((path) => path === 'answer' || path === 'route');
+      return hit.length > 0 ? { meta: hit } : null;   // null drops the stage
+    }),
+};
+
+const derived = timeTravel(executor.getSnapshot(), { strategy: changedAnswerOrRoute });
+derived.stops.map((s) => s.label);   // ['Run start', 'Call model', 'Trim', 'Route', 'Run end']
+derived.stops[1].meta;               // ['answer'] — what changed, not what was declared
+```
+
+The two axes differ exactly where a declaration and a derivation differ: the
+derived one stops at `Trim` (it wrote `answer`) and knows nothing about
+`'audit'`; the declared one stops where the author said a turn was, and
+`Trim` folds into it. Neither is wrong. A reader that wants the fold itself as
+the predicate — "keep the stop where `stateAt` shows a new skill" — writes the
+same shape over `stateAt(source, stop.lastCommitIdx)`, and pays one fold per
+candidate stop for it (measured: 323 ms per fold on 1,719 commits in
+agentfootprint); that cost is why a derivation is the fallback and the
+declaration is the fact.
 
 ## What this is NOT
 

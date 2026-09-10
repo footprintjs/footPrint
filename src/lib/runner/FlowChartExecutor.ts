@@ -893,6 +893,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // re-entry runs a different function (`resumeFn`) under a different
       // contract, so it deliberately runs without the policy.
       ...(isInterruptResume && pausedNode.retry && { retry: pausedNode.retry }),
+      // Declared tags (9.21.0) follow the stage on BOTH re-entries: a tag is
+      // the stage's NAME, not a policy over its function, and the resumed
+      // execution is that stage running again — its bundle must carry it,
+      // or a chained axis would show the paused leg tagged and the resumed
+      // leg silently not. The chart's node has the tags; this synthetic
+      // root is the one place they would otherwise be lost.
+      ...(pausedNode.tags && { tags: pausedNode.tags }),
     };
 
     // Don't clear recorders — resume continues from previous state.

@@ -87,7 +87,10 @@ export {
 // the log, and `drill(mount)` into a subflow's own log — the same interface,
 // its own base. How stops are DERIVED is the seam (`TimeTravelStrategy`);
 // footprintjs ships `commitStops` (one stop per executed stage) because that
-// is the only stop grammar the substrate itself knows.
+// is the only stop grammar the substrate itself knows — and, since 9.21.0,
+// `tagStops(tags?)`: the stops a chart DECLARED at build time (`.tag()`),
+// read back off `CommitBundle.tags`, so a stored recording scrubs by its own
+// milestones with no id conventions in the reader.
 // See src/lib/time-travel/README.md.
 export type {
   AxisRefusal,
@@ -115,6 +118,7 @@ export {
   isCommitBundle,
   splitAxis,
   stateAt,
+  tagStops,
   timeTravel,
 } from './lib/time-travel/index.js';
 

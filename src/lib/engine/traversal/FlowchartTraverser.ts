@@ -946,6 +946,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // use the same value. Must happen before executeStage AND before traversalContext.
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    // Declared tags (9.21.0) ride the same stamp: per-node identity, set
+    // UNCONDITIONALLY so a re-used context (a loop's next-context, a resumed
+    // leg) never keeps a previous node's names. `StageContext.commit` records
+    // them on the first bundle of this execution and releases them.
+    context.tags = node.tags;
 
     // RFC-003 D1: runtime parent — the previous execution step's runtimeStageId.
     // Falls back to the subflow MOUNT's runtimeStageId for the subflow root

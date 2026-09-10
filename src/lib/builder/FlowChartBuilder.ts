@@ -12,7 +12,11 @@
  * it belongs in the runner layer (Phase 5).
  */
 
-import { branchSegmentReservationMessage, hasBranchSegmentMarker } from '../engine/branchSegment.js';
+import {
+  BRANCH_SEGMENT_MARKER,
+  branchSegmentReservationMessage,
+  hasBranchSegmentMarker,
+} from '../engine/branchSegment.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
@@ -72,6 +76,66 @@ function applyRetryPolicy(
   }
   node.retry = retry;
   spec.retryAttempts = retry.attempts;
+}
+
+/**
+ * Attach declared tags to a stage node + its spec node.
+ *
+ * The ONE place tags land on a node — the twin of {@link applyRetryPolicy} —
+ * shared by the `.tag()` cursor modifier and every `options.tags` declaration
+ * site, so the refusals and the spec's mirror can never drift between them.
+ *
+ * A tag is a NAME declared at build time, never a value, so every refusal is
+ * about the name's shape: an empty string names nothing; a non-string is a
+ * value, and a value on a stage would ride the commit log past every
+ * redaction point; the branch-segment marker is the runtimeStageId grammar's
+ * one reserved byte, and a consumer that puts a tag into a path (a URL, a
+ * store key) would inherit exactly the ambiguity the reservation exists to
+ * prevent; a name declared twice is the typo it usually is. Refused at BUILD
+ * time, like `retry.attempts`, so the mistake fails while the chart is being
+ * written. An EMPTY list lands nothing: "absent when empty" is the law the
+ * commit bundle keeps, and the spec keeps it too.
+ */
+function applyTags(
+  node: StageNode<any, any>,
+  spec: SerializedPipelineStructure,
+  tags: readonly string[] | undefined,
+  where: string,
+): void {
+  if (tags === undefined) return;
+  if (!Array.isArray(tags)) fail(`${where}: tags must be an array of names (got ${typeof tags})`);
+  if (tags.length === 0) return;
+  const seen = new Set<string>();
+  for (const tag of tags) {
+    if (typeof tag !== 'string') {
+      fail(
+        `${where}: a tag must be a string name (got ${tag === null ? 'null' : typeof tag}). A tag is a NAME ` +
+          'declared at build time — a value belongs in state or in $emit, never on the stage.',
+      );
+    }
+    if (tag.trim().length === 0) fail(`${where}: a tag cannot be an empty string`);
+    if (hasBranchSegmentMarker(tag)) {
+      fail(
+        `${where}: tag '${tag}' contains the reserved character '${BRANCH_SEGMENT_MARKER}'. ` +
+          `'${BRANCH_SEGMENT_MARKER}' is reserved for the subflow path segments addParallelForEach() generates, ` +
+          'and a tag that a consumer puts into a path or a key would inherit that ambiguity. Rename the tag ' +
+          '(a dash or a colon reads the same). See docs/design/2026-09-declared-tags.md.',
+      );
+    }
+    if (seen.has(tag)) fail(`${where}: tag '${tag}' is declared twice`);
+    seen.add(tag);
+  }
+  if (node.tags) {
+    fail(
+      `${where}: tags already declared at '${node.name}' (${node.tags.join(', ')}) — declare every tag for a ` +
+        'stage in ONE place, so the Map advertises the whole vocabulary from a single site.',
+    );
+  }
+  // The node's copy is frozen: commit bundles share it by reference and the
+  // library's reads are borrowed, never mutated. The spec's copy is its own
+  // plain array, JSON-safe like the rest of the spec.
+  node.tags = Object.freeze([...tags]);
+  spec.tags = [...tags];
 }
 
 /**
@@ -142,8 +206,9 @@ export class DeciderList<TOut = any, TScope = any> {
     description?: string,
     /** `{ loopTo }` declares this branch loops back to an already-declared
      *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
-     *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy. */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy },
+     *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
+     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -158,6 +223,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
+    applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -189,8 +255,8 @@ export class DeciderList<TOut = any, TScope = any> {
      *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
      *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
-     *  contract). */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy },
+     *  contract); `{ tags }` puts declared tags on it. */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -209,6 +275,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
+    applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -522,8 +589,9 @@ export class SelectorFnList<TOut = any, TScope = any> {
     name: string,
     fn?: StageFunction<TOut, TScope>,
     description?: string,
-    /** `{ retry }` gives THIS BRANCH's stage a declarative retry policy. */
-    options?: { readonly retry?: RetryPolicy },
+    /** `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
+     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
+    options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -538,6 +606,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
+    applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -565,8 +634,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
     description?: string,
     /** `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
-     *  contract). */
-    options?: { readonly retry?: RetryPolicy },
+     *  contract); `{ tags }` puts declared tags on it. */
+    options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
     this.branchIds.add(id);
@@ -585,6 +654,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
+    applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -1143,7 +1213,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
     id: string,
     description?: string,
-    options?: { retry?: RetryPolicy },
+    options?: { retry?: RetryPolicy; tags?: readonly string[] },
   ): this {
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1166,6 +1236,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (isPausable) spec.isPausable = true;
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `start('${id}')`);
+    applyTags(node, spec, options?.tags, `start('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1198,7 +1269,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
-    options?: { failFast?: boolean; retry?: RetryPolicy },
+    options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1213,6 +1284,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `startSelector('${id}')`);
+    applyTags(node, spec, options?.tags, `startSelector('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1512,8 +1584,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     /** `{ retry }` gives the DECIDER STAGE a retry policy. Declared here rather
      *  than via `.retry()` because this method returns a `DeciderList`, where a
-     *  chained modifier could mean the decider OR the branch just added. */
-    options?: { retry?: RetryPolicy },
+     *  chained modifier could mean the decider OR the branch just added;
+     *  `{ tags }` likewise. */
+    options?: { retry?: RetryPolicy; tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -1528,6 +1601,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addDeciderFunction('${id}')`);
+    applyTags(node, spec, options?.tags, `addDeciderFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1562,8 +1636,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     /** `{ retry }` gives the SELECTOR STAGE a retry policy — same reasoning as
      *  `addDeciderFunction`: this method returns a sub-builder, so a chained
-     *  `.retry()` would be ambiguous. */
-    options?: { failFast?: boolean; retry?: RetryPolicy },
+     *  `.retry()` would be ambiguous; `{ tags }` likewise. */
+    options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -1586,6 +1660,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addSelectorFunction('${id}')`);
+    applyTags(node, spec, options?.tags, `addSelectorFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1622,7 +1697,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.type = 'fork';
     if (options?.failFast) cur.failFast = true;
 
-    for (const { id, name, fn, retry } of children) {
+    for (const { id, name, fn, retry, tags } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
       if (cur.children?.some((c) => c.id === id)) {
         fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1642,6 +1717,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         parallelGroupId: forkId,
       };
       applyRetryPolicy(node, spec, retry, `addListOfFunction child '${id}'`);
+      applyTags(node, spec, tags, `addListOfFunction child '${id}'`);
 
       cur.children = cur.children || [];
       cur.children.push(node);
@@ -2076,6 +2152,77 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  // ── Declared tags ──
+
+  /**
+   * Put NAMES on the stage you JUST added. The first commit bundle of each
+   * execution of that stage carries them (`CommitBundle.tags` — the bundle
+   * `commitStops` keys on), and the built spec advertises them
+   * (`SerializedPipelineStructure.tags`).
+   *
+   * ## Why declare it instead of deriving it from ids
+   *
+   * A reader that wants "the LLM turns" of a stored recording had to classify
+   * stages from their ids — a switch over `runtimeStageId` that parses `#` and
+   * `/`, lives in the consumer, and silently goes stale when a stage is
+   * renamed. Declared here, the name travels WITH the commit: a recording from
+   * any chart carries its own milestones, and `tagStops` (footprintjs/trace)
+   * scrubs them with no id conventions at all.
+   *
+   * ## What a tag is, and is not
+   *
+   * A tag is a NAME declared at build time — never a value. There is no
+   * run-time `$tag()`: a runtime string could carry data (`'user:' + email`)
+   * past every redaction point. Data-dependent marks are a keep rule over
+   * the fold at read time, or telemetry via `$emit`. Free strings: footprintjs
+   * owns no vocabulary; a consumer declares its own (`'milestone:<kind>'`).
+   *
+   * Stamped ONCE per execution of the stage: retry attempts share one stamp,
+   * a failed stage keeps its tag (the error path commits before it rethrows),
+   * a stage that `interrupt()`s and is resumed is two tagged stops on a chain
+   * because it ran twice, and an EMPTY commit is a tagged stop too. A subflow
+   * mount or a parallel-for-each stage can be tagged; the tag lands on the
+   * bundle that records its result.
+   *
+   * @example
+   * ```ts
+   * flowChart<State>('Seed', seedFn, 'seed')
+   *   .addFunction('Call model', callFn, 'call-llm')
+   *   .tag('milestone:llm-turn')
+   *   .addFunction('Route', routeFn, 'route')
+   *   .tag('milestone:decision', 'audit')
+   * ```
+   *
+   * Applies to the CURRENT cursor — the stage added by the immediately
+   * preceding `start()` / `addFunction()` / `addStreamingFunction()` /
+   * `addPausableFunction()` / `addSubFlowChartNext()` / `addParallelForEach()`.
+   * Where the cursor would be ambiguous (a decider, selector, branch, or fork
+   * child), declare the tags in that method's own `tags` option instead.
+   *
+   * Refused at build time: an empty name, a non-string, the reserved
+   * branch-segment marker `~` inside a name, a name declared twice, and a
+   * second declaration on the same stage.
+   */
+  tag(...names: readonly string[]): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+
+    // Same mis-attribution guard as `.retry()`: after a mount or a fork the
+    // cursor still points at the stage BEFORE what you just wrote.
+    if (this._cursorTail) {
+      fail(
+        `tag() cannot follow ${this._cursorTail} — that attaches to '${cur.name}' without moving the cursor, so ` +
+          `the names would land on '${cur.name}' rather than on what you just added. Declare the tags at their own ` +
+          'site instead: on the stages INSIDE a subflow chart, or via the `tags` field on an addListOfFunction child.',
+      );
+    }
+    if (cur.isLoopRef) fail(`tag() cannot be applied to the loop reference '${cur.name}'`);
+    if (names.length === 0) fail(`tag() at '${cur.name}': at least one name is required`);
+
+    applyTags(cur, curSpec, names, `tag() at '${cur.name}'`);
+    return this;
+  }
+
   // ── Loop ──
 
   loopTo(stageId: string): this {
@@ -2361,6 +2508,7 @@ export function flowChart<TOut = any, TScope = any>(
   }
   return builder.start(name, fn as any, id, options?.description, {
     ...(options?.retry && { retry: options.retry }),
+    ...(options?.tags && { tags: options.tags }),
   });
 }
 
@@ -2393,6 +2541,7 @@ export function flowChartSelector<TOut = any, TScope = any>(
   return builder.startSelector(name, fn, id, options?.description, {
     ...(options?.failFast !== undefined && { failFast: options.failFast }),
     ...(options?.retry && { retry: options.retry }),
+    ...(options?.tags && { tags: options.tags }),
   });
 }
 

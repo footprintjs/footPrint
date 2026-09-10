@@ -18,6 +18,7 @@ export { filterStops, splitAxis } from './axis.js';
 export { isCommitBundle } from './bundles.js';
 export { commitStops, commitStopsStrategy } from './commitStops.js';
 export { stateAt } from './stateAt.js';
+export { tagStops } from './tagStops.js';
 export { timeTravel } from './timeTravel.js';
 export type {
   AxisRefusal,

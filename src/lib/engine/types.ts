@@ -671,6 +671,12 @@ export interface SerializedPipelineNode {
    * cannot carry.
    */
   retryAttempts?: number;
+  /**
+   * Declared tags (9.21.0) — the names the author put on this stage at build
+   * time, copied as-is. Free strings; footprintjs assigns them no meaning.
+   * Absent when the stage declares none.
+   */
+  tags?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------

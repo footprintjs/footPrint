@@ -78,7 +78,7 @@ interrupt inside a GENERATED `parallelForEach` branch pauses but cannot resume
 (the branch is not in the static chart; refused via the shipped
 `findNodeInGraph` miss, no marker special-casing).
 
-Files: `pause/types.ts` (`PauseSignal` :29, `captureSubflowScope` :116, `FlowchartCheckpoint` :190) · `StageRunner.ts:94-100` (pausable stage returns non-void → throw PauseSignal) · `FlowchartTraverser.ts:1083-1086` (commit + onPause + rethrow; invoker stamps replayed innermost-first :771-780) · `SubflowExecutor.ts:225-238` (bubble-up: snapshot nested sharedState onto signal, prepend subflowId; resume-seed skip-inputMapper :69-72, :126-128) · `FlowChartExecutor.ts` (`buildPauseCheckpoint` :987-1036 — ONE structuredClone :1024, sanitize retry :1028-1033; `resume()` :672 — validation :690-707, loop-ref stub resolution :762-768, synthetic resume node :783-789, fresh runId :812, outer-mount entry + LEAF-root swap :847-855, `preserveRecorders: true` :871).
+Files: `pause/types.ts` (`PauseSignal` :29, `captureSubflowScope` :116, `FlowchartCheckpoint` :190) · `StageRunner.ts:94-100` (pausable stage returns non-void → throw PauseSignal) · `FlowchartTraverser.ts:1083-1086` (commit + onPause + rethrow; invoker stamps replayed innermost-first :771-780) · `SubflowExecutor.ts:225-238` (bubble-up: snapshot nested sharedState onto signal, prepend subflowId; resume-seed skip-inputMapper :69-72, :126-128) · `FlowChartExecutor.ts` (`buildPauseCheckpoint` :987-1036 — ONE structuredClone :1024, sanitize retry :1028-1033; `resume()` :672 — validation :690-707, loop-ref stub resolution :762-768, synthetic resume node :783-789 (9.21.0: copies `pausedNode.tags` on both re-entries — the one node that would otherwise lose a declared tag), fresh runId :812, outer-mount entry + LEAF-root swap :847-855, `preserveRecorders: true` :871).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
@@ -189,7 +189,11 @@ filtering strategy — re-partition, `Stop.meta`, `Stop.prologue`) · `bundles.t
 over a cross-executor resume, run-local indices + `Stop.sourceIdx`, refused when
 an id repeats, execution indices are not monotonic across legs, or a leg's
 `initialState` is not the state the earlier legs fold to — the last check is
-SKIPPED, not faked, when a leg has no base). Exported from `footprintjs/trace`.
+SKIPPED, not faked, when a leg has no base) · 9.21.0: `tagStops.ts` (the stops
+a chart DECLARED — `filterStops(commitStops(...))` keeping stops whose FIRST
+bundle's `CommitBundle.tags` shares any name with the list, `meta` = the
+array; a declared tag is a build-time NAME stamped by the traverser, never a
+runtime value). Exported from `footprintjs/trace`.
 
 Substrate this needed (9.17.0): the fold base now TRAVELS with the log —
 `RuntimeSnapshot.initialState` (`ExecutionRuntime.getSnapshot`) and

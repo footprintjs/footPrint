@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.21.0] - 2026-09-10
+
+### Added
+
+- **Declared tags — a name on the stage, carried by its commit.** A stored
+  recording could not say which of its stops were milestones. Every reader
+  that wanted "the LLM turns" classified stages from their ids — a switch over
+  `runtimeStageId` that parses `#` and `/`, lives in the consumer, and goes
+  stale the day a stage is renamed (agentfootprint's `milestoneFor` is that
+  switch). The chart's author knew the answer at build time and had nowhere
+  to put it.
+
+  Now the author puts NAMES on a stage — `.tag('milestone:llm-turn')` after
+  the stage, or `{ tags: [...] }` at a decider / selector / branch / fork
+  child's own declaration site — and the engine stamps them on the stage's
+  commit bundle (`CommitBundle.tags`). A recording from ANY chart carries its
+  own milestones; `tagStops(tags?)` in `footprintjs/trace` scrubs by them
+  with no id conventions in the reader (keep when ANY of the asked-for names
+  matches — every tagged stop when none are asked for; an untagged stage
+  folds into the tagged stop BEFORE it; `Stop.meta` carries the bundle's
+  whole array). The built spec advertises the vocabulary
+  (`SerializedPipelineStructure.tags`), so a lens draws its legend before
+  the run exists.
+
+  The laws, so nothing is re-derived: a tag is a NAME declared at build time
+  — never a value, so there is no run-time `$tag()` (a runtime string could
+  carry data past every redaction point; data-dependent marks are a keep
+  rule over the fold, or `$emit`). Absent when empty: an untagged chart's
+  log, snapshot, checkpoint and every recorder output are byte-identical to
+  9.20.0 (pinned by a reference generated on the 9.20.0 tree). Stamped ONCE
+  per execution of the stage: retry attempts share one stamp, a failed stage
+  keeps its tag (the error path commits before it rethrows), an empty commit
+  is a tagged stop, a fork child's fan-out repeat and a mount's exit bundle
+  carry none, a stage that pauses and is resumed on a fresh executor is two
+  tagged stops on a chained axis (it ran twice). Refused at build: an empty
+  name, a non-string, the reserved `~` marker, a duplicate, a second
+  declaration on the same stage.
+
+  ```ts
+  import { flowChart } from 'footprintjs';
+  import { tagStops, timeTravel } from 'footprintjs/trace';
+
+  const chart = flowChart<State>('Seed', seedFn, 'seed')
+    .addFunction('Call model', callFn, 'call-llm')
+    .tag('milestone:llm-turn')
+    .addFunction('Trim', trimFn, 'trim')
+    .addFunction('Route', routeFn, 'route')
+    .tag('milestone:decision', 'audit')
+    .build();
+
+  // …run it, keep the snapshot; later, anywhere:
+  const cursor = timeTravel(snapshot, { strategy: tagStops(['milestone:llm-turn', 'milestone:decision']) });
+  cursor.stops.map((s) => s.label);   // ['Run start', 'Call model', 'Route', 'Run end']
+  cursor.stops[1].meta;               // ['milestone:llm-turn']
+  cursor.stops[0].prologue;           // true — 'seed' ran before the first tagged stage
+  ```
+
+  Sites: `builder/types.ts` (`tags` on the stage options, `FlowChartOptions`,
+  `SimplifiedParallelSpec`, the spec node) · `FlowChartBuilder.ts ·
+  applyTags` + `.tag()` · `StageNode.tags` · `memory/types.ts ·
+  CommitBundle.tags` · `FlowchartTraverser.executeNodeStep` (stamp) ·
+  `StageContext.commit` (`tagsFragment()` on both paths) ·
+  `FlowChartExecutor.resume` (the synthetic resume root carries the paused
+  stage's tags) · `RuntimeStructureManager.stageNodeToStructure` (run-time
+  resolved nodes advertise theirs) · `time-travel/tagStops.ts`, exported
+  from `footprintjs/trace`. Design: `docs/design/2026-09-declared-tags.md`.
+
 ## [9.20.0] - 2026-09-10
 
 ### Fixed

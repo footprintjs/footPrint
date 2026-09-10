@@ -58,6 +58,23 @@ const chart = flowChart('validate', validateFn, 'validate')
 
 **Key design decision:** The builder maintains a *cursor* — a pointer to the current node. Each `addFunction()` appends after the cursor and advances it. This makes linear chaining trivial (`A → B → C`) but also means branching requires helper classes that temporarily take over the cursor. When you call `addDeciderFunction()`, you enter a `DeciderList` context. When you call `.end()`, the cursor returns to the main builder. Same pattern as XML builders or SQL query builders.
 
+**Per-stage declarations ride the cursor.** Two modifiers attach to the stage you JUST added, and each has ONE landing site in the code so the node and its spec can never disagree: `.retry(policy)` (`applyRetryPolicy`, 9.15.0) and `.tag(...names)` (`applyTags`, 9.21.0). Where the cursor would be ambiguous — a decider, a selector, a branch, a fork child — the same declarations go in that method's own `{ retry, tags }` option. A tag is a NAME declared here, never a value: the engine stamps it on the FIRST commit bundle of each execution of the stage (`CommitBundle.tags` — the bundle `commitStops` keys on; a fork's fan-out repeat and a mount's exit bundle carry none), the built spec advertises it (`SerializedPipelineStructure.tags`), and `tagStops` in `footprintjs/trace` scrubs a stored recording by it with no id conventions. Refused at build time: an empty name, a non-string, the reserved `~` marker, a duplicate, a second declaration on the same stage.
+
+```typescript
+import { flowChart } from 'footprintjs';
+
+const chart = flowChart('seed', seedFn, 'seed')
+  .addFunction('call-llm', callFn, 'call-llm')
+  .tag('milestone:llm-turn')
+  .addDeciderFunction('route', routeFn, 'route', undefined, { tags: ['milestone:decision'] })
+  .addFunctionBranch('tools', 'tools', toolsFn, undefined, { tags: ['milestone:tool-call'] })
+  .addFunctionBranch('answer', 'answer', answerFn)
+  .end()
+  .build();
+
+// chart.buildTimeStructure.next.tags → ['milestone:llm-turn']  (the Map advertises the vocabulary)
+```
+
 ---
 
 ### 2. DeciderList — "The If/Else"

@@ -103,6 +103,11 @@ export class RuntimeStructureManager {
       structure.streamId = node.streamId;
     }
 
+    // Declared tags (9.21.0): the Map advertises the vocabulary, and a node
+    // resolved at run time (a lazy subflow, a dynamic-subflow return) has
+    // only THIS builder to advertise it. Absent when the node declares none.
+    if (node.tags?.length) structure.tags = [...node.tags];
+
     if (node.isSubflowRoot) {
       structure.isSubflowRoot = true;
       structure.subflowId = node.subflowId;

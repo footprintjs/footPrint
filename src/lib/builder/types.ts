@@ -105,6 +105,15 @@ export interface SerializedPipelineStructure {
    */
   retryAttempts?: number;
   /**
+   * Declared tags (9.21.0) — the NAMES the author put on this stage at build
+   * time, copied as-is (JSON-safe, free strings; footprintjs owns no
+   * vocabulary). The Map advertises what a chart CAN produce; the commit
+   * bundle (`CommitBundle.tags`) records which a run DID hit. Absent when the
+   * stage declares none. Same read-it-from-the-built-spec caveat as
+   * `retryAttempts`: `.tag()` is chained AFTER `onStageAdded` fires.
+   */
+  tags?: readonly string[];
+  /**
    * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
    * id its convergence `next` edge points to, instead of the shared next-stage
    * its siblings converge at. Set from `SubflowMountOptions.convergeAt`; read by
@@ -147,6 +156,8 @@ export interface FlowChartSpec {
   /** Total attempts allowed by this stage's declared retry policy — the count
    *  only (see `SerializedPipelineStructure.retryAttempts`). */
   retryAttempts?: number;
+  /** Declared tags on this stage, as-is (see `SerializedPipelineStructure.tags`). */
+  tags?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +197,14 @@ export interface FlowChartOptions {
    * at their own declaration site. See {@link RetryPolicy}.
    */
   retry?: RetryPolicy;
+  /**
+   * Declared tags for the chart's FIRST stage. Later stages use the `.tag()`
+   * modifier, or the `tags` option at their own declaration site. A tag is a
+   * NAME declared at build time — never a value — and is stamped on every
+   * commit bundle the stage records (`CommitBundle.tags`), so a stored
+   * recording carries its own milestones. See `FlowChartBuilder.tag`.
+   */
+  tags?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +241,8 @@ export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   /** Declarative retry policy for this fork child. Fork branches are where
    *  flaky I/O usually lives, so each child declares its own. */
   retry?: RetryPolicy;
+  /** Declared tags for this fork child — each child's bundle carries its own. */
+  tags?: readonly string[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

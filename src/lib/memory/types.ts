@@ -96,6 +96,19 @@ export interface CommitBundle {
    * values smuggled through JS closures are undetectable.
    */
   untrackedSources?: ReadonlyArray<UntrackedSource>;
+  /**
+   * Declared tags (9.21.0) — the names the author put on this stage at build
+   * time (`FlowChartBuilder.tag` / `options.tags`), stamped here by the
+   * traverser so a stored recording carries its own milestones without a
+   * consumer's id conventions. ABSENT when the stage declares none, so an
+   * untagged chart's log is byte-identical to 9.20.0 (the law
+   * `untrackedSources` keeps). Recorded on the FIRST bundle of each execution
+   * of the stage — retry attempts stamp it once, a fork child's empty repeat
+   * and a mount's exit bundle carry none. Free strings: footprintjs assigns
+   * them no meaning; `tagStops` (footprintjs/trace) keeps a stop when any of
+   * them matches.
+   */
+  tags?: readonly string[];
 }
 
 // ── Flow Control Narrative ─────────────────────────────────────────────────
