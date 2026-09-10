@@ -38,11 +38,13 @@ export type {
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './lib/memory/index.js';
+export type { RedactionVerdict } from './lib/memory/index.js';
 export { SharedMemory } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';
 export { EventLog } from './lib/memory/index.js';
 export { TransactionBuffer } from './lib/memory/index.js';
 export { DiagnosticCollector } from './lib/memory/index.js';
+export { RedactionRule } from './lib/memory/index.js';
 export {
   applySmartMerge,
   deepSmartMerge,

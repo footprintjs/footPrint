@@ -11,6 +11,7 @@
  */
 
 import { EventLog } from '../memory/EventLog.js';
+import type { RedactionRule } from '../memory/redaction.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
 import type {
@@ -25,6 +26,9 @@ import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
+/** The commit log's placeholder (`redactPatch`) — what the mirror's seed and patches both carry. */
+const LOG_PLACEHOLDER = 'REDACTED';
+
 export interface RecorderSnapshot {
   id: string;
   name: string;
@@ -182,14 +186,34 @@ export class ExecutionRuntime {
    */
   enableRedactedMirror(): void {
     if (this.redactedStore) return; // idempotent
+    // The mirror is a SERVED surface, so its seed must already be the
+    // policy's view of the starting state: a policy key that arrives by
+    // `initialContext` / `defaultValuesForContext` (or, on a cross-executor
+    // resume, by the checkpoint's `sharedState`) and is never re-written
+    // would otherwise sit in `getSnapshot({ redact: true })` in plaintext.
+    // The rule must therefore be installed BEFORE this call — the executor
+    // orders `useRedaction` first — and the seed is scrubbed with the LOG's
+    // placeholder, the same string the redacted patches carry. Without a
+    // rule (never the executor's case) the seed is the raw one.
+    const rule = this.rootStageContext.getRedactionRule();
     this.redactedStore = new SharedMemory(
-      this._defaultValues,
-      // Seed with the same initial state as the raw store so the mirror
-      // starts from a scrubbed-nothing baseline; subsequent commits apply
-      // the redacted patches on top.
-      this._initialState,
+      rule ? rule.retainState(this._defaultValues, LOG_PLACEHOLDER) : this._defaultValues,
+      rule ? rule.retainState(this._initialState, LOG_PLACEHOLDER) : this._initialState,
     );
     this.rootStageContext.useRedactedMirror(this.redactedStore);
+  }
+
+  /**
+   * Install the run's redaction rule (the ONE owner of the verdict —
+   * `memory/redaction.ts`) on the root stage context. Descendants inherit
+   * via `createNext`/`createChild`; subflow roots inherit from their
+   * parent-mount context via `SubflowExecutor`. Called by
+   * `FlowChartExecutor.createTraverser()` on every run AND resume — after the
+   * resume-path root swap, like the dials — so every staged write and tracked
+   * read of the run, facade or not, is retained under the same policy.
+   */
+  useRedaction(rule: RedactionRule): void {
+    this.rootStageContext.useRedactionRule(rule);
   }
 
   /**

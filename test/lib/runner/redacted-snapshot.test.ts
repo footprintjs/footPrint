@@ -84,17 +84,13 @@ describe('Redacted snapshot — unit', () => {
     expect(shared.name).toBe('Alice');
   });
 
-  it('field-level `fields` policy pins current behavior: scrubs recorder dispatch only (NOT snapshot mirror yet)', async () => {
-    // DOCUMENTED LIMITATION: `policy.fields: { key: [fieldNames] }` scrubs the
-    // value sent to recorders (`onWrite` event) but does NOT propagate into
-    // the redacted mirror. Callers who need field-level redaction in the
-    // exported snapshot should either:
-    //   1. Split the sensitive fields into their own top-level keys, OR
-    //   2. Call a user-side scrub before exporting the snapshot, OR
-    //   3. Wait for a follow-up release that extends the mirror to honor
-    //      `fields` policy.
-    // This test pins the current behavior so any regression (either direction)
-    // is caught.
+  it('field-level `fields` policy scrubs the mirror too (9.19.0 — the ONE law)', async () => {
+    // Before 9.19.0 the `fields` scrub reached recorders only; the commit
+    // took the key-level verdict, so the log and the mirror kept the raw
+    // fields. The redaction rule now decides at the StageContext funnel, so
+    // the log records the field paths as redacted and the mirror — built
+    // from the same scrubbed patches — shows the placeholder. Siblings of a
+    // scrubbed field survive; the live view still holds the real values.
     const chart = buildChart();
     const executor = new FlowChartExecutor(chart);
     executor.setRedactionPolicy({ fields: { patient: ['dob', 'ssn'] } });
@@ -102,10 +98,15 @@ describe('Redacted snapshot — unit', () => {
 
     const safe = executor.getSnapshot({ redact: true });
     const patient = (safe.sharedState as { patient: Record<string, unknown> }).patient;
-    // Current behavior: raw fields survive in the snapshot
-    expect(patient.dob).toBe('1980-01-01');
-    expect(patient.ssn).toBe('999-99-9999');
+    expect(patient.dob).toBe('REDACTED');
+    expect(patient.ssn).toBe('REDACTED');
     expect(patient.city).toBe('NYC');
+
+    const raw = executor.getSnapshot();
+    const livePatient = (raw.sharedState as { patient: Record<string, unknown> }).patient;
+    expect(livePatient.dob).toBe('1980-01-01');
+    expect(livePatient.ssn).toBe('999-99-9999');
+    expect(JSON.stringify(raw.commitLog)).not.toContain('1980-01-01');
   });
 });
 

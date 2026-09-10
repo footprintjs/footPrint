@@ -116,6 +116,44 @@ export class TransactionBuffer {
     this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'merge' }));
   }
 
+  /**
+   * Field-level redaction (9.19.0): mark dot-paths INSIDE the value staged at
+   * `path` as secret, so `redactPatch` scrubs them in the commit log and the
+   * mirror the same way a whole-key redaction is scrubbed. A field is
+   * registered as a literal key AND, when dotted, as the nested path it
+   * names — whichever exists in the patch is the one `redactPatch` finds.
+   * Marked paths survive commit only while the op path they sit under does
+   * (see {@link survivingRedactedPaths}).
+   */
+  markRedactedFields(path: (string | number)[], fields: readonly string[]): void {
+    for (const field of fields) {
+      this.redactedPaths.add(normalisePath([...path, field]));
+      if (field.includes('.')) this.redactedPaths.add(normalisePath([...path, ...field.split('.')]));
+    }
+  }
+
+  /**
+   * The redacted paths that survive the net-change filter: a path survives
+   * when it IS a surviving op path (a whole-key redaction) or sits UNDER one
+   * (a field inside a surviving write). A dropped op takes its fields with it.
+   */
+  private survivingRedactedPaths(survivingPaths: Set<string>): Set<string> {
+    const out = new Set<string>();
+    for (const path of this.redactedPaths) {
+      if (survivingPaths.has(path)) {
+        out.add(path);
+        continue;
+      }
+      for (const op of survivingPaths) {
+        if (path.startsWith(op + DELIM)) {
+          out.add(path);
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   /** Read current value at path (includes uncommitted changes). */
   get(path: (string | number)[], defaultValue?: any) {
     return _get(this.workingCopy, path, defaultValue);
@@ -245,7 +283,7 @@ export class TransactionBuffer {
       }
     }
 
-    const redactedPaths = new Set([...this.redactedPaths].filter((path) => survivingPaths.has(path)));
+    const redactedPaths = this.survivingRedactedPaths(survivingPaths);
     return { overwrite, updates, redactedPaths, trace };
   }
 
@@ -425,7 +463,7 @@ export class TransactionBuffer {
       if (family[family.length - 1] === s) emit(family.find((m) => m.path === root) as Survivor);
     }
 
-    const redactedPaths = new Set([...this.redactedPaths].filter((path) => survivingPaths.has(path)));
+    const redactedPaths = this.survivingRedactedPaths(survivingPaths);
     return { overwrite, updates, redactedPaths, trace };
   }
 

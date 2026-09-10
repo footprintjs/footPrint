@@ -73,6 +73,10 @@ export function createSubflowHandlerDeps<TOut = any, TScope = any>(
 /**
  * Seed the subflow's GlobalStore with initial values.
  * Called before subflow execution to make inputMapper values available.
+ *
+ * Redaction: the seed is committed as the subflow's `history[0]` by its root
+ * context. `SubflowExecutor` installs the run's redaction rule on that context
+ * before calling this, so the commit retains under the policy (9.19.0).
  */
 export function seedSubflowGlobalStore(
   subflowRuntime: IExecutionRuntime,
@@ -97,6 +101,10 @@ export function seedSubflowGlobalStore(
  * Apply output mapping after subflow completion.
  * Writes mapped values back to parent scope using merge semantics:
  * arrays are appended, objects are shallow-merged, scalars are replaced.
+ *
+ * Redaction: every write here goes through `parentContext`'s write funnel,
+ * which asks the run's redaction rule — so a policy-redacted or per-call
+ * marked key lands in the PARENT's log and mirror as the placeholder (9.19.0).
  */
 export function applyOutputMapping<TParentScope, TSubflowOutput>(
   subflowOutput: TSubflowOutput,

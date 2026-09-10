@@ -83,9 +83,17 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
     }
 
-    // Narrative receives mapped input. inputMapper is a consumer function that may inject
-    // values not from the scope (bypassing redaction). The recorder renders per includeValues.
-    const narrativeInput = mappedInput;
+    // The run's redaction rule (9.19.0), read off the parent-mount context
+    // the way the dials are (duck-typed: this section constructs its runtime
+    // dynamically to avoid the circular import). The seed narrated below and
+    // the seed COMMITTED below both retain under it; the subflow's stages
+    // still compute on the real `mappedInput` (their frozen args).
+    const redactionRule = parentContext.getRedactionRule?.();
+    // Narrative receives the RETAINED form of the mapped input — an
+    // inputMapper may inject values from anywhere, so the seed is scrubbed
+    // under the policy before any recorder sees it. Same object when nothing
+    // in it is redacted (the no-policy path allocates nothing).
+    const narrativeInput = redactionRule ? redactionRule.retainRecord(mappedInput) : mappedInput;
     // `FlowSubflowEvent.description` is semantically "what this subflow does" — sourced from
     // the subflow's own root stage, not the parent mount point. The mount node never carries
     // a description (builders don't copy it), so reading `node.description` here returns
@@ -125,6 +133,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     //   • Normal entry → seed from the inputMapper's mappedInput.
     const seedValues: Record<string, unknown> = isResumeForThisSubflow ? resumeCapture! : mappedInput;
     if (Object.keys(seedValues).length > 0) {
+      // The seed is committed as the subflow's `history[0]` by its root
+      // context, not by a facade — install the rule on THAT context first so
+      // the seed commit retains under the policy like every other write.
+      if (redactionRule) nestedRootContext.useRedactionRule(redactionRule);
       seedSubflowGlobalStore(nestedRuntime, seedValues);
       // Refresh rootStageContext so WriteBuffer sees committed data
       const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
@@ -152,6 +164,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (parentReadTracking !== undefined && parentReadTracking !== 'full') {
       nestedRootContext.useReadTracking(parentReadTracking);
     }
+
+    // Redaction rule (9.19.0): same hop as the dials, applied to the FINAL
+    // nested root (the seeding block above may have replaced it) so every
+    // stage context the subflow creates inherits the run's rule.
+    if (redactionRule) nestedRootContext.useRedactionRule(redactionRule);
 
     // Write-tracking policy (#13c-A): same inheritance hop as readTracking
     // above — subflow runtimes are isolated, so the parent-mount context's
@@ -302,10 +319,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.
         // NOTE: the full scope is passed (not just declared outputs) — outputMapper must
         // explicitly select what to propagate to the parent.
-        // Redaction: the subflow shares the parent's _redactedKeys Set (via the same ScopeFactory),
-        // so any key marked redacted in the subflow is already visible in the parent's scope.
-        // ScopeFacade.setValue checks _redactedKeys.has(key), so writes via outputMapper
-        // automatically inherit the subflow's dynamic redaction state.
+        // Redaction: `applyOutputMapping` writes through `outputContext` (a
+        // StageContext, not a facade). The context's write funnel asks the
+        // run's redaction rule — shared with the subflow's contexts, so a key
+        // the policy names OR a key marked per-call inside the subflow is
+        // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
+        // merge-back retained plaintext).
         const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
         const mappedOutput = applyOutputMapping(effectiveOutput, parentScope, outputContext, mountOptions);
 

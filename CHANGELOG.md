@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.19.0] - 2026-09-10
+
+### Fixed
+
+- **A redaction policy now covers everything the run retains or serves — one
+  owner, one law.** Found by agentfootprint on 2026-09-09: its
+  `flowchartAsTool({ redact })` builds the view a model may see from the
+  footprintjs record, so it could only ever be as clean as the log — and two
+  reviewers measured five paths on 9.18.1 where a policy-redacted value
+  reached the record in plaintext (each pinned there as a "substrate limit").
+  All five were paths that wrote or read PAST the `ScopeFacade`, which held
+  the verdict alone: a subflow `outputMapper` merged back through
+  `StageContext` directly, so the PARENT log took a redacted key verbatim
+  (`SubflowInputMapper.applyOutputMapping`); an `inputMapper` seed was
+  committed by the subflow's runtime as its unscrubbed `history[0]`
+  (`seedSubflowGlobalStore`) and narrated as an `Input:` line with its raw
+  value (`SubflowExecutor`); a tracked READ cloned the plaintext into
+  `executionTree.*.stageReads` (`StageContext.getValue`); and a `fields`
+  (dot-path) policy scrubbed the value handed to recorders only, while the
+  commit took the key-level verdict and the log and mirror kept
+  `profile.auth.token`. The fix is at the root, not a sixth hand-written
+  scrub: the verdict has ONE owner, `RedactionRule` (`memory/redaction.ts`),
+  built per run, installed on the root `StageContext` and inherited like the
+  dials — and `StageContext` asks it on every staged write and every tracked
+  read. A facade write, a subflow seed, a merge-back and a resume re-seed are
+  now the same case; `fields` register the paths inside the value so
+  `redactPatch` scrubs them in the log and the mirror; the facade and the
+  narrated seed use the same rule. Two smaller paths closed by the same
+  funnel: `$update` on a redacted key (its merge never carried the flag into
+  the log) and a read of a policy key that was seeded before the run and never
+  written through the facade (recorders saw it raw).
+
+  **The law**, in one line: a policy covers the commit log (both encodings),
+  the redacted mirror, `stageReads`/`stageWrites`, recorder events and the
+  narrative, a subflow's seed and merge-back — and NEVER the live heap the run
+  computes on (`getSnapshot().sharedState`, what stage functions read) nor
+  the resume checkpoint (resumption must replay real values; it is handed to
+  the runner, never served). Both halves are pinned by
+  `test/lib/engine/security/redaction-one-law.test.ts`; `stateAt` and the
+  time-travel cursor fold the scrubbed log to exactly the mirror's view.
+
+  **A consumer that sets no policy sees no change** — the fixture chart in
+  `test/lib/engine/scenario/redaction-no-policy-byte-identity.test.ts` runs
+  byte-identical to the bytes 9.18.1 produced, both encodings. **A consumer
+  with a policy now sees MORE scrubbed**: that is the fix. Example —
+  `executor.setRedactionPolicy({ keys: ['apiKey'], fields: { profile: ['auth.token'] } })`
+  on a chart whose subflow is seeded with both keys: the parent log, the
+  subflow's `history[0]`, its narrative `Input:` lines, every `stageReads`,
+  the mirror and `stateAt(...)` all hold `REDACTED` / `[REDACTED]` for
+  `apiKey` and `profile.auth.token` (with `profile.name` intact), while
+  `getSnapshot().sharedState.apiKey` and the resume checkpoint hold the real
+  value. `RedactionRule` and `RedactionVerdict` are exported from
+  `footprintjs/advanced`; `RedactionPolicy`/`RedactionReport` keep their
+  public path. Placeholders are unchanged (`'REDACTED'` in the log and
+  mirror, `'[REDACTED]'` everywhere else). The mirror's SEED is scrubbed too:
+  a policy key that arrives by `initialContext` / `defaultValuesForContext`
+  (or by a checkpoint's `sharedState` on a cross-executor resume) and is
+  never re-written is served as the placeholder, not in plaintext.
+
+  **One served surface stays raw, by construction:**
+  `subflowResults[*].treeContext.globalContext` (and its per-iteration `#n`
+  twin) is the subflow's own heap even under `getSnapshot({ redact: true })`
+  — only the run-level runtime keeps a mirror. Its `history` IS scrubbed, so
+  the workaround is to fold that history with `stateAt` (what agentfootprint's
+  `servableSnapshot` does); a per-subflow mirror is the follow-up.
+
 ## [9.18.1] - 2026-09-10
 
 ### Fixed

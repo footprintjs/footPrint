@@ -13,6 +13,10 @@ export { SharedMemory } from './SharedMemory.js';
 export { StageContext } from './StageContext.js';
 export { TransactionBuffer } from './TransactionBuffer.js';
 
+// Redaction — the ONE owner of the verdict (9.19.0)
+export type { RedactionVerdict } from './redaction.js';
+export { REDACTED, RedactionRule } from './redaction.js';
+
 // Types
 export type {
   CommitBundle,

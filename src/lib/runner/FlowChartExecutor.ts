@@ -40,6 +40,7 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
+import { RedactionRule } from '../memory/redaction.js';
 import type {
   CommitValuesMode,
   ReadTrackingMode,
@@ -240,8 +241,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   private deferredTier?: DeferredObserverTier;
   private redactionPolicy: RedactionPolicy | undefined;
-  private sharedRedactedKeys = new Set<string>();
-  private sharedRedactedFieldsByKey = new Map<string, Set<string>>();
+  /**
+   * The run's ONE redaction rule (`memory/redaction.ts`): built fresh per
+   * `createTraverser` (per-call marks reset per run and per resume, as the
+   * shared set always did), installed on the runtime root so every context
+   * retains under it, and read by every `ScopeFacade` through its context.
+   */
+  private redactionRule = new RedactionRule();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
   /**
    * `true` once `run()` (or a previous `resume()`) has executed on
@@ -395,8 +401,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.combinedRecorder = undefined;
     }
 
-    this.sharedRedactedKeys = new Set<string>();
-    this.sharedRedactedFieldsByKey = new Map<string, Set<string>>();
+    this.redactionRule = new RedactionRule(this.redactionPolicy);
 
     // Build modifier list — each modifier receives the scope after creation
     type ScopeModifier = (scope: any) => void;
@@ -432,7 +437,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       });
     }
 
-    // 3. Redaction policy (conditional — only when policy is set)
+    // 3. Redaction policy (conditional — only when policy is set). A
+    // `ScopeFacade` already reads the run's rule through its context (the
+    // rule is installed on the runtime root below); this call is the legacy
+    // protocol for custom scopes that are not facades, and on a facade it
+    // re-states the executor's policy on the shared rule (a no-op).
     if (this.redactionPolicy) {
       const policy = this.redactionPolicy;
       modifiers.push((scope) => {
@@ -440,21 +449,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           scope.useRedactionPolicy(policy);
         }
       });
-      // Pre-populate executor-level field redaction map from policy
-      // so getRedactionReport() includes field-level redactions.
-      if (policy.fields) {
-        for (const [key, fields] of Object.entries(policy.fields)) {
-          this.sharedRedactedFieldsByKey.set(key, new Set(fields));
-        }
-      }
     }
 
     // Compose: base factory + modifiers in a single pass.
-    // Shared redacted keys are ALWAYS wired up (unconditional — ensures cross-stage
+    // The marked-keys set is ALWAYS wired up (unconditional — ensures cross-stage
     // propagation even without a policy, because stages can call setValue(key, val, true)
     // for per-call redaction). Optional modifiers (recorders, policy) are in the list.
     const baseFactory = args.scopeFactory;
-    const sharedRedactedKeys = this.sharedRedactedKeys;
+    const sharedRedactedKeys = this.redactionRule.markedKeys();
     const scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);
       // Always wire shared redaction state
@@ -487,6 +489,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         effectiveInitialContext,
       );
     }
+
+    // The redaction rule (9.19.0): ONE owner of the verdict for the whole
+    // run, installed on the runtime's root context so every descendant and
+    // every subflow root retains under it — the same anchor and the same
+    // resume-path ordering as the mirror and the four dials. Installed even
+    // without a policy: a per-call `setValue(key, value, true)` marks the key
+    // on this rule, and the paths that bypass the facade (subflow seed,
+    // outputMapper merge-back, resume re-seed) honour that mark through it.
+    // ORDER MATTERS: before the mirror below — the mirror's SEED is scrubbed
+    // with this rule (a seeded, never re-written policy key is served).
+    runtime.useRedaction(this.redactionRule);
 
     // When a redaction policy is configured, maintain a parallel redacted
     // mirror of `globalStore` during traversal. Each commit applies the
@@ -570,6 +583,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   setRedactionPolicy(policy: RedactionPolicy): void {
     this.redactionPolicy = policy;
+    this.redactionRule = new RedactionRule(policy);
   }
 
   /**
@@ -609,15 +623,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * most recent run. Never includes actual values.
    */
   getRedactionReport(): RedactionReport {
-    const fieldRedactions: Record<string, string[]> = {};
-    for (const [key, fields] of this.sharedRedactedFieldsByKey) {
-      fieldRedactions[key] = [...fields];
-    }
-    return {
-      redactedKeys: [...this.sharedRedactedKeys],
-      fieldRedactions,
-      patterns: (this.redactionPolicy?.patterns ?? []).map((p) => p.source),
-    };
+    return this.redactionRule.report();
   }
 
   // ─── Pause/Resume ───

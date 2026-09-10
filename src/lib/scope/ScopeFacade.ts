@@ -19,7 +19,7 @@ import {
   detachAndJoinLater as detachAndJoinLaterSpawn,
 } from '../detach/spawn.js';
 import type { ExecutionEnv } from '../engine/types.js';
-import { nativeHas as lodashHas, nativeSet as lodashSet } from '../memory/pathOps.js';
+import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import { invokeRecorderHook } from '../recorder/invokeHook.js';
 import { hasCircularReference, isDevMode } from './detectCircular.js';
@@ -63,9 +63,12 @@ export class ScopeFacade {
   private readonly _trackedReadKeys = new Set<string>();
 
   private _recorders: ScopeRecorder[] = [];
-  private _redactedKeys: Set<string>;
-  private _redactionPolicy: RedactionPolicy | undefined;
-  private _redactedFieldsByKey: Map<string, Set<string>> = new Map();
+  /**
+   * A rule of this facade's own — ONLY when its context carries none (bare
+   * contexts in unit tests). Under an executor the rule lives on the context
+   * tree and this stays unset; see {@link rule}.
+   */
+  private _localRule?: RedactionRule;
 
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, executionEnv?: ExecutionEnv) {
     this._stageContext = context;
@@ -75,7 +78,12 @@ export class ScopeFacade {
     this._executionEnv = Object.freeze({ ...executionEnv });
     this._hasArgs = Object.keys(this._frozenArgs).length > 0;
     this._hasEnv = Object.keys(this._executionEnv).length > 0;
-    this._redactedKeys = new Set<string>();
+    // The context must carry the rule BEFORE the first write, since the
+    // context's write funnel is what marks a per-call redacted key on it.
+    // Under an executor the context already has the run's rule (installed on
+    // the root, inherited down) and this re-installs the same object; on a
+    // bare context it installs a fresh one.
+    this._stageContext.useRedactionRule?.(this.rule);
 
     // Register as commit observer so ScopeRecorder.onCommit fires when StageContext.commit() is called
     this._stageContext.setCommitObserver((mutations) => {
@@ -84,12 +92,33 @@ export class ScopeFacade {
   }
 
   /**
+   * The redaction rule this facade decides with — the SAME object its
+   * `StageContext` retains with (`memory/redaction.ts`, the one owner). Under
+   * an executor the rule is installed on the runtime root and inherited by
+   * every context, so the facade simply reads it. On a bare context (unit
+   * tests, hand-built scopes) the facade creates one and installs it on the
+   * context, so the context's retention and the facade's recorder views
+   * still share a single verdict.
+   */
+  private get rule(): RedactionRule {
+    const shared = this._stageContext.getRedactionRule?.();
+    if (shared) return shared;
+    if (!this._localRule) {
+      this._localRule = new RedactionRule();
+      this._stageContext.useRedactionRule?.(this._localRule);
+    }
+    return this._localRule;
+  }
+
+  /**
    * Share a redacted-keys set across multiple ScopeFacade instances.
    * Call this to make redaction persist across stages in the same pipeline.
+   * (Under an executor the run's rule already shares one set; this call is
+   * then a no-op.)
    * @internal
    */
   useSharedRedactedKeys(sharedSet: Set<string>): void {
-    this._redactedKeys = sharedSet;
+    this.rule.useMarkedKeys(sharedSet);
   }
 
   /**
@@ -97,7 +126,7 @@ export class ScopeFacade {
    * @internal
    */
   getRedactedKeys(): Set<string> {
-    return this._redactedKeys;
+    return this.rule.markedKeys();
   }
 
   /**
@@ -106,18 +135,12 @@ export class ScopeFacade {
    * @internal
    */
   useRedactionPolicy(policy: RedactionPolicy): void {
-    this._redactionPolicy = policy;
-    // Pre-populate field-level redaction map from policy
-    if (policy.fields) {
-      for (const [key, fields] of Object.entries(policy.fields)) {
-        this._redactedFieldsByKey.set(key, new Set(fields));
-      }
-    }
+    this.rule.setPolicy(policy);
   }
 
   /** @internal */
   getRedactionPolicy(): RedactionPolicy | undefined {
-    return this._redactionPolicy;
+    return this.rule.getPolicy();
   }
 
   /**
@@ -125,15 +148,7 @@ export class ScopeFacade {
    * Never includes actual values — only key names, field names, and patterns.
    */
   getRedactionReport(): RedactionReport {
-    const fieldRedactions: Record<string, string[]> = {};
-    for (const [key, fields] of this._redactedFieldsByKey) {
-      fieldRedactions[key] = [...fields];
-    }
-    return {
-      redactedKeys: [...this._redactedKeys],
-      fieldRedactions,
-      patterns: (this._redactionPolicy?.patterns ?? []).map((p) => p.source),
-    };
+    return this.rule.report();
   }
 
   // ── ScopeRecorder Management ──────────────────────────────────────────────────
@@ -219,25 +234,14 @@ export class ScopeFacade {
     if (this._recorders.length === 0) return;
 
     try {
-      const commitMutations: CommitEvent['mutations'] = Object.entries(mutations).map(([key, entry]) => {
-        const isRedacted = this._isKeyRedacted(key) || this._isPolicyRedacted(key);
-        const fieldSet = this._redactedFieldsByKey.get(key);
-
-        let recorderValue: unknown;
-        if (isRedacted) {
-          recorderValue = '[REDACTED]';
-        } else if (fieldSet && entry.value && typeof entry.value === 'object') {
-          recorderValue = this._scrubFields(entry.value as Record<string, unknown>, fieldSet);
-        } else {
-          recorderValue = entry.value;
-        }
-
-        return {
-          key,
-          value: recorderValue,
-          operation: entry.operation,
-        };
-      });
+      // `_stageWrites` already holds the retained form (the context retains
+      // under the same rule); applying the verdict again here is idempotent
+      // and keeps a key marked AFTER its write scrubbed at commit time.
+      const commitMutations: CommitEvent['mutations'] = Object.entries(mutations).map(([key, entry]) => ({
+        key,
+        value: this.rule.retain([key], entry.value),
+        operation: entry.operation,
+      }));
 
       this.notifyCommit(commitMutations);
     } catch {
@@ -307,7 +311,7 @@ export class ScopeFacade {
     // with '[REDACTED]' BEFORE constructing the event (no leak through
     // copy-on-write, no way for recorders to see the raw value).
     let finalPayload: unknown = payload;
-    const patterns = this._redactionPolicy?.emitPatterns;
+    const patterns = this.rule.getPolicy()?.emitPatterns;
     if (patterns && patterns.length > 0) {
       for (const pattern of patterns) {
         if (pattern.test(name)) {
@@ -479,17 +483,10 @@ export class ScopeFacade {
     if (key !== undefined) this._trackedReadKeys.add(key);
 
     if (this._recorders.length > 0) {
-      const isRedacted = key !== undefined && this._isKeyRedacted(key);
-      const fieldSet = key !== undefined ? this._redactedFieldsByKey.get(key) : undefined;
-
-      let recorderValue: unknown;
-      if (isRedacted) {
-        recorderValue = '[REDACTED]';
-      } else if (fieldSet && value && typeof value === 'object') {
-        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
-      } else {
-        recorderValue = value;
-      }
+      // A whole-state read (no key) is served with every redacted key inside
+      // it scrubbed; a keyed read is served under the key's verdict.
+      const verdict = key === undefined ? CLEAR : this.rule.verdict([key]);
+      const recorderValue = key === undefined ? this.rule.retainRecord(value) : RedactionRule.apply(verdict, value);
 
       this._invokeHook('onRead', {
         stageName: this._stageName,
@@ -499,7 +496,7 @@ export class ScopeFacade {
         timestamp: Date.now(),
         key,
         value: recorderValue,
-        redacted: isRedacted || fieldSet !== undefined || undefined,
+        redacted: verdict.kind !== 'clear' || undefined,
       });
     }
 
@@ -524,29 +521,13 @@ export class ScopeFacade {
       }
     }
 
-    // Auto-redact if key matches policy (exact keys or patterns), or if the key was
-    // previously marked redacted (e.g. carried over from a subflow via outputMapper).
-    const effectiveRedact = shouldRedact || this._isPolicyRedacted(key) || this._redactedKeys.has(key);
-
-    const result = this._stageContext.setObject([], key, value, effectiveRedact, description);
-
-    if (effectiveRedact) {
-      this._redactedKeys.add(key);
-    }
-
-    // Check for field-level redaction from policy
-    const fieldSet = this._redactedFieldsByKey.get(key);
+    // The context is the ONE funnel: it decides the verdict (explicit flag,
+    // policy key/pattern, per-run mark, or field-level scrub), stages the
+    // write with the paths the log will scrub, and hands the verdict back so
+    // recorders see the same decision the retained record holds.
+    const verdict = this._stageContext.setObject([], key, value, shouldRedact, description);
 
     if (this._recorders.length > 0) {
-      let recorderValue: unknown;
-      if (effectiveRedact) {
-        recorderValue = '[REDACTED]';
-      } else if (fieldSet && value && typeof value === 'object') {
-        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
-      } else {
-        recorderValue = value;
-      }
-
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
@@ -554,13 +535,11 @@ export class ScopeFacade {
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value: recorderValue,
+        value: RedactionRule.apply(verdict, value),
         operation: 'set',
-        redacted: effectiveRedact || fieldSet !== undefined || undefined,
+        redacted: verdict.kind !== 'clear' || undefined,
       });
     }
-
-    return result;
   }
 
   updateValue(key: string, value: unknown, description?: string) {
@@ -577,21 +556,9 @@ export class ScopeFacade {
       }
     }
 
-    const isRedacted = this._isKeyRedacted(key) || this._isPolicyRedacted(key);
-    const result = this._stageContext.updateObject([], key, value, description, isRedacted);
+    const verdict = this._stageContext.updateObject([], key, value, description);
 
     if (this._recorders.length > 0) {
-      const fieldSet = this._redactedFieldsByKey.get(key);
-
-      let recorderValue: unknown;
-      if (isRedacted) {
-        recorderValue = '[REDACTED]';
-      } else if (fieldSet && value && typeof value === 'object') {
-        recorderValue = this._scrubFields(value as Record<string, unknown>, fieldSet);
-      } else {
-        recorderValue = value;
-      }
-
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
@@ -599,22 +566,19 @@ export class ScopeFacade {
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
         key,
-        value: recorderValue,
+        value: RedactionRule.apply(verdict, value),
         operation: 'update',
-        redacted: isRedacted || fieldSet !== undefined || undefined,
+        redacted: verdict.kind !== 'clear' || undefined,
       });
     }
-
-    return result;
   }
 
   deleteValue(key: string, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'delete');
 
-    const result = this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`, 'delete');
-
-    // Deleting a redacted key clears its redaction status
-    this._redactedKeys.delete(key);
+    // Deleting a key clears its per-call redaction mark (the context's
+    // funnel does that); a policy verdict on the key survives.
+    this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`, 'delete');
 
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
@@ -628,8 +592,6 @@ export class ScopeFacade {
         operation: 'delete',
       });
     }
-
-    return result;
   }
 
   /** @internal */
@@ -694,76 +656,6 @@ export class ScopeFacade {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
-
-  /** Checks if a key is redacted (explicit _redactedKeys set). */
-  private _isKeyRedacted(key: string): boolean {
-    return this._redactedKeys.has(key);
-  }
-
-  /**
-   * Checks if a key should be auto-redacted by the policy (exact keys + patterns).
-   *
-   * ReDoS guard: pattern testing is capped at MAX_PATTERN_KEY_LEN characters.
-   * Scope state keys are always short identifiers; any key exceeding the cap
-   * is almost certainly not a legitimate scope key, so skipping pattern matching
-   * for it does not risk leaking PII. Exact-key matching (Array.includes) is
-   * still applied regardless of length and is not vulnerable to ReDoS.
-   */
-  private _isPolicyRedacted(key: string): boolean {
-    if (!this._redactionPolicy) return false;
-    if (this._redactionPolicy.keys?.includes(key)) return true;
-    if (this._redactionPolicy.patterns) {
-      if (key.length > ScopeFacade._MAX_PATTERN_KEY_LEN) {
-        // Dev-mode warning: pattern matching was silently skipped for this key.
-        // Use policy.keys for exact matching of long key names.
-        if (isDevMode()) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
-              'the pattern-matching length cap and was skipped. ' +
-              'Use policy.keys for exact matching of long key names.',
-          );
-        }
-      } else {
-        for (const p of this._redactionPolicy.patterns) {
-          p.lastIndex = 0; // Reset stateful global/sticky regexes
-          if (p.test(key)) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Maximum key length (characters) that will be tested against regex redaction
-   * patterns. Keys longer than this are skipped for pattern matching to prevent
-   * ReDoS: a pathological regex tested against an unboundedly long key string
-   * can cause catastrophic backtracking.
-   *
-   * 256 characters comfortably exceeds any realistic scope-state key name.
-   */
-  private static readonly _MAX_PATTERN_KEY_LEN = 256;
-
-  /**
-   * Returns a deep-cloned copy with specified fields replaced by '[REDACTED]'.
-   * Supports dot-notation paths (e.g. 'address.zip') for nested objects.
-   */
-  private _scrubFields(obj: Record<string, unknown>, fields: Set<string>): Record<string, unknown> {
-    const copy = structuredClone(obj);
-    for (const field of fields) {
-      if (field.includes('.') && !Object.prototype.hasOwnProperty.call(copy, field)) {
-        // Dot-notation path → deep scrub (only if not a literal flat key)
-        if (lodashHas(copy, field)) {
-          lodashSet(copy, field, '[REDACTED]');
-        }
-      } else {
-        if (Object.prototype.hasOwnProperty.call(copy, field)) {
-          copy[field] = '[REDACTED]';
-        }
-      }
-    }
-    return copy;
-  }
 
   private _invokeHook(hook: keyof Omit<ScopeRecorder, 'id'>, event: unknown): void {
     for (const recorder of this._recorders) {

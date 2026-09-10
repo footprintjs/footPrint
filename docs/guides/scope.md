@@ -237,7 +237,50 @@ Three protection modes:
 
 ## Redaction (PII Protection)
 
-Protect sensitive data in all recorder output. Two approaches: manual per-key and declarative policy.
+Protect sensitive data in everything the run keeps or shows. Two approaches: manual per-key and declarative policy.
+
+### The one law — what a policy covers
+
+A redaction policy covers **everything the run retains or serves** — the commit log (both encodings), the redacted mirror (`getSnapshot({ redact: true })`), each stage's `stageReads` / `stageWrites` in the execution tree, recorder events and the narrative, a subflow's `inputMapper` seed (its `history[0]` and its narrative `Input:` line) and its `outputMapper` merge-back into the parent — and **never** the live heap the run computes on (`getSnapshot().sharedState`, what your stage functions read) nor the resume checkpoint (resumption must replay real values; the checkpoint is handed to the runner, never served).
+
+One owner keeps it. Every staged write and every tracked read passes through `StageContext`, which decides with the run's `RedactionRule` (`memory/redaction.ts`) — so a write that never passes the scope object (a subflow seed, an `outputMapper` merge-back, a resume re-seed) is retained under the same verdict as `scope.ssn = …`. Two placeholders, both historical: the log and the mirror carry `'REDACTED'`; every scope-tier view (recorder events, `stageReads`/`stageWrites`, narrative) carries `'[REDACTED]'`.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+interface Inner { apiKey: string; profile: { auth: { token: string }; name: string }; seen: number }
+interface Outer { apiKey: string; profile: { auth: { token: string }; name: string }; seen?: number }
+
+const inner = flowChart<Inner>('Inside', (scope) => {
+  scope.seen = scope.apiKey.length; // the subflow computes on the REAL seed
+}, 'inside').build();
+
+const chart = flowChart<Outer>('Start', (scope) => {
+  scope.apiKey = 'sk-live-…';
+  scope.profile = { auth: { token: 'tok-…' }, name: 'Ada' };
+}, 'start')
+  .addSubFlowChartNext('sf', inner, 'Sub', {
+    inputMapper: (parent) => ({ apiKey: parent.apiKey, profile: parent.profile }),
+    outputMapper: (out) => ({ seen: out.seen }),
+  })
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.setRedactionPolicy({ keys: ['apiKey'], fields: { profile: ['auth.token'] } });
+await executor.run();
+
+const snapshot = executor.getSnapshot();
+snapshot.sharedState.apiKey;                       // 'sk-live-…'  — the live heap, never scrubbed
+snapshot.commitLog[0].overwrite.apiKey;            // 'REDACTED'   — the log
+snapshot.commitLog[0].overwrite.profile;           // { auth: { token: 'REDACTED' }, name: 'Ada' }
+executor.getSnapshot({ redact: true }).sharedState; // the mirror agrees with the log
+const sub = snapshot.subflowResults!['sf'] as { treeContext: { history: Array<{ overwrite: Record<string, unknown> }> } };
+sub.treeContext.history[0].overwrite.apiKey;       // 'REDACTED'   — the subflow's seed commit
+```
+
+A consumer that sets no policy sees no change. A consumer with a policy now sees **more** scrubbed than before 9.19.0, when five paths bypassed it: an `outputMapper` merge-back, an `inputMapper` seed and its narrative `Input:` line, a tracked read's `stageReads` retention, and a `fields` (dot-path) policy, which scrubbed recorder events only while the log kept the field.
+
+**Known limit:** `subflowResults[*].treeContext.globalContext` (and its per-iteration `#n` twin) is the subflow's own raw heap even under `getSnapshot({ redact: true })` — only the run-level runtime keeps a mirror. Its `history` is scrubbed, so fold that with `stateAt` from `footprintjs/trace` to serve a subflow's final state (this is what agentfootprint's `servableSnapshot` does).
 
 ### Manual Redaction
 
@@ -273,7 +316,7 @@ await executor.run();
 
 **Patterns** — `setValue('dbPassword', ...)` matches `/password/i` and auto-redacts. For very long key names, use `keys` (exact match) instead of patterns — pattern matching is skipped for unusually long keys as a guard against regex backtracking.
 
-**Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory but recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`. Supports dot-notation for nested paths: `fields: { patient: ['address.zip'] }` scrubs `patient.address.zip` while preserving all other nested properties.
+**Field-level** — `setValue('patient', { name: 'Alice', ssn: '123', dob: '...' })` stores the full object in memory; recorders receive `{ name: 'Alice', ssn: '[REDACTED]', dob: '[REDACTED]' }`, and the commit log and mirror record `{ name: 'Alice', ssn: 'REDACTED', dob: 'REDACTED' }` (9.19.0 — before, the log kept the fields). Supports dot-notation for nested paths: `fields: { patient: ['address.zip'] }` scrubs `patient.address.zip` while preserving all other nested properties.
 
 ### Audit Trail
 

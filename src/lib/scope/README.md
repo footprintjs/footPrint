@@ -95,16 +95,18 @@ executor.attachScopeRecorder(auditRecorder);
 
 ### 2b. Redaction — "The PII Shield"
 
-Redaction sits between the data layer and recorders. Two mechanisms:
+**The one law (9.19.0):** a redaction policy covers EVERYTHING RETAINED OR SERVED — the commit log (both encodings), the redacted mirror, `stageReads`/`stageWrites` retention, recorder events and the narrative, a subflow's seed and merge-back — and NEVER the live heap the run computes on nor the resume checkpoint. ONE owner keeps it: the run's `RedactionRule` (`memory/redaction.ts`), installed on the root `StageContext` and inherited by every context and subflow root. `StageContext`'s write funnel and tracked-read retention ask it, so a write that bypasses the facade (subflow `inputMapper` seed, `outputMapper` merge-back, resume re-seed) is retained under the same verdict; the facade asks the same rule for the values it hands to recorders. Worked example: `docs/guides/scope.md` → "The one law".
 
-**Manual:** `setValue(key, value, true)` marks a key as redacted. All recorders see `[REDACTED]` for that key's reads and writes. Runtime always gets the real value.
+Two mechanisms feed the rule:
+
+**Manual:** `setValue(key, value, true)` marks a key as redacted for the rest of the run. All recorders see `[REDACTED]` for that key's reads and writes; the log and mirror record `REDACTED`. Runtime always gets the real value.
 
 **Policy-based:** `RedactionPolicy` is a declarative config object with three dimensions:
 - `keys: string[]` — exact key names to always redact
 - `patterns: RegExp[]` — any key matching a pattern is auto-redacted
-- `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`)
+- `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`) — honoured by the log and the mirror too, not only by recorder events (9.19.0)
 
-The policy is injected via `useRedactionPolicy()` on ScopeFacade, or at the executor level via `executor.setRedactionPolicy(policy)`. Cross-stage persistence is automatic via `useSharedRedactedKeys()`.
+The policy is set at the executor level via `executor.setRedactionPolicy(policy)` (the rule is built per run and installed on the runtime root); `useRedactionPolicy()` / `useSharedRedactedKeys()` on a ScopeFacade remain as the `@internal` protocol for hand-built scopes and set the same rule.
 
 `getRedactionReport()` returns a compliance-friendly audit trail: which keys were redacted, which fields were scrubbed, which patterns were active. Never includes actual values.
 

@@ -321,9 +321,10 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     // inputMapper. `operation: 'set'` likewise — this is the subflow's
     // first sight of the key.
     //
-    // Values shown when includeValues=true — consumer responsible for
-    // redaction policy on the parent scope (redacted keys produce
-    // '[REDACTED]' via ScopeFacade).
+    // Values shown when includeValues=true. `event.mappedInput` is already
+    // the RETAINED form of the seed — `SubflowExecutor` scrubs it under the
+    // run's redaction rule before raising the event (9.19.0), so a redacted
+    // key arrives as '[REDACTED]' and a field-level key as a scrubbed clone.
     if (event.mappedInput && Object.keys(event.mappedInput).length > 0) {
       let stepNumber = 0;
       for (const [key, value] of Object.entries(event.mappedInput)) {

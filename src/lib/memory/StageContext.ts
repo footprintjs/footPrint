@@ -13,6 +13,8 @@ import { isDevMode } from '../scope/detectCircular.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
+import type { RedactionVerdict } from './redaction.js';
+import { CLEAR, REDACTED, RedactionRule } from './redaction.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
@@ -26,6 +28,13 @@ import type {
   WriteTrackingMode,
 } from './types.js';
 import { redactPatch } from './utils.js';
+
+/** The user-level key of a write or read — dotted only for a nested path (a
+ *  subflow seed's `['profile'] + 'auth'`); no allocation for the common
+ *  single-segment case. */
+function userKeyOf(path: string[], key: string): string {
+  return path.length > 0 ? [...path, key].join('.') : key;
+}
 
 export class StageContext {
   private sharedMemory: SharedMemory;
@@ -42,6 +51,8 @@ export class StageContext {
    * through `sharedState`.
    */
   private redactedSharedMemory?: SharedMemory;
+  /** The run's redaction rule — see {@link useRedactionRule}. */
+  private redactionRule?: RedactionRule;
   private buffer?: TransactionBuffer;
   /**
    * Committed-state view captured at this stage's FIRST touch (first read OR
@@ -192,6 +203,27 @@ export class StageContext {
   }
 
   /**
+   * Install the run's redaction rule — the ONE owner of "what does the policy
+   * say about this path" (`memory/redaction.ts`). Same plumbing as the mirror
+   * and the four dials: set once at the root by `ExecutionRuntime.useRedaction`
+   * (from `FlowChartExecutor`, every run and resume), inherited via
+   * {@link createNext}/{@link createChild}, pushed into subflow root contexts
+   * by `SubflowExecutor`. Every staged write and every tracked read asks it,
+   * so a write that never passes a `ScopeFacade` — a subflow seed, an
+   * `outputMapper` merge-back, a resume re-seed — is retained under the same
+   * verdict as a facade write. Absent (bare contexts in unit tests): every
+   * verdict is `'clear'` unless the caller passed an explicit flag.
+   */
+  useRedactionRule(rule: RedactionRule): void {
+    this.redactionRule = rule;
+  }
+
+  /** The installed redaction rule, if any (facade lookup, subflow propagation). */
+  getRedactionRule(): RedactionRule | undefined {
+    return this.redactionRule;
+  }
+
+  /**
    * Set the read-tracking policy for this context (#14). Called at the root
    * by `ExecutionRuntime.useReadTracking()` (plumbed from
    * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
@@ -266,20 +298,93 @@ export class StageContext {
    * write stores the `'[REDACTED]'` placeholder under `'full'` AND
    * `'summary'` (a summary marker would leak the value's preview/size),
    * and stores nothing under `'off'` (entry skipped entirely — nothing to
-   * leak). The staged write itself is unaffected — redaction of the
-   * committed payload is handled by the transaction buffer's
-   * `redactedPaths`.
+   * leak). A field-level verdict scrubs a clone BEFORE the dial sees it, so
+   * a summary preview can never show the secret either. The staged write
+   * itself is unaffected — redaction of the committed payload is handled by
+   * the transaction buffer's `redactedPaths`.
    */
-  private trackWrite(userKey: string, value: unknown, shouldRedact: boolean, operation: 'set' | 'update' | 'delete') {
+  private trackWrite(
+    userKey: string,
+    value: unknown,
+    verdict: RedactionVerdict,
+    operation: 'set' | 'update' | 'delete',
+  ) {
     if (this.writeTracking === 'off') return;
     this._stageWrites[userKey] = {
-      value: shouldRedact
-        ? '[REDACTED]'
-        : this.writeTracking === 'summary'
-        ? summarizeWriteValue(value)
-        : structuredClone(value),
+      value: this.retainedForm(verdict, value, this.writeTracking, summarizeWriteValue),
       operation,
     };
+  }
+
+  /**
+   * The form of a value the engine RETAINS (reads and writes retention):
+   * the placeholder beats every dial; a field-level scrub happens before the
+   * dial sees the value; a clear value is summarized or cloned as the dial
+   * says. Callers handle `undefined` before asking.
+   */
+  private retainedForm(
+    verdict: RedactionVerdict,
+    value: unknown,
+    mode: ReadTrackingMode | WriteTrackingMode,
+    summarize: (value: unknown) => unknown,
+  ): unknown {
+    if (verdict.kind === 'whole') return REDACTED;
+    const scrubbed = verdict.kind === 'fields' ? RedactionRule.scrubFields(value, verdict.paths) : undefined;
+    if (mode === 'summary') return summarize(scrubbed ?? value);
+    return scrubbed ?? structuredClone(value);
+  }
+
+  /**
+   * The rule with something to say — `undefined` on the no-policy path (no
+   * rule installed, or a rule with no policy entries and no marked keys), so
+   * a tracked read or a staged write there pays no verdict call and no path
+   * allocation. The default run is byte-identical AND cost-identical.
+   */
+  private activeRule(): RedactionRule | undefined {
+    const rule = this.redactionRule;
+    return rule !== undefined && !rule.isInert() ? rule : undefined;
+  }
+
+  /**
+   * THE ONE FUNNEL every staged write passes through — facade writes AND
+   * the paths that bypass the facade (subflow seed, `outputMapper`
+   * merge-back, resume re-seed). The ONE decision is made here: an explicit
+   * per-call flag makes the value secret outright (and marks the key for the
+   * rest of the run, the declare-once contract); otherwise the installed
+   * rule decides from the user-level path. It stages the write, registers
+   * the redacted paths the commit log and mirror will scrub (whole key, or
+   * the fields inside the value), and keeps the run's marked-keys set in
+   * step (a whole verdict marks its key; a delete clears the mark). Returns
+   * the verdict so the caller retains and reports under the same decision.
+   */
+  private stageWrite(
+    nsPath: string[],
+    path: string[],
+    key: string,
+    value: unknown,
+    explicit: boolean | undefined,
+    verb: 'set' | 'merge' | 'delete',
+  ): RedactionVerdict {
+    const rule = this.activeRule();
+    const verdict: RedactionVerdict = explicit
+      ? { kind: 'whole', key: userKeyOf(path, key) }
+      : rule !== undefined
+      ? rule.verdictAt(path, key)
+      : CLEAR;
+    const whole = verdict.kind === 'whole';
+    const buffer = this.getTransactionBuffer();
+    if (verb === 'merge') buffer.merge(nsPath, value, whole);
+    else if (verb === 'delete') buffer.delete(nsPath, whole);
+    else buffer.set(nsPath, value, whole);
+    if (verdict.kind === 'fields') buffer.markRedactedFields(nsPath, verdict.paths);
+    if (verb === 'delete') {
+      rule?.unmark(userKeyOf(path, key));
+    } else if (whole) {
+      // The REAL rule, not the active one: an explicit mark on an inert rule
+      // is exactly what makes it active for the rest of the run.
+      this.redactionRule?.mark(verdict.key);
+    }
+    return verdict;
   }
 
   /**
@@ -363,16 +468,16 @@ export class StageContext {
 
   // ── Write operations ───────────────────────────────────────────────────
 
-  patch(path: string[], key: string, value: unknown, shouldRedact = false) {
-    this.getTransactionBuffer().set(this.withNamespace(path, key), value, shouldRedact);
+  patch(path: string[], key: string, value: unknown, shouldRedact = false): RedactionVerdict {
+    return this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'set');
   }
 
   set(path: string[], key: string, value: unknown) {
     this.patch(path, key, value);
   }
 
-  merge(path: string[], key: string, value: unknown) {
-    this.getTransactionBuffer().merge(this.withNamespace(path, key), value);
+  merge(path: string[], key: string, value: unknown, shouldRedact?: boolean): RedactionVerdict {
+    return this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'merge');
   }
 
   setObject(
@@ -382,50 +487,56 @@ export class StageContext {
     shouldRedact?: boolean,
     description?: string,
     operationOverride?: 'set' | 'delete',
-  ) {
-    if (operationOverride === 'delete') {
-      // Explicit deletion (ScopeFacade.deleteValue) stages a distinct op so
-      // delta-mode commits (#13c-B) can emit a real `delete` trace entry.
-      // Under the default 'full' mode the buffer commits it as a
-      // set-of-undefined — byte-identical to the historical flattening.
-      this.getTransactionBuffer().delete(this.withNamespace(path, key), shouldRedact ?? false);
-    } else {
-      this.patch(path, key, value, shouldRedact ?? false);
-    }
+  ): RedactionVerdict {
+    // Explicit deletion (ScopeFacade.deleteValue) stages a distinct op so
+    // delta-mode commits (#13c-B) can emit a real `delete` trace entry.
+    // Under the default 'full' mode the buffer commits it as a
+    // set-of-undefined — byte-identical to the historical flattening.
+    const verdict =
+      operationOverride === 'delete'
+        ? this.stageWrite(this.withNamespace(path, key), path, key, undefined, shouldRedact, 'delete')
+        : this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'set');
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
-    const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this.trackWrite(userKey, value, shouldRedact ?? false, operationOverride ?? 'set');
+    this.trackWrite(userKeyOf(path, key), value, verdict, operationOverride ?? 'set');
     if (description) {
       const tagged = description.startsWith('[') ? description : `[WRITE] ${description}`;
       this.debug.addLog('message', tagged);
     }
+    return verdict;
   }
 
-  updateObject(path: string[], key: string, value: unknown, description?: string, shouldRedact?: boolean) {
-    this.merge(path, key, value);
+  updateObject(
+    path: string[],
+    key: string,
+    value: unknown,
+    description?: string,
+    shouldRedact?: boolean,
+  ): RedactionVerdict {
+    const verdict = this.merge(path, key, value, shouldRedact);
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
-    const userKey = path.length > 0 ? [...path, key].join('.') : key;
-    this.trackWrite(userKey, value, shouldRedact ?? false, 'update');
+    this.trackWrite(userKeyOf(path, key), value, verdict, 'update');
     if (description) {
       this.debug.addLog('message', description);
     }
+    return verdict;
   }
 
   setRoot(key: string, value: unknown) {
     this.patch([], key, value);
   }
 
+  /** Root-level (un-namespaced) write — the subflow seed and merge-back path. */
   setGlobal(key: string, value: unknown, description?: string) {
-    this.getTransactionBuffer().set([key], value);
+    this.stageWrite([key], [], key, value, undefined, 'set');
     if (description) {
       this.debug.addLog('message', description);
     }
   }
 
   updateGlobalContext(key: string, value: unknown) {
-    this.getTransactionBuffer().set([key], value);
+    this.stageWrite([key], [], key, value, undefined, 'set');
   }
 
   appendToArray(path: string[], key: string, items: unknown[], description?: string) {
@@ -478,15 +589,21 @@ export class StageContext {
     if (key !== undefined && this.writeProvenance === 'reads-prefix') {
       (this._provenanceReads ??= new Set()).add(path.length > 0 ? [...path, key].join('.') : key);
     }
-    // Track user-level read (pre-namespace) for memory view
+    // Track user-level read (pre-namespace) for memory view — retained under
+    // the rule's verdict (9.19.0): a redacted key is retained as the
+    // placeholder, a field-level key as a scrubbed clone, never the secret.
+    // No policy and no marks → no verdict call, no allocation (activeRule).
     if (key !== undefined && this.readTracking !== 'off') {
-      const userKey = path.length > 0 ? [...path, key].join('.') : key;
-      this._stageReads[userKey] =
+      const rule = this.activeRule();
+      this._stageReads[userKeyOf(path, key)] =
         value === undefined
           ? undefined
-          : this.readTracking === 'summary'
-          ? summarizeReadValue(value)
-          : structuredClone(value);
+          : this.retainedForm(
+              rule !== undefined ? rule.verdictAt(path, key) : CLEAR,
+              value,
+              this.readTracking,
+              summarizeReadValue,
+            );
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
@@ -704,6 +821,7 @@ export class StageContext {
       // Propagate the redacted mirror down the context tree so every commit
       // in the run writes to both views.
       if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
+      this.next.redactionRule = this.redactionRule;
       this.next.readTracking = this.readTracking;
       this.next.writeTracking = this.writeTracking;
       this.next.commitValues = this.commitValues;
@@ -726,6 +844,7 @@ export class StageContext {
     const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
     child.parent = this;
     if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
+    child.redactionRule = this.redactionRule;
     child.readTracking = this.readTracking;
     child.writeTracking = this.writeTracking;
     child.commitValues = this.commitValues;
