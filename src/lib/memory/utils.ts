@@ -168,13 +168,28 @@ export function normalisePath(path: (string | number)[]): string {
  *   - Primitive comparisons (the bulk of state) are O(1) via the `===` /
  *     `Object.is` fast paths; only nested objects/arrays incur a walk, bounded
  *     by the value's own size.
- *   - Assumes ACYCLIC, JSON-shaped values — the same contract the memory layer
- *     already relies on (committed state is `structuredClone`d and must be
- *     JSON-serialisable for checkpoints). A cyclic value is out of contract
- *     here exactly as it is for checkpointing; dev mode flags cycles at write
- *     time via `ScopeFacade.setValue`.
+ *   - Terminates on CYCLIC values (9.18.1): a state value must survive
+ *     `structuredClone`, and `structuredClone` preserves cycles — so a
+ *     self-referencing value is a legal value, not an out-of-contract one. A
+ *     pair of objects already under comparison is treated as equal (the
+ *     structural answer, lodash `isEqual` semantics); acyclic inputs see no
+ *     change. Dev mode still warns about cycles at write time
+ *     (`ScopeFacade.setValue`) because they surprise narrative and JSON.
  */
 export function deepEqual(a: any, b: any): boolean {
+  return equalPairs(a, b, undefined);
+}
+
+/**
+ * Object pairs met so far, keyed `a → the b's it has been paired with`. Created
+ * lazily by the first object pair, so primitive compares allocate nothing.
+ * Never pruned: every `false` returns straight up to the caller (each recursive
+ * call short-circuits on it), so nothing is looked up after a mismatch — a
+ * stored pair is either still under comparison or already known equal.
+ */
+type SeenPairs = WeakMap<object, WeakSet<object>>;
+
+function equalPairs(a: any, b: any, seen: SeenPairs | undefined): boolean {
   if (a === b) return true; // same reference or identical primitive
   if (typeof a !== typeof b) return false;
   if (a === null || b === null) return a === b; // one is null, the other isn't
@@ -183,10 +198,17 @@ export function deepEqual(a: any, b: any): boolean {
   const aIsArray = Array.isArray(a);
   if (aIsArray !== Array.isArray(b)) return false; // array vs plain object
 
+  // Cycle guard — a pair we are already inside is equal by assumption.
+  seen ??= new WeakMap();
+  let partners = seen.get(a);
+  if (partners?.has(b)) return true;
+  if (!partners) seen.set(a, (partners = new WeakSet()));
+  partners.add(b);
+
   if (aIsArray) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (!deepEqual(a[i], b[i])) return false;
+      if (!equalPairs(a[i], b[i], seen)) return false;
     }
     return true;
   }
@@ -196,7 +218,7 @@ export function deepEqual(a: any, b: any): boolean {
   if (aKeys.length !== bKeys.length) return false;
   for (const key of aKeys) {
     if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
-    if (!deepEqual(a[key], b[key])) return false;
+    if (!equalPairs(a[key], b[key], seen)) return false;
   }
   return true;
 }
@@ -210,8 +232,20 @@ export function deepEqual(a: any, b: any): boolean {
  *   impossible to distinguish from a bug.
  * - Objects: recursive merge
  * - Primitives: source wins
+ *
+ * Terminates on a CYCLIC `src` (9.18.1, same law as {@link deepEqual}: a
+ * state value survives `structuredClone`, which preserves cycles). A `src`
+ * object re-entered while it is still being merged higher up the stack hands
+ * back the output being built for it, so the merged value mirrors the cycle
+ * instead of unrolling it forever. Only the ancestors on the stack are
+ * guarded — a shared (acyclic) `src` reference met again at a different
+ * `dst` merges against THAT `dst`, exactly as before.
  */
 export function deepSmartMerge(dst: any, src: any): any {
+  return mergeGuarded(dst, src, undefined);
+}
+
+function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undefined): any {
   if (src === null || typeof src !== 'object') return src;
 
   if (Array.isArray(src)) {
@@ -220,11 +254,15 @@ export function deepSmartMerge(dst: any, src: any): any {
     return [...src];
   }
 
+  if (inFlight?.has(src)) return inFlight.get(src); // cycle — re-enter the value being built
+
   const out: any = { ...(dst && typeof dst === 'object' ? dst : {}) };
+  (inFlight ??= new WeakMap()).set(src, out);
   // Object.keys() is own-enumerable-only by spec — no DENIED check needed here.
   for (const k of Object.keys(src)) {
-    out[k] = deepSmartMerge(out[k], src[k]);
+    out[k] = mergeGuarded(out[k], src[k], inFlight);
   }
+  inFlight.delete(src);
   return out;
 }
 

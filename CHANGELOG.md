@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.18.1] - 2026-09-10
+
+### Fixed
+
+- **A cyclic value no longer blows the stack at commit.** The engine's own law
+  on state values is "must survive `structuredClone`" — and `structuredClone`
+  PRESERVES cycles, so an object that references itself is a legal value, not
+  an out-of-contract one. Two walkers on the commit path did not honour that:
+  `deepEqual`, the net-change filter every commit runs, and `deepSmartMerge`,
+  the `merge` verb (staged at write time, replayed by the fold and by
+  `commitValueAt`). Both recursed without a cycle guard, so a tool schema whose
+  object pointed at itself, reaching a subflow's `outputMapper`, threw
+  `RangeError: Maximum call stack size exceeded` — caught per stage under one
+  chart shape (the run limped on with the write LOST) and fatal under another.
+  Found by an agentfootprint reviewer on 2026-09-09. `deepEqual` now keeps the
+  object pairs it is already inside and treats a re-entered pair as equal (the
+  structural answer, lodash `isEqual` semantics); `deepSmartMerge` hands a
+  re-entered source the value it is already building, so the merged value
+  mirrors the cycle. Acyclic inputs see no change — same key, array, `NaN` and
+  `null` rules, and a shared (DAG) reference is still compared or merged
+  against its own counterpart at every occurrence. The commit log, the live
+  state, `stateAt` and the time-travel cursor all hold and fold the cycle
+  intact. Example: `scope.tools = [schema]` where `schema.self === schema`, then
+  a subflow's `outputMapper` re-emits the schema — the run completes and the
+  bundle records it.
+
 ## [9.18.0] - 2026-09-08
 
 ### Added
