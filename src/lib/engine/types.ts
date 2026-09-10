@@ -327,6 +327,35 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    * @default false
    */
   propagateBreak?: boolean;
+
+  /**
+   * Declared tags (9.21.1) for the MOUNT itself — the NAMES the author puts
+   * on this mount at build time, landed by the same `applyTags` every other
+   * `options.tags` site uses, with the same refusals (empty, non-string, the
+   * reserved `~` marker, a duplicate, a second declaration).
+   *
+   * A mount is a stage that commits: its first bundle in the PARENT log is a
+   * stop in `commitStops`, so `tagStops` keeps it like any tagged stage and
+   * carries these names as `Stop.meta`. Stamped on that first bundle only
+   * (the mount's exit bundle carries none — the once-per-execution law).
+   * The subflow's OWN log is untouched: its inner stages declare their own
+   * tags, and `drill(mount)` reads those off the inner log.
+   *
+   * This is the ONLY tag site for a fork-child mount (`addSubFlowChart`) or
+   * a branch mount (`addSubFlowChartBranch`) — after those the cursor still
+   * points at the parent, so `.tag()` refuses rather than mis-attribute. A
+   * linear mount (`addSubFlowChartNext`) moves the cursor, so `.tag()` works
+   * there too; declare in one place, not both.
+   *
+   * @example
+   * ```typescript
+   * .addSelectorFunction('Slots', pickSlots, 'slots')
+   *   .addSubFlowChartBranch('memory', memoryChart, 'Memory', { tags: ['slot:memory'] })
+   *   .addSubFlowChartBranch('tools', toolsChart, 'Tools', { tags: ['slot:tools'] })
+   * .end()
+   * ```
+   */
+  tags?: readonly string[];
 }
 
 export interface SubflowResult {

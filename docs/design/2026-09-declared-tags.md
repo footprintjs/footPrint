@@ -12,6 +12,15 @@ NOT re-stamp "from its chart" by itself — `FlowChartExecutor.resume`'s synthet
 `pausedNode.tags` on both re-entries; (d) `RuntimeStructureManager.stageNodeToStructure` also copies `tags`, so a
 lazily-resolved node's Map advertises them. Packets 2 and 3 are unchanged.
 
+**Status addendum (9.21.1, 2026-09-10):** packet 2 measured a gap in packet 1 — a subflow MOUNT had no tag site
+(`SubflowMountOptions` carried no `tags`; no mount method called `applyTags`), so a consumer's slot mounts fell back to
+id derivation inside an otherwise tagged recording, against law 3. Fixed at the one landing site:
+`SubflowMountOptions.tags` → `applyTags` from all eight mount methods (eager/lazy × fork-child/linear/decider-branch/
+selector-branch). The tag lands on the mount's FIRST bundle in the parent log (exit bundle: none); the subflow's own log
+is untouched. `.tag()` after `addSubFlowChart` / `addSubFlowChartBranch` STILL refuses (the cursor stays on the parent
+— a fork-child mount is one of N siblings, the same law `.retry()` keeps); the refusal now names the option. Untagged
+mounts stay byte-identical (the 9.20.0 reference is unchanged).
+
 ## The question it answers
 
 "Filter stops by tag and group the rest — is a tag commit-based or state-based?" Both exist, as different things,

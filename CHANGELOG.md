@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.21.1] - 2026-09-10
+
+### Fixed
+
+- **A subflow mount can now be tagged.** 9.21.0 gave every stage-shaped
+  node a `tags` site — `.tag()` after it, or `{ tags }` at a decider /
+  selector / branch / fork child's own declaration — but a subflow MOUNT had
+  none: `SubflowMountOptions` carried no `tags`, and no mount method landed
+  one. Found while a consumer declared its milestones: its three
+  context-slot mounts (selector-branch mounts in every agent chart) could
+  not be tagged, so inside an otherwise tagged recording those three stops
+  fell back to id derivation — exactly the fallback declared tags exist to
+  retire. A mount is a stage that commits (its first bundle in the parent
+  log is a stop in `commitStops`), so law 3 of the design — the tag is the
+  fact — needs it taggable.
+
+  Now `SubflowMountOptions.tags?: readonly string[]` lands through the same
+  `applyTags` as every other site, from all eight mount methods
+  (`addSubFlowChart`, `addSubFlowChartNext`, both `addSubFlowChartBranch`es,
+  and their lazy twins — the option type is shared, so a field three of
+  them ignored would be a silent no-op). Same refusals (empty, non-string,
+  the reserved `~`, a duplicate, a second declaration). The tag lands on the
+  mount's FIRST bundle in the parent log; the exit bundle carries none; the
+  subflow's own log is untouched (its inner stages declare their own, and
+  `drill(mount)` reads those). An untagged mount is byte-identical to 9.21.0
+  — the 9.20.0 reference still passes unchanged.
+
+  `.tag()` after `addSubFlowChart` / `addSubFlowChartBranch` still refuses:
+  those leave the cursor on the parent (a fork-child mount is one of N
+  siblings), so "the stage you just added" stays ambiguous — the same law
+  `.retry()` keeps and `addListOfFunction` children follow. The refusal now
+  names the site. `.tag()` after `addSubFlowChartNext` worked already (the
+  cursor moves) and still does; declare in one place, not both.
+
+  ```ts
+  import { flowChart } from 'footprintjs';
+  import { tagStops, timeTravel } from 'footprintjs/trace';
+
+  const chart = flowChart<State>('Seed', seedFn, 'seed')
+    .addSelectorFunction('Slots', pickSlots, 'slots')
+    .addSubFlowChartBranch('memory', memoryChart, 'Memory', { tags: ['slot:memory'] })
+    .addSubFlowChartBranch('tools', toolsChart, 'Tools', { tags: ['slot:tools'] })
+    .end()
+    .addFunction('Call model', callFn, 'call-llm')
+    .tag('milestone:llm-turn')
+    .build();
+
+  // …run it; later, anywhere:
+  const cursor = timeTravel(snapshot, { strategy: tagStops(['slot:memory', 'slot:tools']) });
+  cursor.stops.map((s) => s.kind);   // ['start', 'mount', 'mount', 'end']
+  cursor.stops[1].meta;              // ['slot:memory'] — the mount's own bundle
+  // `drill` carries the strategy into memoryChart's OWN log, where nothing says 'slot:memory':
+  cursor.drill(cursor.stops[1].runtimeStageId)!.stops.map((s) => s.kind); // ['start', 'end']
+  // …an unfiltered cursor's drill reads the inner stages' own tags instead.
+  ```
+
+  Sites: `engine/types.ts · SubflowMountOptions.tags` · `FlowChartBuilder.ts`
+  (the eight mount methods call `applyTags`; `.tag()`'s cursor-tail refusal
+  names the option). Tests: `test/lib/builder/tags-mount-build.test.ts`,
+  `test/lib/engine/declared-tags-mount.test.ts`.
+
 ## [9.21.0] - 2026-09-10
 
 ### Added

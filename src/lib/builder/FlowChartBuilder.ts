@@ -332,6 +332,8 @@ export class DeciderList<TOut = any, TScope = any> {
     // chokepoint (which iterates child specs) can read it.
     if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
+    applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
+
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
@@ -382,6 +384,8 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
+
+    applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -711,6 +715,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
     // `call-llm`. Visualization-only: NO runtime join barrier (data rides scope).
     if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
+    applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
+
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
     this.curSpec.children = this.curSpec.children || [];
@@ -758,6 +764,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
+
+    applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
     this.curNode.children = this.curNode.children || [];
     this.curNode.children.push(node);
@@ -1886,6 +1894,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowStructure: subflow.buildTimeStructure,
     };
 
+    // The mount's ONLY tag site: the cursor stays on the parent (see
+    // `_cursorTail`), so `.tag()` after this call refuses.
+    applyTags(node, spec, options?.tags, `addSubFlowChart('${id}')`);
+
     curSpec.type = 'fork';
     cur.children = cur.children || [];
     cur.children.push(node);
@@ -1948,6 +1960,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       isLazy: true,
     };
 
+    applyTags(node, spec, options?.tags, `addLazySubFlowChart('${id}')`);
+
     curSpec.type = 'fork';
     cur.children = cur.children || [];
     cur.children.push(node);
@@ -2003,6 +2017,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowName,
       isLazy: true,
     };
+
+    applyTags(node, spec, options?.tags, `addLazySubFlowChartNext('${id}')`);
 
     const parentSpec = curSpec;
     cur.next = node;
@@ -2060,6 +2076,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
+
+    // A linear mount moves the cursor, so `.tag()` after it also works —
+    // `applyTags` refuses a second declaration if both sites are used.
+    applyTags(node, attachedSpec, options?.tags, `addSubFlowChartNext('${id}')`);
 
     const parentSpec = curSpec;
     cur.next = node;
@@ -2182,7 +2202,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * a stage that `interrupt()`s and is resumed is two tagged stops on a chain
    * because it ran twice, and an EMPTY commit is a tagged stop too. A subflow
    * mount or a parallel-for-each stage can be tagged; the tag lands on the
-   * bundle that records its result.
+   * bundle that records its result — for a mount, its FIRST bundle in the
+   * parent log (the exit bundle carries none), while the subflow's own log
+   * is untouched: its inner stages declare their own.
    *
    * @example
    * ```ts
@@ -2197,7 +2219,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * preceding `start()` / `addFunction()` / `addStreamingFunction()` /
    * `addPausableFunction()` / `addSubFlowChartNext()` / `addParallelForEach()`.
    * Where the cursor would be ambiguous (a decider, selector, branch, or fork
-   * child), declare the tags in that method's own `tags` option instead.
+   * child), declare the tags in that method's own `tags` option instead. A
+   * subflow MOUNT has that option too (`SubflowMountOptions.tags`, 9.21.1)
+   * — and for a fork-child mount (`addSubFlowChart`) or a branch mount
+   * (`addSubFlowChartBranch`) it is the ONLY site: those leave the cursor on
+   * the parent, so `.tag()` after them refuses rather than mis-attribute.
    *
    * Refused at build time: an empty name, a non-string, the reserved
    * branch-segment marker `~` inside a name, a name declared twice, and a
@@ -2213,7 +2239,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       fail(
         `tag() cannot follow ${this._cursorTail} — that attaches to '${cur.name}' without moving the cursor, so ` +
           `the names would land on '${cur.name}' rather than on what you just added. Declare the tags at their own ` +
-          'site instead: on the stages INSIDE a subflow chart, or via the `tags` field on an addListOfFunction child.',
+          "site instead: via the `tags` field in the mount's own options (`SubflowMountOptions.tags`, 9.21.1), or " +
+          'via the `tags` field on an addListOfFunction child. The stages INSIDE a subflow chart declare their own.',
       );
     }
     if (cur.isLoopRef) fail(`tag() cannot be applied to the loop reference '${cur.name}'`);
