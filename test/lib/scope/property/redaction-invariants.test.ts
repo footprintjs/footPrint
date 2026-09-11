@@ -165,16 +165,18 @@ describe('Property: redaction invariants', () => {
         fc.string(),
         fc.string(),
         (key, secret, nonSecret) => {
-          const ctx = makeCtx();
-          const scope = new ScopeFacade(ctx, 'test');
+          // One facade per stage (a handle is dead after its commit — 9.22.0).
+          const stage1 = makeCtx();
+          new ScopeFacade(stage1, 'test').setValue(key, secret, true);
+          stage1.commit();
+          const stage2 = stage1.createNext('p1', 's2', 's2');
+          new ScopeFacade(stage2, 'test').deleteValue(key);
+          stage2.commit();
+          const stage3 = stage2.createNext('p1', 's3', 's3');
+          const scope = new ScopeFacade(stage3, 'test');
           const readEvents: ReadEvent[] = [];
-
-          scope.setValue(key, secret, true);
-          ctx.commit();
-          scope.deleteValue(key);
-          ctx.commit();
           scope.setValue(key, nonSecret);
-          ctx.commit();
+          stage3.commit();
 
           scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
           scope.getValue(key);

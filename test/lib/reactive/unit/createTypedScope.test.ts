@@ -43,6 +43,11 @@ function mockTarget(initialState: Record<string, unknown> = {}): ReactiveTarget 
       reads.push(key);
       return state[key];
     },
+    // What ScopeFacade provides: the silent read nested/element/array proxies
+    // resolve their LIVE view through (9.22.0) — never a tracked read.
+    getValueSilent(key?: string) {
+      return key === undefined ? { ...state } : state[key];
+    },
     setValue(key: string, value: unknown) {
       writes.push({ key, value });
       state[key] = value;

@@ -59,6 +59,13 @@ export {
 export type { WalkerItem, WalkerOptions } from './lib/engine/walkSubflowSpec.js';
 export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 
+// Path segments — the supported way to take a `TraceEntry.path` apart. Paths
+// are joined with an ASCII Unit-Separator (never a dot: a state key may itself
+// contain a dot, so a dot separator would make `['a.b']` and `['a','b']`
+// indistinguishable), which is an encoding, not a display character. Render a
+// path through this instead of splitting on the delimiter yourself.
+export { pathSegments } from './lib/memory/utils.js';
+
 // Commit log queries — typed utilities for backtracking.
 // commitValueAt reconstructs the FULL value of a key at a commit index —
 // required under `commitValues: 'delta'` (#13c-B), where an `append`

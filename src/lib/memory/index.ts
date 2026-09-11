@@ -44,6 +44,7 @@ export {
   getNestedValue,
   getRunAndGlobalPaths,
   normalisePath,
+  pathSegments,
   redactPatch,
   setNestedValue,
   updateNestedValue,

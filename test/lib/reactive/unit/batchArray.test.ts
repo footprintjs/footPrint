@@ -165,17 +165,31 @@ describe('$batchArray — boundary: edge cases', () => {
     expect(original).toEqual(['a', 'b']);
   });
 
-  it('shallow clone — object references inside the array are shared with original', () => {
+  it('deep clone — an element edited inside fn lands in the commit and never touches the original (9.22.0)', () => {
+    // Red before 9.22.0: the working copy was `[...current]`, so `arr[0]` WAS
+    // the committed element and this edit changed committed state in place
+    // with no trace row (obj.value became 999, the commit saw "no change").
     const obj = { value: 1 };
     const { scope, target } = makeScope({ items: [obj] });
     scope.$batchArray('items', (arr) => {
-      // The array slot is a copy, but the object inside is the same reference
       (arr[0] as { value: number }).value = 999;
     });
-    // obj was mutated in-place because the clone is shallow
-    expect(obj.value).toBe(999);
-    // The committed array still contains one element
-    expect((target.state.items as unknown[]).length).toBe(1);
+    expect(obj.value).toBe(1);
+    expect(target.state.items).toEqual([{ value: 999 }]);
+    expect(target.state.items).not.toBe(obj);
+  });
+
+  it('deep clone keeps a Date and a Map inside an element (structuredClone, not JSON)', () => {
+    const when = new Date('2020-01-01T00:00:00Z');
+    const { scope, target } = makeScope({ items: [{ when, m: new Map([['a', 1]]) }] });
+    scope.$batchArray('items', (arr) => {
+      (arr[0] as { when: Date }).when.setUTCFullYear(1999);
+    });
+    const committed = (target.state.items as { when: Date; m: Map<string, number> }[])[0];
+    expect(committed.when).toBeInstanceOf(Date);
+    expect(committed.when.getUTCFullYear()).toBe(1999);
+    expect(committed.m).toBeInstanceOf(Map);
+    expect(when.getUTCFullYear()).toBe(2020);
   });
 
   it('if fn throws, state is unchanged and no write is committed', () => {

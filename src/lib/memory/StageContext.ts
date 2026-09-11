@@ -10,6 +10,7 @@
 
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../scope/detectCircular.js';
+import { borrowedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
@@ -97,6 +98,26 @@ export class StageContext {
 
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
+
+  /**
+   * The `_stageReads` keys that were read at a NESTED path (`getValue(path,
+   * key)` with a non-empty `path`). Only the engine reads that way — the
+   * facade reads roots — so these are not user reads and the borrowed-read
+   * guard skips them by this marker, never by guessing from a dot in the key
+   * (a user's top-level key may itself contain one). Lazily created; the
+   * facade path never allocates it.
+   */
+  private _nestedReads?: Set<string>;
+
+  /**
+   * Has this frame committed at least once? The borrowed-read guard runs on
+   * the FIRST commit only — see {@link warnOnBorrowedMutation}. The frame
+   * itself stays re-usable after commit (#13b): the engine's double-commit
+   * paths and the subflow merge-back into a branch parent rely on it. The
+   * user-level refusal of a handle held past its stage lives at the scope
+   * tier (`ScopeFacade`, one per stage execution), not here.
+   */
+  private _committed = false;
 
   /**
    * How tracked reads are recorded into `_stageReads` (#14). Default `'full'`
@@ -604,6 +625,7 @@ export class StageContext {
     // No policy and no marks → no verdict call, no allocation (activeRule).
     if (key !== undefined && this.readTracking !== 'off') {
       const rule = this.activeRule();
+      if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
       this._stageReads[userKeyOf(path, key)] =
         value === undefined
           ? undefined
@@ -683,6 +705,64 @@ export class StageContext {
   }
 
   /**
+   * Dev-mode only: did this stage change, IN PLACE, a value it merely READ?
+   *
+   * The typed scope intercepts every write it can reach — a property at any
+   * depth, an indexed element, an array method. What it cannot reach is an
+   * element handed out by a read method (`find`, `filter`, `for…of`,
+   * `forEach`, destructuring): wrapping those would mean returning proxies out
+   * of every read, which is a cost the library should not pay. So that family
+   * is WARNED ABOUT rather than intercepted — loudly, here, instead of ending
+   * the run with a commit log that silently disagrees with final state.
+   *
+   * This is a REPORT after the fact, not a refusal at the write: the write has
+   * already happened in place and there is nothing to intercept. It runs under
+   * TWO preconditions, both named in the README — `enableDevMode()`, and
+   * `readTracking: 'full'` (the default), because the comparison needs the
+   * clone of the value that mode retains at read time. A key the stage never
+   * staged must still hold that clone — committed state is immutable-after-swap
+   * and the buffer's working copy is private to this stage. Keys the stage DID
+   * stage are skipped (they are expected to differ, and they are in the record),
+   * so are keys under a redaction verdict, whose retained form is deliberately
+   * not the value, and so are keys read at a nested path (`_nestedReads`) —
+   * those are engine reads (the subflow merge-back), not user reads.
+   *
+   * It also only looks at keys served from the PINNED source — the first-touch
+   * view or this stage's own buffer. A key absent from both was served by
+   * `readState`'s live fallback, which a parallel sibling's root-key commit can
+   * legitimately move; accusing the stage there would be a false alarm. For
+   * the same reason it runs on the frame's FIRST commit only: the reads belong
+   * to that round, and by the engine's second round (a fork double-commit, a
+   * subflow merge-back into a committed branch parent) other stages have
+   * legitimately moved the state they were compared against.
+   *
+   * Costs nothing outside `enableDevMode()`.
+   */
+  private warnOnBorrowedMutation(): void {
+    if (!isDevMode() || this.readTracking !== 'full' || this._committed) return;
+    const rule = this.activeRule();
+    for (const key of Object.keys(this._stageReads)) {
+      const retained = this._stageReads[key];
+      // Only a container can be mutated in place; a primitive read cannot.
+      if (retained === null || typeof retained !== 'object') continue;
+      if (this._nestedReads?.has(key)) continue;
+      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key)) continue;
+      const namespaced = this.withNamespace([], key);
+      if (this.buffer?.wasStaged(namespaced)) continue;
+      if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
+
+      // The pinned source only — see the note on the live fallback above.
+      const current = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
+      if (current === undefined) continue;
+
+      const path = firstDifferingPath(retained, current);
+      if (path === undefined) continue;
+      // eslint-disable-next-line no-console
+      console.warn(borrowedMutationMessage(this.stageName, key, path));
+    }
+  }
+
+  /**
    * Flush staged writes to shared memory and RELEASE the per-stage staging
    * state (#13b).
    *
@@ -703,15 +783,22 @@ export class StageContext {
    *   second commit diffs against post-first-commit state. The pre-release
    *   buffer behaved the same for VALUES (its `workingCopy` was reset on
    *   commit, falling reads through to live state) but kept the ORIGINAL
-   *   `baseSnapshot` as diff base — unreachable in practice: every engine
-   *   re-commit path (fork double-commit, subflow outputMapper double-commit)
-   *   stages nothing in between, and the two real "write after commit" sites
-   *   (SubflowExecutor seed → replaces the context; resume → fresh context
-   *   via `leaf.createNext`) never re-use a committed context's buffer.
+   *   `baseSnapshot` as diff base — unreachable in practice: the engine's
+   *   only writes after a commit are the subflow merge-back into a committed
+   *   branch parent (a decider or fork frame commits before its branch runs)
+   *   and the fork child's throttle marker; the other "write after commit"
+   *   sites (SubflowExecutor seed → replaces the context; resume → fresh
+   *   context via `leaf.createNext`) never re-use a committed context.
+   * - A USER handle held past its stage is a different matter: its writes
+   *   would land in a buffer nothing ever commits. That refusal lives on the
+   *   scope tier (`ScopeFacade`, sealed by the commit observer — 9.22.0),
+   *   because the frame's re-usability is exactly what the engine paths
+   *   above need.
    * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(): void {
+    this.warnOnBorrowedMutation();
     if (!this.buffer) {
       // Truly-lazy fast path (#13): no write ever constructed the buffer, so
       // the stage's net change is empty BY CONSTRUCTION. Same observable
@@ -739,6 +826,7 @@ export class StageContext {
       this.stateView = undefined;
       this._untrackedSources = undefined;
       this.tags = undefined;
+      this._committed = true;
       return;
     }
 
@@ -785,6 +873,7 @@ export class StageContext {
     this.stateView = undefined;
     this._untrackedSources = undefined;
     this.tags = undefined;
+    this._committed = true;
   }
 
   /**
@@ -827,6 +916,7 @@ export class StageContext {
     this._provenanceReads = undefined;
     this._stageWrites = {};
     this._stageReads = {};
+    this._nestedReads = undefined;
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────

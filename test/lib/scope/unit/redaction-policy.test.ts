@@ -116,7 +116,6 @@ describe('RedactionPolicy — unit', () => {
 
     scope.useRedactionPolicy({ fields: { patient: ['ssn'] } });
     scope.setValue('patient', { name: 'Alice', ssn: '111' });
-    ctx.commit();
     scope.updateValue('patient', { name: 'Alice', ssn: '222', extra: true });
 
     const update = writes[1];

@@ -112,7 +112,6 @@ describe('RedactionPolicy — boundary / edge cases', () => {
     const scope = new ScopeFacade(ctx, 'test');
     scope.useRedactionPolicy({ keys: ['token'] });
     scope.setValue('token', 'xyz');
-    ctx.commit();
     expect(scope.getRedactedKeys().has('token')).toBe(true);
 
     scope.deleteValue('token');
@@ -220,7 +219,6 @@ describe('RedactionPolicy — boundary / edge cases', () => {
 
     scope.useRedactionPolicy({ fields: { patient: ['address.zip'] } });
     scope.setValue('patient', { name: 'Alice', address: { zip: '90210' } });
-    ctx.commit();
     scope.updateValue('patient', { name: 'Alice', address: { zip: '10001' } });
 
     const update = writes[1];

@@ -5,6 +5,260 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.22.0] - 2026-09-11
+
+### Fixed
+
+- **A deep write through an array is no longer lost in silence.** A mutation
+  made through the typed scope could vanish: no error, no trace row, and a
+  final `sharedState` still holding the old value. Reported against the
+  shipped build with plain charts, no mocks, in a stage running after a seed
+  stage created the container:
+
+  ```
+  s.obj.deep.n = 99          landed
+  s.arr[0].n = 99            landed
+  s.nested.lines[0].n = 99   LOST   (final value still 1)
+  s.a.arr[0].n = 99          landed
+  s.b.arr[0] = { n: 99 }     LOST
+  s.c.arr[1] = 99            LOST   (primitive element)
+  s.d.deep.arr[0].n = 99     LOST
+  ```
+
+  The same shape landed in one run and was lost in another, which made it
+  look non-deterministic. It was not. TWO deterministic defects were
+  interleaving, and each is fixed at its own root.
+
+  **Why it mattered more than a wrong value.** Every lens in this family
+  answers "what happened" FROM THE LOG. A write that never reaches the log
+  makes the Served graph, the data graph and the causal chain confidently
+  wrong together, with nothing in the record saying so — the one failure mode
+  the whole design exists to prevent. In the first family it was worse than a
+  loss: the run's own `sharedState` and the fold of its own commit log
+  disagreed, in opposite directions, with an EMPTY bundle for the stage that
+  did it.
+
+  **Family A — the proxy chain broke at an array index.** `createArrayProxy`'s
+  get trap returned `current[index]` raw, so `…arr[i].prop = v` was an
+  ordinary in-place mutation of a BORROWED read, and no trap ever fired.
+  Whether the value survived was decided by which backing store the read came
+  from: before the stage's first staged write, reads are bare references into
+  committed shared memory, so the mutation edited committed state in place
+  (state moved, log empty — the rows marked "landed" above are this case, and
+  it also violates *committed state is immutable-after-swap*); after the first
+  staged write, reads come from the transaction buffer's private clone, so the
+  mutation was dropped at commit. Position relative to the stage's first write
+  was the whole difference.
+
+  An indexed read of a wrappable element now returns an ELEMENT PROXY that
+  carries the path inside the element and, on write, rebuilds the array
+  immutably and hands the whole new array to the same commit callback `push`
+  already used. Objects and arrays nested inside elements are covered to any
+  depth, and so are `delete` on an element property and on an array index
+  (which previously reached the raw target array with no commit record at
+  all). Element proxies are cached per index and validated by identity, so
+  `lines[0] === lines[0]` holds within a stage and a read loop does not
+  allocate per access.
+
+  **Family B — a nested array write committed with the wrong verb.** An array
+  that was not itself a top-level key committed through `merge`, and merge's
+  array arm is a set UNION (`deepSmartMerge`). `[1,2,3]` merged with the
+  intended `[1,99,3]` became `[1,2,3,99]`: element replacement, reordering and
+  shrinking were unrepresentable through any nested array. The log recorded
+  the union faithfully, so log and state AGREED and were both wrong against
+  what the stage asked for. `splice`, `sort`, `reverse`, `shift`, `pop` and a
+  shorter reassignment were all silently ineffective; a nested `sort` produced
+  no trace row at all (the union of the sorted array with the original equals
+  the original, so the net-change filter correctly dropped a real write).
+
+  An array mutation always hands back the COMPLETE new array, and `set` is the
+  only verb that can say so. Nested array writes now commit as a `set` of the
+  ROOT KEY — the same thing a top-level array write has always done, and the
+  granularity `findLastWriter`, `sliceForKey` and `causalChain` index by, so
+  one trace path per state key still holds whatever depth the write was
+  addressed at. `deepSmartMerge` itself is untouched: `$update`'s array-union
+  semantics and the subflow `outputMapper` concat law are exactly as before.
+
+  Reproduce, on 9.21.1:
+
+  ```ts
+  const chart = flowChart('seed', (s) => { s.k = { arr: [{ n: 1 }] }; }, 'seed')
+    .addFunction('mutate', (s) => { s.k.arr[0].n = 99; }, 'mutate')
+    .build();
+  const ex = new FlowChartExecutor(chart);
+  await ex.run({ input: {} });
+  const snap = ex.getSnapshot();
+  snap.sharedState.k.arr[0].n;          // 99 — committed state, edited in place
+  snap.commitLog[1].trace;              // []  — the stage recorded NOTHING
+  // add any write before it (`s.z = 1;`) and the SAME line yields 1 instead.
+  ```
+
+  **What a consumer should expect now.** Every write the scope proxy can reach
+  produces a trace row, and folding the commit log from `initialState`
+  reproduces `sharedState` exactly — asserted for every row of the table
+  above, in isolation and in sequence, under both `commitValues` modes, plus a
+  subflow and a resumed run. A nested array write appears in
+  `bundle.overwrite` under its root key with verb `set`, where it used to
+  appear in `bundle.updates` with verb `merge`; nested OBJECT writes are
+  unchanged (still `merge`, still a delta). `getSnapshot().sharedState` and
+  `stateAt()` no longer disagree.
+
+- **`delete scope.a.b.c` lands.** A nested `delete` had no trap at all, so it
+  was a silent no-op: `merge` cannot express a removal (a patch of `undefined`
+  reads as absent to every consumer), so the key is now removed from a copy of
+  the root and committed as a `set` of that root key.
+
+### Changed
+
+- **An array ASSIGNMENT replaces, at every depth.** `scope.k.tags = ['b']`
+  used to APPEND (`['a','b']`) because it went through `merge`, while the
+  identical expression one level up — `scope.tags = ['b']` — replaced. The
+  same code meant two different things by depth, and a shorter array
+  (`scope.k.arr = [1]`) could not be expressed at all. Assignment now replaces
+  everywhere. `$update(key, { tags: [...] })` is unchanged and remains the
+  explicit append; so is the subflow `outputMapper` array-concat law. This is
+  the only behaviour change to a write that previously landed, and it is why
+  this release is a minor rather than a patch.
+
+### Added
+
+- **`pathSegments(path)` — exported from `footprintjs/trace` and
+  `footprintjs/advanced`.** A `TraceEntry.path` joins its segments with an
+  ASCII Unit-Separator, which is an ENCODING, not a display character: a
+  consumer that printed one got a single broken-looking word, and the only way
+  to take it apart was to split on an undocumented control character.
+  `pathSegments` is the supported inverse of `normalisePath`; the delimiter
+  stays an implementation detail.
+
+  The separator is not a dot for a reason that was never written down: a state
+  key may itself CONTAIN a dot, and this library creates such keys routinely —
+  `$setValue` takes a KEY, not a path, so `$setValue('a.b', v)` makes one
+  top-level key literally named `a.b`. With a dot separator that key's path
+  and the nested path `['a','b']` would both encode as `"a.b"`, and every
+  reader of the log would have to guess which a bundle meant. `DELIM`'s
+  comment now says that instead of listing two incidental properties.
+
+  ```ts
+  import { pathSegments } from 'footprintjs/trace';
+  for (const entry of bundle.trace) {
+    console.log(pathSegments(entry.path).join(' › ')); // 'order › lines'
+  }
+  ```
+
+- **A dev-mode warning for the writes the proxy CANNOT see.** An element
+  reached without an index — `find`, `filter`, `for…of`, `forEach`,
+  destructuring — is still handed back raw, deliberately: wrapping those would
+  mean returning proxies out of every read method (`map` would build an array
+  of proxies, a value could escape the stage still bound to it), a cost the
+  library should not pay and a semantic change it should not make. So that
+  family is WARNED ABOUT rather than intercepted. Under `enableDevMode()`,
+  `StageContext.commit` compares what the stage read with what the value holds
+  at commit — a key it read but never staged must still hold it — and warns
+  with the exact path and the two ways to write it back:
+
+  ```
+  [footprint] Stage "price" changed `order.lines[0].qty` IN PLACE, on a value it
+  only read. footprint never saw that write: there is no trace row for it, so the
+  commit log, the causal chain and every reader that folds the log will disagree
+  with final state — and under a different write order the change is dropped
+  entirely. Reads are BORROWED. Write through the scope instead
+  (`scope.order.lines[0].qty = …` — property and indexed access are both
+  tracked), or hand back the whole value with `scope.$setValue('order', next)`.
+  ```
+
+  Costs nothing and says nothing outside dev mode; the default path is
+  byte-identical. Two preconditions, both required: `enableDevMode()` and
+  `readTracking: 'full'` (the default) — the comparison needs the clone that
+  mode retains at read time, so under `'summary'` or `'off'` the guard is
+  silent. It is a REPORT after the fact, not a refusal at the write (the write
+  already happened in place; there was nothing to intercept), and it runs at
+  the frame's first commit only.
+
+### Found in review
+
+An adversarial review of this release confirmed its own claims (every row of
+the table above, in isolation and in sequence, both encodings, subflow, resume,
+committed references untouched) and found FOUR shapes still lost with no trace
+row and named nowhere. Each is closed at its root, with a red-before test.
+
+- **A `Date`, `Map` or `Set` compared equal to any other.** `deepEqual`
+  (`memory/utils.ts · equalPairs`) walked own enumerable keys, and these
+  have none — so the net-change filter dropped `$setValue('k', new
+  Date(1999))` over a 2020 date as "no change" (no row, state unchanged), and
+  the dev-mode guard could not see `scope.k.when.setFullYear(1999)` or
+  `scope.k.tags.add('b')` in place. State values must survive
+  `structuredClone`, which keeps all three, so they are legal values the
+  filter has to tell apart. Typed arms now compare a `Date` by instant and a
+  `Map`/`Set` by size and members (deep, order-insensitive for a `Set`);
+  arrays, objects and the 9.19.1 rule (own `undefined` ≡ absent) are
+  unchanged.
+
+  ```ts
+  s.$setValue('k', new Date('2020-01-01'));   // stage 1
+  s.$setValue('k', new Date('1999-01-01'));   // stage 2 — now: trace row `k:set`, fold agrees
+  ```
+
+- **`$batchArray` handed the stage the COMMITTED elements.** The working copy
+  was a shallow `[...current]`, so `$batchArray('k', a => { a[0].n = 9 })`
+  edited committed state in place — violating *immutable-after-swap* — with
+  no row, and the lazy buffer's base was taken after the edit, so the filter
+  saw nothing. The copy is now `structuredClone(current)` ("clone once" means
+  the elements too); the result commits as one `set` of the key exactly as
+  before, and a Date or Map inside an element survives.
+
+- **A held element proxy read STALE after its own write.** `createElementProxy`
+  read from the object captured at creation, but every write rebuilds the
+  array immutably, so `const line = s.k.arr[0]; line.n += 1; line.n += 1`
+  gave 2 — two honest `set` rows, wrong value — and `line.total = line.qty *
+  10` used the old `qty`, `'x' in line` was false right after `line.x = 1`.
+  Every trap now resolves the element through the CURRENT value (falling back
+  to the captured object only when the slot is gone): `line.n += 1` twice is
+  3, `line.qty = 2; line.total = line.qty * 10` is 20, `'x' in line`,
+  `Object.keys(line)` and `JSON.stringify(line)` see the write. The nested and
+  terminal OBJECT proxies had the same root (`const o = s.k.o; o.x += 1` twice
+  gave 2, and so did a held top-level `const k = s.k`) and follow the same law
+  now — one `liveView.ts` behind all three, so a consumer never has to know
+  which kind of proxy a handle is.
+
+- **A scope handle held past its stage wrote into a dead frame.** A proxy
+  captured in stage A (`held = s.k`) and written in stage B (`held.n = 9`)
+  reached A's context, whose buffer nothing ever commits again — the write
+  vanished with no row and no error. A facade is one stage execution's
+  handle, so it is now SEALED by its commit observer and a later write through
+  it, or through any proxy bound to it, throws naming the stage the handle
+  came from; the error is raised in — and attributed to — the stage that wrote
+  (`ScopeFacade · assertLive`). Reads through a held handle are not refused.
+  The seal is on the facade, not on `StageContext.stageWrite`: the frame's
+  re-usability after commit is what the engine's double-commit paths (fork
+  child, subflow merge-back into a committed branch parent) rely on.
+
+  ```ts
+  let held;
+  flowChart('A', (s) => { held = s.order; }, 'A')
+    .addFunction('B', (s) => { held.total = 9; }, 'B'); // throws: Stage "A" (A#1) has already committed …
+  ```
+
+  What this cannot catch, now documented (`src/lib/reactive/README.md`,
+  CLAUDE.md landmine 3): a RAW handle held that long — an element from
+  `find`/`filter`/`for…of`, or anything from `$getValue`/`$read`/`$toRaw` —
+  is the committed object itself; mutating it in a later stage edits state in
+  place, and the dev-mode guard sees it only if that stage also reads the key.
+
+Also from the review: the guard's "nested seed keys" exemption was keyed on a
+dot in the read key, which silently exempted a user's own dotted top-level key
+(`s['a.b'].arr.find(…).n = 9` never warned). It is now keyed on an explicit
+marker for reads made at a nested path — which only the engine's subflow
+merge-back does — so a dotted user key is guarded like any other.
+
+Named by the same review and deliberately NOT fixed — out of contract, dropped
+or refused as follows (also in `src/lib/reactive/README.md` under Limitations):
+a cyclic self-reference reached through a terminal proxy commits its
+array/element write to the wrong place (a row is recorded and the fold agrees
+with state, but the value lands beside the cycle edge); a top-level key
+containing U+001F, the trace path separator, throws at the seed; an expando
+property on an array (`scope.k.arr.foo = 1`) is dropped by the array proxy's
+set trap, which handles indices and `length` only.
+
 ## [9.21.1] - 2026-09-10
 
 ### Fixed

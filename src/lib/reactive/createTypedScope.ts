@@ -18,27 +18,11 @@ import { nativeGet as lodashGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { createArrayProxy } from './arrayTraps.js';
 import { toJSONView } from './jsonProjection.js';
+import { liveInspectionTraps, liveObject } from './liveView.js';
 import { buildNestedPatch } from './pathBuilder.js';
+import { deleteInPath, setInPath, unwrapProxy } from './structuralWrite.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
-
-// -- Proxy unwrapping --------------------------------------------------------
-// structuredClone in TransactionBuffer cannot clone Proxy objects.
-// When a user does `scope.backup = scope.customer`, the value is a Proxy.
-// Unwrap to a plain object before storing.
-
-function unwrapProxy(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== 'object') return value;
-  // Fast path: plain objects and arrays don't need unwrapping
-  try {
-    // JSON round-trip strips Proxies. Safe because state values must be JSON-serializable.
-    return JSON.parse(JSON.stringify(value));
-  } catch {
-    // Non-serializable (functions, symbols, etc.) — return as-is
-    return value;
-  }
-}
 
 // -- $-method routing --------------------------------------------------------
 
@@ -68,8 +52,14 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $batchArray: (t) => (key: string, fn: (arr: unknown[]) => void) => {
     // One getValue — fires onRead once
     const current = t.getValue(key);
-    // Clone once (or start empty if missing/non-array)
-    const clone: unknown[] = Array.isArray(current) ? [...current] : [];
+    // Clone once — DEEP (or start empty if missing/non-array). The read is
+    // BORROWED: before the stage's first staged write it is committed shared
+    // memory itself, so a shallow `[...current]` handed the stage the
+    // committed ELEMENTS and `arr[0].n = 9` edited committed state in place
+    // with no trace row (and the lazy buffer's base was then taken AFTER the
+    // edit, so the net-change filter saw nothing). State values survive
+    // `structuredClone` by contract, so the working copy is a full copy.
+    const clone: unknown[] = Array.isArray(current) ? structuredClone(current) : [];
     // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
     fn(clone);
     // One setValue — fires onWrite once with the final array
@@ -140,13 +130,17 @@ function createTerminalProxy(
   rootKey: string,
   segments: string[],
   target: ReactiveTarget,
+  readSilent: (key?: string) => unknown,
   state: ReactiveState,
   visited: Set<object> = new Set(),
 ): unknown {
   visited.add(obj);
+  // Reads are LIVE (9.22.0) — see liveView.ts.
+  const live = () => liveObject(obj, lodashGet(readSilent(rootKey), segments));
 
   return new Proxy(obj, {
-    get(raw, prop) {
+    get(_raw, prop) {
+      const raw = live();
       if (typeof prop === 'symbol') return (raw as any)[prop];
       if (prop === 'then') return undefined;
       if (prop === 'asymmetricMatch') return undefined;
@@ -157,6 +151,20 @@ function createTerminalProxy(
 
       const value = (raw as any)[prop];
 
+      // An array past the cycle edge still gets copy-on-write interception —
+      // it commits as a `set` of the root key, the same law as the nested
+      // proxy above.
+      if (Array.isArray(value) && shouldWrapWithProxy(value)) {
+        const arrSegments = [...segments, prop as string];
+        return createArrayProxy(
+          () => (lodashGet(readSilent(rootKey), arrSegments) as unknown[]) ?? [],
+          (newArr) => {
+            target.setValue(rootKey, setInPath(readSilent(rootKey), arrSegments, unwrapProxy(newArr)));
+            state.childCache.delete(rootKey);
+          },
+        );
+      }
+
       // Continue tracking writes at deeper levels via chained terminal proxies.
       // Use visited set to prevent re-entering the same object (cycle in terminal chain).
       if (shouldWrapWithProxy(value) && !Array.isArray(value) && !visited.has(value as object)) {
@@ -165,6 +173,7 @@ function createTerminalProxy(
           rootKey,
           [...segments, prop as string],
           target,
+          readSilent,
           state,
           visited,
         );
@@ -172,14 +181,30 @@ function createTerminalProxy(
 
       return value;
     },
-    set(raw, prop, value) {
+    set(_raw, prop, value) {
       if (typeof prop !== 'string') return true;
       const childSegments = [...segments, prop];
-      const patch = buildNestedPatch(childSegments, unwrapProxy(value));
+      const unwrapped = unwrapProxy(value);
+      // Same law as the nested proxy: an array assignment REPLACES.
+      if (Array.isArray(unwrapped)) {
+        target.setValue(rootKey, setInPath(readSilent(rootKey), childSegments, unwrapped));
+        state.childCache.delete(rootKey);
+        return true;
+      }
+      const patch = buildNestedPatch(childSegments, unwrapped);
       target.updateValue(rootKey, patch);
       state.childCache.delete(rootKey);
       return true;
     },
+
+    deleteProperty(_raw, prop) {
+      if (typeof prop !== 'string') return true;
+      target.setValue(rootKey, deleteInPath(readSilent(rootKey), [...segments, prop]));
+      state.childCache.delete(rootKey);
+      return true;
+    },
+
+    ...liveInspectionTraps(live),
   });
 }
 
@@ -192,8 +217,14 @@ function createNestedProxy(
   state: ReactiveState,
   ancestors: Set<object> = new Set(),
 ): unknown {
+  // Reads are LIVE (9.22.0): a held proxy reads its own writes, `'x' in o`
+  // and `Object.keys(o)` see them, and `o.b = o.a * 10` uses the new `a`.
+  // The captured object answers only when the path is gone — see liveView.ts.
+  const live = () => liveObject(obj, lodashGet(readSilent(rootKey), segments));
+
   return new Proxy(obj, {
-    get(raw, prop) {
+    get(_raw, prop) {
+      const raw = live();
       if (typeof prop === 'symbol') return (raw as any)[prop];
 
       // Guard properties
@@ -214,16 +245,30 @@ function createNestedProxy(
 
       const childSegments = [...segments, prop as string];
 
-      // Array -- return array proxy
+      // Array -- return array proxy.
+      //
+      // WHY THIS COMMITS A `set` OF THE ROOT KEY, not a merge of a nested patch
+      // (9.22.0): an array mutation hands back the COMPLETE new array, and
+      // `merge`'s array arm is a set UNION (`deepSmartMerge`). Committing
+      // `[1,99,3]` as a merge onto `[1,2,3]` produced `[1,2,3,99]` — element
+      // replacement, reordering and shrinking were unrepresentable through any
+      // array that was not itself a top-level key, and the log recorded the
+      // union faithfully, so state and log agreed and were both wrong. `set` is
+      // the only verb that can say "this is the whole value now"; the root key
+      // is the granularity every consumer indexes by (`findLastWriter`,
+      // `sliceForKey`, `causalChain`), and it is exactly what a TOP-LEVEL array
+      // write has always done. The new root is built by copying only the
+      // containers on the path — the value read stays untouched.
       if (Array.isArray(value)) {
         return createArrayProxy(
           () => {
+            // Segments, not a dot-joined string: a nested key may itself contain
+            // a dot, and joining would address the wrong node.
             const current = readSilent(rootKey) as any;
-            return lodashGet(current, childSegments.join('.')) ?? [];
+            return (lodashGet(current, childSegments) as unknown[]) ?? [];
           },
           (newArr) => {
-            const patch = buildNestedPatch(childSegments, unwrapProxy(newArr));
-            target.updateValue(rootKey, patch);
+            target.setValue(rootKey, setInPath(readSilent(rootKey), childSegments, unwrapProxy(newArr)));
             state.childCache.delete(rootKey);
           },
         );
@@ -232,7 +277,7 @@ function createNestedProxy(
       // Cycle detection: if this value is an ancestor in the current access
       // chain, return a terminal proxy (tracks writes, stops recursing reads).
       if (ancestors.has(value as object)) {
-        return createTerminalProxy(value as Record<string, unknown>, rootKey, childSegments, target, state);
+        return createTerminalProxy(value as Record<string, unknown>, rootKey, childSegments, target, readSilent, state);
       }
 
       // Build new ancestor set for this branch (immutable -- no cross-branch pollution)
@@ -250,15 +295,40 @@ function createNestedProxy(
       );
     },
 
-    set(raw, prop, value) {
+    set(_raw, prop, value) {
       if (typeof prop !== 'string') return true;
 
       const childSegments = [...segments, prop];
-      const patch = buildNestedPatch(childSegments, unwrapProxy(value));
+      const unwrapped = unwrapProxy(value);
+
+      // An ARRAY assignment REPLACES, at every depth (9.22.0). `merge`'s array
+      // arm is a union, so `scope.k.tags = ['b']` used to APPEND — while the
+      // identical expression one level up (`scope.tags = ['b']`) replaced, and
+      // a shorter array (`scope.k.arr = [1]`) could not be expressed at all.
+      // `$update(key, { tags: [...] })` remains the explicit append.
+      if (Array.isArray(unwrapped)) {
+        target.setValue(rootKey, setInPath(readSilent(rootKey), childSegments, unwrapped));
+        state.childCache.delete(rootKey);
+        return true;
+      }
+
+      const patch = buildNestedPatch(childSegments, unwrapped);
       target.updateValue(rootKey, patch);
       state.childCache.delete(rootKey);
       return true;
     },
+
+    // `delete scope.order.customer.tier` — merge cannot express a REMOVAL
+    // (a patch of `undefined` is read as absent by every consumer), so the key
+    // is removed from a copy of the root and committed as a `set` of the root.
+    deleteProperty(_raw, prop) {
+      if (typeof prop !== 'string') return true;
+      target.setValue(rootKey, deleteInPath(readSilent(rootKey), [...segments, prop]));
+      state.childCache.delete(rootKey);
+      return true;
+    },
+
+    ...liveInspectionTraps(live),
   });
 }
 

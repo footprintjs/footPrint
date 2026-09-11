@@ -3,7 +3,15 @@
  * Covers: redactPatch, updateValue, deepSmartMerge
  */
 
-import { deepEqual, deepSmartMerge, DELIM, redactPatch, updateValue } from '../../../../src/lib/memory/utils';
+import {
+  deepEqual,
+  deepSmartMerge,
+  DELIM,
+  normalisePath,
+  pathSegments,
+  redactPatch,
+  updateValue,
+} from '../../../../src/lib/memory/utils';
 
 // ---------------------------------------------------------------------------
 // deepEqual — structural equality used for change-only commit detection
@@ -76,6 +84,59 @@ describe('deepEqual', () => {
     expect(deepEqual({ k: null }, { k: undefined })).toBe(false);
     // Arrays are positional: a slot holding undefined is still a slot.
     expect(deepEqual([undefined], [])).toBe(false);
+  });
+
+  // Red before 9.22.0: a Date/Map/Set has no own enumerable keys, so the
+  // object walk called ANY two of them equal — `$setValue('k', new Date(1999))`
+  // over a 2020 date was dropped as a no-op write, and the dev-mode guard
+  // could not see a `setFullYear` in place.
+  it('Date: equal by instant, never by key count (9.22.0)', () => {
+    expect(deepEqual(new Date('2020-01-01'), new Date('2020-01-01'))).toBe(true);
+    expect(deepEqual(new Date('2020-01-01'), new Date('1999-01-01'))).toBe(false);
+    expect(deepEqual(new Date('nope'), new Date('nope'))).toBe(true); // two invalid dates
+    expect(deepEqual(new Date('2020-01-01'), {})).toBe(false);
+    expect(deepEqual({}, new Date('2020-01-01'))).toBe(false);
+    expect(deepEqual({ when: new Date('2020-01-01') }, { when: new Date('1999-01-01') })).toBe(false);
+  });
+
+  it('Map: same size and deep-equal value per key (9.22.0)', () => {
+    expect(deepEqual(new Map([['a', 1]]), new Map([['a', 1]]))).toBe(true);
+    expect(deepEqual(new Map([['a', 1]]), new Map([['a', 2]]))).toBe(false);
+    expect(deepEqual(new Map([['a', 1]]), new Map([['b', 1]]))).toBe(false);
+    expect(
+      deepEqual(
+        new Map([['a', 1]]),
+        new Map([
+          ['a', 1],
+          ['b', 2],
+        ]),
+      ),
+    ).toBe(false);
+    expect(deepEqual(new Map([['a', { n: 1 }]]), new Map([['a', { n: 1 }]]))).toBe(true);
+    expect(deepEqual(new Map([['a', { n: 1 }]]), new Map([['a', { n: 2 }]]))).toBe(false);
+    expect(deepEqual(new Map(), {})).toBe(false);
+    expect(deepEqual(new Map(), new Set())).toBe(false);
+  });
+
+  it('Set: same size and every member matched, order-insensitive, deep (9.22.0)', () => {
+    expect(deepEqual(new Set(['a']), new Set(['a']))).toBe(true);
+    expect(deepEqual(new Set(['a']), new Set(['b']))).toBe(false);
+    expect(deepEqual(new Set(['a']), new Set(['a', 'b']))).toBe(false);
+    expect(deepEqual(new Set(['a', 'b']), new Set(['b', 'a']))).toBe(true);
+    expect(deepEqual(new Set([{ n: 1 }]), new Set([{ n: 1 }]))).toBe(true);
+    expect(deepEqual(new Set([{ n: 1 }]), new Set([{ n: 2 }]))).toBe(false);
+    // Two structurally-equal members cannot both claim one slot.
+    expect(deepEqual(new Set([{ n: 1 }, { n: 1 }]), new Set([{ n: 1 }, { n: 2 }]))).toBe(false);
+    expect(deepEqual(new Set([NaN]), new Set([NaN]))).toBe(true);
+    expect(deepEqual(new Set(), {})).toBe(false);
+  });
+
+  it('typed values nested in arrays and objects take part in the walk', () => {
+    const shared = { d: new Date('2020-01-01'), tags: new Set(['a']), m: new Map([['k', [1]]]) };
+    expect(deepEqual([shared], [{ d: new Date('2020-01-01'), tags: new Set(['a']), m: new Map([['k', [1]]]) }])).toBe(
+      true,
+    );
+    expect(deepEqual([shared], [{ ...shared, tags: new Set(['b']) }])).toBe(false);
   });
 });
 
@@ -257,5 +318,29 @@ describe('deepSmartMerge', () => {
     const result = deepSmartMerge(dst, src);
     expect(result.tags).toEqual([]);
     expect(result.name).toBe('Alice');
+  });
+});
+
+describe('pathSegments — the supported way to read a TraceEntry.path', () => {
+  it('is the inverse of normalisePath', () => {
+    for (const path of [['order'], ['order', 'lines'], ['runs', 'r1', 'order', 'lines']]) {
+      expect(pathSegments(normalisePath(path))).toEqual(path);
+    }
+  });
+
+  it('a single-segment path needs no special case', () => {
+    expect(pathSegments('order')).toEqual(['order']);
+  });
+
+  it('keeps a state key that literally contains a dot in ONE segment', () => {
+    // This is the ambiguity DELIM exists to prevent: `$setValue('a.b', v)`
+    // creates one top-level key named `a.b`, which a dot separator could not
+    // be told apart from the nested path ['a', 'b'].
+    expect(pathSegments(normalisePath(['a.b']))).toEqual(['a.b']);
+    expect(pathSegments(normalisePath(['a', 'b']))).toEqual(['a', 'b']);
+  });
+
+  it('numeric segments come back as strings, matching how paths are joined', () => {
+    expect(pathSegments(normalisePath(['lines', 0, 'qty']))).toEqual(['lines', '0', 'qty']);
   });
 });

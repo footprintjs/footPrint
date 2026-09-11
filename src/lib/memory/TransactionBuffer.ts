@@ -165,6 +165,24 @@ export class TransactionBuffer {
   }
 
   /**
+   * Did any staged op touch `path`, or a path above or below it?
+   *
+   * The dev-mode borrowed-read check (`StageContext.commit`) asks this before
+   * accusing a stage of mutating a value in place: a key the stage legitimately
+   * WROTE is expected to differ from what it read, and writes reach the buffer
+   * from paths that bypass user-level write tracking too (the subflow seed,
+   * `outputMapper` merge-back, the resume re-seed). Dev-mode only — nothing on
+   * the hot path calls it.
+   */
+  wasStaged(path: (string | number)[]): boolean {
+    const target = normalisePath(path);
+    for (const op of this.opTrace) {
+      if (op.path === target || op.path.startsWith(target + DELIM) || target.startsWith(op.path + DELIM)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Flush all staged mutations and return the commit bundle — recording the
    * stage's NET CHANGE, not its raw write log.
    *

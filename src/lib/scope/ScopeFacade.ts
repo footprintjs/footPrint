@@ -19,6 +19,7 @@ import {
   detachAndJoinLater as detachAndJoinLaterSpawn,
 } from '../detach/spawn.js';
 import type { ExecutionEnv } from '../engine/types.js';
+import { deadFrameMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import { invokeRecorderHook } from '../recorder/invokeHook.js';
@@ -63,6 +64,20 @@ export class ScopeFacade {
   private readonly _trackedReadKeys = new Set<string>();
 
   private _recorders: ScopeRecorder[] = [];
+
+  /**
+   * Set by the commit observer: this stage's frame has flushed. A facade is
+   * ONE stage execution's handle — the engine builds a fresh one per stage —
+   * and every proxy the typed scope hands out is bound to it. A write arriving
+   * after the commit comes from a handle held past its stage (a closure, a
+   * module-level `let`) and would land in a buffer nothing ever commits: no
+   * trace row, state unchanged. So it is refused ({@link assertLive}) instead
+   * of lost. Sealing here and not on `StageContext` is deliberate: the frame
+   * stays re-usable after commit by design (#13b — the engine's double-commit
+   * paths and the subflow merge-back into a branch parent need it).
+   */
+  private _committed = false;
+
   /**
    * A rule of this facade's own — ONLY when its context carries none (bare
    * contexts in unit tests). Under an executor the rule lives on the context
@@ -228,9 +243,21 @@ export class ScopeFacade {
     });
   }
 
+  /**
+   * Refuse a write from a handle held past its stage (9.22.0). Throws with the
+   * stage the handle came from; the engine's error path attributes the throw
+   * to the stage that made the write.
+   */
+  private assertLive(key: string): void {
+    if (this._committed) {
+      throw new Error(deadFrameMessage(this._stageName, this._stageContext.runtimeStageId, key));
+    }
+  }
+
   /** Called by StageContext.commit() observer. Converts tracked writes to CommitEvent format.
    *  Errors are caught to prevent recorder issues from aborting the traversal. */
   private _onCommitFired(mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>): void {
+    this._committed = true;
     if (this._recorders.length === 0) return;
 
     try {
@@ -505,6 +532,7 @@ export class ScopeFacade {
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'write');
+    this.assertLive(key);
 
     // Dev-mode: warn if the value contains circular references.
     // Check AFTER assertNotReadonly — don't warn for writes that will be blocked.
@@ -544,6 +572,7 @@ export class ScopeFacade {
 
   updateValue(key: string, value: unknown, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'write');
+    this.assertLive(key);
 
     // Dev-mode: same circular check as setValue (merge targets can be circular too)
     if (isDevMode() && value !== null && typeof value === 'object') {
@@ -575,6 +604,7 @@ export class ScopeFacade {
 
   deleteValue(key: string, description?: string) {
     assertNotReadonly(this._readOnlyValues, key, 'delete');
+    this.assertLive(key);
 
     // Deleting a key clears its per-call redaction mark (the context's
     // funnel does that); a policy verdict on the key survives.
@@ -596,6 +626,7 @@ export class ScopeFacade {
 
   /** @internal */
   setGlobal(key: string, value: unknown, description?: string) {
+    this.assertLive(key);
     return this._stageContext.setGlobal?.(key, value, description);
   }
 
@@ -606,6 +637,7 @@ export class ScopeFacade {
 
   /** @internal */
   setObjectInRoot(key: string, value: unknown) {
+    this.assertLive(key);
     return this._stageContext.setRoot?.(key, value);
   }
 

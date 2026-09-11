@@ -358,17 +358,24 @@ describe('ScopeFacade', () => {
   });
 
   it('deleteValue clears redaction status for the key', () => {
-    const ctx = makeCtx();
-    const scope = new ScopeFacade(ctx, 'test');
+    // One facade per stage (a handle is dead after its commit — 9.22.0); the
+    // per-run mark rides the context tree, so stage 3 still sees stage 2's clear.
+    const stage1 = makeCtx();
+    const scope1 = new ScopeFacade(stage1, 'test');
+    scope1.setValue('token', 'secret', true);
+    stage1.commit();
+
+    const stage2 = stage1.createNext('p1', 's2', 's2');
+    const scope2 = new ScopeFacade(stage2, 'test');
+    scope2.deleteValue('token');
+    stage2.commit();
+
+    const stage3 = stage2.createNext('p1', 's3', 's3');
+    const scope = new ScopeFacade(stage3, 'test');
     const readEvents: ReadEvent[] = [];
     scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
-
-    scope.setValue('token', 'secret', true);
-    ctx.commit();
-    scope.deleteValue('token');
-    ctx.commit();
     scope.setValue('token', 'not-secret-anymore');
-    ctx.commit();
+    stage3.commit();
     scope.getValue('token');
 
     expect(readEvents).toHaveLength(1);

@@ -8,14 +8,14 @@ Wraps a ReactiveTarget (ScopeFacade) in a Proxy so stage functions get typed, na
 
 ```typescript
 // Before: untyped, cast everywhere
-scope.getValue('creditTier') as string
-scope.setValue('amount', 50000)
+scope.getValue('creditTier') as string;
+scope.setValue('amount', 50000);
 
 // After: typed, natural JS
-scope.creditTier   // string (typed)
-scope.amount = 50000  // type-checked write
-scope.customer.address.zip = '90210'  // deep write, tracked
-scope.tags.push('vip')  // array mutation, tracked
+scope.creditTier; // string (typed)
+scope.amount = 50000; // type-checked write
+scope.customer.address.zip = '90210'; // deep write, tracked
+scope.tags.push('vip'); // array mutation, tracked
 ```
 
 ## Read Semantics
@@ -27,8 +27,121 @@ scope.tags.push('vip')  // array mutation, tracked
 ## Write Semantics
 
 - scope.fieldName = value calls setValue -- fires onWrite
-- scope.customer.address.zip = '90210' calls updateValue with deep path -- fires onWrite once
-- scope.tags.push('vip') clones array, applies mutation, calls setValue -- copy-on-write
+- scope.customer.address.zip = '90210' calls updateValue with the deep path -- fires onWrite once, commits as `merge` of a delta under the root key
+- scope.tags.push('vip') clones the array, applies the mutation, calls setValue -- copy-on-write
+- scope.order.lines[0].qty = 4 -- an INDEXED element is proxied too (9.22.0). The element proxy carries the path inside the element, rebuilds the array immutably, and hands the whole new array to the same commit callback `push` uses. A HELD element proxy reads through the current value (read-your-writes): `const line = scope.order.lines[0]; line.qty = 2; line.total = line.qty * 10` gives 20, and `'x' in line` / `Object.keys(line)` / `JSON.stringify(line)` see `line.x = 1`
+- The same read-your-writes law holds for a held OBJECT proxy at any depth (`const o = scope.k.o; o.x += 1; o.x += 1` gives 3; so does `const k = scope.k`) -- every nested, terminal and element proxy resolves reads through the current value (`liveView.ts`) and answers from the object it captured only when the path is gone
+
+### The four laws
+
+**1. A write the proxy can reach is always in the log.** Not "usually", not
+"unless something else was written first". If the engine cannot see a write it
+says so (law 4) — it never lets a run finish with a commit log that disagrees
+with final state.
+
+**2. A read is BORROWED; the write path never mutates it.** Before a stage's
+first staged write a read is a bare reference into committed shared memory, and
+committed state is immutable-after-swap. So every write builds a NEW value with
+`structuralWrite.setInPath` / `deleteInPath`, copying only the containers on
+the path and sharing everything else. Nothing in this folder assigns into a
+value it read.
+
+**3. An ARRAY write commits as `set` of the ROOT KEY; an OBJECT write commits
+as `merge`.** `merge`'s array arm is a set union (`deepSmartMerge`), so it can
+append but can never replace, reorder or shrink — which is why a nested array
+write used to be silently wrong. An array mutation always hands back the
+COMPLETE new array, so `set` is the only truthful verb; the root key is the
+granularity `findLastWriter`, `sliceForKey` and `causalChain` index by, so one
+trace path per state key still holds whatever depth the write was addressed at.
+
+Consequence: an array ASSIGNMENT replaces at every depth. `scope.k.tags = ['b']`
+used to APPEND while `scope.tags = ['b']` replaced; now both replace.
+`$update(key, { tags: [...] })` remains the explicit append, and the subflow
+`outputMapper` array-concat law is untouched.
+
+**4. What cannot be intercepted is REFUSED loudly, never lost silently.** See
+"What the proxy cannot see" below — and note the two shapes of "loudly": a
+write from a handle held past its stage is refused AT THE WRITE (it throws); an
+in-place mutation of a borrowed read is reported AFTER THE FACT (a dev-mode
+warning at commit — the write already happened, there was nothing to
+intercept).
+
+## What the proxy cannot see
+
+An element reached WITHOUT an index — `find`, `filter`, `for…of`, `forEach`,
+destructuring — is handed back raw. Wrapping those would mean returning proxies
+out of every read method (`map` would build an array of proxies, `filter` would
+compare proxies, a returned value could escape the stage still bound to one),
+for a cost the library should not pay and a semantic change it should not make.
+
+So that family is warned about rather than intercepted. `StageContext.commit`
+compares what the stage READ with what the value holds at commit — a key it
+read but never staged must still hold it — and WARNS with the exact path and
+the two ways to write it back. This is a report after the fact, not a refusal
+at the write, and it runs under TWO preconditions, both required:
+
+- `enableDevMode()` — the default run pays nothing and says nothing;
+- `readTracking: 'full'` (the default) — the comparison needs the clone of the
+  value that mode retains at read time; under `'summary'` or `'off'` there is
+  nothing to compare against, so the guard is silent there too.
+
+```typescript
+// Warned about in dev mode: the proxy is not in this expression at all.
+const line = scope.order.lines.find((l) => l.id === 'x');
+line.qty = 4;
+
+// Both of these are seen, logged, and replay correctly:
+scope.order.lines[0].qty = 4;
+scope.$setValue('order', next);
+```
+
+The same applies to any value the allowlist refuses to proxy (a `Date`, `Map`,
+`Set`, class instance or frozen object) and to anything read out through
+`$getValue`: `scope.k.when.setFullYear(1999)` or `scope.k.tags.add('b')` is an
+in-place mutation of a borrowed read, and the guard names `k.when` / `k.tags`
+(9.22.0 — `deepEqual` compares a `Date` by instant and a `Map`/`Set` by
+members, so these no longer pass as "unchanged"). Replace the value instead:
+`scope.k.when = new Date(…)` (note the proxy's JSON round-trip turns a Date
+into a string — see Serialization) or `scope.$setValue('k', { ...next })`,
+which keeps the Date.
+
+## A handle is bound to its stage
+
+A scope, and every proxy read out of it (`scope.k`, `scope.k.arr`,
+`scope.k.arr[0]`), belongs to the stage it was handed to. Once that stage has
+committed, a write through any of them has no frame to land in — it would sit
+in a buffer nothing ever commits, with no trace row. So it is REFUSED: the
+write throws, naming the stage the handle came from, and the error surfaces in
+the stage that made the write (9.22.0).
+
+```typescript
+let held;
+flowChart(
+  'A',
+  (scope) => {
+    held = scope.order;
+  },
+  'A',
+).addFunction(
+  'B',
+  (scope) => {
+    held.total = 9; // throws: Stage "A" (A#1) has already committed — its scope is dead …
+    scope.order.total = 9; // the way: read the key again through THIS stage's scope
+  },
+  'B',
+);
+```
+
+Reads through a held handle are not refused (a stale read is not a lost write).
+
+**What this cannot catch: a RAW handle held past its stage.** A value obtained
+through `find`/`filter`/`for…of`/`forEach`/destructuring, `$getValue`, `$read`
+or `$toRaw().getValue(...)` is the committed object itself, not a proxy —
+mutating it in a later stage edits committed state in place. The dev-mode guard
+above sees it only if the later stage also READS that key (the comparison is
+per read); if it does not, the change is invisible: state moves, the log does
+not. Never hold a raw value across a stage boundary; hold the key and read it
+again.
 
 ## $-Prefixed Methods
 
@@ -41,13 +154,18 @@ $attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $break, $toRaw
 ## Allowlist
 
 Only plain, unfrozen objects and arrays get deep Proxy wrapping. These are returned unwrapped:
+
 - Date, Map, Set, RegExp, class instances, TypedArrays, Promise, Error, WeakRef
 - Object.freeze()'d and Object.seal()'d values (nested set traps would silently fail)
 
 ## Performance Guidance
 
-**Arrays:** Each `push`/`splice`/`sort` clones the entire array (copy-on-write). For bulk
-operations on large arrays, build the final array and set it once:
+**Arrays:** Each `push`/`splice`/`sort`, and each write through an element
+(`lines[0].qty = 4`), clones the array (copy-on-write) and — for an array below
+the top level — the containers on the path down to it. Element proxies are
+cached per index and validated by identity, so repeated reads of an unchanged
+element are free. For bulk operations on large arrays, build the final array and
+set it once:
 
 ```typescript
 // Slow: N clones for N pushes (O(n^2) total)
@@ -60,6 +178,12 @@ scope.$setValue('tags', [...scope.$getValue('tags'), ...items]);
 ```
 
 Same guidance as MobX: prefer batch assignment over repeated mutations for large collections.
+
+`$batchArray(key, fn)` is the other one-clone path: `fn` receives a DEEP copy
+(`structuredClone`) of the array and the result commits once as a `set` of the
+key — an element edited inside `fn` (`arr[0].n = 9`) lands in that one write and
+never touches the value in state (9.22.0; a shallow copy used to share the
+committed elements).
 
 ## Serialization
 
@@ -90,6 +214,27 @@ Two consequences worth knowing:
   state lookups, not methods. Serialize or read a key instead.
 - User state keys starting with $ collide with ScopeMethods
 - Class instances in state are returned unwrapped (no deep write tracking)
+- Elements reached through a read METHOD (`find`/`filter`/`for…of`/`forEach`)
+  are unwrapped by design -- mutating one is warned about in dev mode (under
+  `readTracking: 'full'`) rather than intercepted (see "What the proxy cannot
+  see")
+- A scope handle held past its stage's commit refuses writes -- it throws (see
+  "A handle is bound to its stage"); a RAW handle held that long cannot be
+  caught at all
+- Out of contract, dropped or refused as follows (named in review of 9.22.0,
+  deliberately NOT fixed):
+  - a cyclic self-reference reached through a terminal proxy
+    (`scope.k.self.arr.push(1)`, `scope.k.self.arr[0].n = 9`, `scope.k.self.o.x = 9`)
+    commits its array/element write to the WRONG place -- a row is recorded and
+    the fold agrees with state, but the value lands beside the cycle edge, not
+    where the expression pointed. Flatten the structure; a cycle is a legal
+    value, not a write path.
+  - a top-level key containing U+001F (the trace path separator) throws at the
+    seed (`scope['x\u001Fy'] = …`). The character is reserved; there is no
+    escaping.
+  - an expando property on an array (`scope.k.arr.foo = 1`) is dropped: the
+    array proxy's set trap handles indices and `length` only, so the write
+    never reaches the log or state.
 - Frozen/sealed objects are returned unwrapped (replace entire value to update)
 - Circular references: detected via ancestor tracking (Set<object> per access chain).
   At the cycle break point, a terminal proxy is returned -- reads pass through (correct

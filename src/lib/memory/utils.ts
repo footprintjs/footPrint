@@ -8,7 +8,25 @@
 import { nativeDelete, nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
 import type { MemoryPatch, TraceEntry } from './types.js';
 
-/** ASCII Unit-Separator — cannot appear in JS identifiers, invisible in logs. */
+/**
+ * The separator that joins path SEGMENTS into a `TraceEntry.path`.
+ *
+ * WHY NOT `'.'` — the ambiguity this exists to prevent: a state key may itself
+ * CONTAIN a dot, and this library creates such keys routinely. `$setValue`
+ * takes a KEY, not a path, so `$setValue('a.b', v)` makes one top-level key
+ * literally named `a.b`. With a dot separator that key's path and the nested
+ * path `['a', 'b']` would both encode as `"a.b"`, and every reader of the
+ * commit log — `applySmartMerge`, `commitValueAt`, `redactPatch`,
+ * `findLastWriter`, the slice layer — would have to guess which one a bundle
+ * meant. Splitting the wrong way writes into (or reads from) the wrong place.
+ *
+ * ASCII Unit-Separator is the choice because it cannot appear in a JS
+ * identifier and is vanishingly unlikely in a hand-written key, so the
+ * encoding stays unambiguous. It is NOT a display character: a path rendered
+ * straight to a UI or a log looks like one broken word. Split it with
+ * {@link pathSegments} — that, not this constant, is the contract consumers
+ * should hold.
+ */
 export const DELIM = '\u001F';
 
 type NestedObject = { [key: string]: any };
@@ -147,17 +165,55 @@ export function normalisePath(path: (string | number)[]): string {
 }
 
 /**
+ * The inverse of {@link normalisePath}: the SEGMENTS of a `TraceEntry.path`.
+ *
+ * A path in the commit log is DELIM-joined (see {@link DELIM}), which is not a
+ * display encoding — printing one verbatim shows a single broken-looking word,
+ * as a consumer rendering a path discovered. This is the supported way to take
+ * it apart; the delimiter itself stays an implementation detail, so a path can
+ * be read, rendered or re-joined without anyone hard-coding a control
+ * character.
+ *
+ * A single-segment path (the common case — a top-level state key) returns a
+ * one-element array, so callers need no special case.
+ *
+ * ```ts
+ * import { pathSegments } from 'footprintjs/trace';
+ *
+ * for (const entry of bundle.trace) {
+ *   console.log(pathSegments(entry.path).join(' › ')); // 'order › lines'
+ * }
+ * ```
+ */
+export function pathSegments(path: string): string[] {
+  return path.split(DELIM);
+}
+
+/**
  * Structural deep equality for committed-state values.
  *
  * Used by {@link TransactionBuffer} to decide whether a stage actually CHANGED
  * a path or merely re-wrote / reverted it to the value it already held (a
- * "no-op write"). Committed state is JSON-shaped — it must survive
- * `structuredClone` — so this only needs to handle the shapes that can reach a
- * commit: primitives, arrays, and plain objects.
+ * "no-op write"), and by `borrowedMutation.firstDifferingPath` to find where a
+ * borrowed read moved. Committed state must survive `structuredClone`, and
+ * `structuredClone` keeps `Date`, `Map` and `Set` — so those are legal state
+ * values (a `$setValue` bypasses the proxy's JSON round-trip) and this must
+ * tell two of them apart. Before 9.22.0 it compared them as plain objects, and
+ * a `Date`/`Map`/`Set` has no own enumerable keys: every pair was "equal", so
+ * `$setValue('k', new Date(1999))` over a 2020 date was dropped as a no-op —
+ * no trace row, state unchanged — and a `setFullYear` in place slipped past
+ * the dev-mode guard.
  *
  * Semantics:
  *   - reference / identical-primitive short-circuits first (cheap fast path)
  *   - `NaN` equals `NaN` (primitive compare falls back to `Object.is`)
+ *   - `Date`: same `getTime()` (two invalid dates are equal)
+ *   - `Map`: same size AND, per key of `a`, `b` holds a deep-equal value —
+ *     keys by `Map` identity (`SameValueZero`), values deep
+ *   - `Set`: same size AND every member of `a` is deep-equal to SOME member
+ *     of `b` (order-insensitive — a Set has no order to compare by)
+ *   - a typed value against a plain value, or two different typed kinds → not
+ *     equal (a `Date` is never `{}`)
  *   - arrays: equal length AND deep-equal element-wise (order-sensitive)
  *   - objects: identical set of keys that HOLD a value AND deep-equal per key.
  *     An own key whose value is `undefined` counts as ABSENT: it is this
@@ -202,6 +258,12 @@ function equalPairs(a: any, b: any, seen: SeenPairs | undefined): boolean {
   if (a === null || b === null) return a === b; // one is null, the other isn't
   if (typeof a !== 'object') return Object.is(a, b); // NaN-safe primitive compare
 
+  // Typed arms first — a Date/Map/Set has no own enumerable keys, so the
+  // plain-object walk below would call any two of them equal.
+  const aKind = typedKind(a);
+  if (aKind !== typedKind(b)) return false;
+  if (aKind === 'date') return Object.is(a.getTime(), b.getTime());
+
   const aIsArray = Array.isArray(a);
   if (aIsArray !== Array.isArray(b)) return false; // array vs plain object
 
@@ -211,6 +273,9 @@ function equalPairs(a: any, b: any, seen: SeenPairs | undefined): boolean {
   if (partners?.has(b)) return true;
   if (!partners) seen.set(a, (partners = new WeakSet()));
   partners.add(b);
+
+  if (aKind === 'map') return equalMaps(a, b, seen);
+  if (aKind === 'set') return equalSets(a, b, seen);
 
   if (aIsArray) {
     if (a.length !== b.length) return false;
@@ -232,6 +297,42 @@ function equalPairs(a: any, b: any, seen: SeenPairs | undefined): boolean {
   let bHeld = 0;
   for (const key of Object.keys(b)) if (b[key] !== undefined) bHeld++;
   return aHeld === bHeld;
+}
+
+/** The typed state values `structuredClone` keeps and a key walk cannot see. */
+function typedKind(value: object): 'date' | 'map' | 'set' | undefined {
+  if (value instanceof Date) return 'date';
+  if (value instanceof Map) return 'map';
+  if (value instanceof Set) return 'set';
+  return undefined;
+}
+
+function equalMaps(a: Map<unknown, unknown>, b: Map<unknown, unknown>, seen: SeenPairs): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) {
+    if (!b.has(key)) return false;
+    if (!equalPairs(value, b.get(key), seen)) return false;
+  }
+  return true;
+}
+
+/**
+ * Order-insensitive, deep per member. Quadratic in the worst case for sets of
+ * objects — a set of primitives (the common shape) is one `has` per member.
+ */
+function equalSets(a: Set<unknown>, b: Set<unknown>, seen: SeenPairs): boolean {
+  if (a.size !== b.size) return false;
+  const unmatched = [...b];
+  for (const member of a) {
+    // SameValueZero first — primitives and shared references, one `has`.
+    // Each match retires its slot so two structurally-equal members of `a`
+    // cannot both claim the same member of `b`.
+    const at = unmatched.indexOf(member);
+    const found = at >= 0 ? at : unmatched.findIndex((candidate) => equalPairs(member, candidate, seen));
+    if (found < 0) return false;
+    unmatched.splice(found, 1);
+  }
+  return true;
 }
 
 /**

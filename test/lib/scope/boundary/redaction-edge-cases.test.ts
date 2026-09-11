@@ -171,15 +171,13 @@ describe('Boundary: redaction edge cases', () => {
     const readEvents: ReadEvent[] = [];
     scope.attachScopeRecorder({ id: 'r', onRead: (e) => readEvents.push(e) });
 
-    // First set as non-redacted
+    // First set as non-redacted (read-your-writes: the staged value is served)
     scope.setValue('token', 'public-token');
-    ctx.commit();
     scope.getValue('token');
     expect(readEvents[0].value).toBe('public-token');
 
     // Now upgrade to redacted
     scope.setValue('token', 'secret-token', true);
-    ctx.commit();
     scope.getValue('token');
     expect(readEvents[1].value).toBe('[REDACTED]');
     expect(readEvents[1].redacted).toBe(true);

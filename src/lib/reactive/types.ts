@@ -29,7 +29,12 @@ export interface ReactiveTarget {
   getStateKeys?(): string[];
   /** Check key existence without firing onRead. Used by has trap. */
   hasKey?(key: string): boolean;
-  /** Read state without firing onRead. Used by array proxy getCurrent(). */
+  /**
+   * Read state without firing onRead. Used by array proxy getCurrent() and,
+   * since 9.22.0, by every nested / element / terminal proxy's LIVE read
+   * (`liveView.ts`). A target without it falls back to the tracked read, so
+   * each nested access then fires onRead — provide it (ScopeFacade does).
+   */
   getValueSilent?(key?: string): unknown;
 
   // Input & environment (readonly, NOT tracked)
@@ -128,11 +133,11 @@ export interface ScopeMethods {
    * });
    * ```
    *
-   * `fn` receives a plain (non-proxy) mutable **shallow copy** of the current array.
-   * The array itself is a new instance, but object references inside it are shared with
-   * the original state — mutations to nested objects inside `fn` affect those originals.
-   * Only push/pop/sort/splice and other operations that change the array's own slots are
-   * safely isolated.
+   * `fn` receives a plain (non-proxy) mutable **deep copy** (`structuredClone`) of the
+   * current array — "clone once" means the elements too. Mutating an element inside `fn`
+   * (`arr[0].n = 9`) changes the copy and lands in the one committed write; the value in
+   * state is never touched (9.22.0 — a shallow copy used to share the committed elements,
+   * so an element edit changed committed state in place with no trace row).
    *
    * Mutations inside `fn` are NOT tracked individually — only the final committed array
    * appears in the narrative as a single write. If the key does not exist or is not an
