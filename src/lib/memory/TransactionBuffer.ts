@@ -377,19 +377,12 @@ export class TransactionBuffer {
     for (const op of this.opTrace) {
       let keep = survives.get(op.path);
       if (keep === undefined) {
-        const segments = op.path.split(DELIM);
-        keep = !deepEqual(_get(this.baseSnapshot, segments), _get(this.workingCopy, segments));
+        keep = this.changedSinceBase(op.path.split(DELIM));
         survives.set(op.path, keep);
       }
       if (!keep) continue; // no-op or write-then-revert → no net change
 
-      // Historical flattening: an explicit delete commits as set-of-undefined.
-      // Per-write provenance (#P1) rides each surviving entry untouched.
-      trace.push(
-        op.verb === 'delete'
-          ? { path: op.path, verb: 'set' as const, ...(op.readKeys !== undefined && { readKeys: op.readKeys }) }
-          : op,
-      );
+      trace.push(flattenedTraceRow(op));
       if (op.verb === 'merge') {
         if (lastMergePath === op.path) continue;
         lastMergePath = op.path;
@@ -471,67 +464,15 @@ export class TransactionBuffer {
     const updates: MemoryPatch = {};
     const trace: TraceEntry[] = [];
 
-    // Path → its op-verb sequence, ordered by LAST touch (delete +
-    // re-insert moves a re-touched path to the end of the Map's insertion
-    // order — preserving last-writer-wins for nested/overlapping paths).
-    // Per-write provenance (#P1): the LAST op's readKeys is kept — read
-    // prefixes only grow within a stage, so last == union across the path.
-    const byPath = new Map<string, { verbs: OpVerb[]; readKeys?: string[] }>();
-    for (const op of this.opTrace) {
-      const prev = byPath.get(op.path);
-      if (prev) {
-        prev.verbs.push(op.verb);
-        if (op.readKeys !== undefined) prev.readKeys = op.readKeys;
-        byPath.delete(op.path);
-        byPath.set(op.path, prev);
-      } else {
-        byPath.set(op.path, { verbs: [op.verb], ...(op.readKeys !== undefined && { readKeys: op.readKeys }) });
-      }
-    }
-
-    // Net-change filter — identical to 'full'. Survivors keep last-touch order.
-    const survivors: Survivor[] = [];
-    for (const [path, { verbs, readKeys }] of byPath) {
-      const segments = path.split(DELIM);
-      const before = _get(this.baseSnapshot, segments);
-      const after = _get(this.workingCopy, segments);
-      if (deepEqual(before, after)) continue; // no-op or write-then-revert → no net change (same filter as 'full')
-      survivors.push({ path, segments, verbs, readKeys, before, after });
-    }
+    const survivors = this.netChangeSurvivors(this.opsByPath());
     const survivingPaths = new Set(survivors.map((s) => s.path));
+    const { rootOf, byRoot } = groupIntoFamilies(survivors, survivingPaths);
+    const familyValue = this.memoisedFamilyValue(this.opsByFamily(rootOf, byRoot));
 
-    // Group survivors into OVERLAP FAMILIES (rule 3): each path's family is
-    // keyed by its SHALLOWEST surviving ancestor — walking prefixes shallow
-    // first means the first hit is that root, and a depth-1 path (the common
-    // case) never enters the loop at all. Any two paths sharing a root are
-    // exactly the paths whose patch storage overlaps.
-    const rootOf = new Map<string, string>();
-    const byRoot = new Map<string, Survivor[]>();
-    for (const s of survivors) {
-      let root = s.path;
-      for (let i = 1; i < s.segments.length; i++) {
-        const ancestor = s.segments.slice(0, i).join(DELIM);
-        if (survivingPaths.has(ancestor)) {
-          root = ancestor;
-          break;
-        }
-      }
-      rootOf.set(s.path, root);
-      const family = byRoot.get(root);
-      if (family) family.push(s);
-      else byRoot.set(root, [s]);
-    }
-
-    // Replay each overlapping family ONCE (lazily — most commits have none).
-    const familyOps = this.opsByFamily(rootOf, byRoot);
-    const familyValues = new Map<string, unknown>();
-    const familyValue = (root: string): unknown => {
-      if (!familyValues.has(root)) {
-        familyValues.set(root, this.replayFamilyVerbs(root.split(DELIM), familyOps.get(root) ?? []));
-      }
-      return familyValues.get(root);
-    };
-
+    // THE VERB SWITCH — the delta encoder's own replica of the verb law
+    // (CLAUDE.md: "FOUR verb-switch replicas in lockstep"). It stays here, in
+    // one body, beside the folds that feed it; the leaves above and below are
+    // extracted AROUND it, never from it (9.23.1).
     const emit = (s: Survivor): void => {
       const { path, segments, verbs, before } = s;
       const prov = s.readKeys !== undefined ? { readKeys: s.readKeys } : undefined;
@@ -570,24 +511,66 @@ export class TransactionBuffer {
       }
     };
 
-    for (const s of survivors) {
-      const root = rootOf.get(s.path) as string;
-      const family = byRoot.get(root) as Survivor[];
-      if (family.length === 1) {
-        emit(s);
-        continue;
-      }
-      // Overlapping family: members in last-touch order, the ROOT emitted
-      // LAST — its whole-subtree set is what makes the replayed subtree
-      // exactly the family value (a descendant applied afterwards could only
-      // re-state a value already inside it, but would also leave behind the
-      // `key: undefined` shells 'full' mode never has).
-      if (s.path !== root) emit(s);
-      if (family[family.length - 1] === s) emit(family.find((m) => m.path === root) as Survivor);
-    }
+    emitInFamilyOrder(survivors, rootOf, byRoot, emit);
 
     const redactedPaths = this.survivingRedactedPaths(survivingPaths);
     return { overwrite, updates, redactedPaths, trace };
+  }
+
+  /**
+   * Did the stage change the value at `segments`? Base and final value are
+   * fixed at commit, so this is the ONE net-change verdict both payload
+   * encodings apply (a no-op write and a write-then-revert both fail it).
+   */
+  private changedSinceBase(segments: string[]): boolean {
+    return !deepEqual(_get(this.baseSnapshot, segments), _get(this.workingCopy, segments));
+  }
+
+  /**
+   * Path → its op-verb sequence, ordered by LAST touch (delete + re-insert
+   * moves a re-touched path to the end of the Map's insertion order —
+   * preserving last-writer-wins for nested/overlapping paths). Per-write
+   * provenance (#P1): the LAST op's readKeys is kept — read prefixes only grow
+   * within a stage, so last == union across the path.
+   */
+  private opsByPath(): Map<string, { verbs: OpVerb[]; readKeys?: string[] }> {
+    const byPath = new Map<string, { verbs: OpVerb[]; readKeys?: string[] }>();
+    for (const op of this.opTrace) {
+      const prev = byPath.get(op.path);
+      if (prev) {
+        prev.verbs.push(op.verb);
+        if (op.readKeys !== undefined) prev.readKeys = op.readKeys;
+        byPath.delete(op.path);
+        byPath.set(op.path, prev);
+      } else {
+        byPath.set(op.path, { verbs: [op.verb], ...(op.readKeys !== undefined && { readKeys: op.readKeys }) });
+      }
+    }
+    return byPath;
+  }
+
+  /** The net-change filter — identical to 'full' ({@link changedSinceBase}). Survivors keep last-touch order. */
+  private netChangeSurvivors(byPath: Map<string, { verbs: OpVerb[]; readKeys?: string[] }>): Survivor[] {
+    const survivors: Survivor[] = [];
+    for (const [path, { verbs, readKeys }] of byPath) {
+      const segments = path.split(DELIM);
+      if (!this.changedSinceBase(segments)) continue; // no-op or write-then-revert → no net change
+      const before = _get(this.baseSnapshot, segments);
+      const after = _get(this.workingCopy, segments);
+      survivors.push({ path, segments, verbs, readKeys, before, after });
+    }
+    return survivors;
+  }
+
+  /** Replay each overlapping family ONCE, lazily — most commits have none, and pay nothing. */
+  private memoisedFamilyValue(familyOps: Map<string, { path: string; verb: OpVerb }[]>): (root: string) => unknown {
+    const familyValues = new Map<string, unknown>();
+    return (root) => {
+      if (!familyValues.has(root)) {
+        familyValues.set(root, this.replayFamilyVerbs(root.split(DELIM), familyOps.get(root) ?? []));
+      }
+      return familyValues.get(root);
+    };
   }
 
   /**
@@ -685,6 +668,72 @@ export class TransactionBuffer {
       value = verb === 'merge' ? deepSmartMerge(value ?? {}, mergeDelta) : setValue;
     }
     return value;
+  }
+}
+
+/**
+ * Historical flattening for the `'full'` payload: an explicit delete commits
+ * as set-of-undefined. Per-write provenance (#P1) rides each surviving entry
+ * untouched.
+ */
+function flattenedTraceRow(op: { path: string; verb: OpVerb; readKeys?: string[] }): TraceEntry {
+  return op.verb === 'delete'
+    ? { path: op.path, verb: 'set' as const, ...(op.readKeys !== undefined && { readKeys: op.readKeys }) }
+    : op;
+}
+
+/**
+ * Group survivors into OVERLAP FAMILIES (`toDeltaPayload` rule 3): each path's
+ * family is keyed by its SHALLOWEST surviving ancestor — walking prefixes
+ * shallow first means the first hit is that root, and a depth-1 path (the
+ * common case) never enters the loop at all. Any two paths sharing a root
+ * are exactly the paths whose patch storage overlaps.
+ */
+function groupIntoFamilies(
+  survivors: Survivor[],
+  survivingPaths: Set<string>,
+): { rootOf: Map<string, string>; byRoot: Map<string, Survivor[]> } {
+  const rootOf = new Map<string, string>();
+  const byRoot = new Map<string, Survivor[]>();
+  for (const s of survivors) {
+    let root = s.path;
+    for (let i = 1; i < s.segments.length; i++) {
+      const ancestor = s.segments.slice(0, i).join(DELIM);
+      if (survivingPaths.has(ancestor)) {
+        root = ancestor;
+        break;
+      }
+    }
+    rootOf.set(s.path, root);
+    const family = byRoot.get(root);
+    if (family) family.push(s);
+    else byRoot.set(root, [s]);
+  }
+  return { rootOf, byRoot };
+}
+
+/**
+ * Emit survivors in last-touch order, with one exception: in an overlapping
+ * family the ROOT is emitted LAST — its whole-subtree set is what makes the
+ * replayed subtree exactly the family value (a descendant applied afterwards
+ * could only re-state a value already inside it, but would also leave behind
+ * the `key: undefined` shells 'full' mode never has).
+ */
+function emitInFamilyOrder(
+  survivors: Survivor[],
+  rootOf: Map<string, string>,
+  byRoot: Map<string, Survivor[]>,
+  emit: (s: Survivor) => void,
+): void {
+  for (const s of survivors) {
+    const root = rootOf.get(s.path) as string;
+    const family = byRoot.get(root) as Survivor[];
+    if (family.length === 1) {
+      emit(s);
+      continue;
+    }
+    if (s.path !== root) emit(s);
+    if (family[family.length - 1] === s) emit(family.find((m) => m.path === root) as Survivor);
   }
 }
 

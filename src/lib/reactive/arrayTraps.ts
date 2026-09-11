@@ -38,9 +38,9 @@
  *
  * Now an indexed read of a wrappable element returns an ELEMENT PROXY that
  * accumulates the path inside the element and, on write, rebuilds the array
- * immutably ({@link setInPath}) and hands the whole new array to `commit` —
- * the same funnel `push` already used. One write path for the whole array,
- * whatever depth it is addressed at.
+ * immutably (`structuralWrite.setInPath`, behind `writeTraps.elementSink`)
+ * and hands the whole new array to `commit` — the same funnel `push` already
+ * used. One write path for the whole array, whatever depth it is addressed at.
  *
  * ── What is still NOT seen (by design) ───────────────────────────────────
  * Elements reached WITHOUT an index — `find()`, `filter()`, `for…of`,
@@ -50,13 +50,19 @@
  * not lost in silence either: `StageContext` compares what a stage READ with
  * what the value holds at commit and, in dev mode, warns with the exact path.
  * See src/lib/reactive/README.md.
+ *
+ * ── Shape (9.23.1) ───────────────────────────────────────────────────────
+ * `createArrayProxy` and `createElementProxy` are ORCHESTRATORS: they wire
+ * traps and hold the caches. Every trap body is a named leaf below — one
+ * concern each — and the element proxy's set/delete/get traps are the SAME
+ * leaves the nested and terminal object proxies use (`writeTraps.ts`,
+ * `liveView.ts`), over an {@link elementSink}. A fix lands in a leaf once.
  */
 
-import { nativeGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
-import { toJSONView } from './jsonProjection.js';
-import { liveInspectionTraps, liveObject } from './liveView.js';
-import { deleteInPath, setInPath, unwrapProxy } from './structuralWrite.js';
+import { liveGetTrap, liveInspectionTraps, liveObject } from './liveView.js';
+import { unwrapProxy } from './structuralWrite.js';
+import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
 
 /** Methods that mutate the array in-place. We intercept and copy-on-write. */
 const MUTATING_METHODS = new Set([
@@ -71,6 +77,50 @@ const MUTATING_METHODS = new Set([
   'copyWithin',
 ]);
 
+type Read = () => unknown[];
+type Write = (next: unknown[]) => void;
+
+// -- Leaves: reads ------------------------------------------------------------
+
+/** WHY `Number(prop)`: the historical reading of an index name — `'01'` and
+ *  `''` address slots 1 and 0, as they always have. In range only. */
+function indexIn(current: unknown[], prop: string | symbol): number | undefined {
+  if (typeof prop !== 'string') return undefined;
+  const index = Number(prop);
+  return Number.isInteger(index) && index >= 0 && index < current.length ? index : undefined;
+}
+
+/** A non-negative integer index named by `prop` (any range — a write past the end grows the array). */
+function indexNamed(prop: string | symbol): number | undefined {
+  if (typeof prop !== 'string') return undefined;
+  const index = Number(prop);
+  return Number.isInteger(index) && index >= 0 ? index : undefined;
+}
+
+/** WHY: a non-mutating read answers from the CURRENT array, never the
+ *  creation-time target — a method is bound to it, anything else read off it. */
+function boundMember(current: unknown[], prop: string | symbol): unknown {
+  const val = (current as any)[prop];
+  return typeof val === 'function' ? val.bind(current) : val;
+}
+
+type ElementCache = Map<number, { ref: unknown; proxy: unknown }>;
+
+/** WHY the cache: reading `lines[i].qty` in a loop must not allocate a proxy
+ *  per read, and `lines[0] === lines[0]` must hold within a stage. Validated by
+ *  raw identity — a commit replaces the array, the ref check misses, and a
+ *  fresh proxy is built over the new element. A primitive is handed back raw. */
+function cachedElement(cache: ElementCache, element: unknown, index: number, read: Read, write: Write): unknown {
+  if (!shouldWrapWithProxy(element)) return element;
+  const cached = cache.get(index);
+  if (cached && cached.ref === element) return cached.proxy;
+  const wrapped = wrapElementMember(element, elementSink(read, write, index), [], new Set<object>());
+  cache.set(index, { ref: element, proxy: wrapped });
+  return wrapped;
+}
+
+// -- Leaves: writes -----------------------------------------------------------
+
 /** Slots from the current end up to (not including) `upTo` become `null` —
  *  the JSON spelling of a hole, which is what the whole-array round-trip used
  *  to produce for them. No-op when `upTo` is within the array. */
@@ -78,102 +128,58 @@ function fillHoles(arr: unknown[], upTo: number): void {
   for (let i = arr.length; i < upTo; i++) arr[i] = null;
 }
 
-/** Reads that must never be answered with a state value (see createTypedScope's GUARD_PROPS). */
-function guardValue(prop: string): { hit: boolean; value?: unknown } {
-  if (prop === 'then' || prop === 'asymmetricMatch') return { hit: true, value: undefined };
-  if (prop === 'constructor') return { hit: true, value: Object };
-  return { hit: false };
+/** WHY: a mutating method runs on a COPY, with its arguments unwrapped (they
+ *  are the assigned values; a number or a comparator passes through), and the
+ *  copy is committed whole. The array in state is never touched. */
+function mutatingMethod(read: Read, write: Write, name: string): (...args: unknown[]) => unknown {
+  return (...args) => {
+    const clone = [...read()];
+    const result = (clone as any)[name](...args.map(unwrapProxy));
+    write(clone);
+    return result;
+  };
 }
+
+/** `arr[i] = v`: copy, `null` the slots a write past the end skips, place the unwrapped value, commit. */
+function setIndex(read: Read, write: Write, index: number, value: unknown): void {
+  const clone = [...read()];
+  fillHoles(clone, index);
+  clone[index] = unwrapProxy(value);
+  write(clone);
+}
+
+/** `arr.length = n`: copy, `null` the slots growth adds, truncate or extend, commit. */
+function setLength(read: Read, write: Write, length: number): void {
+  const clone = [...read()];
+  fillHoles(clone, length);
+  clone.length = length;
+  write(clone);
+}
+
+/** WHY: without this trap `delete items[2]` reaches the RAW array captured
+ *  as the proxy target — committed state, no commit record. JS `delete` on an
+ *  index leaves the slot empty and the length unchanged, and so does this:
+ *  the emptied slot commits as `null`, JSON's only spelling for a hole. */
+function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
+  const clone = [...read()];
+  const index = typeof prop === 'string' ? Number(prop) : NaN;
+  if (Number.isInteger(index) && index >= 0 && index < clone.length) clone[index] = null;
+  else delete (clone as any)[prop];
+  write(clone);
+}
+
+// -- Leaves: the chain below an element --------------------------------------
 
 /**
- * The three primitives every write inside an element goes through. All of them
- * rebuild the owning array immutably and hand the WHOLE new array to `commit`
- * — the array proxy's own copy-on-write contract, applied one or more levels
- * down. `path` is measured from the element: `[]` IS the element slot.
+ * WHY: an array anywhere below a sink's root is ONE write path — it reads
+ * through the sink and commits the WHOLE new array back through it, so
+ * `push` three levels down and `arr[i].x = v` at the top share a funnel.
  */
-function replaceInElement(
-  getCurrent: () => unknown[],
-  commit: (next: any[]) => void,
-  index: number,
-  path: readonly string[],
-  value: unknown,
-): void {
-  const next = [...getCurrent()];
-  if (index >= next.length) return; // the element is gone — nothing to write into
-  next[index] = path.length === 0 ? value : setInPath(next[index], path, value);
-  commit(next);
-}
-
-function removeInElement(
-  getCurrent: () => unknown[],
-  commit: (next: any[]) => void,
-  index: number,
-  path: readonly string[],
-): void {
-  const next = [...getCurrent()];
-  if (index >= next.length) return;
-  next[index] = deleteInPath(next[index], path);
-  commit(next);
-}
-
-/** The value at `path` inside element `index`, as it stands NOW (read-your-writes). */
-function readInElement(getCurrent: () => unknown[], index: number, path: readonly string[]): unknown {
-  const element = getCurrent()[index];
-  return path.length === 0 ? element : nativeGet(element, path as string[]);
-}
-
-/**
- * Proxy over one OBJECT element (or an object nested inside one), carrying the
- * path from the element down to it. Reads recurse; writes go back out through
- * the owning array's commit callback.
- *
- * READS ARE LIVE. Every write rebuilds the array immutably, so the object the
- * proxy was created over is the PRE-write element for ever after; a held
- * handle that read from it saw its own writes vanish (`line.n += 1` twice
- * gave 2, `line.total = line.qty * 10` used the old `qty`, `'x' in line` was
- * false right after `line.x = 1`). Every trap therefore resolves the element
- * through {@link readInElement} first, and falls back to the captured object
- * only when the path no longer exists (the slot was emptied or the array
- * shrank) — the same read-your-writes the array proxy itself has always had,
- * and the same law the nested and terminal object proxies follow (liveView.ts).
- */
-function createElementProxy(
-  raw: Record<string, unknown>,
-  getCurrent: () => unknown[],
-  commit: (next: any[]) => void,
-  index: number,
-  segments: readonly string[],
-  visited: Set<object>,
-): unknown {
-  const live = () => liveObject(raw, readInElement(getCurrent, index, segments));
-
-  return new Proxy(raw, {
-    get(_target, prop) {
-      const current = live();
-      if (typeof prop === 'symbol') return (current as any)[prop];
-      const guard = guardValue(prop);
-      if (guard.hit) return guard.value;
-      // Law: serializing a proxied value equals serializing the raw value.
-      if (prop === 'toJSON') return () => toJSONView(current);
-
-      const value = (current as any)[prop];
-      return wrapElementMember(value, getCurrent, commit, index, [...segments, prop], visited);
-    },
-
-    set(_target, prop, value) {
-      if (typeof prop !== 'string') return true;
-      replaceInElement(getCurrent, commit, index, [...segments, prop], unwrapProxy(value));
-      return true;
-    },
-
-    deleteProperty(_target, prop) {
-      if (typeof prop !== 'string') return true;
-      removeInElement(getCurrent, commit, index, [...segments, prop]);
-      return true;
-    },
-
-    ...liveInspectionTraps(live),
-  });
+export function arrayProxyAt(sink: WriteSink, path: readonly string[]): unknown[] {
+  return createArrayProxy(
+    () => (sink.readAt(path) as unknown[]) ?? [],
+    (next) => sink.put(path, next),
+  );
 }
 
 /**
@@ -183,156 +189,88 @@ function createElementProxy(
  * on the access chain (a cycle) is returned raw — the same back-edge the
  * nested-object terminal proxy takes.
  */
-function wrapElementMember(
-  value: unknown,
-  getCurrent: () => unknown[],
-  commit: (next: any[]) => void,
-  index: number,
-  path: readonly string[],
-  visited: Set<object>,
-): unknown {
+function wrapElementMember(value: unknown, sink: WriteSink, path: string[], visited: Set<object>): unknown {
   if (!shouldWrapWithProxy(value)) return value;
   if (visited.has(value as object)) return value;
   const branch = new Set(visited);
   branch.add(value as object);
+  if (Array.isArray(value)) return arrayProxyAt(sink, path);
+  return createElementProxy(value as Record<string, unknown>, sink, path, branch);
+}
 
-  if (Array.isArray(value)) {
-    return createArrayProxy(
-      () => (readInElement(getCurrent, index, path) as unknown[]) ?? [],
-      (inner) => replaceInElement(getCurrent, commit, index, path, inner),
-    );
-  }
-  return createElementProxy(value as Record<string, unknown>, getCurrent, commit, index, path, branch);
+// -- Orchestrators ------------------------------------------------------------
+
+/**
+ * Proxy over one OBJECT element (or an object nested inside one), carrying the
+ * path from the element down to it. Reads recurse; writes go back out through
+ * the owning array's commit callback (the {@link elementSink}).
+ *
+ * READS ARE LIVE. Every write rebuilds the array immutably, so the object the
+ * proxy was created over is the PRE-write element for ever after; a held
+ * handle that read from it saw its own writes vanish (`line.n += 1` twice
+ * gave 2, `line.total = line.qty * 10` used the old `qty`, `'x' in line` was
+ * false right after `line.x = 1`). Every trap therefore resolves the element
+ * through the sink first, and falls back to the captured object only when
+ * the path no longer exists (the slot was emptied or the array shrank) — the
+ * same read-your-writes the array proxy itself has always had, and the same
+ * law the nested and terminal object proxies follow (liveView.ts).
+ */
+function createElementProxy(
+  raw: Record<string, unknown>,
+  sink: WriteSink,
+  segments: readonly string[],
+  visited: Set<object>,
+): unknown {
+  const live = () => liveObject(raw, sink.readAt(segments));
+  return new Proxy(raw, {
+    get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited)),
+    set: sinkSetTrap(sink, segments),
+    deleteProperty: sinkDeleteTrap(sink, segments),
+    ...liveInspectionTraps(live),
+  });
 }
 
 /**
  * Creates a Proxy over an array that intercepts mutating operations.
+ *
+ * The actual current array is the Proxy target: Node.js console.log inspects
+ * the target directly (bypasses Proxy traps), so the real array shows correct
+ * values. The target reference is fixed at creation time — after mutations,
+ * the proxy returns a new proxy (via cache invalidation) with the fresh array
+ * as target.
  *
  * @param getCurrent - Returns the current array snapshot from state
  * @param commit - Called with the new array after a mutation (triggers setValue)
  * @returns Proxied array with copy-on-write semantics
  */
 export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[]) => void): T[] {
-  // Use the actual current array as the Proxy target. Node.js console.log
-  // inspects the target directly (bypasses Proxy traps). By using the real
-  // array, console.log shows correct values. The target reference is fixed
-  // at creation time — after mutations, the proxy returns a new proxy
-  // (via cache invalidation) with the fresh array as target.
   const target = getCurrent() as T[];
-  const readCurrent = getCurrent as unknown as () => unknown[];
-  const writeCommit = commit as unknown as (next: any[]) => void;
-  // Element proxies are cached per index and validated by raw identity — the
-  // same bargain the top-level child cache makes. Without it, reading
-  // `lines[i].qty` in a loop would allocate one proxy per read; with it,
-  // repeated access to an UNCHANGED element is free and `lines[0] === lines[0]`
-  // holds within a stage. A commit replaces the array, so the ref check misses
-  // and a fresh proxy is built over the new element.
-  const elementCache = new Map<number, { ref: unknown; proxy: unknown }>();
+  const read = getCurrent as unknown as Read;
+  const write = commit as unknown as Write;
+  const elements: ElementCache = new Map();
 
   return new Proxy(target, {
-    get(_target, prop, receiver) {
-      // Intercept mutating methods
-      if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) {
-        return (...args: unknown[]) => {
-          const clone = [...getCurrent()];
-          // The arguments are the assigned values — unwrap each one (a
-          // number, a comparator or a primitive passes through untouched).
-          const result = (clone as any)[prop](...args.map(unwrapProxy));
-          commit(clone);
-          return result;
-        };
-      }
-
-      // Non-mutating access: delegate to the current array snapshot
-      const current = getCurrent();
-
-      // 'length' and index access
+    get(_target, prop) {
+      if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(read, write, prop);
+      const current = read();
       if (prop === 'length') return current.length;
-
-      // Numeric index access — the element joins the write chain (see header).
-      if (typeof prop === 'string') {
-        const index = Number(prop);
-        if (Number.isInteger(index) && index >= 0 && index < current.length) {
-          const element = current[index];
-          if (!shouldWrapWithProxy(element)) return element;
-          const cached = elementCache.get(index);
-          if (cached && cached.ref === element) return cached.proxy;
-          const wrapped = wrapElementMember(element, readCurrent, writeCommit, index, [], new Set<object>());
-          elementCache.set(index, { ref: element, proxy: wrapped });
-          return wrapped;
-        }
-      }
-
-      // Node.js util.inspect custom formatting
-      if (prop === Symbol.for('nodejs.util.inspect.custom')) {
-        return () => current;
-      }
-
-      // Symbol.iterator and other built-in symbols
-      if (typeof prop === 'symbol') {
-        const val = (current as any)[prop];
-        if (typeof val === 'function') return val.bind(current);
-        return val;
-      }
-
-      // All other methods (map, filter, forEach, find, etc.) -- bind to current
-      const val = (current as any)[prop];
-      if (typeof val === 'function') return val.bind(current);
-      return val;
+      const index = indexIn(current, prop);
+      if (index !== undefined) return cachedElement(elements, current[index], index, read, write);
+      if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
+      return boundMember(current, prop);
     },
-
     set(_target, prop, value) {
-      // Index assignment: scope.items[2] = 'updated'
-      if (typeof prop === 'string') {
-        const index = Number(prop);
-        if (Number.isInteger(index) && index >= 0) {
-          const clone = [...getCurrent()];
-          fillHoles(clone, index); // a write past the end: the skipped slots are `null`, not holes
-          clone[index] = unwrapProxy(value) as T;
-          commit(clone);
-          return true;
-        }
-      }
-
-      // Setting 'length' (e.g., arr.length = 0 to clear)
-      if (prop === 'length' && typeof value === 'number') {
-        const clone = [...getCurrent()];
-        fillHoles(clone, value); // growth: the new slots are `null`, not holes
-        clone.length = value;
-        commit(clone);
-        return true;
-      }
-
-      return true; // ignore other set operations
+      const index = indexNamed(prop);
+      if (index !== undefined) setIndex(read, write, index, value);
+      else if (prop === 'length' && typeof value === 'number') setLength(read, write, value);
+      return true; // any other set is ignored (an expando on an array is out of contract — README)
     },
-
-    // `delete items[2]` — without this trap the default reaches the RAW array
-    // captured as the proxy target, mutating committed state with no commit
-    // record. Copy-on-write like every other mutation; JS `delete` on an index
-    // leaves the slot empty and the length unchanged, and so does this — the
-    // emptied slot commits as `null`, JSON's only spelling for an array hole.
     deleteProperty(_target, prop) {
-      const clone = [...getCurrent()];
-      const index = typeof prop === 'string' ? Number(prop) : NaN;
-      if (Number.isInteger(index) && index >= 0 && index < clone.length) (clone as unknown[])[index] = null;
-      else delete (clone as any)[prop];
-      commit(clone);
+      deleteSlot(read, write, prop);
       return true;
     },
-
-    has(_target, prop) {
-      const current = getCurrent();
-      return Reflect.has(current, prop);
-    },
-
-    ownKeys() {
-      const current = getCurrent();
-      return Reflect.ownKeys(current);
-    },
-
-    getOwnPropertyDescriptor(_target, prop) {
-      const current = getCurrent();
-      return Object.getOwnPropertyDescriptor(current, prop);
-    },
+    has: (_target, prop) => Reflect.has(read(), prop),
+    ownKeys: () => Reflect.ownKeys(read()),
+    getOwnPropertyDescriptor: (_target, prop) => Object.getOwnPropertyDescriptor(read(), prop),
   });
 }

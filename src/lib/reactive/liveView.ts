@@ -9,13 +9,41 @@
  * found on element proxies, then the same root on nested and terminal ones).
  * So every read trap resolves through the CURRENT value and falls back to the
  * captured object only when the path is gone or no longer holds an object.
+ *
+ * The READ side of every object proxy lives here — {@link liveObject},
+ * {@link liveGetTrap}, {@link liveInspectionTraps}; the WRITE side is
+ * `writeTraps.ts`. A factory only wires them (9.23.1).
  */
+
+import { toJSONView } from './jsonProjection.js';
 
 /** The object at `segments` under the current root, or `raw` when it is gone. */
 export function liveObject(raw: Record<string, unknown>, current: unknown): Record<string, unknown> {
   return current !== null && typeof current === 'object' && !Array.isArray(current)
     ? (current as Record<string, unknown>)
     : raw;
+}
+
+/**
+ * WHY one get trap: the names a proxy answers ITSELF (promise/matcher guards,
+ * `constructor`, and the JSON law — serializing a proxied value equals
+ * serializing the raw one, `jsonProjection.ts`) must be the same three lines
+ * on every object proxy; any other member is handed to `child` with its full
+ * path, and only THAT step differs per factory (the cycle policy).
+ */
+export function liveGetTrap(
+  live: () => Record<string, unknown>,
+  segments: readonly string[],
+  child: (value: unknown, path: string[]) => unknown,
+): ProxyHandler<object>['get'] {
+  return (_target, prop) => {
+    const raw = live();
+    if (typeof prop === 'symbol') return (raw as any)[prop];
+    if (prop === 'then' || prop === 'asymmetricMatch') return undefined;
+    if (prop === 'constructor') return Object;
+    if (prop === 'toJSON') return () => toJSONView(raw);
+    return child(raw[prop], [...segments, prop]);
+  };
 }
 
 /**

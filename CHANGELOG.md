@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.23.1] - 2026-09-11
+
+### Changed — no behaviour change: the proxy factories are orchestrators over shared leaves
+
+- **Why.** `createTypedScope`, `createNestedProxy`, `createTerminalProxy`,
+  `createArrayProxy` and the element proxy each carried their get / set /
+  delete / mutating-method traps INLINE — the same logic three times with
+  small differences. That is exactly how the 9.22.0 stale-read bug was fixed
+  in the element proxy and then found again in the nested and terminal ones.
+  `liveView.ts` (9.22.0) began the cure for the READ traps; this release
+  finishes it for the WRITE side. Rule, now written into
+  `src/lib/reactive/README.md` ("How the proxies are built"): an
+  orchestrator only CALLS leaves in a readable sequence and holds state; a
+  leaf computes one thing and never orchestrates; a fix lands in a leaf once.
+
+- **What moved.** `reactive/writeTraps.ts` (new) — the `WriteSink` seam
+  (`readAt` / `put` / `remove`, a path measured from the sink's root), its two
+  implementations `rootKeySink` (object leaf ⇒ `merge` of a nested patch;
+  array leaf or delete ⇒ `set` of the immutably rebuilt root — reactive law
+  3) and `elementSink` (every write ⇒ the WHOLE owning array back through the
+  array proxy's commit), and the one `sinkSetTrap` (unwrap the assigned value
+  per landmine 1, hand it to the sink) / `sinkDeleteTrap` every object proxy
+  uses. `reactive/liveView.ts` gains `liveGetTrap` — the guards and the JSON
+  law once; only the CHILD step (the cycle policy) is a parameter.
+  `reactive/arrayTraps.ts` — `mutatingMethod`, `setIndex`, `setLength`,
+  `deleteSlot`, `cachedElement`, `indexIn`, `boundMember`, `arrayProxyAt`
+  are the named leaves; `createArrayProxy` and `createElementProxy` wire
+  them. `reactive/createTypedScope.ts` — `internalRead`, `wrapStateValue`,
+  `cachedChildProxy`, `assignStateKey`, `knownKey`, `stateKeys` are the
+  top-level leaves; the three factories are 15–25 lines each.
+  `memory/TransactionBuffer.ts` — `toDeltaPayload` reads as a sequence
+  (`opsByPath` → `netChangeSurvivors` → `groupIntoFamilies` →
+  `memoisedFamilyValue` → the verb switch → `emitInFamilyOrder`); the verb
+  switch itself is the delta encoder's own replica of the verb law
+  (CLAUDE.md, "FOUR verb-switch replicas in lockstep") and stays where it
+  was, in one body — the leaves are extracted AROUND it, never from it.
+  `changedSinceBase` is now the ONE net-change verdict both encodings ask;
+  `flattenedTraceRow` names the `'full'` mode's delete→set flattening.
+
+- **Proof.** Zero byte changes. Every existing test passes unchanged; the
+  byte-identity and reference suites (`declared-tags-byte-identity`,
+  `redaction-no-policy-byte-identity`, `repeated-path-byte-identity`,
+  `assigned-value-only`, `clone-once-at-commit`, `deep-writes-through-arrays`,
+  `held-handles-and-typed-values`, `redaction-one-law`,
+  `redaction-subflow-served-state`) are green in both `commitValues` modes;
+  and a differential fuzz of 13,000 random multi-stage programs (nested
+  objects, arrays, element writes, every mutating method, `delete`,
+  `$update` / `$setValue` / `$batchArray`, held handles, cycles, subflows,
+  redaction, dev mode, both encodings, three read-tracking modes, write
+  provenance) run through the 9.23.0 dist and this build produced
+  byte-identical snapshots, commit logs, scope events, folds and warnings.
+  `bench/element-writes.ts` and `bench/read-cost.ts` are within noise.
+
 ## [9.23.0] - 2026-09-11
 
 ### Changed — the element-write loop goes linear: clone once at commit, and unwrap only the assigned value

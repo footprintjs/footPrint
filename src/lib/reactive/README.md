@@ -143,6 +143,58 @@ per read); if it does not, the change is invisible: state moves, the log does
 not. Never hold a raw value across a stage boundary; hold the key and read it
 again.
 
+## How the proxies are built
+
+Five factories, one set of leaves (9.23.1). The rule: an **orchestrator**
+only CALLS leaves in a readable sequence and holds state (a cache, a
+`visited` set); a **leaf** computes one thing and never orchestrates. A fix
+lands in a leaf once — the 9.22.0 stale-read bug was fixed in the element
+proxy's traps and then found again in the nested and terminal copies, which
+is the defect this shape removes.
+
+| Orchestrator (file · symbol) | Holds | Decides itself |
+|---|---|---|
+| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `internalRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
+| `createTypedScope.ts · createNestedProxy` | an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
+| `createTypedScope.ts · createTerminalProxy` | ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
+| `arrayTraps.ts · createElementProxy` | an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
+| `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
+
+The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`
+(guards + the JSON law, then the child step above), `writeTraps.ts ·
+sinkSetTrap` (unwrap the assigned value — landmine 1 — and hand it to the
+sink at the proxy's path plus the key), `writeTraps.ts · sinkDeleteTrap`,
+and `liveView.ts · liveInspectionTraps`. Where a write LANDS is a
+`writeTraps.ts · WriteSink` (`readAt` / `put` / `remove`, a path measured
+from the sink's root): `rootKeySink` for nested and terminal proxies (an
+object leaf is a `merge` of a nested patch, an array leaf or a delete
+rebuilds the root with `structuralWrite.setInPath` / `deleteInPath` and
+commits a `set` of the key — law 3), `elementSink` for element proxies
+(every write rebuilds the owning array and hands the WHOLE array to the
+array proxy's commit). An array below either sink is `arrayTraps.ts ·
+arrayProxyAt` — the one funnel `push` three levels down and `arr[i].x = v`
+at the top share.
+
+The array proxy's own leaves, one concern each: `mutatingMethod` (run on a
+copy, arguments unwrapped, commit the copy), `setIndex` / `setLength` (fill
+skipped slots with `null`, JSON's spelling of a hole), `deleteSlot`,
+`cachedElement` (a proxy per index, validated by identity), `indexIn` /
+`indexNamed` (the historical `Number(prop)` reading of an index name),
+`boundMember` (a non-mutating read answers from the CURRENT array).
+
+The same shape governs the commit funnel: `memory/TransactionBuffer.ts ·
+toDeltaPayload` reads as `opsByPath` → `netChangeSurvivors` →
+`groupIntoFamilies` → `memoisedFamilyValue` → the verb switch →
+`emitInFamilyOrder`. The verb switch is deliberately NOT a leaf — it is the
+delta encoder's own replica of the verb law (CLAUDE.md, "FOUR verb-switch
+replicas in lockstep") and stays in one body; the leaves are extracted
+around it, never from it. `changedSinceBase` is the ONE net-change verdict
+both encodings ask.
+
+Proven byte-identical to 9.23.0 by the reference suites in both
+`commitValues` modes and a 13,000-program differential fuzz (see CHANGELOG
+[9.23.1]).
+
 ## $-Prefixed Methods
 
 Non-enumerable escape hatches (don't appear in Object.keys or destructuring):
