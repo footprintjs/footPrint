@@ -185,6 +185,14 @@ key — an element edited inside `fn` (`arr[0].n = 9`) lands in that one write a
 never touches the value in state (9.22.0; a shallow copy used to share the
 committed elements).
 
+**N element writes in one stage produce N whole-array rows.** Every
+`arr[i].n = i` is a `set` of the ROOT key (law 3), so a loop of N of them stages
+N whole-array trace rows in ONE bundle — the log records what happened, and N
+things happened. The commit and every fold of that bundle are O(N) since 9.22.1
+(a row a later row re-sets is not cloned twice), but the stage body still pays
+one array copy per write. `$batchArray` is the bulk path: one row, one copy —
+measured ~370× cheaper in the stage body at N = 1,000 (`bench/element-writes.ts`).
+
 ## Serialization
 
 `JSON.stringify(scope.someObject)` returns exactly what `JSON.stringify(scope.$getValue('someObject'))`

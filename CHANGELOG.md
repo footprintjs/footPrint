@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.22.1] - 2026-09-11
+
+### Changed — a row a later row re-sets is not cloned twice: commit and replay of a repeated-path bundle are O(N), not O(N × rows)
+
+- **Why.** The 9.22.0 perf review profiled N = 1,000 element writes on one
+  array in one stage (`arr[i].n = i`): 1,131 ms, of which 246 ms was
+  `TransactionBuffer.toChangeOnlyPayload` cloning the whole array once per
+  staged op and 252 ms was `applySmartMerge` cloning it once per trace row
+  at the live commit — 1,000 rows on ONE path, 1,000 clones of the same
+  array in each place — and every fold of that bundle afterwards
+  (`EventLog.materialise`, `commitValueAt`, `stateAt`) paid the replay half
+  again. The funnel is older than the fix that made it reachable: both loops
+  predate 9.22.0, which made a nested element write commit as a whole-array
+  `set` of its root key (law 3) and so, for the first time, put N whole-array
+  rows on one path in one bundle. The bytes of such a bundle are O(N); the
+  work was O(N × rows).
+
+- **What changed — one law, two loops, no fifth verb switch.** CONSECUTIVE
+  ops on the same path and the same patch tree, with nothing in between, are
+  materialised once: the value at a path is fixed at commit, so the earlier
+  copy writes the same bytes over the same key and is unobservable — key
+  order and container creation included. Replay: `memory/utils.ts ·
+  supersededByNextSet`, asked by `applySmartMerge` before its verb switch
+  (so the live commit, the redacted mirror, `materialise` and `stateAt`
+  inherit it from the one place they already share) and by the delta
+  encoder's own per-family fold (`TransactionBuffer.replayFamilyVerbs`);
+  `commitValueAt` needs nothing — it anchors at the last `set` by
+  construction. Commit: `TransactionBuffer.toChangeOnlyPayload` decides the
+  net-change verdict once per path and copies a path into `overwrite` /
+  `updates` only when the previous surviving op on that tree was not the
+  same path. Consecutive only, deliberately: a descendant op in between can
+  coerce a materialised primitive (`set list; delete list.1; set list = 0`
+  turned `0` into `{}` under a "once per path" draft) or leave a `key:
+  undefined` shell that the re-copy is what wipes — a property test found
+  the first within 228 runs. The trace rows are all still recorded; the log
+  is the record of what happened, and N things happened.
+
+- **Bytes identical, proven three ways.**
+  `test/lib/memory/scenario/repeated-path-byte-identity.test.ts` pins a
+  fixture with repeated-path `set` / `merge` / `append` / `delete`, mixed
+  interleavings, reverts, nested paths beside their ancestor and a subflow
+  seed against reference bytes generated on the 9.22.0 tree (40fc152) in
+  BOTH `commitValues` encodings — log, final state, `stateAt` at every stop,
+  `commitValueAt` per key at every index, own-`undefined` shells visible.
+  The existing delta≡full replay property tests and the time-travel /
+  memory equivalence suites pass unchanged. A differential fuzz of 6,000
+  random multi-stage programs (both encodings, redaction on) between the
+  9.22.0 build and this tree agreed byte for byte.
+  `test/lib/memory/unit/repeated-path-skips.test.ts` pins the law's edges
+  and counts the clones actually skipped.
+
+- **Measured** (`bench/element-writes.ts`, new — Apple M2, Node 22, median of
+  5; 10k is one run). `total` is the whole run, `fold` one `stateAt` of the
+  finished log; `commitValues: 'full'`, the default:
+
+  | N | rows | total 9.22.0 → 9.22.1 | fold 9.22.0 → 9.22.1 |
+  |---|---|---|---|
+  | 100 | 100 | 11.8 ms → 8.5 ms | 2.6 ms → 0.15 ms |
+  | 1,000 | 1,000 | 1,039 ms → 586 ms (−44%) | 241 ms → 1.1 ms |
+  | 10,000 | 10,000 | 107,051 ms → 58,765 ms (−45%) | 24,562 ms → 13 ms |
+
+  `'delta'` was already one row per path at commit and is unchanged
+  (1k: 560 ms → 588 ms, run-to-run noise). What remains at 1k (≈ 585 ms)
+  is the stage BODY — the proxy's per-write array copy, one per element
+  write, untouched here — which is why `src/lib/reactive/README.md` now says
+  it plainly: N element writes in one stage produce N whole-array rows;
+  `$batchArray` is the bulk path, ~370× cheaper in the body at N = 1,000
+  (the same bench prints the ratio).
+
 ## [9.22.0] - 2026-09-11
 
 ### Fixed

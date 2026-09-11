@@ -20,7 +20,7 @@
 
 import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
 import type { CommitValuesMode, MemoryPatch, TraceEntry } from './types.js';
-import { deepEqual, deepSmartMerge, DELIM, normalisePath } from './utils.js';
+import { deepEqual, deepSmartMerge, DELIM, normalisePath, supersededByNextSet } from './utils.js';
 
 /** Op-level verbs staged into `opTrace`. `'delete'` is staged distinctly so
  *  delta-mode commits (#13c-B) can emit a real `delete` trace entry; under
@@ -273,6 +273,12 @@ export class TransactionBuffer {
    * the historical behavior, including flattening staged `delete` ops into
    * `set`-of-`undefined` trace entries. The delta encoding lives in
    * {@link toDeltaPayload}.
+   *
+   * Work, not bytes (9.22.1): the net-change verdict is paid once per PATH
+   * and the clone once per CONSECUTIVE run of ops on a path, not once per op
+   * — see the two memos inside. Pinned by
+   * test/lib/memory/scenario/repeated-path-byte-identity.test.ts against the
+   * 9.22.0 bytes.
    */
   private toChangeOnlyPayload(): {
     overwrite: MemoryPatch;
@@ -283,13 +289,32 @@ export class TransactionBuffer {
     const overwrite: MemoryPatch = {};
     const updates: MemoryPatch = {};
     const trace: TraceEntry[] = [];
-    const survivingPaths = new Set<string>();
+    // Per PATH, decided once (9.22.1): base and final value are fixed at
+    // commit, so every later op on a path gets the verdict its first op got.
+    // `undefined` = not yet decided; the surviving paths are the `true` keys.
+    const survives = new Map<string, boolean>();
+    // The path the LAST surviving op copied into each patch tree (9.22.1).
+    // The value at a path is fixed at commit, so an op whose predecessor on
+    // the SAME tree already copied that path would write the same bytes over
+    // the same key — it keeps its trace row (the log is byte-identical) and
+    // pays no second clone. The 9.22.0 element-write funnel stages N
+    // whole-array sets on ONE path; this is what makes that commit O(N)
+    // instead of O(N × ops). CONSECUTIVE only — an op on another path in
+    // between may have coerced or grown this one's container (a descendant
+    // `nativeSet` through a primitive, a `key: undefined` shell) and the
+    // re-copy is what repairs it; a `merge` between two sets touches the
+    // other tree and does not count. Same law as `supersededByNextSet`.
+    let lastSetPath: string | undefined;
+    let lastMergePath: string | undefined;
 
     for (const op of this.opTrace) {
-      const segments = op.path.split(DELIM);
-      const before = _get(this.baseSnapshot, segments);
-      const after = _get(this.workingCopy, segments);
-      if (deepEqual(before, after)) continue; // no-op or write-then-revert → no net change
+      let keep = survives.get(op.path);
+      if (keep === undefined) {
+        const segments = op.path.split(DELIM);
+        keep = !deepEqual(_get(this.baseSnapshot, segments), _get(this.workingCopy, segments));
+        survives.set(op.path, keep);
+      }
+      if (!keep) continue; // no-op or write-then-revert → no net change
 
       // Historical flattening: an explicit delete commits as set-of-undefined.
       // Per-write provenance (#P1) rides each surviving entry untouched.
@@ -298,13 +323,21 @@ export class TransactionBuffer {
           ? { path: op.path, verb: 'set' as const, ...(op.readKeys !== undefined && { readKeys: op.readKeys }) }
           : op,
       );
-      survivingPaths.add(op.path);
       if (op.verb === 'merge') {
+        if (lastMergePath === op.path) continue;
+        lastMergePath = op.path;
+        const segments = op.path.split(DELIM);
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
       } else {
+        if (lastSetPath === op.path) continue;
+        lastSetPath = op.path;
+        const segments = op.path.split(DELIM);
         _set(overwrite, segments, structuredClone(_get(this.overwritePatch, segments)));
       }
     }
+
+    const survivingPaths = new Set<string>();
+    for (const [path, keep] of survives) if (keep) survivingPaths.add(path);
 
     const redactedPaths = this.survivingRedactedPaths(survivingPaths);
     return { overwrite, updates, redactedPaths, trace };
@@ -529,10 +562,16 @@ export class TransactionBuffer {
    * can be REPLACED by `_set` the same way `applySmartMerge` replaces it
    * inside the state tree — including `nativeSet`'s coercion of primitive
    * intermediates.
+   *
+   * A `set` op the next op sets again is skipped on the same law as
+   * `applySmartMerge` ({@link supersededByNextSet}) — this is the delta
+   * encoder's own replay loop, and it clones per op just as the fold does.
    */
   private replayFamilyVerbs(rootSegments: string[], ops: { path: string; verb: OpVerb }[]): unknown {
     const box: { v: unknown } = { v: structuredClone(_get(this.baseSnapshot, rootSegments)) };
-    for (const op of ops) {
+    for (let i = 0; i < ops.length; i++) {
+      if (supersededByNextSet(ops, i)) continue;
+      const op = ops[i];
       const segments = op.path.split(DELIM);
       const at = ['v', ...segments.slice(rootSegments.length)];
       if (op.verb === 'merge') {

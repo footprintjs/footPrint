@@ -379,6 +379,34 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
 }
 
 /**
+ * Is row `i` a `set` that the NEXT row sets again — same path, same verb — so
+ * that applying it is work the next row redoes?
+ *
+ * The one skip every replay iterator shares (9.22.1). A `set` row writes a
+ * clone of the recorded value at its path; the next row, a `set` of the same
+ * path, writes a clone of the SAME recorded value over it (the bundle's patch
+ * tree is fixed), and nothing runs in between — so the first write is
+ * unobservable, container creation and key order included. Only CONSECUTIVE
+ * rows qualify: a row in between (an ancestor `merge`, a sibling `set` that
+ * creates a container) can see the intermediate value, and a `merge`,
+ * `append` or `delete` next row depends on what is there. Rows are never
+ * dropped from the log — the 9.22.0 element-write funnel records N
+ * whole-array `set` rows on one path, and this is what makes replaying them
+ * O(N) instead of O(N × rows).
+ *
+ * Shared by {@link applySmartMerge} (live state, `EventLog.materialise`,
+ * `stateAt`, the redacted mirror) and `TransactionBuffer.replayFamilyVerbs`
+ * (the delta encoder's per-family fold) — the two loops that clone per row.
+ * `commitValueAt` needs no skip: it anchors at the LAST `set` by construction.
+ */
+export function supersededByNextSet(rows: readonly { path: string; verb: string }[], i: number): boolean {
+  const row = rows[i];
+  if (row.verb !== 'set') return false;
+  const next = rows[i + 1];
+  return next !== undefined && next.verb === 'set' && next.path === row.path;
+}
+
+/**
  * Applies a commit bundle to a base state by replaying operations in order.
  * Guarantees "last writer wins" semantics.
  *
@@ -400,10 +428,17 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
  *   - `'delete'` — (#13c-B delta mode) remove the key (`nativeDelete`,
  *     prototype-pollution-safe). The path stays enumerated in `overwrite`
  *     (value `undefined`) for key-set consumers; replay ignores that value.
+ *
+ * Work, not bytes (9.22.1): a `set` row the NEXT row re-sets is skipped
+ * ({@link supersededByNextSet}) — the rows stay in the log, only the clone
+ * each would have paid is not. Every consumer above inherits the skip from
+ * here; there is no second replay loop to keep in step.
  */
 export function applySmartMerge(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
   const out = structuredClone(base);
-  for (const { path, verb } of trace) {
+  for (let i = 0; i < trace.length; i++) {
+    if (supersededByNextSet(trace, i)) continue;
+    const { path, verb } = trace[i];
     const segs = path.split(DELIM);
     if (verb === 'set') {
       _set(out, segs, structuredClone(_get(overwrite, segs)));
