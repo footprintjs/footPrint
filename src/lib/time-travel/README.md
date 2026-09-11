@@ -571,3 +571,5 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
 - `examples/post-execution/time-travel/03-compose-a-strategy.ts` — `filterStops`, `Stop.meta`, `Stop.prologue`, `splitAxis`
 - `examples/post-execution/time-travel/04-chain-a-pause-and-resume.ts` — a chained cursor and its refusals
 - `examples/post-execution/time-travel/05-a-stored-recording-needs-no-cast.ts` — `unknown[]` rows, gaps by index
+
+**How the fold got fast** — the base algorithm and every optimisation in order, with the numbers and the traps: [docs/guides/the-fold-and-how-it-got-fast.md](../../../docs/guides/the-fold-and-how-it-got-fast.md).

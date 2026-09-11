@@ -229,6 +229,8 @@ Parent creates N children via createChild()
 
 ---
 
+**The story in order** — base algorithm, each optimisation, what it traded, what it measured, what was refused: [docs/guides/the-fold-and-how-it-got-fast.md](../../../docs/guides/the-fold-and-how-it-got-fast.md).
+
 ## Dependency Graph
 
 ```
