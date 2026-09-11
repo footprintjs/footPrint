@@ -16,6 +16,22 @@
  * `FlowchartTraverser`). That is deliberate: the audit trail must record
  * what the failing stage changed. Do not rely on "stage failed → its
  * writes vanished".
+ *
+ * The patch trees hold REFERENCES until commit (9.23.0). A `set` stores the
+ * caller's own value in `overwritePatch` exactly as it always did in
+ * `workingCopy`; the copy the record needs is taken ONCE per surviving path
+ * when the payload leaves the buffer (`toChangeOnlyPayload` /
+ * `toDeltaPayload` — every value they emit passes through `structuredClone`
+ * there). The law "the record never aliases a caller's object" is kept at
+ * the commit boundary instead of at every write, which is what makes N
+ * writes to one path O(N) instead of O(N × size). Consequence, by design: a
+ * caller who mutates its own object AFTER the write and BEFORE the stage
+ * ends commits the value as the stage read it back — the record agrees with
+ * the stage (CLAUDE.md landmine 3's first bite, closed). The one place the
+ * engine itself edits THROUGH a staged value — a later nested op under a
+ * `set` path — detaches that value first ({@link detachHeldAncestors}), so
+ * `workingCopy` and `overwritePatch` never share a container the engine
+ * mutates on one side only.
  */
 
 import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
@@ -50,6 +66,15 @@ export class TransactionBuffer {
   private updatePatch: MemoryPatch = {};
   private opTrace: { path: string; verb: OpVerb; readKeys?: string[] }[] = [];
   private redactedPaths = new Set<string>();
+  /**
+   * Paths whose `overwritePatch` value is the caller's own object (9.23.0):
+   * a `set` of a container stores the reference, and this is the ledger of
+   * which ones are still shared with the caller (and with `workingCopy`).
+   * Consulted only by the engine's nested ops — see
+   * {@link detachHeldAncestors}; the commit payload clones every surviving
+   * value anyway and never asks. Cleared with the rest at `commit()`.
+   */
+  private heldRefs = new Set<string>();
   /** Commit-value encoding policy (#13c-B). `'full'` = historical bytes. */
   private readonly commitValues: CommitValuesMode;
 
@@ -74,14 +99,47 @@ export class TransactionBuffer {
     return op;
   }
 
-  /** Hard overwrite at the specified path. */
+  /**
+   * Hard overwrite at the specified path. Stores the REFERENCE in both trees
+   * (9.23.0) — the record's copy is taken once, at commit; see the header.
+   */
   set(path: (string | number)[], value: any, shouldRedact = false): void {
+    const key = normalisePath(path);
+    this.detachHeldAncestors(path);
     _set(this.workingCopy, path, value);
-    _set(this.overwritePatch, path, structuredClone(value));
+    _set(this.overwritePatch, path, value);
+    if (value !== null && typeof value === 'object') this.heldRefs.add(key);
+    else this.heldRefs.delete(key);
     if (shouldRedact) {
-      this.redactedPaths.add(normalisePath(path));
+      this.redactedPaths.add(key);
     }
-    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'set' }));
+    this.opTrace.push(this.stampReadKeys({ path: key, verb: 'set' }));
+  }
+
+  /**
+   * A nested op is about to write THROUGH a path whose `overwritePatch`
+   * value is a held reference (9.23.0). Today's law is that the two trees
+   * receive the same nested `set`/`delete` mutations but ONLY `workingCopy`
+   * receives a nested `merge`'s result (`updatePatch` gets the delta) — so a
+   * container shared between the trees would leak the merged value into the
+   * overwrite payload, and a shared container is also the caller's own
+   * object, which the engine must not edit on the record's behalf. Replacing
+   * the held ancestor with its clone in `overwritePatch` restores exactly
+   * the private tree the per-write clone used to give it, paid once per
+   * ancestor and only on the nested-op path the public surface never takes
+   * (the scope proxy writes ROOT keys). `workingCopy` keeps the reference,
+   * as it always did.
+   */
+  private detachHeldAncestors(path: (string | number)[]): void {
+    if (this.heldRefs.size === 0) return;
+    for (let i = 1; i < path.length; i++) {
+      const ancestor = path.slice(0, i);
+      const key = normalisePath(ancestor);
+      if (!this.heldRefs.has(key)) continue;
+      const held = _get(this.overwritePatch, ancestor);
+      if (held !== null && typeof held === 'object') _set(this.overwritePatch, ancestor, structuredClone(held));
+      this.heldRefs.delete(key);
+    }
   }
 
   /**
@@ -101,16 +159,22 @@ export class TransactionBuffer {
    * re-wrote is the no-op it is, not a `set` of the whole container.
    */
   delete(path: (string | number)[], shouldRedact = false): void {
+    const key = normalisePath(path);
+    this.detachHeldAncestors(path);
     _set(this.workingCopy, path, undefined);
     _set(this.overwritePatch, path, undefined);
+    this.heldRefs.delete(key);
     if (shouldRedact) {
-      this.redactedPaths.add(normalisePath(path));
+      this.redactedPaths.add(key);
     }
-    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'delete' }));
+    this.opTrace.push(this.stampReadKeys({ path: key, verb: 'delete' }));
   }
 
-  /** Deep union merge at the specified path. */
+  /** Deep union merge at the specified path. `deepSmartMerge` builds fresh
+   *  containers, so neither tree ever holds the merge INPUT by reference;
+   *  the nested-op detach guards the ancestor it writes INTO. */
   merge(path: (string | number)[], value: any, shouldRedact = false): void {
+    this.detachHeldAncestors(path);
     const existing = _get(this.workingCopy, path) ?? {};
     const merged = deepSmartMerge(existing, value);
     _set(this.workingCopy, path, merged);
@@ -252,6 +316,7 @@ export class TransactionBuffer {
     this.updatePatch = {};
     this.opTrace.length = 0;
     this.redactedPaths.clear();
+    this.heldRefs.clear();
     this.workingCopy = {};
 
     return payload;
@@ -278,7 +343,9 @@ export class TransactionBuffer {
    * and the clone once per CONSECUTIVE run of ops on a path, not once per op
    * — see the two memos inside. Pinned by
    * test/lib/memory/scenario/repeated-path-byte-identity.test.ts against the
-   * 9.22.0 bytes.
+   * 9.22.0 bytes. Since 9.23.0 that clone is THE clone: the patch trees hold
+   * the caller's references (see the class header), so this loop is the one
+   * place the record is detached from them.
    */
   private toChangeOnlyPayload(): {
     overwrite: MemoryPatch;

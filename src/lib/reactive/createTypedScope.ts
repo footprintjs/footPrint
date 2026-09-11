@@ -159,7 +159,9 @@ function createTerminalProxy(
         return createArrayProxy(
           () => (lodashGet(readSilent(rootKey), arrSegments) as unknown[]) ?? [],
           (newArr) => {
-            target.setValue(rootKey, setInPath(readSilent(rootKey), arrSegments, unwrapProxy(newArr)));
+            // The traps unwrapped the assigned value; the rebuilt array is
+            // committed as it is (9.23.0 — untouched siblings by reference).
+            target.setValue(rootKey, setInPath(readSilent(rootKey), arrSegments, newArr));
             state.childCache.delete(rootKey);
           },
         );
@@ -268,7 +270,9 @@ function createNestedProxy(
             return (lodashGet(current, childSegments) as unknown[]) ?? [];
           },
           (newArr) => {
-            target.setValue(rootKey, setInPath(readSilent(rootKey), childSegments, unwrapProxy(newArr)));
+            // The traps unwrapped the assigned value; the rebuilt array is
+            // committed as it is (9.23.0 — untouched siblings by reference).
+            target.setValue(rootKey, setInPath(readSilent(rootKey), childSegments, newArr));
             state.childCache.delete(rootKey);
           },
         );
@@ -416,7 +420,10 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
         const arrProxy = createArrayProxy(
           () => (readSilent(prop) as unknown[]) ?? [],
           (newArr) => {
-            target.setValue(prop, unwrapProxy(newArr));
+            // The traps unwrapped the assigned value; the rebuilt array is
+            // committed as it is (9.23.0 — untouched siblings by reference,
+            // so an element write is O(1) here, not a round-trip of N).
+            target.setValue(prop, newArr);
             state.childCache.delete(prop);
           },
         );

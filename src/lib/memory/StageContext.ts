@@ -93,8 +93,24 @@ export class StageContext {
 
   public debug: DiagnosticCollector = new DiagnosticCollector();
 
-  /** Tracks user-level writes (pre-namespace) for the memory view and onCommit. */
+  /** Tracks user-level writes (pre-namespace) for the memory view and onCommit
+   *  — in their RETAINED form (cloned / summarised / redacted). Filled from
+   *  {@link _pendingWrites} by {@link materialiseWrites} at commit. */
   private _stageWrites: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }> = {};
+
+  /**
+   * The writes of the CURRENT execution, held by reference with the verdict
+   * they were staged under (9.23.0). A key written k times holds its LAST
+   * value; the retained form (the `writeTracking` clone or summary, the
+   * redaction placeholder or field scrub) is taken ONCE per key at commit —
+   * see {@link materialiseWrites}. Same law as the transaction buffer's
+   * patch trees: the copy the record needs is paid at the boundary, not at
+   * every write. Lazily allocated; a stage that never writes pays nothing.
+   */
+  private _pendingWrites?: Map<
+    string,
+    { value: unknown; verdict: RedactionVerdict; operation: 'set' | 'update' | 'delete' }
+  >;
 
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
@@ -135,8 +151,10 @@ export class StageContext {
    * How tracked writes are recorded into `_stageWrites` (#13c-A) — the
    * sibling of {@link readTracking}, with the same propagation pattern
    * (inherited via {@link createNext}/{@link createChild}, pushed into
-   * subflow root contexts by `SubflowExecutor`). Governs the per-write
-   * `structuredClone` in {@link setObject}/{@link updateObject}. Affects the
+   * subflow root contexts by `SubflowExecutor`). Governs the retained form
+   * {@link materialiseWrites} takes at commit for the writes of
+   * {@link setObject}/{@link updateObject} (a clone under `'full'`, taken
+   * once per key — 9.23.0). Affects the
    * snapshot's `stageWrites` payload AND the commit observer's mutations
    * payload (which is a spread of `_stageWrites`) — but NOT the write
    * itself: the transaction buffer, the commit log, and shared state are
@@ -320,18 +338,21 @@ export class StageContext {
   }
 
   /**
-   * Record a tracked user-level write into `_stageWrites`, policy-gated
-   * (#13c-A) — the single bookkeeping path for {@link setObject} and
-   * {@link updateObject}.
+   * Record a tracked user-level write, policy-gated (#13c-A) — the single
+   * bookkeeping path for {@link setObject} and {@link updateObject}. Holds
+   * the REFERENCE and the verdict (9.23.0); the retained form is taken at
+   * commit by {@link materialiseWrites}, once per key.
    *
    * Redaction takes precedence over the dial in EVERY mode: a redacted
    * write stores the `'[REDACTED]'` placeholder under `'full'` AND
    * `'summary'` (a summary marker would leak the value's preview/size),
    * and stores nothing under `'off'` (entry skipped entirely — nothing to
    * leak). A field-level verdict scrubs a clone BEFORE the dial sees it, so
-   * a summary preview can never show the secret either. The staged write
-   * itself is unaffected — redaction of the committed payload is handled by
-   * the transaction buffer's `redactedPaths`.
+   * a summary preview can never show the secret either. The verdict is the
+   * one `stageWrite` asked the rule for BEFORE staging, carried to commit
+   * with the value. The staged write itself is unaffected — redaction of
+   * the committed payload is handled by the transaction buffer's
+   * `redactedPaths`.
    */
   private trackWrite(
     userKey: string,
@@ -340,10 +361,45 @@ export class StageContext {
     operation: 'set' | 'update' | 'delete',
   ) {
     if (this.writeTracking === 'off') return;
-    this._stageWrites[userKey] = {
-      value: this.retainedForm(verdict, value, this.writeTracking, summarizeWriteValue),
-      operation,
-    };
+    (this._pendingWrites ??= new Map()).set(userKey, { value, verdict, operation });
+  }
+
+  /**
+   * `_stageWrites` with every pending write folded in as its retained form
+   * — the record a reader sees. Consumes nothing: a mid-run snapshot reads
+   * the writes so far, and commit still materialises the final values.
+   * Returns `_stageWrites` itself when nothing is pending.
+   */
+  private retainedWrites(): Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }> {
+    if (!this._pendingWrites) return this._stageWrites;
+    const out = { ...this._stageWrites };
+    for (const [key, w] of this._pendingWrites) {
+      out[key] = {
+        value: this.retainedForm(w.verdict, w.value, this.writeTracking, summarizeWriteValue),
+        operation: w.operation,
+      };
+    }
+    return out;
+  }
+
+  /**
+   * Take the retained form of every pending write — ONCE per key, from the
+   * value as it stands at commit (9.23.0) — and release the references. The
+   * first thing `commit()` does, so the borrowed-mutation guard and the
+   * commit observer see the finished record.
+   */
+  private materialiseWrites(): void {
+    if (!this._pendingWrites) return;
+    try {
+      this._stageWrites = this.retainedWrites();
+    } finally {
+      // Released even when a retained form cannot be taken — an uncloneable
+      // value (a function, a Proxy) is a contract violation ("state values
+      // must survive structuredClone") that now surfaces HERE, at commit,
+      // and fails the run loudly; a later snapshot of the failed run must
+      // not throw the same error again.
+      this._pendingWrites = undefined;
+    }
   }
 
   /**
@@ -798,6 +854,7 @@ export class StageContext {
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(): void {
+    this.materialiseWrites();
     this.warnOnBorrowedMutation();
     if (!this.buffer) {
       // Truly-lazy fast path (#13): no write ever constructed the buffer, so
@@ -892,10 +949,11 @@ export class StageContext {
    *  - `stateView`   — the first-touch anchor; the next attempt re-anchors on
    *                    committed state as it stands NOW (a sibling fork branch
    *                    may legitimately have committed in between);
-   *  - `_stageWrites` / `_stageReads` — the snapshot payload; without the
-   *                    reset the execution tree would report writes that were
-   *                    discarded, which is the exact lie this feature exists
-   *                    to prevent;
+   *  - `_stageWrites` / `_pendingWrites` / `_stageReads` — the snapshot
+   *                    payload; without the reset the execution tree would
+   *                    report writes that were discarded, which is the exact
+   *                    lie this feature exists to prevent (the pending map
+   *                    holds bare references — dropping it un-clones nothing);
    *  - `_provenanceReads` — the per-write read prefix (#P1); a discarded
    *                    attempt's reads must never appear in the next attempt's
    *                    `TraceEntry.readKeys`, or a backward slice would follow
@@ -914,6 +972,7 @@ export class StageContext {
     this.stateView = undefined;
     this._untrackedSources = undefined;
     this._provenanceReads = undefined;
+    this._pendingWrites = undefined;
     this._stageWrites = {};
     this._stageReads = {};
     this._nestedReads = undefined;
@@ -1070,10 +1129,11 @@ export class StageContext {
       metrics: this.debug.metricContext,
       evals: this.debug.evalContext,
     };
-    if (Object.keys(this._stageWrites).length > 0) {
+    const stageWrites = this.retainedWrites();
+    if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)
       const writes: Record<string, unknown> = {};
-      for (const [k, entry] of Object.entries(this._stageWrites)) {
+      for (const [k, entry] of Object.entries(stageWrites)) {
         writes[k] = entry.value;
       }
       snapshot.stageWrites = writes;

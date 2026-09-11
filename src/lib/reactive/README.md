@@ -189,9 +189,22 @@ committed elements).
 `arr[i].n = i` is a `set` of the ROOT key (law 3), so a loop of N of them stages
 N whole-array trace rows in ONE bundle — the log records what happened, and N
 things happened. The commit and every fold of that bundle are O(N) since 9.22.1
-(a row a later row re-sets is not cloned twice), but the stage body still pays
-one array copy per write. `$batchArray` is the bulk path: one row, one copy —
-measured ~370× cheaper in the stage body at N = 1,000 (`bench/element-writes.ts`).
+(a row a later row re-sets is not cloned twice). Since 9.23.0 nothing else in
+the write path is O(N) per write either: the buffer and the tracked-writes
+record hold the new array by reference and copy it once at commit
+(`memory/README.md`, "clone once at commit"), and the array traps unwrap only
+the ASSIGNED value — the index-set element, a method's arguments, an element
+proxy's leaf — instead of JSON-round-tripping the whole rebuilt array (which
+also stringified every untouched sibling's `Date`; see "Only the assigned
+value is unwrapped" in `arrayTraps.ts`). What the stage body still pays per
+write is the proxy's own copy-on-write, one shallow copy of the array
+(`arrayTraps` · `replaceInElement` and the traps' `[...getCurrent()]`, ~1 ns
+per element). Measured (`bench/element-writes.ts`, 2026-09-11, `loop` total /
+body): 1,000 element writes 609 → 5.7 / 2.6 ms; 10,000 61,548 → 104 / 75 ms,
+of which the shallow copies are ~89 ms — so beyond ~10k elements the loop is
+still quadratic in that copy, at a constant 10,000× smaller than 9.22.1's.
+`$batchArray` is the bulk path: one row, one copy — ~2× cheaper in the body at
+N = 1,000 and ~6× at N = 10,000.
 
 ## Serialization
 

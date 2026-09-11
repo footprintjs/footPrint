@@ -66,13 +66,39 @@ describe('TransactionBuffer', () => {
     expect(result.trace[3]).toEqual({ path: 'a', verb: 'merge' });
   });
 
-  it('deep clones values on set to prevent external mutation', () => {
+  it('holds the reference until commit — a mutation BEFORE commit is what the stage read back (9.23.0)', () => {
     const buf = new TransactionBuffer({});
     const obj = { nested: { val: 1 } };
     buf.set(['data'], obj);
     obj.nested.val = 999;
+    expect(buf.get(['data'])).toEqual({ nested: { val: 999 } }); // read-your-writes sees it…
     const result = buf.commit();
+    expect(result.overwrite.data.nested.val).toBe(999); // …and so does the record: the two agree
+  });
+
+  it('the commit payload is detached — a mutation AFTER commit never reaches it (the law kept)', () => {
+    const buf = new TransactionBuffer({});
+    const obj = { nested: { val: 1 } };
+    buf.set(['data'], obj);
+    const result = buf.commit();
+    expect(result.overwrite.data).not.toBe(obj);
+    obj.nested.val = 999;
     expect(result.overwrite.data.nested.val).toBe(1);
+  });
+
+  it('a nested merge under a set path never leaks into the overwrite payload (the held reference is detached first)', () => {
+    // `set o` stores the caller's object by reference in BOTH trees; the
+    // nested `merge o.deep` writes its RESULT into workingCopy only. Without
+    // the detach the shared container would carry `deep` into `overwrite.o`
+    // — bytes 9.22.0 never had (pinned end to end by repeated-path-byte-identity).
+    const buf = new TransactionBuffer({});
+    const o = { p: 6 };
+    buf.set(['o'], o);
+    buf.merge(['o', 'deep'], { s: 7 });
+    expect(buf.get(['o'])).toEqual({ p: 6, deep: { s: 7 } });
+    const result = buf.commit();
+    expect(result.overwrite.o).toEqual({ p: 6 });
+    expect(result.updates.o).toEqual({ deep: { s: 7 } });
   });
 
   it('unions arrays on merge (no duplicates)', () => {

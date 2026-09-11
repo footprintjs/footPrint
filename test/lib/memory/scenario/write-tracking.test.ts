@@ -21,13 +21,16 @@
  * StageContext → inherited via createNext/createChild → pushed into subflow
  * roots by SubflowExecutor — and re-applied on the resume path.
  *
- * CLONE-COUNTING NOTE: a `set` write structuredClones its value TWICE under
- * 'full' — once in TransactionBuffer.set (the COMMIT path, which must stay in
- * every mode) and once in trackWrite (the gated tracking clone). The counter
- * below filters by VALUE IDENTITY, so the expected counts are 2 under 'full'
- * and exactly 1 under 'summary'/'off' (the surviving buffer clone). A `merge`
- * write (updateObject) never identity-clones its value on the commit path, so
- * its counts are 1 under 'full' and 0 otherwise.
+ * CLONE-COUNTING NOTE (9.23.0 — clone once at commit): a write clones NOTHING
+ * at write time; the value is held by reference and cloned at COMMIT — once
+ * per surviving path by the transaction buffer (the commit-payload clone,
+ * which must stay in every mode) and once per key by `materialiseWrites` (the
+ * gated tracking clone). The counter below filters by VALUE IDENTITY, so the
+ * expected counts AT COMMIT are 2 under 'full' and exactly 1 under
+ * 'summary'/'off' (the surviving payload clone); before commit they are 0 in
+ * every mode. A `merge` write (updateObject) never identity-clones its value
+ * on the commit path (`deepSmartMerge` builds fresh containers), so its
+ * counts are 1 under 'full' and 0 otherwise.
  *
  * Covers:
  *   (a) default-mode parity — stageWrites + onCommit mutations identical to
@@ -94,40 +97,71 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
   // ── (a) default ('full') — byte-identical to today ───────────────────────
   describe("default ('full') parity", () => {
-    it('records a deep-cloned value per tracked write (detached from the caller value)', () => {
+    it('retains a clone per tracked key at COMMIT — detached from the caller value from then on (9.23.0)', () => {
       const { ctx } = freshCtx();
       const cfg = { retries: 5 };
       ctx.setObject([], 'config', cfg);
       ctx.setObject([], 'greeting', 'hello');
+      ctx.commit();
 
       const snap = ctx.getSnapshot();
       expect(snap.stageWrites).toEqual({ config: { retries: 5 }, greeting: 'hello' });
-      // The recorded write is a CLONE — mutating the caller's object later
-      // cannot retroactively edit the snapshot.
+      // The recorded write is a CLONE taken at commit — mutating the caller's
+      // object afterwards cannot retroactively edit the snapshot.
       expect(snap.stageWrites?.config).not.toBe(cfg);
       cfg.retries = 99;
       expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 5 });
     });
 
-    it("NEGATIVE CONTROL: under 'full' the tracking clone DOES fire (2 identity clones: commit path + tracking)", () => {
+    it('the one moved behaviour: a mutation BEFORE commit is retained as the stage read it back', () => {
+      // 9.22.1 cloned at the write, so the snapshot said 5 while the stage
+      // (and, since 9.23.0, the commit log) saw 99. Now all three agree.
+      const { ctx } = freshCtx();
+      const cfg = { retries: 5 };
+      ctx.setObject([], 'config', cfg);
+      cfg.retries = 99;
+      expect(ctx.getValue([], 'config')).toEqual({ retries: 99 });
+      ctx.commit();
+      expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 99 });
+    });
+
+    it("NEGATIVE CONTROL: under 'full' the tracking clone DOES fire — at commit (0 at the write; 2 identity clones at commit: payload + tracking)", () => {
       // This is the assertion that fails if the default ever silently stops
       // cloning — and it calibrates the counter the 'summary'/'off' tests
-      // rely on: the buffer's commit-path clone accounts for exactly 1.
+      // rely on: the buffer's commit-payload clone accounts for exactly 1.
       const { ctx } = freshCtx();
       const cfg = { retries: 5 };
       cloneCalls = [];
 
       ctx.setObject([], 'config', cfg);
+      expect(clonesOf(cfg)).toBe(0); // the write holds the reference
 
+      ctx.commit();
       expect(clonesOf(cfg)).toBe(2);
     });
 
-    it("updateObject under 'full': 1 identity clone (tracking only — merge has no commit-path value clone)", () => {
+    it('a key written N times is cloned ONCE per clone site at commit, not N times (the O(N²) 9.23.0 removes)', () => {
+      const { ctx } = freshCtx();
+      const values = Array.from({ length: 50 }, (_, i) => ({ retries: i }));
+      cloneCalls = [];
+
+      for (const v of values) ctx.setObject([], 'config', v);
+      ctx.commit();
+
+      const last = values[values.length - 1];
+      expect(clonesOf(last)).toBe(2); // payload + tracking, of the FINAL value only
+      for (const v of values.slice(0, -1)) expect(clonesOf(v)).toBe(0);
+      expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 49 });
+    });
+
+    it("updateObject under 'full': 0 clones at the write, 1 identity clone at commit (tracking only — merge has no commit-path value clone)", () => {
       const { ctx } = freshCtx();
       const delta = { nested: { added: true } };
       cloneCalls = [];
 
       ctx.updateObject([], 'config', delta);
+      expect(clonesOf(delta)).toBe(0);
+      ctx.commit();
 
       expect(clonesOf(delta)).toBe(1);
       expect(ctx.getSnapshot().stageWrites?.config).toEqual(delta);
@@ -180,8 +214,10 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       ctx.setObject([], 'config', cfg); // object
       ctx.setObject([], 'tags', tags); // array
       ctx.setObject([], 'count', 42); // number
+      expect(clonesOf(cfg)).toBe(0); // nothing at the write (9.23.0)
+      ctx.commit();
 
-      // Only the buffer's commit-path clone survives per set write.
+      // Only the buffer's commit-payload clone survives per set path.
       expect(clonesOf(cfg)).toBe(1);
       expect(clonesOf(tags)).toBe(1);
       expect(ctx.getSnapshot().stageWrites).toEqual({

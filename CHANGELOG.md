@@ -5,6 +5,153 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.23.0] - 2026-09-11
+
+### Changed — the element-write loop goes linear: clone once at commit, and unwrap only the assigned value
+
+- **Why.** After 9.22.1 the commit and the fold of an N-element-write bundle
+  were O(N), but the stage BODY was still O(N²): every `arr[i].n = i` paid
+  two `structuredClone`s of the whole new array — `TransactionBuffer.set`
+  copying it into `overwritePatch`, and `StageContext.trackWrite` copying it
+  into `_stageWrites` — for a value the next write overwrote. Both copies
+  are right in intent (the record must never alias the caller's object) and
+  wrong in timing: a patch only has to be final at COMMIT, and the last
+  write to a path wins. Design: `docs/design/2026-09-clone-once-at-commit.md`.
+
+- **What changed — two owners, one law each, the four verb replicas
+  untouched.** Memory (clone once at commit):
+  `TransactionBuffer · set / delete / merge` store the caller's reference in
+  the patch trees (as `workingCopy` always did); `toChangeOnlyPayload` /
+  `toDeltaPayload` — the ONE place a payload leaves the buffer — take the
+  copy, once per surviving path, in the 9.22.1 memo loop that already sat
+  there. `StageContext · trackWrite` holds the reference and the verdict
+  `stageWrite` asked the rule for BEFORE staging in a pending map;
+  `materialiseWrites`, the first act of `commit()`, takes the retained form
+  (the `writeTracking` clone or summary, the redaction placeholder or field
+  scrub) once per key from the final value; `retainedWrites()` is the
+  non-consuming fold every reader of `_stageWrites` goes through, so a
+  mid-run snapshot is honest, and `discardStaged` (retry) drops the pending
+  map with the rest — bare references, nothing to un-clone. Redaction has no
+  new scrub point: the rule is asked where it was, and the commit-time clone
+  sees only what it allowed in. Reactive (assigned value only): `arrayTraps`
+  unwraps the value at the trap that receives it and `createTypedScope`'s
+  three array commit callbacks hand the rebuilt array on as it is — see
+  moved behaviour 2.
+
+- **Two behaviours move in this release — both in the direction of the record
+  telling the truth. Each is stated plainly below with its example and the
+  honest form of the old intent.**
+
+- **Moved behaviour 1 — CLAUDE.md landmine 3's first bite, closed.**
+  A caller who mutates its own object after the write and before the stage
+  ends now commits the value AS THE STAGE READ IT BACK. 9.22.1 committed a
+  stale write-time snapshot the stage itself never saw — log and stage
+  disagreed; now they agree (the 9.22.0 law, "fold === state"). Pinned by
+  name in `test/lib/memory/scenario/clone-once-at-commit.test.ts`, both
+  encodings:
+
+  ```ts
+  const o = { x: 0, tags: ['a'] };
+  scope.$setValue('doc', o);
+  o.x = 1;                 // the caller's own object, after the write
+  // 9.22.1: bundle.overwrite.doc = { x: 0 }   — the stage read { x: 1 }
+  // 9.23.0: bundle.overwrite.doc = { x: 1 }   — log, fold, sharedState, stageWrites agree
+  ```
+
+  The honest form of the old intent is `scope.$setValue('doc',
+  structuredClone(o))`. The second bite — a RAW element held past its stage
+  — is unchanged and stays named. Refused: freezing the caller's object
+  after the write (a library must not freeze what it did not create).
+
+- **Moved behaviour 2 — the array traps unwrap the ASSIGNED value only
+  (landmine 1, now true for element writes too).** The second per-write O(N)
+  cost was not a clone: the three `createArrayProxy` commit callbacks in
+  `createTypedScope` JSON-round-tripped the WHOLE rebuilt array on every
+  element write (`target.setValue(prop, unwrapProxy(newArr))` and its nested
+  twins) — measured 0.13 ms × 1,000 = 130 ms of the 129 ms body at 1k and
+  1.35 ms × 10,000 = 13.5 s of the 14.3 s body at 10k after the clone work
+  alone. That was over-broad under 9.22.0's own law: writing element 3 must
+  not alter the bytes of element 5, yet it stringified every untouched
+  sibling's `Date` and flattened its `Map`. Now `arrayTraps.ts` unwraps what
+  the caller handed in, at the trap that receives it — the index-set element,
+  a `MUTATING_METHODS` call's arguments (`push(x)`, `splice(i, n, ...items)`,
+  `fill(x)`; numbers and comparators pass through), the element-proxy leaf
+  (already so) — and the rebuilt array is committed as it is, untouched
+  siblings by reference. Pinned by name in
+  `test/lib/reactive/scenario/assigned-value-only.test.ts`, both encodings:
+
+  ```ts
+  scope.$setValue('arr', [new Date('2020-01-01T00:00:00Z'), new Map([['a', 1]]), { n: 0 }]);
+  // next stage:
+  scope.arr[2].n = 1;        // an element write
+  // 9.22.1: arr[0] === '2020-01-01T00:00:00.000Z', arr[1] deep-equals {}   — siblings round-tripped
+  // 9.23.0: arr[0] instanceof Date, arr[1] instanceof Map               — siblings untouched, fold agrees
+  scope.arr[2] = new Date(); // the ASSIGNED value: still a string after commit (landmine 1 unchanged)
+  scope.arr = [new Date()];  // a whole-array ASSIGNMENT: every element still round-tripped — it IS the value
+  ```
+
+  The honest form of the old intent — "normalise the whole array through
+  JSON" — is `scope.arr = [...scope.arr]` (an assignment) or
+  `scope.$setValue('arr', JSON.parse(JSON.stringify(scope.$getValue('arr'))))`.
+  The one thing the round-trip did for the array's SHAPE is kept explicitly:
+  `delete arr[i]`, a write past the end and `length` growth spell holes as
+  `null` (`arrayTraps` · `fillHoles`; the existing "emptied slot reads as
+  `null`" scenario passes unchanged). A proxy pushed or assigned into an array
+  (`arr.push(scope.customer)`) is still unwrapped — at the argument.
+
+- **Where the design page was incomplete — two places, both now pinned.**
+  (1) The engine's OWN nested ops. A nested `merge` writes its RESULT into
+  `workingCopy` only (the delta goes to `updatePatch`), so a container shared
+  between the trees would leak the merged value into `overwrite` — bytes
+  9.22.0 never had. `TransactionBuffer · detachHeldAncestors` clones a held
+  ancestor in `overwritePatch` before any nested op writes through it; the
+  scope proxy never takes that path (it writes root keys), the 9.22.0
+  `set-merge-interleaved` reference pins it, and a unit test names it.
+  (2) An UNCLONEABLE value (a function, a Proxy) now fails at COMMIT instead
+  of at the write: the run still fails loudly with the `DataCloneError`, but
+  the stage cannot catch it and none of that stage's writes land (the payload
+  itself cannot be built). "State values must survive `structuredClone`" is
+  the standing invariant; a failed run still snapshots.
+
+- **Bytes identical where the caller does not mutate.** The three reference
+  suites pass unchanged in BOTH encodings — `repeated-path-byte-identity`
+  (9.22.0 bytes: log, folds, `commitValueAt` per key), `redaction-no-policy-
+  byte-identity` (9.18.1 / 9.19.1), `declared-tags-byte-identity` (9.20.0) —
+  and so do retry isolation / execution / invariants, redaction one-law,
+  subflow served-state, subflow seed + merge-back and cross-executor resume.
+  `test/lib/memory/scenario/clone-once-at-commit.test.ts` pins the law kept
+  (after commit, mutating the caller's object changes nothing in the log,
+  the mirror, `stageWrites` or the fold) and the moved behaviour above; the
+  write-tracking scenario now counts its clones at commit (0 at the write;
+  2 under `'full'`, 1 under `'summary'`/`'off'`; a key written 50 times
+  cloned once per site).
+
+- **Measured** (`bench/element-writes.ts`, Apple M2, Node 22, median of 5;
+  10k is one run; `loop` = N element writes through the proxy in one stage;
+  `body` = the stage function alone, `total` = the whole run):
+
+  | N | mode | body 9.22.1 → clone-once → 9.23.0 | total 9.22.1 → 9.23.0 | fold |
+  |---|---|---|---|---|
+  | 100 | full | 6.6 → 2.4 → 0.37 ms | 7.5 → 0.86 ms | 0.16 ms |
+  | 100 | delta | 6.4 → 1.6 → 0.31 ms | 6.8 → 0.76 ms | 0.14 ms |
+  | 1,000 | full | 606 → 129 → 2.6 ms | 609 → 5.7 ms (−99%) | 1.2 ms |
+  | 1,000 | delta | 616 → 129 → 1.9 ms | 619 → 4.8 ms (−99%) | 1.1 ms |
+  | 10,000 | full | 61,520 → 14,328 → 75 ms | 61,548 → 104 ms (−99.8%) | 16 ms |
+  | 10,000 | delta | 61,377 → 13,600 → 79 ms | 61,407 → 109 ms (−99.8%) | 12 ms |
+
+  The middle column is the clone-once step alone (−78%), which showed the
+  1k→10k ratio still at ~109× and led to the second site. **The 1k→10k ratio
+  is now 18× (total) / 29× (body)** — not the ≈10× the design asked for, and
+  the residual is named, not chased: the array proxy's own copy-on-write, one
+  shallow copy of the array per element write (`arrayTraps` ·
+  `replaceInElement` and the traps' `[...getCurrent()]`), measured 0.0089 ms
+  × 10,000 = 89 ms ≈ the whole 75 ms body at 10k and 0.4 ms of the 2.6 ms at
+  1k (the rest at 1k is fixed per-write cost, ~2 µs). That copy is the
+  intended price of an immutable rebuild — ~1 ns per element — so beyond ~10k
+  elements the loop is still quadratic in it, at a constant 10,000× smaller
+  than 9.22.1's. `$batchArray` remains the bulk path (one row, one copy):
+  ~2× cheaper in the body at 1k, ~6× at 10k.
+
 ## [9.22.1] - 2026-09-11
 
 ### Changed — a row a later row re-sets is not cloned twice: commit and replay of a repeated-path bundle are O(N), not O(N × rows)

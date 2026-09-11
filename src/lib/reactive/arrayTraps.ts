@@ -13,6 +13,20 @@
  * The original array in state is NEVER mutated directly -- all writes go
  * through the commit callback which calls setValue/updateValue.
  *
+ * ── Only the ASSIGNED value is unwrapped (9.23.0) ────────────────────────
+ * Landmine 1 says the set trap JSON-round-trips the value the caller handed
+ * in. For an array that is the index-assigned element, a mutating method's
+ * arguments (`push(x)`, `splice(i, n, ...items)`, `fill(x)`), or the leaf an
+ * element proxy writes — and it is unwrapped HERE, at the trap that receives
+ * it. The rebuilt array is handed to `commit` as it is: every sibling the
+ * caller did not touch passes through by reference, `Date`s and `Map`s
+ * intact. Until 9.23.0 the commit callbacks round-tripped the WHOLE rebuilt
+ * array, which stringified untouched siblings and was O(N) per element write.
+ * The one thing the round-trip used to do for the array's own shape — an
+ * emptied or skipped slot became `null`, JSON's only spelling for a hole —
+ * is now done explicitly by the traps that can create one (`delete arr[i]`,
+ * `arr[i] = v` past the end, `arr.length = n` growth).
+ *
  * ── Indexed access is part of the chain (9.22.0) ─────────────────────────
  * `arr[i]` used to hand back the RAW element, which broke the proxy chain at
  * exactly the point users write through it: `order.lines[0].qty = 4` was an
@@ -56,6 +70,13 @@ const MUTATING_METHODS = new Set([
   'fill',
   'copyWithin',
 ]);
+
+/** Slots from the current end up to (not including) `upTo` become `null` —
+ *  the JSON spelling of a hole, which is what the whole-array round-trip used
+ *  to produce for them. No-op when `upTo` is within the array. */
+function fillHoles(arr: unknown[], upTo: number): void {
+  for (let i = arr.length; i < upTo; i++) arr[i] = null;
+}
 
 /** Reads that must never be answered with a state value (see createTypedScope's GUARD_PROPS). */
 function guardValue(prop: string): { hit: boolean; value?: unknown } {
@@ -214,7 +235,9 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
       if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) {
         return (...args: unknown[]) => {
           const clone = [...getCurrent()];
-          const result = (clone as any)[prop](...args);
+          // The arguments are the assigned values — unwrap each one (a
+          // number, a comparator or a primitive passes through untouched).
+          const result = (clone as any)[prop](...args.map(unwrapProxy));
           commit(clone);
           return result;
         };
@@ -264,7 +287,8 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
         const index = Number(prop);
         if (Number.isInteger(index) && index >= 0) {
           const clone = [...getCurrent()];
-          clone[index] = value;
+          fillHoles(clone, index); // a write past the end: the skipped slots are `null`, not holes
+          clone[index] = unwrapProxy(value) as T;
           commit(clone);
           return true;
         }
@@ -273,6 +297,7 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
       // Setting 'length' (e.g., arr.length = 0 to clear)
       if (prop === 'length' && typeof value === 'number') {
         const clone = [...getCurrent()];
+        fillHoles(clone, value); // growth: the new slots are `null`, not holes
         clone.length = value;
         commit(clone);
         return true;
@@ -288,7 +313,9 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
     // emptied slot commits as `null`, JSON's only spelling for an array hole.
     deleteProperty(_target, prop) {
       const clone = [...getCurrent()];
-      delete (clone as any)[prop];
+      const index = typeof prop === 'string' ? Number(prop) : NaN;
+      if (Number.isInteger(index) && index >= 0 && index < clone.length) (clone as unknown[])[index] = null;
+      else delete (clone as any)[prop];
       commit(clone);
       return true;
     },

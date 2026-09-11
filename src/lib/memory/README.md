@@ -68,6 +68,17 @@ const { overwrite, updates, trace } = buffer.commit(); // one-batch flush (net c
 
 **Key design decision:** After commit, the working copy resets to `{}` (empty), not back to the base snapshot. This prevents a stale-read bug where the buffer would return old values instead of falling through to SharedMemory for the current committed state.
 
+**The patch trees hold references until commit (9.23.0).** A `set` stores the caller's own value in `overwritePatch` — the same reference `workingCopy` always held — and the copy the record needs is taken ONCE per surviving path when the payload leaves the buffer (`toChangeOnlyPayload` / `toDeltaPayload`). The law "the record never aliases a caller's object" is kept at the commit boundary instead of at every write. Consequence: a caller who mutates its own object after the write and before the stage ends commits the value **as the stage read it back** — log and stage agree. The honest form of "snapshot it now" is `scope.$setValue(k, structuredClone(o))`.
+
+```typescript
+const o = { x: 0 };
+scope.$setValue('doc', o);
+o.x = 1;                 // the caller's own object, after the write
+scope.doc.x;             // 1 — read-your-writes always said so
+// at commit (9.23.0): overwrite.doc = { x: 1 } — the record now agrees (9.22.1 committed { x: 0 })
+o.x = 2;                 // after the stage ends: changes NOTHING retained — the commit cloned it
+```
+
 ---
 
 ### 3. EventLog — "Git History"
@@ -214,6 +225,7 @@ Parent creates N children via createChild()
 | `structuredClone` for isolation | Prevents external mutation of internal state | History is immutable — replaying always gives the same result |
 | Replay skips a `set` superseded by the NEXT `set` of the same path (9.22.1, `utils.ts` · `supersededByNextSet`) | A `set` row writes a clone of the recorded value; a consecutive `set` of the same path writes a clone of the SAME value over it with nothing running in between, so the first write is unobservable. The 9.22.0 element-write funnel records N whole-array `set` rows on one path; without the skip a replay clones the array N times per fold. | Replay is O(N) not O(N × rows) — fold at 1,000 rows 241 ms → 1 ms, log bytes IDENTICAL (pinned against 9.22.0 references, both encodings). CONSECUTIVE-ONLY is the law: the wider skip (any earlier row on the path) is NOT byte-safe — `set list; delete list.1; set list = 0` materialises through a primitive and the second `set` REPAIRS it; fast-check found this on run 228 and both counterexamples are pinned in `test/lib/memory/unit/repeated-path-skips.test.ts`. Shared by every replay owner via `applySmartMerge` and by the delta encoder's `replayFamilyVerbs`; `commitValueAt` anchors at the last `set` and needs none. |
 | Commit payload memoises the net-change verdict per path (9.22.1, `TransactionBuffer` · `toChangeOnlyPayload`) | The same stage writing one path k times cloned that path's value k times into the payload. | One clone per consecutive run of the same path at commit (500 sets → 1 clone, spied). Same consecutive-only law as above, for the same reason. |
+| Clone once at commit — the patch trees and the tracked writes hold the caller's REFERENCES until the stage commits (9.23.0, `TransactionBuffer` · `set` / `detachHeldAncestors`; `StageContext` · `trackWrite` / `materialiseWrites`) | After 9.22.1 the stage BODY was still O(N²) for N element writes on one array: every write paid two `structuredClone`s (the buffer's patch copy and the `_stageWrites` retention) of a value the next write overwrote. A patch only needs to be final at COMMIT, and the last write to a path wins — so the copy is taken there, once per surviving path and once per tracked key. | The law "the record never aliases a caller's object" is kept at the commit boundary (proof: `test/lib/memory/scenario/clone-once-at-commit.test.ts`); the three byte-identity reference suites pass unchanged in both encodings. The ONE moved behaviour, and it is CLAUDE.md landmine 3's first bite CLOSED: `$setValue(k, o); o.x = 1` now commits `x: 1` — the value the stage read back — instead of a stale write-time snapshot the stage itself never saw; the honest form of the old intent is `$setValue(k, structuredClone(o))`. The engine's OWN nested ops (`set a` then `merge a.b`, unreachable from the scope proxy, which writes root keys) detach the held ancestor first, because `workingCopy` alone receives a nested merge's result and a shared container would leak it into `overwrite` — the design page missed this; the `set-merge-interleaved` reference pins it. Bench (`bench/element-writes.ts`): see the CHANGELOG [9.23.0] table. |
 
 ---
 
