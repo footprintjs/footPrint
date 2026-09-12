@@ -101,9 +101,9 @@ The same applies to any value the allowlist refuses to proxy (a `Date`, `Map`,
 in-place mutation of a borrowed read, and the guard names `k.when` / `k.tags`
 (9.22.0 — `deepEqual` compares a `Date` by instant and a `Map`/`Set` by
 members, so these no longer pass as "unchanged"). Replace the value instead:
-`scope.k.when = new Date(…)` (note the proxy's JSON round-trip turns a Date
-into a string — see Serialization) or `scope.$setValue('k', { ...next })`,
-which keeps the Date.
+`scope.k.when = new Date(…)` or `scope.$setValue('k', { ...next })` — both
+keep the Date (9.24.0; until then the proxy's JSON round-trip turned it into
+a string and only `$setValue` kept it).
 
 ## A handle is bound to its stage
 
@@ -169,9 +169,9 @@ flowChart('Seed', (s) => { s.items = [{ id: 'a', facts: { latency: 12 } }]; }, '
     into: 'results',                       // the branch's `item.facts.latency` is 12,
   });                                      // its seed commit clones fine
 
-// The explicit door keeps the bytes the set trap would not (landmine 1):
+// Both doors store the value behind the handle, bytes intact (9.24.0):
 s.$setValue('copy', s.customer);           // `copy.since` is still a Date
-s.copy = s.customer;                       // `copy.since` is a string (JSON round-trip)
+s.copy = s.customer;                       // … and so is this one (until 9.24.0: a string)
 ```
 
 9.22.0–9.23.2 seeded the handle itself: every fan-out branch over an object
@@ -210,8 +210,9 @@ Every factory but the top-level scope registers what it builds in
 
 The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`
 (guards + the JSON law, then the child step above), `writeTraps.ts ·
-sinkSetTrap` (unwrap the assigned value — landmine 1 — and hand it to the
-sink at the proxy's path plus the key), `writeTraps.ts · sinkDeleteTrap`,
+sinkSetTrap` (take the assigned value as a value — a handle becomes what it
+stands for — and hand it to the sink at the proxy's path plus the key),
+`writeTraps.ts · sinkDeleteTrap`,
 and `liveView.ts · liveInspectionTraps`.
 
 Every child cache above is ONE leaf, `liveView.ts · cachedMember` over a
@@ -315,11 +316,11 @@ things happened. The commit and every fold of that bundle are O(N) since 9.22.1
 (a row a later row re-sets is not cloned twice). Since 9.23.0 nothing else in
 the write path is O(N) per write either: the buffer and the tracked-writes
 record hold the new array by reference and copy it once at commit
-(`memory/README.md`, "clone once at commit"), and the array traps unwrap only
-the ASSIGNED value — the index-set element, a method's arguments, an element
-proxy's leaf — instead of JSON-round-tripping the whole rebuilt array (which
-also stringified every untouched sibling's `Date`; see "Only the assigned
-value is unwrapped" in `arrayTraps.ts`). What the stage body still pays per
+(`memory/README.md`, "clone once at commit"), and the array traps copy
+nothing at the write: since 9.24.0 the ASSIGNED value — the index-set element,
+a method's arguments, an element proxy's leaf — is stored as assigned (a
+handle becomes what it stands for, O(1)); until 9.23.0 the whole rebuilt array
+went through a JSON round-trip on every element write. What the stage body still pays per
 write is the proxy's own copy-on-write, one shallow copy of the array
 (`arrayTraps` · `replaceInElement` and the traps' `[...getCurrent()]`, ~1 ns
 per element). Measured (`bench/element-writes.ts`, 2026-09-11, `loop` total /
@@ -338,10 +339,13 @@ read paths cannot drift apart. See `jsonProjection.ts`.
 
 Two consequences worth knowing:
 
-- **Assignment inherits this.** `scope.copy = scope.results` unwraps the proxy by
-  round-tripping through JSON, so it commits the full structure. The round-trip
-  itself is unchanged and still applies (Date becomes a string, Map becomes `{}`,
-  undefined members drop) -- `$setValue` is the bypass.
+- **Assignment stores the value behind the handle.** `scope.copy = scope.results`
+  commits the full structure, by reference to the value the handle stands for,
+  detached by the buffer at commit — a `Date` stays a `Date`, a `Map` keeps its
+  members, the same bytes `$setValue` stores (9.24.0; until then the trap JSON
+  round-tripped the value and the two doors disagreed). A value NOTHING can
+  clone — a function, a framework's own reactive Proxy — now fails the stage
+  at commit through the trap too, loudly, as it always did through `$setValue`.
 - **structuredClone cannot clone a Proxy.** `structuredClone(scope.obj)` throws
   `DataCloneError`; that is a JS limitation, not a footprint one. It is loud, not
   silent. Clone `scope.$getValue('obj')` instead.

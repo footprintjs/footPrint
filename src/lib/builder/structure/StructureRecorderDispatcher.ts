@@ -32,6 +32,7 @@ import type {
   StructureLoopEdgeAddedEvent,
   StructureRecorder,
   StructureStageAddedEvent,
+  StructureStageTaggedEvent,
   StructureSubflowMountedEvent,
 } from './StructureRecorder.js';
 
@@ -110,6 +111,17 @@ export class StructureRecorderDispatcher {
         r.onStageAdded?.(event);
       } catch (err) {
         this.recordError(r.id, 'onStageAdded', err);
+      }
+    }
+  }
+
+  fireStageTagged(event: StructureStageTaggedEvent): void {
+    if (this.recorders.length === 0) return;
+    for (const r of this.recorders) {
+      try {
+        r.onStageTagged?.(event);
+      } catch (err) {
+        this.recordError(r.id, 'onStageTagged', err);
       }
     }
   }

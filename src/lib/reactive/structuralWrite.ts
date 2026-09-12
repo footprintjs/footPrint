@@ -15,31 +15,16 @@
  * detaching happens once, at the boundary that needs it.
  */
 
-/**
- * Strip Proxy wrappers from a value about to be stored.
- *
- * `structuredClone` in TransactionBuffer cannot clone a Proxy, and every deep
- * read of state hands back one — so `scope.backup = scope.customer` would
- * otherwise stage an unclonable value.
- *
- * KNOWN COST (landmine 1): this is a JSON round-trip, so a `Date` becomes a
- * string, a `Map` becomes `{}` and an own `undefined` drops. `$setValue`
- * bypasses it, which is why the two write paths can store different bytes.
- * The round-trip is applied to the ASSIGNED VALUE only — never to the
- * surrounding state, which reaches the buffer by reference and is detached by
- * `structuredClone` (Dates and Maps intact).
+/*
+ * Until 9.24.0 this module also owned `unwrapProxy`, a JSON round-trip of
+ * every ASSIGNED value — the only way then to keep the scope's own Proxies
+ * out of the buffer. It cost a `Date` its type and a `Map` its members, and
+ * it made the trap and `$setValue` store different bytes for the same value
+ * (the old landmine 1). The scope's handles are recognised now
+ * (`handles.ts · unwrapHandles`, O(1) each), so the assigned value goes to
+ * the sink AS ASSIGNED and the buffer's `structuredClone` at commit is the
+ * one detaching step — the same law `$setValue` has always had.
  */
-export function unwrapProxy(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== 'object') return value;
-  try {
-    // JSON round-trip strips Proxies. Safe because state values must be JSON-serializable.
-    return JSON.parse(JSON.stringify(value));
-  } catch {
-    // Non-serializable (functions, symbols, etc.) — return as-is
-    return value;
-  }
-}
 
 /** Shallow copy that preserves array-ness — the one container copy this module makes. */
 function copyContainer(node: unknown): any {

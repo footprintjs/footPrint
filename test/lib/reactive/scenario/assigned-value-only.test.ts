@@ -1,23 +1,27 @@
 /**
  * 9.23.0 — the array traps unwrap the ASSIGNED value only.
  *
- * Landmine 1: the set trap JSON-round-trips the value the caller handed in
- * (a `Date` becomes a string, a `Map` becomes `{}`, an own `undefined`
- * drops). Until 9.23.0 the array commit callbacks applied that round-trip to
- * the WHOLE rebuilt array on every element write — so writing element 2
- * stringified a `Date` sitting untouched at element 0, and every element
- * write was O(N). The second moved behaviour of 9.23.0, pinned here by name:
+ * Landmine 1 (closed in 9.24.0): the set trap used to JSON-round-trip the
+ * value the caller handed in (a `Date` became a string, a `Map` became `{}`,
+ * an own `undefined` dropped). Until 9.23.0 the array commit callbacks
+ * applied that round-trip to the WHOLE rebuilt array on every element write
+ * — so writing element 2 stringified a `Date` sitting untouched at element
+ * 0, and every element write was O(N). 9.23.0 narrowed it to the assigned
+ * value; 9.24.0 removed it (the scope's handles are recognised now, so
+ * nothing needs copying at the write — the buffer detaches at commit).
+ * Pinned here by name:
  *
  *   - a sibling the caller did not touch passes through BY REFERENCE and is
  *     still a `Date` / `Map` after commit and in the fold;
  *   - the value the caller ASSIGNED (an index set, a method argument, an
- *     element-proxy leaf) is round-tripped exactly as before;
- *   - a whole-array ASSIGNMENT (`s.arr = [...]`, `s.k.arr = [...]`) still
- *     round-trips every element — the array IS the assigned value there.
+ *     element-proxy leaf, a whole array) is stored AS ASSIGNED — the same
+ *     bytes `$setValue` has always stored;
+ *   - a handle assigned or pushed becomes the value behind it.
  *
  * Both `commitValues` encodings; the fold must agree with the live state.
  */
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
@@ -121,8 +125,8 @@ describe('9.23.0 — untouched siblings pass through by reference (was: stringif
   });
 });
 
-describe('9.23.0 — the ASSIGNED value is still round-tripped (landmine 1 unchanged for what the caller handed in)', () => {
-  it.each(ENCODINGS)('an index assignment of a Date becomes a string; a pushed Map becomes {} (%s)', async (cv) => {
+describe('9.24.0 — the ASSIGNED value is stored as assigned (landmine 1 closed: no round-trip on either write path)', () => {
+  it.each(ENCODINGS)('an index assignment of a Date stays a Date; a pushed Map stays a Map (%s)', async (cv) => {
     const { state, folded } = await run(
       seedTyped,
       (s) => {
@@ -133,16 +137,18 @@ describe('9.23.0 — the ASSIGNED value is still round-tripped (landmine 1 uncha
       cv,
     );
     for (const view of [state, folded]) {
-      expect(view.arr[0]).toEqual({ when: WHEN }); // unshift argument: round-tripped
+      expect(view.arr[0].when).toBeInstanceOf(Date); // unshift argument: as assigned (was a string until 9.24.0)
+      expect(view.arr[0].when.toISOString()).toBe(WHEN);
       expect(view.arr[1]).toBeInstanceOf(Date); // the untouched seed Date, shifted to 1
       expect(view.arr[2]).toBeInstanceOf(Map); // the untouched seed Map, shifted to 2
-      expect(typeof view.arr[3]).toBe('string'); // index assignment: round-tripped
-      expect(view.arr[3]).toBe(WHEN);
-      expect(view.arr[4]).toEqual({}); // pushed Map: round-tripped
+      expect(view.arr[3]).toBeInstanceOf(Date); // index assignment: as assigned
+      expect(view.arr[3].toISOString()).toBe(WHEN);
+      expect(view.arr[4]).toBeInstanceOf(Map); // pushed Map: as assigned (was {} until 9.24.0)
+      expect([...view.arr[4].entries()]).toEqual([['b', 2]]);
     }
   });
 
-  it.each(ENCODINGS)('an element-proxy leaf assignment of a Date becomes a string (%s)', async (cv) => {
+  it.each(ENCODINGS)('an element-proxy leaf assignment of a Date stays a Date (%s)', async (cv) => {
     const { state, folded } = await run(
       seedTyped,
       (s) => {
@@ -151,7 +157,9 @@ describe('9.23.0 — the ASSIGNED value is still round-tripped (landmine 1 uncha
       cv,
     );
     for (const view of [state, folded]) {
-      expect(view.arr[2]).toEqual({ n: 0, when: WHEN });
+      expect(view.arr[2].n).toBe(0);
+      expect(view.arr[2].when).toBeInstanceOf(Date);
+      expect(view.arr[2].when.toISOString()).toBe(WHEN);
       expect(view.arr[0]).toBeInstanceOf(Date);
     }
   });
@@ -182,7 +190,7 @@ describe('9.23.0 — the ASSIGNED value is still round-tripped (landmine 1 uncha
   );
 });
 
-describe('9.23.0 — a whole-array ASSIGNMENT through the proxy still round-trips every element (it IS the assigned value)', () => {
+describe('9.24.0 — a whole-array ASSIGNMENT through the proxy keeps every element as assigned (it IS the assigned value)', () => {
   it.each(ENCODINGS)('top-level `s.arr = [...]` (%s)', async (cv) => {
     const { state, folded } = await run(
       seedTyped,
@@ -192,8 +200,14 @@ describe('9.23.0 — a whole-array ASSIGNMENT through the proxy still round-trip
       cv,
     );
     for (const view of [state, folded]) {
-      expect(view.arr[0]).toBe(WHEN);
-      expect(view.arr[1]).toEqual({});
+      expect(view.arr[0]).toBeInstanceOf(Date);
+      expect(view.arr[0].toISOString()).toBe(WHEN);
+      expect(view.arr[1]).toBeInstanceOf(Map);
+      expect(view.arr[1].get('a')).toBe(1);
+      // An own `undefined` is ABSENT to the record (`deepEqual`, 9.19.1): here
+      // the seed already held `{ n: 0 }`, so the assignment differs from state
+      // in nothing the record can see and the net-change filter drops it —
+      // the seed's element stays, own `gone` and all not there.
       expect(view.arr[2]).toEqual({ n: 0 });
       expect(Object.prototype.hasOwnProperty.call(view.arr[2], 'gone')).toBe(false);
     }
@@ -210,8 +224,9 @@ describe('9.23.0 — a whole-array ASSIGNMENT through the proxy still round-trip
       cv,
     );
     for (const view of [state, folded]) {
-      expect(view.k.arr[0]).toBe(WHEN);
-      expect(view.k.arr[1]).toEqual({});
+      expect(view.k.arr[0]).toBeInstanceOf(Date);
+      expect(view.k.arr[0].toISOString()).toBe(WHEN);
+      expect(view.k.arr[1]).toBeInstanceOf(Map);
     }
   });
 });
@@ -239,5 +254,66 @@ describe('9.23.0 — the array shape the round-trip used to normalise is still n
       expect(view.c).toEqual([1, null, null]);
       expect(Object.keys(view.c)).toEqual(['0', '1', '2']);
     }
+  });
+});
+
+describe('9.24.0 — the two write doors store the SAME bytes (landmine 1 closed)', () => {
+  it.each(ENCODINGS)(
+    'for any JSON value, `s.k = v` and `s.$setValue(k, v)` commit identical rows and identical state (%s)',
+    async (cv) => {
+      await fc.assert(
+        fc.asyncProperty(fc.jsonValue(), async (v) => {
+          const { state, folded, bundle } = await run(
+            () => undefined,
+            (s) => {
+              s.viaTrap = v;
+              s.$setValue('viaDoor', v);
+            },
+            cv,
+          );
+          const rows = (bundle as any).overwrite ?? {};
+          expect(JSON.stringify(rows.viaTrap)).toBe(JSON.stringify(rows.viaDoor));
+          expect(state.viaTrap).toEqual(state.viaDoor);
+          expect(folded.viaTrap).toEqual(folded.viaDoor);
+          expect(folded.viaTrap).toEqual(v);
+        }),
+        { numRuns: 150 },
+      );
+    },
+  );
+
+  it.each(ENCODINGS)(
+    'a typed value (Date / Map / Set) is the same through both doors, in state AND in the fold (%s)',
+    async (cv) => {
+      const v = { when: new Date(WHEN), m: new Map([['k', 1]]), s: new Set([1]), nested: [{ d: new Date(WHEN) }] };
+      const { state, folded } = await run(
+        () => undefined,
+        (s) => {
+          s.viaTrap = v;
+          s.$setValue('viaDoor', v);
+        },
+        cv,
+      );
+      for (const view of [state, folded]) {
+        for (const key of ['viaTrap', 'viaDoor']) {
+          expect(view[key].when).toBeInstanceOf(Date);
+          expect(view[key].m).toBeInstanceOf(Map);
+          expect(view[key].s).toBeInstanceOf(Set);
+          expect(view[key].nested[0].d).toBeInstanceOf(Date);
+        }
+        expect(view.viaTrap).toEqual(view.viaDoor);
+      }
+    },
+  );
+
+  it('a value nothing can clone (a function inside) fails the stage at COMMIT through the trap too — as $setValue always did', async () => {
+    const chart = flowChart<State>(
+      'w',
+      (s) => {
+        s.viaTrap = { run: () => 1 };
+      },
+      'w',
+    ).build();
+    await expect(new FlowChartExecutor(chart).run({ input: {} })).rejects.toThrow(/could not be cloned/);
   });
 });

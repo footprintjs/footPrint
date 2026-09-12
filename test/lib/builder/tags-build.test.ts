@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { StructureRecorder, StructureStageAddedEvent } from '../../../src/index.js';
+import type { StructureRecorder, StructureStageAddedEvent, StructureStageTaggedEvent } from '../../../src/index.js';
 import { flowChart, flowChartSelector } from '../../../src/index.js';
 
 interface State {
@@ -223,6 +223,83 @@ describe('tags — the Map advertises the vocabulary', () => {
     // The live spec reference the event carried now shows it; the built spec is the source of truth.
     expect(seen.find((e) => e.stageId === 'work')?.spec.tags).toEqual(['later']);
     expect(chart.buildTimeStructure.next?.tags).toEqual(['later']);
+  });
+
+  describe('9.24.0 — a recorder that COPIES at event time still learns every name', () => {
+    /** The shape the gap was about: fields copied at `onStageAdded`, `spec` not held. */
+    function copyingRecorder() {
+      const added: { stageId: string; tags?: readonly string[] }[] = [];
+      const tagged: StructureStageTaggedEvent[] = [];
+      const recorder: StructureRecorder = {
+        id: 'copier',
+        onStageAdded: (e) => added.push({ stageId: e.stageId, ...(e.tags !== undefined && { tags: e.tags }) }),
+        onStageTagged: (e) => tagged.push(e),
+      };
+      return { recorder, added, tagged };
+    }
+
+    it('options.tags ride `onStageAdded.tags`; the `.tag()` door fires `onStageTagged` with the full list', () => {
+      const { recorder, added, tagged } = copyingRecorder();
+      flowChart<State>('Seed', noop, 'seed', { structureRecorders: [recorder], tags: ['first'] })
+        .addDeciderFunction('Route', () => 'left', 'route', undefined, { tags: ['declared-with'] })
+        .addFunctionBranch('left', 'Left', noop, undefined, { tags: ['went-left'] })
+        .end()
+        .addFunction('Late', noop, 'late') // a linear stage has no options: `.tag()` IS its door
+        .tag('declared-after', 'twice')
+        .addFunction('Plain', noop, 'plain')
+        .build();
+
+      expect(added).toEqual([
+        { stageId: 'seed', tags: ['first'] },
+        { stageId: 'route', tags: ['declared-with'] },
+        { stageId: 'left', tags: ['went-left'] },
+        { stageId: 'late' }, // nothing declared yet when it was added — absent, not []
+        { stageId: 'plain' },
+      ]);
+      // ONE declaration, ONE event: the sites that landed before `onStageAdded` do not fire again.
+      expect(tagged.map((e) => [e.stageId, e.name, e.tags])).toEqual([['late', 'Late', ['declared-after', 'twice']]]);
+      expect(tagged[0].spec.tags).toEqual(['declared-after', 'twice']);
+    });
+
+    it('the event carries a COPY of the names — a recorder cannot edit the spec through it', () => {
+      const { recorder, added, tagged } = copyingRecorder();
+      const chart = flowChart<State>('Seed', noop, 'seed', { structureRecorders: [recorder], tags: ['first'] })
+        .addFunction('Late', noop, 'late')
+        .tag('after')
+        .build();
+      (added[0].tags as string[]).push('smuggled');
+      (tagged[0].tags as string[]).push('smuggled');
+      expect(chart.buildTimeStructure.tags).toEqual(['first']);
+      expect(chart.buildTimeStructure.next?.tags).toEqual(['after']);
+    });
+
+    it('a recorder attached after flowChart() gets the seed replay WITH its tags', () => {
+      const { recorder, added } = copyingRecorder();
+      flowChart<State>('Seed', noop, 'seed', { tags: ['first'] })
+        .attachStructureRecorder(recorder)
+        .build();
+      expect(added).toEqual([{ stageId: 'seed', tags: ['first'] }]);
+    });
+
+    it('a throwing onStageTagged is isolated like every other structure hook', () => {
+      const recorder: StructureRecorder = {
+        id: 'thrower',
+        onStageTagged: () => {
+          throw new Error('boom');
+        },
+      };
+      const builder = flowChart<State>('Seed', noop, 'seed', { structureRecorders: [recorder] }).addFunction(
+        'Late',
+        noop,
+        'late',
+      );
+      expect(() => builder.tag('after')).not.toThrow();
+      const chart = builder.build();
+      expect(chart.buildTimeStructure.next?.tags).toEqual(['after']);
+      expect(builder.getStructureBuildErrors().map((e) => [e.recorderId, e.method])).toEqual([
+        ['thrower', 'onStageTagged'],
+      ]);
+    });
   });
 
   it('a mounted subflow keeps its stages’ tags through prefixing (both twins spread the node)', () => {

@@ -19,6 +19,19 @@ import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
 
 /**
+ * A plain object — the only shape that is spread into per-field writes
+ * (`setObject([key], field, …)`, a row and a redaction verdict per field). A
+ * `Date`, `Map`, `Set` or class instance has no fields to spread and is a
+ * value in its own right: it lands WHOLE (until 9.24.0 it was spread into
+ * zero writes and silently vanished at both boundaries).
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
  * Extract values from parent scope using inputMapper.
  *
  * What a mapper returns is a VALUE, not a handle: the mapper read the parent's
@@ -95,8 +108,11 @@ export function seedSubflowGlobalStore(
   const rootContext = subflowRuntime.rootStageContext;
 
   for (const [key, value] of Object.entries(initialValues)) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    // An EMPTY plain object lands whole too: spread into zero writes it
+    // seeded nothing, and the child read `undefined` for an `{}` input
+    // (9.14.0 to 9.23.3).
+    if (isPlainObject(value) && Object.keys(value).length > 0) {
+      for (const [nestedKey, nestedValue] of Object.entries(value)) {
         rootContext.setObject([key], nestedKey, nestedValue);
       }
     } else {
@@ -135,8 +151,10 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   }
 
   for (const [key, value] of Object.entries(mappedOutput)) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    // A plain object is MERGED field by field (an empty one merges nothing —
+    // the parent's value stands); anything else lands whole.
+    if (isPlainObject(value)) {
+      for (const [nestedKey, nestedValue] of Object.entries(value)) {
         if (Array.isArray(nestedValue)) {
           parentContext.appendToArray([key], nestedKey, nestedValue);
         } else if (typeof nestedValue === 'object' && nestedValue !== null) {

@@ -126,9 +126,10 @@ write, though the library's own law says only the ASSIGNED value is normalised. 
 assigned element is unwrapped and untouched siblings pass through by reference.
 
 **What moved, on purpose:** writing element 3 no longer alters the bytes of element 5 — a
-`Date` or `Map` sitting untouched at index 0 keeps its type. The assigned element is
-normalised exactly as before; a whole-array assignment still round-trips every element,
-because then the whole array IS the assigned value.
+`Date` or `Map` sitting untouched at index 0 keeps its type. In 9.23.0 the assigned element
+was still normalised as before; 9.24.0 removed that last round-trip too (the scope's own
+handles are recognised now — `reactive/handles.ts` — so nothing needs copying at the write),
+and the trap and `$setValue` store the same bytes.
 
 ## 7. The result, on the checked-in bench (`bench/element-writes.ts`, total time)
 

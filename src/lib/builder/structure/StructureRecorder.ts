@@ -197,11 +197,42 @@ export interface StructureStageAddedEvent {
   /** True for nodes added via `addPausableFunction()` — useful for
    *  visualisers that want to mark stages that can pause execution. */
   readonly isPausable?: boolean;
+  /**
+   * The names declared on the stage AT EVENT FIRE TIME (`options.tags`
+   * lands before this event fires; absent when none — the "absent when
+   * empty" law the commit bundle keeps). Names declared afterwards
+   * through the `.tag(...)` cursor door arrive as their own
+   * {@link StructureRecorder.onStageTagged} event — a recorder that
+   * copies fields here instead of holding `spec` would otherwise
+   * never learn of them (9.24.0).
+   */
+  readonly tags?: readonly string[];
   /** Live reference to the full spec node, for handlers that want
    *  details beyond the discriminator fields above. MUST NOT be
    *  mutated by the handler — readonly is type-level intent; no
    *  runtime freeze. See "Spec mutation" in the file header for the
    *  trust-model caveats. */
+  readonly spec: FlowChartSpec;
+}
+
+/**
+ * Event payload for `StructureRecorder.onStageTagged`. Fires when names
+ * land on a stage AFTER its `onStageAdded` already fired — the
+ * `.tag(...)` cursor door (`flowChart(...).addFunction(...).tag('a')`).
+ * Names declared in the same call as the stage (`options.tags`,
+ * `SubflowMountOptions.tags`) ride `StructureStageAddedEvent.tags` and
+ * do NOT fire this: one declaration, one event. `tags` is the COMPLETE
+ * list on the stage after the door — the builder refuses a second
+ * declaration on the same stage, so it is also the only one.
+ */
+export interface StructureStageTaggedEvent {
+  /** The builder's LOCAL stage id (see `StructureStageAddedEvent.stageId`). */
+  readonly stageId: string;
+  /** Human-readable label for the node. */
+  readonly name: string;
+  /** Every name now declared on the stage. */
+  readonly tags: readonly string[];
+  /** Live reference to the spec node — same caveats as on `onStageAdded`. */
   readonly spec: FlowChartSpec;
 }
 
@@ -364,6 +395,8 @@ export interface StructureRecorder {
   readonly id: string;
 
   onStageAdded?(event: StructureStageAddedEvent): void;
+  /** Names that landed on a stage after its `onStageAdded` (the `.tag()` door). */
+  onStageTagged?(event: StructureStageTaggedEvent): void;
   onEdgeAdded?(event: StructureEdgeAddedEvent): void;
   onLoopEdgeAdded?(event: StructureLoopEdgeAddedEvent): void;
   onDeciderComplete?(event: StructureDeciderCompleteEvent): void;

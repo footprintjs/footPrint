@@ -14,9 +14,10 @@
  */
 
 import { nativeGet } from '../memory/pathOps.js';
+import { unwrapHandles } from './handles.js';
 import type { MemberCache } from './liveView.js';
 import { buildNestedPatch } from './pathBuilder.js';
-import { deleteInPath, setInPath, unwrapProxy } from './structuralWrite.js';
+import { deleteInPath, setInPath } from './structuralWrite.js';
 
 /**
  * The seam between a proxy and state. `path` is measured from the sink's
@@ -146,14 +147,15 @@ function removeInElement(
 }
 
 /**
- * WHY one set trap: the assigned value is unwrapped HERE (landmine 1 — the
- * JSON round-trip applies to what the caller handed in, never to the
- * surrounding state) and handed to the sink at the proxy's path plus the key.
+ * WHY one set trap: the assigned value is taken as a VALUE here (a handle
+ * becomes what it stands for, `handles.ts`; nothing else is copied — the
+ * buffer detaches at commit) and handed to the sink at the proxy's path plus
+ * the key.
  */
 export function sinkSetTrap(sink: WriteSink, segments: readonly string[]): ProxyHandler<object>['set'] {
   return (_target, prop, value) => {
     if (typeof prop !== 'string') return true;
-    sink.put([...segments, prop], unwrapProxy(value));
+    sink.put([...segments, prop], unwrapHandles(value));
     return true;
   };
 }

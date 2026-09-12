@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { deleteInPath, setInPath, unwrapProxy } from '../../../../src/lib/reactive/structuralWrite';
+import { deleteInPath, setInPath } from '../../../../src/lib/reactive/structuralWrite';
 
 describe('setInPath', () => {
   it('never mutates the value it was given', () => {
@@ -70,21 +70,5 @@ describe('deleteInPath', () => {
     const root = { a: { b: 1 } };
     expect(deleteInPath(root, ['a', 'nope'])).toBe(root);
     expect(deleteInPath(root, ['missing', 'deep'])).toBe(root);
-  });
-});
-
-describe('unwrapProxy', () => {
-  it('strips a Proxy wrapper', () => {
-    const raw = { n: 1 };
-    const proxied = new Proxy(raw, {});
-    const out = unwrapProxy(proxied) as any;
-    expect(out).toEqual({ n: 1 });
-    expect(out).not.toBe(proxied);
-  });
-
-  it('passes primitives, null and undefined through untouched', () => {
-    expect(unwrapProxy(1)).toBe(1);
-    expect(unwrapProxy(null)).toBe(null);
-    expect(unwrapProxy(undefined)).toBe(undefined);
   });
 });

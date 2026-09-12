@@ -936,6 +936,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
           name: this._rootSpec.name,
           type: this._rootSpec.type ?? 'stage',
           ...(this._rootSpec.isPausable === true && { isPausable: true }),
+          ...(this._rootSpec.tags !== undefined && { tags: [...this._rootSpec.tags] }),
           spec: this._rootSpec as unknown as FlowChartSpec,
         });
       } catch (err) {
@@ -979,6 +980,17 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       name: spec.name,
       type: spec.type ?? 'stage',
       ...(isPausable && { isPausable: true }),
+      ...(spec.tags !== undefined && { tags: [...spec.tags] }),
+      spec: spec as unknown as FlowChartSpec,
+    });
+  }
+
+  private _fireStageTagged(spec: SerializedPipelineStructure): void {
+    if (!this._structureDispatcher || spec.tags === undefined) return;
+    this._structureDispatcher.fireStageTagged({
+      stageId: spec.id,
+      name: spec.name,
+      tags: [...spec.tags],
       spec: spec as unknown as FlowChartSpec,
     });
   }
@@ -2247,6 +2259,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (names.length === 0) fail(`tag() at '${cur.name}': at least one name is required`);
 
     applyTags(cur, curSpec, names, `tag() at '${cur.name}'`);
+    // The stage's `onStageAdded` has already fired (the door comes after
+    // the add), so the names go out as their own event — a recorder that
+    // copied fields at add time would otherwise never see them (9.24.0).
+    this._fireStageTagged(curSpec);
     return this;
   }
 

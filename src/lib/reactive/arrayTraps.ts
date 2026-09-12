@@ -60,9 +60,8 @@
  */
 
 import { shouldWrapWithProxy } from './allowlist.js';
-import { rememberHandle } from './handles.js';
+import { rememberHandle, unwrapHandles } from './handles.js';
 import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
-import { unwrapProxy } from './structuralWrite.js';
 import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
 
 /** Methods that mutate the array in-place. We intercept and copy-on-write. */
@@ -129,23 +128,24 @@ function fillHoles(arr: unknown[], upTo: number): void {
   for (let i = arr.length; i < upTo; i++) arr[i] = null;
 }
 
-/** WHY: a mutating method runs on a COPY, with its arguments unwrapped (they
- *  are the assigned values; a number or a comparator passes through), and the
- *  copy is committed whole. The array in state is never touched. */
+/** WHY: a mutating method runs on a COPY, with its arguments taken as values
+ *  (a handle becomes what it stands for; a number or a comparator passes
+ *  through), and the copy is committed whole. The array in state is never
+ *  touched. */
 function mutatingMethod(read: Read, write: Write, name: string): (...args: unknown[]) => unknown {
   return (...args) => {
     const clone = [...read()];
-    const result = (clone as any)[name](...args.map(unwrapProxy));
+    const result = (clone as any)[name](...args.map(unwrapHandles));
     write(clone);
     return result;
   };
 }
 
-/** `arr[i] = v`: copy, `null` the slots a write past the end skips, place the unwrapped value, commit. */
+/** `arr[i] = v`: copy, `null` the slots a write past the end skips, place the value as assigned, commit. */
 function setIndex(read: Read, write: Write, index: number, value: unknown): void {
   const clone = [...read()];
   fillHoles(clone, index);
-  clone[index] = unwrapProxy(value);
+  clone[index] = unwrapHandles(value);
   write(clone);
 }
 

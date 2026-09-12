@@ -48,5 +48,6 @@ export type {
   StructureLoopEdgeAddedEvent,
   StructureRecorder,
   StructureStageAddedEvent,
+  StructureStageTaggedEvent,
   StructureSubflowMountedEvent,
 } from './structure/StructureRecorder.js';

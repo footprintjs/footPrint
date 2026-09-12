@@ -19,7 +19,6 @@ import { shouldWrapWithProxy } from './allowlist.js';
 import { arrayProxyAt } from './arrayTraps.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
 import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
-import { unwrapProxy } from './structuralWrite.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
 import { type WriteSink, rootKeySink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
@@ -32,9 +31,9 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $getValue: (t) => t.getValue.bind(t),
   // A handle the scope handed out is a value it accepts back (handles.ts):
   // `$setValue('copy', scope.customer)` stores the value behind the handle,
-  // not a Proxy the commit could never clone. The set trap has always done
-  // this for `scope.copy = scope.customer` (through `unwrapProxy`); these
-  // are the explicit doors. A handle-free value passes through by reference.
+  // not a Proxy the commit could never clone. The set trap does the same for
+  // `scope.copy = scope.customer`; these are the explicit doors. A
+  // handle-free value passes through by reference.
   $setValue: (t) => (key: string, value: unknown, shouldRedact?: boolean, description?: string) =>
     t.setValue(key, unwrapHandles(value), shouldRedact, description),
   $update: (t) => (key: string, value: unknown, description?: string) =>
@@ -269,14 +268,15 @@ function wrapStateValue(
 }
 
 /** WHY: a `$`-name can never be a state key — the write is refused, not shadowed; every other assignment
- *  stores the unwrapped value (landmine 1) and drops the key's cached proxy. */
+ *  stores the value AS ASSIGNED (a handle becomes what it stands for, `handles.ts`; the buffer detaches at
+ *  commit — the same law as `$setValue`, 9.24.0) and drops the key's cached proxy. */
 function assignStateKey(target: ReactiveTarget, state: ReactiveState, key: string, value: unknown): void {
   if (SCOPE_METHOD_NAMES.has(key)) {
     throw new Error(
       `Cannot set state key "${key}" -- it conflicts with a reserved TypedScope method. Rename the state key to avoid $-prefixed names.`,
     );
   }
-  target.setValue(key, unwrapProxy(value));
+  target.setValue(key, unwrapHandles(value));
   state.childCache.delete(key);
 }
 

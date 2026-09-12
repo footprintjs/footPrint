@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — the two write doors store the same bytes (landmine 1 closed)
+
+- **What changes.** Assigning through the typed scope — `s.k = v`,
+  `s.k.inner = v`, `s.arr[i] = v`, `s.arr.push(v)`, `s.arr[i].leaf = v` —
+  stores the value AS ASSIGNED. Until now the set trap JSON-round-tripped it
+  (`Date` → ISO string, `Map`/`Set` → `{}`, own `undefined` dropped,
+  `NaN` → `null`) while `$setValue` stored the value itself, so the same
+  value had two byte shapes depending on the door (landmine 1, since 9.16).
+  The round-trip existed for one reason — to keep the scope's own Proxies out
+  of the buffer — and 9.23.3's `reactive/handles.ts` does that in O(1)
+  without copying anything, so the copy is gone: the buffer's
+  `structuredClone` at commit is the one detaching step for BOTH doors, and
+  a `Date` assigned through the scope is a `Date` in state, in the commit
+  log and in the fold. Pinned as a law: for any JSON value the two doors
+  commit identical rows and identical state (a fast-check property over
+  `fc.jsonValue()`, both encodings), and a typed value is the same through
+  both, in state and in the fold.
+- **What you may notice.** A value nothing can clone — a function, a
+  framework's own reactive Proxy — now fails the stage at COMMIT through the
+  trap too, loudly (`DataCloneError`), exactly as it always did through
+  `$setValue`; before, the trap silently JSON-copied it and dropped the
+  function. `s.k = o; o.x = 1` commits `x: 1` — what the stage reads back —
+  the same law 9.23.0 gave `$setValue`. A cyclic value assigned through the
+  scope keeps its cycle (the round-trip pruned it). Plain JSON values are
+  byte-identical to every earlier release. For JSON-only programs nothing
+  moves; for programs that assigned typed values through the scope, the log
+  now carries what they assigned — a consumer that serialises recordings to
+  JSON still sees the ISO string it always saw, at its own boundary.
+- **What the round-trip had been hiding.** Running agentfootprint's whole
+  suite on this build found one behaviour the copy had silently changed
+  for years: an `undefined` inside an array assigned through the scope
+  (`skillHistory = [undefined, 'a', 'a', 'b']`, "no skill yet") was recorded
+  as `null`, and a gate that counted non-`undefined` slots took it for a
+  third skill and switched caching off. Fixed on that side; named here
+  because a consumer whose code branches on `null` vs `undefined` in an
+  array written through the scope will see the value it wrote from now on.
+- **Sites.** `writeTraps.ts · sinkSetTrap`, `arrayTraps.ts` (index set,
+  mutating-method arguments, element leaf), `createTypedScope ·
+  assignStateKey`; `structuralWrite.ts · unwrapProxy` removed. Docs:
+  reactive README ("Assignment stores the value behind the handle"),
+  CLAUDE.md landmine 1 retired, the fold guide's §6.
+
+### Fixed — a subflow seed with no fields lands whole
+
+- `seedSubflowGlobalStore` spreads an object seed into per-field writes (a
+  row and a redaction verdict per field). Since 9.14.0 it spread EVERY
+  non-array object, so a value with no enumerable fields — an empty `{}`, a
+  `Date`, a `Map`, a `Set`, a class instance — became zero writes and the
+  child read `undefined` for it (a fan-out over `[{}, new Date()]` gave
+  every branch an absent `item`; named in 9.23.3). Now only a NON-EMPTY PLAIN
+  object spreads; everything else lands whole. The merge-back
+  (`applyOutputMapping`) had the same hole for typed values — an
+  `outputMapper` returning `{ finishedAt: new Date() }` wrote nothing to the
+  parent — and lands them whole now too; an empty `{}` there still merges
+  nothing, because a merge of nothing is what it says. Pinned in
+  `test/lib/engine/scenario/seed-lands-whole.test.ts` (both encodings, fold =
+  state, and the non-empty case's per-field rows byte-identical).
+
+### Added — the structure channel learns the names that land after the stage
+
+- `StructureStageAddedEvent.tags` carries the names declared with the stage
+  (`options.tags`, `SubflowMountOptions.tags`, `flowChart({ tags })`) — absent
+  when none. New hook `StructureRecorder.onStageTagged(event)` with
+  `StructureStageTaggedEvent { stageId, name, tags, spec }`, fired ONLY by the
+  `.tag(...)` cursor door, which lands after the stage's `onStageAdded`
+  already fired: a recorder that copies fields at add time (instead of
+  holding the live `spec`) never learned of those names (named on 9.21.0).
+  One declaration, one event — the with-the-stage sites do not fire it. The
+  late-attach seed replay carries `tags` too; the arrays on both events are
+  copies; a throwing `onStageTagged` is isolated like every other structure
+  hook. Exported from the root barrel. Pinned in
+  `test/lib/builder/tags-build.test.ts` ("a recorder that COPIES at event
+  time still learns every name").
+
 ## [9.23.3] - 2026-09-12
 
 ### Fixed — a handle the scope handed out is a value the engine accepts back

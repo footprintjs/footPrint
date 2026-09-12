@@ -1131,28 +1131,36 @@ describe('createTypedScope -- proxy unwrap', () => {
     scope.copy = scope.results;
 
     expect(target.state.copy).toEqual({ a: { x: 1 }, b: { y: [2, { z: 3 }] } });
-    // A copy, not the same reference — the write path round-trips through JSON.
-    expect(target.state.copy).not.toBe(target.state.results);
+    // The value BEHIND the handle, by reference (9.24.0): committed state is
+    // immutable-after-swap, so sharing it is safe, and the buffer detaches at
+    // commit. Until 9.24.0 the write path JSON-copied it here instead.
+    expect(target.state.copy).toBe(target.state.results);
   });
 
-  it('the write path keeps its documented round-trip semantics', () => {
-    // Landmine, deliberately unchanged: assigning through the property proxy
-    // JSON round-trips the value. Date becomes a string, Map becomes {},
-    // undefined members drop. $setValue is the bypass. What the round-trip
-    // must NOT do is drop object-valued members.
-    const target = mockTarget({
-      source: { when: new Date('2020-01-01T00:00:00.000Z'), m: new Map([['k', 'v']]), gone: undefined, keep: { n: 1 } },
-    });
+  it('the write path stores the value as assigned — the same bytes as $setValue (9.24.0)', () => {
+    // Until 9.24.0 the property proxy JSON round-tripped every assigned value:
+    // a Date became a string, a Map became {}, an own undefined dropped, and
+    // `$setValue` did none of that — two write paths, two byte shapes for the
+    // same value (the old landmine 1). Now the trap takes the value behind
+    // the handle and the buffer's structuredClone at commit is the one
+    // detaching step, so both doors store the same thing.
+    const source = {
+      when: new Date('2020-01-01T00:00:00.000Z'),
+      m: new Map([['k', 'v']]),
+      gone: undefined,
+      keep: { n: 1 },
+    };
+    const target = mockTarget({ source });
     const scope = createTypedScope<any>(target) as any;
 
     scope.copy = scope.source;
-
-    expect(target.state.copy).toEqual({ when: '2020-01-01T00:00:00.000Z', m: {}, keep: { n: 1 } });
-    expect(Object.prototype.hasOwnProperty.call(target.state.copy, 'gone')).toBe(false);
-
-    // $setValue bypasses the round-trip — the two write paths still differ.
     scope.$setValue('raw', scope.$getValue('source'));
-    expect((target.state.raw as any).when).toBeInstanceOf(Date);
+
+    expect((target.state.copy as any).when).toBeInstanceOf(Date);
+    expect((target.state.copy as any).m).toBeInstanceOf(Map);
+    expect(Object.prototype.hasOwnProperty.call(target.state.copy, 'gone')).toBe(true);
+    expect(target.state.copy).toEqual(target.state.raw);
+    expect(() => structuredClone(target.state.copy)).not.toThrow();
   });
 
   it('copying a circular proxy value still stores something cloneable', () => {
@@ -1164,8 +1172,10 @@ describe('createTypedScope -- proxy unwrap', () => {
     expect(() => {
       scope.copy = scope.node;
     }).not.toThrow();
-    // Back-edge pruned, real data kept, and the result survives structuredClone.
-    expect(target.state.copy).toEqual({ name: 'root', tags: ['a'] });
+    // The cycle is kept (structuredClone carries cycles; only a Proxy stops
+    // it) — until 9.24.0 the JSON round-trip pruned the back-edge instead.
+    expect((target.state.copy as any).name).toBe('root');
+    expect((target.state.copy as any).self).toBe(target.state.copy);
     expect(() => structuredClone(target.state.copy)).not.toThrow();
   });
 
