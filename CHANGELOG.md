@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — a handle the scope handed out is a value the engine accepts back
+
+- **The regression (9.22.0–9.23.2).** `addParallelForEach` over OBJECT items
+  lost every child, silently under the default best-effort policy. Found by a
+  consumer's upgrade from 9.21.1 with a minimal reproducer: the items selector
+  `(s) => s.items` returns the parent scope's array HANDLE, `items[index]` is
+  an element handle (a Proxy bound to the parent stage — 9.22.0, the lost-write
+  fix), the handler's generated `inputMapper: () => ({ item, index })` seeded
+  the branch with it, and the seed commit's `structuredClone` (9.23.0, clone
+  once at commit) threw `DataCloneError` before the branch's first stage ran.
+  The slot stayed `undefined` (`[null, null]` on the wire), the error went to
+  the run's logger, and the run resolved. 9.21.1 handed the raw element back.
+  Reproduced here on the current source before the fix, both encodings.
+- **The root.** Two designed behaviours — every read is a handle bound to its
+  stage; every recorded value is cloned at commit — were correct INSIDE a
+  stage and met at the one place neither considered: where the library ITSELF
+  carries an app-produced value out of the stage that produced it. There the
+  library was handing its own handle to a clone.
+- **The fix: one registry, asked at the boundaries.** `reactive/handles.ts`
+  maps every proxy the four inner factories build (`rememberHandle`, with the
+  same live reader the get trap uses) to the value behind it. `unwrapHandles`
+  swaps a handle for that value in O(1) — no walk, no JSON round-trip, a `Date`
+  stays a `Date` — walks a plain container copy-on-write only when the app
+  built one around handles, and returns a handle-free value as the SAME
+  reference (the ordinary write pays nothing). Asked by
+  `ParallelForEachHandler · resolveItems` (so `branch(item, index)` and the
+  branch seed receive values — 9.21.1's contract), by
+  `SubflowInputMapper · extractParentScopeValues` and `applyOutputMapping`
+  (a custom `inputMapper: (s) => ({ picked: s.items[0] })` or an
+  `outputMapper` that hands a parent handle back — the same defect, the
+  ordinary mount), and by the explicit scope doors `$setValue` / `$update` /
+  `$batchArray` (`$setValue('copy', s.customer)` now stores the value; it
+  used to fail at commit). Nothing else changed: the set trap's JSON
+  round-trip of an assigned value (landmine 1) is untouched, so
+  `s.copy = s.customer` stores the bytes it always did. `isHandle`,
+  `valueBehind`, `unwrapHandles` exported from `footprintjs/advanced`.
+- **Still loud, by design.** A GENUINE uncloneable value — a function, a
+  foreign Proxy — in a seed still fails at commit: best-effort keeps the slot
+  `undefined` and reports through the logger, `failFast` rejects the stage
+  (both pinned).
+- **Pinned** (`test/lib/engine/scenario/handles-cross-boundaries.test.ts`,
+  `test/lib/reactive/unit/handles.test.ts`): the consumer's shape under both
+  `commitValues` encodings with every branch's own log folding to its served
+  state; nested arrays, flat objects, primitives, order; a `Date` inside an
+  item reaching the child as a `Date`; a redaction policy on a seeded field
+  still scrubbing the branch's log and redacted snapshot while the branch
+  computes on the real value; the ordinary mount's two mappers; the three
+  doors; a fast-check property over random item shapes. Benches unchanged
+  (1k element writes 5.4 ms, 10k 101 ms).
+- **Found, not fixed — pre-existing, named:** `seedSubflowGlobalStore` (9.14.0)
+  spreads an object seed value into keys, so an EMPTY object or a bare `Date`
+  AS THE ITEM seeds nothing (`c.item` is `undefined` in that branch); nested
+  ones are fine. A designed change to the seed's shape, not a patch.
+
 ## [9.23.2] - 2026-09-12
 
 ### Changed — no behaviour change: every object proxy caches its child proxies, the way the top-level scope always has

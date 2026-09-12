@@ -143,6 +143,49 @@ per read); if it does not, the change is invisible: state moves, the log does
 not. Never hold a raw value across a stage boundary; hold the key and read it
 again.
 
+## A handle that travels is a value
+
+**Law: a handle the scope handed out is a value the engine accepts back.**
+Every object read out of a scope is a Proxy; every value the engine RECORDS is
+cloned (`structuredClone`, at commit since 9.23.0) — and a Proxy cannot be
+cloned. So wherever the library itself carries an app-produced value out of
+the stage that produced it, it takes the value BEHIND the handle first
+(`handles.ts · unwrapHandles`): O(1) per handle (a registry lookup — no walk,
+no JSON round-trip, a `Date` stays a `Date`), a copy-on-write walk only for a
+plain container the app built around handles, and the SAME reference back for
+a handle-free value. The boundaries that ask:
+
+| Boundary | Site |
+|---|---|
+| `addParallelForEach` items selector — the items become `branch(item, index)`'s argument and each branch's seeded `item` | `ParallelForEachHandler · resolveItems` |
+| a subflow `inputMapper` (the seed) and `outputMapper` (the merge-back) | `SubflowInputMapper · extractParentScopeValues` / `applyOutputMapping` |
+| the explicit doors `$setValue`, `$update`, `$batchArray` | `createTypedScope · METHOD_ROUTES` |
+
+```typescript
+flowChart('Seed', (s) => { s.items = [{ id: 'a', facts: { latency: 12 } }]; }, 'seed')
+  .addParallelForEach('Each', 'each', {
+    items: (s) => s.items,                 // the scope's array HANDLE …
+    branch: () => judge,                   // … each element crosses as a VALUE:
+    into: 'results',                       // the branch's `item.facts.latency` is 12,
+  });                                      // its seed commit clones fine
+
+// The explicit door keeps the bytes the set trap would not (landmine 1):
+s.$setValue('copy', s.customer);           // `copy.since` is still a Date
+s.copy = s.customer;                       // `copy.since` is a string (JSON round-trip)
+```
+
+9.22.0–9.23.2 seeded the handle itself: every fan-out branch over an object
+item failed its seed commit with `DataCloneError`, the best-effort policy kept
+the slot as `undefined`, and the run resolved (9.23.3 fixed it). What is NOT a
+handle stays a loud refusal — a function or a foreign Proxy inside a seed
+still fails at commit under both policies, by design.
+
+The value behind a handle is **borrowed** (the reads law): it is the same
+reference a read hands back, cloned by the buffer at commit. `isHandle`,
+`valueBehind` and `unwrapHandles` are exported from `footprintjs/advanced` for
+a consumer that crosses a boundary of its own (a detach driver, a custom
+recorder that clones).
+
 ## How the proxies are built
 
 Five factories, one set of leaves (9.23.1). The rule: an **orchestrator**
@@ -158,6 +201,11 @@ is the defect this shape removes.
 | `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
 | `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
 | `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
+
+Every factory but the top-level scope registers what it builds in
+`handles.ts · rememberHandle` with the same live reader its get trap uses, so
+"the value behind a handle" and "what a read of it returns now" are one thing
+(9.23.3).
 | `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`

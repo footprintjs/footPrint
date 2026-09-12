@@ -15,9 +15,19 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
 
-/** Extract values from parent scope using inputMapper. */
+/**
+ * Extract values from parent scope using inputMapper.
+ *
+ * What a mapper returns is a VALUE, not a handle: the mapper read the parent's
+ * typed scope, so its result may be — or hold — a Proxy bound to the parent
+ * stage, and the seed commit below clones it (`structuredClone`, which cannot
+ * clone a Proxy). `unwrapHandles` (reactive/handles.ts) swaps each for the
+ * value behind it, O(1), Dates and Maps intact; a handle-free result passes
+ * through by reference.
+ */
 export function extractParentScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
   options?: SubflowMountOptions<TParentScope, TSubflowInput>,
@@ -31,7 +41,7 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
     return {};
   }
 
-  return result;
+  return unwrapHandles(result);
 }
 
 /**
@@ -116,7 +126,9 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
     return undefined;
   }
 
-  const mappedOutput = options.outputMapper(subflowOutput, parentScope);
+  // The same boundary in the other direction: the mapper is handed the
+  // parent's typed scope too, so what it returns is taken as a value.
+  const mappedOutput = unwrapHandles(options.outputMapper(subflowOutput, parentScope));
 
   if (mappedOutput === null || mappedOutput === undefined) {
     return undefined;

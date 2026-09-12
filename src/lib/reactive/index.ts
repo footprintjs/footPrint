@@ -19,4 +19,5 @@ export { createTypedScope } from './createTypedScope.js';
 // Utilities
 export { shouldWrapWithProxy } from './allowlist.js';
 export { createArrayProxy } from './arrayTraps.js';
+export { isHandle, unwrapHandles, valueBehind } from './handles.js';
 export { buildNestedPatch, joinPath } from './pathBuilder.js';

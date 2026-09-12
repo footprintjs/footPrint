@@ -60,6 +60,7 @@
  */
 
 import { shouldWrapWithProxy } from './allowlist.js';
+import { rememberHandle } from './handles.js';
 import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import { unwrapProxy } from './structuralWrite.js';
 import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
@@ -223,12 +224,15 @@ function createElementProxy(
 ): unknown {
   const members = new MemberCache();
   const live = () => liveObject(raw, sink.readAt(segments));
-  return new Proxy(raw, {
-    get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
-    set: sinkSetTrap(sink, segments),
-    deleteProperty: sinkDeleteTrap(sink, segments),
-    ...liveInspectionTraps(live),
-  });
+  return rememberHandle(
+    new Proxy(raw, {
+      get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
+      set: sinkSetTrap(sink, segments),
+      deleteProperty: sinkDeleteTrap(sink, segments),
+      ...liveInspectionTraps(live),
+    }),
+    live,
+  );
 }
 
 /**
@@ -250,28 +254,32 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
   const write = commit as unknown as Write;
   const elements: ElementCache = new Map();
 
-  return new Proxy(target, {
-    get(_target, prop) {
-      if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(read, write, prop);
-      const current = read();
-      if (prop === 'length') return current.length;
-      const index = indexIn(current, prop);
-      if (index !== undefined) return cachedElement(elements, current[index], index, read, write);
-      if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
-      return boundMember(current, prop);
-    },
-    set(_target, prop, value) {
-      const index = indexNamed(prop);
-      if (index !== undefined) setIndex(read, write, index, value);
-      else if (prop === 'length' && typeof value === 'number') setLength(read, write, value);
-      return true; // any other set is ignored (an expando on an array is out of contract — README)
-    },
-    deleteProperty(_target, prop) {
-      deleteSlot(read, write, prop);
-      return true;
-    },
-    has: (_target, prop) => Reflect.has(read(), prop),
-    ownKeys: () => Reflect.ownKeys(read()),
-    getOwnPropertyDescriptor: (_target, prop) => Object.getOwnPropertyDescriptor(read(), prop),
-  });
+  // The array handle's value is the current array itself (handles.ts).
+  return rememberHandle(
+    new Proxy(target, {
+      get(_target, prop) {
+        if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(read, write, prop);
+        const current = read();
+        if (prop === 'length') return current.length;
+        const index = indexIn(current, prop);
+        if (index !== undefined) return cachedElement(elements, current[index], index, read, write);
+        if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
+        return boundMember(current, prop);
+      },
+      set(_target, prop, value) {
+        const index = indexNamed(prop);
+        if (index !== undefined) setIndex(read, write, index, value);
+        else if (prop === 'length' && typeof value === 'number') setLength(read, write, value);
+        return true; // any other set is ignored (an expando on an array is out of contract — README)
+      },
+      deleteProperty(_target, prop) {
+        deleteSlot(read, write, prop);
+        return true;
+      },
+      has: (_target, prop) => Reflect.has(read(), prop),
+      ownKeys: () => Reflect.ownKeys(read()),
+      getOwnPropertyDescriptor: (_target, prop) => Object.getOwnPropertyDescriptor(read(), prop),
+    }),
+    read,
+  );
 }

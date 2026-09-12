@@ -138,9 +138,12 @@ export {
   BREAK_SETTER,
   buildNestedPatch,
   createArrayProxy,
+  isHandle,
   joinPath,
   SCOPE_METHOD_NAMES,
   shouldWrapWithProxy,
+  unwrapHandles,
+  valueBehind,
 } from './lib/reactive/index.js';
 
 // ============================================================================

@@ -17,6 +17,7 @@
 import { nativeGet as lodashGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { arrayProxyAt } from './arrayTraps.js';
+import { rememberHandle, unwrapHandles } from './handles.js';
 import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import { unwrapProxy } from './structuralWrite.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
@@ -29,8 +30,15 @@ type MethodRouter = (target: ReactiveTarget, opts: ReactiveState) => unknown;
 
 const METHOD_ROUTES: Record<string, MethodRouter> = {
   $getValue: (t) => t.getValue.bind(t),
-  $setValue: (t) => t.setValue.bind(t),
-  $update: (t) => t.updateValue.bind(t),
+  // A handle the scope handed out is a value it accepts back (handles.ts):
+  // `$setValue('copy', scope.customer)` stores the value behind the handle,
+  // not a Proxy the commit could never clone. The set trap has always done
+  // this for `scope.copy = scope.customer` (through `unwrapProxy`); these
+  // are the explicit doors. A handle-free value passes through by reference.
+  $setValue: (t) => (key: string, value: unknown, shouldRedact?: boolean, description?: string) =>
+    t.setValue(key, unwrapHandles(value), shouldRedact, description),
+  $update: (t) => (key: string, value: unknown, description?: string) =>
+    t.updateValue(key, unwrapHandles(value), description),
   $delete: (t) => t.deleteValue.bind(t),
   $read: (t) => (dotPath: string) => {
     const rootKey = dotPath.split('.')[0];
@@ -61,8 +69,10 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
     const clone: unknown[] = Array.isArray(current) ? structuredClone(current) : [];
     // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
     fn(clone);
-    // One setValue — fires onWrite once with the final array
-    t.setValue(key, clone);
+    // One setValue — fires onWrite once with the final array. The stage may
+    // have pushed handles into the clone (`arr.push(scope.template)`) — they
+    // are values by the time the array is staged (handles.ts).
+    t.setValue(key, unwrapHandles(clone));
   },
   $break: (_t, opts) => (reason?: string) => {
     if (!opts.breakFn) throw new Error('$break() is not available outside stage execution');
@@ -148,12 +158,15 @@ function createTerminalProxy(
     if (visited.has(value as object)) return value;
     return createTerminalProxy(value as Record<string, unknown>, sink, path, visited);
   };
-  return new Proxy(obj, {
-    get: liveGetTrap(live, segments, child, members),
-    set: sinkSetTrap(sink, segments),
-    deleteProperty: sinkDeleteTrap(sink, segments),
-    ...liveInspectionTraps(live),
-  });
+  return rememberHandle(
+    new Proxy(obj, {
+      get: liveGetTrap(live, segments, child, members),
+      set: sinkSetTrap(sink, segments),
+      deleteProperty: sinkDeleteTrap(sink, segments),
+      ...liveInspectionTraps(live),
+    }),
+    live,
+  );
 }
 
 function createNestedProxy(
@@ -175,12 +188,15 @@ function createNestedProxy(
     if (ancestors.has(value as object)) return createTerminalProxy(value as Record<string, unknown>, sink, path);
     return createNestedProxy(value as Record<string, unknown>, sink, path, new Set(ancestors).add(value as object));
   };
-  return new Proxy(obj, {
-    get: liveGetTrap(live, segments, child, members),
-    set: sinkSetTrap(sink, segments),
-    deleteProperty: sinkDeleteTrap(sink, segments),
-    ...liveInspectionTraps(live),
-  });
+  return rememberHandle(
+    new Proxy(obj, {
+      get: liveGetTrap(live, segments, child, members),
+      set: sinkSetTrap(sink, segments),
+      deleteProperty: sinkDeleteTrap(sink, segments),
+      ...liveInspectionTraps(live),
+    }),
+    live,
+  );
 }
 
 // -- Top-level leaves ---------------------------------------------------------

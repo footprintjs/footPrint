@@ -52,6 +52,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { unwrapHandles } from '../../reactive/handles.js';
 import { IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import { buildBranchSegment } from '../branchSegment.js';
@@ -169,13 +170,21 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
   /**
    * Evaluate the items selector against the live scope. A non-array return is
    * a chart bug, not a runtime condition — it fails loudly, naming the stage.
+   *
+   * The selector reads the typed scope, so what it returns is usually the
+   * scope's own array HANDLE (a Proxy bound to the parent stage) and every
+   * `items[index]` an element handle. The items are about to cross into
+   * branch runtimes — closed over by `branch(item, index)` and seeded as the
+   * branch's `item` — so they are taken as VALUES here (`unwrapHandles`,
+   * reactive/handles.ts). 9.22.0–9.23.2 seeded the handle itself and every
+   * branch over an object item failed at its seed commit (DataCloneError).
    */
   private resolveItems(
     config: ParallelForEachConfig<unknown, TScope>,
     scope: TScope,
     node: StageNode<TOut, TScope>,
   ): readonly unknown[] {
-    const items = config.items(scope);
+    const items = unwrapHandles(config.items(scope));
     if (items === undefined || items === null) return [];
     if (!Array.isArray(items)) {
       throw new Error(
