@@ -17,7 +17,7 @@
 import { nativeGet as lodashGet } from '../memory/pathOps.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { arrayProxyAt } from './arrayTraps.js';
-import { liveGetTrap, liveInspectionTraps, liveObject } from './liveView.js';
+import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import { unwrapProxy } from './structuralWrite.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
@@ -111,15 +111,16 @@ function silentlyKnownKey(target: ReactiveTarget, key: string): boolean | undefi
 
 interface ReactiveState {
   breakFn?: (reason?: string) => void;
-  /** Cache: top-level key -> { raw object ref, child proxy } */
-  childCache: Map<string, { ref: object; proxy: object }>;
+  /** The top-level key's child proxy, validated by raw identity (`liveView.ts · cachedMember`); a sink drops the key on write. */
+  childCache: MemberCache;
 }
 
 // -- Nested child proxies (for deep write interception) -----------------------
 //
 // Both factories are ORCHESTRATORS (9.23.1): reads are `liveView.ts`, writes
 // are `writeTraps.ts` over a `rootKeySink`, and the ONE thing each decides
-// itself is what a child member becomes — the cycle policy.
+// itself is what a child member becomes — the cycle policy. Each holds its
+// own per-member proxy cache (9.23.2, `liveView.ts · cachedMember`).
 //
 // Cycle safety: an immutable Set<object> of ancestor objects is passed down
 // each access chain. Each branch gets its own copy (new Set(parent)) so
@@ -137,6 +138,7 @@ function createTerminalProxy(
   visited: Set<object> = new Set(),
 ): unknown {
   visited.add(obj);
+  const members = new MemberCache();
   const live = () => liveObject(obj, sink.readAt(segments));
   const child = (value: unknown, path: string[]): unknown => {
     if (!shouldWrapWithProxy(value)) return value;
@@ -147,7 +149,7 @@ function createTerminalProxy(
     return createTerminalProxy(value as Record<string, unknown>, sink, path, visited);
   };
   return new Proxy(obj, {
-    get: liveGetTrap(live, segments, child),
+    get: liveGetTrap(live, segments, child, members),
     set: sinkSetTrap(sink, segments),
     deleteProperty: sinkDeleteTrap(sink, segments),
     ...liveInspectionTraps(live),
@@ -163,6 +165,7 @@ function createNestedProxy(
   // Reads are LIVE (9.22.0): a held proxy reads its own writes, `'x' in o`
   // and `Object.keys(o)` see them, and `o.b = o.a * 10` uses the new `a`.
   // The captured object answers only when the path is gone — see liveView.ts.
+  const members = new MemberCache();
   const live = () => liveObject(obj, sink.readAt(segments));
   const child = (value: unknown, path: string[]): unknown => {
     if (!shouldWrapWithProxy(value)) return value;
@@ -173,7 +176,7 @@ function createNestedProxy(
     return createNestedProxy(value as Record<string, unknown>, sink, path, new Set(ancestors).add(value as object));
   };
   return new Proxy(obj, {
-    get: liveGetTrap(live, segments, child),
+    get: liveGetTrap(live, segments, child, members),
     set: sinkSetTrap(sink, segments),
     deleteProperty: sinkDeleteTrap(sink, segments),
     ...liveInspectionTraps(live),
@@ -220,20 +223,13 @@ function internalRead(target: ReactiveTarget, state: ReactiveState, prop: string
 }
 
 /**
- * WHY the cache: `scope.k === scope.k` must hold within a stage and a repeated
- * read of an unchanged value must not allocate; a write to the key drops the
- * entry (the sink does it), a commit swaps the value and the ref check
- * misses — either way the next read builds a fresh proxy over the new value.
+ * A wrappable state value becomes the array or nested proxy for its key;
+ * anything else is handed back raw. `scope.k === scope.k` holds within a
+ * stage through the same per-member cache every object proxy uses
+ * (`liveView.ts · cachedMember`): a write to the key drops the entry (the
+ * sink does it), a commit swaps the value and the ref check misses — either
+ * way the next read builds a fresh proxy over the new value.
  */
-function cachedChildProxy(state: ReactiveState, key: string, value: object, build: () => object): object {
-  const cached = state.childCache.get(key);
-  if (cached && cached.ref === value) return cached.proxy;
-  const proxy = build();
-  state.childCache.set(key, { ref: value, proxy });
-  return proxy;
-}
-
-/** A wrappable state value becomes the array or nested proxy for its key; anything else is handed back raw. */
 function wrapStateValue(
   target: ReactiveTarget,
   readSilent: (key: string) => unknown,
@@ -243,11 +239,17 @@ function wrapStateValue(
 ): unknown {
   if (value === null || value === undefined || typeof value !== 'object') return value;
   if (!shouldWrapWithProxy(value)) return value; // Date, Map, class instance, frozen …
-  return cachedChildProxy(state, key, value, () => {
-    const sink = rootKeySink(target, readSilent, key, state.childCache);
-    if (Array.isArray(value)) return arrayProxyAt(sink, []) as unknown as object;
-    return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value])) as object;
-  });
+  return cachedMember(
+    state.childCache,
+    key,
+    value,
+    () => {
+      const sink = rootKeySink(target, readSilent, key, state.childCache);
+      if (Array.isArray(value)) return arrayProxyAt(sink, []);
+      return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value]));
+    },
+    [],
+  );
 }
 
 /** WHY: a `$`-name can never be a state key — the write is refused, not shadowed; every other assignment
@@ -286,7 +288,7 @@ function stateKeys(target: ReactiveTarget): string[] {
  * @returns A Proxy with typed property access and $-prefixed methods
  */
 export function createTypedScope<T extends object>(target: ReactiveTarget, options?: ReactiveOptions): TypedScope<T> {
-  const state: ReactiveState = { breakFn: options?.breakPipeline, childCache: new Map() };
+  const state: ReactiveState = { breakFn: options?.breakPipeline, childCache: new MemberCache() };
   // Bind the silent read once — the nested/array proxies resolve their live view through it.
   const readSilent = (target.getValueSilent ?? target.getValue).bind(target);
 

@@ -155,16 +155,30 @@ is the defect this shape removes.
 | Orchestrator (file · symbol) | Holds | Decides itself |
 |---|---|---|
 | `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `internalRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
-| `createTypedScope.ts · createNestedProxy` | an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
-| `createTypedScope.ts · createTerminalProxy` | ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
-| `arrayTraps.ts · createElementProxy` | an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
+| `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
+| `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
+| `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
 | `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`
 (guards + the JSON law, then the child step above), `writeTraps.ts ·
 sinkSetTrap` (unwrap the assigned value — landmine 1 — and hand it to the
 sink at the proxy's path plus the key), `writeTraps.ts · sinkDeleteTrap`,
-and `liveView.ts · liveInspectionTraps`. Where a write LANDS is a
+and `liveView.ts · liveInspectionTraps`.
+
+Every child cache above is ONE leaf, `liveView.ts · cachedMember` over a
+`MemberCache` (9.23.2): a proxy per member NAME under its parent, validated
+by the raw member's identity, its map allocated on the first insert (an
+element proxy over `{ id, n }` reads only primitives and never pays for one). A write through any proxy rebuilds the containers on its path
+(`structuralWrite`), so the raw member is a new object afterwards, the
+identity check misses, and the next read builds a proxy over the NEW value;
+a hit can never be stale because every proxy reads live. Keyed by name under
+the parent, never by the raw value alone — a diamond (`k.a` and `k.b` the
+same array) needs two proxies, each bound to its own path. Before 9.23.2
+only the top-level scope had this cache: `s.k.arr` built a fresh array
+proxy, with a fresh empty element cache, on every access, so
+`for (i < N) s.k.arr[i]` allocated N array proxies and N element proxies and
+`s.k.arr[0] === s.k.arr[0]` was false. Where a write LANDS is a
 `writeTraps.ts · WriteSink` (`readAt` / `put` / `remove`, a path measured
 from the sink's root): `rootKeySink` for nested and terminal proxies (an
 object leaf is a `merge` of a nested patch, an array leaf or a delete
@@ -236,6 +250,15 @@ Same guidance as MobX: prefer batch assignment over repeated mutations for large
 key — an element edited inside `fn` (`arr[0].n = 9`) lands in that one write and
 never touches the value in state (9.22.0; a shallow copy used to share the
 committed elements).
+
+**`s.k` in a loop is N tracked reads.** Each `scope.k` is a tracked read of
+`k`, and under the default `readTracking: 'full'` each one retains a
+`structuredClone` of the value (`StageContext.getValue`) — ~0.25 ms per read
+when `k` holds 1,000 object elements, ~2.5 ms at 10,000 — so
+`for (i < N) s.k.arr[i]` is O(N × |k|) under that dial whatever the proxy
+does. Hoist it: `const arr = s.k.arr` reads `k` once, and the element cache
+serves every index. The proxy's own cost is the other, smaller term
+(`bench/nested-reads.ts` measures both dials; see CHANGELOG [9.23.2]).
 
 **N element writes in one stage produce N whole-array rows.** Every
 `arr[i].n = i` is a `set` of the ROOT key (law 3), so a loop of N of them stages

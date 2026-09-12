@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.23.2] - 2026-09-12
+
+### Changed — no behaviour change: every object proxy caches its child proxies, the way the top-level scope always has
+
+- **Why.** The 9.22.0 perf review (finding 4) found that the nested proxy's
+  get trap built a FRESH array proxy — with its own empty element cache — on
+  every `.arr` access, so `for (i < N) s.k.arr[i]` never hit the element
+  cache and allocated an array proxy plus an element proxy per iteration;
+  `s.k.arr === s.k.arr` and `s.k.arr[0] === s.k.arr[0]` were false, while
+  `s.k === s.k` and `s.arr[0] === s.arr[0]` held. Nested OBJECT members had
+  the same shape (`s.k.o` built a nested proxy and copied its ancestor set
+  per access), and so did an element proxy's members (`s.arr[0].o`).
+
+- **What changed — one leaf.** `reactive/liveView.ts · cachedMember` over a
+  `MemberCache`: a proxy per member NAME under its parent proxy, validated
+  by the raw member's identity. It is the cache the top-level scope already
+  had (`cachedChildProxy`, now gone — same leaf) and the three object
+  proxies now hold one each (`createNestedProxy`, `createTerminalProxy`,
+  `createElementProxy`; `liveGetTrap` takes it as its fourth argument). The
+  invalidation rule is the one the top-level cache and `cachedElement`
+  already used: every write through a proxy rebuilds the containers on its
+  path (`structuralWrite.setInPath`), so the raw member is a NEW object
+  afterwards, the identity check misses, and the next read builds a proxy
+  over the new value; a hit can never be stale, because every proxy reads
+  live. Keyed by name under the parent, never by the raw value alone — a
+  diamond (one array under `k.a` and `k.b`) gets two proxies, each bound to
+  its own path (pinned). The map is allocated on the first insert, so an
+  element proxy whose members are all primitives (`{ id, n }`) never pays
+  for one, and `build` is the factory's stable child step, so a hit
+  allocates nothing.
+
+  One corner moves with it, deliberately: a HELD terminal proxy (the cycle
+  edge, `const t = s.k.self`) reading the same object member twice used to
+  hand back a proxy the first time and the RAW object the second — its
+  shared `visited` set mistook a repeat for a cycle. It now hands back the
+  same proxy both times (`memberCache.test.ts`). Unreachable by any of the
+  reference suites or the fuzz, which never hold a terminal proxy.
+
+- **Proof.** Zero byte changes: every existing test passes unchanged, the
+  nine reference suites are green in both `commitValues` modes, and the
+  13,000-program differential fuzz of 9.23.1 (same generator, seeds
+  1..13000) run through the 9.23.1 dist and this build produced
+  byte-identical snapshots, commit logs, scope events, folds and warnings.
+  New: `test/lib/reactive/unit/memberCache.test.ts` (12 tests, 7 red
+  before) — identity (`s.k.arr === s.k.arr`, `s.k.arr[0] === s.k.arr[0]`,
+  `s.k.o === s.k.o`, `s.arr[0].sub === s.arr[0].sub`, 1,000 reads → ONE
+  proxy), invalidation (`s.k.arr[0].n = 1` → the served `s.k.arr` is a
+  different proxy over the rebuilt array and reads 1; a held `k` after
+  `k.arr.push` sees the new array), the diamond, and one executor run whose
+  log records exactly the writes.
+
+- **Measured** (`bench/nested-reads.ts`, new; interleaved A/B, 31/41
+  rounds, `readTracking: 'off'` — the proxy's own cost; machine under
+  unrelated load ~7). N = 1k / 10k, stage body ms, 9.23.1 → 9.23.2:
+  one pass `s.k.arr[i].n` 0.61 → 0.61 / 6.97 → 7.77; two reads per index
+  (`s.k.arr[i].n * s.k.arr[i].id`) 1.44 → 1.01 / 11.9 → 10.8; two passes
+  1.89 → 1.55 / 11.4 → 11.0; nested object `s.k.o.x` 0.41 → 0.29 / 4.65 →
+  2.60; hoisted `arr[i].n` unchanged within noise. The one-pass loop at 10k
+  is +12% because it now RETAINS the 10k element proxies it touched (as the
+  hoisted loop always did) instead of discarding them young; every repeated
+  read is cheaper, `s.k.arr` alone halves (2.4 → 1.1 ms per 10k). What the
+  bench also shows, under the DEFAULT dial: `for (i < N) s.k.arr[i]` is
+  ~220 ms at N = 1k in BOTH versions, because each `s.k` is a tracked read
+  and `readTracking: 'full'` retains a `structuredClone` of `k` per read —
+  the proxy is not the cost there; hoist `s.k` (now in the reactive README's
+  performance guidance). `bench/element-writes.ts` and `bench/read-cost.ts`
+  are within noise (1k element writes 1.95 → 2.00 ms body; 643 → 669
+  ns/read on medians, mins 12.52 → 12.61 ms).
+
 ## [9.23.1] - 2026-09-11
 
 ### Changed — no behaviour change: the proxy factories are orchestrators over shared leaves

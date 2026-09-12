@@ -11,11 +11,74 @@
  * captured object only when the path is gone or no longer holds an object.
  *
  * The READ side of every object proxy lives here — {@link liveObject},
- * {@link liveGetTrap}, {@link liveInspectionTraps}; the WRITE side is
+ * {@link liveGetTrap}, {@link liveInspectionTraps}, and the ONE per-member
+ * proxy cache {@link cachedMember} (9.23.2); the WRITE side is
  * `writeTraps.ts`. A factory only wires them (9.23.1).
  */
 
 import { toJSONView } from './jsonProjection.js';
+
+/**
+ * A proxy per member NAME under one parent proxy, validated by the raw
+ * member's identity. The map is allocated on the FIRST insert: an element
+ * proxy over `{ id, n }` reads only primitives and must not pay for one
+ * (10,000 of them in the naive re-read loop — measured, `bench/nested-reads.ts`).
+ */
+export class MemberCache {
+  private entries?: Map<string, { ref: object; proxy: unknown }>;
+
+  /** The proxy cached under `prop`, if it was built over exactly this raw `value`. */
+  hit(prop: string, value: object): unknown {
+    const cached = this.entries?.get(prop);
+    return cached !== undefined && cached.ref === value ? cached.proxy : undefined;
+  }
+
+  remember(prop: string, value: object, proxy: unknown): void {
+    (this.entries ??= new Map()).set(prop, { ref: value, proxy });
+  }
+
+  /** Forget `prop` — a write replaced its value, so the next read must build over the new one. */
+  delete(prop: string): void {
+    this.entries?.delete(prop);
+  }
+}
+
+/**
+ * WHY the cache: `o.arr === o.arr` must hold within a stage, and
+ * `for (i < N) s.k.arr[i]` must build ONE array proxy — whose element cache
+ * then serves every index — not N (the 9.22.0 perf review, finding 4: the
+ * nested get trap built a fresh array proxy, with a fresh empty element
+ * cache, on every `.arr`). The top-level scope has cached its child proxies
+ * this way since before 9.22.0; this is that leaf, shared by all four.
+ *
+ * Validated by IDENTITY, invalidated by replacement: every write through a
+ * proxy rebuilds the containers on its path (`structuralWrite.setInPath`),
+ * so after `s.k.arr[0].n = 1` the raw `arr` is a new array, the ref check
+ * misses, and the next read builds a proxy over the NEW value. A hit can
+ * never be stale — every proxy reads live (`liveGetTrap`), so the cached one
+ * and a fresh one answer the same.
+ *
+ * Keyed by NAME under THIS parent, never by the raw value alone: a diamond
+ * (one array under `k.a` and `k.b`) needs two proxies, each bound to its own
+ * path and sink. Only what `build` actually WRAPPED is kept — a member handed
+ * back raw (a `Date`, a frozen object, a cycle edge) is not worth an entry.
+ * `build` is the caller's stable child step, not a closure made per read: a
+ * hit allocates nothing, and a primitive member skips the cache entirely.
+ */
+export function cachedMember(
+  cache: MemberCache,
+  prop: string,
+  value: unknown,
+  build: (value: unknown, path: string[]) => unknown,
+  segments: readonly string[],
+): unknown {
+  if (value === null || typeof value !== 'object') return build(value, [...segments, prop]);
+  const hit = cache.hit(prop, value);
+  if (hit !== undefined) return hit;
+  const proxy = build(value, [...segments, prop]);
+  if (proxy !== value) cache.remember(prop, value, proxy);
+  return proxy;
+}
 
 /** The object at `segments` under the current root, or `raw` when it is gone. */
 export function liveObject(raw: Record<string, unknown>, current: unknown): Record<string, unknown> {
@@ -29,12 +92,14 @@ export function liveObject(raw: Record<string, unknown>, current: unknown): Reco
  * `constructor`, and the JSON law — serializing a proxied value equals
  * serializing the raw one, `jsonProjection.ts`) must be the same three lines
  * on every object proxy; any other member is handed to `child` with its full
- * path, and only THAT step differs per factory (the cycle policy).
+ * path — through the parent's {@link cachedMember} — and only THAT step
+ * differs per factory (the cycle policy).
  */
 export function liveGetTrap(
   live: () => Record<string, unknown>,
   segments: readonly string[],
   child: (value: unknown, path: string[]) => unknown,
+  members: MemberCache,
 ): ProxyHandler<object>['get'] {
   return (_target, prop) => {
     const raw = live();
@@ -42,7 +107,7 @@ export function liveGetTrap(
     if (prop === 'then' || prop === 'asymmetricMatch') return undefined;
     if (prop === 'constructor') return Object;
     if (prop === 'toJSON') return () => toJSONView(raw);
-    return child(raw[prop], [...segments, prop]);
+    return cachedMember(members, prop, raw[prop], child, segments);
   };
 }
 

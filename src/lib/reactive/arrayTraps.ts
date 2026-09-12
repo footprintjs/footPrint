@@ -60,7 +60,7 @@
  */
 
 import { shouldWrapWithProxy } from './allowlist.js';
-import { liveGetTrap, liveInspectionTraps, liveObject } from './liveView.js';
+import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import { unwrapProxy } from './structuralWrite.js';
 import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
 
@@ -221,9 +221,10 @@ function createElementProxy(
   segments: readonly string[],
   visited: Set<object>,
 ): unknown {
+  const members = new MemberCache();
   const live = () => liveObject(raw, sink.readAt(segments));
   return new Proxy(raw, {
-    get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited)),
+    get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
     set: sinkSetTrap(sink, segments),
     deleteProperty: sinkDeleteTrap(sink, segments),
     ...liveInspectionTraps(live),

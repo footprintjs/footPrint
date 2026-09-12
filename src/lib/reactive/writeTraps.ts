@@ -14,6 +14,7 @@
  */
 
 import { nativeGet } from '../memory/pathOps.js';
+import type { MemberCache } from './liveView.js';
 import { buildNestedPatch } from './pathBuilder.js';
 import { deleteInPath, setInPath, unwrapProxy } from './structuralWrite.js';
 
@@ -48,7 +49,7 @@ export function rootKeySink(
   target: RootKeyTarget,
   readSilent: (key: string) => unknown,
   rootKey: string,
-  cache: Map<string, unknown>,
+  cache: Pick<MemberCache, 'delete'>,
 ): WriteSink {
   return new RootKeySink(target, readSilent, rootKey, cache);
 }
@@ -59,7 +60,7 @@ class RootKeySink implements WriteSink {
     private readonly target: RootKeyTarget,
     private readonly readSilent: (key: string) => unknown,
     private readonly rootKey: string,
-    private readonly cache: Map<string, unknown>,
+    private readonly cache: Pick<MemberCache, 'delete'>,
   ) {}
 
   /** An empty path is the key's own value — `nativeGet(v, [])` would return it unchanged, so the walk is skipped. */
