@@ -162,6 +162,17 @@ Credential transient-retry via reliability (documented deferral) · `sf-credenti
 - [ ] **R7. [F]** Part A — backtracking gap fixes (blocks D1–D5, one additive minor): `parentRuntimeStageId` on TraversalContext · untracked-read honesty flags on CommitBundle · control-dependence edges + `CausalEdge`/`weigh` hook in `causalChain` · `controlDepRecorder()` · truncation flags. Fixes the decider-invisible-in-slice gap verified at backtrack.ts.
 - [ ] **R8. [A]** Part B — `localizeContextBug()` (blocks D6–D10): extract shared `influence-core` (also de-dupes R4/R5) · LLM-edge weigher · ablation adapters (tool/injection/memory) · N-seeded bisection with variance · Lens weighted-DAG panel. The follow-up paper's engine.
 
+## Research track — Optional JavaScript predicate compiler (deferred, 2026-09-15)
+
+- [ ] **R9. [F]** Study Babel parsing and AST transforms before designing an optional authoring adapter from a supported subset of ordinary JavaScript predicates to Footprint's existing decision grammar. **Backlog only; do not implement in the current context/reference work.**
+  - **Problem:** scope proxies observe property reads/writes, but cannot generally recover the comparison operator, literal threshold or unevaluated condition from a function such as `(s) => s.amount > 500`. The existing declarative form `{ amount: { gt: 500 } }` records those details explicitly.
+  - **First experiment:** a pure flat scope-property versus literal comparison, with an explicit supported-syntax list and a diagnostic/opaque-function fallback for unsupported code. Inspect Babel's AST/source-location and transform APIs; code generation need not involve an LLM.
+  - **Semantic gate:** preserve evaluation count/order, JavaScript coercion, thrown errors, getters and short-circuit behavior. Existing filters eagerly evaluate all entries: do not flatten `&&` or `||` into that representation without proving equivalent behavior. Closure values, calls, side effects and complex expressions need an explicit policy; do not guess their meaning.
+  - **Evidence gate:** distinguish static predicate structure from branches/conditions actually evaluated. Join any generated condition IDs and source versions to runtime stage evidence, apply existing redaction/retention rules, and never label an unexecuted condition as observed.
+  - **Boundary:** optional Footprint compiler tooling; keep the runtime grammar authoritative and keep Babel/compilation out of ContextFootprint's pure assertion-comparison core. Study bidirectional editing as a later question, not an implemented round-trip guarantee or recovered business intent.
+  - **Done when (research):** a short design records supported/unsupported examples, representation choice, code-versus-grammar differential tests, source/evidence mapping, bundle/build costs, and a go/no-go recommendation. Any implementation requires its own subsequent task.
+  - **Primary references:** [Babel core](https://babeljs.io/docs/babel-core), [parser](https://babeljs.io/docs/babel-parser), [traverse](https://babeljs.io/docs/babel-traverse). Related discussion: [G5's ontology/compiler positioning](https://g5labs.ai/); its public claims are inspiration, not verification of its internals.
+
 ## Phase 6 — Minor & polish (anytime; none block the phases above)
 
 **footprintjs**
