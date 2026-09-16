@@ -10,7 +10,8 @@
  * writing one key, run once; the snapshot is then read the way a browser
  * would (a JSON round trip) and folded the way a lens does.
  *
- *   A. record size + JSON round trip (the bytes a browser downloads and parses)
+ *   A. record size + round trip: written with `stringifySnapshot`, read with
+ *      JSON.parse (the bytes a browser downloads and parses)
  *   B. timeTravel(snapshot): building the cursor and its commit stops
  *   C. stateAt at the LAST stop: the fold from the base over every delta
  *   D. stateAt at the MIDDLE stop
@@ -23,7 +24,7 @@
  * Run:  npx tsx bench/time-travel.ts            (N defaults to 10 000)
  *       N=1000 npx tsx bench/time-travel.ts
  */
-import { flowChart, FlowChartExecutor } from '../src/index';
+import { flowChart, FlowChartExecutor, stringifySnapshot } from '../src/index';
 import { commitStops, timeTravel } from '../src/trace';
 import { formatBytes, formatMs, measure, printHeader } from './util';
 
@@ -57,9 +58,9 @@ async function main(): Promise<void> {
   const { snapshot, finalState } = await build();
   console.log(`build + run: ${formatMs(performance.now() - t0)}`);
 
-  // A. the record as bytes, and what a browser pays to parse it. A part that
-  // JSON cannot serialise (a recursion too deep for the engine) is REPORTED,
-  // and the read side is then measured on the live snapshot.
+  // A. the record as bytes, and what a browser pays to parse it. Each part is
+  // sized with JSON.stringify too, so a part the engine cannot recurse into
+  // (the executionTree of a long linear run) is still REPORTED.
   let parsed: Parameters<typeof timeTravel>[0] = snapshot as Parameters<typeof timeTravel>[0];
   const parts = snapshot as Record<string, unknown>;
   for (const part of ['sharedState', 'initialState', 'commitLog', 'executionTree', 'subflowResults', 'recorders']) {
@@ -70,16 +71,17 @@ async function main(): Promise<void> {
       console.log(`A. ${part}: JSON.stringify FAILED — ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  try {
-    const json = JSON.stringify(snapshot);
-    const parse = measure(() => {
-      JSON.parse(json);
-    }, ROUNDS);
-    console.log(`A. record ${formatBytes(json.length)} · JSON.parse ${formatMs(parse.median)}`);
-    parsed = JSON.parse(json) as Parameters<typeof timeTravel>[0];
-  } catch (e) {
-    console.log(`A. whole record: JSON.stringify FAILED — ${e instanceof Error ? e.message : String(e)}; reading the live snapshot`);
-  }
+  // The record is written with `stringifySnapshot` (9.26.0) — the same bytes
+  // as JSON.stringify, without its recursion limit — and read with JSON.parse.
+  const write = measure(() => {
+    stringifySnapshot(snapshot);
+  }, ROUNDS);
+  const json = stringifySnapshot(snapshot);
+  const parse = measure(() => {
+    JSON.parse(json);
+  }, ROUNDS);
+  console.log(`A. record ${formatBytes(json.length)} · stringifySnapshot ${formatMs(write.median)} · JSON.parse ${formatMs(parse.median)}`);
+  parsed = JSON.parse(json) as Parameters<typeof timeTravel>[0];
 
   // B. the cursor and its stops
   const open = measure(() => {

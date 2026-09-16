@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.26.0] - 2026-09-16
+
+### Added — `stringifySnapshot`: a run's record as JSON, without the engine's recursion limit
+
+- `stringifySnapshot(snapshot)` (main barrel) emits the SAME bytes
+  `JSON.stringify` would — `toJSON` honoured, absent values dropped from
+  objects and `null` in arrays, non-finite numbers `null`, a cycle or a
+  BigInt throws the same `TypeError` — with its own stack instead of the
+  engine's. Pinned byte-for-byte on a real snapshot and on a fast-check
+  property over JSON values. A 20 000-deep `next` chain, where
+  `JSON.stringify` throws `RangeError`, encodes and `JSON.parse` reads it
+  back (measured: V8 parses a chain 12 000 deep; only its encoder recurses).
+- Why: the `executionTree` of a long LINEAR run links stages by `next`, one
+  level per stage, and the bench (9.25.0) found a 10 000-stage run's record
+  could not be saved. The shape stays as it is — every reader keeps working,
+  `JSON.parse` reads the file — only the WRITER changes: use
+  `stringifySnapshot` where a record is written (a recording, an artifact,
+  a fixture). `bench/time-travel.ts` does now: the 10 000-commit record
+  is 4.6 MB, written in 84 ms and parsed in 17 ms (Apple M5 Pro).
+- Closes the "Known" limit noted under 9.25.0.
+
 ## [9.25.0] - 2026-09-16
 
 ### Changed — the read-side fold clones once, and a cursor steps by one bundle

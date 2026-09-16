@@ -391,3 +391,6 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/scope/detectCirc
 // `defineScopeFromZod` and the other zod-based scope helpers moved to the opt-in
 // `footprintjs/zod` entry — keeping zod out of the core load path (it is an
 // optional peer). Import them from 'footprintjs/zod'.
+// A run's record as JSON without the engine's recursion limit (9.26.0): the
+// same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
+export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';
