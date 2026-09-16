@@ -573,3 +573,15 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
 - `examples/post-execution/time-travel/05-a-stored-recording-needs-no-cast.ts` — `unknown[]` rows, gaps by index
 
 **How the fold got fast** — the base algorithm and every optimisation in order, with the numbers and the traps: [docs/guides/the-fold-and-how-it-got-fast.md](../../../docs/guides/the-fold-and-how-it-got-fast.md).
+
+## Performance — how the read side got fast
+
+Two patterns, both pinned against a fresh fold at every stop
+(`test/lib/time-travel/fold-memo.test.ts`), both measured by
+`npm run bench:time-travel`: the fold clones its base ONCE and applies every
+bundle into that private copy (`foldLegsFrom` · `applySmartMergeInto`), and
+the cursor keeps that copy as a `FoldMemo` so a step forward applies one
+bundle. At ten thousand commits: 8.13 s → 2.8 ms for a fold, 15.6 s → 4.8 ms
+for a step. The patterns, with the write-side ones and the JSON encoder,
+are told for teaching in
+[docs/guides/performance-patterns.md](../../../docs/guides/performance-patterns.md).

@@ -315,6 +315,8 @@ microtask checkpoint ("one beat behind"), fully drained before `run()`
 returns. Same record, same order; the engine stops paying for observation.
 Full model + FAQ: [Deferred observers guide](./docs/guides/observers-deferred.md).
 
+How it stays fast, as patterns with numbers and the tests that pin them: [Performance patterns](./docs/guides/performance-patterns.md).
+
 ---
 
 ## Documentation

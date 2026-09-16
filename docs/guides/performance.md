@@ -39,3 +39,5 @@ This runs `bench/run.ts` using `tsx`. Results vary by machine — the numbers ab
 ---
 
 **[Back to guides](./README.md)** | **[Architecture](../internals/)**
+
+See also [Performance patterns, with numbers](./performance-patterns.md) — each speed-up as a named pattern, its measurement, and the test that pins the answer.
