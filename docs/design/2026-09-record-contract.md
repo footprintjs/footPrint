@@ -73,10 +73,13 @@ by hand and read end to end, with no executor in the room.
    Sidecar `.md` tells it as "bring your own record".
 4. **Docs and links** — the guide linked from the main README and the
    time-travel README; CHANGELOG entry (docs + one guard = minor).
-5. **Proven in the Lens** — the same hand-built record on the docs site
-   (agentfootprint docs-next) rendered by `<ContextView>` and the Lens, a
-   Playwright check that the cursor, the fold and the served layer read
-   it. Separate repo, after 1–4 ship.
+5. **Proven in the Lens** — FACT: docs-next has no Playwright harness, and
+   the `<Lens>` needs agentfootprint's recording (events), which is outside
+   this contract. So the React proof lives where the views live: a lens
+   test mounts `<ContextView runner={record}>` over the same hand-built
+   record — its own axis from the declared tags, the fold at each stop,
+   the writers, a skipped bundle shown. A docs-site page with a Playwright
+   check is a separate decision (a harness to build); not in this packet.
 
 ## Track
 
