@@ -9,7 +9,7 @@
  */
 
 import type { CommitBundle, MemoryPatch } from '../memory/types.js';
-import { applySmartMerge } from '../memory/utils.js';
+import { applySmartMergeInto } from '../memory/utils.js';
 import { readLog } from './bundles.js';
 import type { FoldBasis, FoldedState, FoldSource, LogGap } from './types.js';
 
@@ -63,47 +63,93 @@ export function readSource(source: FoldSource | undefined): ReadSource {
  * With a single leg this is the 9.17.0 fold, unchanged.
  */
 export function foldLegs(legs: readonly ReadSource[], legIdx: number, through: number): FoldedState {
-  let based = false;
-  let out: Record<string, unknown> = {};
-  const redactedPaths = new Set<string>();
-  let skipped: LogGap[] | undefined;
-  let lastThrough = -1;
+  return foldLegsFrom(legs, legIdx, through).folded;
+}
 
-  for (let leg = 0; leg <= legIdx && leg < legs.length; leg++) {
-    const { log, gaps, base } = legs[leg];
-    if (base && typeof base === 'object') {
-      out = structuredClone(base);
-      based = true;
-    }
-    const end = leg === legIdx ? Math.min(through, log.length - 1) : log.length - 1;
-    if (leg === legIdx) lastThrough = end < -1 ? -1 : end;
-    for (const gap of gaps) {
-      if (gap.index <= end) (skipped ??= []).push(gap);
-    }
-    for (let i = 0; i <= end; i++) {
-      const bundle = log[i];
-      if (!bundle) continue;
-      for (const path of bundle.redactedPaths ?? []) redactedPaths.add(path);
-      out = applySmartMerge(out, bundle.updates as MemoryPatch, bundle.overwrite as MemoryPatch, bundle.trace);
+/**
+ * What a fold leaves behind for the NEXT one (9.25.0): the private working
+ * copy and the facts accumulated so far. A cursor stepping forward on the
+ * same leg hands it back and only the bundles after `through` are applied —
+ * one bundle per step instead of a replay from the base. Any other ask (an
+ * earlier stop, another leg) folds from scratch; the memo is never a claim.
+ */
+export interface FoldMemo {
+  readonly legIdx: number;
+  readonly through: number;
+  readonly out: Record<string, unknown>;
+  readonly based: boolean;
+  readonly redactedPaths: ReadonlySet<string>;
+  readonly skipped: readonly LogGap[] | undefined;
+}
+
+/** Apply `log[from + 1 .. end]` of one leg into `out`, collecting the leg's facts. */
+function applyLeg(
+  out: Record<string, unknown>,
+  leg: ReadSource,
+  from: number,
+  end: number,
+  redactedPaths: Set<string>,
+  skipped: LogGap[] | undefined,
+): LogGap[] | undefined {
+  for (const gap of leg.gaps) {
+    if (gap.index > from && gap.index <= end) (skipped ??= []).push(gap);
+  }
+  for (let i = from + 1; i <= end; i++) {
+    const bundle = leg.log[i];
+    if (!bundle) continue;
+    for (const path of bundle.redactedPaths ?? []) redactedPaths.add(path);
+    applySmartMergeInto(out, bundle.updates as MemoryPatch, bundle.overwrite as MemoryPatch, bundle.trace);
+  }
+  return skipped;
+}
+
+/**
+ * The fold, resumable. ONE clone per fold: the base is cloned once (or `{}`
+ * stands in), every bundle is applied INTO that copy, and the state handed
+ * out is one more clone, frozen — so the working copy stays private and a
+ * later step can continue from it. Same answer as the 9.17.0 fold, pinned by
+ * test/lib/time-travel/fold-memo.test.ts against a fresh fold at every stop.
+ */
+export function foldLegsFrom(
+  legs: readonly ReadSource[],
+  legIdx: number,
+  through: number,
+  memo?: FoldMemo,
+): { readonly folded: FoldedState; readonly memo: FoldMemo } {
+  const last = legs[legIdx];
+  const endOnLeg = last ? Math.min(through, last.log.length - 1) : -1;
+  const lastThrough = endOnLeg < -1 ? -1 : endOnLeg;
+  const resumable = memo !== undefined && memo.legIdx === legIdx && lastThrough >= memo.through;
+
+  let based = resumable ? memo.based : false;
+  let out: Record<string, unknown> = resumable ? memo.out : {};
+  const redactedPaths = new Set<string>(resumable ? memo.redactedPaths : []);
+  let skipped: LogGap[] | undefined = resumable && memo.skipped ? [...memo.skipped] : undefined;
+
+  if (resumable) {
+    if (last) skipped = applyLeg(out, last, memo.through, lastThrough, redactedPaths, skipped);
+  } else {
+    for (let leg = 0; leg <= legIdx && leg < legs.length; leg++) {
+      const source = legs[leg];
+      if (source.base && typeof source.base === 'object') {
+        out = structuredClone(source.base);
+        based = true;
+      }
+      const end = leg === legIdx ? lastThrough : source.log.length - 1;
+      skipped = applyLeg(out, source, -1, end, redactedPaths, skipped);
     }
   }
 
   const basis: FoldBasis = based ? 'initial+log' : 'log-only';
-  return {
-    // Law 3, both halves. `applySmartMerge` clones what it OVERWRITES, but the
-    // merge arm's array union (`deepSmartMerge`) carries source element
-    // REFERENCES out of `bundle.updates`. Freezing that directly would freeze
-    // the engine's own recorded bundle — a read-only query mutating the
-    // record. Cloning first detaches those leaves, and costs one clone of the
-    // final state, not one per bundle.
+  const folded: FoldedState = {
     state: freezeDeep(structuredClone(out)),
     basis,
     redacted: redactedPaths.size > 0,
     redactedPaths: Object.freeze([...redactedPaths].sort()),
     throughCommitIdx: lastThrough,
-    // ABSENT when clean: a fold over a live snapshot keeps the 9.17.0 shape.
     ...(skipped ? { skipped: Object.freeze(skipped) } : {}),
   };
+  return { folded, memo: { legIdx, through: lastThrough, out, based, redactedPaths, skipped } };
 }
 
 /**

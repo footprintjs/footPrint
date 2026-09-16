@@ -435,7 +435,25 @@ export function supersededByNextSet(rows: readonly { path: string; verb: string 
  * here; there is no second replay loop to keep in step.
  */
 export function applySmartMerge(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
-  const out = structuredClone(base);
+  return applySmartMergeInto(structuredClone(base), updates, overwrite, trace);
+}
+
+/**
+ * The same replay, INTO `target` — the one verb switch, no clone of its own.
+ * For a caller that already holds a private working copy (the read-side fold
+ * in `time-travel/stateAt.ts`, which clones its base ONCE and then applies
+ * every bundle here), so a fold over N bundles costs N row applications, not
+ * N clones of the whole state. Never hand it committed state: it mutates.
+ * The values it writes are its own (`set`/`append` clone the recorded value;
+ * `merge` builds new containers), so `target` never aliases the log.
+ */
+export function applySmartMergeInto(
+  target: any,
+  updates: MemoryPatch,
+  overwrite: MemoryPatch,
+  trace: TraceEntry[],
+): any {
+  const out = target;
   for (let i = 0; i < trace.length; i++) {
     if (supersededByNextSet(trace, i)) continue;
     const { path, verb } = trace[i];

@@ -24,7 +24,7 @@
 import { isPlainish, readTree } from './bundles.js';
 import { refuseChain } from './chain.js';
 import { commitStopsStrategy } from './commitStops.js';
-import { type ReadSource, foldLegs, readSource } from './stateAt.js';
+import { type FoldMemo, type ReadSource, foldLegsFrom, readSource } from './stateAt.js';
 import type {
   FoldedState,
   Mark,
@@ -58,6 +58,8 @@ class Cursor<TMeta> implements TimeTravel<TMeta> {
   private readonly options: TimeTravelOptions<TMeta>;
   private readonly _marks: Mark[];
   private step: number;
+  /** The last fold's working copy, so a step forward applies one bundle (9.25.0). */
+  private foldMemo: FoldMemo | undefined;
 
   constructor(
     sources: readonly TimeTravelSource[],
@@ -181,7 +183,9 @@ class Cursor<TMeta> implements TimeTravel<TMeta> {
   stateAt(stop?: Stop<TMeta>): FoldedState {
     const target = stop ?? this.at();
     const leg = target?.sourceIdx ?? 0;
-    const folded = foldLegs(this.legs, leg, target ? target.lastCommitIdx : -1);
+    const fold = foldLegsFrom(this.legs, leg, target ? target.lastCommitIdx : -1, this.foldMemo);
+    this.foldMemo = fold.memo;
+    const folded = fold.folded;
     // Which leg the index belongs to, but only when there is more than one —
     // a single-source fold keeps the 9.17.0 shape exactly.
     return this.legs.length > 1 ? { ...folded, sourceIdx: leg } : folded;

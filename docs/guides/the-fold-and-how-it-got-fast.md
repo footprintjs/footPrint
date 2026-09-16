@@ -158,3 +158,17 @@ Three shapes, and every optimisation above belongs to exactly one:
 
 The test for "should this be a strategy": could two implementations disagree about the
 bytes? If yes, it is not a strategy. It is the law.
+
+## The read side (9.25.0)
+
+The same lesson, applied to the reader. `timeTravel().stateAt(stop)` used to
+hand each bundle to `applySmartMerge`, which clones the whole state before
+applying the bundle's rows — one clone per bundle, so a fold over N bundles
+was quadratic: 15 ms at a thousand commits, 8.1 s at ten thousand. Now the
+fold clones its base ONCE into a private working copy, applies every bundle
+into it (`applySmartMergeInto`, the one verb switch), and clones once more
+to hand out a frozen state: 2.8 ms at ten thousand. The cursor also keeps
+that working copy (`FoldMemo`), so stepping forward applies one bundle:
+4.8 ms for a step that cost 15.6 s. Both pinned by
+`test/lib/time-travel/fold-memo.test.ts` against a fresh fold at every stop,
+and measured by `npm run bench:time-travel`.

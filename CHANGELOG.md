@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.25.0] - 2026-09-16
+
+### Changed — the read-side fold clones once, and a cursor steps by one bundle
+
+- `timeTravel().stateAt(stop)` and `stateAt(source, commitIdx)` fold into ONE
+  private working copy: the base is cloned once, every bundle is applied
+  into it (`applySmartMergeInto`, the same verb switch `applySmartMerge`
+  clones for), and the state handed out is one more clone, frozen. Before,
+  every bundle cloned the whole state, so a fold over N bundles cost N
+  clones — quadratic. Measured on `bench/time-travel.ts` (new, footprintjs
+  alone, 10 000 commits, Apple M5 Pro): the fold at the last stop 8.13 s →
+  2.8 ms, the middle stop 1.78 s → 0.9 ms. Same answer as the 9.17.0 fold,
+  pinned against a fresh fold at every stop (test/lib/time-travel/fold-memo).
+- The cursor remembers its last fold (`FoldMemo`, `foldLegsFrom`): a step
+  forward on the same leg applies only the bundles after it — one bundle per
+  step (15.6 s → 4.8 ms for a step at 10 000 commits). An earlier stop, or
+  another leg, folds from scratch; the memo is never a claim. The log is
+  never touched by a fold (byte-identical before and after, pinned).
+- Why now: the write-side fold was made fast in 9.23; the read side had no
+  checked-in number, and a lens standing at a stop of a long run paid the
+  quadratic cost on every move.
+
+### Known — a limit the bench found, not yet fixed
+
+- The `executionTree` of a 10 000-stage LINEAR chart nests one level per
+  stage and cannot be serialised by `JSON.stringify` (engine recursion
+  limit); such a run's snapshot cannot be saved as one JSON artifact. Next
+  packet.
+
 ## [9.24.0] - 2026-09-12
 
 ### Changed — the two write doors store the same bytes (landmine 1 closed)

@@ -14,8 +14,8 @@
  *   B. timeTravel(snapshot): building the cursor and its commit stops
  *   C. stateAt at the LAST stop: the fold from the base over every delta
  *   D. stateAt at the MIDDLE stop
- *   E. one step forward, as a reader does it today: stop k, then stop k+1
- *      (two folds from the base — the number a forward fold has to beat)
+ *   E. one step forward, as a reader does it: stop k, then stop k+1 (since
+ *      9.25.0 the second is one bundle applied to the cursor's memo)
  *
  * Correctness rides along: the fold at the last stop must equal the run's
  * own final state for every key written, or the numbers mean nothing.
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     tt.stateAt(tt.stops[k]!);
     tt.stateAt(tt.stops[k + 1]!);
   }, ROUNDS);
-  console.log(`E. stop k then k+1 (two folds): ${formatMs(step.median)}`);
+  console.log(`E. stop k then k+1 (one step): ${formatMs(step.median)}`);
 
   // Correctness: the fold at the end IS the run's final state.
   const folded = tt.stateAt(last).state as Record<string, unknown>;
