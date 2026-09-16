@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# RELEASE_QUIET=1 silences the progress banners (the gates' own output and
+# every error still print). For a release driven by an agent or a script
+# that only needs the verdict.
+say() { if [ "${RELEASE_QUIET:-0}" != "1" ]; then echo "$@"; fi; }
+
 # Release script — keeps package.json, git tag, and GitHub releases in sync.
 # npm publish is handled by GitHub Actions (with provenance).
 #
@@ -39,30 +44,30 @@ fi
 bash scripts/check-docs.sh
 
 # ── Gate 2.5: Duplicate type check ──────────────────────────────────────
-echo "==> Checking for duplicate type definitions..."
+say "==> Checking for duplicate type definitions..."
 node scripts/check-dup-types.mjs
 
 # ── Gate 3: API conformance tests ───────────────────────────────────────
-echo "==> Running API conformance tests (47 design contract tests)..."
+say "==> Running API conformance tests (47 design contract tests)..."
 npx vitest run test/api-conformance/ --reporter=verbose
 
 # ── Gate 4: Build ───────────────────────────────────────────────────────
-echo "==> Building (CJS + ESM)..."
+say "==> Building (CJS + ESM)..."
 npm run build
 
 # ── Gate 5: Full test suite ─────────────────────────────────────────────
-echo "==> Running full test suite..."
+say "==> Running full test suite..."
 npm test
 
 # ── Gate 5b: Examples type-check ────────────────────────────────────────
-echo "==> Type-checking examples/..."
+say "==> Type-checking examples/..."
 npm run test:examples
 echo "  Examples type-check passed."
 
 # ── Version bump ────────────────────────────────────────────────────────
 npm version "$BUMP" --no-git-tag-version
 VERSION=$(node -p "require('./package.json').version")
-echo "==> Bumped to v$VERSION"
+say "==> Bumped to v$VERSION"
 
 # ── Gate 7: CHANGELOG entry ─────────────────────────────────────────────
 if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
@@ -96,7 +101,7 @@ git push --tags
 
 # ── Create GitHub release ─────────────────────────────────────────────
 if command -v gh &> /dev/null; then
-  echo "==> Creating GitHub release (CI will publish to npm with provenance)..."
+  say "==> Creating GitHub release (CI will publish to npm with provenance)..."
   gh release create "v$VERSION" \
     --title "v$VERSION" \
     --notes "$NOTES" \
@@ -109,7 +114,7 @@ else
 fi
 
 echo ""
-echo "==> Released v$VERSION"
+say "==> Released v$VERSION"
 echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
 echo ""
