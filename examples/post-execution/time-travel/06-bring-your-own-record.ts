@@ -6,6 +6,9 @@
  * record is written BY HAND — the way a workflow engine, a state machine or
  * a batch job that is not footprintjs would write it — and the cursor, the
  * fold, the tag axis and the gap report all work on it unchanged.
+ *
+ * The gap for an unknown verb is footprintjs 9.27.0's reader; run against an
+ * older package the third section shows the old silent merge instead.
  */
 import { stateAt, tagStops, timeTravel } from 'footprintjs/trace';
 
