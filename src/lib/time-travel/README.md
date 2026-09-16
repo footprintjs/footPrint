@@ -585,3 +585,7 @@ bundle. At ten thousand commits: 8.13 s → 2.8 ms for a fold, 15.6 s → 4.8 ms
 for a step. The patterns, with the write-side ones and the JSON encoder,
 are told for teaching in
 [docs/guides/performance-patterns.md](../../../docs/guides/performance-patterns.md).
+
+## The contract this reader enforces
+
+What a record must look like, the six laws, the exact gap reasons, and a record built by hand that folds here with no executor: [docs/guides/record-contract.md](../../../docs/guides/record-contract.md). Enforced by `test/lib/time-travel/record-contract.test.ts`.

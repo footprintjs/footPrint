@@ -317,6 +317,8 @@ Full model + FAQ: [Deferred observers guide](./docs/guides/observers-deferred.md
 
 How it stays fast, as patterns with numbers and the tests that pin them: [Performance patterns](./docs/guides/performance-patterns.md).
 
+The record is the interface — write its shape from any runtime and get time travel, the fold and the Lens: [The record contract](./docs/guides/record-contract.md).
+
 ---
 
 ## Documentation

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.27.0] - 2026-09-16
+
+### Added — the record contract, written down and enforced
+
+- `docs/guides/record-contract.md`: the record's shape field by field, the
+  six laws a producer keeps, what the reader promises (the fold, stops,
+  gaps with their exact reasons, the basis), and what is agentfootprint's
+  vocabulary rather than this contract's. Time travel and the lenses read
+  a record, never the executor, so a runtime that is not footprintjs gets
+  them by writing this shape. Example, run as an integration test:
+  `examples/post-execution/time-travel/06-bring-your-own-record.ts`.
+- The four verbs are enforced at the reader: a bundle with a trace row
+  whose verb is not `set` | `merge` | `append` | `delete` is a GAP with
+  the reason (`trace[i].verb is "upsert", not …`), and the rest of the
+  record still folds. Before, the replay treated any unknown verb as
+  `merge` — a silent coercion of a row a producer got wrong. footprintjs's
+  own writer only ever emits the four, so a footprintjs-written record is
+  unchanged. Pinned: `test/lib/time-travel/record-contract.test.ts`
+  (every gap reason, verbatim).
+- Not added, on purpose: a record version field. It would change every
+  stored byte the family pins; the contract is versioned by the reading
+  library's version, named on the page.
+
 ## [9.26.0] - 2026-09-16
 
 ### Added — `stringifySnapshot`: a run's record as JSON, without the engine's recursion limit
