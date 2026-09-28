@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.27.1] - Unreleased
+
+### Fixed — a resume re-enters the chart ONCE, then the run belongs to the real chart
+
+- **What was wrong.** To get back to a paused stage, `resume()` built a
+  stand-in for it (the paused stage's id, the resume half as its function),
+  ROOTED the resumed traversal at that stand-in (or at the outer mount), and
+  swapped the leaf subflow's root for it — for the WHOLE resumed run. So:
+  a decider that looped back to the paused stage found the stand-in and re-ran
+  the RESUME HALF, and the stage never paused again (a re-ask was impossible);
+  a loop whose head sat upstream of the resume point hit a bare loop stub — one
+  stage ran and the run ended SILENTLY; a later entry into the paused subflow
+  would have met the swapped root and the stale seed (inputMapper skipped);
+  and a pause two subflows deep re-ran the outer subflow's stages before the
+  inner mount (documented as a limitation until now). All of it on the same-
+  and the cross-executor resume.
+- **The law now** (`engine/handlers/ResumeEntry.ts`, the one owner): the
+  resume's synthetic structure is used EXACTLY ONCE. The stand-in is where the
+  resumed traversal STARTS (`TraverserOptions.entry`) and is never in a node
+  map; each subflow on the pause path takes its hop — its captured state
+  (instead of the inputMapper) and its entry point (the next mount on the path,
+  or the stand-in at the leaf) — on its FIRST entry only. The traverser walks
+  the real chart, so a loop back to the paused stage reaches THE stage (it
+  pauses again), every loop target resolves as on a run, a later subflow entry
+  runs its real root and its inputMapper, and a pause N subflows deep re-enters
+  each outer subflow AT the next mount. Pinned by a fast-check property: a run
+  paused and resumed at every pause equals the same chart run with every
+  answer supplied up front — same trace, same final state
+  (`test/lib/pause/resume-real-chart.property.test.ts`).
+- **What you may notice.** A loop edge taken right after a resume is narrated
+  and counted as a loop (`onLoop`, `ContinuationResolver`), exactly as on a
+  run — before, the stub was swapped for its target by hand and the edge read
+  as a plain `onNext`. The subflow-entry narrative on a resume carries the
+  subflow root's own description (it carried the paused stage's). The loop
+  budget stays per leg (`maxIterations` bounds each resumed traversal; the
+  checkpoint carries visit counts, not loop counters).
+- **Safer with an untrusted checkpoint.** Only the subflows ON the pause path
+  take a capture: a capture for any other subflow is ignored (before, it
+  seeded that subflow's next entry with the inputMapper skipped). A path the
+  chart cannot walk (a skipped level, a hostile segment) is refused in
+  `resume()` before any stage runs — before, the stand-in could run at the top
+  level with its outputMappers and the parent's continuation silently skipped.
+  A refused resume no longer clears the executor's checkpoint.
+- **Unchanged.** The checkpoint shape — a checkpoint written by 9.27.0
+  resumes into the healthy run (`reference/resume-real-chart-9.27.0.json`,
+  produced on 9.27.0 before any edit). executionIndex keeps climbing across
+  every resume; every runtimeStageId names one execution; one CommitBundle per
+  executed stage; recorders and narrative accumulate on a same-executor
+  resume; declared tags follow the resumed stage on both re-entries and
+  `retry` on the interrupt re-entry — and a loop re-visit now runs the real
+  stage with its own; `interrupt()` re-enters the stage from its top.
+- **API (`footprintjs/advanced`).** `ResumeEntry` (+ `ResumeHop`, `findMount`)
+  added; `TraverserOptions.entry` / `.resume`, `HandlerDeps.resume` and the
+  subflow traverser factory's `entry` added. `TraverserOptions.subflowStatesForResume`
+  and `HandlerDeps.subflowStatesForResume` are deprecated but still honoured,
+  under the same one-shot law (each capture seeds its subflow's first entry).
+- **Known limitation, unchanged (now pinned).** When the paused subflow is
+  mounted as a DECIDER BRANCH or a FORK CHILD, the dispatcher's continuation
+  lives one level up: a decider's `next` runs inside the subflow and a fork's
+  join does not run after the resume
+  (`test/lib/pause/resume-known-limitations.test.ts`). The fix needs the
+  dispatcher's level on the record — an additive checkpoint field.
+- Example: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`.
+
 ## [9.27.0] - 2026-09-16
 
 ### Added — the record contract, written down and enforced

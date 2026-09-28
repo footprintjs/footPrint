@@ -20,6 +20,7 @@
 import { vi } from 'vitest';
 
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
+import { ResumeEntry } from '../../../../src/lib/engine/handlers/ResumeEntry';
 import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
 import type {
@@ -677,5 +678,69 @@ describe('SubflowExecutor — security', () => {
 
     // outputMapper should NOT be called when traversal errored
     expect(outputMapper).not.toHaveBeenCalled();
+  });
+});
+
+// ── Resume re-entry (9.27.1) ─────────────────────────────────────────────
+
+describe('SubflowExecutor — resume re-entry is one-shot', () => {
+  const inputMapper = () => ({ fromMapper: true });
+  const node = (): StageNode => ({
+    name: 'sf/first',
+    id: 'sf/first',
+    subflowId: 'sf',
+    isSubflowRoot: false,
+    subflowMountOptions: { inputMapper },
+  });
+
+  it('the FIRST entry takes the hop — its entry point and its seed; the second is an ordinary entry', async () => {
+    const standIn: StageNode = { name: 'sf/Ask', id: 'sf/ask', fn: () => undefined };
+    const resume = ResumeEntry.plan({
+      root: { name: 'Mount', id: 'sf', isSubflowRoot: true, subflowId: 'sf' },
+      subflows: { sf: { root: node() } },
+      path: ['sf'],
+      captures: { sf: { captured: 1 } },
+      standIn,
+    });
+    const { factory, getLastOptions } = makeFactory();
+    const executor = new SubflowExecutor(makeDeps({ resume }), factory);
+    const context = makeContext();
+
+    await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
+    const first = getLastOptions();
+    expect(first.entry).toBe(standIn);
+    expect(first.root.id).toBe('sf/first'); // ids still resolve against the REAL subflow
+    expect(first.readOnlyContext).toEqual({}); // inputMapper skipped — seeded from the capture
+    expect(first.executionRuntime.globalStore.getState()).toMatchObject({ captured: 1 });
+
+    await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
+    const second = getLastOptions();
+    expect(second.entry).toBeUndefined();
+    expect(second.readOnlyContext).toEqual({ fromMapper: true });
+    expect(second.executionRuntime.globalStore.getState()).not.toHaveProperty('captured');
+  });
+
+  it('the deprecated deps.subflowStatesForResume seeds the FIRST entry only (same law, no entry point)', async () => {
+    const { factory, getLastOptions } = makeFactory();
+    const executor = new SubflowExecutor(makeDeps({ subflowStatesForResume: { sf: { captured: 1 } } }), factory);
+    const context = makeContext();
+
+    await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
+    expect(getLastOptions().entry).toBeUndefined();
+    expect(getLastOptions().readOnlyContext).toEqual({});
+    expect(getLastOptions().executionRuntime.globalStore.getState()).toMatchObject({ captured: 1 });
+
+    await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
+    expect(getLastOptions().readOnlyContext).toEqual({ fromMapper: true });
+  });
+
+  it('an entry into a subflow off the pause path takes nothing', async () => {
+    const resume = ResumeEntry.fromCaptures({ other: { captured: 1 } });
+    const { factory, getLastOptions } = makeFactory();
+    const executor = new SubflowExecutor(makeDeps({ resume }), factory);
+
+    await executor.executeSubflow(node(), makeContext(), { shouldBreak: false }, undefined, new Map());
+    expect(getLastOptions().readOnlyContext).toEqual({ fromMapper: true });
+    expect(resume.spent).toBe(false);
   });
 });

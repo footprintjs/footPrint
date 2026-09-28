@@ -25,15 +25,27 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
+import { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
 export class SubflowExecutor<TOut = any, TScope = any> {
+  /**
+   * The resume's one-shot re-entry (`deps.resume`), or a seed-only one built
+   * from the deprecated `deps.subflowStatesForResume`. Undefined on a normal
+   * run. Asked once per subflow entry — see {@link ResumeEntry}.
+   */
+  private readonly resume: ResumeEntry<TOut, TScope> | undefined;
+
   constructor(
     private deps: HandlerDeps<TOut, TScope>,
     private traverserFactory: SubflowTraverserFactory<TOut, TScope>,
-  ) {}
+  ) {
+    this.resume =
+      deps.resume ??
+      (deps.subflowStatesForResume ? ResumeEntry.fromCaptures<TOut, TScope>(deps.subflowStatesForResume) : undefined);
+  }
 
   /**
    * Execute a subflow with isolated context.
@@ -59,16 +71,25 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       targetStage: subflowId,
     });
 
+    // ─── Resume re-entry (one-shot) ───
+    //
+    // When this entry is the resume's way back into a paused subflow, the
+    // hop names where the subflow's traversal starts (the next mount on the
+    // pause path, or the paused stage's stand-in) and carries the subflow's
+    // captured pre-pause state. Taken ONCE: any later entry into this subflow
+    // — a loop passing its mount again — gets `undefined` and runs the real
+    // subflow from its real root, inputMapper and all.
+    const resumeHop = this.resume?.enterSubflow(subflowId);
+
     // ─── Input Mapping ───
     //
-    // RESUME PATH NOTE: when `deps.subflowStatesForResume` carries a
-    // capture for THIS subflow id, we SKIP the inputMapper entirely.
-    // The capture is the post-input pre-pause memory — running the
-    // mapper again would clobber post-input writes (history,
-    // pausedToolCallId, etc.) with the parent's start-of-subflow view.
+    // RESUME PATH NOTE: when the hop carries a capture for this subflow, we
+    // SKIP the inputMapper entirely. The capture is the post-input pre-pause
+    // memory — running the mapper again would clobber post-input writes
+    // (history, pausedToolCallId, etc.) with the parent's start-of-subflow view.
     const mountOptions = node.subflowMountOptions;
     let mappedInput: Record<string, unknown> = {};
-    const resumeCapture = this.deps.subflowStatesForResume?.[subflowId];
+    const resumeCapture = resumeHop?.seed;
     const isResumeForThisSubflow = resumeCapture !== undefined;
 
     if (mountOptions && !isResumeForThisSubflow) {
@@ -129,12 +150,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       'subflow-mount',
     );
 
-    // Create isolated runtime via dynamic construction (avoids circular import)
+    // Create isolated runtime via dynamic construction (avoids circular import).
+    // Its root context is the first stage the subflow traversal runs — the
+    // resume hop's entry on a re-entry, the subflow's root otherwise.
     const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (
       name: string,
       id: string,
     ) => IExecutionRuntime;
-    const nestedRuntime = new ExecutionRuntimeClass(node.name, node.id);
+    const firstNode = resumeHop?.entry ?? node;
+    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id);
     let nestedRootContext = nestedRuntime.rootStageContext;
 
     // Seed GlobalStore with the right shape for the path:
@@ -235,7 +259,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     try {
       traverserHandle = this.traverserFactory({
+        // The REAL subflow graph — every id inside the subflow (loop targets,
+        // a re-visit of the paused stage) resolves against it, re-entry or not.
         root: subflowNode,
+        // Where this traversal starts on a resume re-entry; visited once.
+        ...(resumeHop?.entry && { entry: resumeHop.entry }),
         executionRuntime: nestedRuntime,
         readOnlyContext: mappedInput,
         subflowId,

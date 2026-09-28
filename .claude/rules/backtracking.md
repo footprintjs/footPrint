@@ -15,6 +15,7 @@ paths:
   - src/lib/engine/handlers/StageRunner.ts
   - src/lib/engine/handlers/ContinuationResolver.ts
   - src/lib/engine/handlers/NodeResolver.ts
+  - src/lib/engine/handlers/ResumeEntry.ts
   - src/lib/engine/traversal/FlowchartTraverser.ts
   - src/lib/recorder/ControlDepRecorder.ts
   - src/lib/recorder/qualityTrace.ts
@@ -78,26 +79,31 @@ interrupt inside a GENERATED `parallelForEach` branch pauses but cannot resume
 (the branch is not in the static chart; refused via the shipped
 `findNodeInGraph` miss, no marker special-casing).
 
-Files: `pause/types.ts` (`PauseSignal` :29, `captureSubflowScope` :116, `FlowchartCheckpoint` :190) · `StageRunner.ts:94-100` (pausable stage returns non-void → throw PauseSignal) · `FlowchartTraverser.ts:1083-1086` (commit + onPause + rethrow; invoker stamps replayed innermost-first :771-780) · `SubflowExecutor.ts:225-238` (bubble-up: snapshot nested sharedState onto signal, prepend subflowId; resume-seed skip-inputMapper :69-72, :126-128) · `FlowChartExecutor.ts` (`buildPauseCheckpoint` :987-1036 — ONE structuredClone :1024, sanitize retry :1028-1033; `resume()` :672 — validation :690-707, loop-ref stub resolution :762-768, synthetic resume node :783-789 (9.21.0: copies `pausedNode.tags` on both re-entries — the one node that would otherwise lose a declared tag), fresh runId :812, outer-mount entry + LEAF-root swap :847-855, `preserveRecorders: true` :871).
+Files: `pause/types.ts` (`PauseSignal`, `captureSubflowScope`, `FlowchartCheckpoint`) · `StageRunner.ts` (pausable stage returns non-void → throw PauseSignal) · `FlowchartTraverser.ts` (Phase 3 pause catch: commit + onPause + rethrow; invoker stamps replayed innermost-first in `executeNode`; `execute` starts at the one-shot `entry`, the node map is built from `root` — the real chart — only) · `SubflowExecutor.ts · executeSubflow` (bubble-up: snapshot nested sharedState onto signal, prepend subflowId; on entry asks `ResumeEntry.enterSubflow` — a hop seeds the nested runtime from its capture, skips the inputMapper, and starts the subflow's traversal at the hop's entry) · `engine/handlers/ResumeEntry.ts` (9.27.1 — THE owner of the one-shot law: `plan` resolves the start + one hop per subflow on the path against the chart as built, refusing a path the chart cannot walk; `enterSubflow` hands a hop out at most once; `findMount`) · `FlowChartExecutor.ts` (`buildPauseCheckpoint` — ONE structuredClone, sanitize retry; `resume()` — validation, counter seeding, the stand-in (copies `pausedNode.tags` on both re-entries, `retry` on the interrupt re-entry only), `ResumeEntry.plan`, fresh runId, `preserveRecorders: true`).
+
+**The one-shot law (9.27.1).** The resume's synthetic structure — the stand-in for the paused stage, the captured per-subflow states — is used EXACTLY ONCE, for the re-entry. The stand-in is where the resumed traversal STARTS (`TraverserOptions.entry`, consumed by the first `execute()`); it is never in a node map or the subflow dictionary. Each subflow on the pause path takes its hop (capture + entry point) on its FIRST entry. The traverser's `root` and `subflows` stay the REAL chart, so every loop target, every later subflow entry (real root, inputMapper) and every re-visit of the paused stage (which pauses again) resolves as on a run. A pause N subflows deep re-enters each outer subflow AT the next mount on the path. Before 9.27.1 the traversal was rooted at the stand-in and the leaf root was swapped for the whole run (a loop to the paused id re-ran the resume half; a loop target upstream of the resume point hit a bare loop stub and the run ended silently; a 2-deep pause re-ran the outer subflow's pre-mount stages).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
 | pause throw | pre-pause writes committed (M1); pauseData on signal | — | — |
 | bubble-up | per-subflow sharedState captures + subflowPath + invoker stamps | — | nested runtimes (GC'd) |
-| checkpoint | one deep-cloned detached FlowchartCheckpoint | — | per-iteration `#` subflowResults keys + per-subflow commit history stripped (:996-1009); recorder state NEVER captured |
-| resume() | fresh runId | sharedState → runtime; subflowStates re-seed nested runtimes (inputMapper skipped); `executionCount`/`visitCounts` re-seed the shared counter + per-stage visit map (by mutation — traverser holds them by ref) so runtimeStageIds stay unique + loopIteration monotonic on cross-executor resume | cross-executor narrative/recorders start empty |
+| checkpoint | one deep-cloned detached FlowchartCheckpoint | — | per-iteration `#` subflowResults keys + per-subflow commit history stripped (`buildPauseCheckpoint`); recorder state NEVER captured |
+| resume() plan | — | the stand-in + `ResumeEntry.plan` (start + one hop per subflow on the path) — refused before anything runs when a mount is unreachable | captures for subflows OFF the path (never handed out) |
+| resume() run | fresh runId | sharedState → runtime; each path subflow's FIRST entry seeds from its capture (inputMapper skipped) and starts at the next mount / the stand-in; `executionCount`/`visitCounts` re-seed the shared counter + per-stage visit map (by mutation — traverser holds them by ref) so runtimeStageIds stay unique + loopIteration monotonic on cross-executor resume | the hops, as each is taken (one-shot); cross-executor narrative/recorders start empty |
 
-Invariant: the chart graph is static and id-stable — resume reconstructs the cursor purely from `pausedStageId + subflowPath` against the CURRENT chart; checkpoint fully detached.
-Breaks when: pause is **two subflow levels deep** (`['sf-a','sf-b']`) — resume enters through subflowPath[0]'s mount and only overrides the LEAF root (:841-856, "single-level covers all current use cases"), so sf-a's stages before the sf-b mount re-execute. Also non-cloneable pauseData (a function) → contract error after sanitize retry.
+Invariant: the chart graph is static and id-stable — resume reconstructs the cursor purely from `pausedStageId + subflowPath` against the CURRENT chart; checkpoint fully detached; after the re-entry the run is indistinguishable from one that never paused (pinned as a fast-check property: test/lib/pause/resume-real-chart.property.test.ts).
+Breaks when: the paused subflow is mounted as a DECIDER BRANCH or a FORK CHILD — the dispatcher's continuation lives one level up and the checkpoint carries only the innermost `invokerStageId`/`continuationStageId`, so a decider's `next` runs INSIDE the subflow (its writes stay there) and a fork's join never runs (pinned as known limitations: test/lib/pause/resume-known-limitations.test.ts; the fix needs the dispatcher's level on the record). The loop budget is per LEG (`ContinuationResolver`'s counters are per traverser; the checkpoint carries visit counts, not loop counters). Also non-cloneable pauseData (a function) → contract error after sanitize retry.
 
 ```
 pause:  stage returns data → throw PauseSignal(data, stageId)
         each subflow boundary: signal.capture(sfId, nestedState); path.unshift(sfId)
         executor: checkpoint = structuredClone({state, tree, cursor, sfStates})
-resume: node = findNodeInGraph(cp.pausedStageId, cp.subflowPath)
-        resumeRoot = mount(cp.subflowPath[0]); subflows[leaf].root = {fn: resumeFn, next: continuation}
-        seed runtime from clone(cp.sharedState); subflow entry seeds from cp.subflowStates (skip inputMapper)
-        traverser.execute()   // fresh runId; recorders preserved same-executor only
+resume: node    = findNodeInGraph(cp.pausedStageId, cp.subflowPath)
+        standIn = {id: node.id, fn: resumeHalf, next: node.next ?? continuation, tags}
+        entry   = ResumeEntry.plan(chart, cp.subflowPath, cp.subflowStates, standIn)
+                  // start = standIn | mount(path[0]); hop(path[i]) = {capture, mount(path[i+1]) | standIn}
+        traverser(root = chart.root, entry = entry.start, resume = entry)   // fresh runId
+        subflow entry: hop = entry.enterSubflow(id)   // ONE-SHOT: later entries get nothing
 ```
 
 ## M3 — Commit-log replay / time-travel reconstruction
@@ -115,7 +121,7 @@ commitValueAt(log, idx, key):
 ```
 
 ## M4 — Loop re-entry (loopTo): retry-from-prior-point WITHOUT state reset
-Files: `FlowChartBuilder.ts:346` (branch loopTo) / `:1817` (chain loopTo) — both plant stub `next = {id, isLoopRef: true}` · `FlowchartTraverser.ts:1044-1057` (decider continuation) + `:1258` (linear) → `ContinuationResolver.ts` (`resolveTarget` :107-169; iteration guard :176-191 throws past maxIterations, default 1000 :29; dynamic-next run-total budget `dynamicNextHops` :60, guard :117-125). Resume interaction: loop-ref stubs resolved to real nodes at `FlowChartExecutor.ts:762-768`.
+Files: `FlowChartBuilder.ts:346` (branch loopTo) / `:1817` (chain loopTo) — both plant stub `next = {id, isLoopRef: true}` · `FlowchartTraverser.ts:1044-1057` (decider continuation) + `:1258` (linear) → `ContinuationResolver.ts` (`resolveTarget` :107-169; iteration guard :176-191 throws past maxIterations, default 1000 :29; dynamic-next run-total budget `dynamicNextHops` :60, guard :117-125). Resume interaction: since 9.27.1 a resumed traversal walks the REAL chart (its node map is built from the chart root, never from the resume's stand-in), so a loop-ref stub resolves after a resume exactly as on a run — including a loop back to the paused stage, which reaches the real stage and pauses again.
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
@@ -229,5 +235,5 @@ the two index checks and `basis` says so).
 - M1's trace verbs are the contract everything replays: `applySmartMerge` (utils.ts:254) has 3 consumers — live commit (StageContext.ts:567), the redacted mirror (StageContext.ts:577), and `EventLog.materialise`; `commitValueAt` independently reimplements the same per-key verb fold (commitLogUtils.ts:82-96). New/renamed verb touches all of M1+M3 including commitValueAt's own switch + delta-parity tests.
 - M2 depends on M1's commit-on-pause (`FlowchartTraverser.ts:1084`) — pre-pause writes reach `checkpoint.sharedState` only because pause commits first.
 - M2 checkpoints exclude recorder state and per-subflow commit logs (`FlowChartExecutor.ts:990-1009`); M5 on a cross-executor-resumed run sees only post-resume commits.
-- M4's loop-ref stubs are the one place M2 does graph surgery (`FlowChartExecutor.ts:762-768`) — changing the stub shape (`isLoopRef`) breaks resume-through-loop.
+- M2 does NO graph surgery (9.27.1): the resume's stand-in is only a start node, and M4's loop-ref stubs resolve against the real chart through `ContinuationResolver` exactly as on a run. Changing the stub shape (`isLoopRef`) still breaks every loop, resumed or not.
 - Parallel fan-out (`ChildrenExecutor`, failFast) is error COLLECTION, not rollback — a failed branch's committed writes persist either way.

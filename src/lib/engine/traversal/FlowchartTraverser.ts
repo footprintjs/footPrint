@@ -33,6 +33,7 @@ import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
+import { ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { StageRunner } from '../handlers/StageRunner.js';
@@ -61,7 +62,20 @@ import type {
 } from '../types.js';
 
 export interface TraverserOptions<TOut = any, TScope = any> {
+  /**
+   * The graph this traverser walks — and the graph every id resolves against
+   * (the node map behind every `loopTo`, the DFS fallback). `execute()`
+   * starts here unless `entry` says otherwise.
+   */
   root: StageNode<TOut, TScope>;
+  /**
+   * Where `execute()` starts when not at `root` — a resume's one-shot
+   * re-entry (M2): the paused stage's stand-in, or the mount of the first
+   * subflow on the pause path. Visited once, first, and never registered
+   * anywhere an id can reach it, so a loop back to the paused stage finds the
+   * REAL stage. Consumed by the first `execute()`.
+   */
+  entry?: StageNode<TOut, TScope>;
   stageMap: Map<string, StageFunction<TOut, TScope>>;
   scopeFactory: ScopeFactory<TScope>;
   executionRuntime: IExecutionRuntime;
@@ -120,10 +134,17 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    */
   visitCounts?: Map<string, number>;
   /**
-   * Per-subflow scope captures from a checkpoint, on the resume path.
-   * Forwarded to `HandlerDeps.subflowStatesForResume` so SubflowExecutor
-   * can re-seed nested runtimes from pre-pause state instead of running
-   * the inputMapper. Undefined on normal `run()` paths.
+   * The resume's one-shot re-entry (M2), shared by reference with every
+   * nested traverser (the execution counter's precedent): each subflow on the
+   * pause path takes its captured state and its entry point exactly once, on
+   * its first entry. See `ResumeEntry`. Undefined on normal `run()` paths.
+   */
+  resume?: ResumeEntry<TOut, TScope>;
+  /**
+   * @deprecated since 9.27.1 — pass {@link resume}. Still honoured, under the
+   * same one-shot law: each capture seeds only the FIRST entry into its
+   * subflow (inputMapper skipped there); later entries are ordinary. Ignored
+   * when `resume` is set.
    */
   subflowStatesForResume?: Record<string, Record<string, unknown>>;
   /**
@@ -250,6 +271,10 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly root: StageNode<TOut, TScope>;
+  /** Where the next `execute()` starts when not at `root` — one-shot (see TraverserOptions.entry). */
+  private entry: StageNode<TOut, TScope> | undefined;
+  /** The resume's one-shot re-entry, shared with nested traversers. Undefined on a normal run. */
+  private readonly resume: ResumeEntry<TOut, TScope> | undefined;
   private stageMap: Map<string, StageFunction<TOut, TScope>>;
   private readonly executionRuntime: IExecutionRuntime;
   private subflows: Record<string, { root: StageNode<TOut, TScope> }>;
@@ -391,6 +416,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this._executionCounter = opts.executionCounter ?? { value: 0 };
     this._visitCounts = opts.visitCounts ?? new Map();
     this.root = opts.root;
+    this.entry = opts.entry;
+    this.resume =
+      opts.resume ??
+      (opts.subflowStatesForResume ? ResumeEntry.fromCaptures<TOut, TScope>(opts.subflowStatesForResume) : undefined);
     // Shallow-copy stageMap and subflows so that lazy-resolution mutations
     // (prefixed entries added during execution) stay scoped to THIS traverser
     // and do not escape to the shared FlowChart object. Without the copy,
@@ -436,7 +465,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Build shared deps bag
     const deps = this.createDeps(opts);
 
-    // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo())
+    // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo()).
+    // From `root`, never from `entry`: a resume's stand-in carries the paused
+    // stage's id, and a loop back to that id must find the REAL stage.
     const nodeIdMap = this.buildNodeIdMap(opts.root);
 
     // Initialize handler modules.
@@ -482,6 +513,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return (subflowOpts) => {
       const traverser = new FlowchartTraverser<TOut, TScope>({
         root: subflowOpts.root,
+        ...(subflowOpts.entry && { entry: subflowOpts.entry }), // a resume hop's entry point
         stageMap: parentStageMap, // Constructor shallow-copies this
         scopeFactory: parentOpts.scopeFactory,
         executionRuntime: subflowOpts.executionRuntime,
@@ -503,12 +535,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
         visitCounts: this._visitCounts, // Share visit counts — loopIteration stays monotonic across subflow re-mounts
         runId: this.runId, // Subflow inherits parent's runId — same logical run
-        // Forward the resume-only subflow scope captures so nested
-        // SubflowExecutors can re-seed deeper-nested runtimes (e.g.
-        // Sequence(Agent(...)) where the inner Agent subflow paused).
-        ...(parentOpts.subflowStatesForResume && {
-          subflowStatesForResume: parentOpts.subflowStatesForResume,
-        }),
+        // Share the resume's one-shot re-entry BY REFERENCE, so a hop taken
+        // at any depth is taken for the whole run — and nested
+        // SubflowExecutors can take the deeper hops (e.g. Sequence(Agent(...))
+        // where the inner Agent subflow paused).
+        ...(this.resume && { resume: this.resume }),
       });
 
       return {
@@ -534,9 +565,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
       signal: opts.signal,
-      ...(opts.subflowStatesForResume && {
-        subflowStatesForResume: opts.subflowStatesForResume,
-      }),
+      ...(this.resume && { resume: this.resume }),
     };
   }
 
@@ -552,6 +581,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   async execute(branchPath?: string): Promise<TraversalResult> {
     const context = this.executionRuntime.rootStageContext;
     this._topBreakFlag = { shouldBreak: false };
+    // The entry is one-shot: the first execute() starts there, never again.
+    const start = this.entry ?? this.root;
+    this.entry = undefined;
 
     // Fire onRunStart ONLY at the top-level traversal — subflow traversers
     // already produce onSubflowEntry/onSubflowExit pairs, so emitting run
@@ -586,11 +618,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // recovery. Subflow traversers don't fire run events; their errors
     // bubble up and surface here at the top level.
     if (!isTopLevel) {
-      return this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+      return this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
     }
     let result: TraversalResult;
     try {
-      result = await this.executeNode(this.root, context, this._topBreakFlag, branchPath ?? '');
+      result = await this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
         this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
