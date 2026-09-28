@@ -54,11 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dispatches on resume: the stand-in is now the paused stage's own node with
   its function swapped (it kept only fn/next/tags/retry, so the branch or the
   children were silently skipped).
-- **A subflow mounted as a decider branch with `loopTo` loops** — on a NORMAL
-  run too. The mount's `next` is a loop stub; `FlowchartTraverser ·
-  executeNodeStep` (Phase 0) hopped straight into it, ran the target's
-  function once and ended the run. It now resolves through the
-  `ContinuationResolver` like every loop edge (counted, `onLoop`).
+- **A subflow mount whose `next` is a loop loops** — on a NORMAL run too:
+  a subflow mounted as a decider branch with `loopTo`, AND a linear
+  `addSubFlowChartNext(...).loopTo(x)`. The mount's `next` is a loop stub;
+  `FlowchartTraverser · executeNodeStep` (Phase 0) hopped straight into it,
+  ran the target's function once and ended the run. It now resolves through
+  the `ContinuationResolver` like every loop edge (counted, `onLoop`).
 - **A decider-level `loopTo` taken right after a resume is a loop** —
   narrated `onLoop` and counted toward `maxIterations` — instead of a plain
   `onNext` that the budget never saw.
@@ -80,20 +81,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one chart) is refused in `resume()` before any stage runs — and a refused
   resume leaves the executor's checkpoint in place. What runs after the paused
   stage comes from the chart, never from `continuationStageId`, so an edited id
-  cannot redirect a run. `pendingPauses` records are validated field by field
-  and must be parallel siblings of the paused stage in this chart.
+  cannot redirect a run. `pendingPauses` records are validated field by field,
+  must not repeat, and must be parallel siblings of the paused stage whose
+  WHOLE path walks this chart — all checked at the first resume.
 
 ### What you may notice
 
 - A loop edge taken right after a resume — including a decider-level `loopTo`
   — is narrated and counted as a loop (`onLoop`), as on a run (before: a plain
   `onNext`, uncounted).
+- **A subflow mount followed by `loopTo` — on NORMAL runs.** Charts shaped
+  `addSubFlowChartNext(...).loopTo(x)` (a linear mount — agentfootprint's
+  `LLMCall` is one) or a subflow decider branch with `loopTo` now take a real
+  loop edge after the mount. Visible in the record: the revisited stage's
+  bundle `stage` is the stage's NAME (it was the loop stub's id — e.g.
+  `"client"` → `"Client"`); `onLoop` fires and the loop is narrated; the edge
+  counts toward `maxIterations`; the target's own `next` now runs (9.27.0 ran
+  the target's function once from the stub and ended — one pass fewer).
 - On a resume re-entry, `onSubflowEntry` narrates the subflow's input (the
   inputMapper's result, redacted under the policy) and its root's own
   description, as on a normal entry (before: no input, the paused stage's
-  description). And the scope's read-only protection applies there as on a
-  run: a resume half that writes an inputMapper key now throws, as that write
-  always did in any other stage.
+  description).
+- **Fail-fast forks wait for their siblings when a child pauses.** A pause is
+  not an error, so the fork now lets its other children settle before it
+  pauses: a sibling's ERROR, or an abort, arriving meanwhile wins over the
+  pause (the run fails instead of pausing). Runs where no child pauses are
+  unchanged.
 - `getRuntimeRoot()` after a resume returns the chart's root (before: the
   resume's start node — the stand-in or the outer mount).
 - `checkpoint.continuationStageId` / `invokerStageId` are still written, as a
@@ -101,6 +114,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dev mode (`enableDevMode()`) warns at build time when one subflow id is
   mounted twice in a chart — legal to build (the mounts share one definition),
   but a pause inside either cannot be resumed.
+
+### May break
+
+- **A resume half that writes an inputMapper key now throws** `Cannot write
+  to readonly input key "…"` — inside a re-entered subflow the inputMapper's
+  keys are read-only args again, as in every other stage of that subflow
+  (9.27.0 accepted the write because the args were `{}` on resume).
+  Migration: read the value with `$getArgs()` and write a different key.
+- **An in-flight 9.27.0 checkpoint taken while TWO fork children were
+  paused** kept only the first child's pause. On 9.28.0 it resumes that child
+  and the join runs WITHOUT the second child's answer (the record of the
+  second pause is not in the checkpoint). Re-run such runs from the start.
 
 ### Added
 

@@ -314,6 +314,45 @@ describe.each(MODES)('two fork children both pause — %s-executor', (mode) => {
   });
 });
 
+describe.each(MODES)('a nested fan-out as the SECOND child of a fan-out — %s-executor', (mode) => {
+  it('its own waiting sibling is carried up too: b, then sf-a/c1, then sf-a/c2 — each join once', async () => {
+    const runs: string[] = [];
+    const chart = flowChart(
+      'Top',
+      (s: S) => {
+        s.tops = ((s.tops as number | undefined) ?? 0) + 1;
+      },
+      'top',
+    )
+      .addSubFlowChart('b', asker('b', runs), 'B', { outputMapper: (sf: Record<string, unknown>) => ({ b: sf.log }) })
+      .addSubFlowChart('sf-a', forkBody(runs), 'A', {
+        outputMapper: (sf: Record<string, unknown>) => ({ aJoined: sf.joined }),
+      })
+      .addFunction(
+        'TopJoin',
+        (s: S) => {
+          s.topJoins = ((s.topJoins as number | undefined) ?? 0) + 1;
+        },
+        'top-join',
+      )
+      .build();
+
+    const run = await drive(chart, mode);
+
+    // The fan-out inside sf-a queued c2 behind c1; the top fan-out must forward
+    // THAT queue too when it queues sf-a's pause behind b's.
+    expect(run.checkpoints.map((c) => c.pausedStageId)).toEqual(['b/ask', 'sf-a/c1/ask', 'sf-a/c2/ask']);
+    expect(run.checkpoints[0].pendingPauses?.map((p) => p.pausedStageId)).toEqual(['sf-a/c1/ask', 'sf-a/c2/ask']);
+    expect(run.state).toMatchObject({
+      tops: 1,
+      topJoins: 1,
+      b: ['b-start', 'b-ans1'],
+      aJoined: { c1: ['c1-start', 'c1-ans2'], c2: ['c2-start', 'c2-ans3'] },
+    });
+    expect(runs.filter((r) => r === 'join')).toHaveLength(1);
+  });
+});
+
 describe('the waiting sibling’s question is announced when it is raised again', () => {
   it('onPause fires for it (flow channel), after the resumed child finished', async () => {
     const events: string[] = [];
@@ -375,6 +414,61 @@ describe('checkpoint.pendingPauses is untrusted input', () => {
     await expect(
       executor.resume({ ...checkpoint, pendingPauses } as unknown as FlowchartCheckpoint, { n: 1 }),
     ).rejects.toThrow(message);
+  });
+
+  it('a repeated record is refused', async () => {
+    const { chart, checkpoint } = await pausedTwice();
+    const twice = { ...checkpoint, pendingPauses: [...checkpoint.pendingPauses!, ...checkpoint.pendingPauses!] };
+
+    await expect(new FlowChartExecutor(chart).resume(twice, { n: 1 })).rejects.toThrow(
+      /pendingPauses\[1\] \('sf-a\/c2\/ask'\) repeats an earlier entry/,
+    );
+  });
+
+  it('the WHOLE path is walked at the first resume — a tampered tail is refused up front', async () => {
+    const chart = forkBody([]);
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const checkpoint = JSON.parse(JSON.stringify(executor.getCheckpoint())) as FlowchartCheckpoint;
+    const ghost = { ...checkpoint, pendingPauses: [{ ...checkpoint.pendingPauses![0], subflowPath: ['c2', 'ghost'] }] };
+    const wrongStage = {
+      ...checkpoint,
+      pendingPauses: [{ ...checkpoint.pendingPauses![0], pausedStageId: 'c2/nope' }],
+    };
+
+    for (const forged of [ghost, wrongStage]) {
+      const resumer = new FlowChartExecutor(chart);
+      await expect(resumer.resume(forged, { n: 1 })).rejects.toThrow(/is not a parallel sibling/);
+      expect(resumer.getCommitCount()).toBe(0);
+    }
+  });
+
+  it('a record naming the paused stage ITSELF is not its sibling', async () => {
+    const chart = flowChart('Pre', () => undefined, 'pre')
+      .addListOfFunction([
+        {
+          id: 'x',
+          name: 'X',
+          fn: (s: S) => {
+            s.x = interrupt<{ n: number }>(s, { who: 'x' }).n;
+          },
+        },
+        {
+          id: 'y',
+          name: 'Y',
+          fn: (s: S) => {
+            s.y = interrupt<{ n: number }>(s, { who: 'y' }).n;
+          },
+        },
+      ])
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const checkpoint = JSON.parse(JSON.stringify(executor.getCheckpoint())) as FlowchartCheckpoint;
+    expect(checkpoint.pausedStageId).toBe('x');
+    const self = { ...checkpoint, pendingPauses: [{ pausedStageId: 'x', subflowPath: [], subflowStates: {} }] };
+
+    await expect(new FlowChartExecutor(chart).resume(self, { n: 1 })).rejects.toThrow(/is not a parallel sibling/);
   });
 
   it('the stored record is copied in: mutating the caller’s checkpoint after resume() changes nothing', async () => {

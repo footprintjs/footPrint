@@ -492,9 +492,18 @@ function queueSiblingPauses<TOut, TScope>(
   if (pending === undefined) return queues;
   if (!Array.isArray(pending)) throw new Error('Invalid checkpoint: pendingPauses must be an array.');
   const { chart, subflows, root, path, graphs, mounts, paused } = at;
+  const seen = new Set<string>();
 
   pending.forEach((raw: unknown, n) => {
     const pause = validPendingPause(raw, n);
+    // One record per paused sibling: a repeat would ask the same question twice.
+    const key = JSON.stringify([pause.subflowPath, pause.pausedStageId]);
+    if (seen.has(key)) {
+      throw new Error(
+        `Cannot resume: checkpoint.pendingPauses[${n}] ('${pause.pausedStageId}') repeats an earlier entry.`,
+      );
+    }
+    seen.add(key);
     let level = 0;
     while (level < path.length && level < pause.subflowPath.length && path[level] === pause.subflowPath[level]) level++;
     const graph = graphs[level];
@@ -515,11 +524,11 @@ function queueSiblingPauses<TOut, TScope>(
       chart.dispatcherOf(graph, theirs) === fanOut &&
       !fanOut.deciderFn &&
       (queues[level] === undefined || queues[level]!.fanOut === fanOut);
-    if (!isSibling) {
+    if (!isSibling || !walksToItsStage(chart, subflows, graph, pause, level)) {
       throw new Error(
         `Cannot resume: checkpoint.pendingPauses[${n}] ('${pause.pausedStageId}') is not a parallel sibling of ` +
-          `the paused stage '${paused?.id ?? '?'}' in this chart — no fork or selector runs them both. ` +
-          'The chart may have changed since the checkpoint was created.',
+          `the paused stage '${paused?.id ?? '?'}' in this chart — no fork or selector runs them both, or its ` +
+          'path does not lead to that stage. The chart may have changed since the checkpoint was created.',
       );
     }
     const leafRoot =
@@ -529,6 +538,30 @@ function queueSiblingPauses<TOut, TScope>(
     queue.pauses.push({ pause, level, stageName });
   });
   return queues;
+}
+
+/**
+ * Whether a waiting sibling's WHOLE path below its fan-out walks this chart:
+ * every segment the only mount of its subflow in the enclosing graph, every
+ * subflow registered, and the paused stage in the last graph — checked at
+ * the FIRST resume, so a tampered record is refused up front, not when its
+ * turn comes.
+ */
+function walksToItsStage<TOut, TScope>(
+  chart: ChartIndex<TOut, TScope>,
+  subflows: Record<string, { root: StageNode<TOut, TScope> }> | undefined,
+  fanOutGraph: StageNode<TOut, TScope>,
+  pause: PendingPause,
+  level: number,
+): boolean {
+  let graph = fanOutGraph;
+  for (let i = level; i < pause.subflowPath.length; i++) {
+    if (chart.mountsOf(graph, pause.subflowPath[i]).length !== 1) return false;
+    const definition = ownEntry(subflows, pause.subflowPath[i]);
+    if (!definition) return false;
+    graph = definition.root;
+  }
+  return chart.stage(graph, pause.pausedStageId) !== undefined;
 }
 
 /** One `pendingPauses` entry, checked field by field — it comes from stored, untrusted data. */
