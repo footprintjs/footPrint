@@ -82,14 +82,13 @@ export class ResumeEntry<TOut = any, TScope = any> {
    * checkpoint whose path the chart cannot walk is refused up front instead of
    * resuming into the wrong shape.
    *
-   * @param root      the chart's root (`FlowChart.root`)
-   * @param subflows  the chart's subflow dictionary (`FlowChart.subflows`)
-   * @param path      `checkpoint.subflowPath` — outermost first
-   * @param captures  `checkpoint.subflowStates` (a detached copy)
-   * @param standIn   the node that runs the resume half, then the paused
-   *                  stage's continuation (real nodes)
+   * @param args - `root` and `subflows`: the chart as built
+   *   (`FlowChart.root`, `FlowChart.subflows`); `path`:
+   *   `checkpoint.subflowPath`, outermost first; `captures`:
+   *   `checkpoint.subflowStates` (a detached copy); `standIn`: the node that
+   *   runs the resume half, then the paused stage's continuation (real nodes).
    * @throws when a subflow on the path is missing, or its mount cannot be
-   *         reached from the enclosing graph
+   *   reached from the enclosing graph
    */
   static plan<TOut, TScope>(args: {
     root: StageNode<TOut, TScope>;
