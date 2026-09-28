@@ -1,12 +1,12 @@
 /**
- * PERFORMANCE and LOAD — what a resume costs, in counted work (9.27.1).
+ * PERFORMANCE and LOAD — what a resume costs, in counted work (9.28.0).
  *
  * Measured in OPERATION COUNTS, not milliseconds (the retry-cost precedent):
  * the honest question is whether a resume adds WORK, and work is countable.
  *
  *   - performance: a run paused and resumed at every pause invokes exactly
  *     the stage functions the never-paused run invokes, PLUS ONE per pause
- *     (the resume half). Nothing else re-runs — before 9.27.1 a pause two
+ *     (the resume half). Nothing else re-runs — before 9.28.0 a pause two
  *     subflows deep re-ran the outer subflow's pre-mount stage every time.
  *   - load: 150 pauses in one run, every one resumed on a fresh executor from
  *     bytes: the run ends exactly as the direct run does, and no resume

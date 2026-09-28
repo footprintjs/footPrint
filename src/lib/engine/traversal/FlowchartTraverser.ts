@@ -33,7 +33,8 @@ import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
-import { ResumeEntry } from '../handlers/ResumeEntry.js';
+import type { QueuedPause } from '../handlers/ResumeEntry.js';
+import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { StageRunner } from '../handlers/StageRunner.js';
@@ -71,11 +72,19 @@ export interface TraverserOptions<TOut = any, TScope = any> {
   /**
    * Where `execute()` starts when not at `root` — a resume's one-shot
    * re-entry (M2): the paused stage's stand-in, or the mount of the first
-   * subflow on the pause path. Visited once, first, and never registered
-   * anywhere an id can reach it, so a loop back to the paused stage finds the
-   * REAL stage. Consumed by the first `execute()`.
+   * subflow on the pause path, each with its dispatcher's continuation
+   * attached. Visited once, first, and never registered anywhere an id can
+   * reach it, so a loop back to the paused stage finds the REAL stage.
+   * Consumed by the first `execute()`.
    */
   entry?: StageNode<TOut, TScope>;
+  /**
+   * Parallel siblings' pauses waiting at this level (a resume, 9.28.0): once
+   * `entry`'s chain ends, `execute()` raises the first again (the rest wait
+   * behind it); a pause raised from inside the chain carries them all. Only
+   * with `entry`; consumed by the first `execute()`. See `ResumeEntry`.
+   */
+  pendingPauses?: readonly QueuedPause[];
   stageMap: Map<string, StageFunction<TOut, TScope>>;
   scopeFactory: ScopeFactory<TScope>;
   executionRuntime: IExecutionRuntime;
@@ -141,10 +150,10 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    */
   resume?: ResumeEntry<TOut, TScope>;
   /**
-   * @deprecated since 9.27.1 — pass {@link resume}. Still honoured, under the
+   * @deprecated since 9.28.0 — pass {@link resume}. Still honoured, under the
    * same one-shot law: each capture seeds only the FIRST entry into its
-   * subflow (inputMapper skipped there); later entries are ordinary. Ignored
-   * when `resume` is set.
+   * subflow (in place of the inputMapper's values); later entries are
+   * ordinary. Ignored when `resume` is set.
    */
   subflowStatesForResume?: Record<string, Record<string, unknown>>;
   /**
@@ -273,6 +282,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private readonly root: StageNode<TOut, TScope>;
   /** Where the next `execute()` starts when not at `root` — one-shot (see TraverserOptions.entry). */
   private entry: StageNode<TOut, TScope> | undefined;
+  /** Siblings' pauses raised once `entry`'s chain ends — one-shot (see TraverserOptions.pendingPauses). */
+  private entryPendingPauses: readonly QueuedPause[] | undefined;
   /** The resume's one-shot re-entry, shared with nested traversers. Undefined on a normal run. */
   private readonly resume: ResumeEntry<TOut, TScope> | undefined;
   private stageMap: Map<string, StageFunction<TOut, TScope>>;
@@ -417,6 +428,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this._visitCounts = opts.visitCounts ?? new Map();
     this.root = opts.root;
     this.entry = opts.entry;
+    this.entryPendingPauses = opts.entry ? opts.pendingPauses : undefined;
     this.resume =
       opts.resume ??
       (opts.subflowStatesForResume ? ResumeEntry.fromCaptures<TOut, TScope>(opts.subflowStatesForResume) : undefined);
@@ -514,6 +526,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       const traverser = new FlowchartTraverser<TOut, TScope>({
         root: subflowOpts.root,
         ...(subflowOpts.entry && { entry: subflowOpts.entry }), // a resume hop's entry point
+        ...(subflowOpts.pendingPauses && { pendingPauses: subflowOpts.pendingPauses }),
         stageMap: parentStageMap, // Constructor shallow-copies this
         scopeFactory: parentOpts.scopeFactory,
         executionRuntime: subflowOpts.executionRuntime,
@@ -581,9 +594,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   async execute(branchPath?: string): Promise<TraversalResult> {
     const context = this.executionRuntime.rootStageContext;
     this._topBreakFlag = { shouldBreak: false };
-    // The entry is one-shot: the first execute() starts there, never again.
+    // The entry is one-shot: the first execute() starts there, never again —
+    // and so are the sibling pauses waiting behind it.
     const start = this.entry ?? this.root;
+    const waiting = this.entryPendingPauses;
     this.entry = undefined;
+    this.entryPendingPauses = undefined;
+    const walk = (): Promise<TraversalResult> =>
+      waiting
+        ? this.walkThenRaise(start, context, waiting, branchPath)
+        : this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
 
     // Fire onRunStart ONLY at the top-level traversal — subflow traversers
     // already produce onSubflowEntry/onSubflowExit pairs, so emitting run
@@ -618,11 +638,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // recovery. Subflow traversers don't fire run events; their errors
     // bubble up and surface here at the top level.
     if (!isTopLevel) {
-      return this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
+      return walk();
     }
     let result: TraversalResult;
     try {
-      result = await this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
+      result = await walk();
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
         this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
@@ -631,6 +651,31 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
     this.narrativeGenerator.onRunEnd(result, rootContext);
     return result;
+  }
+
+  /**
+   * A resume's entry chain at a level where parallel siblings' pauses wait
+   * (9.28.0): run the chain — the resumed child only, the fan-out's join is
+   * NOT attached — then raise the first waiting pause again, the rest behind
+   * it. Nothing of the sibling re-runs; its question comes back as it was
+   * asked. A pause raised from inside the chain (the resumed child asking
+   * again) carries every waiting sibling instead, so none is ever dropped.
+   */
+  private async walkThenRaise(
+    start: StageNode<TOut, TScope>,
+    context: StageContext,
+    waiting: readonly QueuedPause[],
+    branchPath?: string,
+  ): Promise<TraversalResult> {
+    try {
+      await this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
+    } catch (error: unknown) {
+      if (isPauseSignal(error)) queueBehind(error, waiting);
+      throw error;
+    }
+    const { pause, stageName } = waiting[0];
+    this.narrativeGenerator.onPause(stageName, pause.pausedStageId, pause.pauseData, pause.subflowPath);
+    throw raiseQueuedPause(waiting);
   }
 
   /**
@@ -1088,6 +1133,20 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
 
       if (node.next && shouldExecuteContinuation) {
+        // A mount's `next` can be a loop-ref STUB — a subflow mounted as a
+        // decider branch with `{ loopTo }` / `.loopTo()`. Resolve it like
+        // Phase 6 does (iteration counted, `onLoop` fired); hopping into the
+        // bare stub ran the target's function once and ended the run.
+        if (node.next.isLoopRef) {
+          const target = this.continuationResolver.resolveTarget(
+            node.next,
+            node,
+            context,
+            branchPath,
+            traversalContext,
+          );
+          return this.hop(target.node, target.context, branchPath);
+        }
         const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
         return this.hop(node.next, nextCtx, branchPath);
       }

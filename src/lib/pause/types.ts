@@ -14,7 +14,16 @@
  * Resume rebuilds the flowchart, restores scope, navigates to the paused stage,
  * injects resumeInput, and continues traversal.
  *
- * Supported topologies: linear, subflow, lazy subflow, loop, nested subflow in loop.
+ * Supported topologies: linear, subflow (at any depth — mounted linearly, as a
+ * decider or selector branch, or as a fork child), loop, nested subflow in
+ * loop, and several parallel siblings pausing in one fan-out (each asks in
+ * turn — `FlowchartCheckpoint.pendingPauses`).
+ *
+ * NOT resumable yet: a pause inside a LAZY subflow (`addLazySubFlowChart*`) or
+ * inside an `addParallelForEach` branch. Their graphs are resolved at run time
+ * and are not in the chart a resume walks, so `resume()` refuses the
+ * checkpoint ("not found") instead of guessing. Pinned in
+ * test/lib/pause/resume-known-limitations.test.ts.
  */
 
 // ── PauseSignal ─────────────────────────────────────────────
@@ -71,6 +80,16 @@ export class PauseSignal extends Error {
    */
   private _subflowStates: Record<string, Record<string, unknown>> = {};
 
+  /**
+   * Pauses that PARALLEL SIBLINGS raised in the same fan-out as this one,
+   * waiting their turn (9.28.0). Recorded by `ChildrenExecutor` when more
+   * than one child of a fork (or more than one selected branch) pauses: the
+   * first pause is the one that is asked, the others ride here instead of
+   * being dropped. Each path is relative to where the signal currently is
+   * and grows with it — `prependSubflow` prepends to every entry too.
+   */
+  private _pendingPauses: MutablePendingPause[] = [];
+
   constructor(data: unknown, stageId: string, pausedBy?: 'interrupt') {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -86,9 +105,47 @@ export class PauseSignal extends Error {
     return this._subflowPath;
   }
 
-  /** Prepend a subflow ID to the path (called during bubble-up). */
+  /**
+   * Prepend a subflow ID to the path (called during bubble-up). The pending
+   * sibling pauses ride the same boundary, so their paths grow with it.
+   */
   prependSubflow(subflowId: string): void {
     this._subflowPath.unshift(subflowId);
+    for (const pending of this._pendingPauses) pending.subflowPath.unshift(subflowId);
+  }
+
+  /**
+   * Queue a parallel sibling's pause behind this one (its path relative to
+   * this signal's current level). Copied in: the entry is owned by the
+   * signal from here on.
+   */
+  addPendingPause(pause: PendingPause): void {
+    this._pendingPauses.push({
+      pausedStageId: pause.pausedStageId,
+      subflowPath: [...pause.subflowPath],
+      subflowStates: { ...pause.subflowStates },
+      ...(pause.pauseData !== undefined && { pauseData: pause.pauseData }),
+      ...(pause.pausedBy && { pausedBy: pause.pausedBy }),
+    });
+  }
+
+  /** Parallel siblings' pauses waiting behind this one, in the order they will be asked. */
+  get pendingPauses(): readonly PendingPause[] {
+    return this._pendingPauses;
+  }
+
+  /**
+   * This pause as a {@link PendingPause} — what `ChildrenExecutor` queues
+   * behind a sibling's pause when both paused in one fan-out.
+   */
+  toPendingPause(): PendingPause {
+    return {
+      pausedStageId: this.stageId,
+      subflowPath: [...this._subflowPath],
+      subflowStates: { ...this._subflowStates },
+      ...(this.pauseData !== undefined && { pauseData: this.pauseData }),
+      ...(this.pausedBy && { pausedBy: this.pausedBy }),
+    };
   }
 
   /** The stage that invoked the paused child (decider, selector, fork). */
@@ -136,6 +193,48 @@ export class PauseSignal extends Error {
     return this._subflowStates;
   }
 }
+
+// ── PendingPause ────────────────────────────────────────────
+
+/**
+ * A pause a PARALLEL SIBLING of the paused stage raised in the same fan-out —
+ * two children of one fork (or two selected branches of one selector) that
+ * both paused (9.28.0). Only one pause is asked at a time: the checkpoint's
+ * own (`pausedStageId`), then each of these in turn, with the fan-out's join
+ * running only once every child is done.
+ *
+ * Everything needed to raise the sibling's pause again later WITHOUT re-running
+ * the sibling: its stage, its path, its captured subflow state, its question.
+ *
+ * @example
+ * ```typescript
+ * // A fork whose two children both ask: the first checkpoint asks c1 and
+ * // carries c2's pause; resuming it finishes c1, then pauses with c2's
+ * // question; resuming THAT finishes c2 and runs the join.
+ * const cp = executor.getCheckpoint()!;
+ * cp.pausedStageId;                  // 'c1/ask'
+ * cp.pendingPauses?.[0].pausedStageId; // 'c2/ask'
+ * ```
+ */
+export interface PendingPause {
+  /** The sibling's paused stage (path-prefixed id, as `pausedStageId`). */
+  readonly pausedStageId: string;
+  /** Path through subflows to the sibling's paused stage (as `subflowPath`). */
+  readonly subflowPath: readonly string[];
+  /**
+   * The sibling's own subflow captures — the subflows on ITS path below the
+   * fan-out. The subflows above the fan-out are shared with the checkpoint's
+   * own pause and are captured again when this pause is raised.
+   */
+  readonly subflowStates: Record<string, Record<string, unknown>>;
+  /** The sibling's question (as `pauseData`). */
+  readonly pauseData?: unknown;
+  /** How the sibling paused (as `pausedBy`). */
+  readonly pausedBy?: 'interrupt';
+}
+
+/** A pending pause whose path still grows as its signal bubbles up (internal). */
+type MutablePendingPause = Omit<PendingPause, 'subflowPath'> & { subflowPath: string[] };
 
 // ── PauseResult ─────────────────────────────────────────────
 
@@ -239,8 +338,10 @@ export interface FlowchartCheckpoint {
    *
    * Always present (empty `{}` for root-level pauses where no subflows
    * were entered). On resume, `SubflowExecutor` seeds each nested runtime
-   * from this map (and skips the inputMapper) so resume handlers see
-   * pre-pause scope across same-executor AND cross-executor restarts.
+   * on the path from this map — ONCE, on its first entry, in place of the
+   * inputMapper's values (the mapper still runs, for the stages' read-only
+   * args) — so resume handlers see pre-pause scope across same-executor AND
+   * cross-executor restarts. Only the subflows ON `subflowPath` read it.
    */
   readonly subflowStates: Record<string, Record<string, unknown>>;
 
@@ -269,8 +370,25 @@ export interface FlowchartCheckpoint {
   /** Stage that invoked the paused child (decider, selector, fork). Absent for linear pauses. */
   readonly invokerStageId?: string;
 
-  /** Where to continue after resume — the invoker's next node ID. Absent for linear pauses. */
+  /**
+   * The invoker's next node ID. Absent for linear pauses.
+   *
+   * A RECORD, not an instruction: since 9.28.0 `resume()` derives what runs
+   * after the paused stage from the chart itself (the stage's own `next`, else
+   * the continuation of the dispatcher that ran it — at every level of the
+   * pause path), so an edited value cannot redirect a resumed run.
+   */
   readonly continuationStageId?: string;
+
+  /**
+   * Pauses raised by PARALLEL SIBLINGS of the paused stage in the same
+   * fan-out, waiting their turn (9.28.0) — see {@link PendingPause}. Absent
+   * when only one child paused (every checkpoint before 9.28.0 omits it, and
+   * resumes exactly as before). Resuming this checkpoint finishes the paused
+   * stage's child, then pauses again with the first of these; the fan-out's
+   * join runs once every child is done.
+   */
+  readonly pendingPauses?: readonly PendingPause[];
 
   /** Timestamp of when the pause occurred. */
   readonly pausedAt: number;

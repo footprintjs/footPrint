@@ -26,7 +26,8 @@ examples/
 │   │   ├── 02-decider.ts         → conditional pause (pause only on some branches)
 │   │   ├── 03-subflow.ts         → pause inside subflow
 │   │   ├── 08-interrupt.ts       → interrupt(scope, …) mid-stage; resume re-enters the stage top
-│   │   └── 09-ask-again-in-a-loop.ts → a loop after a resume: re-ask the paused stage, fresh subflow entry
+│   │   ├── 09-ask-again-in-a-loop.ts → a loop after a resume: re-ask the paused stage, fresh subflow entry
+│   │   └── 10-two-questions-at-once.ts → two parallel reviewers both ask: asked in turn, the join after the last
 │   ├── parallel-for-each/        → dynamic fan-out (branch count from the payload)
 │   │   ├── 01-fan-out-per-item.ts        → ordered results + where branches live in the trace
 │   │   └── 02-bounded-and-failing-branches.ts → maxBranches ceiling + failure policy

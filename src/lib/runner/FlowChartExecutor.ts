@@ -72,6 +72,40 @@ const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
   new ScopeFacade(ctx, stageName, readOnly, env);
 
 /**
+ * The paused stage's stand-in for a resume: the stage's OWN node — so it keeps
+ * its shape (a decider's or selector's branches, a fork parent's children,
+ * its `next`) and its name, description and declared tags — with `fn` swapped
+ * for the resume half.
+ *
+ * Dropped: `resumeFn` and `isPausable` (the resume half must not pause
+ * because it returned a value — the original pausable contract); and, on the
+ * `addPausableFunction` re-entry, the policies declared for the stage's OWN
+ * function (`retry`, streaming) — that re-entry runs a different function
+ * (`resumeFn`) under a different contract. The `interrupt()` re-entry re-runs
+ * the stage's own function, so it keeps them.
+ *
+ * Tags follow the stage on BOTH re-entries (9.21.0): a tag is the stage's
+ * NAME, not a policy over its function, and the resumed execution is that
+ * stage running again — its bundle must carry it, or a chained axis would
+ * show the paused leg tagged and the resumed leg silently not.
+ */
+function standInFor<TOut, TScope>(
+  pausedNode: StageNode<TOut, TScope>,
+  fn: StageFunction<TOut, TScope>,
+  isInterruptResume: boolean,
+): StageNode<TOut, TScope> {
+  const standIn: StageNode<TOut, TScope> = { ...pausedNode, fn };
+  delete standIn.resumeFn;
+  delete standIn.isPausable;
+  if (!isInterruptResume) {
+    delete standIn.retry;
+    delete standIn.isStreaming;
+    delete standIn.streamId;
+  }
+  return standIn;
+}
+
+/**
  * Options object for `FlowChartExecutor` — preferred over positional params.
  *
  * ```typescript
@@ -549,6 +583,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // traversal STARTS (`entry`), once.
       root: fc.root,
       ...(overrides?.resume?.start && { entry: overrides.resume.start }),
+      ...(overrides?.resume?.startPendingPauses && { pendingPauses: overrides.resume.startPendingPauses }),
       ...(overrides?.resume && { resume: overrides.resume }),
       stageMap: fc.stageMap,
       scopeFactory,
@@ -684,7 +719,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Resume a paused flowchart from a checkpoint.
    *
    * Restores the scope state, calls the paused stage's `resumeFn` with the
-   * provided input, then continues traversal from the next stage.
+   * provided input (or, for an `interrupt()` pause, re-runs the stage with the
+   * answer), then continues with whatever ran after that stage on the run —
+   * its own `next`, or the continuation of the decider, selector or fork that
+   * dispatched it, at every level of the pause path — and from there walks the
+   * chart as built. When parallel siblings paused in the same fan-out
+   * (`checkpoint.pendingPauses`), the run pauses again with the next sibling's
+   * question once this one's branch is done; the fan-out's join runs after the
+   * last answer. See `ResumeEntry` (`footprintjs/advanced`).
    *
    * The checkpoint can come from `getCheckpoint()` on a previous run, or from
    * a serialized checkpoint stored in Redis/Postgres/localStorage.
@@ -745,32 +787,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throw new Error('Invalid checkpoint: subflowPath must be an array of strings.');
     }
 
-    // ── Seed the shared execution counter + per-stage visit counts ──
-    //
-    // MUST run before the counter is READ below (the resume-node runtimeStageId
-    // reconstruction) AND before createTraverser() hands the traverser these
-    // objects BY REFERENCE. Seeding keeps runtimeStageIds unique and
-    // loopIteration monotonic across a CROSS-executor resume (a fresh executor
-    // starts both at 0/empty; the checkpoint carries the pause-time values).
-    //
-    // MUTATE, never REPLACE: `_executionCounter` and `_visitCounts` are shared
-    // by reference into the traverser (and, transitively, every subflow
-    // traverser — see FlowchartTraverser's sub-traverser factory). Assigning a
-    // fresh object here would sever that shared reference. Both fields are
-    // optional on the checkpoint (older persisted checkpoints omit them) — skip
-    // seeding when absent, preserving the previous behavior. Same-executor
-    // resume is idempotent: at pause the instance values already equal the
-    // checkpoint's, so re-seeding them changes nothing.
-    if (typeof checkpoint.executionCount === 'number') {
-      this._executionCounter.value = checkpoint.executionCount;
-    }
-    if (checkpoint.visitCounts) {
-      this._visitCounts.clear();
-      for (const [stageId, count] of Object.entries(checkpoint.visitCounts)) {
-        this._visitCounts.set(stageId, count);
-      }
-    }
-
     // Find the paused node in the graph
     const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
     if (!pausedNode) {
@@ -827,56 +843,19 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       };
     }
 
-    // The paused stage's continuation — what runs after the resume half.
-    //
-    //   • `pausedNode.next` when it has one. A branch-sourced loop's `next` is
-    //     a loop-ref STUB (`{ id, isLoopRef: true }`) and STAYS a stub: the
-    //     resumed traversal walks the real chart, so the stub resolves to the
-    //     real target through the ContinuationResolver exactly as it does on a
-    //     run (iteration counted, `onLoop` fired). Before 9.27.1 the traversal
-    //     was rooted at the stand-in, the target was unreachable, and the stub
-    //     had to be swapped for it here by hand.
-    //   • A branch child (decider/selector) has no `next` of its own: the
-    //     checkpoint's `continuationStageId` (stamped during bubble-up) names
-    //     the invoker's next. Search the leaf subflow first (branch joins live
-    //     there), then the top level.
-    const leafSubflowId =
-      checkpoint.subflowPath.length > 0 ? checkpoint.subflowPath[checkpoint.subflowPath.length - 1] : undefined;
-    let continuationNext = pausedNode.next;
-    if (!continuationNext && checkpoint.continuationStageId) {
-      continuationNext = leafSubflowId
-        ? this.findNodeInGraph(checkpoint.continuationStageId, checkpoint.subflowPath)
-        : undefined;
-      if (!continuationNext) {
-        continuationNext = this.findNodeInGraph(checkpoint.continuationStageId, []);
-      }
-    }
-
-    // The paused stage's STAND-IN: its id, name, description and tags, the
-    // resume half as its function, the real continuation as its `next`. It is
-    // where the resumed traversal starts — and nothing else: it is never in a
-    // node map or the subflow dictionary, so a loop back to the paused id
-    // finds the REAL stage, which pauses again (see ResumeEntry).
-    const standIn: StageNode<TOut, TScope> = {
-      name: pausedNode.name,
-      id: pausedNode.id,
-      description: pausedNode.description,
-      fn: resumeStageFn,
-      next: continuationNext,
-      // A declared `retry` policy follows the stage only on the INTERRUPT
-      // re-entry, because that path re-runs the stage's OWN function — the
-      // exact function the policy was declared for. The `addPausableFunction`
-      // re-entry runs a different function (`resumeFn`) under a different
-      // contract, so it deliberately runs without the policy.
-      ...(isInterruptResume && pausedNode.retry && { retry: pausedNode.retry }),
-      // Declared tags (9.21.0) follow the stage on BOTH re-entries: a tag is
-      // the stage's NAME, not a policy over its function, and the resumed
-      // execution is that stage running again — its bundle must carry it,
-      // or a chained axis would show the paused leg tagged and the resumed
-      // leg silently not. The chart's node has the tags; this stand-in is
-      // the one place they would otherwise be lost.
-      ...(pausedNode.tags && { tags: pausedNode.tags }),
-    };
+    // The paused stage's STAND-IN: the stage's OWN node — id, name,
+    // description, tags, and its shape (a decider's branches, a selector's, a
+    // fork parent's children, its `next`) — with its function swapped for the
+    // resume half. Built from the whole node so an `interrupt()` raised inside
+    // a decider, selector or fork-parent function DISPATCHES on resume, as the
+    // stage did on the run (before 9.28.0 only fn/next/tags/retry were copied
+    // and the dispatch was silently skipped). It is where the resumed
+    // traversal starts — and nothing else: it is never in a node map or the
+    // subflow dictionary, so a loop back to the paused id finds the REAL
+    // stage, which pauses again (see ResumeEntry). What runs after it — its
+    // own `next`, else its dispatcher's continuation — is attached by
+    // `ResumeEntry.plan`, from the chart.
+    const standIn = standInFor(pausedNode, resumeStageFn, isInterruptResume);
 
     // Where the resume re-enters, planned against the chart as built:
     //
@@ -885,10 +864,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     //   • PAUSE INSIDE SUBFLOWS: it starts at the mount of the first subflow
     //     on the path, so the outputMappers and the parent's continuation
     //     run. Each subflow on the path is entered ONCE through its hop: its
-    //     nested runtime is seeded from its capture (inputMapper skipped) and
-    //     its traversal starts at the mount of the next subflow — or, at the
-    //     leaf, at the stand-in. An outer subflow's stages before that mount
-    //     do not run again.
+    //     nested runtime is seeded from its capture (in place of the
+    //     inputMapper's values) and its traversal starts at the mount of the
+    //     next subflow — or, at the leaf, at the stand-in. An outer subflow's
+    //     stages before that mount do not run again.
+    //   • AT EVERY LEVEL the entry carries what its dispatcher would have run
+    //     after it — a decider's `next`, a selector's, a fork's join — so a
+    //     subflow mounted as a branch or a fork child hands control back to
+    //     its parent's continuation at the parent's level.
+    //   • Parallel siblings that paused in the same fan-out wait in
+    //     `checkpoint.pendingPauses`: each is raised again in turn, and the
+    //     join runs only once the last one is resumed.
     //
     // Everything else walks the REAL chart: `fc.root` and `fc.subflows` are
     // untouched, so every later loop target and every later subflow entry
@@ -900,7 +886,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // nested SharedMemory), so without a copy the engine would hold live
     // references into the caller's checkpoint object — caller mutations would
     // bleed into the resumed run and engine writes would reach a checkpoint
-    // the caller may have already persisted.
+    // the caller may have already persisted. The same for the waiting
+    // siblings' captures.
     const fc = this.flowChartArgs.flowChart;
     const resumeEntry = ResumeEntry.plan<TOut, TScope>({
       root: fc.root,
@@ -908,7 +895,37 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       path: checkpoint.subflowPath,
       captures: structuredClone(checkpoint.subflowStates),
       standIn,
+      ...(checkpoint.pendingPauses !== undefined && { pendingPauses: structuredClone(checkpoint.pendingPauses) }),
     });
+
+    // ── Seed the shared execution counter + per-stage visit counts ──
+    //
+    // Only now — every refusal above (the checkpoint's shape, the paused
+    // stage, the plan) leaves the executor exactly as it was. MUST run before
+    // the counter is READ below (the stand-in's runtimeStageId for
+    // `onResume`) AND before createTraverser() hands the traverser these
+    // objects BY REFERENCE. Seeding keeps runtimeStageIds unique and
+    // loopIteration monotonic across a CROSS-executor resume (a fresh
+    // executor starts both at 0/empty; the checkpoint carries the pause-time
+    // values).
+    //
+    // MUTATE, never REPLACE: `_executionCounter` and `_visitCounts` are shared
+    // by reference into the traverser (and, transitively, every subflow
+    // traverser — see FlowchartTraverser's sub-traverser factory). Assigning a
+    // fresh object here would sever that shared reference. Both fields are
+    // optional on the checkpoint (older persisted checkpoints omit them) — skip
+    // seeding when absent, preserving the previous behavior. Same-executor
+    // resume is idempotent: at pause the instance values already equal the
+    // checkpoint's, so re-seeding them changes nothing.
+    if (typeof checkpoint.executionCount === 'number') {
+      this._executionCounter.value = checkpoint.executionCount;
+    }
+    if (checkpoint.visitCounts) {
+      this._visitCounts.clear();
+      for (const [stageId, count] of Object.entries(checkpoint.visitCounts)) {
+        this._visitCounts.set(stageId, count);
+      }
+    }
     // (Wiped only now: every refusal above leaves the executor's existing
     // checkpoint untouched.)
     this.lastCheckpoint = undefined;
@@ -962,8 +979,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // synthetic TraversalContext for the resumed stage with the NEW
     // runId so consumers detect "this is a fresh logical run" via
     // the same runId-change pattern they use for `onRunStart`.
+    //
+    // The runtimeStageId is the STAND-IN's own: it runs after one mount per
+    // subflow on the path (each entered at its mount), so its execution index
+    // is the counter plus the path's length — the event and the stand-in's
+    // commit name the same execution. (Fired before the traversal on purpose:
+    // `onResume` precedes `onRunStart`, which recorders rely on to adopt the
+    // new runId without resetting.) The one shape where the index cannot be
+    // known up front — a degraded checkpoint missing an OUTER subflow's
+    // capture, whose opening stages then re-run — names the planned position.
     const hasInput = resumeInput !== undefined;
-    const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value);
+    const stepsBeforeStandIn = resumeEntry.stepsBeforeStandIn ?? checkpoint.subflowPath.length;
+    const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value + stepsBeforeStandIn);
     const flowResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
@@ -983,7 +1010,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const scopeResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
-      runtimeStageId: buildRuntimeStageId(pausedNode.id, this._executionCounter.value),
+      runtimeStageId: resumeRuntimeStageId,
       hasInput,
       pipelineId: '',
       timestamp: Date.now(),
@@ -1105,6 +1132,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Invoker context — collected during traversal bubble-up (not tree-walked)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
       ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
+      // Parallel siblings' pauses from the same fan-out, waiting their turn
+      // (9.28.0). Absent when only one child paused — the shape every
+      // earlier checkpoint has.
+      ...(signal.pendingPauses.length > 0 && { pendingPauses: signal.pendingPauses }),
       // HOW the pause was raised. One checkpoint shape, one extra optional
       // field — an interrupt() pause is not a second kind of checkpoint, it is
       // the same checkpoint that resume() re-enters differently (stage top vs

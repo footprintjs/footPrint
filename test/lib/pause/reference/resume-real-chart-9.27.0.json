@@ -1,5 +1,5 @@
 {
-  "generatedBy": "footprintjs 9.27.0 (8b98da2), before any 9.27.1 source edit — the first checkpoint of each chart in test/lib/pause/resume-real-chart-fixture.ts, JSON round-tripped",
+  "generatedBy": "footprintjs 9.27.0 (8b98da2), before any 9.28.0 source edit — the first checkpoint of each chart in test/lib/pause/resume-real-chart-fixture.ts, JSON round-tripped",
   "checkpoints": {
     "askLoopInSubflow": {
       "sharedState": {

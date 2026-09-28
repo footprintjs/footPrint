@@ -10,7 +10,7 @@ import type { StageContext } from '../memory/StageContext.js';
 import type { FlowControlType, FlowMessage } from '../memory/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { Decider, Selector, StageNode } from './graph/StageNode.js';
-import type { ResumeEntry } from './handlers/ResumeEntry.js';
+import type { QueuedPause, ResumeEntry } from './handlers/ResumeEntry.js';
 import type { IControlFlowNarrative } from './narrative/types.js';
 
 // Re-export StageNode types for convenience
@@ -410,9 +410,15 @@ export type SubflowTraverserFactory<TOut = any, TScope = any> = (options: {
   /**
    * Where the subflow's traversal starts when not at `root` — a resume's
    * one-shot re-entry (`ResumeHop.entry`): the next mount on the pause path,
-   * or the paused stage's stand-in. Visited once, first; never resolvable by id.
+   * or the paused stage's stand-in, each with its dispatcher's continuation
+   * attached. Visited once, first; never resolvable by id.
    */
   entry?: StageNode<TOut, TScope>;
+  /**
+   * Parallel siblings' pauses waiting in this subflow (`ResumeHop.pendingPauses`,
+   * 9.28.0) — raised in order once `entry`'s chain ends.
+   */
+  pendingPauses?: readonly QueuedPause[];
   /** Isolated execution runtime for the subflow. */
   executionRuntime: IExecutionRuntime;
   /** Mapped input from parent scope (becomes readOnlyContext for stages). */
@@ -546,17 +552,19 @@ export interface HandlerDeps<TOut = any, TScope = any> {
    * The resume's one-shot re-entry (M2) — shared by reference with every
    * nested traverser, like the execution counter. `SubflowExecutor` asks it
    * at each subflow entry: the FIRST entry into a subflow on the pause path
-   * takes that subflow's captured state (seeding the nested runtime INSTEAD of
-   * the inputMapper) and its entry point; every later entry is an ordinary
-   * one. See `ResumeEntry`. Undefined on normal `run()` paths.
+   * takes that subflow's captured state (seeding the nested runtime in place
+   * of the inputMapper's values — the mapper still runs for the read-only
+   * args), its entry point and any sibling pauses waiting there; every later
+   * entry is an ordinary one. See `ResumeEntry`. Undefined on normal `run()`
+   * paths.
    */
   resume?: ResumeEntry<TOut, TScope>;
   /**
-   * @deprecated since 9.27.1 — the engine plans a resume with {@link resume}.
+   * @deprecated since 9.28.0 — the engine plans a resume with {@link resume}.
    * Still honoured, under the same one-shot law: each capture (keyed by
    * path-prefixed `subflowId`) seeds only the FIRST entry into its subflow,
-   * skipping the inputMapper there; later entries are ordinary. Ignored when
-   * `resume` is set.
+   * in place of the inputMapper's values; later entries are ordinary.
+   * Ignored when `resume` is set.
    */
   subflowStatesForResume?: Record<string, Record<string, unknown>>;
 }

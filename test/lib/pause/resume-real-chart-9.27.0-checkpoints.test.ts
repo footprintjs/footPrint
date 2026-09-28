@@ -1,10 +1,10 @@
 /**
- * Back-compat: a checkpoint WRITTEN BY 9.27.0 resumes correctly on 9.27.1.
+ * Back-compat: a checkpoint WRITTEN BY 9.27.0 resumes correctly on 9.28.0.
  *
  * The one-shot resume re-entry changed how a checkpoint is re-entered, not
  * what a checkpoint is. `reference/resume-real-chart-9.27.0.json` holds the
  * first checkpoint of every chart in resume-real-chart-fixture.ts, produced on
- * the 9.27.0 tree (8b98da2) on 2026-09-27, BEFORE any 9.27.1 source edit, and
+ * the 9.27.0 tree (8b98da2) on 2026-09-27, BEFORE any 9.28.0 source edit, and
  * JSON round-tripped — exactly what a consumer has sitting in Redis/Postgres
  * across the upgrade. Each one must resume on the current code into the
  * healthy run: the same trace, the same number of pauses, as a run that never

@@ -681,7 +681,7 @@ describe('SubflowExecutor — security', () => {
   });
 });
 
-// ── Resume re-entry (9.27.1) ─────────────────────────────────────────────
+// ── Resume re-entry (9.28.0) ─────────────────────────────────────────────
 
 describe('SubflowExecutor — resume re-entry is one-shot', () => {
   const inputMapper = () => ({ fromMapper: true });
@@ -710,8 +710,11 @@ describe('SubflowExecutor — resume re-entry is one-shot', () => {
     const first = getLastOptions();
     expect(first.entry).toBe(standIn);
     expect(first.root.id).toBe('sf/first'); // ids still resolve against the REAL subflow
-    expect(first.readOnlyContext).toEqual({}); // inputMapper skipped — seeded from the capture
+    // The mapper still runs — its result is the stages' read-only args — but
+    // the nested memory is seeded from the capture, never from the mapper.
+    expect(first.readOnlyContext).toEqual({ fromMapper: true });
     expect(first.executionRuntime.globalStore.getState()).toMatchObject({ captured: 1 });
+    expect(first.executionRuntime.globalStore.getState()).not.toHaveProperty('fromMapper');
 
     await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
     const second = getLastOptions();
@@ -727,8 +730,9 @@ describe('SubflowExecutor — resume re-entry is one-shot', () => {
 
     await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
     expect(getLastOptions().entry).toBeUndefined();
-    expect(getLastOptions().readOnlyContext).toEqual({});
+    expect(getLastOptions().readOnlyContext).toEqual({ fromMapper: true });
     expect(getLastOptions().executionRuntime.globalStore.getState()).toMatchObject({ captured: 1 });
+    expect(getLastOptions().executionRuntime.globalStore.getState()).not.toHaveProperty('fromMapper');
 
     await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());
     expect(getLastOptions().readOnlyContext).toEqual({ fromMapper: true });

@@ -23,7 +23,7 @@
  *     inputMapper runs with the new draft, its first stage runs, and nothing
  *     from the earlier checkpoint leaks into it.
  *
- * (Until 9.27.1 the first two ended the run early or never asked again.)
+ * (Until 9.28.0 the first two ended the run early or never asked again.)
  *
  * Every resume here runs on a NEW executor from the checkpoint's JSON bytes —
  * the pattern a service uses when the answer arrives hours later.

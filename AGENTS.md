@@ -187,7 +187,9 @@ if (executor.isPaused()) {
 - `execute` returns data → pauses. Returns void → continues normally (conditional pause).
 - Checkpoint is JSON-serializable — no functions, no class instances.
 - `resume()` reuses the execution runtime — narrative, metrics, execution tree all accumulate.
-- A resume re-enters ONCE, then the run is the chart as built: a `loopTo` back to the paused stage runs that stage again (it pauses again — a re-ask), a loop reaches its head even from inside a subflow, and the next pass through a subflow mount is a fresh entry (its inputMapper runs). A pause several subflows deep does not re-run the outer subflows' earlier stages. (Since 9.27.1.)
+- A resume re-enters ONCE, then the run is the chart as built: a `loopTo` back to the paused stage runs that stage again (it pauses again — a re-ask), a loop reaches its head even from inside a subflow, and the next pass through a subflow mount is a fresh entry (its inputMapper runs). A pause several subflows deep does not re-run the outer subflows' earlier stages, and a subflow mounted as a decider/selector branch or a fork child hands back to its parent's continuation (the decider's `next`, the fork's join). (Since 9.28.0.)
+- Two parallel siblings that pause in one fan-out are asked IN TURN: the checkpoint asks the first and carries the others in `checkpoint.pendingPauses`; each resume answers one; the join runs after the last. (Since 9.28.0.)
+- Not resumable yet: a pause inside a LAZY subflow or an `addParallelForEach` branch — `resume()` refuses it. A subflow id mounted twice in one chart — `resume()` refuses a pause inside it (give each mount its own id).
 - `FlowRecorder.onPause`/`onResume` and `Recorder.onPause`/`onResume` fire on both observer systems.
 
 ### ComposableRunner & Snapshot Navigation

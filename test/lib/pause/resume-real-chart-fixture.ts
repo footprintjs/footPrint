@@ -1,6 +1,6 @@
 /**
  * The charts and the driver behind the "a resume resolves against the REAL
- * chart" tests (9.27.1).
+ * chart" tests (9.28.0).
  *
  * Every chart here pauses somewhere a `loopTo`, or a later entry into a
  * subflow, has to find its way back into the chart AFTER a resume. On 9.27.0

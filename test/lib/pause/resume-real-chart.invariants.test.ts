@@ -1,5 +1,5 @@
 /**
- * The invariants the one-shot resume re-entry (9.27.1) must keep.
+ * The invariants the one-shot resume re-entry (9.28.0) must keep.
  *
  * Moving where a resumed run starts, and letting it walk the real chart
  * afterwards, touches the event-correlation model and the per-stage policies
@@ -17,7 +17,13 @@
  *   - declared tags and `retry` follow the resumed stage as before — and the
  *     REAL stage keeps its own when a loop re-visits it;
  *   - an `interrupt()` re-entry re-runs the stage from its top;
- *   - the checkpoint's shape is unchanged from 9.27.0.
+ *   - every commit bundle's `stageId` names the stage its `runtimeStageId`
+ *     names — including the FIRST bundle of every re-entered subflow, whose
+ *     nested runtime is named after its entry, not the subflow's root;
+ *   - `onResume` (flow and scope) names the stand-in's OWN execution — the
+ *     runtimeStageId its commit carries — at every depth;
+ *   - the checkpoint's shape is unchanged from 9.27.0 (one OPTIONAL field
+ *     added, `pendingPauses`, present only when parallel siblings wait).
  *
  * Test type: functional (invariants). Sibling of resume-real-chart.test.ts.
  */
@@ -28,10 +34,11 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import type { FlowRecorder, RuntimeSnapshot } from '../../../src/index.js';
+import { ArrayMergeMode } from '../../../src/advanced.js';
+import type { FlowChart, FlowRecorder, RuntimeSnapshot, ScopeRecorder } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
 import { parseRuntimeStageId } from '../../../src/lib/engine/runtimeStageId.js';
-import { tagStops, timeTravel } from '../../../src/trace.js';
+import { stateAt, tagStops, timeTravel } from '../../../src/trace.js';
 import { type ResumeMode, type S, askLoopTopLevelChart, drive, RESUME_CHARTS } from './resume-real-chart-fixture.js';
 
 const MODES: ResumeMode[] = ['same', 'cross'];
@@ -422,3 +429,143 @@ describe('the checkpoint shape is unchanged from 9.27.0', () => {
     }
   });
 });
+
+// ── Record labels: a bundle's stageId and its runtimeStageId agree ───────────
+
+/** A pause two subflows deep whose inner mount is dispatched (decider / fork) inside the outer subflow. */
+function dispatchedTwoDeep(kind: 'decider' | 'fork'): FlowChart {
+  const leaf = flowChart('BStart', () => undefined, 'b-start')
+    .addPausableFunction('BAsk', { execute: () => ({ q: 1 }), resume: () => undefined }, 'b-ask')
+    .addFunction('BPost', () => undefined, 'b-post')
+    .build();
+  const pre = flowChart('APre', () => undefined, 'a-pre');
+  const middle =
+    kind === 'decider'
+      ? pre
+          .addDeciderFunction('Route', () => 'sf-b', 'route')
+          .addSubFlowChartBranch('sf-b', leaf, 'B')
+          .addFunctionBranch('other', 'Other', () => undefined)
+          .end()
+          .addFunction('APost', () => undefined, 'a-post')
+          .build()
+      : pre
+          .addSubFlowChart('sf-b', leaf, 'B')
+          .addFunction('APost', () => undefined, 'a-post')
+          .build();
+  return flowChart('Init', () => undefined, 'init')
+    .addSubFlowChartNext('sf-a', middle, 'A', { arrayMerge: ArrayMergeMode.Replace })
+    .addFunction('Final', () => undefined, 'final')
+    .build();
+}
+
+const LABEL_CHARTS: Record<string, () => FlowChart> = {
+  ...RESUME_CHARTS,
+  deciderBranchTwoDeep: () => dispatchedTwoDeep('decider'),
+  forkChildTwoDeep: () => dispatchedTwoDeep('fork'),
+};
+
+/** Every log of every leg — the top-level log and every per-execution subflow log. */
+function everyLog(legs: RuntimeSnapshot[]): Bundle[][] {
+  return legs.flatMap((leg) => logsOf(leg, true));
+}
+
+const stagePart = (runtimeStageId: string) => runtimeStageId.slice(0, runtimeStageId.lastIndexOf('#'));
+
+/** Charts whose pauses are all at the top level — no subflow is re-entered. */
+const TOP_LEVEL_PAUSES = ['askLoopTopLevel', 'loopPastTopLevelPause', 'interruptInLoopingBranch'];
+
+describe.each(MODES)('a bundle’s stageId names the stage its runtimeStageId names — %s-executor', (mode) => {
+  it.each(Object.keys(LABEL_CHARTS))('%s: every bundle, every log, every leg', async (name) => {
+    const run = await drive(LABEL_CHARTS[name](), mode);
+
+    const bad: string[] = [];
+    for (const log of everyLog(run.legs)) {
+      for (const b of log) {
+        if (b.runtimeStageId === '') continue; // a subflow's seed commit (history[0])
+        if (b.stageId !== stagePart(b.runtimeStageId)) bad.push(`${b.runtimeStageId} stageId=${b.stageId}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it.each(Object.keys(LABEL_CHARTS).filter((n) => !TOP_LEVEL_PAUSES.includes(n)))(
+    '%s: the FIRST stage bundle of every subflow a resume re-entered is named after its entry',
+    async (name) => {
+      const run = await drive(LABEL_CHARTS[name](), mode);
+
+      // Resumed legs only (legs[1..]): each re-entered subflow's first bundle
+      // after the seed is its entry — the next mount on the path, or the stand-in.
+      const firsts = run.legs.slice(1).flatMap((leg) =>
+        logsOf(leg, false)
+          .map((log) => log.find((b) => b.runtimeStageId !== ''))
+          .filter((b): b is Bundle => b !== undefined),
+      );
+      expect(firsts.length).toBeGreaterThan(0);
+      for (const b of firsts) expect(b.stageId).toBe(stagePart(b.runtimeStageId));
+    },
+  );
+});
+
+// ── onResume names the stand-in's own execution ──────────────────────────────
+
+describe.each(MODES)('onResume names the stand-in’s OWN runtimeStageId — %s-executor', (mode) => {
+  it.each(Object.keys(LABEL_CHARTS))('%s: the flow and scope events name the stand-in’s execution', async (name) => {
+    // One ordered stream: every resume event, every stage start.
+    const events: { kind: 'resume-flow' | 'resume-scope' | 'start'; id: string }[] = [];
+    const flow: FlowRecorder = {
+      id: 'resume-ids',
+      onResume: (e) => events.push({ kind: 'resume-flow', id: e.traversalContext!.runtimeStageId }),
+    };
+    const scope: ScopeRecorder = {
+      id: 'resume-ids',
+      onResume: (e) => events.push({ kind: 'resume-scope', id: e.runtimeStageId }),
+      onStageStart: (e) => events.push({ kind: 'start', id: e.runtimeStageId }),
+    };
+    const run = await drive(LABEL_CHARTS[name](), mode, {
+      newExecutor: (c) => {
+        const executor = new FlowChartExecutor(c);
+        executor.attachFlowRecorder(flow);
+        executor.attachScopeRecorder(scope);
+        return executor;
+      },
+    });
+
+    const resumes = events.flatMap((e, i) => (e.kind === 'resume-flow' ? [i] : []));
+    expect(resumes).toHaveLength(run.pauses);
+    resumes.forEach((at, n) => {
+      const { id } = events[at];
+      expect(events[at + 1]).toEqual({ kind: 'resume-scope', id }); // both channels, one id
+      // The first execution of the paused stage after the resume IS the
+      // stand-in — and it carries exactly the id the event announced.
+      const pausedId = run.checkpoints[n].pausedStageId;
+      const standIn = events.slice(at + 2).find((e) => e.kind === 'start' && stagePart(e.id) === pausedId);
+      expect(standIn?.id).toBe(id);
+    });
+  });
+});
+
+// ── Delta encoding: the fold of the log equals the live state ────────────────
+
+describe.each(MODES)(
+  'commitValues: delta — the log folds to the live state after every resume — %s-executor',
+  (mode) => {
+    it.each(Object.keys(LABEL_CHARTS))('%s: the top level and every subflow', async (name) => {
+      const run = await drive(LABEL_CHARTS[name](), mode, {
+        newExecutor: (c) => new FlowChartExecutor(c, { commitValues: 'delta' }),
+      });
+      const last = run.legs[run.legs.length - 1];
+
+      const top = stateAt(last, (last.commitLog as unknown[]).length - 1);
+      expect(JSON.stringify(top.state)).toBe(JSON.stringify(last.sharedState));
+      for (const [key, value] of Object.entries(last.subflowResults ?? {})) {
+        const tc = (value as { treeContext: { history: unknown[]; initialState: unknown; globalContext: unknown } })
+          .treeContext;
+        const folded = stateAt(
+          { commitLog: tc.history, initialState: tc.initialState } as never,
+          tc.history.length - 1,
+        );
+        expect(JSON.stringify(folded.state), `${name}: ${key}`).toBe(JSON.stringify(tc.globalContext));
+      }
+    });
+  },
+);

@@ -1,5 +1,5 @@
 /**
- * A resume re-enters ONCE, then the run belongs to the real chart (9.27.1).
+ * A resume re-enters ONCE, then the run belongs to the real chart (9.28.0).
  *
  * THE BUG (9.27.0 and earlier): `resume()` built a synthetic structure to get
  * back to the paused stage — a stand-in node carrying the paused stage's id
@@ -31,8 +31,12 @@
  * Test type: scenario. (Unit: test/lib/engine/unit/ResumeEntry.test.ts ·
  * property: resume-real-chart.property.test.ts · invariants, boundary,
  * security, performance, load: the sibling resume-real-chart.*.test.ts files ·
- * back-compat: resume-real-chart-9.27.0-checkpoints.test.ts · integration:
- * examples/runtime-features/pause-resume/09-resume-then-loop.ts.)
+ * dispatcher continuations at every level: resume-dispatchers.test.ts ·
+ * parallel siblings pausing together: resume-sibling-pauses.test.ts · what is
+ * still not rebuilt: resume-known-limitations.test.ts · back-compat:
+ * resume-real-chart-9.27.0-checkpoints.test.ts · integration:
+ * examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts and
+ * 10-two-questions-at-once.ts.)
  */
 
 import { describe, expect, it } from 'vitest';

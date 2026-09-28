@@ -1,44 +1,44 @@
 /**
- * KNOWN LIMITATIONS of resume — pinned, not hidden (found while fixing the
- * one-shot re-entry in 9.27.1; identical on 9.27.0, so not regressions).
+ * KNOWN LIMITATIONS of resume — pinned, not hidden (9.28.0).
  *
- * The re-entry now starts ONCE and then walks the real chart. What it does
- * not rebuild is the continuation of the stage that DISPATCHED the subflow
- * the pause is in, when that subflow is mounted as a BRANCH or a FORK CHILD —
- * the dispatcher's own `next` lives one level up, and the checkpoint records
- * only the innermost dispatcher and one continuation id:
+ * What a resume still does NOT rebuild. None is silent: each either refuses
+ * loudly or is a difference in WHERE a resumed stage runs, stated here.
  *
- *   1. a subflow mounted as a DECIDER BRANCH, the decider with its own `next`:
- *      the continuation runs, but INSIDE the subflow (attached as the paused
- *      stage's `next` at the leaf level) — its writes land in the subflow's
- *      isolated memory, not the parent's;
- *   2. a subflow mounted as a FORK CHILD: the fork's continuation (the join)
- *      never runs after the resume.
+ *   1. A pause inside a LAZY subflow (`addLazySubFlowChart*`) is not
+ *      resumable: the lazy graph is resolved at run time and is not in the
+ *      chart a resume walks, so `resume()` refuses the checkpoint ("not
+ *      found") instead of guessing. (The same holds for a pause inside an
+ *      `addParallelForEach` branch — its branch charts are generated at run
+ *      time too.)
+ *   2. A paused parallel-branch STAGE — a fork child or a selected branch
+ *      that is a plain stage, not a subflow — resumes in its DISPATCHER's
+ *      context: its resume half (or its re-run, for `interrupt()`) writes
+ *      the dispatcher's keys, not its branch's `runs/<branch>` namespace
+ *      where it wrote on the run. As in 9.27.0 — and relied on by the
+ *      selector-branch continuation test (resume-continuation.test.ts,
+ *      pattern 2), so changing it is a behaviour change of its own.
+ *   3. The resumed child of a fan-out runs outside the fan-out's
+ *      `Promise.allSettled`: if it FAILS after the resume, the run fails —
+ *      on the run, a failing fork child was contained and the join ran.
+ *      (As in 9.27.0.)
  *
- * The fix needs the dispatcher's LEVEL on the record — a continuation per
- * level of the pause path, or the dispatcher's path depth — which is a
- * checkpoint shape change (additive), so it is a design decision, not part
- * of this patch. Design direction: README (engine/, "Resume re-entry").
+ * What USED to be here and is fixed in 9.28.0: a paused subflow mounted as a
+ * decider branch (its decider's `next` ran inside the subflow) or as a fork
+ * child (the join never ran) — see resume-dispatchers.test.ts.
  *
- * WHEN A TEST HERE FAILS, the limitation is fixed: move the chart into
- * resume-real-chart-fixture.ts with its healthy expectation, delete it here,
- * and update the README and .claude/rules/backtracking.md.
+ * WHEN A TEST HERE FAILS, the limitation is fixed: move the chart into the
+ * suite with its healthy expectation, delete it here, and update the engine
+ * README ("Resume re-entry") and .claude/rules/backtracking.md.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import type { FlowChart } from '../../../src/index.js';
-import { flowChart } from '../../../src/index.js';
+import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { type ResumeMode, type S, drive } from './resume-real-chart-fixture.js';
 
-function inner(): FlowChart {
-  return flowChart(
-    'A',
-    (s: S) => {
-      s.x = 1;
-    },
-    'in-a',
-  )
+function asks(): FlowChart {
+  return flowChart('Start', () => undefined, 'sf-start')
     .addPausableFunction(
       'Ask',
       {
@@ -47,41 +47,65 @@ function inner(): FlowChart {
           s.answer = input;
         },
       },
-      'in-ask',
+      'sf-ask',
     )
     .build();
 }
 
 describe.each<ResumeMode>(['same', 'cross'])('KNOWN LIMITATION — %s-executor', (mode) => {
-  it('1: a subflow mounted as a decider BRANCH — the decider’s continuation runs inside the subflow', async () => {
-    const chart = flowChart('Seed', () => undefined, 'seed')
-      .addDeciderFunction('Route', () => 'x', 'route')
-      .addSubFlowChartBranch('x', inner(), 'X', {
+  it('1: a pause inside a LAZY subflow is refused, loudly, at resume()', async () => {
+    const chart = flowChart('Init', () => undefined, 'init')
+      .addLazySubFlowChartNext('lz', asks, 'Lazy', {
         outputMapper: (sf: Record<string, unknown>) => ({ answer: sf.answer }),
       })
-      .addFunctionBranch('y', 'Y', () => undefined)
-      .end()
-      .addFunction(
-        'Done',
-        (s: S) => {
-          s.done = true;
+      .build();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const checkpoint = mode === 'cross' ? JSON.parse(JSON.stringify(first.getCheckpoint())) : first.getCheckpoint()!;
+    expect(checkpoint.subflowPath).toEqual(['lz']);
+    const executor = mode === 'cross' ? new FlowChartExecutor(chart) : first;
+
+    // Healthy: the answer lands. Today: refused — the lazy graph is not in the chart.
+    await expect(executor.resume(checkpoint, { n: 1 })).rejects.toThrow(/Cannot resume: stage 'lz\/sf-ask' not found/);
+  });
+
+  it('2: a paused selected-branch STAGE resumes in its dispatcher’s context, not in runs/<branch>', async () => {
+    const chart = flowChart('Seed', () => undefined, 'seed')
+      .addSelectorFunction('Pick', () => ['review'], 'pick')
+      .addPausableFunctionBranch('review', 'Review', {
+        execute: (s: S) => {
+          s.before = true; // written on the run — in the branch's namespace
+          return { question: 'q' };
         },
-        'done',
-      )
+        resume: (s: S) => {
+          s.after = true; // written on the resume
+        },
+      })
+      .end()
       .build();
 
     const run = await drive(chart, mode);
 
-    expect(run.checkpoints[0]).toMatchObject({ invokerStageId: 'route', continuationStageId: 'done' });
-    expect(run.state.answer).toEqual({ n: 1 });
-    // Healthy: `done === true` in the parent. Today 'Done' ran inside the
-    // subflow, after the resume half, and its write stayed there.
-    expect(run.state.done).toBeUndefined();
+    expect((run.state.runs as Record<string, Record<string, unknown>>).review.before).toBe(true);
+    // Healthy: runs.review.after. Today: the dispatcher's keys (as in 9.27.0).
+    expect(run.state.after).toBe(true);
   });
 
-  it('2: a subflow mounted as a FORK CHILD — the fork’s join does not run after the resume', async () => {
+  it('3: a resumed fork child that FAILS fails the run (on the run, the fork contained it)', async () => {
+    const failing = flowChart('Start', () => undefined, 'sf-start')
+      .addPausableFunction(
+        'Ask',
+        {
+          execute: () => ({ question: 'q' }),
+          resume: () => {
+            throw new Error('the resumed child failed');
+          },
+        },
+        'sf-ask',
+      )
+      .build();
     const chart = flowChart('Seed', () => undefined, 'seed')
-      .addSubFlowChart('fa', inner(), 'FA', { outputMapper: (sf: Record<string, unknown>) => ({ answer: sf.answer }) })
+      .addSubFlowChart('fa', failing, 'FA')
       .addFunction(
         'Join',
         (s: S) => {
@@ -90,11 +114,12 @@ describe.each<ResumeMode>(['same', 'cross'])('KNOWN LIMITATION — %s-executor',
         'join',
       )
       .build();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const checkpoint = mode === 'cross' ? JSON.parse(JSON.stringify(first.getCheckpoint())) : first.getCheckpoint()!;
+    const executor = mode === 'cross' ? new FlowChartExecutor(chart) : first;
 
-    const run = await drive(chart, mode);
-
-    expect(run.state.answer).toEqual({ n: 1 });
-    // Healthy: `joined === true`. Today the resumed run ends at the child.
-    expect(run.state.joined).toBeUndefined();
+    // Healthy: contained, the join runs. Today: the failure reaches the caller.
+    await expect(executor.resume(checkpoint, {})).rejects.toThrow('the resumed child failed');
   });
 });

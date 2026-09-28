@@ -87,7 +87,7 @@ Focused modules, each owning one aspect of execution. The traverser delegates to
 | **SelectorHandler** | Multi-choice filtered fan-out | "Selected 2 of 4: email, sms" |
 | **ContinuationResolver** | Back-edge resolution + iteration counting | "Iteration 3 of max 1000" |
 | **SubflowExecutor** | Isolated recursive execution with scoped runtime | "Entering/exiting subflow" |
-| **ResumeEntry** | A resume's ONE-SHOT re-entry: where the resumed run starts, what each subflow on the pause path takes on its first entry | "Execution resumed at Ask" |
+| **ResumeEntry** | A resume's ONE-SHOT re-entry: where the resumed run starts, what each subflow on the pause path takes on its first entry, which dispatcher continuation runs after it, which waiting sibling pause is raised next | Nothing of its own — a PLAN, read before the run starts (`onResume` comes from the executor; a waiting sibling's pause is announced by the traverser's `onPause`) |
 | **SubflowInputMapper** | Pure functions for subflow data contracts | Input/output mapping between parent and child |
 | **RuntimeStructureManager** | Mutable structure tracking | Execution shape for visualization |
 
@@ -256,43 +256,84 @@ Parent traverser hits a subflow reference
 ### Resume re-entry — one-shot (M2)
 
 `FlowChartExecutor.resume()` has to get back to a stage in the middle of the
-chart. It builds a **stand-in** for the paused stage (same id, name, tags; its
-function is the resume half — or, for an `interrupt()` pause, the stage's own
-function with the answer deposited — and its `next` is the stage's real
-continuation) and plans the way down with `ResumeEntry.plan` (`handlers/ResumeEntry.ts`).
+chart. It builds a **stand-in** for the paused stage — the stage's OWN node
+(id, name, tags, and its shape: a decider's or selector's branches, a fork
+parent's children, its `next`) with its function swapped for the resume half
+(or, for an `interrupt()` pause, for the stage's own function with the answer
+deposited) — and plans the way down with `ResumeEntry.plan`
+(`handlers/ResumeEntry.ts`).
 
 **The law: the resume's synthetic structure is used EXACTLY ONCE.** The stand-in
 is where the resumed traversal STARTS (`TraverserOptions.entry`) — it is never
 in the node map or the subflow dictionary, so no id can resolve to it. Each
 subflow on the pause path takes its hop — its captured pre-pause state (seeding
-the nested runtime INSTEAD of the inputMapper) and its entry point (the next
-mount on the path, or the stand-in at the leaf) — on its FIRST entry, and never
-again. The traverser's `root` stays the real chart, so after the re-entry
-every loop target, every later subflow entry and every re-visit of the paused
-stage resolves exactly as on a run.
+the nested runtime in place of the inputMapper's values; the mapper still runs,
+for the stages' read-only args) and its entry point (the next mount on the
+path, or the stand-in at the leaf) — on its FIRST entry, and never again. The
+traverser's `root` stays the real chart, so after the re-entry every loop
+target, every later subflow entry and every re-visit of the paused stage
+resolves exactly as on a run.
+
+**One rule at every level — what runs after the entry.** On the run, whatever
+DISPATCHED the paused stage (or the mount of the next subflow on the path) ran
+its own continuation once that child's chain ended: a decider's `next`, a
+selector's `next`, a fork's join. A resume enters AT the child, so the entry
+is the child with that continuation attached where its chain ends —
+`{ ...child, next: dispatcher.next }`, never registered anywhere. It is read
+from the CHART (`ResumeEntry.plan` indexes each level's graph: node →
+enclosing dispatcher), not from the checkpoint, so it lands at the level it
+belongs to — a top-level decider's `next` runs at the top level after the
+subflow's outputMapper, not inside the subflow — and an edited
+`continuationStageId` cannot redirect a run.
 
 ```typescript
-// A reviewer is asked inside a subflow mounted in a loop body; an unclear
-// answer loops back to the stage that paused.
-const review = flowChart('Check', check, 'check')
-  .addPausableFunction('Ask', { execute: ask, resume: record }, 'ask')
-  .addDeciderFunction('Clear?', isClear, 'is-clear')
-  .addFunctionBranch('unclear', 'Unclear', noop, 'ask again', { loopTo: 'ask' })
-  .addFunctionBranch('clear', 'Clear', noop)
+// Sequence(Conditional(agent)): the agent asks a person, deep inside.
+const conditional = flowChart('Initialize', init, 'seed')
+  .addDeciderFunction('Route', route, 'route')
+  .addSubFlowChartBranch('agent-a', agentA, 'AgentA', { outputMapper: toResult })
+  .addSubFlowChartBranch('agent-b', agentB, 'AgentB', { outputMapper: toResult })
   .end()
+  .addFunction('Finalize', finalize, 'finalize') // Route's continuation
+  .build();
+const chart = flowChart('Start', start, 'start')
+  .addSubFlowChartNext('step-1', conditional, 'Step1', { outputMapper: toStepFinal })
+  .addFunction('Done', done, 'done')
   .build();
 
-// After resume(checkpoint, { answer: 'hmm?' }):
-//   the resume half runs ONCE (the stand-in) → Clear? → loop to 'ask'
-//   → the REAL 'Ask' runs its execute half and PAUSES AGAIN (a re-ask).
-// After a later resume the outer loop reaches its head (outside the
-// subflow), and the next pass through the Review mount is a FRESH entry:
-// its inputMapper runs, its first stage runs, no stale seed.
+// Paused at step-1/agent-a/tool. resume(checkpoint, answer) plans:
+//   top:     the step-1 mount (on the spine — nothing to attach)
+//   step-1:  { ...mount of agent-a, next: Finalize }   ← Route's continuation
+//   agent-a: the stand-in for 'tool' (its own next: Reply)
+// so after the answer: tool → Reply → (agent-a's outputMapper) → Finalize →
+// (step-1's outputMapper) → Done. Initialize and Route do not run again.
 ```
 
-Full run: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`.
+**Parallel siblings that paused too.** When two children of one fork (or two
+selected branches) pause in the same pass, only one question can be asked:
+`ChildrenExecutor` raises the first (child order) and queues the others on it
+(`PauseSignal.pendingPauses` → `FlowchartCheckpoint.pendingPauses`: stage,
+path, own captures, question). At that fan-out's level the resume's entry is
+the child's own chain only — no join — and once it ends the traverser raises
+the next sibling's pause again as it was (`raiseQueuedPause`: nothing of the
+sibling re-runs; `onPause` fires for it); a pause raised from inside the chain
+carries every waiting sibling instead (`queueBehind`). The join runs when the
+LAST sibling is resumed. A fail-fast fork waits for its siblings before it
+pauses (a pause is not an error), so none is raced past.
 
-What that guarantees (pinned in `test/lib/pause/resume-real-chart*.test.ts`):
+```typescript
+// Pre → [c1, c2] → Join, both children ask.
+await executor.run();          // paused: c1's question; pendingPauses: [c2's]
+await executor.resume(cp1, a1); // c1 finishes → paused again: c2's question
+await executor.resume(cp2, a2); // c2 finishes → Join runs, once
+```
+
+Full runs: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
+`examples/runtime-features/pause-resume/10-two-questions-at-once.ts`.
+
+What that guarantees (pinned in `test/lib/pause/resume-*.test.ts`, and by the
+fast-check property in `resume-real-chart.property.test.ts`: a run paused and
+resumed at every pause equals the same chart run with every answer up front,
+for every placement of every subflow on the path):
 
 | After a resume… | …resolves to |
 |---|---|
@@ -300,29 +341,40 @@ What that guarantees (pinned in `test/lib/pause/resume-real-chart*.test.ts`):
 | a loop whose head is upstream of the resume point | the real head (top level or inside the subflow) |
 | a later entry into a subflow on the pause path | its real root, its inputMapper, no captured seed |
 | a pause N subflows deep | each outer subflow re-entered AT the next mount — no pre-mount stage re-runs |
+| a mount (or the paused stage) that is a decider / selector branch or a fork child | the dispatcher's continuation, at its own level |
+| a decider-level `loopTo` continuation | a LOOP edge (`onLoop`, counted toward `maxIterations`) |
+| `interrupt()` inside a decider / selector / fork-parent function | the stage re-runs AND dispatches |
+| several parallel siblings paused | asked in turn; the join after the last |
+| `$getArgs()` inside a re-entered subflow | the inputMapper's result, as on a run |
 | a capture for a subflow OFF the pause path | nothing — only the path's subflows take a seed |
-| a path the chart cannot walk | refused in `resume()`, before any stage runs |
+| an OUTER subflow's capture missing (a degraded checkpoint) | that subflow re-runs from its root with its inputMapper |
+| a path the chart cannot walk, or a subflow id mounted twice | refused in `resume()`, before any stage runs |
 
-Before 9.27.1 the traversal was ROOTED at the stand-in and the leaf subflow's
+`onResume` (fired by the executor, before `onRunStart`) names the stand-in's own
+`runtimeStageId` — one execution per mount on the path runs before it
+(`ResumeEntry.stepsBeforeStandIn`); only a degraded checkpoint missing an outer
+capture, whose opening stages re-run, makes that count unknowable up front.
+
+Before 9.28.0 the traversal was ROOTED at the stand-in and the leaf subflow's
 root was swapped for it for the whole resumed run: a loop back to the paused
 id re-ran the resume half (the stage never asked again), a loop target upstream
 of the resume point hit a bare loop stub (one stage ran, then the run ended
-silently), and a pause two subflows deep re-ran the outer subflow's stages
-before the inner mount.
+silently), a pause two subflows deep re-ran the outer subflow's stages before
+the inner mount, and a paused subflow mounted as a branch or fork child lost
+its parent's continuation.
 
 **Still true (by design):** the loop budget (`maxIterations`) is per LEG — a
 resumed traversal counts its own loop edges (the checkpoint carries per-stage
 visit counts, not per-edge loop counters), and `FlowLoopEvent.iteration`
 restarts with it; `TraversalContext.loopIteration` stays monotonic.
 
-**Known limitation (unchanged by 9.27.1, pinned in
-`test/lib/pause/resume-known-limitations.test.ts`):** when the paused subflow is
-mounted as a DECIDER BRANCH or a FORK CHILD, the dispatcher's own continuation
-lives one level up and the checkpoint records only the innermost dispatcher
-and one continuation id — a decider's `next` then runs inside the subflow (its
-writes stay there), and a fork's join does not run. Fixing it needs the
-dispatcher's level on the record (one continuation per level of the pause
-path) — an additive checkpoint field, so a design decision of its own.
+**Known limitations (pinned in `test/lib/pause/resume-known-limitations.test.ts`):**
+a pause inside a LAZY subflow or an `addParallelForEach` branch is refused
+(their graphs are resolved at run time, not in the chart a resume walks); a
+paused parallel-branch STAGE (a plain fork child or selected branch) resumes in
+its dispatcher's context, not its branch's `runs/<branch>` namespace; and the
+resumed child of a fan-out runs outside the fan-out's `allSettled`, so a failure
+after the resume fails the run. Each as in 9.27.0.
 
 ---
 

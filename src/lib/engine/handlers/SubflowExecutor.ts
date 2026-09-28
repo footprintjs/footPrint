@@ -75,24 +75,29 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     //
     // When this entry is the resume's way back into a paused subflow, the
     // hop names where the subflow's traversal starts (the next mount on the
-    // pause path, or the paused stage's stand-in) and carries the subflow's
-    // captured pre-pause state. Taken ONCE: any later entry into this subflow
-    // — a loop passing its mount again — gets `undefined` and runs the real
-    // subflow from its real root, inputMapper and all.
+    // pause path, or the paused stage's stand-in), carries the subflow's
+    // captured pre-pause state, and any sibling pauses waiting in it. Taken
+    // ONCE: any later entry into this subflow — a loop passing its mount
+    // again — gets `undefined` and runs the real subflow from its real root,
+    // inputMapper and all.
     const resumeHop = this.resume?.enterSubflow(subflowId);
 
     // ─── Input Mapping ───
     //
-    // RESUME PATH NOTE: when the hop carries a capture for this subflow, we
-    // SKIP the inputMapper entirely. The capture is the post-input pre-pause
-    // memory — running the mapper again would clobber post-input writes
-    // (history, pausedToolCallId, etc.) with the parent's start-of-subflow view.
+    // The mapper runs on EVERY entry: its result is the stages' read-only
+    // args (`$getArgs()`), and a re-entered subflow's stages read the same
+    // args they read before the pause (the parent's view is the same one —
+    // it was blocked in this mount). What a resume changes is only the SEED:
+    // when the hop carries a capture, the nested memory is seeded from the
+    // capture, not from the mapper — the capture is the post-input pre-pause
+    // memory, and seeding the mapper's values would clobber post-input
+    // writes (history, pausedToolCallId, etc.) with the start-of-subflow view.
     const mountOptions = node.subflowMountOptions;
     let mappedInput: Record<string, unknown> = {};
     const resumeCapture = resumeHop?.seed;
     const isResumeForThisSubflow = resumeCapture !== undefined;
 
-    if (mountOptions && !isResumeForThisSubflow) {
+    if (mountOptions) {
       try {
         const parentScope = parentContext.getScope();
         mappedInput = getInitialScopeValues(parentScope, mountOptions);
@@ -164,6 +169,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause
     //     scope so resume handlers see history, pausedToolCallId, etc.
+    //     (`mappedInput` still reaches the stages, as their read-only args.)
     //   • Normal entry → seed from the inputMapper's mappedInput.
     const seedValues: Record<string, unknown> = isResumeForThisSubflow ? resumeCapture! : mappedInput;
     if (Object.keys(seedValues).length > 0) {
@@ -262,8 +268,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // The REAL subflow graph — every id inside the subflow (loop targets,
         // a re-visit of the paused stage) resolves against it, re-entry or not.
         root: subflowNode,
-        // Where this traversal starts on a resume re-entry; visited once.
+        // Where this traversal starts on a resume re-entry; visited once —
+        // and the sibling pauses it raises once that entry's chain ends.
         ...(resumeHop?.entry && { entry: resumeHop.entry }),
+        ...(resumeHop?.pendingPauses && { pendingPauses: resumeHop.pendingPauses }),
         executionRuntime: nestedRuntime,
         readOnlyContext: mappedInput,
         subflowId,

@@ -21,6 +21,7 @@ import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import { isDevMode } from '../scope/detectCircular.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
 import { StructureRecorderDispatcher } from './structure/StructureRecorderDispatcher.js';
 import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';
@@ -303,9 +304,7 @@ export class DeciderList<TOut = any, TScope = any> {
     const subflowName = mountName || id;
     const prefixedRoot = this.b._prefixNodeTree(subflow.root, id);
 
-    if (!this.b._subflowDefs.has(id)) {
-      this.b._subflowDefs.set(id, { root: prefixedRoot });
-    }
+    this.b._registerSubflowDef(id, prefixedRoot);
 
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
@@ -685,9 +684,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     const subflowName = mountName || id;
     const prefixedRoot = this.b._prefixNodeTree(subflow.root, id);
 
-    if (!this.b._subflowDefs.has(id)) {
-      this.b._subflowDefs.set(id, { root: prefixedRoot });
-    }
+    this.b._registerSubflowDef(id, prefixedRoot);
 
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
@@ -1881,9 +1878,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const forkId = cur.id;
     const prefixedRoot = this._prefixNodeTree(subflow.root, id);
 
-    if (!this._subflowDefs.has(id)) {
-      this._subflowDefs.set(id, { root: prefixedRoot });
-    }
+    this._registerSubflowDef(id, prefixedRoot);
 
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
@@ -2066,9 +2061,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const subflowName = mountName || id;
     const prefixedRoot = this._prefixNodeTree(subflow.root, id);
 
-    if (!this._subflowDefs.has(id)) {
-      this._subflowDefs.set(id, { root: prefixedRoot });
-    }
+    this._registerSubflowDef(id, prefixedRoot);
 
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
@@ -2424,6 +2417,30 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   _stageMapHas(key: string): boolean {
     return this._stageMap.has(key);
+  }
+
+  /**
+   * @internal Register a mounted subflow's definition — first mount wins,
+   * at every eager mount site (linear, fork child, decider and selector
+   * branch). A SECOND mount under the same id is allowed (existing charts do
+   * it) and shares the first one's definition — but a pause inside either
+   * cannot be resumed: a checkpoint's `subflowPath` names the subflow id, not
+   * the mount, so `resume()` refuses the ambiguous path. Dev mode says so
+   * here, at build time, where the id can still be changed.
+   */
+  _registerSubflowDef(id: string, root: StageNode<TOut, TScope>): void {
+    if (!this._subflowDefs.has(id)) {
+      this._subflowDefs.set(id, { root });
+      return;
+    }
+    if (isDevMode()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] subflow id '${id}' is mounted more than once in this chart. The mounts share one ` +
+          'definition, and a pause inside either cannot be resumed — the checkpoint cannot say which mount ' +
+          'paused. Give each mount its own id.',
+      );
+    }
   }
 
   _addToMap(id: string, fn: StageFunction<TOut, TScope>) {

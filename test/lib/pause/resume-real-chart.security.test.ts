@@ -1,8 +1,8 @@
 /**
  * SECURITY — a checkpoint is untrusted input; the one-shot re-entry narrows
- * what it can do (9.27.1).
+ * what it can do (9.28.0).
  *
- * A checkpoint may come back from Redis, Postgres or a client. Before 9.27.1
+ * A checkpoint may come back from Redis, Postgres or a client. Before 9.28.0
  * `resume()` handed the WHOLE `subflowStates` map to every subflow entry of the
  * resumed run, and fell back to running the paused stage's stand-in at the top
  * level when the path's mount could not be found. So a tampered checkpoint
@@ -16,15 +16,18 @@
  *
  * Now the re-entry is planned against the chart before anything runs: only
  * the subflows ON the pause path take a capture, each once; a path the chart
- * cannot walk is refused with nothing executed and nothing wiped.
+ * cannot walk — or cannot walk UNAMBIGUOUSLY (a subflow id mounted twice) —
+ * is refused with nothing executed and nothing wiped; and what runs after
+ * the paused stage is read from the chart, never from the checkpoint's
+ * `continuationStageId`, so an edited id cannot redirect the run.
  *
  * Test type: security.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { FlowChart, FlowchartCheckpoint } from '../../../src/index.js';
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { type S, twoDeepChart } from './resume-real-chart-fixture.js';
 
 /**
@@ -110,7 +113,7 @@ describe('a path the chart cannot walk is refused before anything runs', () => {
     expect(resumer.getCommitCount()).toBe(0);
   });
 
-  it('a hostile path segment (`__proto__`) is refused, not resolved through the prototype chain', async () => {
+  it('a hostile path segment (`__proto__`) names no mount in the chart — refused before any lookup by id', async () => {
     const chart = twoDeepChart();
     const first = new FlowChartExecutor(chart);
     await first.run();
@@ -194,5 +197,168 @@ describe('a pause-path capture is used exactly once', () => {
     await new FlowChartExecutor(chart).resume(checkpoint, {});
     // Pass 2 entered sf fresh: its inputMapper's token, never the forged one.
     expect(seen).toEqual(['mapped-2']);
+  });
+});
+
+describe('hand-edited paths are refused before anything runs', () => {
+  it.each([
+    ['a prototype member as the first segment', ['constructor', 'sf-a/sf-b'], /mount of subflow 'constructor'/],
+    [
+      '`__proto__` in the middle',
+      ['sf-a', '__proto__', 'sf-a/sf-b'],
+      /mount of subflow '__proto__' is not reachable from subflow 'sf-a'/,
+    ],
+    [
+      'a segment repeated',
+      ['sf-a', 'sf-a', 'sf-a/sf-b'],
+      /mount of subflow 'sf-a' is not reachable from subflow 'sf-a'/,
+    ],
+  ])('%s', async (_name, subflowPath, message) => {
+    const chart = twoDeepChart();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const checkpoint = { ...JSON.parse(JSON.stringify(first.getCheckpoint())), subflowPath } as FlowchartCheckpoint;
+
+    const resumer = new FlowChartExecutor(chart);
+    await expect(resumer.resume(checkpoint, { n: 1 })).rejects.toThrow(message);
+    expect(resumer.getCommitCount()).toBe(0);
+  });
+});
+
+describe('a subflow id mounted TWICE: a pause inside it is refused, loudly, at resume()', () => {
+  /** The same subflow chart mounted twice under ONE id — legal to build, ambiguous to resume. */
+  function mountedTwice(askOn: number): FlowChart {
+    const inner = flowChart('Start', () => undefined, 'sf-start')
+      .addPausableFunction(
+        'Ask',
+        { execute: (s: S) => (s.pass === askOn ? { question: 'q' } : undefined), resume: () => undefined },
+        'sf-ask',
+      )
+      .build();
+    return flowChart('Init', () => undefined, 'init')
+      .addSubFlowChartNext('sf', inner, 'First', { inputMapper: () => ({ pass: 1 }) })
+      .addFunction('Middle', () => undefined, 'middle')
+      .addSubFlowChartNext('sf', inner, 'Second', { inputMapper: () => ({ pass: 2 }) })
+      .build();
+  }
+
+  it.each([
+    ['same', 1],
+    ['same', 2],
+    ['cross', 1],
+    ['cross', 2],
+  ] as const)(
+    '%s-executor, the pause in mount %i: refused, naming both mounts; the checkpoint is kept',
+    async (mode, askOn) => {
+      const chart = mountedTwice(askOn);
+      const first = new FlowChartExecutor(chart);
+      await first.run();
+      const checkpoint = mode === 'cross' ? JSON.parse(JSON.stringify(first.getCheckpoint())) : first.getCheckpoint()!;
+      expect(checkpoint.subflowPath).toEqual(['sf']);
+      const executor = mode === 'cross' ? new FlowChartExecutor(chart) : first;
+
+      // Before: the resume re-entered the FIRST mount — a pause in the second
+      // one then asked again forever (or, on 9.27.0, ran the wrong mount).
+      await expect(executor.resume(checkpoint, {})).rejects.toThrow(
+        "Cannot resume: subflow 'sf' is mounted more than once in the flowchart ('First', 'Second')",
+      );
+      if (mode === 'same') expect(executor.getCheckpoint()).toBe(checkpoint);
+    },
+  );
+
+  it('dev mode says so at BUILD time — and building stays legal (existing charts do it)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mountedTwice(1); // dev mode off: silent
+      expect(warn).not.toHaveBeenCalled();
+
+      enableDevMode();
+      const chart = mountedTwice(1);
+      expect(chart.root.id).toBe('init');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("subflow id 'sf' is mounted more than once");
+    } finally {
+      disableDevMode();
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('what runs after the paused stage comes from the chart, not the checkpoint', () => {
+  it('an edited continuationStageId cannot redirect a paused decider branch', async () => {
+    const calls: string[] = [];
+    const chart = flowChart('Seed', () => undefined, 'seed')
+      .addDeciderFunction('Route', () => 'ask', 'route')
+      .addPausableFunctionBranch('ask', 'Ask', {
+        execute: () => ({ question: 'q' }),
+        resume: () => {
+          calls.push('ask-resume');
+        },
+      })
+      .addFunctionBranch('other', 'Other', () => undefined)
+      .end()
+      .addFunction(
+        'After',
+        () => {
+          calls.push('after');
+        },
+        'after',
+      )
+      .addFunction(
+        'Payout',
+        () => {
+          calls.push('payout');
+        },
+        'payout',
+      )
+      .build();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const checkpoint = JSON.parse(JSON.stringify(first.getCheckpoint())) as FlowchartCheckpoint;
+    expect(checkpoint.continuationStageId).toBe('after');
+
+    // Tamper: jump straight to Payout, skipping After.
+    await new FlowChartExecutor(chart).resume({ ...checkpoint, continuationStageId: 'payout' }, {});
+
+    expect(calls).toEqual(['ask-resume', 'after', 'payout']);
+  });
+
+  it('a subflow id that shadows an Object.prototype member, its capture LOST: the inputMapper seeds it', async () => {
+    // 'toString' is a legal subflow id. With the capture missing, the lookup
+    // must not resolve `captures.toString` to Object.prototype.toString (and
+    // skip the inputMapper for a function "capture").
+    const inner = flowChart('Start', () => undefined, 'start')
+      .addPausableFunction(
+        'Ask',
+        {
+          execute: () => ({ question: 'q' }),
+          resume: (s: S) => {
+            s.resumedWithPass = s.pass ?? 'none';
+          },
+        },
+        'ask',
+      )
+      .build();
+    const chart = flowChart(
+      'Init',
+      (s: S) => {
+        s.iter = 7;
+      },
+      'init',
+    )
+      .addSubFlowChartNext('toString', inner, 'Inner', {
+        inputMapper: (p: Record<string, unknown>) => ({ pass: p.iter }),
+        outputMapper: (sf: Record<string, unknown>) => ({ resumedWithPass: sf.resumedWithPass }),
+      })
+      .build();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const checkpoint = JSON.parse(JSON.stringify(first.getCheckpoint())) as FlowchartCheckpoint;
+    expect(checkpoint.subflowPath).toEqual(['toString']);
+
+    const resumer = new FlowChartExecutor(chart);
+    await resumer.resume({ ...checkpoint, subflowStates: {} }, {});
+
+    expect(resumer.getSnapshot().sharedState.resumedWithPass).toBe(7);
   });
 });
