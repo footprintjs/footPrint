@@ -27,6 +27,11 @@ export { ContinuationResolver, DEFAULT_MAX_ITERATIONS } from './ContinuationReso
 // Subflow execution with isolated contexts
 export { SubflowExecutor } from './SubflowExecutor.js';
 
+// A resume's one-shot re-entry (M2) — where a resumed run starts, what each
+// subflow on the pause path takes on its first entry
+export type { QueuedPause, ResumeHop } from './ResumeEntry.js';
+export { ResumeEntry } from './ResumeEntry.js';
+
 // Subflow input/output mapping
 export {
   applyOutputMapping,

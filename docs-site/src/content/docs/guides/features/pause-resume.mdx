@@ -81,6 +81,9 @@ executor.getNarrativeEntries().map((e) => e.text).forEach((line) => console.log(
 - **`execute` returns data → pauses.** Returns void → continues normally (conditional pause).
 - **Checkpoint is JSON-serializable** — no functions, no class instances. Store in any persistence layer.
 - **`resume()` reuses the execution runtime** — narrative, metrics, and execution tree all accumulate across the pause boundary.
+- **A resume re-enters once, then the run is the chart as built.** A `loopTo` back to the paused stage runs that stage again — it pauses again, so you can re-ask; a loop reaches its head even from inside a subflow; the next pass through a subflow is a fresh entry (its `inputMapper` runs); a pause several subflows deep does not re-run the outer subflows' earlier stages; a subflow mounted as a decider or selector branch, or as a fork child, hands back to its parent's continuation. Example: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts` (since 9.28.0).
+- **Parallel siblings that both pause are asked in turn.** The checkpoint asks the first child and carries the others in `checkpoint.pendingPauses`; each resume answers one, nothing re-runs, and the fork's join runs after the last answer. Example: `examples/runtime-features/pause-resume/10-two-questions-at-once.ts` (since 9.28.0).
+- **Not resumable yet:** a pause inside a lazy subflow or an `addParallelForEach` branch (`resume()` refuses it), and a pause inside a subflow whose id is mounted twice in one chart (give each mount its own id).
 - **FlowRecorder/Recorder** both fire `onPause`/`onResume` events.
 
 <Aside>

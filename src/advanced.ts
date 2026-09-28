@@ -175,7 +175,7 @@ export type {
 export { NullControlFlowNarrativeGenerator } from './lib/engine/index.js';
 
 // Handlers (testing / custom engines)
-export type { ExecuteNodeFn, RunStageFn } from './lib/engine/index.js';
+export type { ExecuteNodeFn, QueuedPause, ResumeHop, RunStageFn } from './lib/engine/index.js';
 export {
   applyOutputMapping,
   ChildrenExecutor,
@@ -187,6 +187,7 @@ export {
   extractParentScopeValues,
   getInitialScopeValues,
   NodeResolver,
+  ResumeEntry,
   RuntimeStructureManager,
   seedSubflowGlobalStore,
   SelectorHandler,

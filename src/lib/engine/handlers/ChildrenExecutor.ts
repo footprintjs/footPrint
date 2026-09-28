@@ -9,6 +9,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import type { PauseSignal } from '../../pause/types.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -16,6 +17,28 @@ import type { HandlerDeps, NodeResultType } from '../types.js';
 import type { ExecuteNodeFn } from './types.js';
 
 export type { ExecuteNodeFn };
+
+/**
+ * The ONE pause a fan-out raises when several of its children paused (9.28.0).
+ *
+ * Only one question is asked at a time, so the FIRST child's pause (child
+ * order) is the one raised; every other child's pause — and any pause already
+ * waiting behind it — is queued on it (`PauseSignal.pendingPauses`) and rides
+ * the checkpoint as `pendingPauses`. Before 9.28.0 the others were dropped
+ * silently: the checkpoint asked one child, and the resume never asked the
+ * rest (or, on 9.27.0, re-ran the whole fan-out forever).
+ *
+ * Every queued entry is relative to the fan-out's level — the same level the
+ * first signal is at — so the bubble-up grows them together.
+ */
+function raisePauses(pauses: readonly PauseSignal[]): PauseSignal {
+  const [first, ...others] = pauses;
+  for (const other of others) {
+    first.addPendingPause(other.toPendingPause());
+    for (const waiting of other.pendingPauses) first.addPendingPause(waiting);
+  }
+  return first;
+}
 
 export class ChildrenExecutor<TOut = any, TScope = any> {
   constructor(private deps: HandlerDeps<TOut, TScope>, private executeNode: ExecuteNodeFn<TOut, TScope>) {}
@@ -75,39 +98,52 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     });
 
     const childrenResults: Record<string, NodeResultType> = {};
+    // Every child that paused, by CHILD index (not settle order) — see raisePauses.
+    const pausedAt: (PauseSignal | undefined)[] = [];
 
     if (node.failFast) {
-      // Fail-fast: first child error rejects immediately (unwrapped)
+      // Fail-fast: first child ERROR rejects immediately (unwrapped). A pause
+      // is not an error: it settles like a result, so the fork waits for its
+      // siblings before it pauses — their writes land before the checkpoint
+      // is taken, and a second pausing sibling is seen, not raced past.
       const results = await Promise.all(
         allChildren.map((child, i) =>
-          childPromises[i].then((r) => {
-            if (r.isError) throw r.result;
-            return r;
-          }),
+          childPromises[i].then(
+            (r) => {
+              if (r.isError) throw r.result;
+              return r;
+            },
+            (error: unknown) => {
+              if (!isPauseSignal(error)) throw error;
+              pausedAt[i] = error;
+              return undefined;
+            },
+          ),
         ),
       );
-      for (const { id, result, isError } of results) {
-        childrenResults[id] = { id, result, isError: isError ?? false };
+      for (const r of results) {
+        if (r === undefined) continue; // a paused child
+        childrenResults[r.id] = { id: r.id, result: r.result, isError: r.isError ?? false };
       }
     } else {
       // Default: run all children to completion even if some fail
       const settled = await Promise.allSettled(childPromises);
-      let pauseSignal: unknown;
-      settled.forEach((s) => {
+      settled.forEach((s, i) => {
         if (s.status === 'fulfilled') {
           const { id, result, isError } = s.value;
           childrenResults[id] = { id, result, isError: isError ?? false };
         } else if (isPauseSignal(s.reason)) {
-          // PauseSignal from a child — re-throw after all children settle.
-          // Keep the first signal if multiple children pause.
-          pauseSignal ??= s.reason;
+          // PauseSignal from a child — re-thrown after all children settle.
+          pausedAt[i] = s.reason;
         } else {
           this.deps.logger.error(`Execution failed: ${s.reason}`);
         }
       });
-      // Re-throw PauseSignal after all children have settled
-      if (pauseSignal) throw pauseSignal;
     }
+
+    // Re-throw after every child has settled.
+    const pauses = pausedAt.filter((p): p is PauseSignal => p !== undefined);
+    if (pauses.length > 0) throw raisePauses(pauses);
 
     return childrenResults;
   }
