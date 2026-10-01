@@ -58,7 +58,9 @@ describe('applySmartMerge — N same-path set rows replay with ONE clone of the 
     const clones = clonesDuring(() => {
       out = applySmartMerge({ k: [], z: 1 }, {}, overwrite, trace);
     });
-    expect(clones).toBe(2); // the base, then the value — once
+    // The value — once. (Until copy-on-write, 2: the whole base was cloned first;
+    // now the base is shared and only the root is shallow-copied — design 2026-10.)
+    expect(clones).toBe(1);
     expect(out).toEqual({ k: overwrite.k, z: 1 });
     expect(out.k).not.toBe(overwrite.k); // still a detached copy
   });

@@ -34,9 +34,14 @@
  * mutates on one side only.
  */
 
-import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
+import { nativeGet as _get, nativeSet as _set, own, ownedRootOf, ownSpine } from './pathOps.js';
 import type { CommitValuesMode, MemoryPatch, TraceEntry } from './types.js';
 import { deepEqual, deepSmartMerge, DELIM, normalisePath, supersededByNextSet } from './utils.js';
+
+/** PROTOTYPE switch (design 2026-10 option D) — read once; not part of the design's API. */
+const PRIVATE_READS =
+  ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {})
+    .FP_COW_PRIVATE_READS === '1';
 
 /** Op-level verbs staged into `opTrace`. `'delete'` is staged distinctly so
  *  delta-mode commits (#13c-B) can emit a real `delete` trace entry; under
@@ -84,9 +89,24 @@ export class TransactionBuffer {
    *  causal slicing. Undefined (default) = zero cost, byte-identical ops. */
   private readonly readKeysProvider?: () => string[];
 
+  /**
+   * The containers in `workingCopy` this buffer created (its root copy, the
+   * path copies its writes made, the merge results it built). Everything
+   * else in `workingCopy` is SHARED — with the committed generation the stage
+   * first touched, or with a caller's staged value — and is copied before a
+   * write passes through it ({@link ownSpine}). Design 2026-10.
+   */
+  private owned = new WeakSet<object>();
+
   constructor(base: any, commitValues: CommitValuesMode = 'full', readKeysProvider?: () => string[]) {
-    this.baseSnapshot = structuredClone(base);
-    this.workingCopy = structuredClone(base);
+    // COPY-ON-WRITE (design 2026-10). `base` is the committed generation the
+    // stage first touched — immutable-after-swap, the same invariant the
+    // first-touch view already rests on — so the diff base is held by
+    // REFERENCE, and the working copy starts as a copy of its ROOT only.
+    // Each write then copies the containers on its own path, never the rest.
+    // These two lines used to be two `structuredClone`s of the whole state.
+    this.baseSnapshot = base;
+    this.workingCopy = ownedRootOf(base, this.owned);
     this.commitValues = commitValues;
     this.readKeysProvider = readKeysProvider;
   }
@@ -106,6 +126,7 @@ export class TransactionBuffer {
   set(path: (string | number)[], value: any, shouldRedact = false): void {
     const key = normalisePath(path);
     this.detachHeldAncestors(path);
+    ownSpine(this.workingCopy, path, this.owned);
     _set(this.workingCopy, path, value);
     _set(this.overwritePatch, path, value);
     if (value !== null && typeof value === 'object') this.heldRefs.add(key);
@@ -161,6 +182,7 @@ export class TransactionBuffer {
   delete(path: (string | number)[], shouldRedact = false): void {
     const key = normalisePath(path);
     this.detachHeldAncestors(path);
+    ownSpine(this.workingCopy, path, this.owned);
     _set(this.workingCopy, path, undefined);
     _set(this.overwritePatch, path, undefined);
     this.heldRefs.delete(key);
@@ -177,6 +199,8 @@ export class TransactionBuffer {
     this.detachHeldAncestors(path);
     const existing = _get(this.workingCopy, path) ?? {};
     const merged = deepSmartMerge(existing, value);
+    ownSpine(this.workingCopy, path, this.owned);
+    own(merged, this.owned);
     _set(this.workingCopy, path, merged);
     _set(this.updatePatch, path, deepSmartMerge(_get(this.updatePatch, path) ?? {}, value));
     if (shouldRedact) {
@@ -225,7 +249,41 @@ export class TransactionBuffer {
 
   /** Read current value at path (includes uncommitted changes). */
   get(path: (string | number)[], defaultValue?: any) {
+    if (PRIVATE_READS) this.privatise(path);
     return _get(this.workingCopy, path, defaultValue);
+  }
+
+  /**
+   * PROTOTYPE variant "private reads" (FP_COW_PRIVATE_READS=1, design
+   * 2026-10 option D): the first read of a container the working copy still
+   * SHARES with the committed generation replaces it with a private deep
+   * copy — what the whole-state clone used to give every read after a
+   * stage's first write — so an in-place edit of that read stays private, as
+   * it did. Costs O(value) once per shared container read after the first
+   * write; nothing for a stage that never reads after writing.
+   */
+  private privatise(path: (string | number)[]): void {
+    let cur: any = this.workingCopy;
+    let base: any = this.baseSnapshot;
+    for (let i = 0; i < path.length; i++) {
+      const k = path[i];
+      if (cur === null || typeof cur !== 'object' || !Object.prototype.hasOwnProperty.call(cur, k)) return;
+      const next = cur[k];
+      const atBase =
+        base !== null && typeof base === 'object' && Object.prototype.hasOwnProperty.call(base, k)
+          ? base[k]
+          : undefined;
+      if (next !== null && typeof next === 'object' && next === atBase && !this.owned.has(next)) {
+        const at = path.slice(0, i + 1);
+        ownSpine(this.workingCopy, at, this.owned);
+        const copy = structuredClone(next);
+        own(copy, this.owned);
+        _set(this.workingCopy, at, copy);
+        return;
+      }
+      cur = next;
+      base = atBase;
+    }
   }
 
   /**
@@ -318,6 +376,8 @@ export class TransactionBuffer {
     this.redactedPaths.clear();
     this.heldRefs.clear();
     this.workingCopy = {};
+    this.owned = new WeakSet();
+    this.owned.add(this.workingCopy);
 
     return payload;
   }
@@ -618,16 +678,29 @@ export class TransactionBuffer {
    * encoder's own replay loop, and it clones per op just as the fold does.
    */
   private replayFamilyVerbs(rootSegments: string[], ops: { path: string; verb: OpVerb }[]): unknown {
-    const box: { v: unknown } = { v: structuredClone(_get(this.baseSnapshot, rootSegments)) };
+    // Copy-on-write (design 2026-10): the box holds the family root's BASE
+    // value by reference — committed state, never edited — and each op copies
+    // the containers on its own path first, exactly as the live replay does
+    // (`applySmartMerge`), so 'full' and 'delta' commit the same state. The
+    // whole-subtree `structuredClone` of the base value this replaced is no
+    // longer needed: the family value is cloned once more where it is EMITTED.
+    const owned = new WeakSet<object>();
+    const box: { v: unknown } = { v: _get(this.baseSnapshot, rootSegments) };
+    owned.add(box);
     for (let i = 0; i < ops.length; i++) {
       if (supersededByNextSet(ops, i)) continue;
       const op = ops[i];
       const segments = op.path.split(DELIM);
       const at = ['v', ...segments.slice(rootSegments.length)];
+      ownSpine(box, at, owned);
       if (op.verb === 'merge') {
-        _set(box, at, deepSmartMerge(_get(box, at) ?? {}, structuredClone(_get(this.updatePatch, segments))));
+        const merged = deepSmartMerge(_get(box, at) ?? {}, structuredClone(_get(this.updatePatch, segments)));
+        own(merged, owned);
+        _set(box, at, merged);
       } else {
-        _set(box, at, structuredClone(_get(this.overwritePatch, segments)));
+        const value = structuredClone(_get(this.overwritePatch, segments));
+        own(value, owned);
+        _set(box, at, value);
       }
     }
     return box.v;

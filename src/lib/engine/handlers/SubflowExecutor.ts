@@ -30,6 +30,30 @@ import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
+/**
+ * Copy-on-write (design 2026-10): the mapper read the parent's LIVE state
+ * (`getScope()`), so a container it passes through is the parent's committed
+ * object — and the subflow's args are deep-FROZEN in place
+ * (`readonlyInput · createFrozenArgs`). Before copy-on-write the parent's
+ * next whole-state clone replaced that frozen object; now it stays in the
+ * parent's state, and the typed scope refuses to proxy a frozen object
+ * (`allowlist · shouldWrapWithProxy`), so a later `scope.k.x = v` in the
+ * parent would hit the raw frozen value. Detach the containers ONCE per
+ * mount, before they become args; other values (a `Date`, a class instance)
+ * pass by reference, exactly as before. The seed is cloned at its commit
+ * anyway, so the subflow's state is unchanged.
+ */
+function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(input)) {
+    if (value === null || typeof value !== 'object') continue;
+    const proto = Object.getPrototypeOf(value);
+    if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) continue;
+    (out ??= { ...input })[key] = structuredClone(value);
+  }
+  return out ?? input;
+}
+
 export class SubflowExecutor<TOut = any, TScope = any> {
   /**
    * The resume's one-shot re-entry (`deps.resume`), or a seed-only one built
@@ -100,7 +124,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (mountOptions) {
       try {
         const parentScope = parentContext.getScope();
-        mappedInput = getInitialScopeValues(parentScope, mountOptions);
+        mappedInput = detachMappedInput(getInitialScopeValues(parentScope, mountOptions));
         if (Object.keys(mappedInput).length > 0) {
           // mappedInput is captured in SubflowResult.treeContext for debugging
         }
