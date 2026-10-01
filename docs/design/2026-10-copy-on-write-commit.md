@@ -1,8 +1,10 @@
 # Copy-on-write commit — a write costs what it writes, not what the state holds (design, 2026-10-01)
 
-**Status:** DESIGN + MEASUREMENT. Prototype on branch `design/copy-on-write-commit` (not merged, no PR). The main
-session decides whether to build. Every number on this page comes from an instrument named beside it — the
-prototype's bench and tests, or a scratch script listed under "Instruments" at the end; nothing is estimated.
+**Status:** BUILT for 9.29.0 — branch `feat/copy-on-write-commit` (the measured prototype, `design/copy-on-write-commit`
+f5232f2, is its first commit). The decisions the build was made under, and everything the build changed or found
+relative to the prototype, are in "The build" below; the sections between record the design as measured, corrected
+where the build proved them wrong. Every number comes from an instrument named beside it — a checked-in bench or
+test, or a scratch script listed under "Instruments"; nothing is estimated.
 
 ## The finding
 
@@ -276,7 +278,7 @@ the fold guide gains §9 "copy-on-write commit" with the bench table.
   frozen committed object stays writable through the scope and the args freeze can stay in place.
 - **R3 — no freeze-based dev guard yet.** Same prerequisite as R2 (census: 83 in-contract failures otherwise). Until
   then the borrowed-mutation warning is the dev-mode report, and it still fires.
-- **R4 — `applySmartMerge` and `SharedMemory` are exported** (`/advanced`). `applySmartMerge`'s result now shares
+- **R4 — CLOSED by decision 3.** (As measured:) **`applySmartMerge` and `SharedMemory` are exported** (`/advanced`). `applySmartMerge`'s result now shares
   unchanged subtrees with its base. The one family caller, agentfootprint's `time-travel/keyedFold.ts`, replays a
   FROZEN per-key value through it and freezes the result — it works under the prototype (nothing frozen is written
   into) and stops paying a deep clone per step. Still, keep the exported contract (a detached result) and route the
@@ -314,6 +316,118 @@ R3's dev guard and the residual's shared copy).
 The prototype's switches — `FP_COW_PRIVATE_READS` (option D), `FP_COW_FREEZE` (the census), `FP_COW_DETACH` (an
 attribution switch) — and the `__fpPathCopyStats` counter are instruments, not design: the build removes them and
 makes option D unconditional.
+
+## The build (2026-10-01)
+
+### Decisions (main session — library-correct; recorded here as made)
+
+1. **Option D on by default, no setting.** A stage's first read of a container still shared with committed state,
+   after its first write, returns a private deep copy — 9.28.0's observable behaviour for in-place mutation (M1/M2)
+   is preserved exactly. The prototype's `FP_COW_PRIVATE_READS` switch is gone.
+2. **D1 and D2 in.** The mapped subflow input is copied once per mount (an inputMapper passing a parent object
+   through never freezes the parent's object; its own regression test reproduces the 9.28.0 TypeError on the real
+   9.28.0). The redacted mirror never shares objects with the log; the replay detaches a bundle's `updates` once
+   per replay, not per row.
+3. **The EXPORTED `applySmartMerge` keeps its public contract** — a fully detached result, byte-identical to 9.28.0
+   for every caller, aliasing included (risk R4 closed). The engine commits through an internal path-copying
+   variant, `utils · nextGeneration`. One owner of the verb switch: `utils · replayRows`, behind all three — the
+   public function is the detach (a deep clone of the base) plus `replayRows` editing that private clone in place;
+   `nextGeneration` is a root copy plus `replayRows` path-copying; the folds' `applySmartMergeInto` is the caller's
+   private copy plus `replayRows` path-copying. No fifth replica. (`repeated-path-skips` therefore keeps its 9.28.0
+   pin of 2 clones — the prototype's moved pin is reverted.)
+4. **M3–M6 named in the CHANGELOG** under "Changed", one example each; the README / CLAUDE.md invariant lines
+   updated, citing file · symbol.
+
+### What the build changed relative to the prototype
+
+- **Instruments removed:** `FP_COW_FREEZE` + `pathOps · freezeNew` (the census), `FP_COW_DETACH`, the
+  `__fpPathCopyStats` counter (the bench's path-copy columns went with it; `structuredClone` calls, bytes and nodes
+  remain its counts).
+- **Private reads, made robust** (`TransactionBuffer · privatise`), beyond the prototype's top-of-path copy:
+  - a value the stage STAGED (`set`) is handed back by reference and never privatised, even when it is the very
+    object committed state holds at that path (a write-back): a private copy would leave `workingCopy` and
+    `overwritePatch` disagreeing — the prototype recorded a phantom `set` of the OLD value in that case;
+  - a shared container ON THE WAY to the value read is copied shallowly, only the value read deeply (a read of
+    `runs/<id>/k` copies `k`, not every fork child's namespace — the prototype deep-copied the first shared
+    container, `runs` itself);
+  - a read that lands on an OWNED container (a path copy a nested write made, a merge result) privatises the
+    shared containers below it, once (`privatiseBelow`, `privateTrees`) — the prototype handed out an owned shallow
+    copy whose children were committed state (reachable through `/zod` and the nested engine doors);
+  - the private copy's whole subtree is owned (`pathOps · adopt`), so a later nested write edits it in place, as
+    the private clone was edited before;
+  - a read resolves its path first and copies nothing for a path that lands on nothing (a refused segment, a
+    missing key);
+  - `peek` reads without privatising, and `StageContext · warnOnBorrowedMutation` uses it (a report compares).
+- **A merge privatises its base first** (`TransactionBuffer · merge`). Required for BYTE identity, not only for
+  option D: `deepSmartMerge` unions arrays by reference, so `$update(k, [elementReadFromK])` dedups the element
+  against a committed array and appends it to a private copy. The build's differential found the prototype
+  diverging from 9.28.0 on in-contract programs here (and on the same op through a read after the first write
+  without option D): mutation-tested — removing either line fails the chart property.
+- **`shallowCopy`:** an array with a hole AND a named property lost the property (the prototype detected names by
+  `Object.keys(a).length !== a.length`, which a hole cancels; now: names are the tail of own-key order, with an
+  exact array-index test); a null-prototype object copies to an ordinary one (what `structuredClone` made of it);
+  a `Date`/`Map`/`Set` keeps the expandos the clone drops, so a later write through it changes exactly its own path
+  (M6 holds after a second write, not only the first).
+- **`EventLog.materialise`** folds with `applySmartMergeInto` over one private clone (it called the public
+  `applySmartMerge`, which keeps the 9.28.0 aliasing semantics and a clone per step); every fold now follows the
+  live law.
+- **D1 extended** to `Date`, `Map` and `Set` mapped values (`SubflowExecutor · isDetachable`): freezing is an edit,
+  and a mount must not edit the parent's committed objects. Class instances still pass by reference.
+- **A dev-mode report for M7** (`StageContext · warnOnCommittedMutation`, `borrowedMutation ·
+  committedMutationMessage`) — see M7 below. Production pays nothing (`isDevMode()` + `readTracking: 'full'`).
+
+### Two more named behaviours the build's differential found
+
+- **M7 — a value read BEFORE the stage's first write, mutated in place AFTER it, then written back** (`c =
+  $getValue('cfg'); s.other = 1; c.x = 99; $setValue('cfg', c)`): 9.28.0 recorded `x: 99` — by accident, its diff
+  base was a clone taken at the first write, between the read and the edit. Now the diff base IS the committed
+  object the edit also moved, so the commit records no change: live state keeps the edit, the log and the fold do
+  not. Option D cannot cover it (the read happened before the buffer existed); restoring it would mean cloning
+  every container a stage reads before its first write — the in-contract typed-scope push pays that. Out of
+  contract (reads are borrowed) and now LOUD: dev mode warns for a written key whose last read came from committed
+  state when that committed object changed in place (which also catches M1b, dropped silently by 9.28.0 and now).
+- **M8 — a nested write through a value the same stage `set`** (`/zod` or `StageContext`: `setObject(['obj'],
+  'deep', o)` then `setObject(['obj','deep'], 'x', 2)`): 9.28.0 edited the caller's `o` in place, so the outer
+  key's retained `stageWrites` entry (and the `onCommit` payload) showed the inner write too. Now `o` is copied
+  first and stays as written; the inner write is its own entry. Commit log, state and folds byte-identical. The
+  typed scope never takes this path (it writes root keys).
+
+### Measured on the build
+
+`bench/commit-clones.ts --src <tree>`, 9.28.0's `src` vs the build's, two interleaved rounds (load average 120–200 on
+an 18-core machine shared with other sessions). Counts are identical in both rounds and both encodings; CPU is the
+secondary signal.
+
+| per stage, N-item history | N | 9.28.0 clones · bytes · nodes | build clones · bytes · nodes |
+|---|---|---|---|
+| write one number | 100 | 8 · 30.3 KB · 1,853 | 5 · 29 B · 6 |
+| write one number | 10,000 | 8 · 3.05 MB · 180,053 | 5 · 29 B · 6 |
+| same, redacted mirror on | 10,000 | 10 · 4.07 MB · 240,069 | 6 · 33 B · 7 |
+| write a number, read the history (tracked) | 10,000 | 9 · 4.07 MB | 7 · 2.03 MB |
+| same, `readTracking: 'off'` | 10,000 | 8 · 3.05 MB | 6 · 1.02 MB |
+| agent turn, `'full'` / `'delta'` | 10,000 | 18 · 12.21 MB / 18 · 9.16 MB | 12 · 6.10 MB / 12 · 3.05 MB |
+| CPU per one-number stage (rounds 1 / 2) | 100 · 1k · 10k | 0.20 · 1.8 · 18.7 / 0.20 · 1.9 · 20.1 ms | 0.019 · 0.019 · 0.018 / 0.019 · 0.018 · 0.019 ms |
+
+The read-after-write rows carry option D's private copy (the value read, once); the prototype's numbers without D
+were 6 · 1.02 MB and 5 · 29 B. The agent row matches the prototype: its push is the stage's first write.
+
+Secondary, same load: `bench/element-writes.ts` (published 9.28.0 `dist` vs the build's), 10,000 element writes,
+two rounds — `'full'` loop 172 / 206 → 144 / 156 ms, `'delta'` loop 205 / 220 → 148 / 173 ms, `$batchArray` 67 / 50
+→ 39 / 58 ms and 49 / 47 → 36 / 42 ms. `bench/time-travel.ts` (10,000 commits, each a new root key — risk R5's
+shape): build + run 37.8 / 37.7 s → 21.3 / 21.9 s; the read side within noise (`stateAt(last)` 3.85 / 4.05 →
+4.13 / 3.85 ms, one step 7.22 / 7.72 → 8.68 / 6.57 ms).
+
+### Test plan — as built
+
+| Item | File | Status |
+|---|---|---|
+| 1. Byte identity, pinned | `test/lib/memory/scenario/copy-on-write-byte-identity.test.ts` + `reference/copy-on-write-9.28.0.json` (280 programs, three families, run on the published 9.28.0, a digest per kept field) and the three existing reference suites, unchanged | green |
+| 2. Byte identity, generative | `test/lib/memory/property/copy-on-write-differential.property.test.ts` — the published 9.28.0 (`footprintjs-baseline`, pinned exactly, out of Renovate) vs `src`, fixed seeds; chart / borrowed / nested families; `COW_DIFF_RUNS=6000` for the release gate | green (150 / 150 / 400 runs in `npm test`) |
+| 3. Complexity guard, counted | `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts` (7: one-number stage × encodings × mirror, a fork child's namespaced write, a subflow's nested merge-back, a read after the first write pays for the value read) and `copy-on-write.load.test.ts` (400 commits; an agent loop) | green; all red on 9.28.0 |
+| 4. The law, as a property | `copy-on-write-commit.test.ts` (every generation a stage saw, live and mirror, unchanged at the end) + the differential's per-program generation check | green |
+| 5. Each named behaviour | `copy-on-write-commit.test.ts` — D1 (9.28.0's TypeError reproduced on the real 9.28.0), D2, M1, M1b, M2 (+ the merge variant), M3–M8, each against the real 9.28.0 | green |
+| 6. Landmines re-run | the full suite, unchanged | green |
+| Unit / security | `unit/copy-on-write.test.ts` (primitives, the three replays, private reads, generations); `security/copy-on-write.security.test.ts` (hostile paths through every replay and read; an own `__proto__` key; served views never reach the record) | green |
 
 ## Instruments (where every number came from)
 

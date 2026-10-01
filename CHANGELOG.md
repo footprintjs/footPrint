@@ -5,6 +5,215 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.29.0] - 2026-10-01
+
+### Changed — copy-on-write commit: a write costs what it writes, not what the state holds
+
+- **Why.** Every stage that wrote anything deep-cloned the WHOLE committed state
+  three times — twice when its transaction buffer was built, once when its
+  commit was applied (four with a redaction mirror). An agent's state holds its
+  growing conversation, so a stage that changed one number paid for the whole
+  history: on agentfootprint's clock-run scenario the per-provider-call CPU
+  grew 11.6 → 91.6 ms over 200 calls with nothing else changing.
+  Design and measurements: `docs/design/2026-10-copy-on-write-commit.md`.
+
+- **The law.** A committed generation is never edited. A commit builds the
+  next generation by copying the root and every container on each written
+  path; every other subtree is SHARED with the generation before it. A writer
+  edits in place only containers it created during the current operation —
+  the law `reactive/structuralWrite.ts · setInPath` already applied to one
+  value, now applied to the state. Its consequence: a write changes exactly
+  its own path.
+
+- **What changed** (`memory/`, the verb switch untouched — no fifth replica):
+  `TransactionBuffer` holds the committed generation the stage first touched
+  BY REFERENCE (its diff base) and starts its working copy as a copy of the
+  root (`pathOps · ownedRootOf`); each write copies the containers on its own
+  path (`pathOps · ownSpine`). `SharedMemory.applyPatch` builds the next
+  generation with `utils · nextGeneration` (internal) — the one verb switch,
+  `utils · replayRows`, path-copying; `setValue` / `updateValue` swap a
+  path-copied generation too. The seed is detached once, when the store is
+  built. The folds (`stateAt`, `EventLog.materialise`) replay with the same
+  law below their private root (`applySmartMergeInto`), so a fold and live
+  state agree at every path.
+
+- **Private reads (no setting).** A stage's first READ, after its first write,
+  of a container still shared with committed state returns a private deep
+  copy (`TransactionBuffer · privatise`) — what the whole-state clone used to
+  give every such read. So an in-place edit of a read value (out of contract:
+  reads are borrowed) behaves exactly as on 9.28.0 — lost unless written
+  back, recorded when written back, committed state untouched, the dev-mode
+  warning unchanged. It costs O(value) once per container read after the
+  first write; a stage that never reads after writing pays nothing. A merge
+  privatises the value it merges into first: `deepSmartMerge` unions arrays
+  BY REFERENCE, so `$update(k, [elementReadFromK])` must meet a private copy
+  to stay byte-identical (the build's differential found this).
+
+- **`applySmartMerge` (public, `footprintjs/advanced`) keeps its contract:**
+  a fully detached result — the base cloned, then the rows replayed into the
+  clone — byte-identical to 9.28.0 for every caller, aliasing included. The
+  engine no longer calls it.
+
+| per stage that writes ONE number, N-item history in state (`bench/commit-clones.ts`) | 9.28.0 | 9.29.0 |
+|---|---|---|
+| `structuredClone` calls · bytes · nodes, N = 100 | 8 · 30.3 KB · 1,853 | 5 · 29 B · 6 |
+| same, N = 10,000 | 8 · 3.05 MB · 180,053 | 5 · 29 B · 6 |
+| same, redacted mirror on, N = 10,000 | 10 · 4.07 MB · 240,069 | 6 · 33 B · 7 |
+| write a number, then read the history (tracked), N = 10,000 | 9 · 4.07 MB | 7 · 2.03 MB |
+| agent turn (push, tick, read), `'full'` / `'delta'`, N = 10,000 | 18 · 12.21 MB / 18 · 9.16 MB | 12 · 6.10 MB / 12 · 3.05 MB |
+| CPU per one-number stage, N = 100 / 1,000 / 10,000 (load average 120–200) | 0.20 / 1.8 / 18.7 ms | 0.019 / 0.018 / 0.018 ms |
+
+Counts identical in both `commitValues` encodings and both bench rounds.
+
+### Changed — what you may observe (each pinned by name against the real 9.28.0 in `test/lib/memory/scenario/copy-on-write-commit.test.ts`)
+
+- **M3 — a write through one of two aliased positions changes that path
+  only.** Reachable only through the engine's nested-path doors (an
+  `outputMapper` plain-object merge, `/zod`), never through the typed scope:
+
+  ```ts
+  const o = { v: 0 };
+  new FlowChartExecutor(chart, { initialContext: { a: o, b: o } });
+  // outputMapper: () => ({ a: { x: 1 } })   — a nested write a.x
+  // 9.28.0: a = { v: 0, x: 1 }, b = { v: 0, x: 1 }   (the clone kept the alias, the write went through it)
+  // 9.29.0: a = { v: 0, x: 1 }, b = { v: 0 }
+  ```
+
+- **M4 — a class instance in `initialContext` is a plain object from the
+  first stage.** The seed is detached when the run starts:
+
+  ```ts
+  class Cfg { n = 2; double() { return this.n * 2; } }
+  // initialContext: { cfg: new Cfg() } — first stage: scope.$getValue('cfg').double?.()
+  // 9.28.0: 4 (the caller's instance, until the first commit cloned it)
+  // 9.29.0: undefined — { n: 2 }, as every later stage always saw it
+  ```
+
+- **M5 (fix) — the caller's `initialContext` is detached at construction.**
+
+  ```ts
+  const seed = { cfg: { n: 1 } };
+  // initialContext: seed; in the first stage: seed.cfg.n = 42; scope.seen = scope.cfg.n
+  // 9.28.0: live cfg.n = 42 and seen = 42 with no row — the fold says cfg.n = 1
+  // 9.29.0: cfg.n = 1, seen = 1 — live and fold agree
+  ```
+
+- **M6 (fix) — expandos an engine nested write hangs on a committed `Date`
+  (or `Map`/`Set`) stay in live state, as in the record.**
+
+  ```ts
+  scope.$setValue('when', new Date(0));
+  // outputMapper: () => ({ when: { y: 1 } })   — a nested row when.y
+  // a later stage commits anything
+  // 9.28.0: live when.y === undefined (the next whole-state clone dropped it; the log and the fold keep it)
+  // 9.29.0: live when.y === 1
+  ```
+
+- **M7 — a value read BEFORE the stage's first write, edited in place AFTER
+  it and written back, records no change** (out of contract — reads are
+  borrowed). Option D covers reads after the first write; this read came
+  from committed state itself, and the diff base is now that same object:
+
+  ```ts
+  const c = scope.$getValue('cfg');   // before the first write: committed state
+  scope.other = 1;                     // the first write
+  c.x = 99;                            // in place
+  scope.$setValue('cfg', c);
+  // 9.28.0: row cfg = { x: 99 } (by accident — its diff base was a clone taken at the first write)
+  // 9.29.0: no cfg row; live keeps x: 99, the log and the fold do not — and dev mode now warns
+  scope.$setValue('cfg', { ...c, x: 99 }); // the honest form: recorded on both
+  ```
+
+  **Dev mode** (`enableDevMode()`, `readTracking: 'full'`) now also reports a
+  WRITTEN key whose last read came from committed state when that committed
+  object changed in place — M7, and the 9.28.0 case that was already dropped
+  silently (`c = $getValue(k); c.x = 1; $setValue(k, c)` before any other
+  write). Warnings for unwritten keys are unchanged.
+
+- **M8 — a nested write through a value the same stage set no longer edits
+  that value.** `/zod` and direct `StageContext` use only (the typed scope
+  writes root keys):
+
+  ```ts
+  const o = { a: 1 };
+  ctx.setObject(['obj'], 'deep', o);
+  ctx.setObject(['obj', 'deep'], 'x', 2);
+  // 9.28.0: o === { a: 1, x: 2 } (the engine edited the caller's object); stageWrites['obj.deep'] = { a: 1, x: 2 }
+  // 9.29.0: o === { a: 1 }; stageWrites['obj.deep'] = { a: 1 } (and 'obj.deep.x': 2, as before)
+  // commit log, state and folds: byte-identical
+  ```
+
+- **`SharedMemory` (`footprintjs/advanced`):** `setValue` / `updateValue` /
+  `applyPatch` swap in a new generation instead of editing the current one,
+  so an object obtained from `getState()` before the call does not show the
+  write; read `getState()` again. The constructor clones a non-empty seed
+  once.
+
+- **Identity, not values:** a value read in a later stage may be the SAME
+  object an earlier stage read (unchanged subtrees are shared between
+  generations). Nothing in the library compares identity across stages.
+
+### Fixed
+
+- **D1 — an inputMapper that passes a parent object through froze the
+  parent's state.** `createFrozenArgs` deep-freezes a subflow's args in place,
+  and `(p) => ({ cfg: p.cfg })` handed it the parent's committed object; the
+  typed scope does not proxy frozen values, so a later `scope.cfg.x = 1` in
+  the parent threw `TypeError: Cannot assign to read only property 'x'`
+  (9.28.0 hid it only until the parent's next non-empty commit re-cloned the
+  state — a mount that committed nothing left it frozen). The mapped input's
+  plain objects, arrays, `Date`s, `Map`s and `Set`s are now copied once per
+  mount (`SubflowExecutor · detachMappedInput`); the args stay frozen.
+- **D2 — the redacted mirror shared containers with the commit log.** The
+  replay's merge arm placed a delta's array elements by reference, and the
+  mirror replays the LOG's own redacted patches, so an edit of
+  `getSnapshot({ redact: true }).sharedState` could reach the recorded
+  bundle. The replay detaches a bundle's `updates` once (once, not per row:
+  the array union dedups by reference).
+
+### Unchanged — the bytes
+
+- A differential against the PUBLISHED 9.28.0
+  (`test/lib/memory/property/copy-on-write-differential.property.test.ts`,
+  fast-check, fixed seeds; `COW_DIFF_RUNS=<n>` for the release gate) compares
+  the commit log in both encodings, live state, the fold base, the execution
+  tree, subflow results, the redacted mirror, the fold at every stop and
+  every error — in-contract charts through the typed scope, subflows, forks
+  and every dial; reads edited in place after the first write (dev-mode
+  warnings included — M1/M2 identical); `StageContext` at nested and
+  run-namespaced paths. A pinned corpus of 280 programs run on 9.28.0
+  (`test/lib/memory/scenario/copy-on-write-byte-identity.test.ts`) and the
+  three existing reference suites reproduce byte for byte.
+- `TransactionBuffer`'s commit payload, the redaction rule and `redactPatch`,
+  `EventLog`, the encoders, `commitValueAt`, checkpoint build and resume, the
+  handlers and the reactive layer are untouched.
+
+### Tests and bench
+
+- Counted complexity guard (never a wall-clock budget):
+  `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts` and
+  `copy-on-write.load.test.ts` — identical clone counts at N = 100 and
+  10,000 for a one-number stage (both encodings, ± mirror), a fork child's
+  namespaced write, a subflow's nested merge-back, 400 commits and an agent
+  loop; a read after the first write pays for the value read. Red on 9.28.0.
+- The law as a property (no generation a stage saw is edited), unit tests for
+  the primitives and the three replays, security tests (hostile paths through
+  every replay and read; served views never reach the record).
+- `bench/commit-clones.ts` — what one small write costs as the state grows,
+  by operation count first. `footprintjs-baseline` (devDependency): an npm
+  alias of `footprintjs@9.28.0`, pinned exactly and kept out of Renovate.
+
+### Known residuals (named, not this release)
+
+- A write still copies each container on its path in full: a root that keeps
+  gaining keys (thousands of root keys, a `runs` container with hundreds of
+  fork children) costs that width per commit — never more than 9.28.0, which
+  cloned the same root three times.
+- The D1 mount copy is the largest remaining clone in an agent's subflow
+  mounts; letting the typed scope proxy frozen values would remove it.
+- With `readTracking` / `writeTracking` at `'full'`, every tracked read and
+  write of a large value is still cloned (a dial).
+
 ## [9.28.0] - 2026-09-28
 
 ### Fixed — a resume re-enters the chart ONCE, then the run belongs to the real chart

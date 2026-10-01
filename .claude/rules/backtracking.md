@@ -40,23 +40,24 @@ Default `'off'` = byte-identical logs. Same 6-site propagation as the other
 three dials. Snapshot discriminant: `getSnapshot().writeProvenance`.
 
 ## M1 — TransactionBuffer staging + net-change commit
-Files: `TransactionBuffer.ts:31` (ctor clones base twice :42-46; set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory.ts:59` applyPatch → `utils.ts:254-272` applySmartMerge (clone-whole-state, apply verbs, SWAP). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
+Files: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `utils · nextGeneration` (copy the root + each written path, apply verbs via `replayRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
-| first write | 2 structuredClones (baseSnapshot + workingCopy) | — | — |
+| first write | baseSnapshot = the committed generation BY REFERENCE; workingCopy = a root copy (9.29.0 — before: 2 whole-state structuredClones) | — | — |
 | during stage | ops in workingCopy/overwritePatch/opTrace | own writes readable (read-your-writes) | — |
 | commit (success) | net-change CommitBundle → commitLog; new state generation swapped in | — | no-op & write-then-revert paths; buffer + stateView released |
 | stage THROWS | **same commit still happens** (:1088), then rethrow | — | NOTHING — writes never vanish |
 
-Invariant: committed state is immutable-after-swap, so a bare-reference first-touch view is a stable snapshot & diff base even under parallel-fork sibling commits.
+Invariant: committed state is immutable-after-swap (a generation is never edited — copy-on-write, 9.29.0), so a bare-reference first-touch view is a stable snapshot & diff base even under parallel-fork sibling commits — unless USER code edits a committed object in place: a raw read before the stage's first write, edited and written back, then records no change (M7; dev mode warns).
 Breaks when: code assumes rollback (write-then-throw IS committed), or a consumer mutates production `getSnapshot().sharedState` (zero-copy live view; frozen only in dev mode, `FlowChartExecutor.ts:1588`).
 
 ```
-onFirstWrite: buf = new TransactionBuffer(firstTouchState)   // 2 clones
-write(p,v):   buf.workingCopy[p]=v; buf.overwritePatch[p]=clone(v); opTrace.push
-commit():     keep ops where !deepEqual(base[p], working[p])
-              sharedMemory.context = applySmartMerge(clone(state), bundle)  // swap
+onFirstWrite: buf = new TransactionBuffer(firstTouchState)   // base by reference, root copy (9.29.0)
+write(p,v):   ownSpine(workingCopy, p); workingCopy[p]=v; overwritePatch[p]=v (ref); opTrace.push
+read(p):      privatise(p) — a container still shared with committed state → a private deep copy, once
+commit():     keep ops where !deepEqual(base[p], working[p]); payload values cloned once
+              sharedMemory.context = nextGeneration(state, bundle)  // copy written paths, share the rest, swap
               eventLog.record(bundle); release buf/stateView
 onError:      commit(); rethrow          // NO abort path exists
 ```
@@ -118,13 +119,13 @@ resume: node    = findNodeInGraph(cp.pausedStageId, cp.subflowPath)
 ```
 
 ## M3 — Commit-log replay / time-travel reconstruction
-Files: `EventLog.ts` (`materialise(stepIdx)` :25-32 — clone base, replay 0..idx via applySmartMerge; `record` :35-38 stamps bundle.idx) · `utils.ts:254-272` applySmartMerge = THE single replay primitive (verbs: set/append/delete/merge) · `commitLogUtils.ts` (`commitValueAt` :60-98 — anchor at latest set/delete :74-80, fold forward :82-96; `findLastWriter` :23-31). Delta producer: `TransactionBuffer.toDeltaPayload` :248-307.
+Files: `EventLog.ts` (`materialise(stepIdx)` — clone base ONCE, replay 0..idx into it via `applySmartMergeInto` (the live law below the root, 9.29.0); `record` stamps bundle.idx) · `utils · replayRows` = THE single replay verb switch (verbs: set/append/delete/merge), behind `nextGeneration` (live), `applySmartMergeInto` (folds) and the public `applySmartMerge` (fully detached, the 9.28.0 contract) · `commitLogUtils.ts` (`commitValueAt` :60-98 — anchor at latest set/delete :74-80, fold forward :82-96; `findLastWriter` :23-31). Delta producer: `TransactionBuffer.toDeltaPayload` :248-307.
 
 Invariant: replaying trace verbs in order over the base reproduces committed state byte-for-byte in BOTH `commitValues` modes (property-tested, `TransactionBuffer.ts:316-318`).
 Breaks when: a key seeded into the run's INITIAL state (executor `initialContext`, resume's `checkpoint.sharedState`, or a subflow inputMapper seed) is only ever `merge`d — no `set` anchor in the log, `commitValueAt` folds from absent (documented blind spot `commitLogUtils.ts:54-58`). (`run({input})` is the frozen args channel and never enters shared state.) Also reading `bundle.overwrite[key]` as "the full value" under delta mode — an `append` bundle holds only the tail.
 
 ```
-materialise(k): out = clone(base); for i in 0..k-1: out = applySmartMerge(out, steps[i])
+materialise(k): out = clone(base); for i in 0..k-1: applySmartMergeInto(out, steps[i])
 commitValueAt(log, idx, key):
   touches = trace entries on key in log[0..idx]
   start   = last touch with verb set|delete            // full-value anchor
@@ -195,7 +196,7 @@ TimeTravelStrategy — the seam) · `commitStops.ts` (THE shipped strategy: one
 stop per executed stage, a mount's entry/exit bundles collapsed onto the first,
 `'start'`/`'end'` bookends; `Stop.lastCommitIdx` is the end of the stop's slice
 — fold through IT, not `commitIdx`, or a mount's state lags its own output
-mapping) · `stateAt.ts` (detached frozen fold via `applySmartMerge` — the ONE
+mapping) · `stateAt.ts` (detached frozen fold via `applySmartMergeInto` — the ONE
 replay primitive, never a fifth verb-switch replica; `basis: 'initial+log' |
 'log-only'` is the honesty channel) · `timeTravel.ts` (the cursor; `drill()`
 returns a SEPARATE cursor over the subflow's own log) · 9.18.0: `axis.ts`
@@ -243,7 +244,7 @@ monotonic, or a leg's `initialState` is not the state the legs before it fold to
 the two index checks and `basis` says so).
 
 ## Cross-mechanism blast radius
-- M1's trace verbs are the contract everything replays: `applySmartMerge` (utils.ts:254) has 3 consumers — live commit (StageContext.ts:567), the redacted mirror (StageContext.ts:577), and `EventLog.materialise`; `commitValueAt` independently reimplements the same per-key verb fold (commitLogUtils.ts:82-96). New/renamed verb touches all of M1+M3 including commitValueAt's own switch + delta-parity tests.
+- M1's trace verbs are the contract everything replays: `utils · replayRows` has its consumers through three doors — live commit and the redacted mirror (`SharedMemory · applyPatch` → `nextGeneration`), the folds (`EventLog.materialise`, `stateAt` → `applySmartMergeInto`), and external callers (the public `applySmartMerge`); `commitValueAt` independently reimplements the same per-key verb fold (commitLogUtils.ts:82-96). New/renamed verb touches all of M1+M3 including commitValueAt's own switch + delta-parity tests.
 - M2 depends on M1's commit-on-pause (`FlowchartTraverser · executeNodeStep`, Phase 3's pause catch) — pre-pause writes reach `checkpoint.sharedState` only because pause commits first.
 - M2 checkpoints exclude recorder state and per-subflow commit logs (`FlowChartExecutor · buildPauseCheckpoint`); M5 on a cross-executor-resumed run sees only post-resume commits.
 - M2 does NO graph surgery (9.28.0): the resume's stand-in and entries are only start nodes (never registered), and M4's loop-ref stubs resolve against the real chart through `ContinuationResolver` exactly as on a run. Changing the stub shape (`isLoopRef`) still breaks every loop, resumed or not.

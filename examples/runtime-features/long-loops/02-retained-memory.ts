@@ -3,8 +3,9 @@
  *
  * The execution tree keeps one StageContext per executed stage for the
  * lifetime of the run — that is the audit trail. What it must NOT keep is
- * each stage's STAGING state: the transaction buffer (two full-state clones)
- * and the first-touch state view (a reference pinning one full committed-state
+ * each stage's STAGING state: the transaction buffer (whatever its writes and
+ * reads copied — two full-state clones before 9.29.0's copy-on-write commit)
+ * and the first-touch state view (a reference pinning one committed-state
  * generation). `StageContext.commit()` releases both at its end, so a
  * long loop's retained memory is bounded by the commit log + snapshot
  * tracking — not by N full copies of an ever-growing state.
