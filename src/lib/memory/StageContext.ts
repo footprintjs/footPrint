@@ -10,7 +10,7 @@
 
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../scope/detectCircular.js';
-import { borrowedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
+import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
@@ -124,6 +124,16 @@ export class StageContext {
    * facade path never allocates it.
    */
   private _nestedReads?: Set<string>;
+
+  /**
+   * Dev mode only: the root keys whose LAST tracked read was served from
+   * committed state — before this stage's first write, when no transaction
+   * buffer exists yet. Such a read is the committed object itself, so an
+   * in-place edit of it moves the buffer's diff base too (copy-on-write,
+   * 9.29.0); {@link warnOnBorrowedMutation} checks these keys even when the
+   * stage wrote them. Never allocated outside `enableDevMode()`.
+   */
+  private _viewReads?: Set<string>;
 
   /**
    * Has this frame committed at least once? The borrowed-read guard runs on
@@ -482,14 +492,14 @@ export class StageContext {
    * and the transaction buffer's diff base ({@link getTransactionBuffer}).
    *
    * WHY A BARE REFERENCE IS SAFE — the invariant this rests on: committed
-   * state is immutable-after-swap. `SharedMemory.applyPatch` routes through
-   * `applySmartMerge`, which `structuredClone`s the current state, mutates
-   * only the clone, and swaps `SharedMemory.context` to it — the object a
-   * stage captured here is never edited afterwards. (`SharedMemory.setValue`/
-   * `updateValue` DO mutate in place, but have no callers during traversal;
-   * every runtime write reaches state through a stage commit's `applyPatch`.)
-   * Holding the reference therefore gives this stage a stable snapshot at
-   * zero cost — no clone, which is the entire point of #13.
+   * state is immutable-after-swap. Every write to `SharedMemory` builds the
+   * NEXT generation and swaps it in (copy-on-write, 9.29.0: `applyPatch` via
+   * `nextGeneration`, and `setValue`/`updateValue` too) — it copies the root
+   * and the containers on each written path, shares the rest, and never
+   * edits a container of the generation a stage captured here. Holding the
+   * reference therefore gives this stage a stable snapshot at zero cost — no
+   * clone, which is the entire point of #13. The transaction buffer's
+   * net-change diff base rests on the same guarantee: it IS this view.
    *
    * WHY FIRST TOUCH, not first write: the pre-#13 eager engine cloned the
    * state into the buffer at the stage's first ACCESS, anchoring both its
@@ -682,6 +692,10 @@ export class StageContext {
     if (key !== undefined && this.readTracking !== 'off') {
       const rule = this.activeRule();
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
+      else if (this.readTracking === 'full' && isDevMode()) {
+        if (this.buffer) this._viewReads?.delete(key);
+        else (this._viewReads ??= new Set()).add(key);
+      }
       this._stageReads[userKeyOf(path, key)] =
         value === undefined
           ? undefined
@@ -792,6 +806,14 @@ export class StageContext {
    * subflow merge-back into a committed branch parent) other stages have
    * legitimately moved the state they were compared against.
    *
+   * A key the stage DID stage is still checked when its last read came from
+   * committed state ({@link _viewReads} — read before the first write):
+   * that read was the committed object itself, and the buffer's diff base IS
+   * that object (copy-on-write, 9.29.0), so an in-place edit followed by a
+   * write of the key commits NO change — live state keeps the edit, the log
+   * does not. Compared against committed state, not the written value, so a
+   * legitimate write never trips it.
+   *
    * Costs nothing outside `enableDevMode()`.
    */
   private warnOnBorrowedMutation(): void {
@@ -802,13 +824,17 @@ export class StageContext {
       // Only a container can be mutated in place; a primitive read cannot.
       if (retained === null || typeof retained !== 'object') continue;
       if (this._nestedReads?.has(key)) continue;
-      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key)) continue;
-      const namespaced = this.withNamespace([], key);
-      if (this.buffer?.wasStaged(namespaced)) continue;
       if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
+      const namespaced = this.withNamespace([], key);
+      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.buffer?.wasStaged(namespaced)) {
+        this.warnOnCommittedMutation(key, namespaced, retained);
+        continue;
+      }
 
       // The pinned source only — see the note on the live fallback above.
-      const current = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
+      // `peek`, not `get`: a report compares, and must not take the private
+      // copy a stage's read would (copy-on-write, 9.29.0).
+      const current = this.buffer ? this.buffer.peek(namespaced) : nativeGet(this.firstTouchState(), namespaced);
       if (current === undefined) continue;
 
       const path = firstDifferingPath(retained, current);
@@ -818,19 +844,32 @@ export class StageContext {
     }
   }
 
+  /** The staged-key half of {@link warnOnBorrowedMutation}: did committed state itself move under a read? */
+  private warnOnCommittedMutation(key: string, namespaced: string[], retained: unknown): void {
+    if (!this._viewReads?.has(key)) return;
+    const committed = nativeGet(this.firstTouchState(), namespaced);
+    if (committed === undefined) return;
+    const path = firstDifferingPath(retained, committed);
+    if (path === undefined) return;
+    // eslint-disable-next-line no-console
+    console.warn(committedMutationMessage(this.stageName, key, path));
+  }
+
   /**
    * Flush staged writes to shared memory and RELEASE the per-stage staging
    * state (#13b).
    *
-   * Commit is the stage's lifecycle end: `buffer` (2 full-state clones) and
-   * `stateView` (a reference that pins one full committed-state GENERATION —
-   * `applySmartMerge` clones + swaps the whole state per commit, so every
-   * stage's view is a distinct object) are only needed DURING execution, as
-   * the read snapshot + net-change diff base. The execution tree retains
-   * every StageContext for the lifetime of the run, so WITHOUT the release
-   * a long loop retains one state generation + two clones per executed
-   * stage — measured O(N²): 563.8MB at N=200 on an agent-style chart; a
-   * 500-iteration agent OOMed a default Node heap (backlog #18).
+   * Commit is the stage's lifecycle end: `buffer` (its working copy and
+   * whatever private copies its reads took) and `stateView` (a reference that
+   * pins one committed-state GENERATION) are only needed DURING execution,
+   * as the read snapshot + net-change diff base. The execution tree retains
+   * every StageContext for the lifetime of the run, so WITHOUT the release a
+   * long loop retains one state generation per executed stage — measured
+   * O(N²) before copy-on-write (9.29.0), when each generation and each
+   * buffer was a whole-state clone: 563.8MB at N=200 on an agent-style
+   * chart; a 500-iteration agent OOMed a default Node heap (backlog #18).
+   * Generations now share every unchanged subtree, but a pinned one still
+   * keeps the containers later commits replaced alive.
    *
    * RE-USE AFTER COMMIT stays correct because both fields re-create lazily:
    * - a later READ re-anchors via {@link firstTouchState} on the CURRENT
@@ -976,6 +1015,7 @@ export class StageContext {
     this._stageWrites = {};
     this._stageReads = {};
     this._nestedReads = undefined;
+    this._viewReads = undefined;
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────

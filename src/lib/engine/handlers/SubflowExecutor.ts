@@ -31,27 +31,41 @@ import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } fro
 import type { BreakFlag } from './types.js';
 
 /**
- * Copy-on-write (design 2026-10): the mapper read the parent's LIVE state
- * (`getScope()`), so a container it passes through is the parent's committed
+ * The mapped input, detached from the parent's state ONCE per mount (D1,
+ * 9.29.0 — docs/design/2026-10-copy-on-write-commit.md).
+ *
+ * The inputMapper reads the parent's LIVE state (`getScope()`), so a value it
+ * passes through (`(p) => ({ cfg: p.cfg })`) is the parent's committed
  * object — and the subflow's args are deep-FROZEN in place
- * (`readonlyInput · createFrozenArgs`). Before copy-on-write the parent's
- * next whole-state clone replaced that frozen object; now it stays in the
- * parent's state, and the typed scope refuses to proxy a frozen object
- * (`allowlist · shouldWrapWithProxy`), so a later `scope.k.x = v` in the
- * parent would hit the raw frozen value. Detach the containers ONCE per
- * mount, before they become args; other values (a `Date`, a class instance)
- * pass by reference, exactly as before. The seed is cloned at its commit
- * anyway, so the subflow's state is unchanged.
+ * (`readonlyInput · createFrozenArgs`). The typed scope does not proxy a
+ * frozen value (`allowlist · shouldWrapWithProxy`), so a later
+ * `scope.cfg.x = 1` in the parent met the raw frozen object: a TypeError in
+ * strict code. Before 9.29.0 the parent's next whole-state clone replaced the
+ * frozen object (a mount that committed nothing left it in place — the bug
+ * existed, it was only short-lived); under copy-on-write nothing re-clones,
+ * so the freeze would last until the key is rewritten. A mount must never
+ * edit — or freeze — the parent's committed objects: every plain object,
+ * array, `Date`, `Map` and `Set` the mapper returns is cloned here, before it
+ * becomes the args. A class instance passes by reference, as before (it
+ * cannot come from committed state, and a clone would drop its prototype).
+ * The seed is cloned again at its commit, so the subflow's state is
+ * unchanged.
  */
 function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
   let out: Record<string, unknown> | undefined;
   for (const [key, value] of Object.entries(input)) {
-    if (value === null || typeof value !== 'object') continue;
-    const proto = Object.getPrototypeOf(value);
-    if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) continue;
+    if (!isDetachable(value)) continue;
     (out ??= { ...input })[key] = structuredClone(value);
   }
   return out ?? input;
+}
+
+/** A value `structuredClone` reproduces with its own type: plain object, array, `Date`, `Map`, `Set`. */
+function isDetachable(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value) || value instanceof Date || value instanceof Map || value instanceof Set) return true;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 export class SubflowExecutor<TOut = any, TScope = any> {

@@ -6,7 +6,7 @@
  */
 
 import type { CommitBundle, MemoryPatch } from './types.js';
-import { applySmartMerge } from './utils.js';
+import { applySmartMergeInto } from './utils.js';
 
 export class EventLog {
   /** Base snapshot BEFORE the first stage mutates anything. */
@@ -48,12 +48,18 @@ export class EventLog {
    * same log but its `commitIdx` is INCLUSIVE, because a reader's cursor asks
    * "the state AT this stop", which must include that stop's own commit. Two
    * folds over one log with opposite conventions: check which one you hold.
+   *
+   * One clone of the base per call, then every bundle replayed INTO that
+   * private copy (`applySmartMergeInto` — the live commit's copy-on-write law
+   * below the root, 9.29.0, so the fold and the live state agree at every
+   * path). The result is the caller's: it shares nothing with the base or
+   * the log.
    */
   materialise(stepIdx = this.steps.length): any {
-    let out = structuredClone(this.base);
+    const out = structuredClone(this.base);
     for (let i = 0; i < stepIdx; i++) {
       const { overwrite, updates, trace } = this.steps[i];
-      out = applySmartMerge(out, updates as MemoryPatch, overwrite as MemoryPatch, trace);
+      applySmartMergeInto(out, updates as MemoryPatch, overwrite as MemoryPatch, trace);
     }
     return out;
   }

@@ -6,30 +6,19 @@
  * - Default values can be initialised and preserved
  * - Accepts commit bundles from TransactionBuffer
  *
- * COPY-ON-WRITE (design 2026-10): `context` is a GENERATION. A commit never
- * edits it — `applyPatch` builds the next generation by copying the root and
- * the containers on each written path, shares every other subtree with the
- * generation before it, and swaps. So a generation a stage captured (its
- * first-touch view, its buffer's diff base) stays exactly what it was, and a
- * commit costs O(what it wrote), not O(state).
+ * COPY-ON-WRITE (9.29.0 — docs/design/2026-10-copy-on-write-commit.md):
+ * `context` is a GENERATION, and a generation is never edited. Every write —
+ * `applyPatch` (a stage commit), `setValue`, `updateValue` — builds the next
+ * generation by copying the root and the containers on each written path,
+ * shares every other subtree with the generation before it, and swaps. So a
+ * generation a stage captured (its first-touch view, its transaction
+ * buffer's diff base) stays exactly what it was, and a write costs O(what it
+ * wrote), not O(state).
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
-import { freezeNew, mergeContextWins, ownedRootOf, ownSpine } from './pathOps.js';
+import { mergeContextWins, ownedRootOf, ownSpine } from './pathOps.js';
 import type { MemoryPatch, TraceEntry } from './types.js';
-import { applySmartMerge, getNestedValue, getRunAndGlobalPaths, setNestedValue, updateNestedValue } from './utils.js';
-
-/** PROTOTYPE switches (design 2026-10) — read once; not part of the design's API. */
-const env: Record<string, string | undefined> =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
-/** '1' = freeze every generation (the census run); 'dev' = only under enableDevMode(); unset = never. */
-const FREEZE = env.FP_COW_FREEZE;
-/** '0' = do NOT detach the seed at construction (attribution runs). */
-const DETACH = env.FP_COW_DETACH !== '0';
-
-function shouldFreeze(): boolean {
-  return FREEZE === '1' || (FREEZE === 'dev' && isDevMode());
-}
+import { getNestedValue, getRunAndGlobalPaths, nextGeneration, setNestedValue, updateNestedValue } from './utils.js';
 
 export class SharedMemory {
   private context: { [key: string]: any } = {};
@@ -38,12 +27,13 @@ export class SharedMemory {
   constructor(defaultValues?: unknown, initialContext?: unknown) {
     this._defaultValues = defaultValues;
     const seed = mergeContextWins(initialContext || {}, defaultValues || {});
-    // Detached ONCE: `mergeContextWins` copies only the top level, so its
-    // nested values are the caller's own objects. Before copy-on-write the
-    // first commit's whole-state clone detached them; now nothing would, so
-    // the seed is detached here — one clone per runtime, not one per commit.
-    this.context = DETACH && Object.keys(seed).length > 0 ? structuredClone(seed) : seed;
-    if (shouldFreeze()) freezeNew(this.context);
+    // Detached ONCE, here: `mergeContextWins` copies only the top level, so
+    // the seed's nested values are the caller's own objects. Before 9.29.0
+    // the first commit's whole-state clone detached them (and until then a
+    // caller mutating its `initialContext` changed live state with no row);
+    // nothing re-clones the state any more, so the seed is detached at
+    // construction — one clone per runtime, not one per commit.
+    this.context = Object.keys(seed).length > 0 ? structuredClone(seed) : seed;
   }
 
   /** Gets a clone of the default values. */
@@ -56,23 +46,23 @@ export class SharedMemory {
     return this.context.runs;
   }
 
-  /** Updates a value using merge semantics. Builds a new generation (path copy). */
+  /** Updates a value using merge semantics, as a new generation (path copy + swap). */
   updateValue(runId: string, path: string[], key: string, value: unknown) {
     const next = this.ownedPathTo(runId, path, key);
     updateNestedValue(next, runId, path, key, value, this.getDefaultValues());
-    this.swap(next);
+    this.context = next;
   }
 
-  /** Sets a value using overwrite semantics. Builds a new generation (path copy). */
+  /** Sets a value using overwrite semantics, as a new generation (path copy + swap). */
   setValue(runId: string, path: string[], key: string, value: unknown) {
     const next = this.ownedPathTo(runId, path, key);
     setNestedValue(next, runId, path, key, value, this.getDefaultValues());
-    this.swap(next);
+    this.context = next;
   }
 
   /**
    * A copy of the current generation's root whose containers on the way to
-   * `key` are owned — the in-place helpers below then edit only copies.
+   * `key` are owned — the in-place helpers above then edit only copies.
    */
   private ownedPathTo(runId: string, path: string[], key: string): { [key: string]: any } {
     const owned = new WeakSet<object>();
@@ -80,11 +70,6 @@ export class SharedMemory {
     const { runPath, globalPath } = getRunAndGlobalPaths(runId, path);
     ownSpine(root, [...(runPath || globalPath), key], owned);
     return root;
-  }
-
-  private swap(next: { [key: string]: any }): void {
-    this.context = next;
-    if (shouldFreeze()) freezeNew(this.context);
   }
 
   /**
@@ -97,13 +82,13 @@ export class SharedMemory {
     return typeof value !== 'undefined' ? value : getNestedValue(this.context, globalPath, key);
   }
 
-  /** Gets the entire state as a JSON object. */
+  /** Gets the entire state as a JSON object — the current generation, by reference. Never mutate it. */
   getState(): Record<string, unknown> {
     return this.context;
   }
 
-  /** Applies a commit bundle from TransactionBuffer. */
+  /** Applies a commit bundle from TransactionBuffer: builds the next generation and swaps it in. */
   applyPatch(overwrite: MemoryPatch, updates: MemoryPatch, trace: TraceEntry[]): void {
-    this.swap(applySmartMerge(this.context, updates, overwrite, trace));
+    this.context = nextGeneration(this.context, updates, overwrite, trace);
   }
 }

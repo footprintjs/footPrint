@@ -24,6 +24,11 @@
 
 const DENIED = new Set(['__proto__', 'constructor', 'prototype']);
 
+/** Is `segment` one of the three prototype-pollution vectors every helper here refuses? */
+export function isDeniedSegment(segment: string | number): boolean {
+  return DENIED.has(String(segment));
+}
+
 function toSegments(path: string | (string | number)[]): (string | number)[] {
   return Array.isArray(path) ? path : path.split('.');
 }
@@ -91,55 +96,65 @@ export function nativeDelete(obj: any, path: string | (string | number)[]): void
   }
 }
 
-/**
- * PROTOTYPE instrumentation (design 2026-10-copy-on-write-commit): how many
- * containers the path copier copied and how many slots those copies held.
- * Read by `bench/commit-clones.ts`; not part of the design.
- */
-const pathCopyStats = { containers: 0, slots: 0 };
-(globalThis as { __fpPathCopyStats?: typeof pathCopyStats }).__fpPathCopyStats = pathCopyStats;
+// ── Copy-on-write primitives (docs/design/2026-10-copy-on-write-commit.md) ──
+//
+// THE LAW: a committed generation is never edited. A writer copies the root
+// and every container on each path it writes, edits only containers it
+// created during the current operation (its `owned` set), and shares every
+// other subtree with the generation before it. The same law
+// `reactive/structuralWrite.ts · setInPath` applies to a single value.
 
 /** A container a writer may own: anything `typeof 'object'` and not null. */
 function isContainer(value: unknown): value is object {
   return value !== null && typeof value === 'object';
 }
 
-/** True for the own keys of an array that are not indices (`arr.note = …`). */
+/** True for an own key of an array that is an array INDEX (`'0'`, `'12'`), not a name (`arr.note`). */
 function isArrayIndexKey(key: string): boolean {
   const n = Number(key);
-  return Number.isInteger(n) && n >= 0 && String(n) === key;
+  return Number.isInteger(n) && n >= 0 && n < 4294967295 && String(n) === key;
 }
 
 /**
- * A SHALLOW copy of one container that keeps every slot a deep clone keeps:
- * a plain object's own enumerable keys in their order (spread, so an own
- * `__proto__` key stays a key); an array's indices, holes, length AND any
- * named property a nested write hung off it (`slice` alone would drop those).
- * Anything else — a `Date`, `Map`, `Set`, typed array, a caller's class
- * instance — is deep-cloned, which is exactly what the whole-state clone did
- * to it before; such a container on a write path is rare.
+ * The named (non-index) own keys of an array, in order. Own-key order puts
+ * every index first, ascending, and names after them — so the names are the
+ * tail of `Object.keys`, and an array without any is told by its last key.
+ */
+function namedArrayKeys(array: unknown[]): string[] {
+  const keys = Object.keys(array);
+  let first = keys.length;
+  while (first > 0 && !isArrayIndexKey(keys[first - 1])) first--;
+  return keys.slice(first);
+}
+
+/**
+ * A SHALLOW copy of one container that keeps every slot the whole-state
+ * `structuredClone` this replaced kept — so a path copy and a deep clone give
+ * the same value at every path:
+ *   - a plain object (or a null-prototype one): its own enumerable keys, in
+ *     order, by spread — an own `__proto__` key stays a key; the result has
+ *     `Object.prototype`, as a clone's does;
+ *   - an array: its indices, holes and length (`slice`) AND any named
+ *     property a nested write hung off it (`slice` alone would drop those);
+ *   - anything else — a `Date`, `Map`, `Set`, typed array, a class instance —
+ *     is deep-cloned, which is what the whole-state clone did to it; and the
+ *     own enumerable properties the clone cannot carry (an expando a nested
+ *     write hung on a `Date`) are carried over by reference, so a later write
+ *     through it changes exactly its own path. Rare on a write path.
  */
 export function shallowCopy<T extends object>(container: T): T {
   if (Array.isArray(container)) {
     const copy = container.slice() as unknown as Record<string, unknown>;
-    const keys = Object.keys(container);
-    if (keys.length !== container.length) {
-      for (const key of keys)
-        if (!isArrayIndexKey(key)) copy[key] = (container as unknown as Record<string, unknown>)[key];
-    }
-    pathCopyStats.containers += 1;
-    pathCopyStats.slots += container.length;
+    for (const key of namedArrayKeys(container)) copy[key] = (container as unknown as Record<string, unknown>)[key];
     return copy as unknown as T;
   }
   const proto = Object.getPrototypeOf(container);
-  if (proto === Object.prototype || proto === null) {
-    const copy = proto === null ? Object.assign(Object.create(null), container) : { ...container };
-    pathCopyStats.containers += 1;
-    pathCopyStats.slots += Object.keys(copy).length;
-    return copy as T;
+  if (proto === Object.prototype || proto === null) return { ...container };
+  const copy = structuredClone(container) as Record<string, unknown>;
+  for (const key of Object.keys(container)) {
+    if (!Object.prototype.hasOwnProperty.call(copy, key)) copy[key] = (container as Record<string, unknown>)[key];
   }
-  pathCopyStats.containers += 1;
-  return structuredClone(container);
+  return copy as T;
 }
 
 /**
@@ -198,30 +213,20 @@ export function own(value: unknown, owned: WeakSet<object> | undefined): void {
 }
 
 /**
- * Freeze every container of a committed generation that is not frozen yet —
- * the containers THIS commit created; everything it shares with the previous
- * generation was frozen when that generation was committed, so the walk stops
- * there and costs O(new containers), not O(state). Dev-mode guard (design
- * 2026-10): an in-place mutation of committed state then throws at the
- * mutation site. `Map`/`Set` entries and `Date` internals cannot be frozen —
- * the borrowed-mutation warning stays the guard for those.
+ * Mark EVERY container of a tree the writer just created whole (a
+ * `structuredClone` result) as owned, so a later write through any of them
+ * edits it in place instead of copying it again. Walks own enumerable keys —
+ * the slots a path can address; a `Map`'s or `Set`'s entries are not. O(the
+ * tree's containers); a container already owned is not walked twice (a cycle
+ * inside the clone ends there).
  */
-export function freezeNew(value: unknown): void {
-  const stack: unknown[] = [value];
+export function adopt(tree: unknown, owned: WeakSet<object>): void {
+  const stack: unknown[] = [tree];
   while (stack.length > 0) {
-    const v = stack.pop();
-    if (!isContainer(v) || Object.isFrozen(v)) continue;
-    // A typed array / DataView with elements cannot be frozen (Object.freeze
-    // throws) — and it holds no containers, so there is nothing below it.
-    if (ArrayBuffer.isView(v)) continue;
-    Object.freeze(v);
-    if (v instanceof Map) {
-      for (const [k, x] of v) stack.push(k, x);
-    } else if (v instanceof Set) {
-      for (const x of v) stack.push(x);
-    } else {
-      for (const key of Object.keys(v)) stack.push((v as Record<string, unknown>)[key]);
-    }
+    const value = stack.pop();
+    if (!isContainer(value) || owned.has(value)) continue;
+    owned.add(value);
+    for (const key of Object.keys(value)) stack.push((value as Record<string, unknown>)[key]);
   }
 }
 

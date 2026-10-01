@@ -125,31 +125,20 @@ function newTally(): Tally {
   return { calls: 0, bytes: 0, nodes: 0, sites: new Map() };
 }
 
-/** Path-copy counters the copy-on-write prototype exposes (absent on stock). */
-function pathCopies(): { containers: number; slots: number } {
-  const s = (globalThis as { __fpPathCopyStats?: { containers: number; slots: number } }).__fpPathCopyStats;
-  return s ? { containers: s.containers, slots: s.slots } : { containers: 0, slots: 0 };
-}
-
 // ─── Charts ───────────────────────────────────────────────────────────────
 
 function item(i: number) {
   return { role: i % 2 ? 'assistant' : 'user', content: `message ${i} ${'x'.repeat(40)}`, meta: { i, t: i * 7 } };
 }
 
-type Mark = { at: number; tally?: Tally; cpu: number; copies: { containers: number; slots: number } };
+type Mark = { at: number; tally?: Tally; cpu: number };
 
 /** seed (history of n) → S small-write stages. `marks[i]` is taken at the top of small stage i. */
 function smallChart(lib: Lib, n: number, marks: Mark[], spy: boolean, readBack = false) {
   const mark = () => {
     const snap = tally ? { ...tally, sites: new Map([...tally.sites].map(([k, v]) => [k, { ...v }])) } : undefined;
     const u = cpuUsage();
-    marks.push({
-      at: marks.length,
-      tally: spy ? snap : undefined,
-      cpu: (u.user + u.system) / 1000,
-      copies: pathCopies(),
-    });
+    marks.push({ at: marks.length, tally: spy ? snap : undefined, cpu: (u.user + u.system) / 1000 });
   };
   let b = lib.flowChart(
     'Seed',
@@ -179,7 +168,7 @@ function smallChart(lib: Lib, n: number, marks: Mark[], spy: boolean, readBack =
 function agentChart(lib: Lib, n: number, marks: Mark[]) {
   const mark = () => {
     const snap = tally ? { ...tally, sites: new Map([...tally.sites].map(([k, v]) => [k, { ...v }])) } : undefined;
-    marks.push({ at: marks.length, tally: snap, cpu: 0, copies: pathCopies() });
+    marks.push({ at: marks.length, tally: snap, cpu: 0 });
   };
   let b = lib.flowChart(
     'Seed',
@@ -224,12 +213,12 @@ type Row = {
   scenario: string;
   encoding: string;
   n: number;
-  perStage: { calls: number; bytes: number; nodes: number; containersCopied: number; slotsCopied: number };
+  perStage: { calls: number; bytes: number; nodes: number };
   sites: Record<string, SiteTally>;
   cpuMsPerStage?: number;
 };
 
-function diff(a: Mark, b: Mark): { t: Tally; containers: number; slots: number } {
+function diff(a: Mark, b: Mark): Tally {
   const t = newTally();
   const ta = a.tally!;
   const tb = b.tally!;
@@ -241,7 +230,7 @@ function diff(a: Mark, b: Mark): { t: Tally; containers: number; slots: number }
     if (v.calls - p.calls > 0)
       t.sites.set(k, { calls: v.calls - p.calls, bytes: v.bytes - p.bytes, nodes: v.nodes - p.nodes });
   }
-  return { t, containers: b.copies.containers - a.copies.containers, slots: b.copies.slots - a.copies.slots };
+  return t;
 }
 
 /** Mean per interval over the marks (stage i = marks[i] → marks[i+1]). */
@@ -249,16 +238,10 @@ function perInterval(marks: Mark[]): { perStage: Row['perStage']; sites: Record<
   const k = marks.length - 1;
   const total = diff(marks[0], marks[k]);
   const sites: Record<string, SiteTally> = {};
-  for (const [name, s] of total.t.sites)
+  for (const [name, s] of total.sites)
     sites[name] = { calls: s.calls / k, bytes: Math.round(s.bytes / k), nodes: Math.round(s.nodes / k) };
   return {
-    perStage: {
-      calls: total.t.calls / k,
-      bytes: Math.round(total.t.bytes / k),
-      nodes: Math.round(total.t.nodes / k),
-      containersCopied: total.containers / k,
-      slotsCopied: Math.round(total.slots / k),
-    },
+    perStage: { calls: total.calls / k, bytes: Math.round(total.bytes / k), nodes: Math.round(total.nodes / k) },
     sites,
   };
 }
@@ -325,9 +308,7 @@ async function main(): Promise<void> {
         console.log(
           `${scenario.padEnd(6)} ${encoding.padEnd(5)} N=${String(n).padStart(6)}  ` +
             `clones/stage ${p.calls.toFixed(1).padStart(5)}  bytes/stage ${fmtBytes(p.bytes).padStart(10)}  ` +
-            `nodes/stage ${String(p.nodes).padStart(7)}  path-copies ${p.containersCopied.toFixed(1)} (${
-              p.slotsCopied
-            } slots)` +
+            `nodes/stage ${String(p.nodes).padStart(7)}` +
             (row.cpuMsPerStage !== undefined ? `  cpu/stage ${row.cpuMsPerStage.toFixed(3)} ms` : ''),
         );
         for (const [site, s] of Object.entries(row.sites).sort((a, b) => b[1].bytes - a[1].bytes)) {
