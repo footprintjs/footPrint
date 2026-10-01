@@ -427,8 +427,8 @@ export function supersededByNextSet(rows: readonly { path: string; verb: string 
  * public (`footprintjs/advanced`) contract, unchanged by copy-on-write
  * (9.29.0) — byte-identical to 9.28.0 for every caller. The engine's own
  * commit does NOT come here: `SharedMemory.applyPatch` builds the next
- * generation with {@link nextGeneration}, which copies only the written
- * paths. Both run the ONE verb switch, {@link replayRows}.
+ * generation with `nextGeneration`, which copies only the written
+ * paths. Both run the ONE verb switch, `replayRows`.
  *
  * Verb arms:
  *   - `'set'`    — overwrite with `overwrite[path]` (the full final value).

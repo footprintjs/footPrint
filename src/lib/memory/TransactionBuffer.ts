@@ -247,7 +247,7 @@ export class TransactionBuffer {
    *  containers, so neither tree ever holds the merge INPUT by reference;
    *  the nested-op detach guards the ancestor it writes INTO.
    *
-   *  The value merged INTO is made private first ({@link privatise}), as the
+   *  The value merged INTO is made private first (`privatise`), as the
    *  whole-state clone made it before 9.29.0. Not only for the reads that
    *  follow: `deepSmartMerge` unions arrays BY REFERENCE, so whether an
    *  element the stage passes in is "already there" depends on which objects
@@ -311,7 +311,7 @@ export class TransactionBuffer {
   /**
    * Read current value at path (includes uncommitted changes). The value is
    * the stage's own — private to it, as the whole-state clone made every read
-   * after the first write before 9.29.0 ({@link privatise}).
+   * after the first write before 9.29.0 (`privatise`).
    */
   get(path: (string | number)[], defaultValue?: any) {
     this.privatise(path);
