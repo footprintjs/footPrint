@@ -45,56 +45,39 @@
  * A read the working copy cannot answer is served from live state by the
  * caller, as before; the buffer then replaces that path of its diff base
  * with a private copy ({@link detachBase}), as the clone had it.
+ *
+ * THE ADMITTED RECORD (9.30.0 — docs/design/2026-10-admitted-record.md). A
+ * commit is admitted only if its bundle folds back to the stage's
+ * read-your-writes view at every path the stage touched (and at every
+ * container its writes created on the way there, below the stage's address).
+ * Both encoders commit the value the stage read: a compact row — a `merge`
+ * delta, an `append` tail — is kept where it provably folds back; a family of
+ * rows that does not is recorded as `set` rows of the values the stage read
+ * ({@link admit}). Before 9.30.0 the one accumulated merge delta per path was
+ * replayed at every `merge` row of that path, which lied across a hard write
+ * (`$update(k,{x}); k = {y}; $update(k,{z})` committed `{y, x, z}` for a
+ * read-back of `{y, z}`), an `[]` clear, a kind change or an array union
+ * deduplicated by reference. Verified when the stage staged a `merge` or a
+ * nested op; a stage that staged only `set` / `delete` of keys directly under
+ * its address is coherent by construction — both trees receive the same
+ * write — and is admitted without the fold.
  */
 
+import { type Family, type Lossy, type Member, type Rows, addressDepthOf, lossyFamilies } from './admission.js';
+import { type OpVerb, type Survivor, emitInFamilyOrder, groupIntoFamilies, pushValueRow } from './deltaEncoding.js';
 import {
   adopt,
-  isDeniedSegment,
+  isContainer,
   nativeGet as _get,
   nativeSet as _set,
   own,
+  ownChild,
   ownedRootOf,
   ownSpine,
   shallowCopy,
 } from './pathOps.js';
 import type { CommitValuesMode, MemoryPatch, TraceEntry } from './types.js';
-import { deepEqual, deepSmartMerge, DELIM, normalisePath, supersededByNextSet } from './utils.js';
-
-/** A container: anything `typeof 'object'` and not null. */
-function isContainer(value: unknown): value is object {
-  return value !== null && typeof value === 'object';
-}
-
-/**
- * `parent[key]` when `parent` is a container that OWNS `key` — the slot
- * `nativeGet` would read, refusing the same prototype-pollution segments —
- * else `undefined`.
- */
-function ownChild(parent: unknown, key: string | number): unknown {
-  return isContainer(parent) && !isDeniedSegment(key) && Object.prototype.hasOwnProperty.call(parent, key)
-    ? (parent as Record<string | number, unknown>)[key]
-    : undefined;
-}
-
-/** Op-level verbs staged into `opTrace`. `'delete'` is staged distinctly so
- *  delta-mode commits (#13c-B) can emit a real `delete` trace entry; under
- *  the default `'full'` mode it commits as `'set'` (of `undefined`) —
- *  byte-identical to the historical flattening. */
-type OpVerb = 'set' | 'merge' | 'delete';
-
-/** A path that passed the net-change filter, with everything the delta
- *  encoder needs to decide its verb — resolved once, then reused by the
- *  overlap-family grouping (`toDeltaPayload` rule 3). */
-type Survivor = {
-  path: string;
-  segments: string[];
-  verbs: OpVerb[];
-  readKeys?: string[];
-  /** Value at this path when the stage began (the append/diff base). */
-  before: unknown;
-  /** Value at this path after every staged op (read-your-writes view). */
-  after: unknown;
-};
+import { deepEqual, deepSmartMerge, DELIM, dryFold, normalisePath } from './utils.js';
 
 export class TransactionBuffer {
   /**
@@ -168,7 +151,25 @@ export class TransactionBuffer {
    */
   private detachedBase?: WeakSet<object>;
 
-  constructor(base: any, commitValues: CommitValuesMode = 'full', readKeysProvider?: () => string[]) {
+  /**
+   * Where the stage writes (9.30.0): `['runs', runId]` for a run-namespaced
+   * stage, `[]` otherwise. Its containers are the stage's ADDRESS, not a value
+   * the stage reads (every read it makes is a key below it), so a shell a
+   * write leaves there is no part of the read-back the record must hold.
+   */
+  private readonly address: readonly string[];
+
+  /** `merge` ops staged since the last commit — see {@link admit}. */
+  private stagedMerges = 0;
+  /** Ops staged deeper than one key below the stage's address — see {@link admit}. */
+  private nestedOps = 0;
+
+  constructor(
+    base: any,
+    commitValues: CommitValuesMode = 'full',
+    readKeysProvider?: () => string[],
+    address: readonly string[] = [],
+  ) {
     // `base` is the committed generation the stage first touched —
     // immutable-after-swap, the invariant the first-touch view already rests
     // on — so the diff base is held by REFERENCE, and the working copy starts
@@ -178,6 +179,7 @@ export class TransactionBuffer {
     this.workingCopy = ownedRootOf(base, this.owned);
     this.commitValues = commitValues;
     this.readKeysProvider = readKeysProvider;
+    this.address = address;
   }
 
   /** Stamp the current read prefix onto a staged op — only when the
@@ -186,6 +188,13 @@ export class TransactionBuffer {
   private stampReadKeys(op: { path: string; verb: OpVerb; readKeys?: string[] }): typeof op {
     if (this.readKeysProvider) op.readKeys = this.readKeysProvider();
     return op;
+  }
+
+  /** Stage an op into `opTrace`, counting what decides whether {@link admit} must fold. */
+  private stage(path: (string | number)[], key: string, verb: OpVerb): void {
+    if (verb === 'merge') this.stagedMerges++;
+    if (path.length - addressDepthOf(path, this.address) > 1) this.nestedOps++;
+    this.opTrace.push(this.stampReadKeys({ path: key, verb }));
   }
 
   /**
@@ -207,7 +216,7 @@ export class TransactionBuffer {
     if (shouldRedact) {
       this.redactedPaths.add(key);
     }
-    this.opTrace.push(this.stampReadKeys({ path: key, verb: 'set' }));
+    this.stage(path, key, 'set');
   }
 
   /**
@@ -262,7 +271,7 @@ export class TransactionBuffer {
     if (shouldRedact) {
       this.redactedPaths.add(key);
     }
-    this.opTrace.push(this.stampReadKeys({ path: key, verb: 'delete' }));
+    this.stage(path, key, 'delete');
   }
 
   /** Deep union merge at the specified path. `deepSmartMerge` builds fresh
@@ -277,6 +286,7 @@ export class TransactionBuffer {
    *  read from it before its first write, where the private copy (and
    *  9.28.0) appends it. */
   merge(path: (string | number)[], value: any, shouldRedact = false): void {
+    const key = normalisePath(path);
     this.detachHeldAncestors(path);
     this.privatise(path);
     const existing = _get(this.workingCopy, path) ?? {};
@@ -287,9 +297,9 @@ export class TransactionBuffer {
     _set(this.workingCopy, path, merged);
     _set(this.updatePatch, path, deepSmartMerge(_get(this.updatePatch, path) ?? {}, value));
     if (shouldRedact) {
-      this.redactedPaths.add(normalisePath(path));
+      this.redactedPaths.add(key);
     }
-    this.opTrace.push(this.stampReadKeys({ path: normalisePath(path), verb: 'merge' }));
+    this.stage(path, key, 'merge');
   }
 
   /**
@@ -401,9 +411,11 @@ export class TransactionBuffer {
    * a read hands it out — so a read after the stage's first write behaves
    * exactly as it did when the buffer began with a deep clone of the whole
    * state. An in-place edit of what the read returned (out of contract —
-   * reads are borrowed) stays inside the buffer: it is lost unless the stage
-   * writes the value back, and then it is recorded; committed state is never
-   * touched.
+   * reads are borrowed) stays inside the buffer, and committed state is never
+   * touched. Whether the RECORD keeps it is the admitted record's law
+   * (9.30.0, owner ruling R1 — the record keeps what the stage read back): it
+   * is kept when the edited value lies at or below a path the stage wrote in
+   * this stage — set, merged or written back alike — and lost otherwise.
    *
    * Walking the path from the (owned) root:
    *  - a container still SHARED with committed state at the same position is
@@ -568,7 +580,10 @@ export class TransactionBuffer {
     redactedPaths: Set<string>;
     trace: TraceEntry[];
   } {
-    const payload = this.commitValues === 'delta' ? this.toDeltaPayload() : this.toChangeOnlyPayload();
+    const rows = this.commitValues === 'delta' ? this.toDeltaPayload() : this.toChangeOnlyPayload();
+    const redactedPaths = this.survivingRedactedPaths(new Set(rows.trace.map((t) => t.path)));
+    // The key order is part of the bytes a consumer keeps.
+    const payload = { overwrite: rows.overwrite, updates: rows.updates, redactedPaths, trace: rows.trace };
 
     this.overwritePatch = {};
     this.updatePatch = {};
@@ -580,6 +595,8 @@ export class TransactionBuffer {
     this.owned.add(this.workingCopy);
     this.staged = new WeakSet();
     this.privateTrees = new WeakSet();
+    this.stagedMerges = 0;
+    this.nestedOps = 0;
 
     return payload;
   }
@@ -592,14 +609,14 @@ export class TransactionBuffer {
    * Paths are compared at the exact granularity they were written (each trace
    * entry's path), against `workingCopy` (final) vs `baseSnapshot` (start).
    * Surviving `set` paths copy their final value from `overwritePatch`;
-   * surviving `merge` paths copy their accumulated delta from `updatePatch` —
-   * preserving the set-vs-merge verb so replay ({@link applySmartMerge}) is
-   * byte-for-byte identical to recording only the real changes.
+   * surviving `merge` paths copy their accumulated delta from `updatePatch`,
+   * keeping the set-vs-merge verb — and the result is ADMITTED ({@link admit}):
+   * a family of rows whose replay does not give back what the stage read is
+   * recorded as `set` rows of the read-back instead (9.30.0).
    *
-   * This is the DEFAULT (`commitValues: 'full'`) payload — byte-identical to
-   * the historical behavior, including flattening staged `delete` ops into
-   * `set`-of-`undefined` trace entries. The delta encoding lives in
-   * {@link toDeltaPayload}.
+   * This is the DEFAULT (`commitValues: 'full'`) payload, including the
+   * historical flattening of staged `delete` ops into `set`-of-`undefined`
+   * trace entries. The delta encoding lives in {@link toDeltaPayload}.
    *
    * Work, not bytes (9.22.1): the net-change verdict is paid once per PATH
    * and the clone once per CONSECUTIVE run of ops on a path, not once per op
@@ -609,15 +626,14 @@ export class TransactionBuffer {
    * the caller's references (see the class header), so this loop is the one
    * place the record is detached from them.
    */
-  private toChangeOnlyPayload(): {
-    overwrite: MemoryPatch;
-    updates: MemoryPatch;
-    redactedPaths: Set<string>;
-    trace: TraceEntry[];
-  } {
-    const overwrite: MemoryPatch = {};
-    const updates: MemoryPatch = {};
-    const trace: TraceEntry[] = [];
+  private toChangeOnlyPayload(): Rows {
+    return this.admit((lossy) => this.changeOnlyRows(lossy));
+  }
+
+  /** The 'full' rows; a family in `lossy` is written as its read-back, at its last touch ({@link emitReadBack}). */
+  private changeOnlyRows(lossy: Lossy | undefined): Rows {
+    const rows: Rows = { overwrite: {}, updates: {}, trace: [] };
+    const { overwrite, updates, trace } = rows;
     // Per PATH, decided once (9.22.1): base and final value are fixed at
     // commit, so every later op on a path gets the verdict its first op got.
     // `undefined` = not yet decided; the surviving paths are the `true` keys.
@@ -636,7 +652,16 @@ export class TransactionBuffer {
     let lastSetPath: string | undefined;
     let lastMergePath: string | undefined;
 
-    for (const op of this.opTrace) {
+    for (let i = 0; i < this.opTrace.length; i++) {
+      const op = this.opTrace[i];
+      const family = lossy?.families.get(lossy.rootOf.get(op.path) as string);
+      if (family !== undefined) {
+        if (i === family.slot) {
+          this.emitReadBack(family, rows, 'full');
+          lastSetPath = lastMergePath = undefined;
+        }
+        continue;
+      }
       let keep = survives.get(op.path);
       if (keep === undefined) {
         keep = this.changedSinceBase(op.path.split(DELIM));
@@ -657,12 +682,7 @@ export class TransactionBuffer {
         _set(overwrite, segments, structuredClone(_get(this.overwritePatch, segments)));
       }
     }
-
-    const survivingPaths = new Set<string>();
-    for (const [path, keep] of survives) if (keep) survivingPaths.add(path);
-
-    const redactedPaths = this.survivingRedactedPaths(survivingPaths);
-    return { overwrite, updates, redactedPaths, trace };
+    return rows;
   }
 
   /**
@@ -683,72 +703,51 @@ export class TransactionBuffer {
    *      the `'full'` flattening (`_set` of `undefined`) COERCES that parent
    *      into an object; when they would disagree we keep the flattening;
    *    - ONLY `'merge'` ops → `merge` with the accumulated `updatePatch`
-   *      delta (replaying the accumulated delta once ≡ the full mode's
-   *      k sequential replays — `deepSmartMerge` is reference-idempotent
-   *      within one replay pass);
-   *    - otherwise (`set`/mixed): the committed value is computed by
-   *      replaying the path's op sequence EXACTLY the way `applySmartMerge`
-   *      replays the full-mode bundle ({@link replayPathVerbs}) — for
-   *      pure-set paths that is simply the last set value; for mixed
-   *      set+merge interleavings it reproduces the full mode's quirk of
-   *      applying the ACCUMULATED merge delta at every merge position
-   *      (which can differ from the buffer's read-your-writes view; parity
-   *      with the `'full'` mode's committed state is the contract). If base
-   *      and that value are arrays and base is a STRICT PREFIX → `append`
-   *      storing only the tail; else `set` storing the full value.
+   *      delta;
+   *    - otherwise (`set`/mixed): the value the stage's 'full' rows give the
+   *      path ({@link fullRowsValue}). If base and that value are arrays and
+   *      base is a STRICT PREFIX → `append` storing only the tail; else `set`
+   *      storing the full value.
    * 3. **OVERLAP FAMILIES take the full-value fallback.** `overwrite` /
    *    `updates` are nested path TREES, so two surviving paths where one is
-   *    an ancestor of the other (`a` and `a.p`) share storage. The `'full'`
-   *    payload survives that because every entry stores the FULL value at its
-   *    path, drawn from one coherent tree — nested entries agree with their
-   *    ancestor by construction. Delta's per-path encodings do NOT: an
-   *    `append` ancestor stores only a TAIL (whose indices are shifted
-   *    relative to the whole array) and a `delete` ancestor stores
-   *    `undefined`, so whichever entry is written second silently destroys or
-   *    corrupts the other — the recorded write is LOST at replay. Therefore
-   *    every path that has a surviving ancestor/descendant is committed as a
-   *    plain `set` of the value it holds in the family's replayed value
-   *    ({@link replayFamilyVerbs}), and the family's shallowest path (whose
-   *    set covers the whole subtree) is emitted LAST. One coherent tree in,
-   *    one coherent tree out: entries can no longer clobber each other and
-   *    the replayed value is exact regardless of order.
+   *    an ancestor of the other (`a` and `a.p`) share storage. Delta's
+   *    per-path encodings would clobber each other there (an `append`
+   *    ancestor stores only a TAIL, a `delete` ancestor `undefined`), so every
+   *    path that has a surviving ancestor/descendant is committed as a plain
+   *    `set` of the value the 'full' rows give it, and the family's
+   *    shallowest path (whose set covers the whole subtree) is emitted LAST.
    *
-   * Losslessness never depends on detection succeeding — every fallback is
-   * today's full-value `set`.
+   * The result is ADMITTED ({@link admit}) like the 'full' payload: a compact
+   * row is kept only where the bundle provably folds back, and a family that
+   * does not is recorded as what the stage read. So both encodings commit the
+   * value the stage read; before 9.30.0 they shared a replay that did not
+   * (`replayPathVerbs` / `replayFamilyVerbs`, deleted).
    */
-  private toDeltaPayload(): {
-    overwrite: MemoryPatch;
-    updates: MemoryPatch;
-    redactedPaths: Set<string>;
-    trace: TraceEntry[];
-  } {
-    const overwrite: MemoryPatch = {};
-    const updates: MemoryPatch = {};
-    const trace: TraceEntry[] = [];
+  private toDeltaPayload(): Rows {
+    const fullValueAt = this.fullRowsValue();
+    return this.admit((lossy) => this.deltaRows(lossy, fullValueAt));
+  }
 
-    const survivors = this.netChangeSurvivors(this.opsByPath());
-    const survivingPaths = new Set(survivors.map((s) => s.path));
-    const { rootOf, byRoot } = groupIntoFamilies(survivors, survivingPaths);
-    const familyValue = this.memoisedFamilyValue(this.opsByFamily(rootOf, byRoot));
+  /** The delta rows; a family in `lossy` is written as its read-back, at its last touch ({@link emitReadBack}). */
+  private deltaRows(lossy: Lossy | undefined, fullValueAt: (segments: string[]) => unknown): Rows {
+    const rows: Rows = { overwrite: {}, updates: {}, trace: [] };
+    const { overwrite, updates, trace } = rows;
+    const inLossy = (path: string) => lossy?.families.has(lossy.rootOf.get(path) as string) === true;
+    const survivors = this.netChangeSurvivors(this.opsByPath()).filter((s) => !inLossy(s.path));
+    const { rootOf, byRoot } = groupIntoFamilies(survivors, new Set(survivors.map((s) => s.path)));
 
-    // THE VERB SWITCH — the delta encoder's own replica of the verb law
-    // (CLAUDE.md: "FOUR verb-switch replicas in lockstep"). It stays here, in
-    // one body, beside the folds that feed it; the leaves above and below are
-    // extracted AROUND it, never from it (9.23.1).
+    // THE VERB CHOICE — the delta encoder picks a verb per path; the VALUES
+    // it encodes come from the one replay (`fullValueAt`), never a replica of
+    // the verb law (9.30.0: CLAUDE.md's verb-switch replicas lost two here).
     const emit = (s: Survivor): void => {
       const { path, segments, verbs, before } = s;
-      const prov = s.readKeys !== undefined ? { readKeys: s.readKeys } : undefined;
-      const root = rootOf.get(path) as string;
-      const family = byRoot.get(root) as Survivor[];
-
-      if (family.length > 1) {
-        // Rule 3 — full-value fallback from ONE coherent family value.
-        const relative = ['v', ...segments.slice(root.split(DELIM).length)];
+      const prov = provenance(s.readKeys);
+      if ((byRoot.get(rootOf.get(path) as string) as Survivor[]).length > 1) {
+        // Rule 3 — one coherent tree: every member a set of its value.
         trace.push({ path, verb: 'set', ...prov });
-        _set(overwrite, segments, structuredClone(_get({ v: familyValue(root) }, relative)));
+        _set(overwrite, segments, structuredClone(fullValueAt(segments)));
         return;
       }
-
       const lastVerb = verbs[verbs.length - 1];
       if (lastVerb === 'delete' && s.after === undefined && this.deleteReplaysAsFlattening(segments)) {
         // Real deletion — replay removes the key. Keep the path enumerated
@@ -759,24 +758,118 @@ export class TransactionBuffer {
         trace.push({ path, verb: 'merge', ...prov });
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
       } else {
-        // Committed-equivalent value: replay this path's op sequence the way
-        // applySmartMerge replays the FULL-mode bundle, so both modes commit
-        // byte-identical state (see the method JSDoc).
-        const committed = this.replayPathVerbs(before, segments, verbs);
-        if (isStrictArrayPrefix(before, committed)) {
-          trace.push({ path, verb: 'append', ...prov });
-          _set(overwrite, segments, structuredClone((committed as unknown[]).slice((before as unknown[]).length)));
-        } else {
-          trace.push({ path, verb: 'set', ...prov });
-          _set(overwrite, segments, structuredClone(committed));
-        }
+        pushValueRow(rows, path, segments, before, fullValueAt(segments), prov);
       }
     };
 
-    emitInFamilyOrder(survivors, rootOf, byRoot, emit);
+    // A family that did not fold back takes its place by its last touch.
+    const pending = lossy === undefined ? [] : [...lossy.families.values()].sort((a, b) => a.slot - b.slot);
+    let next = 0;
+    const flushBefore = (touch: number): void => {
+      while (next < pending.length && pending[next].slot < touch) this.emitReadBack(pending[next++], rows, 'delta');
+    };
+    emitInFamilyOrder(survivors, rootOf, byRoot, emit, flushBefore);
+    flushBefore(Infinity);
+    return rows;
+  }
 
-    const redactedPaths = this.survivingRedactedPaths(survivingPaths);
-    return { overwrite, updates, redactedPaths, trace };
+  // ── The admitted record (9.30.0) ───────────────────────────────────────
+
+  /**
+   * THE ADMISSION — a commit is admitted only if its bundle folds back to the
+   * stage's read-your-writes view at every path the stage touched. `build`
+   * lays the rows out (one encoder: `'full'` or `'delta'`); the candidate is
+   * checked ({@link lossyFamilies}), and when some family's rows do not fold
+   * back the rows are laid out again with those families written as what the
+   * stage read ({@link emitReadBack}) — every other family's bytes exactly as
+   * the first layout made them.
+   */
+  private admit(build: (lossy: Lossy | undefined) => Rows): Rows {
+    const candidate = build(undefined);
+    const lossy = this.lossyFamilies(candidate);
+    return lossy === undefined ? candidate : build(lossy);
+  }
+
+  /**
+   * The families whose rows do not fold back to what the stage read —
+   * `undefined` when there are none (`admission.ts · lossyFamilies`: the
+   * candidate replayed onto the diff base by `dryFold`, every family of
+   * touched paths compared with the working copy at its root and on the way
+   * down to it).
+   *
+   * Without a fold, when the stage staged no `merge` and no nested op: its
+   * rows are `set` / `delete` of keys directly under its address, each
+   * writing the SAME value into `workingCopy` and `overwritePatch` — the
+   * record is the read-back by construction (the property's ROOT-ONLY arm
+   * pins this). That keeps the commit of the typed scope's root-key writes
+   * exactly as cheap as it was.
+   */
+  private lossyFamilies(candidate: Rows): Lossy | undefined {
+    if (this.stagedMerges === 0 && this.nestedOps === 0) return undefined;
+    return lossyFamilies(candidate, this.baseSnapshot, this.workingCopy, this.opTrace, this.address);
+  }
+
+  /**
+   * A family whose rows did not fold back, written as what the stage read:
+   * one `set` row per member that changed (descendants by last touch, each
+   * with its own read prefix), the ROOT last, and the root's read-back value
+   * in `overwrite` — one coherent tree, so no row can clobber another. The
+   * root's row is written even when the root itself did not change: it is the
+   * row that carries the family's read-back (and the containers L-1's dropped
+   * op left). A lone root under `'delta'` keeps the compact `append` when the
+   * value it read is its base plus a tail.
+   */
+  private emitReadBack(family: Family, rows: Rows, encoding: CommitValuesMode): void {
+    let root: Member = family.members[0];
+    let changed = 0;
+    for (const m of family.members) {
+      if (m.path === family.root) {
+        root = m;
+        continue;
+      }
+      if (!this.changedSinceBase(m.path.split(DELIM))) continue;
+      rows.trace.push({ path: m.path, verb: 'set', ...provenance(m.readKeys) });
+      changed++;
+    }
+    const after = _get(this.workingCopy, family.rootSegments);
+    if (encoding === 'delta' && changed === 0 && after !== undefined) {
+      const before = _get(this.baseSnapshot, family.rootSegments);
+      pushValueRow(rows, family.root, family.rootSegments, before, after, provenance(root.readKeys));
+      return;
+    }
+    rows.trace.push({ path: family.root, verb: 'set', ...provenance(root.readKeys) });
+    _set(rows.overwrite, family.rootSegments, structuredClone(after));
+  }
+
+  /**
+   * The value the stage's 'full' rows give a path — what the delta encoder
+   * commits for a family member or a path with a `set` — read from ONE
+   * {@link dryFold} of those rows over the patch trees themselves, taken the
+   * first time it is asked. By reference, as the stage held them: an element
+   * a `set` and a `merge` of one path share stays one element. A stage that
+   * staged no `merge` and no nested op needs no fold — a path's value is its
+   * last staged value. (Before 9.30.0: two replicas of the verb law,
+   * `replayPathVerbs` and `replayFamilyVerbs`.)
+   */
+  private fullRowsValue(): (segments: string[]) => unknown {
+    if (this.stagedMerges === 0 && this.nestedOps === 0) return (segments) => _get(this.overwritePatch, segments);
+    let fold: unknown;
+    return (segments) => {
+      fold ??= dryFold(this.baseSnapshot, this.updatePatch, this.overwritePatch, this.fullRows());
+      return _get(fold, segments);
+    };
+  }
+
+  /** The stage's 'full' rows: every op on a path the net-change filter keeps, a `delete` spelled `set`. */
+  private fullRows(): TraceEntry[] {
+    const keep = new Map<string, boolean>();
+    const rows: TraceEntry[] = [];
+    for (const op of this.opTrace) {
+      let k = keep.get(op.path);
+      if (k === undefined) keep.set(op.path, (k = this.changedSinceBase(op.path.split(DELIM))));
+      if (k) rows.push({ path: op.path, verb: op.verb === 'merge' ? 'merge' : 'set' });
+    }
+    return rows;
   }
 
   /**
@@ -795,117 +888,39 @@ export class TransactionBuffer {
    * provenance (#P1): the LAST op's readKeys is kept — read prefixes only grow
    * within a stage, so last == union across the path.
    */
-  private opsByPath(): Map<string, { verbs: OpVerb[]; readKeys?: string[] }> {
-    const byPath = new Map<string, { verbs: OpVerb[]; readKeys?: string[] }>();
-    for (const op of this.opTrace) {
+  private opsByPath(): Map<string, { verbs: OpVerb[]; readKeys?: string[]; last: number }> {
+    const byPath = new Map<string, { verbs: OpVerb[]; readKeys?: string[]; last: number }>();
+    for (let i = 0; i < this.opTrace.length; i++) {
+      const op = this.opTrace[i];
       const prev = byPath.get(op.path);
       if (prev) {
         prev.verbs.push(op.verb);
+        prev.last = i;
         if (op.readKeys !== undefined) prev.readKeys = op.readKeys;
         byPath.delete(op.path);
         byPath.set(op.path, prev);
       } else {
-        byPath.set(op.path, { verbs: [op.verb], ...(op.readKeys !== undefined && { readKeys: op.readKeys }) });
+        byPath.set(op.path, {
+          verbs: [op.verb],
+          last: i,
+          ...(op.readKeys !== undefined && { readKeys: op.readKeys }),
+        });
       }
     }
     return byPath;
   }
 
   /** The net-change filter — identical to 'full' ({@link changedSinceBase}). Survivors keep last-touch order. */
-  private netChangeSurvivors(byPath: Map<string, { verbs: OpVerb[]; readKeys?: string[] }>): Survivor[] {
+  private netChangeSurvivors(byPath: Map<string, { verbs: OpVerb[]; readKeys?: string[]; last: number }>): Survivor[] {
     const survivors: Survivor[] = [];
-    for (const [path, { verbs, readKeys }] of byPath) {
+    for (const [path, { verbs, readKeys, last }] of byPath) {
       const segments = path.split(DELIM);
       if (!this.changedSinceBase(segments)) continue; // no-op or write-then-revert → no net change
       const before = _get(this.baseSnapshot, segments);
       const after = _get(this.workingCopy, segments);
-      survivors.push({ path, segments, verbs, readKeys, before, after });
+      survivors.push({ path, segments, verbs, readKeys, last, before, after });
     }
     return survivors;
-  }
-
-  /** Replay each overlapping family ONCE, lazily — most commits have none, and pay nothing. */
-  private memoisedFamilyValue(familyOps: Map<string, { path: string; verb: OpVerb }[]>): (root: string) => unknown {
-    const familyValues = new Map<string, unknown>();
-    return (root) => {
-      if (!familyValues.has(root)) {
-        familyValues.set(root, this.replayFamilyVerbs(root.split(DELIM), familyOps.get(root) ?? []));
-      }
-      return familyValues.get(root);
-    };
-  }
-
-  /**
-   * Bucket the staged ops of every OVERLAPPING family by family root, in op
-   * order — the input {@link replayFamilyVerbs} folds. Ops on paths the
-   * net-change filter dropped are skipped (they are absent from `rootOf`),
-   * exactly as the `'full'` payload drops them from its trace. One pass over
-   * `opTrace`, and only when at least one family actually overlaps — commits
-   * that write no nested path pay nothing.
-   */
-  private opsByFamily(
-    rootOf: Map<string, string>,
-    byRoot: Map<string, Survivor[]>,
-  ): Map<string, { path: string; verb: OpVerb }[]> {
-    const buckets = new Map<string, { path: string; verb: OpVerb }[]>();
-    for (const [root, family] of byRoot) if (family.length > 1) buckets.set(root, []);
-    if (buckets.size === 0) return buckets;
-    for (const op of this.opTrace) {
-      const bucket = buckets.get(rootOf.get(op.path) as string);
-      if (bucket) bucket.push(op);
-    }
-    return buckets;
-  }
-
-  /**
-   * Replay ONE overlapping family's staged ops onto the family root's base
-   * value — the multi-path generalisation of {@link replayPathVerbs}, and
-   * byte-for-byte what `applySmartMerge` produces for the corresponding
-   * `'full'`-mode entries: each `set`/`delete` position writes that path's
-   * `overwritePatch` value, each `merge` position deep-merges that path's
-   * accumulated `updatePatch` delta into the value replayed so far.
-   *
-   * (Both patches are single coherent trees, so a full-mode bundle's stored
-   * value at any recorded path always reads back as its `overwritePatch` /
-   * `updatePatch` value — which is why sourcing from them here reproduces the
-   * full-mode replay exactly, including its intermediate-coercion quirks.)
-   *
-   * The value is held in a `{ v }` box so the root itself (relative path `[]`)
-   * can be REPLACED by `_set` the same way `applySmartMerge` replaces it
-   * inside the state tree — including `nativeSet`'s coercion of primitive
-   * intermediates.
-   *
-   * A `set` op the next op sets again is skipped on the same law as
-   * `applySmartMerge` ({@link supersededByNextSet}) — this is the delta
-   * encoder's own replay loop, and it clones per op just as the fold does.
-   */
-  private replayFamilyVerbs(rootSegments: string[], ops: { path: string; verb: OpVerb }[]): unknown {
-    // Copy-on-write (9.29.0): the box holds the family root's BASE value by
-    // reference — committed state, never edited — and each op copies the
-    // containers on its own path first, exactly as the live commit's replay
-    // does (`nextGeneration`), so 'full' and 'delta' commit the same state.
-    // The whole-subtree `structuredClone` of the base value this replaced is
-    // not needed: the family value is cloned where it is EMITTED.
-    const owned = new WeakSet<object>();
-    const box: { v: unknown } = { v: _get(this.baseSnapshot, rootSegments) };
-    owned.add(box);
-    for (let i = 0; i < ops.length; i++) {
-      if (supersededByNextSet(ops, i)) continue;
-      const op = ops[i];
-      const segments = op.path.split(DELIM);
-      const at = ['v', ...segments.slice(rootSegments.length)];
-      ownSpine(box, at, owned);
-      if (op.verb === 'merge') {
-        const merged = deepSmartMerge(_get(box, at) ?? {}, structuredClone(_get(this.updatePatch, segments)));
-        own(merged, owned);
-        _set(box, at, merged);
-      } else {
-        const value = structuredClone(_get(this.overwritePatch, segments));
-        own(value, owned);
-        _set(box, at, value);
-      }
-    }
-    return box.v;
   }
 
   /**
@@ -923,27 +938,6 @@ export class TransactionBuffer {
     const parent = _get(this.baseSnapshot, segments.slice(0, -1));
     return parent !== null && typeof parent === 'object';
   }
-
-  /**
-   * Replay ONE path's op-verb sequence against its base value, exactly the
-   * way `applySmartMerge` replays the corresponding full-mode bundle: every
-   * `set`/`delete` position applies the LAST staged overwrite value (the
-   * bag holds one value per path — last writer wins), every `merge`
-   * position applies the ACCUMULATED `updatePatch` delta. This reproduces
-   * the full mode's committed value for any interleaving — including the
-   * mixed set+merge quirk where the accumulated delta re-applies pre-set
-   * merge keys (full-mode replay semantics, kept for byte-parity across
-   * modes; property-tested in delta-replay-equivalence).
-   */
-  private replayPathVerbs(before: unknown, segments: string[], verbs: OpVerb[]): unknown {
-    const setValue = _get(this.overwritePatch, segments);
-    const mergeDelta = _get(this.updatePatch, segments);
-    let value: unknown = before;
-    for (const verb of verbs) {
-      value = verb === 'merge' ? deepSmartMerge(value ?? {}, mergeDelta) : setValue;
-    }
-    return value;
-  }
 }
 
 /**
@@ -957,92 +951,7 @@ function flattenedTraceRow(op: { path: string; verb: OpVerb; readKeys?: string[]
     : op;
 }
 
-/**
- * Group survivors into OVERLAP FAMILIES (`toDeltaPayload` rule 3): each path's
- * family is keyed by its SHALLOWEST surviving ancestor — walking prefixes
- * shallow first means the first hit is that root, and a depth-1 path (the
- * common case) never enters the loop at all. Any two paths sharing a root
- * are exactly the paths whose patch storage overlaps.
- */
-function groupIntoFamilies(
-  survivors: Survivor[],
-  survivingPaths: Set<string>,
-): { rootOf: Map<string, string>; byRoot: Map<string, Survivor[]> } {
-  const rootOf = new Map<string, string>();
-  const byRoot = new Map<string, Survivor[]>();
-  for (const s of survivors) {
-    let root = s.path;
-    for (let i = 1; i < s.segments.length; i++) {
-      const ancestor = s.segments.slice(0, i).join(DELIM);
-      if (survivingPaths.has(ancestor)) {
-        root = ancestor;
-        break;
-      }
-    }
-    rootOf.set(s.path, root);
-    const family = byRoot.get(root);
-    if (family) family.push(s);
-    else byRoot.set(root, [s]);
-  }
-  return { rootOf, byRoot };
-}
-
-/**
- * Emit survivors in last-touch order, with one exception: in an overlapping
- * family the ROOT is emitted LAST — its whole-subtree set is what makes the
- * replayed subtree exactly the family value (a descendant applied afterwards
- * could only re-state a value already inside it, but would also leave behind
- * the `key: undefined` shells 'full' mode never has).
- */
-function emitInFamilyOrder(
-  survivors: Survivor[],
-  rootOf: Map<string, string>,
-  byRoot: Map<string, Survivor[]>,
-  emit: (s: Survivor) => void,
-): void {
-  for (const s of survivors) {
-    const root = rootOf.get(s.path) as string;
-    const family = byRoot.get(root) as Survivor[];
-    if (family.length === 1) {
-      emit(s);
-      continue;
-    }
-    if (s.path !== root) emit(s);
-    if (family[family.length - 1] === s) emit(family.find((m) => m.path === root) as Survivor);
-  }
-}
-
-/**
- * Append-detection predicate (#13c-B §2.2): both values are arrays, the
- * final is strictly longer, and the base is a structural prefix of the
- * final. Element compares short-circuit on reference identity (`deepEqual`'s
- * `===` fast path) before walking structure, and bail at the first mismatch
- * — worst case one structural compare of the base array, strictly cheaper
- * than the full-value `structuredClone` the fallback pays.
- *
- * `before === undefined` (first write) fails `Array.isArray` → `set`, which
- * keeps the first write as the causal anchor for "who initialized this key".
- *
- * BOTH arrays must also be plain and dense ({@link isIndexOnly}): replay
- * reconstructs an append as `[...current, ...tail]`, and that spread carries
- * ONLY indexed elements — a named property parked on an array (a nested write
- * like `set(['history','note'], …)`, which `nativeSet` happily hangs off the
- * array object) or a hole would be silently dropped, where `'full'` mode
- * stores the value whole and keeps it.
- */
-function isStrictArrayPrefix(before: unknown, after: unknown): before is unknown[] {
-  if (!Array.isArray(before) || !Array.isArray(after)) return false;
-  if (after.length <= before.length) return false;
-  for (let i = 0; i < before.length; i++) {
-    if (!deepEqual(before[i], after[i])) return false;
-  }
-  return isIndexOnly(before) && isIndexOnly(after);
-}
-
-/** True when an array's own enumerable keys are exactly its indices — no
- *  extra named properties and no holes, i.e. the array survives a spread
- *  intact. One `Object.keys` pass, same order as the prefix compare above
- *  and paid only after it succeeds. */
-function isIndexOnly(arr: unknown[]): boolean {
-  return Object.keys(arr).length === arr.length;
+/** A row's `readKeys` fragment — absent unless the provenance dial recorded one (#P1). */
+function provenance(readKeys: string[] | undefined): { readKeys: string[] } | undefined {
+  return readKeys !== undefined ? { readKeys } : undefined;
 }

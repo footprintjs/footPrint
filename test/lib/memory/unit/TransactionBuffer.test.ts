@@ -1,4 +1,5 @@
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
+import { applySmartMerge } from '../../../../src/lib/memory/utils';
 
 describe('TransactionBuffer', () => {
   it('stages set operations and reads them back', () => {
@@ -232,5 +233,117 @@ describe('TransactionBuffer — change-only commit semantics', () => {
       redactedPaths: new Set(),
       trace: [],
     });
+  });
+});
+
+// ── The admitted record (9.30.0 — docs/design/2026-10-admitted-record.md) ──
+// A commit folds back to what the stage read; a family that does not is
+// committed as what the stage read. The property behind these cases is
+// test/lib/memory/property/record-equals-read-back.property.test.ts.
+describe('TransactionBuffer — the admitted record', () => {
+  const D = '\u001f';
+  const commitOf = (base: Record<string, unknown>, encoding: 'full' | 'delta', ops: (b: TransactionBuffer) => void) => {
+    const buf = new TransactionBuffer(structuredClone(base), encoding);
+    ops(buf);
+    const readBack = structuredClone(buf.peek([]));
+    const bundle = buf.commit();
+    return { bundle, readBack, folded: applySmartMerge(base, bundle.updates, bundle.overwrite, bundle.trace) };
+  };
+
+  for (const encoding of ['full', 'delta'] as const) {
+    it(`C5 — a nested delete through an ABSENT parent: the container it made is recorded (${encoding})`, () => {
+      // L-1: `delete a.b` changes nothing at `a.b` (absent before and after),
+      // so 9.29.0's net-change filter dropped it — and the stage read back an
+      // `a` the record never mentioned.
+      const { bundle, folded } = commitOf({}, encoding, (b) => b.delete(['a', 'b']));
+      expect(bundle.trace).toEqual([{ path: `a${D}b`, verb: 'set' }]);
+      expect(Object.keys(bundle.overwrite)).toEqual(['a']);
+      expect(folded).toEqual({ a: {} });
+    });
+
+    it(`C5 — through a PRIMITIVE parent: the coercion the stage read back is recorded (${encoding})`, () => {
+      const { bundle, folded } = commitOf({ a: 5 }, encoding, (b) => b.delete(['a', 'b']));
+      expect(bundle.trace).toEqual([{ path: `a${D}b`, verb: 'set' }]);
+      expect(folded).toEqual({ a: {} });
+    });
+
+    it(`an index past an array's end, deleted: the slot the stage read back is recorded (${encoding})`, () => {
+      const { bundle, readBack, folded } = commitOf({ a: [] }, encoding, (b) => b.delete(['a', '0']));
+      expect((readBack as { a: unknown[] }).a).toHaveLength(1);
+      expect(bundle.trace).toEqual([{ path: `a${D}0`, verb: 'set' }]);
+      expect((folded as { a: unknown[] }).a).toHaveLength(1);
+    });
+
+    it(`the stage's ADDRESS is not a value it reads: a run-namespace shell records nothing (${encoding})`, () => {
+      // A run-namespaced stage writes under runs/<id>. Deleting an absent key
+      // there makes `runs` and `runs/r1` in the working copy — where the
+      // stage writes, not a value any read of it returns.
+      const buf = new TransactionBuffer({}, encoding, undefined, ['runs', 'r1']);
+      buf.delete(['runs', 'r1', 'k']);
+      expect(buf.commit().trace).toEqual([]);
+      // Below the address the same shell IS read back (the stage's key `a`).
+      const deep = new TransactionBuffer({}, encoding, undefined, ['runs', 'r1']);
+      deep.delete(['runs', 'r1', 'a', 'b']);
+      expect(deep.commit().trace).toEqual([{ path: `runs${D}r1${D}a${D}b`, verb: 'set' }]);
+    });
+
+    it(`C2 — a re-encoded family: descendants by last touch, the root last, each with its own read prefix (${encoding})`, () => {
+      let reads: string[] = [];
+      const buf = new TransactionBuffer({ k: { a: 0 } }, encoding, () => [...reads]);
+      buf.merge(['k'], { x: 1 }); // read prefix []
+      reads = ['r1'];
+      buf.set(['k', 'y'], 2); // read prefix ['r1']
+      reads = ['r1', 'r2'];
+      buf.set(['k'], { b: 1 }); // a hard write between the merges…
+      buf.merge(['k'], { z: 3 }); // …the old record replayed {x: 1} here too
+      const { trace, overwrite, updates } = buf.commit();
+      expect(trace).toEqual([{ path: 'k', verb: 'set', readKeys: ['r1', 'r2'] }]); // k.y did not survive the set
+      expect(overwrite).toEqual({ k: { b: 1, z: 3 } });
+      expect(updates).toEqual({});
+    });
+  }
+
+  it('C2 — the re-encoded family takes the slot of its last touch; other families keep theirs, byte for byte', () => {
+    const buf = new TransactionBuffer({ k: {}, other: 0 });
+    buf.merge(['k'], { x: 1 });
+    buf.set(['other'], 1); // another family, between the lying family's ops
+    buf.set(['k'], { y: 2 });
+    buf.merge(['k'], { z: 3 });
+    buf.set(['last'], 1);
+    const { trace, overwrite, updates } = buf.commit();
+    expect(trace.map((t) => `${t.path}:${t.verb}`)).toEqual(['other:set', 'k:set', 'last:set']);
+    expect(overwrite).toEqual({ other: 1, k: { y: 2, z: 3 }, last: 1 });
+    expect(updates).toEqual({});
+  });
+
+  it('a delta-less merge row an ancestor merge replaces later in the same bundle folds back — admitted as 9.29.0 wrote it', () => {
+    // `merge c.y` then a `merge c` that makes `c` an array: the second
+    // replaces the container the first's delta sat in, so `c.y`'s row has no
+    // delta — a transient wipe the same replay overwrites. The bundle folds
+    // back, so it is admitted unchanged.
+    const { bundle, readBack, folded } = commitOf({ c: { y: 's' } }, 'full', (b) => {
+      b.merge(['c', 'y'], [null]);
+      b.merge(['c'], [null]);
+    });
+    expect(bundle.trace).toEqual([
+      { path: `c${D}y`, verb: 'merge' },
+      { path: 'c', verb: 'merge' },
+    ]);
+    expect(bundle.updates).toEqual({ c: [null] });
+    expect(folded).toEqual(readBack);
+  });
+
+  it('a bundle that folds back is admitted byte for byte — the key order the replay builds included', () => {
+    // merge k {a,c}; set k {b}; merge k {c}; merge k {a}: the stage reads
+    // {b, c, a}, the replay builds {b, a, c} — equal, so nothing is
+    // re-encoded and the delta row keeps the replay's order, as 9.29.0 did.
+    const buf = new TransactionBuffer({}, 'delta');
+    buf.merge(['k'], { a: 1, c: 1 });
+    buf.set(['k'], { b: 1 });
+    buf.merge(['k'], { c: 1 });
+    buf.merge(['k'], { a: 1 });
+    const { trace, overwrite } = buf.commit();
+    expect(trace).toEqual([{ path: 'k', verb: 'set' }]);
+    expect(Object.keys(overwrite.k as object)).toEqual(['b', 'a', 'c']);
   });
 });

@@ -259,24 +259,46 @@ function foldsBack(base: unknown, stage: Stage, address: string[]): void {
   expect(outside(folded)).toBe(outside(stage.readBack));
 }
 
-/** (b) — the exact-path reader agrees wherever its contract applies. */
+/**
+ * (b) — the exact-path reader agrees wherever its contract applies: a root key
+ * with a `set` / `delete` row, no row below it, and at most ONE `merge` row
+ * after its last anchor. Two or more are left out on purpose: `commitValueAt`
+ * clones a bundle's merge delta once PER ROW, so an array union of container
+ * elements comes back doubled where the fold (one copy per replay) does not
+ * — a 9.29.0 reader bug this property found, pinned below as a known
+ * divergence for F2 (which folds `commitValueAt` through the one verb law).
+ */
 function exactPathReaderAgrees(stage: Stage, address: string[]): void {
   const { trace } = stage.bundle;
   for (const root of ROOTS) {
     const key = [...address, root].join(DELIM);
-    const anchored = trace.some((t) => t.path === key && (t.verb === 'set' || t.verb === 'delete'));
+    const rows = trace.filter((t) => t.path === key);
+    let anchor = -1;
+    rows.forEach((t, i) => {
+      if (t.verb === 'set' || t.verb === 'delete') anchor = i;
+    });
+    const mergesAfter = rows.slice(anchor + 1).filter((t) => t.verb === 'merge').length;
     const nested = trace.some((t) => t.path.startsWith(key + DELIM));
-    if (!anchored || nested) continue;
+    if (anchor < 0 || nested || mergesAfter > 1) continue;
     expect(canon(commitValueAt([stage.bundle], 0, key))).toBe(canon(nativeGet(stage.readBack, [...address, root])));
   }
 }
 
-/** (c) and (d). */
+/**
+ * (c) and (d). (c) — every `merge` row carries its delta, unless a LATER
+ * `merge` row at a strict ancestor replaced the container it sat in (`merge
+ * c.y`, then a `merge c` that makes `c` an array): that row's transient value
+ * is overwritten within the same replay, the bundle folds back, and 9.29.0
+ * wrote the same bytes — so it is admitted as it is. (The plan's "no admitted
+ * merge row lacks its delta" missed this shape.)
+ */
 function rowsAreWhole(stage: Stage, encoding: 'full' | 'delta'): void {
   const { trace, updates } = stage.bundle;
-  for (const row of trace) {
-    if (row.verb === 'merge') expect(nativeHas(updates, row.path.split(DELIM))).toBe(true);
-  }
+  trace.forEach((row, j) => {
+    if (row.verb !== 'merge' || nativeHas(updates, row.path.split(DELIM))) return;
+    const replacedLater = trace.slice(j + 1).some((t) => t.verb === 'merge' && row.path.startsWith(t.path + DELIM));
+    expect(replacedLater).toBe(true);
+  });
   if (encoding === 'delta') expect(new Set(trace.map((t) => t.path)).size).toBe(trace.length);
 }
 
@@ -289,7 +311,14 @@ function admitted(program: Program, encoding: 'full' | 'delta', address: string[
 
 // ─── The property ────────────────────────────────────────────────────────
 
-const RUNS = 1_000;
+/**
+ * 1,000 programs per arm and encoding at fixed seeds. `ADMITTED_RUNS=<n>`
+ * raises every arm's run count and `ADMITTED_SEED=<n>` replaces the fixed
+ * seeds with n (+ the arm's offset) — how the gate explores past them.
+ */
+const RUNS = Number(process.env.ADMITTED_RUNS ?? 1_000);
+const SEED = process.env.ADMITTED_SEED === undefined ? undefined : Number(process.env.ADMITTED_SEED);
+const seedOf = (fixed: number) => (SEED === undefined ? fixed : SEED + (fixed % 100));
 
 describe('the admitted record — every commit folds back to what the stage read', () => {
   for (const [encoding, seed] of [
@@ -299,7 +328,7 @@ describe('the admitted record — every commit folds back to what the stage read
     it(`MAIN — root keys and depth-2 paths, every verb, identity-sensitive merges (${encoding})`, () => {
       fc.assert(
         fc.property(programOf(mainOpArb), (p) => admitted(p, encoding)),
-        { numRuns: RUNS, seed },
+        { numRuns: RUNS, seed: seedOf(seed) },
       );
     });
   }
@@ -311,7 +340,7 @@ describe('the admitted record — every commit folds back to what the stage read
     it(`SCOPE-SHAPED — root keys only, set / merge / delete interleaved, as the typed scope stages them (${encoding})`, () => {
       fc.assert(
         fc.property(programOf(scopeShapedOpArb), (p) => admitted(p, encoding)),
-        { numRuns: RUNS, seed },
+        { numRuns: RUNS, seed: seedOf(seed) },
       );
     });
   }
@@ -323,7 +352,7 @@ describe('the admitted record — every commit folds back to what the stage read
     it(`ROOT-ONLY — set/delete of root keys, admitted without a fold: coherent by construction (${encoding})`, () => {
       fc.assert(
         fc.property(programOf(rootOnlyOpArb), (p) => admitted(p, encoding)),
-        { numRuns: RUNS, seed },
+        { numRuns: RUNS, seed: seedOf(seed) },
       );
     });
   }
@@ -337,7 +366,7 @@ describe('the admitted record — every commit folds back to what the stage read
         fc.property(namespacedBaseArb, fc.array(mainOpArb, { minLength: 1, maxLength: 8 }), (base, ops) =>
           admitted({ base, ops }, encoding, ADDRESS),
         ),
-        { numRuns: RUNS, seed },
+        { numRuns: RUNS, seed: seedOf(seed) },
       );
     });
   }
@@ -425,4 +454,27 @@ describe('the named shapes — each folds back to what the stage read', () => {
       });
     }
   }
+});
+
+// ─── A known divergence, found by clause (b) — F2's to fix ───────────────
+
+describe('commitValueAt — a known divergence from the fold (9.29.0 and 9.30.0; F2 folds it through the one verb law)', () => {
+  // `s.c = []; s.$update('c', [{n:1}]); s.$update('c', [{n:2}])` in one stage:
+  // the fold — live state, stateAt — replays the bundle's merge rows against
+  // ONE copy of its delta, so the union deduplicates by reference and `c`
+  // holds two elements. `commitValueAt` clones the delta once PER ROW and
+  // answers four. The bundle is right; the reader is not. `it.fails` keeps
+  // the gap visible: the day `commitValueAt` agrees, this test turns red.
+  it.fails('a set and two merges of one key in one bundle: commitValueAt agrees with the fold', () => {
+    const base = { c: [] as unknown[] };
+    const buf = new TransactionBuffer(structuredClone(base));
+    buf.set(['c'], []);
+    buf.merge(['c'], [{ n: 1 }]);
+    buf.merge(['c'], [{ n: 2 }]);
+    const payload = buf.commit();
+    const bundle: CommitBundle = { ...payload, redactedPaths: [], stage: 'S', stageId: 's', runtimeStageId: 's#0' };
+    const folded = applySmartMerge(base, payload.updates, payload.overwrite, payload.trace) as { c: unknown };
+    expect(folded.c).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(commitValueAt([bundle], 0, 'c')).toEqual(folded.c);
+  });
 });

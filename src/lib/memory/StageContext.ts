@@ -549,7 +549,11 @@ export class StageContext {
       // captures exactly the reads that preceded it (temporal prefix).
       const readKeysProvider =
         this.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
-      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues, readKeysProvider);
+      // The stage's address — where `withNamespace` puts its writes (9.30.0:
+      // the admitted record reads the containers there as where the stage
+      // writes, never as a value it read).
+      const address = this.runId ? ['runs', this.runId] : [];
+      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues, readKeysProvider, address);
     }
     return this.buffer;
   }
