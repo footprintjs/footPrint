@@ -37,15 +37,51 @@ import type { CommitBundle, MemoryPatch, TraceEntry } from './types.js';
 /** A commit row's verb — `TraceEntry['verb']`, the union the types file declares. */
 export type Verb = TraceEntry['verb'];
 
-/** A `Record` over the union: the compiler refuses a list that misses (or invents) a verb. */
-const KNOWN: Record<Verb, true> = { set: true, merge: true, append: true, delete: true };
+/**
+ * The vocabulary: each verb with the two traits readers branch on, in the
+ * order the contract names them. A `Record` over the union — the compiler
+ * refuses a table that misses (or invents) a verb, so a verb cannot be added
+ * without saying what it is.
+ *
+ *   `total` — the row decides the value ALONE; it reads nothing from what came
+ *     before it ({@link isTotal}).
+ *   `tail`  — the row records ONLY what it adds, not the whole value
+ *     ({@link recordsTail}).
+ */
+const TRAITS: Record<Verb, { readonly total: boolean; readonly tail: boolean }> = {
+  set: { total: true, tail: false },
+  merge: { total: false, tail: false },
+  append: { total: false, tail: true },
+  delete: { total: true, tail: false },
+};
 
 /** The four verbs, in the order the contract names them. */
-export const VERBS: readonly Verb[] = Object.freeze(Object.keys(KNOWN) as Verb[]);
+export const VERBS: readonly Verb[] = Object.freeze(Object.keys(TRAITS) as Verb[]);
 
 /** Is `value` one of the four? The question every reader of a foreign log asks first. */
 export function isVerb(value: unknown): value is Verb {
-  return typeof value === 'string' && (KNOWN as Record<string, unknown>)[value] === true;
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(TRAITS, value);
+}
+
+/**
+ * Does the verb decide the value ALONE — read nothing from what came before
+ * it? `set` and `delete`. A reader that only needs the final value may start
+ * at the last such row ({@link foldKey} `anchored`); one that tracks how the
+ * value grew (provenance) starts at the first. Pinned against
+ * {@link applyVerb} itself, so a new verb cannot misreport it.
+ */
+export function isTotal(verb: Verb): boolean {
+  return TRAITS[verb].total;
+}
+
+/**
+ * Does the row record ONLY what it adds — a tail — rather than the whole
+ * value? `append`. What the row added is then known exactly: a reader that
+ * tracks where array elements came from attributes them to this row without
+ * comparing arrays, where every other verb has to be inferred from.
+ */
+export function recordsTail(verb: Verb): boolean {
+  return TRAITS[verb].tail;
 }
 
 /** Where in a log a refused row sits. */
@@ -162,8 +198,8 @@ function atPath(tree: MemoryPatch, segs: string[]): MemoryPatch {
 
 /**
  * ONE row, ONE step: the value at the row's path AFTER the row, given the
- * value BEFORE it and the bundle's recorded payload. THE verb switch — no
- * other function in the library has an arm per verb.
+ * value BEFORE it and the bundle's recorded payload. THE verb law — no other
+ * function in the library has an arm per verb.
  *
  *   - `'set'`    — the recorded value (`overwrite[path]`, the full final value).
  *   - `'merge'`  — `deepSmartMerge` of the accumulated `updates[path]` delta onto
@@ -179,34 +215,17 @@ function atPath(tree: MemoryPatch, segs: string[]): MemoryPatch {
  *
  * Pure: it reads the payload and never writes. `verb` must be a {@link Verb}
  * (the folds check with {@link isVerb} first and name the row); anything else
- * reaching the `default` arm is refused with {@link UnknownVerbError}.
+ * that reaches it is refused with {@link UnknownVerbError}.
  */
 export function applyVerb(verb: Verb, before: unknown, at: RecordedPayload, segs: string[]): unknown {
-  switch (verb) {
-    case 'set':
-      return at.value(segs);
-    case 'append': {
-      const tail = at.value(segs);
-      return Array.isArray(before) && Array.isArray(tail) ? [...before, ...tail] : tail;
-    }
-    case 'delete':
-      return ABSENT;
-    case 'merge':
-      return deepSmartMerge(before, at.delta(segs));
-    default:
-      return refuseVerb(verb);
+  if (verb === 'set') return at.value(segs);
+  if (verb === 'append') {
+    const tail = at.value(segs);
+    return Array.isArray(before) && Array.isArray(tail) ? [...before, ...tail] : tail;
   }
-}
-
-/**
- * Does the verb decide the value ALONE — read nothing from what came before
- * it? `set` and `delete`. A reader that only needs the final value may start
- * at the last such row ({@link foldKey} `anchored`); one that tracks how the
- * value grew (provenance) starts at the first. Pinned against
- * {@link applyVerb} itself, so a new verb cannot forget to answer.
- */
-export function isTotal(verb: Verb): boolean {
-  return verb === 'set' || verb === 'delete';
+  if (verb === 'delete') return ABSENT;
+  if (verb === 'merge') return deepSmartMerge(before, at.delta(segs));
+  return refuseVerb(verb); // `verb` is `never` here — a fifth verb in the union stops compiling
 }
 
 /** Put a step's value at its path in `out` — or remove the key, for {@link ABSENT}. */

@@ -5,9 +5,9 @@
  * These helpers provide type-safe queries without (b: any) casts.
  */
 
-import { nativeGet } from './pathOps.js';
+import { DELIM } from './paths.js';
 import type { CommitBundle } from './types.js';
-import { deepSmartMerge, DELIM } from './utils.js';
+import { type Touch, foldKey, isVerb, UnknownVerbError } from './verbs.js';
 
 /** Find the first commit by stageId, optionally filtering by a written key. */
 export function findCommit(commitLog: CommitBundle[], stageId: string, key?: string): CommitBundle | undefined {
@@ -31,6 +31,30 @@ export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx
 }
 
 /**
+ * Every row on `key` in `commitLog[0..end]`, in commit order — the touches a
+ * per-path fold ({@link foldKey}) runs over. `key` is matched against
+ * `TraceEntry.path` exactly (DELIM-joined for nested paths). A row whose verb
+ * is not one of the four is refused with {@link UnknownVerbError} naming the
+ * row — whether or not the fold would have reached it: the answer must not
+ * depend on where an optimisation starts.
+ *
+ * Internal: `commitValueAt` and `arrayProvenance` are its two readers.
+ */
+export function keyTouches(commitLog: readonly CommitBundle[], key: string, end: number): Touch[] {
+  const touches: Touch[] = [];
+  for (let i = 0; i <= end; i++) {
+    const trace = commitLog[i].trace;
+    for (let row = 0; row < trace.length; row++) {
+      if (trace[row].path !== key) continue;
+      const verb = trace[row].verb;
+      if (!isVerb(verb)) throw new UnknownVerbError(verb, { path: key, row, commit: i });
+      touches.push({ verb, bundle: commitLog[i], commitIdx: i });
+    }
+  }
+  return touches;
+}
+
+/**
  * Reconstruct the FULL value of `key` as of commit array index `idx`
  * (inclusive) — the migration helper for the "read `bundle.overwrite[key]`
  * as the full value written" pattern (#13c-B).
@@ -39,9 +63,12 @@ export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx
  * only the TAIL of the array; this helper folds the verbs back together:
  * it scans `commitLog[0..idx]` for trace entries on `key`, anchors at the
  * latest full-value write (`set` — or `delete`, which resets to absent), and
- * replays forward (`append` → concat, `merge` → `deepSmartMerge`) — exactly
- * the per-key slice of `applySmartMerge`'s replay, O(key's commit span)
- * instead of a full `materialise()`.
+ * folds forward with the SAME step and clone discipline the replay uses
+ * (`verbs.ts` · `foldKey`) — the per-key slice of `applySmartMerge`'s replay,
+ * O(key's commit span) instead of a full `materialise()`. Two `merge` rows of
+ * one bundle see one copy of the bundle's delta, as the replay's do (a clone per
+ * row, as this helper once took, made an array union — which deduplicates by
+ * reference — duplicate the elements the first row had placed).
  *
  * Works on full-mode logs too (every `set` is its own anchor — equivalent to
  * `findLastWriter(...).overwrite[key]`).
@@ -59,45 +86,14 @@ export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx
  *   `stateAt(snapshot, idx).state[key]` (footprintjs/trace) answers this case
  *   correctly — it folds from `RuntimeSnapshot.initialState`, which this
  *   function never receives.
+ * @throws {@link UnknownVerbError} when a row on `key` carries a verb other
+ *   than `set | merge | append | delete` — a foreign or corrupted log is
+ *   refused, not folded as a `merge`. Engine-written logs never carry one.
  */
 export function commitValueAt(commitLog: CommitBundle[], idx: number, key: string): unknown {
-  const end = Math.min(idx, commitLog.length - 1);
-  const segs = key.split(DELIM);
-
-  // Collect every trace entry touching the key (in order) up to `end`.
-  const touches: { verb: string; bundle: CommitBundle }[] = [];
-  for (let i = 0; i <= end; i++) {
-    for (const t of commitLog[i].trace) {
-      if (t.path === key) touches.push({ verb: t.verb, bundle: commitLog[i] });
-    }
-  }
+  const touches = keyTouches(commitLog, key, Math.min(idx, commitLog.length - 1));
   if (touches.length === 0) return undefined;
-
-  // Anchor at the latest entry that fully determines the value on its own.
-  let start = 0;
-  for (let i = touches.length - 1; i >= 0; i--) {
-    if (touches[i].verb === 'set' || touches[i].verb === 'delete') {
-      start = i;
-      break;
-    }
-  }
-
-  // Fold forward from the anchor — the per-key slice of applySmartMerge.
-  let value: unknown;
-  for (let i = start; i < touches.length; i++) {
-    const { verb, bundle } = touches[i];
-    if (verb === 'set') {
-      value = structuredClone(nativeGet(bundle.overwrite, segs));
-    } else if (verb === 'delete') {
-      value = undefined;
-    } else if (verb === 'append') {
-      const tail = structuredClone(nativeGet(bundle.overwrite, segs));
-      value = Array.isArray(value) && Array.isArray(tail) ? [...value, ...tail] : tail;
-    } else {
-      value = deepSmartMerge(value, structuredClone(nativeGet(bundle.updates, segs)));
-    }
-  }
-  return value;
+  return foldKey(touches, key.split(DELIM), { anchored: true });
 }
 
 /**

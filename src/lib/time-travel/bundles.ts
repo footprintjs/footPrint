@@ -17,6 +17,7 @@
  */
 
 import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import { isVerb, VERBS } from '../memory/verbs.js';
 import type { LogGap } from './types.js';
 
 /**
@@ -93,14 +94,13 @@ export function bundleRefusal(row: unknown): string | undefined {
   if (row.overwrite !== undefined && !isPlainish(row.overwrite)) return 'overwrite is not a plain object';
   // The four verbs are the contract (9.27.0). The replay's switch used to
   // treat anything else as `merge` — a silent coercion of a row a foreign
-  // producer got wrong. A bundle with such a row is a gap, and says which.
+  // producer got wrong; the readers now refuse it (`UnknownVerbError`), and
+  // this reader turns the same refusal into a gap that says which row.
   for (let i = 0; i < row.trace.length; i++) {
     const entry: unknown = row.trace[i];
     const verb = isPlainish(entry) ? entry.verb : undefined;
-    if (verb !== 'set' && verb !== 'merge' && verb !== 'append' && verb !== 'delete') {
-      return `trace[${i}].verb is ${
-        verb === undefined ? 'missing' : JSON.stringify(verb)
-      }, not set | merge | append | delete`;
+    if (!isVerb(verb)) {
+      return `trace[${i}].verb is ${verb === undefined ? 'missing' : JSON.stringify(verb)}, not ${VERBS.join(' | ')}`;
     }
   }
   return undefined;

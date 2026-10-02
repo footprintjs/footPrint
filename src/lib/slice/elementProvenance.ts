@@ -15,15 +15,19 @@
  * — the tail is attributable by inference. No new capture is needed; this is
  * a pure post-hoc query.
  *
- * THE ALGORITHM (append-fold): replay the per-key verb fold — the SAME fold
- * `commitValueAt` runs (set → replace, append → concat, merge → deepSmartMerge,
- * delete → clear) — while carrying a births array kept index-aligned with the
- * value. One difference from `commitValueAt`: that helper ANCHORS at the
- * latest `set`/`delete` as a skip optimization (earlier commits cannot change
- * the final VALUE). Provenance must fold from the FIRST touch, because
- * full-mode growth is a chain of `set`s and the anchor would erase every
- * birth but the last. The final value is identical either way (the fold is
- * deterministic left-to-right) — a property test pins this equivalence.
+ * THE ALGORITHM (append-fold): WATCH the per-key verb fold — the SAME fold
+ * `commitValueAt` runs (`memory/verbs.ts` · `foldKey`: one step, `applyVerb`,
+ * for every verb; this file has no verb switch of its own) — while carrying a
+ * births array kept index-aligned with the value. The observer is told, after
+ * each row, the value before it and after it, and keeps the births: a row that
+ * records only its tail (`append`) earns an exact attribution; every other row
+ * is a whole-value transition attributed by inference. One difference from
+ * `commitValueAt`: that helper ANCHORS at the latest `set`/`delete` as a skip
+ * optimization (earlier commits cannot change the final VALUE). Provenance
+ * must fold from the FIRST touch, because full-mode growth is a chain of
+ * `set`s and the anchor would erase every birth but the last. The final value
+ * is identical either way (the fold is deterministic left-to-right) — a
+ * property test pins this equivalence.
  *
  * INVARIANT (maintained on every branch): when the folded value is an array,
  * `births.length === value.length` and `births[i]` describes `value[i]`.
@@ -42,19 +46,12 @@
  * Post-hoc query, off the hot path — acceptable; measured in the perf tests.
  */
 
-import { nativeGet } from '../memory/pathOps.js';
-import type { CommitBundle, TraceEntry } from '../memory/types.js';
-import { deepEqual, deepSmartMerge, DELIM } from '../memory/utils.js';
+import { keyTouches } from '../memory/commitLogUtils.js';
+import type { CommitBundle } from '../memory/types.js';
+import { deepEqual, DELIM } from '../memory/utils.js';
+import { type Touch, foldKey, recordsTail } from '../memory/verbs.js';
 import { normaliseStateKey } from './sliceForKey.js';
 import type { ArrayProvenance, AttributionBasis, ElementBirth, StateKey } from './types.js';
-
-/** One per-key touch of the commit log, in commit order. */
-interface KeyTouch {
-  verb: TraceEntry['verb'];
-  bundle: CommitBundle;
-  /** Commit ARRAY position (== `bundle.idx` for engine-produced logs). */
-  commitIdx: number;
-}
 
 /** `prev` is a strict (leading, element-equal) prefix of `next`. */
 function isStrictPrefix(prev: unknown[], next: unknown[]): boolean {
@@ -65,7 +62,7 @@ function isStrictPrefix(prev: unknown[], next: unknown[]): boolean {
   return true;
 }
 
-function birthOf(index: number, touch: KeyTouch, basis: AttributionBasis, value: unknown): ElementBirth {
+function birthOf(index: number, touch: Touch, basis: AttributionBasis, value: unknown): ElementBirth {
   return {
     index,
     commitIdx: touch.commitIdx,
@@ -102,59 +99,49 @@ export function arrayProvenance(
   const end = Math.min(options?.atIdx ?? commitLog.length - 1, commitLog.length - 1);
   const segs = normalisedKey.split(DELIM);
 
-  // Collect every touch of the key up to `end`, in commit order — the same
-  // scan commitValueAt does, plus the commit position for birth records.
-  const touches: KeyTouch[] = [];
-  for (let i = 0; i <= end; i++) {
-    for (const t of commitLog[i].trace) {
-      if (t.path === normalisedKey) touches.push({ verb: t.verb, bundle: commitLog[i], commitIdx: i });
-    }
-  }
+  // Every touch of the key up to `end`, in commit order — the same scan
+  // commitValueAt does (refusing a verb the law does not know), with the
+  // commit position the birth records need.
+  const touches = keyTouches(commitLog, normalisedKey, end);
   if (touches.length === 0) return { key: normalisedKey, missing: 'never-written' };
 
-  // The append-fold. `value` mirrors commitValueAt's fold byte-for-byte;
-  // `births` is the added provenance track, index-aligned whenever `value`
-  // is an array (the module invariant).
-  let value: unknown;
+  // The append-fold: the key's one fold, watched. `births` is the added
+  // provenance track, index-aligned whenever the value is an array (the
+  // module invariant).
   let births: ElementBirth[] = [];
-
-  for (const touch of touches) {
-    const { verb, bundle } = touch;
-    if (verb === 'set') {
-      const next = structuredClone(nativeGet(bundle.overwrite, segs));
-      births = rebaseBirths(value, next, births, touch, 'prefix-inference');
-      value = next;
-    } else if (verb === 'delete') {
-      value = undefined;
-      births = [];
-    } else if (verb === 'append') {
-      const tail = structuredClone(nativeGet(bundle.overwrite, segs));
-      if (Array.isArray(value) && Array.isArray(tail)) {
-        // Engine-recorded tail: exact attribution, no equality checks.
-        for (let j = 0; j < tail.length; j++) {
-          births.push(birthOf(value.length + j, touch, 'append-verb', tail[j]));
-        }
-        value = [...value, ...tail];
-      } else {
-        // Degenerate append onto a non-array, or a non-array tail (e.g. a
-        // redacted tail replaced by the '[REDACTED]' string). Mirrors
-        // commitValueAt: the tail BECOMES the value. Attribution stays exact.
-        value = tail;
-        births = Array.isArray(tail) ? tail.map((el, j) => birthOf(j, touch, 'append-verb', el)) : [];
-      }
-    } else {
-      // 'merge' — deepSmartMerge (non-mutating: fresh array/object on every
-      // path), then re-derive births from the shape change. Note merge's
-      // array semantics are UNION-dedup: growth keeps the old prefix (tail
-      // attributed by inference); a dedup-shrink is a wholesale rebirth.
-      const next = deepSmartMerge(value, structuredClone(nativeGet(bundle.updates, segs)));
-      births = rebaseBirths(value, next, births, touch, 'prefix-inference');
-      value = next;
-    }
-  }
+  const value = foldKey(touches, segs, {
+    observe: (touch, before, after) => {
+      births = nextBirths(births, touch, before, after);
+    },
+  });
 
   if (!Array.isArray(value)) return { key: normalisedKey, missing: 'not-an-array' };
   return { key: normalisedKey, atIdx: end, length: value.length, births };
+}
+
+/**
+ * The births after one row of the fold, from the value before it and after it.
+ *
+ * A row that records only its TAIL (`append`) knows exactly what it added —
+ * `'append-verb'`, no equality checks, O(tail). Every other row — a `set`, a
+ * `merge`, a `delete` — is a whole-value transition: attributed by inference
+ * ({@link rebaseBirths}), and a non-array result (a `delete` leaves none) ends
+ * the track.
+ */
+function nextBirths(births: ElementBirth[], touch: Touch, before: unknown, after: unknown): ElementBirth[] {
+  if (!recordsTail(touch.verb)) return rebaseBirths(before, after, births, touch, 'prefix-inference');
+  if (Array.isArray(before) && Array.isArray(after)) {
+    // The step extended the array: the elements past the old length are the
+    // recorded tail — exact attribution.
+    for (let j = before.length; j < after.length; j++) {
+      births.push(birthOf(j, touch, 'append-verb', after[j]));
+    }
+    return births;
+  }
+  // Degenerate append: onto a non-array, or a non-array tail (e.g. a redacted
+  // tail replaced by the '[REDACTED]' string). The tail BECAME the value —
+  // the step's own rule — and attribution stays exact.
+  return Array.isArray(after) ? after.map((el, j) => birthOf(j, touch, 'append-verb', el)) : [];
 }
 
 /**
@@ -168,7 +155,7 @@ function rebaseBirths(
   prev: unknown,
   next: unknown,
   births: ElementBirth[],
-  touch: KeyTouch,
+  touch: Touch,
   tailBasis: AttributionBasis,
 ): ElementBirth[] {
   if (!Array.isArray(next)) return [];
