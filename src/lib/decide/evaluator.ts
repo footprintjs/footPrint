@@ -10,6 +10,7 @@
 
 import { summarizeValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
+import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import type { FilterCondition, WhereFilter } from './types.js';
 
 // -- Operator dispatch table -------------------------------------------------
@@ -106,7 +107,7 @@ export function evaluateFilter<T extends object>(
 
     const actual = getValueFn(key);
     const redacted = isRedactedFn(key);
-    const displayValue = redacted ? '[REDACTED]' : summarizeValue(actual, MAX_VALUE_LEN);
+    const displayValue = redacted ? SCOPE_PLACEHOLDER : summarizeValue(actual, MAX_VALUE_LEN);
 
     // Evaluate each operator in the FilterOps for this key
     for (const [op, threshold] of Object.entries(ops as Record<string, unknown>)) {

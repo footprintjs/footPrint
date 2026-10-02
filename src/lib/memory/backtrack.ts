@@ -96,6 +96,11 @@ export interface CausalNode {
    * produce no read→write edge to follow. `formatCausalChain` renders this
    * as a `⚠ … slice may be incomplete here` line. Absent when the stage's
    * reads were fully tracked.
+   *
+   * Registry code: `'incomplete-sources'` (`memory/honesty.ts ·
+   * HONESTY_CODES`, served on `footprintjs/trace`) says what this field
+   * means. The field carries no `code` — its values are the
+   * {@link UntrackedSource}s.
    */
   incompleteSources?: ReadonlyArray<UntrackedSource>;
   /**
@@ -106,6 +111,10 @@ export interface CausalNode {
    * slice is complete. Dev mode (`enableDevMode()`) also warns on
    * truncation, and `formatCausalChain` appends a `⚠ slice truncated …`
    * line — a consumer must never mistake a truncated slice for a full one.
+   *
+   * Registry code: `'truncated'` (`memory/honesty.ts · HONESTY_CODES`, served
+   * on `footprintjs/trace`) says what this field means; the field carries no
+   * `code`.
    */
   truncated?: { byDepth: boolean; byNodes: boolean };
 }

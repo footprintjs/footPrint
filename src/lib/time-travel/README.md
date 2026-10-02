@@ -58,6 +58,15 @@ const { state, basis, redacted } = cursor.stateAt();
 //                         carries 'REDACTED' where values were removed.
 ```
 
+What each `basis` means — and what `redacted` and a `LogGap` (below) mean — is
+registered once, with the other honesty signals, in `memory/honesty.ts ·
+HONESTY_CODES` (served as `HONESTY_CODES` on `footprintjs/trace`):
+`HONESTY_CODES[basis]` is the one-sentence explanation, `HONESTY_CODES.redacted`
+and `HONESTY_CODES['log-gap']` explain the two signals that carry no code, and
+`FoldBasis` declares its members through `RegisteredCode`, so a code the registry
+does not hold does not compile. The `'REDACTED'` placeholder is the log's string,
+`memory/placeholders.ts · LOG_PLACEHOLDER`, spelled nowhere else in `src/`.
+
 The verbs are replayed by `applySmartMergeInto` — the same law the live commit
 uses (`memory/verbs.ts`). There is deliberately no second implementation of the
 verb grammar here.
@@ -402,10 +411,11 @@ folds byte for byte as before (the clean path returns the same array and
 allocates nothing). A row that is not a bundle becomes a GAP: it **keeps its
 index** (so every `commitIdx` still addresses the same row), contributes no
 state, gets no stop, and is reported in `FoldedState.skipped` as
-`{ index, reason }`. One corrupt row loses that row, not the recording — and
-a fold that stops short of the gap says nothing, because it lost nothing.
-`isCommitBundle(row)` is exported for a consumer that wants to validate rows
-itself.
+`{ index, reason }` (registered as `'log-gap'` in `HONESTY_CODES` — the gap
+carries no `code` field of its own). One corrupt row loses that row, not the
+recording — and a fold that stops short of the gap says nothing, because it lost
+nothing. `isCommitBundle(row)` is exported for a consumer that wants to validate
+rows itself.
 
 ```ts
 import { stateAt, timeTravel } from 'footprintjs/trace';

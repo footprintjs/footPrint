@@ -23,6 +23,7 @@
  */
 
 import type { CausalNode, KeysReadLookup } from '../memory/backtrack.js';
+import type { RegisteredCode } from '../memory/honesty.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from '../memory/types.js';
 
 // ── Keys ───────────────────────────────────────────────────────────────────
@@ -94,8 +95,13 @@ export interface ReadsCoverage {
  *   came from the run's INITIAL state, run `input` (frozen args channel), or
  *   a closure — none of which the commit log can see. Same blind spot as
  *   `findLastWriter`.
+ *
+ * Each member is registered, with the one sentence that says what it means,
+ * in `memory/honesty.ts · HONESTY_CODES` (served on `footprintjs/trace`); the
+ * union declares its members through `RegisteredCode`, so a member the
+ * registry does not hold does not compile.
  */
-export type MissingSliceReason = 'empty-log' | 'never-written';
+export type MissingSliceReason = RegisteredCode<'empty-log' | 'never-written'>;
 
 /**
  * The result of a variable-first backward slice: "why is `key` what it is?".
@@ -163,36 +169,26 @@ export interface VariableSlice {
  *   real. Never presented as exact: every conservative edge is stamped here
  *   AND summarised once on the slice as a `'conservative-fed-edges'`
  *   {@link HonestyNote}.
+ *
+ * Each member is registered, with the one sentence that says what it means,
+ * in `memory/honesty.ts · HONESTY_CODES` (served on `footprintjs/trace`); the
+ * union declares its members through `RegisteredCode`, so a member the
+ * registry does not hold does not compile.
  */
-export type FedBasis = 'per-write' | 'stage';
+export type FedBasis = RegisteredCode<'per-write' | 'stage'>;
 
 /**
- * A machine-readable honesty statement about a forward query's answer.
- * Codes (a consumer BRANCHES on `code`; `detail` is the sentence to show):
+ * The code of a {@link HonestyNote} — a machine-readable honesty statement about a forward query's
+ * answer. A consumer BRANCHES on `code`; `detail` is the sentence to show.
  *
- * - `'conservative-fed-edges'` — at least one `fed` edge is stage-level
- *   ({@link FedBasis}). Turn on `writeProvenance: 'reads-prefix'` for exact
- *   edges.
- * - `'pre-run-origin'` — the value being followed was already there before
- *   the first write this log can see (initial state, frozen run `input`, or
- *   a closure) — the same blind spot `missing: 'never-written'` names on the
- *   backward side.
- * - `'reads-not-recorded'` — this log carries no recorded read AT ALL (the
- *   `readTracking: 'off'` signature). "Nobody read it" is then UNKNOWABLE,
- *   not true — and no forward answer over this log can be complete.
- * - `'unknown-key'` — this log has no write and no recorded read of the key.
- *   The detail NAMES a bounded list of the keys it does know, because the
- *   overwhelmingly likely cause is a typo (or the wrong run's log), and a
- *   typo must never read as "this variable has no history".
- * - `'truncated'` — a budget (`maxDepth`/`maxNodes`) cut the walk. Stated,
- *   never silent.
+ * What each code means is registered ONCE, with the other honesty signals, in
+ * `memory/honesty.ts · HONESTY_CODES` (served as `HONESTY_CODES` on `footprintjs/trace`); this
+ * union declares its members through `RegisteredCode`, so a code the registry does not hold does
+ * not compile.
  */
-export type HonestyNoteCode =
-  | 'conservative-fed-edges'
-  | 'pre-run-origin'
-  | 'reads-not-recorded'
-  | 'unknown-key'
-  | 'truncated';
+export type HonestyNoteCode = RegisteredCode<
+  'conservative-fed-edges' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
+>;
 
 /** One honesty statement — see {@link HonestyNoteCode}. */
 export interface HonestyNote {
@@ -275,7 +271,10 @@ export interface ForwardNode {
    * — identical meaning to {@link CausalNode.incompleteSources}.
    */
   incompleteSources?: ReadonlyArray<UntrackedSource>;
-  /** Set on the ROOT only, and only when a budget actually cut the walk. */
+  /**
+   * Set on the ROOT only, and only when a budget actually cut the walk. Carries
+   * no code: what it means is registered as `'truncated'` in `HONESTY_CODES`.
+   */
   truncated?: { byDepth: boolean; byNodes: boolean };
 }
 
@@ -408,7 +407,7 @@ export interface ForwardSliceJSON {
   }>;
   /** Id-referenced edges: parent (`from`) fed child (`to`). */
   edges?: Array<{ from: string; to: string; basis: FedBasis }>;
-  /** Copied from the root when a budget cut the walk. */
+  /** Copied from the root when a budget cut the walk — registered as `'truncated'` in `HONESTY_CODES`. */
   truncated?: { byDepth: boolean; byNodes: boolean };
 }
 
@@ -427,8 +426,13 @@ export interface ForwardSliceJSON {
  *   growth), labeled honestly so consumers can tell.
  * - `'whole-value'`      — the array was (re)placed wholesale; every
  *   element's provenance resets to this commit. Exact but coarse.
+ *
+ * Each member is registered, with the one sentence that says what it means,
+ * in `memory/honesty.ts · HONESTY_CODES` (served on `footprintjs/trace`); the
+ * union declares its members through `RegisteredCode`, so a member the
+ * registry does not hold does not compile.
  */
-export type AttributionBasis = 'append-verb' | 'prefix-inference' | 'whole-value';
+export type AttributionBasis = RegisteredCode<'append-verb' | 'prefix-inference' | 'whole-value'>;
 
 /**
  * The birth record of ONE array element: which commit (and therefore which
@@ -456,7 +460,8 @@ export interface ElementBirth {
   /**
    * The element's value as of the fold (detached clone). Redaction note:
    * values are re-served exactly as the commit log stored them — a redacted
-   * key's `'[REDACTED]'` placeholder stays redacted; this layer never
+   * key's `'REDACTED'` placeholder (`memory/placeholders.ts ·
+   * LOG_PLACEHOLDER`, the log's string) stays redacted; this layer never
    * resurrects originals.
    */
   value: unknown;
@@ -471,8 +476,13 @@ export interface ElementBirth {
  *   array at the queried point: a scalar/object key, a deleted key, or a
  *   merge that degraded it. Element provenance is an array concept — for
  *   scalar keys the right query is `sliceForKey`.
+ *
+ * Each member is registered, with the one sentence that says what it means,
+ * in `memory/honesty.ts · HONESTY_CODES` (served on `footprintjs/trace`); the
+ * union declares its members through `RegisteredCode`, so a member the
+ * registry does not hold does not compile.
  */
-export type MissingProvenanceReason = 'empty-log' | 'never-written' | 'not-an-array';
+export type MissingProvenanceReason = RegisteredCode<'empty-log' | 'never-written' | 'not-an-array'>;
 
 /**
  * Element-level provenance for one array-valued key. Mirrors
@@ -525,6 +535,6 @@ export interface SliceJSON {
   >;
   /** Id-referenced edges: child (`from`) depends on parent (`to`). */
   edges?: Array<{ from: string; to: string; kind: 'data' | 'control'; key?: string; weight: number }>;
-  /** Copied from the root when a budget cut the slice. */
+  /** Copied from the root when a budget cut the slice — registered as `'truncated'` in `HONESTY_CODES`. */
   truncated?: { byDepth: boolean; byNodes: boolean };
 }

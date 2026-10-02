@@ -20,6 +20,7 @@
  * `getSnapshot()`.
  */
 
+import type { RegisteredCode } from '../memory/honesty.js';
 import type { CommitBundle, StageSnapshot } from '../memory/types.js';
 
 // ── Sources ────────────────────────────────────────────────────────────────
@@ -99,6 +100,11 @@ export interface TimeTravelSource {
  * Reported rather than thrown: a stored recording with one corrupt row is
  * still worth reading, and a reader that is told WHICH index it lost can say
  * so on screen. `index` is the position in that source's own log.
+ *
+ * Registry code: `'log-gap'` (`memory/honesty.ts · HONESTY_CODES`, served on
+ * `footprintjs/trace`) says what a gap means. A gap carries no `code` field —
+ * it is registered so a reader explains it from the same place as the other
+ * honesty signals.
  */
 export interface LogGap {
   /** ARRAY INDEX in the source's log — the address the gap occupies. */
@@ -261,15 +267,15 @@ export type AxisSplit<TMeta = unknown> =
 // ── The fold result ────────────────────────────────────────────────────────
 
 /**
- * How a folded state was derived — the honesty field.
+ * How a folded state was derived — the honesty field (`'initial+log'` or
+ * `'log-only'`). A partial answer says it is partial, never a silent one.
  *
- * - `'initial+log'` — folded from the run's real fold base. Complete.
- * - `'log-only'` — no `initialState` travelled with this log (a snapshot
- *   stored before 9.17, or a hand-built log), so the fold started from `{}`.
- *   Anything seeded before the run and only ever MERGED afterwards is missing.
- *   A partial answer that says it is partial, never a silent one.
+ * What each value means is registered ONCE, with the other honesty signals, in
+ * `memory/honesty.ts · HONESTY_CODES` (served as `HONESTY_CODES` on
+ * `footprintjs/trace`); this union declares its members through
+ * `RegisteredCode`, so a code the registry does not hold does not compile.
  */
-export type FoldBasis = 'initial+log' | 'log-only';
+export type FoldBasis = RegisteredCode<'initial+log' | 'log-only'>;
 
 /** A detached fold of the log up to one stop. */
 export interface FoldedState {
@@ -282,6 +288,11 @@ export interface FoldedState {
    * carries `'REDACTED'` placeholders where the engine scrubbed values at
    * write time. The log is redacted where it was written; a fold must SAY so
    * rather than present a scrubbed value as the real one.
+   *
+   * Registry code: `'redacted'` (`memory/honesty.ts · HONESTY_CODES`, served on
+   * `footprintjs/trace`) says what this field and {@link FoldedState.redactedPaths} mean;
+   * neither carries a `code`. The placeholder is the log's string,
+   * `memory/placeholders.ts · LOG_PLACEHOLDER`.
    */
   readonly redacted: boolean;
   /** The redacted paths seen across the folded prefix — sorted, deduped. */

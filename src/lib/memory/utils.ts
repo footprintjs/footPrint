@@ -14,6 +14,7 @@
 
 import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
 import { DELIM } from './paths.js';
+import { LOG_PLACEHOLDER } from './placeholders.js';
 import type { MemoryPatch } from './types.js';
 
 export { deepEqual } from './equality.js';
@@ -142,7 +143,7 @@ export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): Memor
     if (_has(out, pathArr)) {
       const curr = _get(out, pathArr);
       if (typeof curr !== 'undefined') {
-        _set(out, pathArr, 'REDACTED');
+        _set(out, pathArr, LOG_PLACEHOLDER);
       }
     }
   }

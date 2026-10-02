@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — `HONESTY_CODES`: one vocabulary for what a reader cannot see (no behaviour change)
+
+- **Why.** A recording cannot always answer what it is asked, and the library says so in several
+  places, each in its own words: a slice's `HonestyNote.code` and `missing` reason, a fed edge's and an
+  element birth's `basis`, a fold's `basis` and `redacted` paths, a stored log's `LogGap`, a causal
+  node's `incompleteSources` and `truncated`. A reader that wants to explain any of them to a person (a
+  why-panel, an agent tool) had to keep its own table of code → sentence.
+- **`HONESTY_CODES` and `type HonestyCode` on `footprintjs/trace`.** A frozen, closed registry: code →
+  the one sentence that says what it means (the shape of rustc's `--explain` and LSP's
+  `Diagnostic.code`: the code is what a consumer branches on). Eighteen codes — the five slice-note
+  codes (`conservative-fed-edges`, `pre-run-origin`, `reads-not-recorded`, `unknown-key`, `truncated`),
+  the three `missing` reasons (`empty-log`, `never-written`, `not-an-array`), the fed-edge bases
+  (`per-write`, `stage`), the element-birth bases (`append-verb`, `prefix-inference`, `whole-value`),
+  the two fold bases (`initial+log`, `log-only`), and `log-gap` / `incomplete-sources` / `redacted`,
+  registered so a reader explains a `LogGap`, `CausalNode.incompleteSources` and
+  `FoldedState.redacted` / `redactedPaths` from the same place. No object gains a field.
+  `HONESTY_CODES[note.code]`, `HONESTY_CODES[slice.missing]`, `HONESTY_CODES[state.basis]`. The
+  registry is a pure expression, so a bundle that never reads it drops it.
+- **No behaviour change.** Every string, object shape and key order is the one 9.31.0 produced: the
+  slice notes' words, every `missing` and `basis` value, a gap's `{ index, reason }`, the commit log and
+  every redacted view. The six public unions `HonestyNoteCode`, `MissingSliceReason`,
+  `MissingProvenanceReason`, `FedBasis`, `AttributionBasis` and `FoldBasis` keep exactly their members;
+  they now declare them through an internal `RegisteredCode<T>` (which is `T`), so a code the registry
+  does not hold fails to COMPILE instead of quietly joining a union.
+- **Pinned.** `test/lib/memory/honesty.test.ts`: the registry is frozen and every entry is ONE
+  sentence; the real compiler is asked that a misspelt member fails (TS2344), that the six unions are
+  mutually assignable with their 9.31.0 literal unions and refuse a registered code that is not theirs,
+  that a `HonestyNote` refuses an unregistered code, that the sentences are typed `string`, and that
+  every registered code belongs to a declared vocabulary; each code the slice queries and the fold emit
+  is checked against the registry on real calls; every slice note's exact words and key order are pinned
+  against the 9.31.0 builders. `test/architecture/honesty-vocabulary.test.ts` asks the type checker for
+  every union of string literals `footprintjs/trace` exports: each is inside the registry or named, with
+  its reason, as a different kind of word (six today: `AxisRefusal`, `MoveRefusal`, `StopKind`,
+  `InOutPhase`, `TopologyIncomingKind`, `UntrackedSource`).
+
+### Internal — the redaction placeholders have one owner (no behaviour change)
+
+- **String literals of a placeholder: six files → one owner.** `'REDACTED'` (the commit log and the
+  mirror — `redactPatch`) and `'[REDACTED]'` (the scope channel) were spelled as literals by
+  `decide/evaluator.ts`, `decide/evidence.ts`, `memory/utils.ts`, `scope/ScopeFacade.ts`,
+  `runner/ExecutionRuntime.ts` and `memory/redaction.ts`. NEW `memory/placeholders.ts` (L0, imports
+  nothing) holds `LOG_PLACEHOLDER` and `SCOPE_PLACEHOLDER`; every site imports them, and
+  `redaction.ts`'s `REDACTED` constant is gone (it was on `memory/index.ts` only — no public door ever
+  exposed it). The two strings are unchanged — two on purpose, because stored recordings hold the first.
+  `test/architecture/placeholders.test.ts` reads every `src/**/*.ts` with the TypeScript compiler API
+  (syntax nodes, so a comment may say the word) and fails on a literal that is either string anywhere
+  but `placeholders.ts`.
+- **Placeholders and the registry are separate leaves.** The engine's write path reads the placeholders
+  on every redacted run; only a reader that explains a recording reads the registry. In one file, the
+  write path pulled the registry's sentences into every app bundle that runs a chart; split, a bundle
+  that only runs a chart no longer carries them.
+- **Docs.** The slice README and `ElementBirth.value` said a slice's placeholder is `'[REDACTED]'`; a
+  slice re-serves the commit log's bytes, so it is `'REDACTED'`.
+- `check:layering`: 0 value-level cycles, 0 unnamed upward edges.
+
 ## [9.31.0] - 2026-10-02
 
 ### Changed — the one verb law (one behaviour change at the doors; one reader bug fixed)
