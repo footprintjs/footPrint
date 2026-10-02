@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — the fence and the leaves (no behaviour change)
+
+- **Why.** The source had ONE value-level module cycle, `{memory, scope, recorder}`, closed by
+  three leaves that imported nothing but sat inside mid-layer modules — so `memory/`, `decide/`,
+  `engine/`, `runner/` and `builder/` imported *upward* for them. Nothing enforced layering, so
+  nothing stopped the next one.
+- **Moved** (function bodies byte-identical; every importer re-pointed):
+  `scope/detectCircular.ts` → `lib/devMode.ts` (the flag) + `capture/circular.ts`
+  (`hasCircularReference`); `recorder/invokeHook.ts` → `capture/invokeHook.ts`;
+  `scope/recorders/summarizeValue.ts` → `capture/summarize.ts`. **The old paths re-export for one
+  minor** and are then deleted; they were never reachable through `package.json` `exports`, so
+  nothing public moved — `footprintjs` keeps its `enableDevMode` / `disableDevMode` / `isDevMode`
+  door, same names, same one piece of state.
+- **Fenced.** The layer table is data (`scripts/layering.config.cjs`); `.eslintrc.js` derives
+  `import/no-restricted-paths` zones from it and adds `import/no-cycle` (src only);
+  `npm run check:layering` prints value-level cycles (module and file level) and upward runtime
+  edges, type-only imports excluded, and runs in the CI lint job and the suite. Value-level
+  module cycles 1 → 0; unnamed upward runtime edges 3 → 0; importers of the old paths 20 → 0.
+  Three edges are named on purpose (builder → `makeRunnable`, engine → the handle registry,
+  scope → `detach/spawn`).
+- **Pinned.** `test/architecture/exports.test.ts` — every public symbol has ONE canonical door
+  (28 double exports are named, with reasons; the list only shrinks);
+  `test/lib/engine/scenario/subflow-seed-dials-pin.test.ts` — a subflow's seed commit under each
+  of the four dials, on a normal entry and a resumed leg, as it is today.
+
 ## [9.30.0] - 2026-10-02
 
 ### Changed — the admitted record: a commit folds back to what the stage read
