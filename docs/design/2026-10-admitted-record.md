@@ -148,6 +148,10 @@ skipped) and "6.0 clones per stage" on the set-only bench (it reads 5.0; 6.0 is 
   the red check against a re-introduced C1.
 - **F2** — `commitValueAt`'s per-row delta clone (decision 6).
 - **Optional C1′** — drop a staged merge delta only when a `merge` FOLLOWS the hard write; not needed for the law.
+- **Named, not handled** — a NUMERIC path segment through an absent parent makes an array in the working copy
+  (`nativeSet` picks `[]` for a number), while the log's DELIM-joined paths are strings and the replay makes an
+  object. Only a caller driving `TransactionBuffer` directly can stage one (`StageContext` passes string segments);
+  the check flags such a family, and its re-encoded rows still replay as an object.
 
 ## Instruments (where every number came from)
 

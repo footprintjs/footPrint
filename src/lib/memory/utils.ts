@@ -508,8 +508,9 @@ function hasNestedRow(trace: TraceEntry[]): boolean {
 }
 
 /**
- * THE verb switch — the replay replica of CLAUDE.md's "FOUR verb-switch
- * replicas in lockstep"; every replay above runs it, there is no other.
+ * THE verb switch — the replay replica of CLAUDE.md's "THREE verb-switch
+ * replicas in lockstep" (four before 9.30.0 deleted the delta encoder's);
+ * every replay above runs it, there is no other.
  * `out` is the caller's: a fresh deep clone ({@link applySmartMerge}), the
  * owned root of a new generation ({@link nextGeneration}), a fold's private
  * working copy ({@link applySmartMergeInto}) or the comparison fold's owned
