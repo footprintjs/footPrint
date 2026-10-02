@@ -402,11 +402,11 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
  * whole-array `set` rows on one path, and this is what makes replaying them
  * O(N) instead of O(N × rows).
  *
- * Shared by `replayRows` (live state and the redacted mirror through
+ * Asked by `replayRows` — live state and the redacted mirror through
  * {@link nextGeneration}, `EventLog.materialise` and `stateAt` through
- * {@link applySmartMergeInto}, the public {@link applySmartMerge}) and
- * `TransactionBuffer.replayFamilyVerbs` (the delta encoder's per-family fold)
- * — the two loops that clone per row.
+ * {@link applySmartMergeInto}, the public {@link applySmartMerge}, and the
+ * admitted record's {@link dryFold} (9.30.0; the delta encoder's own
+ * per-family replay, which asked it too, was deleted then).
  * `commitValueAt` needs no skip: it anchors at the LAST `set` by construction.
  */
 export function supersededByNextSet(rows: readonly { path: string; verb: string }[], i: number): boolean {
