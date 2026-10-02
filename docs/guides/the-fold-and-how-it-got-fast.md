@@ -189,10 +189,12 @@ and it cannot move); the replay builds the next generation by path copy
 fold and live state agree at every path. One verb switch (`utils · replayRows`) behind all
 of them — the public `applySmartMerge` keeps its old contract, a fully detached result.
 
-Two things keep the bytes: a read after the stage's first write takes a private copy of
-what it reads (exactly what the whole-state clone gave it), and a merge privatises the value
-it merges into, because the array union dedups BY REFERENCE — the identity of the base is
-part of the answer. A differential against the published 9.28.0 and a pinned corpus say the
+Three things keep the bytes: a read after the stage's first write takes a private copy of
+what it reads (exactly what the whole-state clone gave it); a read the working copy cannot
+answer — a key the stage deleted — is served from live state as before, but the buffer first
+gives its diff base a private copy at that path (the clone's base could not move; this one
+must not either); and a merge privatises the value it merges into, because the array union
+dedups BY REFERENCE — the identity of the base is part of the answer. A differential against the published 9.28.0 and a pinned corpus say the
 log, the state, the mirror and every fold are unchanged.
 
 | per stage writing ONE number beside an N-item history (`bench/commit-clones.ts`) | 9.28.0 | 9.29.0 |

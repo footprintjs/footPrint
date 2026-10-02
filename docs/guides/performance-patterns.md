@@ -112,8 +112,10 @@ commit). One changed number paid for an agent's whole conversation.
 **Pattern.** *Copy-on-write with structural sharing* — the persistent-data-
 structure idea, applied to plain objects. A generation is never edited; a
 write copies the root and the containers on its own path and shares every
-other subtree. The diff base becomes a bare reference (it cannot move), and a
-read after the first write copies only what it reads. One verb switch still
+other subtree. The diff base becomes a bare reference (nothing may move it: a
+read the stage's working copy cannot answer, served from live state, first gives
+the base a private copy at that path), and a read after the first write copies
+only what it reads. One verb switch still
 (`utils · replayRows`); the public `applySmartMerge` keeps its detached
 contract.
 
@@ -123,7 +125,7 @@ contract.
 | CPU per stage | 18.7 ms | 0.018 ms |
 
 Where: `src/lib/memory/utils.ts · nextGeneration`, `src/lib/memory/pathOps.ts · ownSpine`,
-`src/lib/memory/TransactionBuffer.ts · privatise`.
+`src/lib/memory/TransactionBuffer.ts · privatise` / `detachBase`.
 Pinned: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`
 (counted: the same clone work at N = 100 and 10 000 — red before), and
 `test/lib/memory/property/copy-on-write-differential.property.test.ts` (every

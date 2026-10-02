@@ -40,7 +40,7 @@ Default `'off'` = byte-identical logs. Same 6-site propagation as the other
 three dials. Snapshot discriminant: `getSnapshot().writeProvenance`.
 
 ## M1 — TransactionBuffer staging + net-change commit
-Files: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `utils · nextGeneration` (copy the root + each written path, apply verbs via `replayRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
+Files: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); `detachBase` (a read the working copy cannot answer is served LIVE by `StageContext · readState`, the diff base first gets a private copy at that path); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `utils · nextGeneration` (copy the root + each written path, apply verbs via `replayRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
@@ -56,6 +56,7 @@ Breaks when: code assumes rollback (write-then-throw IS committed), or a consume
 onFirstWrite: buf = new TransactionBuffer(firstTouchState)   // base by reference, root copy (9.29.0)
 write(p,v):   ownSpine(workingCopy, p); workingCopy[p]=v; overwritePatch[p]=v (ref); opTrace.push
 read(p):      privatise(p) — a container still shared with committed state → a private deep copy, once
+              nothing at p (deleted/unset) → LIVE state, after detachBase(p): base[p] = a private copy
 commit():     keep ops where !deepEqual(base[p], working[p]); payload values cloned once
               sharedMemory.context = nextGeneration(state, bundle)  // copy written paths, share the rest, swap
               eventLog.record(bundle); release buf/stateView

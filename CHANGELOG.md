@@ -47,7 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first write; a stage that never reads after writing pays nothing. A merge
   privatises the value it merges into first: `deepSmartMerge` unions arrays
   BY REFERENCE, so `$update(k, [elementReadFromK])` must meet a private copy
-  to stay byte-identical (the build's differential found this).
+  to stay byte-identical (the build's differential found this). A read the
+  working copy cannot answer — the stage deleted or unset the key, or a write
+  replaced a container above it — is served from LIVE state, as on 9.28.0;
+  the buffer first replaces that path of its diff base with a private copy
+  (`TransactionBuffer · detachBase`), as 9.28.0's base was a clone, so
+  `delete s.cfg; const c = s.$getValue('cfg'); c.n = 99; s.$setValue('cfg', c)`
+  records `cfg` exactly as 9.28.0 did (the review's differential found the
+  build recording nothing).
 
 - **`applySmartMerge` (public, `footprintjs/advanced`) keeps its contract:**
   a fully detached result — the base cloned, then the rows replayed into the
@@ -108,6 +115,12 @@ Counts identical in both `commitValues` encodings and both bench rounds.
   // 9.28.0: live when.y === undefined (the next whole-state clone dropped it; the log and the fold keep it)
   // 9.29.0: live when.y === 1
   ```
+
+  It moves later rows too: once live state keeps the expando, a later
+  identical merge-back changes nothing and records no row — a loop whose
+  `outputMapper` merges `{ x: 1 }` into a `Date` records `b.x` on every
+  iteration on 9.28.0 (each clone had dropped it) and on the first two only
+  on 9.29.0.
 
 - **M7 — a value read BEFORE the stage's first write, edited in place AFTER
   it and written back, records no change** (out of contract — reads are
@@ -175,13 +188,18 @@ Counts identical in both `commitValues` encodings and both bench rounds.
 
 - A differential against the PUBLISHED 9.28.0
   (`test/lib/memory/property/copy-on-write-differential.property.test.ts`,
-  fast-check, fixed seeds; `COW_DIFF_RUNS=<n>` for the release gate) compares
-  the commit log in both encodings, live state, the fold base, the execution
-  tree, subflow results, the redacted mirror, the fold at every stop and
-  every error — in-contract charts through the typed scope, subflows, forks
-  and every dial; reads edited in place after the first write (dev-mode
-  warnings included — M1/M2 identical); `StageContext` at nested and
-  run-namespaced paths. A pinned corpus of 280 programs run on 9.28.0
+  fast-check, fixed seeds; `COW_DIFF_RUNS=<n>` and `COW_DIFF_SEED=<n>` for the
+  release gate) compares the commit log in both encodings, live state, the
+  fold base, the execution tree, subflow results, the redacted mirror, the
+  fold at every stop and every error — in-contract charts through the typed
+  scope, subflows, forks and every dial; reads edited in place after the
+  first write (dev-mode warnings included — M1/M2 identical); `StageContext`
+  at nested and run-namespaced paths. A fourth family
+  (`copy-on-write-pause-differential.property.test.ts`, written by the
+  review) pauses and resumes: loops, a subflow passing parent objects
+  through and merging objects back, `interrupt` and pausable stages at both
+  levels, same- and cross-executor resume — every leg, every checkpoint and
+  every fold identical. A pinned corpus of 280 programs run on 9.28.0
   (`test/lib/memory/scenario/copy-on-write-byte-identity.test.ts`) and the
   three existing reference suites reproduce byte for byte.
 - `TransactionBuffer`'s commit payload, the redaction rule and `redactPatch`,
@@ -196,9 +214,15 @@ Counts identical in both `commitValues` encodings and both bench rounds.
   10,000 for a one-number stage (both encodings, ± mirror), a fork child's
   namespaced write, a subflow's nested merge-back, 400 commits and an agent
   loop; a read after the first write pays for the value read. Red on 9.28.0.
-- The law as a property (no generation a stage saw is edited), unit tests for
-  the primitives and the three replays, security tests (hostile paths through
-  every replay and read; served views never reach the record).
+- The law as a property (no generation a stage saw is edited) — through the
+  typed scope, through `StageContext` at nested and namespaced paths (also
+  checked on every in-contract program of the differential's nested family),
+  and for two forks whose children `$update` their namespaces: byte
+  comparison alone cannot see a replay that edits the generation it builds
+  on, and the review showed two such regressions passing the whole suite.
+  Unit tests for the primitives and the three replays, security tests
+  (hostile paths through every replay, read and base detach; served views
+  never reach the record).
 - `bench/commit-clones.ts` — what one small write costs as the state grows,
   by operation count first. `footprintjs-baseline` (devDependency): an npm
   alias of `footprintjs@9.28.0`, pinned exactly and kept out of Renovate.

@@ -102,7 +102,7 @@ positions that happen to hold the same container are two values; a write through
 | Committed state immutable-after-swap | Kept by construction: no writer edits a container it did not create. Measured: the full suite with EVERY committed generation `Object.freeze`d (census below) — 0 throws from `src/lib` in 4,443 tests. Property-pinned: every generation a stage saw equals, at the end of the run, the copy taken when it was seen. |
 | First-touch views hold bare references | Unchanged — generations are never edited, so a view and now the buffer's diff base stay exact. |
 | Clone once at commit (9.23.0, landmine 3 first bite) | Unchanged: the patch trees still hold references; the payload is cloned once per surviving path at the boundary. |
-| `detachHeldAncestors` | Unchanged for `overwritePatch`. The working copy now copies a held caller value before an engine nested op writes through it, instead of editing the caller's object (a 9.23.0 wart; log bytes unchanged). |
+| `detachHeldAncestors` | Unchanged for `overwritePatch`. The working copy now copies a held caller value before an engine nested op writes through it, instead of editing the caller's object (a 9.23.0 wart; log bytes unchanged). Under copy-on-write its call in `merge` is REDUNDANT: `merge` writes only `workingCopy` (through `ownSpine`, which copies a held caller value like any container the buffer did not create) and `updatePatch` (fresh containers from `deepSmartMerge`), never `overwritePatch` — so no test can pin that call, and the review's injection removing it survived the suite, as expected. `set` and `delete` still need it: they write `overwritePatch` THROUGH a held caller value, which nothing else copies. Kept in `merge` as a one-line guard for a future `merge` that writes `overwritePatch`. |
 | Redaction one law (9.19.0) | Unchanged: the mirror replays the redacted patches through the same path-copying replay; nothing new retains or serves a value. The served mirror no longer shares containers with the log (D2). |
 | Delta mode / `EventLog.materialise` / `commitValueAt` | Byte-identical in both encodings (differential + reference suites). `materialise` inherits path copying (side effect: no per-step whole-state clone). |
 | `supersededByNextSet` (consecutive-only skip) | Unchanged; asked before any copy. |
@@ -137,7 +137,10 @@ move. The rest move either way.
   disagrees (`seed.cfg.n = 42` in the first stage → 9.28.0 live `cfg.n` 42, fold 1; prototype 1 and 1).
 - **M6 (fix)** — expando properties a nested engine write hangs on a committed `Date`/`Map`/`Set` (`setObject(['when'],
   'y', …)` over a `Date`): 9.28.0's next whole-state clone silently drops them from LIVE state while its fold keeps
-  them (fold ≠ live — found by the differential); copy-on-write keeps them in both.
+  them (fold ≠ live — found by the differential); copy-on-write keeps them in both. It moves LATER rows too (the
+  review): once live state keeps the expando, a later identical merge-back changes nothing and records no row — a
+  loop merging `{ x: 1 }` into a `Date` records `b.x` on all three iterations on 9.28.0, on the first two on the
+  build (pinned beside M6).
 - **D1 (fix of a 9.28.0 bug that copy-on-write would widen)** — `readonlyInput · createFrozenArgs` deep-freezes a
   subflow's args IN PLACE, and an `inputMapper` that passes a parent object through (`(p) => ({ cfg: p.cfg })`)
   hands it the parent's committed object. The typed scope does not proxy frozen values
@@ -337,6 +340,12 @@ makes option D unconditional.
    pin of 2 clones — the prototype's moved pin is reverted.)
 4. **M3–M6 named in the CHANGELOG** under "Changed", one example each; the README / CLAUDE.md invariant lines
    updated, citing file · symbol.
+5. **(Review round, 2026-10-02) A read the working copy cannot answer restores 9.28.0 at the root — not a ninth
+   named move.** The promise of decision 1 is that option D restores 9.28.0's observable behaviour exactly; the
+   review's differential found a read it did not cover (B2 below). Fixed in the buffer, the owner option D uses
+   (`TransactionBuffer · detachBase`); see "The review round".
+6. **(Review round) The law gets tests where it is enforced**: the nested family checks generations, and a two-fork
+   `$update` chart pins the replay's merge path copy (B1 below).
 
 ### What the build changed relative to the prototype
 
@@ -417,15 +426,63 @@ two rounds — `'full'` loop 172 / 206 → 144 / 156 ms, `'delta'` loop 205 / 22
 shape): build + run 37.8 / 37.7 s → 21.3 / 21.9 s; the read side within noise (`stateAt(last)` 3.85 / 4.05 →
 4.13 / 3.85 ms, one step 7.22 / 7.72 → 8.68 / 6.57 ms).
 
+### The review round (2026-10-02)
+
+An independent adversarial review of head `0625dce` (PR #10) found no byte difference from 9.28.0 for in-contract
+programs (5 × 2,000 programs per family, a new pause/resume differential of 2,000 programs, 5,000 random bundles
+through the exported `applySmartMerge`) and blocked on two findings. What changed:
+
+- **B1 — the law had no test at two of its enforcement points.** With `replayRows`' path copy skipped for `merge`
+  rows, or `replayFamilyVerbs`' `ownSpine` line removed, the whole suite stayed green (only load timeouts failed).
+  The CHART family captures generations at top-level stages only and holds one fork per program, so `runs` never
+  existed in a captured generation; the NESTED family compared bytes only. Reachable in contract: two forks whose
+  children `$update` — a `getSnapshot().sharedState` held from before the second fork was edited in place. Now:
+  `runNested` captures the generation before every commit and the differential requires, on every in-contract
+  nested program, that none was edited; the same as a 3,000-program property; and the two-fork chart, both
+  encodings (`copy-on-write-commit.test.ts`, THE LAW). Each fails on each injection.
+- **B2 — a read served from live state after the first write moved the diff base.** `StageContext · readState`
+  falls through to LIVE committed state when the working copy holds nothing at the path — the stage deleted or
+  unset it, or a write replaced a container above it (NESTED, seed 102938, program 1,976: `merge list = 0`,
+  `merge list.x`, then a read of `list.list`). 9.28.0 serves the same live value; but its diff base was a clone
+  taken at the first write, while here the base IS the committed generation, holding that very container. An
+  in-place edit then moved the base, and the write-back recorded nothing (`delete s.cfg; c = $getValue('cfg');
+  c.n = 99; $setValue('cfg', c)`: 9.28.0 records `cfg {n:99}`, the head recorded no row — live `{n:99}`, log and
+  fold `{n:1}`, no warning, both encodings).
+  - **Fixed at the root, in the buffer:** before the value goes out, `TransactionBuffer · detachBase` replaces the
+    base's value at that path with a private deep copy (the base's root and the containers on the way copied
+    shallowly, once per path; nothing when the base holds no container there). The base is then exactly what
+    9.28.0's clone held at that path; the value handed out stays the live one.
+  - **Why not a private copy of the value handed out** (the first plan): 9.28.0 handed out LIVE state here, so an
+    in-place edit that is never written back reached live state. A private copy keeps it out — and a run-namespaced
+    read that falls back to a GLOBAL key (a fork child reading its parent's key) then ends with different live
+    state. Measured: that variant failed the NESTED family on every seed tried (102938, 11, 21, 31) within 12–100
+    programs; it would also deep-copy every parent container a fork child reads after its first write. With
+    `detachBase`, the same four seeds × 2,000 NESTED and BORROWED programs are identical.
+  - Pinned: the typed-scope write-back (delete and unset, both encodings, dev mode) and the two NESTED shapes —
+    seed 102938's program, and the global fallback that rules the private copy out — against the real 9.28.0; the
+    seed-102938 NESTED property (2,000 programs) stays in the suite.
+- **Not blocking, done:** M6's later-row effect named and pinned (above); `copy-on-write.test.ts` now checks the
+  generation each of `applyPatch`, `setValue` and `updateValue` replaced (it checked `g0`, which the last two never
+  touch — an in-place `setValue` passed); `privatise`'s refusal to copy a STAGED value is pinned where it matters
+  (a write-back of the committed object itself, at its own path — the prototype's phantom set); the
+  `detachHeldAncestors` call in `merge` is redundant under copy-on-write (Invariants table).
+- **The pause/resume differential** the review wrote is checked in
+  (`test/lib/memory/property/copy-on-write-pause-differential.property.test.ts`, 60 programs in `npm test`).
+- **The families keep M6 out completely now.** A fresh seed (610000) failed the CHART family at program 1,113 and the
+  pause family at 1,827 — on the head without this round's fix too: both merged a plain object back into a key that
+  held a `Date` (the CHART mapper guarded `obj` only, the pause mapper `b` only; `hist` and `b` slipped through). That
+  is M6, named and pinned: expandos kept in live state change every later merge through the key. One helper now
+  steers every mapped key off a `Date` (`copy-on-write-fixture · keepOffDates`); the 280-program corpus is unchanged.
+
 ### Test plan — as built
 
 | Item | File | Status |
 |---|---|---|
 | 1. Byte identity, pinned | `test/lib/memory/scenario/copy-on-write-byte-identity.test.ts` + `reference/copy-on-write-9.28.0.json` (280 programs, three families, run on the published 9.28.0, a digest per kept field) and the three existing reference suites, unchanged | green |
-| 2. Byte identity, generative | `test/lib/memory/property/copy-on-write-differential.property.test.ts` — the published 9.28.0 (`footprintjs-baseline`, pinned exactly, out of Renovate) vs `src`, fixed seeds; chart / borrowed / nested families; `COW_DIFF_RUNS=6000` for the release gate | green (150 / 150 / 400 runs in `npm test`) |
+| 2. Byte identity, generative | `test/lib/memory/property/copy-on-write-differential.property.test.ts` — the published 9.28.0 (`footprintjs-baseline`, pinned exactly, out of Renovate) vs `src`, fixed seeds; chart / borrowed / nested families (+ nested at the review's seed 102938) and `copy-on-write-pause-differential.property.test.ts` (pause/resume); `COW_DIFF_RUNS=<n>` / `COW_DIFF_SEED=<n>` for the release gate | green (150 / 150 / 400 + 2,000 / 60 runs in `npm test`) |
 | 3. Complexity guard, counted | `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts` (7: one-number stage × encodings × mirror, a fork child's namespaced write, a subflow's nested merge-back, a read after the first write pays for the value read) and `copy-on-write.load.test.ts` (400 commits; an agent loop) | green; all red on 9.28.0 |
-| 4. The law, as a property | `copy-on-write-commit.test.ts` (every generation a stage saw, live and mirror, unchanged at the end) + the differential's per-program generation check | green |
-| 5. Each named behaviour | `copy-on-write-commit.test.ts` — D1 (9.28.0's TypeError reproduced on the real 9.28.0), D2, M1, M1b, M2 (+ the merge variant), M3–M8, each against the real 9.28.0 | green |
+| 4. The law, as a property | `copy-on-write-commit.test.ts` (every generation a stage saw, live and mirror, unchanged at the end — typed scope; `StageContext` at nested and namespaced paths; two forks with `$update` children) + the differential's per-program generation check (chart and in-contract nested programs) | green; each fails on the review's two injections |
+| 5. Each named behaviour | `copy-on-write-commit.test.ts` — D1 (9.28.0's TypeError reproduced on the real 9.28.0), D2, M1, M1b, M2 (+ the merge variant), M3–M8 (M6 with its later-row effect), the read served from live state (B2) and a staged write-back read back, each against the real 9.28.0 | green |
 | 6. Landmines re-run | the full suite, unchanged | green |
 | Unit / security | `unit/copy-on-write.test.ts` (primitives, the three replays, private reads, generations); `security/copy-on-write.security.test.ts` (hostile paths through every replay and read; an own `__proto__` key; served views never reach the record) | green |
 
