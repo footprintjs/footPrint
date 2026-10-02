@@ -179,10 +179,19 @@ cross a mount.)
 - `HonestyNote[]` (forward) — the machine-readable envelope: a consumer
   branches on `code`, a human/LLM reads `detail`. Five codes:
   `'unknown-key'`, `'reads-not-recorded'`, `'pre-run-origin'`,
-  `'conservative-fed-edges'`, `'truncated'`.
+  `'conservative-fed-edges'`, `'truncated'`. What each code MEANS is
+  registered once, in `memory/honesty.ts · HONESTY_CODES` (served as
+  `HONESTY_CODES` on `footprintjs/trace`, beside the fold bases and the two
+  signals that carry no code field): `HONESTY_CODES[note.code]` is the
+  one-sentence explanation, and `HonestyNoteCode` declares its members through
+  `RegisteredCode`, so a code the registry does not hold does not compile.
+  Every note is built through `note()` there; the `detail` is the per-instance
+  sentence (it names the key or the budget).
 - Redaction: this layer re-serves commit-log bytes; a redacted key's
-  `'[REDACTED]'` placeholder stays redacted. No new leak surface. (Forward
-  nodes carry identity and position only — no values at all.)
+  `'[REDACTED]'` placeholder stays redacted (the string is
+  `memory/honesty.ts · SCOPE_PLACEHOLDER` — spelled nowhere else in `src/`).
+  No new leak surface. (Forward nodes carry identity and position only — no
+  values at all.)
 
 **The typo guard**, split by what the recording affords — because
 "nothing read it" and "you spelled it wrong" must never render alike:

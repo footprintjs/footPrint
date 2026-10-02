@@ -23,6 +23,7 @@
  */
 
 import type { CausalNode, KeysReadLookup } from '../memory/backtrack.js';
+import type { RegisteredCode } from '../memory/honesty.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from '../memory/types.js';
 
 // ── Keys ───────────────────────────────────────────────────────────────────
@@ -167,32 +168,17 @@ export interface VariableSlice {
 export type FedBasis = 'per-write' | 'stage';
 
 /**
- * A machine-readable honesty statement about a forward query's answer.
- * Codes (a consumer BRANCHES on `code`; `detail` is the sentence to show):
+ * The code of a {@link HonestyNote} — a machine-readable honesty statement about a forward query's
+ * answer. A consumer BRANCHES on `code`; `detail` is the sentence to show.
  *
- * - `'conservative-fed-edges'` — at least one `fed` edge is stage-level
- *   ({@link FedBasis}). Turn on `writeProvenance: 'reads-prefix'` for exact
- *   edges.
- * - `'pre-run-origin'` — the value being followed was already there before
- *   the first write this log can see (initial state, frozen run `input`, or
- *   a closure) — the same blind spot `missing: 'never-written'` names on the
- *   backward side.
- * - `'reads-not-recorded'` — this log carries no recorded read AT ALL (the
- *   `readTracking: 'off'` signature). "Nobody read it" is then UNKNOWABLE,
- *   not true — and no forward answer over this log can be complete.
- * - `'unknown-key'` — this log has no write and no recorded read of the key.
- *   The detail NAMES a bounded list of the keys it does know, because the
- *   overwhelmingly likely cause is a typo (or the wrong run's log), and a
- *   typo must never read as "this variable has no history".
- * - `'truncated'` — a budget (`maxDepth`/`maxNodes`) cut the walk. Stated,
- *   never silent.
+ * What each code means is registered ONCE, with the other honesty signals, in
+ * `memory/honesty.ts · HONESTY_CODES` (served as `HONESTY_CODES` on `footprintjs/trace`); this
+ * union declares its members through `RegisteredCode`, so a code the registry does not hold does
+ * not compile.
  */
-export type HonestyNoteCode =
-  | 'conservative-fed-edges'
-  | 'pre-run-origin'
-  | 'reads-not-recorded'
-  | 'unknown-key'
-  | 'truncated';
+export type HonestyNoteCode = RegisteredCode<
+  'conservative-fed-edges' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
+>;
 
 /** One honesty statement — see {@link HonestyNoteCode}. */
 export interface HonestyNote {

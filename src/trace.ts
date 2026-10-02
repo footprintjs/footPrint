@@ -208,6 +208,15 @@ export {
   sliceToJSON,
 } from './lib/slice/index.js';
 
+// ── honesty — the ONE registry of what a reader cannot see ─────────────────
+// Every machine-readable honesty signal a reader meets — a slice's `HonestyNote.code`, a fold's
+// `FoldedState.basis`, a `LogGap`, a causal node's `incompleteSources` — has a code here and the
+// ONE sentence that says what it means, so a lens or an agent tool explains any of them from one
+// place instead of keeping its own table. `HonestyNoteCode` and `FoldBasis` (above) are subsets
+// of `HonestyCode`. See src/lib/memory/README.md.
+export type { HonestyCode } from './lib/memory/index.js';
+export { HONESTY_CODES } from './lib/memory/index.js';
+
 // ── v5 Stores (concrete, composable — primary recorder API) ─────
 // Compose these via `new Store<T>()` as a field on your recorder
 // class. One purpose per recorder: stores are storage; recorders

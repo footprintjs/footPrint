@@ -96,6 +96,11 @@ export interface CausalNode {
    * produce no read→write edge to follow. `formatCausalChain` renders this
    * as a `⚠ … slice may be incomplete here` line. Absent when the stage's
    * reads were fully tracked.
+   *
+   * Registry code: `'incomplete-sources'` (`memory/honesty.ts ·
+   * HONESTY_CODES`, served on `footprintjs/trace`) says what this field
+   * means. The field carries no `code` — its values are the
+   * {@link UntrackedSource}s.
    */
   incompleteSources?: ReadonlyArray<UntrackedSource>;
   /**

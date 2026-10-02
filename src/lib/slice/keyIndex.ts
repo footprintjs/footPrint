@@ -27,6 +27,7 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
+import { note } from '../memory/honesty.js';
 import type { CommitBundle, TraceEntry } from '../memory/types.js';
 import type { HonestyNote } from './types.js';
 
@@ -101,14 +102,13 @@ export function unknownKeyNote(index: KeyIndex, key: string): HonestyNote {
   const shown = all.slice(0, KNOWN_KEYS_LISTED);
   const more = all.length - shown.length;
   const known = shown.length > 0 ? `${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}` : '(none)';
-  return {
-    code: 'unknown-key',
-    detail:
-      `unknown key '${key}' — this commit log has no write and no recorded read of it. ` +
+  return note(
+    'unknown-key',
+    `unknown key '${key}' — this commit log has no write and no recorded read of it. ` +
       `Known keys: ${known}. ` +
       'If the key is real, check that the commit log and the reads provider come from the SAME scope ' +
       '(a subflow has its own).',
-  };
+  );
 }
 
 /**
@@ -176,46 +176,43 @@ export function lastTraceEntry(bundle: CommitBundle, path: string): TraceEntry |
 //
 // LAW: every forward answer states what it could not see, in the SAME words
 // whichever query produced it. Codes are what a consumer branches on; the
-// detail is what a human or an LLM reads.
+// detail is what a human or an LLM reads. Every note is built through
+// `memory/honesty.ts · note`, so its code is one the registry (`HONESTY_CODES`)
+// explains — what each code MEANS is written there once; the `detail` below is
+// the per-instance sentence (it names the key, the budget).
 
-/** The `readTracking: 'off'` signature — see the HonestyNoteCode docs. */
+/** The `readTracking: 'off'` signature — see `HONESTY_CODES['reads-not-recorded']`. */
 export function readsNotRecordedNote(): HonestyNote {
-  return {
-    code: 'reads-not-recorded',
-    detail:
-      "reads were not recorded (readTracking may be 'off') — 'nothing read this value' is " +
+  return note(
+    'reads-not-recorded',
+    "reads were not recorded (readTracking may be 'off') — 'nothing read this value' is " +
       'UNKNOWABLE here, not true.',
-  };
+  );
 }
 
 /** The value predates every write this log can see. */
 export function preRunOriginNote(key: string): HonestyNote {
-  return {
-    code: 'pre-run-origin',
-    detail:
-      `'${key}' has no write before this point — the value came from initial state, frozen run input ` +
+  return note(
+    'pre-run-origin',
+    `'${key}' has no write before this point — the value came from initial state, frozen run input ` +
       '(args), or a closure. The reads listed did see it; who put it there is outside the commit log.',
-  };
+  );
 }
 
 /** At least one fed edge rests on stage-level co-occurrence only. */
 export function conservativeEdgesNote(key: string): HonestyNote {
-  return {
-    code: 'conservative-fed-edges',
-    detail:
-      "some 'fed' edges are CONSERVATIVE (stage-level): those writes carry no per-write read provenance, " +
+  return note(
+    'conservative-fed-edges',
+    "some 'fed' edges are CONSERVATIVE (stage-level): those writes carry no per-write read provenance, " +
       `so a stage that read '${key}' and wrote another key may not actually have used it. Run with ` +
       "writeProvenance: 'reads-prefix' to get exact edges.",
-  };
+  );
 }
 
 /** A budget cut the walk — stated, never silent. */
 export function truncatedNote(byDepth: boolean, byNodes: boolean): HonestyNote {
   const causes = [byDepth && 'maxDepth reached', byNodes && 'maxNodes reached'].filter(Boolean).join(', ');
-  return {
-    code: 'truncated',
-    detail: `walk truncated (${causes}) — more consumers of this value exist beyond this horizon.`,
-  };
+  return note('truncated', `walk truncated (${causes}) — more consumers of this value exist beyond this horizon.`);
 }
 
 /** Distinct written paths of a bundle, in first-touch order. */

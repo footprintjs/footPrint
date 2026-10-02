@@ -11,6 +11,7 @@
  */
 
 import { EventLog } from '../memory/EventLog.js';
+import { LOG_PLACEHOLDER } from '../memory/honesty.js';
 import type { RedactionRule } from '../memory/redaction.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
@@ -26,9 +27,6 @@ import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
-/** The commit log's placeholder (`redactPatch`) — what the mirror's seed and patches both carry. */
-const LOG_PLACEHOLDER = 'REDACTED';
-
 export interface RecorderSnapshot {
   id: string;
   name: string;

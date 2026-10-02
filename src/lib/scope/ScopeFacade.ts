@@ -23,6 +23,7 @@ import {
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
+import { SCOPE_PLACEHOLDER } from '../memory/honesty.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
@@ -343,7 +344,7 @@ export class ScopeFacade {
     if (patterns && patterns.length > 0) {
       for (const pattern of patterns) {
         if (pattern.test(name)) {
-          finalPayload = '[REDACTED]';
+          finalPayload = SCOPE_PLACEHOLDER;
           break;
         }
       }

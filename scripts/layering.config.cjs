@@ -49,6 +49,8 @@ const LAYERS = [
       'src/lib/memory/paths.ts',
       'src/lib/memory/equality.ts',
       'src/lib/memory/merge.ts',
+      // The honesty vocabulary (F4a): the code registry + the two redaction placeholders; imports nothing, read from L1-L5.
+      'src/lib/memory/honesty.ts',
       // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',

@@ -8,6 +8,7 @@
  */
 
 import { summarizeValue } from '../capture/summarize.js';
+import { SCOPE_PLACEHOLDER } from '../memory/honesty.js';
 import type { ReadEvent, ScopeRecorder } from '../scope/types.js';
 import type { ReadInput } from './types.js';
 
@@ -31,7 +32,7 @@ export class EvidenceCollector implements ScopeRecorder {
     if (!event.key) return;
     this.inputs.push({
       key: event.key,
-      valueSummary: event.redacted ? '[REDACTED]' : summarizeValue(event.value, MAX_VALUE_LEN),
+      valueSummary: event.redacted ? SCOPE_PLACEHOLDER : summarizeValue(event.value, MAX_VALUE_LEN),
       redacted: event.redacted === true,
     });
   }

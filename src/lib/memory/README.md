@@ -154,7 +154,7 @@ const child = ctx.createChild('run-1', 'branch-1', 'parallelTask', 'parallelTask
 
 **Read values are borrowed — do not mutate them.** Since the lazy buffer (#13), a read before the stage's first write returns a reference INTO COMMITTED SHARED STATE (the zero-clone first-touch view); a read after a write returns a reference into the buffer's working copy. Mutating a returned value in place corrupts state without a commit record — write changes back through `setObject`/`updateObject` (or, at the scope tier, `setValue`/`updateValue`). TypedScope consumers are safe automatically (the proxy routes every mutation through tracked writes). There is deliberately no dev-mode deep-freeze guard: freezing a buffer-served read would freeze the stage's own working copy (a later deep write into the same key throws), and freezing a committed-state read mutates an object shared with every other consumer of the live state — neither is a safe guard, so the contract is documented instead.
 
-**Redaction — the one law (9.19.0):** a redaction policy covers everything retained or served (commit log in both encodings, redacted mirror, `stageReads`/`stageWrites`, narrative, a subflow's seed and merge-back, and since 9.20.0 a subflow's SERVED state — `subflowResults[*].treeContext.globalContext` under `redact: true` and `onSubflowExit.outputState` are the subflow's own nested mirror, enabled by `SubflowExecutor` the way the root does and served by `engine/handlers/servedSubflowResults`) and never the live heap or the resume checkpoint. The verdict has ONE owner, `RedactionRule` (`redaction.ts`), installed on the root `StageContext` by `ExecutionRuntime.useRedaction` and inherited like the dials (`createNext`/`createChild`, `SubflowExecutor` push — the same triplicated propagation, so miss one and a subflow silently retains plaintext). `StageContext.stageWrite` is the ONE funnel every staged write passes through: it asks the rule, stages the write with the paths the log will scrub (a whole key, or the `fields` inside the value via `TransactionBuffer.markRedactedFields`), and marks/unmarks the run's shared set; `getValue` retains reads under the same verdict (`retainedForm`: placeholder beats every dial, a field scrub happens before the dial sees the value). A bypassing path is therefore impossible to write without noticing — there is no second decider. Placeholders are historical: `redactPatch` writes `'REDACTED'` into the log and mirror; retention and recorder views carry `'[REDACTED]'`.
+**Redaction — the one law (9.19.0):** a redaction policy covers everything retained or served (commit log in both encodings, redacted mirror, `stageReads`/`stageWrites`, narrative, a subflow's seed and merge-back, and since 9.20.0 a subflow's SERVED state — `subflowResults[*].treeContext.globalContext` under `redact: true` and `onSubflowExit.outputState` are the subflow's own nested mirror, enabled by `SubflowExecutor` the way the root does and served by `engine/handlers/servedSubflowResults`) and never the live heap or the resume checkpoint. The verdict has ONE owner, `RedactionRule` (`redaction.ts`), installed on the root `StageContext` by `ExecutionRuntime.useRedaction` and inherited like the dials (`createNext`/`createChild`, `SubflowExecutor` push — the same triplicated propagation, so miss one and a subflow silently retains plaintext). `StageContext.stageWrite` is the ONE funnel every staged write passes through: it asks the rule, stages the write with the paths the log will scrub (a whole key, or the `fields` inside the value via `TransactionBuffer.markRedactedFields`), and marks/unmarks the run's shared set; `getValue` retains reads under the same verdict (`retainedForm`: placeholder beats every dial, a field scrub happens before the dial sees the value). A bypassing path is therefore impossible to write without noticing — there is no second decider. Placeholders are historical: `redactPatch` writes `'REDACTED'` into the log and mirror; retention and recorder views carry `'[REDACTED]'` — the two strings are owned by `honesty.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`, [below](#honesty--one-vocabulary-for-what-a-reader-cannot-see)) and spelled nowhere else in `src/`.
 
 **Read-tracking policy (#14):** the per-read `structuredClone` into the snapshot's `stageReads` view is policy-gated via `ReadTrackingMode` — `'full'` (default, historical behavior), `'summary'` (cheap type/size/preview marker per read), `'off'` (no `stageReads`, zero per-read cost). Set per executor: `new FlowChartExecutor(chart, { readTracking: 'off' })` or `executor.setReadTracking('off')`. Only the snapshot payload changes — `onRead` events (and therefore narrative) pass the live reference and are identical in every mode.
 
@@ -305,6 +305,33 @@ try {
 }
 ```
 
+## Honesty — one vocabulary for what a reader cannot see
+
+A recording cannot always answer what it is asked, and the library says so in several places: a slice's `HonestyNote`s, a fold's `basis`, a stored log's `LogGap`s, a causal node's `incompleteSources`, and the placeholder a redaction leaves where a value was. A reader that wants to explain any of them to a person (a why-panel, an agent tool) kept its own table of code → sentence, and tables kept apart drift. `honesty.ts` is the one place that names them. It imports nothing.
+
+| Owns | What |
+|---|---|
+| `HONESTY_CODES` | A frozen, closed registry: code → the one sentence that says what it means (rustc's `--explain`, LSP's `Diagnostic.code`; the code is what a consumer branches on, the sentence is for the screen). Nine codes: the five slice-note codes, the two fold bases (`initial+log`, `log-only`), and `log-gap` / `incomplete-sources` — registered so a reader explains `LogGap` and `CausalNode.incompleteSources` from the same place, though neither carries a `code` field. Served as `HONESTY_CODES` and `HonestyCode` on `footprintjs/trace` |
+| `RegisteredCode<T>` | The gate. `HonestyNoteCode` and `FoldBasis` declare their members through it, so a code the registry does not hold fails to compile (TS2344). `RegisteredCode<T>` is `T`: the public unions are exactly the members they were, not widened to every code |
+| `note(code, detail)` | The one constructor of a slice note's `{ code, detail }` (key order included). Internal — on no barrel |
+| `LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER` | The two strings a redaction leaves where a value was: `'REDACTED'` in the commit log and the mirror (`redactPatch`), `'[REDACTED]'` in every scope-tier view. Two on purpose — stored recordings hold the first. No other `src/` file spells either as a literal (`test/architecture/placeholders.test.ts`); `redaction.ts` keeps `REDACTED` as an alias of the scope one |
+
+**Why L0.** `utils.ts` (L1) writes the log placeholder, `redaction.ts` (L2) the scope one, and `slice/` and `time-travel/` (L3) type their codes through the registry, so the owner has to sit at or below the lowest of them: a leaf (layer table: `scripts/layering.config.cjs`).
+
+```typescript
+import { forwardSliceForKey, HONESTY_CODES, keysReadFromExecutionTree, stateAt } from 'footprintjs/trace';
+
+// One lookup explains any honesty signal — no table of your own to keep in step.
+const { notes } = forwardSliceForKey(snapshot.commitLog, 'creditTier', keysReadFromExecutionTree(snapshot.executionTree));
+for (const { code } of notes) console.log(code, '→', HONESTY_CODES[code]);
+// reads-not-recorded → This log carries no recorded read at all (the readTracking: 'off' signature), so …
+
+const { basis } = stateAt(snapshot, 3);
+console.log(HONESTY_CODES[basis]); // 'log-only' → No initialState travelled with this log (…), so the fold started from an empty object …
+```
+
+Adding a code is one new line in `HONESTY_CODES`; a code used anywhere without that line does not compile.
+
 ## Dependency Graph
 
 ```
@@ -319,6 +346,7 @@ SharedMemory  TransactionBuffer  DiagnosticCollector
   verbs (applyVerb, foldRows, foldKey — the one verb law; applySmartMerge, nextGeneration, dryFold)
     |
   paths · equality · merge · pathOps (leaves) — utils re-exports them and holds the nested-object helpers
+  honesty (leaf) — HONESTY_CODES and the two redaction placeholders; read by utils, redaction, slice/, time-travel/, decide/, scope/, runner/
     |
   types (MemoryPatch, CommitBundle, TraceEntry, FlowMessage, etc.)
 ```

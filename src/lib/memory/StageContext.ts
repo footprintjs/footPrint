@@ -13,9 +13,10 @@ import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
+import { SCOPE_PLACEHOLDER } from './honesty.js';
 import { nativeGet } from './pathOps.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, REDACTED, RedactionRule } from './redaction.js';
+import { CLEAR, RedactionRule } from './redaction.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
@@ -424,7 +425,7 @@ export class StageContext {
     mode: ReadTrackingMode | WriteTrackingMode,
     summarize: (value: unknown) => unknown,
   ): unknown {
-    if (verdict.kind === 'whole') return REDACTED;
+    if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
     const scrubbed = verdict.kind === 'fields' ? RedactionRule.scrubFields(value, verdict.paths) : undefined;
     if (mode === 'summary') return summarize(scrubbed ?? value);
     return scrubbed ?? structuredClone(value);

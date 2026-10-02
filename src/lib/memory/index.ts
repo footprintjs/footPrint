@@ -15,7 +15,12 @@ export { TransactionBuffer } from './TransactionBuffer.js';
 
 // Redaction — the ONE owner of the verdict (9.19.0)
 export type { RedactionVerdict } from './redaction.js';
-export { REDACTED, RedactionRule } from './redaction.js';
+export { RedactionRule } from './redaction.js';
+
+// Honesty — the ONE vocabulary for what a reader cannot see (F4a): the code registry, and the two
+// strings a redaction leaves where a value was (`REDACTED` is now `SCOPE_PLACEHOLDER`)
+export type { HonestyCode } from './honesty.js';
+export { HONESTY_CODES, LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './honesty.js';
 
 // Types
 export type {

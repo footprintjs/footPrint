@@ -20,10 +20,13 @@
  * TWO PLACEHOLDERS, BOTH HISTORICAL: the commit log and the mirror carry
  * `'REDACTED'` (`redactPatch`, unchanged since 4.x); every scope-tier view —
  * recorder events, `stageReads`/`stageWrites`, narrative — carries
- * `'[REDACTED]'` ({@link REDACTED}). Neither string changed in 9.19.0.
+ * `'[REDACTED]'`. Neither string changed in 9.19.0. The strings themselves are
+ * owned by `memory/honesty.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`) and
+ * spelled nowhere else in `src/` — this rule asks for the scope one by name.
  */
 
 import { isDevMode } from '../devMode.js';
+import { SCOPE_PLACEHOLDER } from './honesty.js';
 import { nativeHas, nativeSet } from './pathOps.js';
 
 /**
@@ -72,8 +75,13 @@ export interface RedactionReport {
   patterns: string[];
 }
 
-/** The scope-tier placeholder — recorder events, retention, narrative. */
-export const REDACTED = '[REDACTED]';
+/**
+ * The scope-tier placeholder — recorder events, retention, narrative — under its
+ * historical name. The string is `honesty.ts · SCOPE_PLACEHOLDER`; this alias stays
+ * for the importers that already read it by this name (this rule's unit test). New
+ * code takes {@link SCOPE_PLACEHOLDER}.
+ */
+export const REDACTED = SCOPE_PLACEHOLDER;
 
 /**
  * What the policy says about the value at one user-level path.
@@ -241,7 +249,7 @@ export class RedactionRule {
    * `placeholder` defaults to the scope-tier `'[REDACTED]'`; the mirror seed
    * passes the log's `'REDACTED'`.
    */
-  retain(path: readonly string[], value: unknown, placeholder: string = REDACTED): unknown {
+  retain(path: readonly string[], value: unknown, placeholder: string = SCOPE_PLACEHOLDER): unknown {
     return RedactionRule.apply(this.verdict(path), value, placeholder);
   }
 
@@ -250,7 +258,7 @@ export class RedactionRule {
    * each top-level key through {@link retain}. Returns the SAME object when
    * nothing in it is redacted, so the no-policy path allocates nothing.
    */
-  retainRecord<T>(record: T, placeholder: string = REDACTED): T {
+  retainRecord<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
     if (record === null || typeof record !== 'object' || Array.isArray(record)) return record;
     let out: Record<string, unknown> | undefined;
     for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
@@ -270,7 +278,7 @@ export class RedactionRule {
    * with the log's placeholder, so a policy key that arrives by seed and is
    * never re-written is still served as the placeholder.
    */
-  retainState<T>(state: T, placeholder: string = REDACTED): T {
+  retainState<T>(state: T, placeholder: string = SCOPE_PLACEHOLDER): T {
     const kept = this.retainRecord(state, placeholder);
     if (kept === null || typeof kept !== 'object') return kept;
     const runs = (kept as { runs?: unknown }).runs;
@@ -286,7 +294,7 @@ export class RedactionRule {
   }
 
   /** Apply a verdict to a value — see {@link retain}. */
-  static apply(verdict: RedactionVerdict, value: unknown, placeholder: string = REDACTED): unknown {
+  static apply(verdict: RedactionVerdict, value: unknown, placeholder: string = SCOPE_PLACEHOLDER): unknown {
     if (verdict.kind === 'whole') return placeholder;
     if (verdict.kind === 'fields') return RedactionRule.scrubFields(value, verdict.paths, placeholder) ?? value;
     return value;
@@ -303,7 +311,7 @@ export class RedactionRule {
   static scrubFields(
     value: unknown,
     paths: readonly string[],
-    placeholder: string = REDACTED,
+    placeholder: string = SCOPE_PLACEHOLDER,
   ): Record<string, unknown> | undefined {
     if (value === null || typeof value !== 'object') return undefined;
     const copy = structuredClone(value) as Record<string, unknown>;
