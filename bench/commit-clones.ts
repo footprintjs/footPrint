@@ -25,10 +25,18 @@
  *             item through the scope proxy, `tick` writes a small key,
  *             `look` reads `history` (a tracked read). Per turn, by site — the
  *             residual that is proportional to the written / read VALUE.
+ *   merge   — `small`, but each stage MERGES one field into a small key
+ *             (`$update('profile', …)`) — a merge-bearing stage, the kind the
+ *             admitted record (9.30.0) verifies before it commits.
+ *   nested-seed — `small`, each stage followed by a subflow mount whose
+ *             `inputMapper` seeds an object of 100 keys: 100 NESTED rows in
+ *             the subflow's seed commit (the other kind it verifies). Per
+ *             interval = the small stage plus the whole mount.
  *
- * Time is the SECONDARY signal: CPU per small-write stage, measured in a
- * separate pass with no clone spy installed (median over stages and rounds).
- * Run it on an idle machine before quoting a time; the counts do not care.
+ * Time is the SECONDARY signal: CPU per small-write stage (and per interval
+ * for `merge` / `nested-seed`), measured in a separate pass with no clone spy
+ * installed (median over stages and rounds). Run it on an idle machine before
+ * quoting a time; the counts do not care.
  *
  * Run:  npx tsx bench/commit-clones.ts                    # this tree's src
  *       npx tsx bench/commit-clones.ts --src <root>       # another tree's src
@@ -133,13 +141,46 @@ function item(i: number) {
 
 type Mark = { at: number; tally?: Tally; cpu: number };
 
-/** seed (history of n) → S small-write stages. `marks[i]` is taken at the top of small stage i. */
-function smallChart(lib: Lib, n: number, marks: Mark[], spy: boolean, readBack = false) {
+/** How a small stage writes: one key (`set`), or one field merged into a small key (`merge`). */
+type SmallWrite = 'set' | 'merge';
+
+/** The 100-key object a `nested-seed` mount seeds — built fresh per mount. */
+function seed100(i: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (let k = 0; k < 100; k++) out[`k${k}`] = i * 100 + k;
+  return out;
+}
+
+/**
+ * seed (history of n) → S small-write stages. `marks[i]` is taken at the top
+ * of small stage i. `write` picks the stage's write; `mount` follows every
+ * small stage with a subflow whose seed is a 100-key object (nested rows).
+ */
+function smallChart(
+  lib: Lib,
+  n: number,
+  marks: Mark[],
+  spy: boolean,
+  readBack = false,
+  write: SmallWrite = 'set',
+  mount = false,
+) {
   const mark = () => {
     const snap = tally ? { ...tally, sites: new Map([...tally.sites].map(([k, v]) => [k, { ...v }])) } : undefined;
     const u = cpuUsage();
     marks.push({ at: marks.length, tally: spy ? snap : undefined, cpu: (u.user + u.system) / 1000 });
   };
+  const inner = mount
+    ? lib
+        .flowChart(
+          'Inner',
+          (scope: any) => {
+            scope.seen = scope.cfg.k0;
+          },
+          'inner',
+        )
+        .build()
+    : undefined;
   let b = lib.flowChart(
     'Seed',
     (scope: any) => {
@@ -154,15 +195,31 @@ function smallChart(lib: Lib, n: number, marks: Mark[], spy: boolean, readBack =
       `Small${i}`,
       (scope: any) => {
         mark();
-        scope[`k${i}`] = i;
+        if (write === 'merge') scope.$update('profile', { [`k${i}`]: i });
+        else scope[`k${i}`] = i;
         if (readBack) void scope.history.length; // a read AFTER the stage's first write
       },
       `small-${i}`,
     );
+    if (inner) b = b.addSubFlowChart(`sub-${i}`, inner, `Sub${i}`, { inputMapper: () => ({ cfg: seed100(i) }) });
   }
   b = b.addFunction('End', () => mark(), 'end');
   return b.build();
 }
+
+type Scenario = 'small' | 'mirror' | 'agent' | 'readback' | 'readback-untracked' | 'merge' | 'nested-seed';
+
+/** The small-chart shape of a scenario: its write, whether it reads back, whether it mounts. */
+function smallShape(scenario: Scenario): { readBack: boolean; write: SmallWrite; mount: boolean } {
+  return {
+    readBack: scenario.startsWith('readback'),
+    write: scenario === 'merge' ? 'merge' : 'set',
+    mount: scenario === 'nested-seed',
+  };
+}
+
+/** Scenarios whose CPU per interval is measured too (the time pass). */
+const TIMED: ReadonlySet<Scenario> = new Set<Scenario>(['small', 'merge', 'nested-seed']);
 
 /** seed (history of n) → T turns of [append, tick, look]. Marks at the top of each `append`. */
 function agentChart(lib: Lib, n: number, marks: Mark[]) {
@@ -252,15 +309,13 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-async function countRun(
-  lib: Lib,
-  scenario: 'small' | 'mirror' | 'agent' | 'readback' | 'readback-untracked',
-  encoding: string,
-  n: number,
-): Promise<Row> {
+async function countRun(lib: Lib, scenario: Scenario, encoding: string, n: number): Promise<Row> {
   const marks: Mark[] = [];
+  const shape = smallShape(scenario);
   const chart =
-    scenario === 'agent' ? agentChart(lib, n, marks) : smallChart(lib, n, marks, true, scenario.startsWith('readback'));
+    scenario === 'agent'
+      ? agentChart(lib, n, marks)
+      : smallChart(lib, n, marks, true, shape.readBack, shape.write, shape.mount);
   const ex = new lib.FlowChartExecutor(chart, {
     commitValues: encoding,
     ...(scenario === 'readback-untracked' ? { readTracking: 'off' } : {}),
@@ -273,11 +328,12 @@ async function countRun(
   return { scenario, encoding, n, perStage, sites };
 }
 
-async function timeRun(lib: Lib, encoding: string, n: number): Promise<number> {
+async function timeRun(lib: Lib, scenario: Scenario, encoding: string, n: number): Promise<number> {
   const perStage: number[] = [];
+  const shape = smallShape(scenario);
   for (let r = 0; r < TIME_ROUNDS; r++) {
     const marks: Mark[] = [];
-    const chart = smallChart(lib, n, marks, false);
+    const chart = smallChart(lib, n, marks, false, shape.readBack, shape.write, shape.mount);
     await new lib.FlowChartExecutor(chart, { commitValues: encoding }).run();
     for (let i = 1; i < marks.length; i++) perStage.push(marks[i].cpu - marks[i - 1].cpu);
   }
@@ -297,12 +353,21 @@ async function main(): Promise<void> {
   const rows: Row[] = [];
   console.log(`commit-clones — ${label}`);
   const only = arg('--scenarios')?.split(',');
-  for (const scenario of ['small', 'mirror', 'agent', 'readback', 'readback-untracked'] as const) {
+  const scenarios: readonly Scenario[] = [
+    'small',
+    'mirror',
+    'agent',
+    'readback',
+    'readback-untracked',
+    'merge',
+    'nested-seed',
+  ];
+  for (const scenario of scenarios) {
     if (only && !only.includes(scenario)) continue;
     for (const encoding of ['full', 'delta']) {
       for (const n of sizes) {
         const row = await countRun(lib, scenario, encoding, n);
-        if (scenario === 'small') row.cpuMsPerStage = await timeRun(lib, encoding, n);
+        if (TIMED.has(scenario)) row.cpuMsPerStage = await timeRun(lib, scenario, encoding, n);
         rows.push(row);
         const p = row.perStage;
         console.log(
