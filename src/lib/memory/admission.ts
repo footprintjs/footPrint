@@ -12,7 +12,7 @@
  * of touched paths do not fold back. `TransactionBuffer · admit` asks once per
  * commit that staged a `merge` or a nested op, and lays the rows out again
  * with those families written as what the stage read. The fold is the one
- * verb switch ({@link dryFold}, no clone); the compare is {@link deepEqual}.
+ * verb law ({@link dryFold}, no clone); the compare is {@link deepEqual}.
  */
 
 import { isContainer, nativeGet as _get, ownChild } from './pathOps.js';

@@ -20,7 +20,8 @@
  * result is placed ({@link placeVerb}), and how the log's own values are
  * treated on the way in (the clone discipline — a PARAMETER of the fold, see
  * {@link Discipline} and {@link RecordedPayload}). A new verb is one new arm of
- * `applyVerb`; the compiler names the rest ({@link isTotal}, {@link VERBS}).
+ * `applyVerb` and one row of the traits table; the compiler refuses either
+ * missing ({@link isTotal}, {@link recordsTail}, {@link VERBS}).
  *
  * An UNKNOWN verb is refused with {@link UnknownVerbError}, never folded as a
  * `merge` (the old silent default). Engine-written logs carry the four, so
@@ -100,7 +101,9 @@ export interface RowSite {
  * verb outside {@link VERBS}: a foreign or corrupted log fails loudly instead
  * of being replayed as a `merge`. `verb`, `path`, `row` and `commit` name the
  * row (`path` / `row` / `commit` are absent when the caller handed over a
- * bare verb).
+ * bare verb); `path` is the trace's own DELIM-joined form — take it apart with
+ * `pathSegments`. The message quotes `verb` and `path`, so a hostile log cannot
+ * reshape it.
  */
 export class UnknownVerbError extends Error {
   readonly verb: unknown;

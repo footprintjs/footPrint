@@ -58,8 +58,9 @@ const { state, basis, redacted } = cursor.stateAt();
 //                         carries 'REDACTED' where values were removed.
 ```
 
-The verbs are replayed by `applySmartMerge` — the same switch the live commit
-uses. There is deliberately no second implementation of the verb grammar here.
+The verbs are replayed by `applySmartMergeInto` — the same law the live commit
+uses (`memory/verbs.ts`). There is deliberately no second implementation of the
+verb grammar here.
 
 ### 4. Marks live beside the log
 

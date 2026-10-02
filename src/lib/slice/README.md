@@ -50,8 +50,9 @@ charts everything flows through `history`, so a key-level slice degenerates to
 question: *history[7] was appended by `tool-calls#41` in iteration 3*.
 
 No new capture: the commit log already knows. The fold replays the key's verbs
-(the same fold `commitValueAt` runs — a property test pins the two folds to
-identical values) while carrying an index-aligned births array:
+(the SAME fold `commitValueAt` runs — `memory/verbs.ts · foldKey`; provenance only
+watches it, it has no verb switch of its own, and a property test pins the two
+to identical values) while carrying an index-aligned births array:
 
 - `append` verbs (`commitValues: 'delta'`) hold exactly the new tail → **exact** attribution (`basis: 'append-verb'`)
 - full-mode growth is consecutive `set`s where the old array is a strict prefix of the new → tail attributed by inference (`basis: 'prefix-inference'`, labeled honestly — a wholesale replacement sharing the old prefix is indistinguishable)
@@ -60,6 +61,9 @@ identical values) while carrying an index-aligned births array:
 Absence mirrors `VariableSlice`: `missing: 'empty-log' | 'never-written' |
 'not-an-array'` (`'not-an-array'` = scalar/deleted/degraded key — that's
 `sliceForKey` territory).
+
+A row whose verb is not `set | merge | append | delete` is not folded as a merge:
+`arrayProvenance` (like `commitValueAt`) throws `UnknownVerbError` naming the row.
 
 **Chained triage** (the hop an LLM tool makes — "who made history[2], and why
 did THAT run?"): a birth's `commitIdx` is inclusive; `sliceForKey`'s `before`

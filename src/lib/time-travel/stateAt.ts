@@ -4,8 +4,9 @@
  * The commit log stores DIFFS. Replaying them onto the run's fold base
  * reproduces the state as it stood after any commit — byte-for-byte the state
  * the next stage saw, in both `commitValues` encodings, because the replay
- * runs through `applySmartMerge`, the one verb switch the live commit itself
- * uses. There is deliberately no second implementation of the verbs here.
+ * runs through `applySmartMergeInto`, the one verb law (`memory/verbs.ts`) the
+ * live commit itself uses. There is deliberately no second implementation of
+ * the verbs here.
  */
 
 import type { CommitBundle, MemoryPatch } from '../memory/types.js';
