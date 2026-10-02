@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — the one verb law (one behaviour change at the doors; one reader bug fixed)
+
+- **Why.** A commit row's verb was interpreted by three switches kept in lockstep by hand —
+  the replay (`utils · replayRows`, behind `applySmartMerge`, the live commit and every fold),
+  `commitValueAt` and `arrayProvenance` — and one had drifted (see Fixed). Nothing stopped a
+  fourth.
+- **The law.** NEW `memory/verbs.ts` (L1): `applyVerb` is the ONLY function with an arm per
+  verb (a fifth verb in the union stops compiling there); `placeVerb` puts its value or removes
+  the key; two loops fold it — `foldRows` (one bundle into a state; the clone discipline,
+  `'private'` / `'pathCopy'` / `'byReference'`, is a parameter — `replayRows` took two booleans,
+  one of whose four combinations was unsound) and `foldKey` (one path across a log).
+  `commitValueAt` is `foldKey`, anchored; `arrayProvenance` watches the same fold and only keeps
+  the births. `utils.ts` 584 → 150 lines: the path codec, structural equality and the union
+  merge moved to `paths.ts` / `equality.ts` / `merge.ts` (L0 leaves), the verb law to `verbs.ts`;
+  `utils.ts` re-exports all of it, so no importer and no public name moved.
+  `grep "verb === 'append'" src/lib`: 3 matching lines → 1.
+- **Behaviour change (R2).** A commit row whose verb is not `set | merge | append | delete` is
+  REFUSED with `UnknownVerbError` — thrown by `applySmartMerge` (`footprintjs/advanced`; so by
+  `EventLog.materialise` too), `commitValueAt` and `arrayProvenance` (`footprintjs/trace`) —
+  where the old switches silently folded it as a `merge`. The error names the verb, the row, the
+  path and, for the readers, the commit; it is exported from `footprintjs/trace`. Engine-written
+  logs carry only the four verbs, so no engine run meets it: the commit log, live state and every
+  fold are byte-identical. `stateAt` / `timeTravel` keep their own answer for such a bundle — a
+  gap that says why — now asked of the same `isVerb`.
+- **Fixed — a reader that disagreed with the fold.** `commitValueAt` (and `arrayProvenance`)
+  cloned a bundle's merge delta once PER ROW, so `s.c = []; s.$update('c', [{n: 1}]);
+  s.$update('c', [{n: 2}])` in one stage returned four elements where live state and `stateAt`
+  hold two (an array union deduplicates by reference). The delta is detached once per bundle, as
+  the replay does; the pin F1a kept as an `it.fails` is an ordinary test, and clause (b) of the
+  admitted-record property no longer leaves such bundles out. The answer changes only for a key
+  merged into more than once after its last `set` within one stage.
+- **Pinned.** The three old switches live on, verbatim, as the CONTROL in
+  `test/lib/memory/property/verb-law-differential.property.test.ts`: `foldRows` is byte-for-byte
+  the old replay under all three disciplines over `fc.jsonValue()` programs; `commitValueAt` and
+  `arrayProvenance` equal the old readers on every log outside one named class (two or more
+  merges of the key in one bundle) and `commitValueAt` equals the per-key slice of the replay on
+  every log; every door refuses an unknown verb naming the row. Counted, not timed:
+  `commitValueAt` clones the key's delta once, never the rest of the bundle.
+
 ### Changed — the fence and the leaves (no behaviour change)
 
 - **Why.** The source had ONE value-level module cycle, `{memory, scope, recorder}`, closed by

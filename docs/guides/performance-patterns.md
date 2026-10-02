@@ -19,10 +19,10 @@ N clones of a state that itself grows with N — quadratic.
 
 **Pattern.** *Amortised copy* (copy-on-write, collapsed). Clone the base once
 into a private working copy, apply every delta into it, clone once more to
-hand out a frozen result. The verb switch stayed where it was
-(`applySmartMergeInto` is the same switch `applySmartMerge` clones for) so
-there is still one replay implementation — the "no fifth replica" rule in
-CLAUDE.md.
+hand out a frozen result. The verb law stayed where it was
+(`applySmartMergeInto` is the same fold `applySmartMerge` clones for —
+`verbs · foldRows`) so there is still one replay implementation — the "no
+fifth replica" rule in CLAUDE.md.
 
 | At 10 000 commits | Before | After |
 |---|---|---|
@@ -115,8 +115,8 @@ write copies the root and the containers on its own path and shares every
 other subtree. The diff base becomes a bare reference (nothing may move it: a
 read the stage's working copy cannot answer, served from live state, first gives
 the base a private copy at that path), and a read after the first write copies
-only what it reads. One verb switch still
-(`utils · replayRows`); the public `applySmartMerge` keeps its detached
+only what it reads. One verb law still
+(`verbs · foldRows`); the public `applySmartMerge` keeps its detached
 contract.
 
 | One-number stage beside a 10 000-item history | Before | After |

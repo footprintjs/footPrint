@@ -44,6 +44,11 @@ const LAYERS = [
       'src/lib/pause/**',
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
+      // The path codec, structural equality and the union merge: leaves that import nothing
+      // (split out of utils.ts in F2). The verb law (verbs.ts) reads them from L1.
+      'src/lib/memory/paths.ts',
+      'src/lib/memory/equality.ts',
+      'src/lib/memory/merge.ts',
       // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',
@@ -57,9 +62,10 @@ const LAYERS = [
     rank: 1,
     name: 'verbs',
     files: [
-      // One file for now: paths + equality + merge + the verb fold. When the verb law
-      // gets its own module this splits (paths/equality/merge → L0, verbs → L1); until
-      // then the file is placed by its highest part.
+      // The verb law: the one step a commit row takes, and every fold of it. Imports L0 only.
+      'src/lib/memory/verbs.ts',
+      // The nested-object helpers, and the one re-export surface of paths / equality /
+      // merge (L0) and verbs (L1) — placed by its highest part.
       'src/lib/memory/utils.ts',
       'src/lib/observer-queue/**',
       // errorInfo imports schema/ (L0) only.

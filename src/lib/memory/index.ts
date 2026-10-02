@@ -36,6 +36,9 @@ export type {
 } from './types.js';
 export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from './types.js';
 
+// The verb law's refusal: a commit row whose verb is not set | merge | append | delete
+export { UnknownVerbError } from './verbs.js';
+
 // Utilities
 export {
   applySmartMerge,

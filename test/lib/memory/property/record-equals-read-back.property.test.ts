@@ -35,8 +35,9 @@
  *   (a) the bundle folds back to the read-back (whole state; for NAMESPACED,
  *       below the address and unchanged outside it);
  *   (b) `commitValueAt([bundle], 0, k)` equals the read-back for every root key
- *       with a `set` / `delete` row at `k` and no row below it (the exact-path
- *       contract — nested rows are F3's law, base-only keys F4b's blind spot);
+ *       with a `set` / `delete` row at `k` and no row below it, however many
+ *       `merge` rows follow (the exact-path contract — nested rows are F3's
+ *       law, base-only keys F4b's blind spot);
  *   (c) no admitted `merge` row lacks its delta (the transient-wipe replay
  *       cannot arise);
  *   (d) a delta bundle carries one row per path.
@@ -261,25 +262,20 @@ function foldsBack(base: unknown, stage: Stage, address: string[]): void {
 
 /**
  * (b) — the exact-path reader agrees wherever its contract applies: a root key
- * with a `set` / `delete` row, no row below it, and at most ONE `merge` row
- * after its last anchor. Two or more are left out on purpose: `commitValueAt`
- * clones a bundle's merge delta once PER ROW, so an array union of container
- * elements comes back doubled where the fold (one copy per replay) does not
- * — a 9.29.0 reader bug this property found, pinned below as a known
- * divergence for F2 (which folds `commitValueAt` through the one verb law).
+ * with a `set` / `delete` row and no row below it. However many `merge` rows
+ * follow the anchor: `commitValueAt` folds through `verbs.ts · foldKey`, which
+ * detaches a bundle's merge delta ONCE (as the replay does), so an array union
+ * of container elements no longer comes back doubled. (Until the one verb law,
+ * two or more merges after the anchor were left out of this clause — the 9.29.0
+ * reader bug this property found.)
  */
 function exactPathReaderAgrees(stage: Stage, address: string[]): void {
   const { trace } = stage.bundle;
   for (const root of ROOTS) {
     const key = [...address, root].join(DELIM);
-    const rows = trace.filter((t) => t.path === key);
-    let anchor = -1;
-    rows.forEach((t, i) => {
-      if (t.verb === 'set' || t.verb === 'delete') anchor = i;
-    });
-    const mergesAfter = rows.slice(anchor + 1).filter((t) => t.verb === 'merge').length;
+    const hasAnchor = trace.some((t) => t.path === key && (t.verb === 'set' || t.verb === 'delete'));
     const nested = trace.some((t) => t.path.startsWith(key + DELIM));
-    if (anchor < 0 || nested || mergesAfter > 1) continue;
+    if (!hasAnchor || nested) continue;
     expect(canon(commitValueAt([stage.bundle], 0, key))).toBe(canon(nativeGet(stage.readBack, [...address, root])));
   }
 }
@@ -456,16 +452,19 @@ describe('the named shapes — each folds back to what the stage read', () => {
   }
 });
 
-// ─── A known divergence, found by clause (b) — F2's to fix ───────────────
+// ─── A divergence found by clause (b), closed by the one verb law ─────────
 
-describe('commitValueAt — a known divergence from the fold (9.29.0 and 9.30.0; F2 folds it through the one verb law)', () => {
+describe('commitValueAt — agrees with the fold (it answered four where the fold holds two, until it folded through verbs.ts)', () => {
   // `s.c = []; s.$update('c', [{n:1}]); s.$update('c', [{n:2}])` in one stage:
   // the fold — live state, stateAt — replays the bundle's merge rows against
   // ONE copy of its delta, so the union deduplicates by reference and `c`
-  // holds two elements. `commitValueAt` clones the delta once PER ROW and
-  // answers four. The bundle is right; the reader is not. `it.fails` keeps
-  // the gap visible: the day `commitValueAt` agrees, this test turns red.
-  it.fails('a set and two merges of one key in one bundle: commitValueAt agrees with the fold', () => {
+  // holds two elements. `commitValueAt` used to clone the delta once PER ROW
+  // and answer four: the bundle was right, the reader was not. It folds
+  // through `verbs.ts · foldKey` now — one detached copy of the delta per
+  // bundle, as the replay's — and agrees. (This was an `it.fails` while the
+  // gap was open; the differential in test/lib/memory/property/
+  // verb-law-differential.property.test.ts names the whole class.)
+  it('a set and two merges of one key in one bundle: commitValueAt agrees with the fold', () => {
     const base = { c: [] as unknown[] };
     const buf = new TransactionBuffer(structuredClone(base));
     buf.set(['c'], []);

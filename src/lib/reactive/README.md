@@ -247,11 +247,11 @@ skipped slots with `null`, JSON's spelling of a hole), `deleteSlot`,
 
 The same shape governs the commit funnel: `memory/TransactionBuffer.ts ·
 toDeltaPayload` reads as `opsByPath` → `netChangeSurvivors` →
-`groupIntoFamilies` → `memoisedFamilyValue` → the verb switch →
-`emitInFamilyOrder`. The verb switch is deliberately NOT a leaf — it is the
-delta encoder's own replica of the verb law (CLAUDE.md, "FOUR verb-switch
-replicas in lockstep") and stays in one body; the leaves are extracted
-around it, never from it. `changedSinceBase` is the ONE net-change verdict
+`groupIntoFamilies` → `memoisedFamilyValue` → the verb choice →
+`emitInFamilyOrder`. The verb choice is deliberately NOT a leaf — it is where
+the delta encoder PICKS a verb for each family (vocabulary only since 9.30.0;
+what a verb DOES to a value is the one verb law, `memory/verbs.ts`) and stays
+in one body; the leaves are extracted around it, never from it. `changedSinceBase` is the ONE net-change verdict
 both encodings ask.
 
 Proven byte-identical to 9.23.0 by the reference suites in both

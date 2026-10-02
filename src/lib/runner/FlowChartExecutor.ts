@@ -209,7 +209,7 @@ export interface FlowChartExecutorOptions<TScope = any> {
    *   log becomes linear instead of O(N²) retained); `deleteValue()` commits
    *   as a real `delete` verb (replay removes the key instead of leaving
    *   `key: undefined`); bundles carry exactly ONE trace entry per surviving
-   *   path. Replay (the one verb switch — live state, `materialise()`, the
+   *   path. Replay (the one verb law — live state, `materialise()`, the
    *   redacted mirror, `stateAt`) reconstructs every step's full state
    *   exactly.
    *

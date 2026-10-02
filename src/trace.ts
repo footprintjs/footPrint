@@ -66,6 +66,12 @@ export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 // path through this instead of splitting on the delimiter yourself.
 export { pathSegments } from './lib/memory/utils.js';
 
+// The refusal the commit-log readers raise for a row whose verb is not
+// set | merge | append | delete (`commitValueAt`, `arrayProvenance`, and
+// `applySmartMerge` on `/advanced`): a foreign or corrupted log fails loudly,
+// naming the row, instead of being folded as a merge.
+export { UnknownVerbError } from './lib/memory/index.js';
+
 // Commit log queries — typed utilities for backtracking.
 // commitValueAt reconstructs the FULL value of a key at a commit index —
 // required under `commitValues: 'delta'` (#13c-B), where an `append`
