@@ -21,6 +21,14 @@
  * M6 (a `Date` expando kept in live state) is out of this family on purpose:
  * the merge-back never targets a `Date` (`keepOffDates`).
  *
+ * THE ADMITTED RECORD (9.30.0) changes the bytes of exactly the commits whose
+ * rows did not fold back to what the stage read, 9.28.0's included. So A
+ * holds byte for byte unless the WITNESS explains the difference (fixture ·
+ * `witnessClause`: across the legs, the first commit at which the logs differ
+ * is one where 9.28.0's bundle did not fold back; every commit the build made
+ * did), and B is asked only of programs whose runs did not differ. F1b
+ * attributes each leg on its own.
+ *
  * `COW_DIFF_RUNS=<n>` raises the run count; `COW_DIFF_SEED=<n>` uses seed
  * n+3 (the fourth family after chart / borrowed / nested).
  */
@@ -38,6 +46,8 @@ import {
   firstDifference,
   isObj,
   keepOffDates,
+  witnessClause,
+  witnessing,
 } from './copy-on-write-fixture.js';
 
 type Prog = {
@@ -281,18 +291,21 @@ const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
   it('every leg, checkpoint, fold and mirror identical; paused == direct on the build iff on 9.28.0; no generation edited', async () => {
-    const stats = { programs: 0, paused: 0, pauses: 0 };
+    const stats = { programs: 0, paused: 0, pauses: 0, explained: 0 };
     await fc.assert(
       fc.asyncProperty(progArb, async (p) => {
-        const a = await drive(BASELINE, p, true);
-        const b = await drive(BUILD, p, true);
+        const [a, aSeen] = await witnessing(BASELINE, () => drive(BASELINE, p, true));
+        const [b, bSeen] = await witnessing(BUILD, () => drive(BUILD, p, true));
         const diff = firstDifference(a.out, b.out);
-        if (diff) throw new Error(`A (paused): ${diff}\nprogram: ${JSON.stringify(p)}`);
-        const da = await drive(BASELINE, p, false);
-        const db = await drive(BUILD, p, false);
+        const pausedBroken = witnessClause(aSeen, bSeen, diff !== '');
+        if (pausedBroken) throw new Error(`A (paused): ${pausedBroken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
+        const [da, daSeen] = await witnessing(BASELINE, () => drive(BASELINE, p, false));
+        const [db, dbSeen] = await witnessing(BUILD, () => drive(BUILD, p, false));
         const dd = firstDifference(da.out, db.out);
-        if (dd) throw new Error(`A (direct): ${dd}\nprogram: ${JSON.stringify(p)}`);
-        if ((a.final === da.final) !== (b.final === db.final)) {
+        const directBroken = witnessClause(daSeen, dbSeen, dd !== '');
+        if (directBroken) throw new Error(`A (direct): ${directBroken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
+        if (diff || dd) stats.explained += 1;
+        else if ((a.final === da.final) !== (b.final === db.final)) {
           throw new Error(
             `B: paused == direct on 9.28.0 ${a.final === da.final}, on the build ${b.final === db.final}\n` +
               `program: ${JSON.stringify(p)}`,

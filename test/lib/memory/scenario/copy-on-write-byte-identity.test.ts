@@ -22,6 +22,22 @@
  * explores new programs against the baseline package; this corpus pins these
  * programs forever, whatever the baseline alias or fast-check later become.
  *
+ * 9.30.0 — THE ADMITTED RECORD. The entries in `ADMITTED` below no longer
+ * reproduce 9.28.0's digests, by design: each is a program at which 9.28.0
+ * committed rows that did not fold back to what the stage read (a merge
+ * delta replayed across a hard write, an `[]` clear, a kind change, a union
+ * deduplicated by reference, an L-1 shell, an in-place edit of a merged or
+ * set value — C2 to C5). The digests are NOT regenerated: each listed entry
+ * is proven, every run, by the WITNESS (../property/copy-on-write-fixture.ts
+ * · `witnessClause`) — the first commit at which the two engines' logs
+ * differ is a 9.28.0 bundle that did not fold back, and every commit the
+ * build made did. The list is pinned both ways: an entry that starts or
+ * stops differing fails. Counts: chart 5 of 120, borrowed 2 of 40, nested 55
+ * of 120 (StageContext merges at nested paths through primitives), write-back
+ * 12 of 40; the B2 entry is not among them. Every other entry reproduces
+ * every digest, and the witness checks that every commit the build made on
+ * it folded back.
+ *
  * Regenerate ONLY from the 9.28.0 baseline, never from the new code:
  *   npx tsx -e "Promise.all([import('./test/lib/memory/scenario/copy-on-write-corpus.ts'),
  *     import('./test/lib/memory/property/copy-on-write-fixture.ts')])
@@ -31,10 +47,22 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { BUILD } from '../property/copy-on-write-fixture.js';
-import { type Entry, B2_WRITE_BACK, CORPUS_PATH, digestsOf } from './copy-on-write-corpus.js';
+import { BASELINE, BUILD, witnessClause, witnessing } from '../property/copy-on-write-fixture.js';
+import { type Entry, type Family, B2_WRITE_BACK, CORPUS_PATH, digestsOf } from './copy-on-write-corpus.js';
 
 const corpus = JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as { generatedWith: string; entries: Entry[] };
+
+/** The entries 9.30.0 changes, by index — each proven by the witness on every run (header). */
+const ADMITTED: Record<Family, readonly number[]> = {
+  chart: [1, 32, 45, 85, 92],
+  borrowed: [136, 140],
+  nested: [
+    160, 161, 162, 169, 171, 172, 173, 174, 176, 177, 181, 184, 185, 186, 189, 191, 194, 195, 196, 197, 202, 209, 211,
+    215, 218, 220, 221, 224, 225, 228, 231, 233, 235, 236, 237, 238, 239, 241, 243, 247, 248, 253, 254, 256, 257, 259,
+    262, 264, 268, 270, 273, 275, 276, 277, 278,
+  ],
+  writeback: [282, 283, 285, 286, 288, 292, 296, 300, 302, 303, 316, 319],
+};
 
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
   it('the corpus is what it claims: 9.28.0, all four families, the fields that matter', () => {
@@ -57,15 +85,24 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
   });
 
   it.each(['chart', 'borrowed', 'nested', 'writeback'] as const)(
-    'every %s program reproduces 9.28.0’s digests',
+    'every %s program reproduces 9.28.0’s digests — or is a listed admitted-record change the witness proves',
     async (family) => {
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
-        const now = await digestsOf(BUILD, e.family, e.program);
-        if (JSON.stringify(now) !== JSON.stringify(e.digests)) {
+        const [now, buildSeen] = await witnessing(BUILD, () => digestsOf(BUILD, e.family, e.program));
+        const same = JSON.stringify(now) === JSON.stringify(e.digests);
+        const listed = ADMITTED[family].includes(i);
+        const where = `entry ${i} (${family})`;
+        if (same && listed) throw new Error(`${where} reproduces 9.28.0 again — take it off ADMITTED`);
+        if (!same && !listed) {
           const field = Object.keys(e.digests).find((k) => now[k] !== e.digests[k]);
-          throw new Error(`entry ${i} (${family}) differs at ${field}\nprogram: ${JSON.stringify(e.program)}`);
+          throw new Error(`${where} differs at ${field}\nprogram: ${JSON.stringify(e.program)}`);
         }
+        const [, baselineSeen] = same
+          ? [undefined, []]
+          : await witnessing(BASELINE, () => digestsOf(BASELINE, e.family, e.program));
+        const broken = witnessClause(baselineSeen, buildSeen, !same);
+        if (broken) throw new Error(`${where}: ${broken}\nprogram: ${JSON.stringify(e.program)}`);
       }
     },
     300_000,

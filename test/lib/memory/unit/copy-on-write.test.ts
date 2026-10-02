@@ -343,7 +343,7 @@ describe('TransactionBuffer · detachBase — a read the working copy cannot ans
     expect(trace.map((t) => t.path)).toContain('cfg');
   });
 
-  it('the same in the delta encoding: the family replay starts from the detached base', () => {
+  it('the same in the delta encoding: the family is committed as what the stage read (9.30.0 — C2 / C4)', () => {
     const base = { list: { list: [] as number[] } };
     const buf = new TransactionBuffer(base, 'delta');
     buf.merge(['list'], 0); // replaces the container…
@@ -351,7 +351,12 @@ describe('TransactionBuffer · detachBase — a read the working copy cannot ans
     expect(buf.get(['list', 'list'])).toBeUndefined();
     buf.detachBase(['list', 'list']);
     base.list.list.push(0); // the live value, edited in place
-    expect(buf.commit().overwrite).toEqual({ list: { list: [], x: 's' } }); // as on 9.28.0
+    // 9.29.0 replayed the family's ops from the detached base
+    // (`replayFamilyVerbs`, deleted) and committed { list: { list: [], x: 's' } }
+    // — the accumulated delta over the base, not what the stage read. The
+    // admitted record commits the read-back (C2), and the delta encoder no
+    // longer replays the verbs itself (C4).
+    expect(buf.commit().overwrite).toEqual({ list: { x: 's' } });
   });
 
   it('copies the way down shallowly and never edits committed state; later reads still privatise', () => {
