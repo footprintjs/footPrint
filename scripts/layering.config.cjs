@@ -179,18 +179,18 @@ const TYPE_ONLY_ALLOWANCES = [
   {
     from: 'src/lib/reactive/types.ts',
     to: 'src/lib/engine/types.ts',
-    reason: 'the typed scope names the engine contract types (ExecutionEnv and friends) in its own signatures.',
+    reason: "the typed scope names `ExecutionEnv` (the engine's environment contract) in its signatures.",
   },
   {
     from: 'src/lib/scope/ScopeFacade.ts',
     to: 'src/lib/engine/types.ts',
-    reason: 'the facade names the engine contract types (ExecutionEnv and friends) in its signatures.',
+    reason: "the facade names `ExecutionEnv` (the engine's environment contract) in its signatures.",
   },
   {
     from: 'src/lib/runner/ExecutionRuntime.ts',
     to: 'src/lib/runner/DeferredObserverTier.ts',
     reason:
-      'the runtime carries the deferred-observer tier as a typed field; the tier itself is wired by the executor.',
+      'the runtime snapshot carries `observerStats?: ObserverStats`, a type declared beside the deferred tier that computes it.',
   },
 ];
 
