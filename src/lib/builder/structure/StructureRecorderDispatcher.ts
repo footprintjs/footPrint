@@ -24,7 +24,7 @@
  * FlowChartBuilder (L7.3).
  */
 
-import { isDevMode } from '../../scope/detectCircular.js';
+import { isDevMode } from '../../devMode.js';
 import type { FlowChartSpec } from '../types.js';
 import type {
   StructureDeciderCompleteEvent,

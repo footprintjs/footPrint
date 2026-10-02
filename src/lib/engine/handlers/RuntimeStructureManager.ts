@@ -8,7 +8,7 @@
  * Deep-clones build-time structure at init, then maintains O(1) lookup map.
  */
 
-import { isDevMode } from '../../scope/detectCircular.js';
+import { isDevMode } from '../../devMode.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { SerializedPipelineStructure } from '../types.js';
 

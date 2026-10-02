@@ -7,7 +7,7 @@
  * Uses summarizeValue() at capture time (no raw object references held).
  */
 
-import { summarizeValue } from '../scope/recorders/summarizeValue.js';
+import { summarizeValue } from '../capture/summarize.js';
 import type { ReadEvent, ScopeRecorder } from '../scope/types.js';
 import type { ReadInput } from './types.js';
 

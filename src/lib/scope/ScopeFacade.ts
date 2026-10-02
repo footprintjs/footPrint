@@ -14,16 +14,17 @@
  * ```
  */
 
+import { hasCircularReference } from '../capture/circular.js';
+import { invokeRecorderHook } from '../capture/invokeHook.js';
 import {
   detachAndForget as detachAndForgetSpawn,
   detachAndJoinLater as detachAndJoinLaterSpawn,
 } from '../detach/spawn.js';
+import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
-import { invokeRecorderHook } from '../recorder/invokeHook.js';
-import { hasCircularReference, isDevMode } from './detectCircular.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 

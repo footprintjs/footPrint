@@ -15,11 +15,11 @@
  * emit the stage entry + flush the buffered ops in one pass.
  */
 
+import { summarizeValue } from '../../capture/summarize.js';
 import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
 import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
 import { SequenceStore } from '../../recorder/SequenceStore.js';
-import { summarizeValue } from '../../scope/recorders/summarizeValue.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import type {
   BreakRenderContext,

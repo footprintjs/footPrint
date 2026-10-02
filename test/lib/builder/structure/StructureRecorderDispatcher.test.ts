@@ -17,7 +17,7 @@ import type {
 } from '../../../../src/lib/builder/structure/StructureRecorder.js';
 import { StructureRecorderDispatcher } from '../../../../src/lib/builder/structure/StructureRecorderDispatcher.js';
 import type { FlowChartSpec } from '../../../../src/lib/builder/types.js';
-import { disableDevMode, enableDevMode } from '../../../../src/lib/scope/detectCircular.js';
+import { disableDevMode, enableDevMode } from '../../../../src/lib/devMode.js';
 
 const sampleSpec: FlowChartSpec = { id: 'a', name: 'A', type: 'stage' };
 

@@ -526,7 +526,7 @@ Gated diagnostics:
 - **Suspicious predicates** in `decide()` / `select()`
 - **Snapshot integrity** in `getSubtreeSnapshot()`
 
-Convention: when adding a new dev-only check, gate on `isDevMode()` (from `scope/detectCircular.ts`). Do NOT use `process.env.NODE_ENV` inline — consumers control dev tooling centrally via `enableDevMode()`/`disableDevMode()`, and inline env checks break that contract.
+Convention: when adding a new dev-only check, gate on `isDevMode()` (from `lib/devMode.ts`). Do NOT use `process.env.NODE_ENV` inline — consumers control dev tooling centrally via `enableDevMode()`/`disableDevMode()`, and inline env checks break that contract.
 
 ## Break + Propagation
 

@@ -8,11 +8,23 @@
  *     #14 `readTracking` and #13c-A `writeTracking` dials.
  *   - `summarizeReadValue` / `summarizeWriteValue` — the parameterized
  *     summary-marker builders sharing one classification path.
+ *   - `summarizeValue` — the human-readable narrative one-liner.
+ *   - `hasCircularReference` — the dev-mode cycle probe (a leaf).
+ *   - `invokeRecorderHook` — the one "look up the hook, bind `this`, call it"
+ *     primitive both recorder delivery tiers share (a leaf).
  *
  * RFC-001 (deferred observer delivery) builds its capture tier on this
  * module — see the mapping notes in `policies.ts`.
  */
 
+export { hasCircularReference } from './circular.js';
+export { invokeRecorderHook } from './invokeHook.js';
 export type { RetentionPolicy } from './policies.js';
 export type { ReadSummaryMarker, SummaryValueType, WriteSummaryMarker } from './summarize.js';
-export { READ_PREVIEW_LENGTH, summarizeReadValue, summarizeWriteValue, SUMMARY_PREVIEW_LENGTH } from './summarize.js';
+export {
+  READ_PREVIEW_LENGTH,
+  summarizeReadValue,
+  summarizeValue,
+  summarizeWriteValue,
+  SUMMARY_PREVIEW_LENGTH,
+} from './summarize.js';
