@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded as `set` rows of the values the stage read. Checked when a stage
   staged a merge or a nested op (one fold of the candidate rows, no clone); a
   stage of root-key `set` / `delete` only is the read-back by construction and pays
-  nothing. `bench/commit-clones.ts`: every clone count unchanged, on the
+  nothing. The read-back is compared as a record can hold it — through
+  `structuredClone`, so an `Error`'s own fields (which no record keeps) never
+  re-encode a family. `bench/commit-clones.ts`: every clone count unchanged, on the
   set-only rows (5.0 / stage at N = 100 / 1k / 10k) and the two new ones
   (`merge` 6.0, `nested-seed` 316.0).
 
@@ -66,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Internal:** the check lives in `memory/admission.ts`, the delta encoder's
   helpers in `memory/deltaEncoding.ts` (both internal); `TransactionBuffer`
   accepts an optional fourth constructor argument, the stage's address.
-  `TransactionBuffer.ts` 1,048 → 957 lines; verb-switch replicas 5 → 3.
+  `TransactionBuffer.ts` 1,048 → 958 lines; verb-switch replicas 5 → 3.
 
 - **Found, not fixed here:** `commitValueAt` clones a bundle's merge delta once
   per row, so two `$update`s of one key after a `set` in one stage come back

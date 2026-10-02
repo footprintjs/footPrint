@@ -44,7 +44,9 @@ provably fold back; a family of rows that does not is recorded as `set` rows of 
 Borrowed: MySQL `binlog_format=MIXED` — the compact form while it provably replays, rows otherwise.
 
 "What the stage read" is its working copy — the view every read after its first write returns — compared by
-`deepEqual` (an own `undefined` is a deleted key; arrays by index; key order free). The stage's ADDRESS (`runs/<id>`
+`deepEqual` (an own `undefined` is a deleted key; arrays by index; key order free), as a record can hold it: a
+record holds `structuredClone`s, and a value that does not survive one whole (an `Error`'s own fields are dropped)
+is compared through its clone — no row could hold more. The stage's ADDRESS (`runs/<id>`
 for a run-namespaced stage, nothing otherwise) is where it writes, not a value it reads: every read a stage makes is
 a key below it, so a shell its writes leave there is not part of the view.
 
@@ -65,7 +67,7 @@ a key below it, so a shell its writes leave there is not part of the view.
 |---|---|
 | `utils · replayRows` | `detach` flag (default `true`, every existing caller): with `false` the `set` / `append` arms place the recorded value by reference and never mark it owned, the merge arm reads `updates` itself. |
 | `utils · dryFold` (new, internal) | `replayRows(ownedRootOf(base), …, true, false)` — the fold for comparison only; aliases the payload; never handed out. |
-| `admission.ts` (new, internal) | the check: `lossyFamilies`, `touchedFamilies`, `addressDepthOf`, `spineHeld`, `slotHeld`. Pure. |
+| `admission.ts` (new, internal) | the check: `lossyFamilies`, `foldsBack` (the value against the read-back as a record can hold it), `touchedFamilies`, `addressDepthOf`, `spineHeld`, `slotHeld`. Pure but for the clone it keeps on a refused family for the re-encoding. |
 | `deltaEncoding.ts` (new, internal) | the delta encoder's pure helpers moved out of `TransactionBuffer`: overlap families, emission order (now with the hook that places re-encoded families), append detection, the value row. |
 | `TransactionBuffer · admit` | lays the rows out (either encoder), asks the check, lays them out again with the lossy families written as their read-back (`emitReadBack`). |
 | `TransactionBuffer · emitReadBack` | a lossy family: one `set` row per member that changed (descendants by last touch, each with its own last read prefix), the root LAST, `overwrite` holding the root's read-back; a lone delta root keeps `append` when the read-back is its base plus a tail. Rows go at the family's last touch. |
@@ -74,7 +76,7 @@ a key below it, so a shell its writes leave there is not part of the view.
 | `StageContext · getTransactionBuffer` | passes the address (`['runs', runId]` or `[]`). |
 | `pathOps · isContainer`, `ownChild` | exported (moved from `TransactionBuffer`). |
 
-`TransactionBuffer.ts` 1,048 → 957 lines. Verb-switch replicas 5 → 3 (`replayRows`, `commitValueAt`,
+`TransactionBuffer.ts` 1,048 → 958 lines (`admission.ts` 186, `deltaEncoding.ts` 151). Verb-switch replicas 5 → 3 (`replayRows`, `commitValueAt`,
 `arrayProvenance`; the delta encoder keeps vocabulary only).
 
 ## Named changes — each pinned
@@ -123,6 +125,13 @@ order is preserved; a re-encoded family takes the place of its last touch.
    witnessClause`): every commit on both engines is asked whether it folds back at every touched path; every build
    commit must, and the first commit at which the two logs differ must be one where 9.28.0's did not. F1b widens it
    to every differing stage and moves the baseline to 9.29.0.
+8. **Compared as a record can hold it** (found downstream). agentfootprint's suite on the packed build reached the
+   admission 19 times, all one shape: its reliability gate stages a nested write and `scope.error = err`, an `Error`
+   with a custom field. Every record holds the Error's `structuredClone`, which drops the field, so the fold could
+   never equal the working copy — and re-encoding re-spelled the same clone while collapsing the stage's two
+   `error:set` rows into one. `admission.ts · foldsBack` now takes the read-back's clone when the cheap compare
+   refuses a root, admits the family if the fold equals it, and hands the clone to the re-encoding. For every value
+   that survives a clone the two compares agree.
 
 ## Measured
 
@@ -133,7 +142,9 @@ order is preserved; a re-encoded family takes the place of its last touch.
 | `property/copy-on-write-pause-differential.property.test.ts` (`COW_DIFF_STATS`) | 6 / 60 explained; B (paused == direct iff on 9.28.0) asked of the other 54 |
 | `scenario/copy-on-write-byte-identity.test.ts` | 74 of 320 corpus entries change (chart 5, borrowed 2, nested 55, write-back 12; B2 does not) — listed, each proven by the witness every run |
 | `bench/commit-clones.ts` (counts; CPU too noisy under load to quote) | identical before and after on all 42 rows: set-only `small` 5.0 / stage at N = 100 / 1k / 10k, `mirror` 6.0, `agent` 12.0, `readback` 7.0, `readback-untracked` 6.0, new `merge` 6.0, new `nested-seed` 316.0 / interval. The check adds no clone. |
-| full suite | 349 files; 4,584 passed + 1 expected fail (HEAD: 347 files, 4,545 + 3 skipped) |
+| CPU of a merge-bearing stage over a large value (scratch, 9.29.0's src vs the build, interleaved, 7 rounds × 20 stages, median; load 10–47) | `$update('history', [item])` over 10k items: ~1.9–2.0× (e.g. 16.8 → 33.3 ms); over 1k: ~1.4×. A nested field write `s.cfg.x = i` into a 10k-key object: ~1.4× (76.6 → 107.6 ms); 1k: ~1.4×. The check's `deepEqual` walks the merged value — the same order as the private copy `merge` already takes (9.29.0); no clone; set-only stages never fold. |
+| downstream, on the packed build (`npm install --no-save` into fresh origin/main copies; one `footprintjs` copy each) | agentfootprint 09d90c0a: 880 files / 16,713 tests passed (+75 skipped) on 9.29.0 and on the build, 0 per-test differences, 0 files written; lens 8622b8d: 2,295 / 2,295 (+8 skipped), typecheck clean, 0 differences; neo 1cd4ffe (dummy keys): 2,097 pass / 0 fail / 11 skipped / 1 todo on both, 0 differences. A probe counting re-encoded families: 19 in agentfootprint's suite on the first pack (all decision 8's `Error` shape), 0 in every consumer on the final pack. |
+| full suite | 349 files; 4,585 passed + 1 expected fail (HEAD: 347 files, 4,545 + 3 skipped) |
 
 The plan's *(proto)* figures did not survive re-measurement on HEAD 03a16d5: "3,650 tests" (the tree has 4,545 + 3
 skipped) and "6.0 clones per stage" on the set-only bench (it reads 5.0; 6.0 is the `mirror` row).
@@ -148,6 +159,11 @@ skipped) and "6.0 clones per stage" on the set-only bench (it reads 5.0; 6.0 is 
   the red check against a re-introduced C1.
 - **F2** — `commitValueAt`'s per-row delta clone (decision 6).
 - **Optional C1′** — drop a staged merge delta only when a `merge` FOLLOWS the hard write; not needed for the law.
+- **The check's CPU on large merged values** (measured above). A sound way to skip it for the most common shape: a
+  family that is ONE `merge` at its root, that survived, and under whose root key no read after the first write
+  handed out a reference (`TransactionBuffer · get` would record the root keys it served) folds back by
+  construction — the merge ran on a fresh, unexposed private copy, and the fold merges a clone of the same delta
+  into the base it was copied from. Not built here: it adds a by-construction class that deserves its own review.
 - **Named, not handled** — a NUMERIC path segment through an absent parent makes an array in the working copy
   (`nativeSet` picks `[]` for a number), while the log's DELIM-joined paths are strings and the replay makes an
   object. Only a caller driving `TransactionBuffer` directly can stage one (`StageContext` passes string segments);
