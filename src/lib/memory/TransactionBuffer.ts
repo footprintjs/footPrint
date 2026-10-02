@@ -42,6 +42,9 @@
  * container still shared with committed state takes a private deep copy of
  * it ({@link privatise}) — what the whole-state clone used to give every
  * read, so an in-place edit of a read value stays private exactly as it did.
+ * A read the working copy cannot answer is served from live state by the
+ * caller, as before; the buffer then replaces that path of its diff base
+ * with a private copy ({@link detachBase}), as the clone had it.
  */
 
 import {
@@ -94,7 +97,13 @@ type Survivor = {
 };
 
 export class TransactionBuffer {
-  private readonly baseSnapshot: any;
+  /**
+   * The net-change diff base: the committed generation the stage first
+   * touched, by reference — except where {@link detachBase} replaced a path
+   * of it with a private copy (its root and the containers on the way are
+   * then copies too, owned by {@link baseOwned}).
+   */
+  private baseSnapshot: any;
   private workingCopy: any;
 
   private overwritePatch: MemoryPatch = {};
@@ -145,6 +154,19 @@ export class TransactionBuffer {
    * that lands on one needs no walk — see {@link privatiseBelow}.
    */
   private privateTrees = new WeakSet<object>();
+
+  /**
+   * The containers of {@link baseSnapshot} that {@link detachBase} created:
+   * its root copy and the copies on the way to a detached path. Allocated
+   * only by the first detach — the in-contract stage never pays for it.
+   */
+  private baseOwned?: WeakSet<object>;
+
+  /**
+   * The private deep copies {@link detachBase} put into the diff base: nothing
+   * at or below one is committed state, so a later detach inside it is a no-op.
+   */
+  private detachedBase?: WeakSet<object>;
 
   constructor(base: any, commitValues: CommitValuesMode = 'full', readKeysProvider?: () => string[]) {
     // `base` is the committed generation the stage first touched —
@@ -325,6 +347,53 @@ export class TransactionBuffer {
    */
   peek(path: (string | number)[]): unknown {
     return _get(this.workingCopy, path);
+  }
+
+  /**
+   * Keep the diff base exact under a read the working copy cannot answer.
+   *
+   * When `workingCopy` holds nothing at `path` — the stage deleted or unset
+   * it, or a write replaced a container above it — `StageContext ·
+   * readState` serves the read from LIVE committed state, exactly as 9.28.0
+   * did, so the value it hands out is committed state itself. On 9.28.0 the
+   * diff base was a whole-state clone taken at the stage's first write, and
+   * an in-place edit of that value (out of contract — reads are borrowed)
+   * could not move it: written back, the edit was recorded. Here the diff
+   * base IS a committed generation, and it very often holds that same
+   * container at `path` — the edit would move the base with it, and the
+   * write-back would commit no change. So before the value goes out, the
+   * base's value at `path` is replaced by a private deep copy (the base's
+   * root and the containers on the way copied shallowly) — what 9.28.0's
+   * base held there. The commit's net-change test compares against it and
+   * the delta encoder replays from it; the value handed out stays the live
+   * one, so whatever else an edit of it reaches (live state, the next
+   * generation) behaves as on 9.28.0 too.
+   *
+   * Not `privatise`: a private copy handed to the stage would also keep the
+   * edit out of live state, where 9.28.0 let it in — a run-namespaced read
+   * that falls back to a global key would then end differently (the
+   * differential's NESTED family fails within 100 programs that way).
+   *
+   * Copies nothing when the base holds no container at `path`, and nothing
+   * twice: a path at or below an earlier detach is already private. O(path)
+   * otherwise, plus O(value) once per detached path.
+   */
+  detachBase(path: (string | number)[]): void {
+    if (path.length === 0 || !isContainer(this.baseSnapshot)) return;
+    let at: object = this.baseSnapshot;
+    for (const k of path) {
+      if (this.detachedBase?.has(at)) return;
+      const child = ownChild(at, k);
+      if (!isContainer(child)) return;
+      at = child;
+    }
+    if (this.detachedBase?.has(at)) return;
+    const owned = (this.baseOwned ??= new WeakSet<object>());
+    if (!owned.has(this.baseSnapshot)) this.baseSnapshot = ownedRootOf(this.baseSnapshot, owned);
+    ownSpine(this.baseSnapshot, path, owned);
+    const copy: object = structuredClone(at);
+    (this.detachedBase ??= new WeakSet<object>()).add(copy);
+    _set(this.baseSnapshot, path, copy);
   }
 
   /**

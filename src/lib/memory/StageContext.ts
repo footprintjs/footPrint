@@ -661,7 +661,13 @@ export class StageContext {
    *    2. LIVE state via `sharedMemory.getValue` for keys absent from the
    *       snapshot — including its run→global namespace fallback. The eager
    *       engine had this exact live fallback for snapshot-missing keys;
-   *       byte-identity over purity.
+   *       byte-identity over purity. After the stage's first write such a
+   *       value can be the very container the buffer's diff base holds at
+   *       the path (the stage deleted or unset it, or replaced a container
+   *       above it), so the base is detached there first
+   *       (`TransactionBuffer · detachBase`): an in-place edit of the value
+   *       (out of contract) written back is recorded, as on 9.28.0, whose
+   *       base was a clone taken at the first write.
    *
    *  Reads never construct the buffer (#13): a stage that never writes
    *  performs zero clones of the shared state. */
@@ -669,7 +675,10 @@ export class StageContext {
     const namespaced = this.withNamespace(path, key as string);
     const fromSnapshot = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
     if (typeof fromSnapshot !== 'undefined') return fromSnapshot;
-    return this.sharedMemory.getValue(this.runId, path, key);
+    const live = this.sharedMemory.getValue(this.runId, path, key);
+    // Tier 2 after the first write: keep the diff base exact (see above).
+    if (this.buffer && live !== null && typeof live === 'object') this.buffer.detachBase(namespaced);
+    return live;
   }
 
   /**

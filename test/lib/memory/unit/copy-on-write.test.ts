@@ -11,8 +11,10 @@
  *               (shares every untouched subtree, never edits its base) and
  *               the folds' `applySmartMergeInto` (the live law below the root).
  *   buffer    — `TransactionBuffer` holds its base by reference; a read after
- *               the first write is the stage's own (private reads, option D);
- *               `peek` is not a read.
+ *               the first write is the stage's own (private reads, option D),
+ *               except a value the stage staged, handed back as it is;
+ *               `peek` is not a read; `detachBase` keeps the diff base exact
+ *               under a read the working copy cannot answer.
  *   memory    — `SharedMemory` detaches its seed once and swaps generations
  *               on every write; `EventLog.materialise` folds by the live law.
  */
@@ -244,6 +246,21 @@ describe('TransactionBuffer — the base by reference, reads after the first wri
     expect(buf.get(['back'])).toBe(base.cfg);
   });
 
+  it('the committed object itself, written back at its own path, is handed back too — never privatised', () => {
+    const base = { cfg: { n: 1 } };
+    const buf = new TransactionBuffer(base);
+    buf.set(['cfg'], base.cfg); // a write-back: the staged value IS the base's value at that path
+    const got = buf.get(['cfg']);
+    expect(got).toBe(base.cfg);
+    // workingCopy and overwritePatch hold ONE value, so the record can only be
+    // what the stage holds. A private copy here would split them: after an
+    // in-place edit of the copy, the commit would record a set of the OLD value
+    // (the prototype's phantom set). Here the edit reaches the committed
+    // object itself — out of contract, M7's shape — and nothing is recorded.
+    got.n = 2;
+    expect(buf.commit()).toMatchObject({ overwrite: {}, trace: [] });
+  });
+
   it('a namespaced read copies the namespaces on the way shallowly — not every run', () => {
     const base = freezeAll({ runs: { r1: { k: { n: 1 } }, r2: { big: [1, 2, 3] } } });
     const buf = new TransactionBuffer(base);
@@ -289,6 +306,58 @@ describe('TransactionBuffer — the base by reference, reads after the first wri
   });
 });
 
+describe('TransactionBuffer · detachBase — a read the working copy cannot answer keeps the diff base exact', () => {
+  it('an in-place edit of the live value, written back, is recorded: the base kept what the stage first saw', () => {
+    const base = { cfg: { n: 1 } }; // not frozen: the edit reaches committed state, as it does on 9.28.0
+    const buf = new TransactionBuffer(base);
+    buf.delete(['cfg']);
+    expect(buf.get(['cfg'])).toBeUndefined(); // the caller (StageContext · readState) serves live state…
+    buf.detachBase(['cfg']); // …after detaching the base there
+    const live = base.cfg;
+    live.n = 99; // out of contract
+    buf.set(['cfg'], live);
+    const { overwrite, trace } = buf.commit();
+    expect(overwrite).toEqual({ cfg: { n: 99 } });
+    expect(trace.map((t) => t.path)).toContain('cfg');
+  });
+
+  it('the same in the delta encoding: the family replay starts from the detached base', () => {
+    const base = { list: { list: [] as number[] } };
+    const buf = new TransactionBuffer(base, 'delta');
+    buf.merge(['list'], 0); // replaces the container…
+    buf.merge(['list', 'x'], 's'); // …so a read of list.list cannot be answered by the working copy
+    expect(buf.get(['list', 'list'])).toBeUndefined();
+    buf.detachBase(['list', 'list']);
+    base.list.list.push(0); // the live value, edited in place
+    expect(buf.commit().overwrite).toEqual({ list: { list: [], x: 's' } }); // as on 9.28.0
+  });
+
+  it('copies the way down shallowly and never edits committed state; later reads still privatise', () => {
+    const base = freezeAll({ a: { b: { n: 1 }, side: { s: 1 } }, keep: { k: 1 } });
+    const buf = new TransactionBuffer(base);
+    buf.delete(['a', 'b']);
+    expect(clonesDuring(() => buf.detachBase(['a', 'b']))).toBe(1); // frozen: a copy, never an edit
+    const side = buf.get(['a', 'side']);
+    expect(side).toEqual({ s: 1 });
+    expect(side).not.toBe(base.a.side);
+    const keep = buf.get(['keep']);
+    expect(keep).not.toBe(base.keep);
+  });
+
+  it('copies nothing where the base holds no container, and nothing twice', () => {
+    const base = freezeAll({ cfg: { deep: { n: 1 } }, s: 'x', runs: {} });
+    const buf = new TransactionBuffer(base);
+    buf.set(['other'], 1);
+    expect(clonesDuring(() => buf.detachBase(['missing']))).toBe(0);
+    expect(clonesDuring(() => buf.detachBase(['s']))).toBe(0);
+    expect(clonesDuring(() => buf.detachBase(['runs', 'r1', 'cfg']))).toBe(0);
+    expect(clonesDuring(() => buf.detachBase([]))).toBe(0);
+    expect(clonesDuring(() => buf.detachBase(['cfg']))).toBe(1);
+    expect(clonesDuring(() => buf.detachBase(['cfg']))).toBe(0);
+    expect(clonesDuring(() => buf.detachBase(['cfg', 'deep']))).toBe(0); // inside a detached copy
+  });
+});
+
 describe('SharedMemory — one detached seed, a new generation per write', () => {
   it('the seed is detached once at construction; an empty seed clones nothing', () => {
     const seed = { cfg: { n: 1 } };
@@ -298,19 +367,24 @@ describe('SharedMemory — one detached seed, a new generation per write', () =>
     expect(clonesDuring(() => new SharedMemory())).toBe(0);
   });
 
-  it('applyPatch, setValue and updateValue swap in a new generation; the old one is never edited', () => {
-    const mem = new SharedMemory(undefined, { keep: { k: 1 }, list: [1] });
+  it('applyPatch, setValue and updateValue each swap in a new generation; the one before is never edited', () => {
+    const mem = new SharedMemory(undefined, { keep: { k: 1 }, cfg: { c: 1 }, list: [1] });
     const g0 = mem.getState();
     const g0Bytes = JSON.stringify(g0);
     mem.applyPatch({ n: 1 }, {}, [{ path: 'n', verb: 'set' }]);
     const g1 = mem.getState();
-    mem.setValue('', ['deep'], 'x', 2);
+    const g1Bytes = JSON.stringify(g1);
+    mem.setValue('', ['keep'], 'x', 2); // a nested write through a container g0 and g1 share
+    const g2 = mem.getState();
+    const g2Bytes = JSON.stringify(g2);
     mem.updateValue('', [], 'list', [2]);
     const g3 = mem.getState();
-    expect(JSON.stringify(g0)).toBe(g0Bytes);
-    expect(g1).not.toBe(g0);
-    expect(g3).toEqual({ keep: { k: 1 }, list: [1, 2], n: 1, deep: { x: 2 } });
-    expect(g3.keep).toBe(g0.keep);
+    expect(JSON.stringify(g0)).toBe(g0Bytes); // applyPatch did not edit g0
+    expect(JSON.stringify(g1)).toBe(g1Bytes); // setValue did not edit g1 (nor g0 through `keep`)
+    expect(JSON.stringify(g2)).toBe(g2Bytes); // updateValue did not edit g2
+    expect(new Set([g0, g1, g2, g3]).size).toBe(4);
+    expect(g3).toEqual({ keep: { k: 1, x: 2 }, cfg: { c: 1 }, list: [1, 2], n: 1 });
+    expect(g3.cfg).toBe(g0.cfg); // untouched subtrees are shared
   });
 });
 

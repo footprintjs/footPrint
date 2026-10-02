@@ -7,7 +7,13 @@
  * assertion is the real old behaviour, not a description of it.
  *
  *   THE LAW — a committed generation is never edited: every generation a
- *     stage saw is unchanged at the end of the run (fast-check).
+ *     stage saw is unchanged at the end of the run (fast-check, through the
+ *     typed scope and through `StageContext` at nested and namespaced
+ *     paths), and two forks whose children `$update` their namespaces leave
+ *     the generation between them untouched.
+ *   A read the working copy cannot answer (the stage deleted or unset the
+ *     path) is served from live state, as on 9.28.0, and the diff base is
+ *     kept exact: an in-place edit written back is recorded, as on 9.28.0.
  *   D1 (fix) — an inputMapper that passes a parent object through froze the
  *     parent's committed object (TypeError on a later nested write).
  *   D2 (fix) — the redacted mirror shared containers with the commit log.
@@ -21,17 +27,30 @@
  *   M5 (fix) — the caller's `initialContext` objects are detached at
  *     construction.
  *   M6 (fix) — expandos a nested engine write hangs on a committed `Date`
- *     stay in live state, as in the record.
+ *     stay in live state, as in the record — so a later identical merge-back
+ *     records no row.
  *   M7 — a value read BEFORE the stage's first write, mutated in place AFTER
  *     it and written back: no longer recorded (9.28.0 recorded it by
  *     accident); dev mode now says so.
  *   M8 — a write THROUGH a value the same stage set no longer edits that
  *     value in place: its retained `stageWrites` entry is the value as written.
+ *   Private reads never copy a value the stage staged — even the committed
+ *     object itself, written back: the read hands it back, as on 9.28.0.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { type Engine, BASELINE, BUILD, bytes, containersOf } from '../property/copy-on-write-fixture.js';
+import {
+  type Engine,
+  type NestedProgram,
+  BASELINE,
+  BUILD,
+  bytes,
+  containersOf,
+  firstDifference,
+  nestedProgramArb,
+  runNested,
+} from '../property/copy-on-write-fixture.js';
 
 const ENGINES = [BASELINE, BUILD] as const;
 
@@ -142,6 +161,168 @@ describe('THE LAW — a committed generation is never edited', () => {
       { numRuns: 150, seed: 20261004 },
     );
   });
+
+  it('StageContext at nested and namespaced paths (in contract): no generation is edited by a later commit', () => {
+    // The typed scope writes root keys; this is the nested-row family (/zod,
+    // the subflow doors, fork children), where a replay that skipped its path
+    // copy would edit the generation it builds on with no byte to show it.
+    fc.assert(
+      fc.property(nestedProgramArb, (p0) => {
+        const p: NestedProgram = { ...p0, mutate: false };
+        const laws = { editedGenerations: 0 };
+        runNested(BUILD, p, laws);
+        expect(laws.editedGenerations).toBe(0);
+      }),
+      { numRuns: 3000, seed: 5150 },
+    );
+  });
+
+  it('two forks whose children $update their namespace: the generation between them is never edited', async () => {
+    const seen: Array<{ ref: unknown; copy: string }> = [];
+    const holder: { ex?: any } = {};
+    const capture = () => {
+      const ref = holder.ex?.getSnapshot().sharedState;
+      if (ref) seen.push({ ref, copy: bytes(ref) });
+    };
+    const kids = (tag: string) => [
+      {
+        id: `a${tag}`,
+        name: `A${tag}`,
+        fn: (s: any) => {
+          s.$update('k', { [tag]: 1 });
+          s.$update('k', { deep: { [tag]: [1] } });
+        },
+      },
+      {
+        id: `b${tag}`,
+        name: `B${tag}`,
+        fn: (s: any) => {
+          s.$update('k', { [tag]: 2 });
+        },
+      },
+    ];
+    const chart = BUILD.flowChart(
+      'Seed',
+      (s: any) => {
+        capture();
+        s.x = 1;
+      },
+      'seed',
+    )
+      .addListOfFunction(kids('1'))
+      .addFunction(
+        'Mid',
+        (s: any) => {
+          capture(); // the generation the second fork's children build on
+          s.y = 1;
+        },
+        'mid',
+      )
+      .addListOfFunction(kids('2'))
+      .addFunction('End', () => capture(), 'end')
+      .build();
+    for (const commitValues of ['full', 'delta'] as const) {
+      seen.length = 0;
+      holder.ex = new BUILD.FlowChartExecutor(chart, { commitValues });
+      await holder.ex.run();
+      expect(seen.length).toBe(3);
+      for (const { ref, copy } of seen) expect(bytes(ref)).toBe(copy);
+    }
+  });
+});
+
+describe('A read the working copy cannot answer — served from live state, the diff base kept exact (as on 9.28.0)', () => {
+  // After the stage's first write, a read of a path the stage deleted or
+  // unset (or replaced a container above) falls through the buffer to LIVE
+  // committed state — on both engines. 9.28.0's diff base was a clone taken at
+  // the first write, so an in-place edit of that value (out of contract)
+  // written back was recorded; the build's base is the committed generation
+  // itself, so it is detached at that path first (TransactionBuffer ·
+  // detachBase) — not the value handed out, which stays the live one.
+  const writeBack = (variant: 'delete' | 'unset') =>
+    linear(
+      (s) => {
+        s.cfg = { n: 1 };
+        s.other = 0;
+      },
+      (s) => {
+        if (variant === 'delete') delete s.cfg; // the first write
+        else {
+          s.other = 1; // the first write
+          s.cfg = undefined;
+        }
+        const c = s.$getValue('cfg'); // the buffer holds undefined: served from live state
+        c.n = 99; // in place — out of contract
+        s.$setValue('cfg', c);
+      },
+      (s) => {
+        s.seen = s.$getValue('cfg').n;
+      },
+    );
+
+  for (const variant of ['delete', 'unset'] as const)
+    for (const commitValues of ['full', 'delta'] as const) {
+      it(`${variant}, read back, edit in place, write back (${commitValues}): recorded, exactly as on 9.28.0`, async () => {
+        const before = await run(BASELINE, writeBack(variant), { commitValues }, true);
+        const after = await run(BUILD, writeBack(variant), { commitValues }, true);
+        expect(after.rows).toEqual(before.rows);
+        expect(bytes(after.snap.commitLog)).toBe(bytes(before.snap.commitLog));
+        expect(bytes(after.state)).toBe(bytes(before.state));
+        expect(after.warnings).toEqual(before.warnings);
+        expect(after.rows[1]).toContain('cfg:');
+        expect(plain(after.fold).cfg).toEqual({ n: 99 });
+        expect(plain(after.state).cfg).toEqual({ n: 99 });
+        expect(plain(after.state).seen).toBe(99);
+      });
+    }
+
+  // The two shapes the differential's NESTED family found (StageContext).
+  const pinned: Array<[string, NestedProgram]> = [
+    [
+      'seed 102938, program 1,976: a merge replaced the container, the read below it fell through, the edit moved the base',
+      {
+        initial: { list: { list: [] } },
+        stages: [
+          {
+            runId: '',
+            ops: [
+              { t: 'merge', path: 0, k: 'list', v: 0 },
+              { t: 'merge', path: 3, k: 'x', v: 's' },
+              { t: 'mutRead', path: 3, k: 'list', v: 0 },
+            ],
+          },
+          { runId: '', ops: [] },
+        ],
+        commitValues: 'delta',
+        mutate: true,
+      },
+    ],
+    [
+      'a run-namespaced read that falls back to a global key: the edit reaches live state, as on 9.28.0 (why the value is not privatised)',
+      {
+        initial: { x: {} },
+        stages: [
+          {
+            runId: 'r2',
+            ops: [
+              { t: 'merge', path: 0, k: '0', v: 0 },
+              { t: 'mutRead', path: 0, k: 'x', v: 0 },
+            ],
+          },
+          { runId: '', ops: [] },
+        ],
+        commitValues: 'full',
+        mutate: true,
+      },
+    ],
+  ];
+  for (const [name, program] of pinned)
+    for (const commitValues of ['full', 'delta'] as const) {
+      it(`${name} (${commitValues})`, () => {
+        const p = { ...program, commitValues };
+        expect(firstDifference(runNested(BASELINE, p), runNested(BUILD, p))).toBe('');
+      });
+    }
 });
 
 describe('D1 (fix) — an inputMapper that passes a parent object through does not freeze the parent’s state', () => {
@@ -481,6 +662,49 @@ describe('M6 (fix) — expandos a nested engine write hangs on a committed Date 
     expect(after.state.when.z).toBe(2);
     expect(after.state.when.getTime()).toBe(0);
   });
+
+  it('so a LATER identical merge-back records no row: the expando is already in live state (9.28.0 re-recorded it)', async () => {
+    // A loop: each iteration's subflow merges { x: 1 } into `b`, then P sets
+    // `b` to a Date of the same instant (no change after the first time).
+    const loop = (e: Engine) => {
+      const inner = e.flowChart('Inner', () => undefined, 'inner').build();
+      return e
+        .flowChart(
+          'Head',
+          (s: any) => {
+            s.iter = (s.iter ?? 0) + 1;
+          },
+          'head',
+        )
+        .addSubFlowChartNext('sub', inner, 'Sub', {
+          inputMapper: () => ({ obj: { x: 1 } }),
+          outputMapper: (o: any) => ({ b: o.obj }),
+        })
+        .addFunction(
+          'P',
+          (s: any) => {
+            s.b = new Date(1_700_000_000_000);
+          },
+          'p',
+        )
+        .addDeciderFunction('Route', (s: any) => (s.iter < 3 ? 'again' : 'final'), 'route')
+        .addFunctionBranch('again', 'Again', () => undefined, 'again', { loopTo: 'head' })
+        .addFunctionBranch('final', 'Final', () => undefined, 'final')
+        .end()
+        .build();
+    };
+    const mergeBacks = (r: Run) =>
+      r.snap.commitLog
+        .filter((b: any) => b.stage === 'Sub')
+        .map((b: any) => b.trace.map((t: any) => t.path.split('\u001f').join('.')).join(' '))
+        .filter((rows: string) => rows !== '');
+    const before = await run(BASELINE, loop);
+    const after = await run(BUILD, loop);
+    expect(mergeBacks(before)).toEqual(['b.x', 'b.x', 'b.x']); // iteration 3: the clone had dropped it, so it changed again
+    expect(mergeBacks(after)).toEqual(['b.x', 'b.x']); // iteration 3: already there — no change, no row
+    expect(after.state.b.x).toBe(1);
+    expect(before.state.b.x).toBeUndefined();
+  });
 });
 
 describe('M7 — read BEFORE the first write, mutated in place AFTER it, written back', () => {
@@ -550,5 +774,34 @@ describe('M8 — a write THROUGH a value the same stage set no longer edits that
     expect(after.deep).toEqual({ a: 1 }); // …the build copies it first
     expect(after.stageWrites['obj.deep']).toEqual({ a: 1 });
     expect(after.stageWrites['obj.deep.x']).toBe(2);
+  });
+});
+
+describe('Private reads never copy a value the stage staged — even the committed object itself, written back', () => {
+  // `TransactionBuffer · privatise` hands a STAGED container back by
+  // reference. A write-back of the committed object itself makes the staged
+  // value and the diff base's value one object; were the read to privatise
+  // it, the working copy and overwritePatch would disagree about a value the
+  // stage wrote (the prototype recorded a phantom set of the OLD value).
+  it('the read returns the very object written back, as on 9.28.0; the record is unchanged', async () => {
+    const identities: boolean[] = [];
+    const make = linear(
+      (s) => {
+        s.cfg = { n: 1 };
+      },
+      (s) => {
+        const c = s.$getValue('cfg'); // before the first write: committed state itself
+        s.$setValue('cfg', c); // the first write: the committed object, written back
+        identities.push(s.$getValue('cfg') === c);
+      },
+    );
+    for (const commitValues of ['full', 'delta'] as const) {
+      identities.length = 0;
+      const before = await run(BASELINE, make, { commitValues });
+      const after = await run(BUILD, make, { commitValues });
+      expect(identities).toEqual([true, true]);
+      expect(bytes(after.snap.commitLog)).toBe(bytes(before.snap.commitLog));
+      expect(after.rows).toEqual(['s0: cfg:set', 's1: ']);
+    }
   });
 });

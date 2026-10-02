@@ -73,6 +73,16 @@ describe('copy-on-write — hostile paths are refused by every replay', () => {
     clean();
   });
 
+  it('a base detach through a hostile path is refused: nothing copied, nothing polluted', () => {
+    const base = Object.freeze({ a: Object.freeze({ k: 1 }) });
+    const buf = new TransactionBuffer(base);
+    buf.delete(['a']);
+    for (const segs of HOSTILE) buf.detachBase(segs); // a frozen base: any edit would throw
+    buf.detachBase(['a', '__proto__']);
+    expect(buf.commit().overwrite).toEqual({ a: undefined });
+    clean();
+  });
+
   it('an own `__proto__` DATA key survives a path copy as a key — the prototype setter is never invoked', () => {
     const initial = JSON.parse('{"obj":{"__proto__":{"evil":1},"k":1}}');
     const mem = new SharedMemory(undefined, initial);

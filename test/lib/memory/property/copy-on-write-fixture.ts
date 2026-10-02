@@ -84,6 +84,22 @@ export function materialise(v: unknown): unknown {
 export const isObj = (x: unknown): x is Record<string, unknown> =>
   x !== null && typeof x === 'object' && !Array.isArray(x) && !(x instanceof Date);
 
+/**
+ * Keeps named behaviour M6 out of the generated families: a plain object an
+ * `outputMapper` merges back into a `Date` hangs expandos on it, which 9.29.0
+ * keeps in live state (9.28.0's next whole-state clone dropped them) — so
+ * every later merge, row and fold through that key differs by design. M6 is
+ * pinned on its own (copy-on-write-commit.test.ts); here a mapped key whose
+ * parent value is a `Date` is renamed (`b` → `b2`) and lands beside it. The
+ * first version guarded one key and missed the others (`b`, `hist`): seed
+ * 610000 found both.
+ */
+export function keepOffDates(mapped: Record<string, unknown>, parent: any): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(mapped)) out[isObj(v) && parent?.[k] instanceof Date ? `${k}2` : k] = v;
+  return out;
+}
+
 // ─── Bytes ───────────────────────────────────────────────────────────────
 
 const VOLATILE = new Set([
@@ -135,6 +151,7 @@ export interface Engine {
   label: string;
   flowChart: any;
   FlowChartExecutor: any;
+  interrupt: any;
   stateAt: any;
   enableDevMode: () => void;
   disableDevMode: () => void;
@@ -148,6 +165,7 @@ function engine(label: string, c: any, a: any, t: any): Engine {
     label,
     flowChart: c.flowChart,
     FlowChartExecutor: c.FlowChartExecutor,
+    interrupt: c.interrupt,
     stateAt: t.stateAt,
     enableDevMode: c.enableDevMode,
     disableDevMode: c.disableDevMode,
@@ -252,7 +270,8 @@ export const chartProgramArb: fc.Arbitrary<ChartProgram> = fc.record({
   }),
 });
 
-function applyChartOp(s: any, o: ChartOp, errors: string[]): void {
+/** Apply one chart op through the typed scope; a throw is recorded, not raised. */
+export function applyChartOp(s: any, o: ChartOp, errors: string[]): void {
   try {
     switch (o.t) {
       case 'set':
@@ -356,11 +375,14 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
             : { a: parent.a ?? 'none', list: [1] },
         // A plain-object merge-back writes NESTED rows (obj.y, obj.deep).
         // Into a `Date` it would hang expandos on it — named behaviour M6,
-        // pinned on its own: here only into a plain object (or nothing).
+        // pinned on its own: never into a `Date` here (`keepOffDates`).
         outputMapper: (out: any, parent: any) =>
-          sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
-            ? { obj: { y: out.a ?? null, deep: { q: 1 } }, list: [7], hist: out.list ?? [] }
-            : { b: out.obj ?? null, list: [8] },
+          keepOffDates(
+            sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
+              ? { obj: { y: out.a ?? null, deep: { q: 1 } }, list: [7], hist: out.list ?? [] }
+              : { b: out.obj ?? null, list: [8] },
+            parent,
+          ),
         ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
       });
     }
@@ -654,7 +676,6 @@ export const nestedProgramArb: fc.Arbitrary<NestedProgram> = fc.record({
   mutate: fc.boolean(),
 });
 
-/** Drive `StageContext` through a nested program; every read's result and every fold are bytes. */
 /**
  * Does this program write THROUGH a container the same stage `set` earlier
  * (`set obj.deep = {}` then `set obj.deep.x`)? Named behaviour M8: 9.28.0
@@ -676,12 +697,27 @@ export function writesThroughStagedValue(p: NestedProgram): boolean {
   });
 }
 
-export function runNested(engine: Engine, p: NestedProgram): Record<string, string> {
+/**
+ * Drive `StageContext` through a nested program; every read's result and
+ * every fold are bytes. `laws`, when given, receives the build-only check
+ * the bytes cannot see: how many committed generations — each captured just
+ * before a commit swapped in the next — were edited by anything after it
+ * (THE LAW; a review found that byte comparison alone missed a replay that
+ * edited one). Kept out of the compared record: on an out-of-contract
+ * program (`mutate`) an in-place edit of a value served from live state
+ * reaches committed state on 9.28.0 too.
+ */
+export function runNested(
+  engine: Engine,
+  p: NestedProgram,
+  laws?: { editedGenerations: number },
+): Record<string, string> {
   const mem = new engine.SharedMemory(undefined, materialise(p.initial));
   const log = new engine.EventLog(mem.getState());
   const reads: string[] = [];
   const snaps: string[] = [];
   const errors: string[] = [];
+  const generations: Array<{ ref: unknown; copy: string }> = [];
   p.stages.forEach((st, i) => {
     const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
     if (p.commitValues === 'delta') ctx.useCommitValues('delta');
@@ -709,6 +745,7 @@ export function runNested(engine: Engine, p: NestedProgram): Record<string, stri
         errors.push(`${o.t}:${(e as Error).name}`);
       }
     }
+    if (laws) generations.push({ ref: mem.getState(), copy: bytes(mem.getState()) });
     try {
       ctx.commit();
     } catch (e) {
@@ -716,6 +753,7 @@ export function runNested(engine: Engine, p: NestedProgram): Record<string, stri
     }
     snaps.push(bytes(ctx.getSnapshot()));
   });
+  if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
   const folds: string[] = [];
   for (let i = 0; i <= log.list().length; i++) folds.push(bytes(log.materialise(i)));
   return {
