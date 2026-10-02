@@ -55,15 +55,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     typed scope: a run-namespaced stage's address (`runs/<id>`) is where it
     writes, not a value it reads.
 
-- **Byte-identical**, in both encodings: every commit that already folded back
-  (including the key order its replay builds), pinned by `repeated-path-9.22.0`,
-  `no-policy-9.18.1`, `no-policy-redact-view-9.19.1`, `untagged-9.20.0` — none
-  re-pinned. Of the 320 programs in the 9.28.0 corpus, 74 change; each is proven,
-  every run, to be one whose 9.28.0 record did not fold back.
+- **Byte-identical**, in both encodings, for the typed scope's commits that
+  already folded back (root-key `set` / `merge` / `delete`; ~370k random programs
+  in review, 0 differences), pinned by `repeated-path-9.22.0`, `no-policy-9.18.1`,
+  `no-policy-redact-view-9.19.1`, `untagged-9.20.0` — none re-pinned. Of the 320
+  programs in the 9.28.0 corpus, 74 change; each is proven, every run, to be one
+  whose 9.28.0 record did not fold back. **State-identical, rows differ** (named,
+  not hidden): a `Map` with OBJECT keys never equals its own clone, so a stage
+  that holds one and also merges is recorded as `set` rows of the read-back (same
+  state, one extra clone); and through `StageContext`'s nested doors in delta mode
+  a family can be re-encoded where the dry fold and the working copy dedup a
+  union differently (same state, different row order).
 
-- **Migration: none.** A stored 9.29.0 recording folds unchanged; only newly
-  written commits of the named shapes differ, and they now agree with what the
-  stage read. The bundle shape is unchanged (no new field, no new verb).
+- **Security — a field mark below an array is never lost to a compact `append`.**
+  A redaction field addressed by array index (`fields: {list: ['1.token']}`)
+  counts from the start of the WHOLE array; a delta `append` row holds only the
+  tail, so the mark found nothing and the secret stayed in the log and the
+  redacted mirror. Under 9.30.0's re-encoding a lossy merge family could reach
+  that row (found in review); the same gap was already open in 9.29.0 for a hard
+  write of base + tail in delta mode. A path with a mark below it now always takes
+  the `set` of the whole value (`deltaEncoding · pushValueRow`). Pinned:
+  `security/append-under-field-mark.security.test.ts`.
+
+- **Migration.** A stored 9.29.0 recording folds unchanged; only newly written
+  commits of the named shapes differ, and they now agree with what the stage
+  read. The bundle shape is unchanged (no new field, no new verb). One change a
+  consumer can SEE (C5): a subflow input or output mapper value holding a field
+  set to `undefined` (`{cfg: {a: undefined}}`) now arrives as the container the
+  stage read (`{}`), where 9.29.0 left the key `undefined` and recorded nothing.
 
 - **Internal:** the check lives in `memory/admission.ts`, the delta encoder's
   helpers in `memory/deltaEncoding.ts` (both internal); `TransactionBuffer`

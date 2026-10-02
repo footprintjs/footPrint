@@ -319,6 +319,23 @@ export class TransactionBuffer {
   }
 
   /**
+   * Does a redaction mark address an array ELEMENT right below `path`
+   * (`list.1.token`)? An `append` row re-bases the indices onto the tail, so
+   * such a path takes the whole-value `set` (`deltaEncoding · pushValueRow`).
+   * A mark by NAME below an array (`obj.y`) means the same thing on the tail
+   * as on the whole value, so the compact row stays (byte-identical).
+   */
+  private markedBelow(path: string): boolean {
+    const prefix = path + DELIM;
+    for (const marked of this.redactedPaths) {
+      if (!marked.startsWith(prefix)) continue;
+      const next = marked.slice(prefix.length).split(DELIM)[0];
+      if (/^(0|[1-9]\d*)$/.test(next)) return true;
+    }
+    return false;
+  }
+
+  /**
    * The redacted paths that survive the net-change filter: a path survives
    * when it IS a surviving op path (a whole-key redaction) or sits UNDER one
    * (a field inside a surviving write). A dropped op takes its fields with it.
@@ -758,7 +775,7 @@ export class TransactionBuffer {
         trace.push({ path, verb: 'merge', ...prov });
         _set(updates, segments, structuredClone(_get(this.updatePatch, segments)));
       } else {
-        pushValueRow(rows, path, segments, before, fullValueAt(segments), prov);
+        pushValueRow(rows, path, segments, before, fullValueAt(segments), prov, this.markedBelow(path));
       }
     };
 
@@ -834,7 +851,15 @@ export class TransactionBuffer {
     const after = _get(this.workingCopy, family.rootSegments);
     if (encoding === 'delta' && changed === 0 && after !== undefined) {
       const before = _get(this.baseSnapshot, family.rootSegments);
-      pushValueRow(rows, family.root, family.rootSegments, before, after, provenance(root.readKeys));
+      pushValueRow(
+        rows,
+        family.root,
+        family.rootSegments,
+        before,
+        after,
+        provenance(root.readKeys),
+        this.markedBelow(family.root),
+      );
       return;
     }
     rows.trace.push({ path: family.root, verb: 'set', ...provenance(root.readKeys) });

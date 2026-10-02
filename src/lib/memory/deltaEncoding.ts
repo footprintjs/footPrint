@@ -38,6 +38,13 @@ export type Survivor = {
  * A delta row carrying a VALUE: an `append` of the tail when `before` is a
  * strict prefix of `value` ({@link isStrictArrayPrefix}), else a `set` of it.
  * The value is cloned here — the one copy the record takes.
+ *
+ * `marked` — a redaction mark sits BELOW this path (`list.1.token`): its
+ * indices count from the start of the WHOLE array, and an `append` row holds
+ * only the tail, where `redactPatch` would find no element 1 and leave the
+ * secret in the log and the redacted mirror. Such a path always takes the
+ * `set` of the whole value, where the mark lands (9.30.0; the same gap was
+ * open in 9.29.0 for a hard write of base + tail).
  */
 export function pushValueRow(
   rows: Rows,
@@ -46,8 +53,9 @@ export function pushValueRow(
   before: unknown,
   value: unknown,
   prov: { readKeys: string[] } | undefined,
+  marked = false,
 ): void {
-  if (isStrictArrayPrefix(before, value)) {
+  if (!marked && isStrictArrayPrefix(before, value)) {
     rows.trace.push({ path, verb: 'append', ...prov });
     _set(rows.overwrite, segments, structuredClone((value as unknown[]).slice(before.length)));
   } else {
