@@ -9,7 +9,7 @@
  * - A filter:   { creditScore: { gt: 700 } } (captures reads + operators + thresholds)
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
+import { isDevMode } from '../devMode.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';

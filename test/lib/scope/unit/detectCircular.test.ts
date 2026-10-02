@@ -3,12 +3,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  disableDevMode,
-  enableDevMode,
-  hasCircularReference,
-  isDevMode,
-} from '../../../../src/lib/scope/detectCircular';
+import { hasCircularReference } from '../../../../src/lib/capture/circular';
+import { disableDevMode, enableDevMode, isDevMode } from '../../../../src/lib/devMode';
 
 // -- hasCircularReference unit tests -----------------------------------------
 

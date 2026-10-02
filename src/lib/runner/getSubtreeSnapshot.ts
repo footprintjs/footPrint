@@ -21,9 +21,9 @@
  *   listSubflowPaths(snapshot); // ['sf-payment', 'sf-payment/sf-validation']
  */
 
+import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { StageSnapshot } from '../memory/types.js';
-import { isDevMode } from '../scope/detectCircular.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 
 /** The result of navigating to a subtree within a snapshot. */

@@ -1,3 +1,5 @@
+const { layerZones } = require('./scripts/layering.config.cjs');
+
 module.exports = {
   // Stop config resolution here. Without this, eslint walks UP the directory
   // tree — a checkout nested inside another checkout of this repo (e.g. a git
@@ -31,6 +33,24 @@ module.exports = {
     },
   },
   overrides: [
+    {
+      // THE FENCE (src only — tests import whatever they test). The layer table lives in
+      // scripts/layering.config.cjs; `layerZones` turns it into zones, so the table has one
+      // owner and `npm run check:layering` reads the same one.
+      //   - no-cycle: file-level value cycles (type-only imports are ignored by the rule).
+      //   - no-restricted-paths: a file imports only its own layer or below.
+      // Three edges are deliberate and named (reasons in EXCEPTIONS there):
+      //   builder  -> runner/RunnableChart.ts  (`makeRunnable`)
+      //   engine   -> reactive/handles.ts      (the handle registry)
+      //   scope    -> detach/spawn.ts          (`ScopeFacade.$spawn`)
+      // plus a short TYPE_ONLY_ALLOWANCES list: upward imports that tsc erases, which this
+      // rule cannot tell from runtime ones.
+      files: ['src/**/*.ts'],
+      rules: {
+        'import/no-cycle': ['error', { ignoreExternal: true }],
+        'import/no-restricted-paths': ['error', { basePath: __dirname, zones: layerZones(__dirname) }],
+      },
+    },
     {
       files: ['test/**/*.ts', '**/*.test.ts'],
       rules: {

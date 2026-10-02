@@ -8,6 +8,9 @@
  *
  * Deliberately avoids every O(value) operation: no clone, no serialization.
  * See {@link ReadSummaryMarker} for the honest-cost contract.
+ *
+ * Also home of {@link summarizeValue} — the narrative one-liner (a string, not a
+ * marker) the decide() evidence capture and the combined narrative share.
  */
 
 /** Max characters captured in a summary marker's `preview`. */
@@ -104,4 +107,34 @@ export function summarizeReadValue(value: unknown): ReadSummaryMarker {
  */
 export function summarizeWriteValue(value: unknown): WriteSummaryMarker {
   return { __writeSummary: true, ...classifyValue(value) };
+}
+
+/**
+ * Human-readable one-line summary of a value, for NARRATIVE output (as opposed to the
+ * retention markers above, which are records). Truncates strings, summarizes arrays and
+ * objects by count. Shared by `CombinedNarrativeRecorder` and the decide()/select()
+ * evidence capture so both format a value the same way.
+ *
+ * Moved here from `scope/recorders/summarizeValue.ts` (a leaf living in a mid-layer
+ * module forced `decide/` and `engine/narrative/` to import it upward).
+ */
+export function summarizeValue(value: unknown, maxLen: number): string {
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+  if (typeof value === 'string') {
+    return value.length <= maxLen ? `"${value}"` : `"${value.slice(0, maxLen - 3)}..."`;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.length === 0 ? '[]' : `(${value.length} item${value.length > 1 ? 's' : ''})`;
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>);
+    if (keys.length === 0) return '{}';
+    const preview = keys.slice(0, 4).join(', ');
+    const suffix = keys.length > 4 ? `, ... (${keys.length} keys)` : '';
+    const result = `{${preview}${suffix}}`;
+    return result.length <= maxLen ? result : `{${keys.length} keys}`;
+  }
+  return String(value);
 }

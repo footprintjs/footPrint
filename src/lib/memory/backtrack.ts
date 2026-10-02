@@ -54,7 +54,7 @@
  * ```
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
+import { isDevMode } from '../devMode.js';
 import { findLastWriter } from './commitLogUtils.js';
 import type { CommitBundle, UntrackedSource } from './types.js';
 

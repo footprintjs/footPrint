@@ -22,10 +22,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
+import { disableDevMode, enableDevMode } from '../../../../src/lib/devMode';
 import type { CommitValuesMode } from '../../../../src/lib/memory/types';
 import { applySmartMerge } from '../../../../src/lib/memory/utils';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import { disableDevMode, enableDevMode } from '../../../../src/lib/scope/detectCircular';
 
 type State = Record<string, any>;
 

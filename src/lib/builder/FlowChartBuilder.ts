@@ -12,6 +12,7 @@
  * it belongs in the runner layer (Phase 5).
  */
 
+import { isDevMode } from '../devMode.js';
 import {
   BRANCH_SEGMENT_MARKER,
   branchSegmentReservationMessage,
@@ -21,7 +22,6 @@ import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
-import { isDevMode } from '../scope/detectCircular.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
 import { StructureRecorderDispatcher } from './structure/StructureRecorderDispatcher.js';
 import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';

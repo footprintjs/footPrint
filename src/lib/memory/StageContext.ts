@@ -9,7 +9,7 @@
  */
 
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
-import { isDevMode } from '../scope/detectCircular.js';
+import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';

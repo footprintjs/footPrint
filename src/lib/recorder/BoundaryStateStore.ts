@@ -59,7 +59,7 @@
  * ```
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
+import { isDevMode } from '../devMode.js';
 
 export class BoundaryStateStore<TState> {
   /** Open-brackets stack: key → current transient state. */

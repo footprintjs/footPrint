@@ -8,8 +8,8 @@
  * Decoupled from ScopeFacade — receives callbacks, not scope.
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
-import { summarizeValue } from '../scope/recorders/summarizeValue.js';
+import { summarizeValue } from '../capture/summarize.js';
+import { isDevMode } from '../devMode.js';
 import type { FilterCondition, WhereFilter } from './types.js';
 
 // -- Operator dispatch table -------------------------------------------------

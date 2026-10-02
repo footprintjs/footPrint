@@ -9,8 +9,8 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { summarizeValue } from '../../../../../src/lib/capture/summarize';
 import { CombinedNarrativeRecorder } from '../../../../../src/lib/engine/narrative/CombinedNarrativeRecorder';
-import { summarizeValue } from '../../../../../src/lib/scope/recorders/summarizeValue';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

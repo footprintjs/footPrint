@@ -40,6 +40,8 @@
  * same reach as the inline tier, one beat behind.
  */
 
+import { invokeRecorderHook } from '../capture/invokeHook.js';
+import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import {
   type CaptureChannel,
@@ -55,8 +57,6 @@ import {
   FLOW_RECORDER_EVENT_METHODS,
   RECORDER_EVENT_METHODS,
 } from '../recorder/CombinedRecorder.js';
-import { invokeRecorderHook } from '../recorder/invokeHook.js';
-import { isDevMode } from '../scope/detectCircular.js';
 import type { ScopeRecorder } from '../scope/types.js';
 
 /** Delivery tier for an attached observer (RFC-001). */

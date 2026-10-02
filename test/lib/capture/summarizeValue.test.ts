@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { summarizeValue } from '../../../../src/lib/scope/recorders/summarizeValue';
+import { summarizeValue } from '../../../src/lib/capture/summarize';
 
 describe('summarizeValue', () => {
   // -- Primitives --

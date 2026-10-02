@@ -19,6 +19,7 @@
 
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
+import { isDevMode } from '../devMode.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
@@ -56,7 +57,6 @@ import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
-import { isDevMode } from '../scope/detectCircular.js';
 import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';

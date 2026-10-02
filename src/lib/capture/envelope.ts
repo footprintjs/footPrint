@@ -26,7 +26,7 @@
  *     clone-safety guarantee — see the dev-warn seam below.
  *
  * Dev-warn seam (resolves the isDevMode-would-be-an-engine-import problem):
- *   This module must not import `scope/detectCircular` (engine territory).
+ *   This module must not import `devMode` (the dev-mode flag is library state).
  *   Instead, `capture()` accepts {@link CaptureHooks} with an optional
  *   `warn` callback and invokes it on every `'ref'` capture and every
  *   `'clone'` degradation. The WIRING layer (Block 6) binds `warn` to an

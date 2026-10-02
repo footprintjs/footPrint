@@ -386,7 +386,7 @@ export { extractErrorInfo, formatErrorInfo } from './lib/engine/index.js';
  * Production leaves it OFF by default (zero overhead). See the JSDoc on
  * `enableDevMode` for the full list and usage example.
  */
-export { disableDevMode, enableDevMode, isDevMode } from './lib/scope/detectCircular.js';
+export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 
 // `defineScopeFromZod` and the other zod-based scope helpers moved to the opt-in
 // `footprintjs/zod` entry — keeping zod out of the core load path (it is an

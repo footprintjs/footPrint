@@ -23,7 +23,7 @@
  * `'[REDACTED]'` ({@link REDACTED}). Neither string changed in 9.19.0.
  */
 
-import { isDevMode } from '../scope/detectCircular.js';
+import { isDevMode } from '../devMode.js';
 import { nativeHas, nativeSet } from './pathOps.js';
 
 /**
