@@ -44,6 +44,11 @@ const LAYERS = [
       'src/lib/pause/**',
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
+      // The path codec, structural equality and the union merge: leaves that import nothing
+      // (split out of utils.ts in F2). The verb law (verbs.ts) reads them from L1.
+      'src/lib/memory/paths.ts',
+      'src/lib/memory/equality.ts',
+      'src/lib/memory/merge.ts',
       // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',
