@@ -369,6 +369,13 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
     }
     expect(stats.programs).toBe(RUNS);
     expect(stats.paused).toBeGreaterThan(0);
+    // At the fixed seed and the default sample, neither half of the clause is vacuous: some programs differ
+    // (each explained by the witness, some of them leg by leg) and most are byte-identical.
+    if (process.env.COW_DIFF_SEED === undefined && RUNS >= 500) {
+      expect(stats.explained).toBeGreaterThan(0);
+      expect(stats.legs.explained).toBeGreaterThan(0);
+      expect(stats.programs - stats.explained).toBeGreaterThan(stats.programs / 4);
+    }
   }, 3_600_000);
 
   /*

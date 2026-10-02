@@ -1219,8 +1219,9 @@ export function witnessLegs(
 
 /**
  * Cut the build's admission (`TransactionBuffer · admit`): the compact rows go
- * out unchecked, the accumulated merge delta replayed at every `merge` row of
- * a path — the lie 9.29.0 told (C1), byte for byte.
+ * out unchecked — the accumulated merge delta replayed at every `merge` row of
+ * a path (C1) and the other shapes the admission closed (C2 to C5): the lies
+ * 9.29.0 told, in the bytes it wrote them.
  */
 export function cutAdmission(engine: Engine): () => void {
   const proto = engine.TransactionBuffer.prototype;
