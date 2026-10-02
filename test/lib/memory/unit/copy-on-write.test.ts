@@ -26,7 +26,7 @@ import { adopt, ownedRootOf, ownSpine, shallowCopy } from '../../../../src/lib/m
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 import type { MemoryPatch, TraceEntry } from '../../../../src/lib/memory/types';
-import { applySmartMerge, applySmartMergeInto, DELIM, nextGeneration } from '../../../../src/lib/memory/utils';
+import { applySmartMerge, applySmartMergeInto, DELIM, dryFold, nextGeneration } from '../../../../src/lib/memory/utils';
 import { containersOf } from '../property/copy-on-write-fixture';
 
 /** Freeze every container of a tree — an edit of any of them then throws. */
@@ -201,6 +201,28 @@ describe('utils — one verb switch, three replays', () => {
     });
     expect(clones).toBe(1); // the written value
     expect(next.history).toBe(base.history);
+  });
+
+  it('dryFold (comparison only, 9.30.0): the live commit’s answer, no clone, nothing edited, the payload by reference', () => {
+    const p = nested();
+    freezeAll(p.base);
+    freezeAll(p.overwrite);
+    freezeAll(p.updates);
+    let folded: any;
+    expect(clonesDuring(() => (folded = dryFold(p.base, p.updates, p.overwrite, p.trace)))).toBe(0);
+    expect(folded).toEqual(nextGeneration(p.base, p.updates, p.overwrite, p.trace)); // value semantics (M3), as live
+    expect(folded.b).toEqual({ v: 0 });
+    expect(folded.fresh).toBe(p.overwrite.fresh); // placed by reference: aliases the payload…
+    expect(folded.keep).toBe(p.base.keep); // …and every subtree of the base it did not write
+    // A later row that writes THROUGH a value placed by reference copies it
+    // first — the frozen payload would throw if it were edited.
+    const payload = freezeAll({ o: { a: 1 } });
+    const through = dryFold({}, {}, payload, [
+      { path: 'o', verb: 'set' },
+      { path: ['o', 'b'].join(DELIM), verb: 'set' },
+    ]);
+    expect(Object.keys(through.o)).toEqual(['a', 'b']);
+    expect(through.o).not.toBe(payload.o);
   });
 
   it('applySmartMergeInto (folds): the root edited in place, the live law below it', () => {
