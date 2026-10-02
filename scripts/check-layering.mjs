@@ -81,15 +81,24 @@ export function readEdges(root, files) {
       if (!(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) || !statement.moduleSpecifier)
         continue;
       const spec = statement.moduleSpecifier.text;
-      // Statements are only ever REMOVED by the transpile, in order — so walk both lists together.
+      // The transpile only ever REMOVES statements, in order, so the kept list lines up with the
+      // source one for one. `import type` / `export type` are always erased: decide those by syntax
+      // and leave the kept list alone, so a type import placed BEFORE a value import of the same
+      // module (the usual order) is not credited with the value import's slot.
+      const erased =
+        (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true) ||
+        (ts.isExportDeclaration(statement) && statement.isTypeOnly);
       let kind = 'type';
-      if (kept[next] === spec) {
+      if (!erased && kept[next] === spec) {
         kind = 'value';
         next++;
       }
       const to = resolveSpec(file, spec);
       if (to)
         edges.push({ from: file, to, kind, line: source.getLineAndCharacterOfPosition(statement.getStart()).line + 1 });
+    }
+    if (next !== kept.length) {
+      throw new Error(`check-layering: could not line up the compiled imports of ${file} with its source`);
     }
     const visit = (node) => {
       if (

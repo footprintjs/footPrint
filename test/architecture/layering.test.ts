@@ -144,6 +144,16 @@ describe('check-layering — fixture trees', () => {
     expect(r.typeUpward).toHaveLength(3);
   });
 
+  it('a type import placed BEFORE a value import of the same module does not take its slot (the usual order)', () => {
+    const r = run({
+      'src/lib/high/h.ts': 'export interface H { x: number }\nexport const h = 1;\n',
+      'src/lib/low/a.ts':
+        "import type { H } from '../high/h.js';\nimport { h } from '../high/h.js';\nexport const a: H = { x: h };\n",
+    });
+    expect(r.upwardUnnamed.map((e) => [e.kind, e.line])).toEqual([['value', 2]]);
+    expect(r.typeUpward.map((e) => e.line)).toEqual([1]);
+  });
+
   it('a value import next to a type import is still a runtime edge', () => {
     const r = run({
       'src/lib/high/h.ts': 'export interface H { x: number }\nexport const h = 1;\n',
