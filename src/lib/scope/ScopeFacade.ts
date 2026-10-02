@@ -23,7 +23,7 @@ import {
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
-import { SCOPE_PLACEHOLDER } from '../memory/honesty.js';
+import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';

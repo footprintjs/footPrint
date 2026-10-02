@@ -12,9 +12,9 @@
  * Zero external dependencies.
  */
 
-import { LOG_PLACEHOLDER } from './honesty.js';
 import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
 import { DELIM } from './paths.js';
+import { LOG_PLACEHOLDER } from './placeholders.js';
 import type { MemoryPatch } from './types.js';
 
 export { deepEqual } from './equality.js';

@@ -11,7 +11,7 @@
  */
 
 import { EventLog } from '../memory/EventLog.js';
-import { LOG_PLACEHOLDER } from '../memory/honesty.js';
+import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RedactionRule } from '../memory/redaction.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';

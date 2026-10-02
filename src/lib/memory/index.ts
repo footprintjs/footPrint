@@ -17,10 +17,12 @@ export { TransactionBuffer } from './TransactionBuffer.js';
 export type { RedactionVerdict } from './redaction.js';
 export { RedactionRule } from './redaction.js';
 
-// Honesty — the ONE vocabulary for what a reader cannot see (F4a): the code registry, and the two
-// strings a redaction leaves where a value was (`REDACTED` is now `SCOPE_PLACEHOLDER`)
+// Honesty — the ONE vocabulary for what a reader cannot see (F4a): code → the one sentence
 export type { HonestyCode } from './honesty.js';
-export { HONESTY_CODES, LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './honesty.js';
+export { HONESTY_CODES } from './honesty.js';
+
+// The two strings a redaction leaves where a value was (F4a; `REDACTED` is now `SCOPE_PLACEHOLDER`)
+export { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
 
 // Types
 export type {

@@ -58,12 +58,14 @@ const { state, basis, redacted } = cursor.stateAt();
 //                         carries 'REDACTED' where values were removed.
 ```
 
-What each `basis` means — and what a `LogGap` (below) means — is registered once,
-with the other honesty signals, in `memory/honesty.ts · HONESTY_CODES` (served as
-`HONESTY_CODES` on `footprintjs/trace`): `HONESTY_CODES[basis]` is the one-sentence
-explanation, and `FoldBasis` declares its members through `RegisteredCode`, so a
-code the registry does not hold does not compile. The `'REDACTED'` placeholder is
-`honesty.ts · LOG_PLACEHOLDER`, spelled nowhere else in `src/`.
+What each `basis` means — and what `redacted` and a `LogGap` (below) mean — is
+registered once, with the other honesty signals, in `memory/honesty.ts ·
+HONESTY_CODES` (served as `HONESTY_CODES` on `footprintjs/trace`):
+`HONESTY_CODES[basis]` is the one-sentence explanation, `HONESTY_CODES.redacted`
+and `HONESTY_CODES['log-gap']` explain the two signals that carry no code, and
+`FoldBasis` declares its members through `RegisteredCode`, so a code the registry
+does not hold does not compile. The `'REDACTED'` placeholder is the log's string,
+`memory/placeholders.ts · LOG_PLACEHOLDER`, spelled nowhere else in `src/`.
 
 The verbs are replayed by `applySmartMergeInto` — the same law the live commit
 uses (`memory/verbs.ts`). There is deliberately no second implementation of the

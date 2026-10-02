@@ -19,15 +19,15 @@
  *
  * TWO PLACEHOLDERS, BOTH HISTORICAL: the commit log and the mirror carry
  * `'REDACTED'` (`redactPatch`, unchanged since 4.x); every scope-tier view —
- * recorder events, `stageReads`/`stageWrites`, narrative — carries
+ * scope recorder events, `stageReads`/`stageWrites`, narrative — carries
  * `'[REDACTED]'`. Neither string changed in 9.19.0. The strings themselves are
- * owned by `memory/honesty.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`) and
- * spelled nowhere else in `src/` — this rule asks for the scope one by name.
+ * owned by `memory/placeholders.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`)
+ * and spelled nowhere else in `src/` — this rule asks for the scope one by name.
  */
 
 import { isDevMode } from '../devMode.js';
-import { SCOPE_PLACEHOLDER } from './honesty.js';
 import { nativeHas, nativeSet } from './pathOps.js';
+import { SCOPE_PLACEHOLDER } from './placeholders.js';
 
 /**
  * Declarative redaction configuration — define once, applied everywhere.
@@ -74,14 +74,6 @@ export interface RedactionReport {
   /** Pattern sources that were active (e.g. ['password|secret']). */
   patterns: string[];
 }
-
-/**
- * The scope-tier placeholder — recorder events, retention, narrative — under its
- * historical name. The string is `honesty.ts · SCOPE_PLACEHOLDER`; this alias stays
- * for the importers that already read it by this name (this rule's unit test). New
- * code takes {@link SCOPE_PLACEHOLDER}.
- */
-export const REDACTED = SCOPE_PLACEHOLDER;
 
 /**
  * What the policy says about the value at one user-level path.

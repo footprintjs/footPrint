@@ -139,7 +139,7 @@ function nextBirths(births: ElementBirth[], touch: Touch, before: unknown, after
     return births;
   }
   // Degenerate append: onto a non-array, or a non-array tail (e.g. a redacted
-  // tail replaced by the '[REDACTED]' string). The tail BECAME the value —
+  // tail replaced by the 'REDACTED' string). The tail BECAME the value —
   // the step's own rule — and attribution stays exact.
   return Array.isArray(after) ? after.map((el, j) => birthOf(j, touch, 'append-verb', el)) : [];
 }

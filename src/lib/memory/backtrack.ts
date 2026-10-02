@@ -111,6 +111,10 @@ export interface CausalNode {
    * slice is complete. Dev mode (`enableDevMode()`) also warns on
    * truncation, and `formatCausalChain` appends a `⚠ slice truncated …`
    * line — a consumer must never mistake a truncated slice for a full one.
+   *
+   * Registry code: `'truncated'` (`memory/honesty.ts · HONESTY_CODES`, served
+   * on `footprintjs/trace`) says what this field means; the field carries no
+   * `code`.
    */
   truncated?: { byDepth: boolean; byNodes: boolean };
 }

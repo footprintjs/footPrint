@@ -103,8 +103,8 @@ export interface TimeTravelSource {
  *
  * Registry code: `'log-gap'` (`memory/honesty.ts · HONESTY_CODES`, served on
  * `footprintjs/trace`) says what a gap means. A gap carries no `code` field —
- * it is registered so a reader explains it from the same place as every other
- * honesty signal.
+ * it is registered so a reader explains it from the same place as the other
+ * honesty signals.
  */
 export interface LogGap {
   /** ARRAY INDEX in the source's log — the address the gap occupies. */
@@ -288,6 +288,11 @@ export interface FoldedState {
    * carries `'REDACTED'` placeholders where the engine scrubbed values at
    * write time. The log is redacted where it was written; a fold must SAY so
    * rather than present a scrubbed value as the real one.
+   *
+   * Registry code: `'redacted'` (`memory/honesty.ts · HONESTY_CODES`, served on
+   * `footprintjs/trace`) says what this field and {@link FoldedState.redactedPaths} mean;
+   * neither carries a `code`. The placeholder is the log's string,
+   * `memory/placeholders.ts · LOG_PLACEHOLDER`.
    */
   readonly redacted: boolean;
   /** The redacted paths seen across the folded prefix — sorted, deduped. */

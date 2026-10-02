@@ -10,7 +10,7 @@
 
 import { summarizeValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
-import { SCOPE_PLACEHOLDER } from '../memory/honesty.js';
+import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import type { FilterCondition, WhereFilter } from './types.js';
 
 // -- Operator dispatch table -------------------------------------------------

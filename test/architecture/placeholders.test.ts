@@ -1,15 +1,16 @@
 /**
  * Placeholders — the two strings a redaction leaves where a value was have ONE owner (F4a).
  *
- * `'REDACTED'` is what the commit log and the redacted mirror carry; `'[REDACTED]'` is what every
- * scope-tier view carries. Before F4a six files each spelled one of them as a string literal, and a
- * spelling kept in six places is a placeholder a reader can no longer match on. `memory/honesty.ts`
- * owns both (`LOG_PLACEHOLDER`, `SCOPE_PLACEHOLDER`); this test reads every `src/**\/*.ts` with the
- * TypeScript compiler API and fails on a string literal that IS either of them anywhere else.
+ * `'REDACTED'` is what the commit log and the redacted mirror carry (and so a fold, a slice and a
+ * subflow's served state); `'[REDACTED]'` is what the scope channel carries. Before F4a six files each
+ * spelled one of them as a string literal, and a spelling kept in six places is a placeholder a reader
+ * can no longer match on. `memory/placeholders.ts` owns both (`LOG_PLACEHOLDER`, `SCOPE_PLACEHOLDER`);
+ * this test reads every `src/**\/*.ts` with the TypeScript compiler API and fails on a string literal
+ * that IS either of them anywhere else.
  *
  *   unit      the scanner: every quote form, a type position and a template part are found; a comment,
  *             an identifier and a sentence that merely says the word are not
- *   scenario  THE REAL TREE: honesty.ts spells each exactly once and no other file spells either
+ *   scenario  THE REAL TREE: placeholders.ts spells each exactly once and no other file spells either
  *
  * The scan walks syntax nodes, not text, so a doc comment may say `'[REDACTED]'` as often as it
  * likes — only a literal the program can actually emit counts.
@@ -22,7 +23,7 @@ import { describe, expect, it } from 'vitest';
 import layering from '../../scripts/layering.config.cjs';
 
 const REPO = resolve(__dirname, '../..');
-const OWNER = 'src/lib/memory/honesty.ts';
+const OWNER = 'src/lib/memory/placeholders.ts';
 const PLACEHOLDERS = new Set(['REDACTED', '[REDACTED]']);
 
 interface Spelling {
@@ -113,7 +114,7 @@ describe('the footprintjs source tree', () => {
     }
   });
 
-  it('memory/honesty.ts spells each placeholder exactly once — the log one and the scope one', () => {
+  it('memory/placeholders.ts spells each placeholder exactly once — the log one and the scope one', () => {
     expect(
       spelled
         .get(OWNER)!
@@ -131,8 +132,8 @@ describe('the footprintjs source tree', () => {
       );
     expect(
       strays,
-      "A placeholder is spelled as a literal outside src/lib/memory/honesty.ts. Import LOG_PLACEHOLDER ('REDACTED', the commit " +
-        "log and the mirror) or SCOPE_PLACEHOLDER ('[REDACTED]', every scope-tier view) from it — it is L0, any layer may read it.",
+      "A placeholder is spelled as a literal outside src/lib/memory/placeholders.ts. Import LOG_PLACEHOLDER ('REDACTED', the " +
+        "commit log and the mirror) or SCOPE_PLACEHOLDER ('[REDACTED]', the scope channel) from it — it is L0, any layer may read it.",
     ).toEqual([]);
   });
 });

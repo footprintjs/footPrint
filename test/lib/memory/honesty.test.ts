@@ -1,27 +1,26 @@
 /**
  * honesty.ts — the ONE vocabulary for what a reader cannot see (F4a).
  *
- *   unit      the registry is frozen and closed; every explanation is ONE sentence; `note` keeps the shape
- *             the five slice builders always built (members AND key order)
- *   boundary  the TYPES, asked of the real compiler: a code the registry does not hold FAILS TO COMPILE,
- *             and the public unions are exactly the members they were — they did not widen
- *   scenario  the five slice notes still say today's bytes; every honesty signal the library produces is
- *             on the registry; the `/trace` door hands out the very registry and keeps `note` to itself;
- *             a redacted run still speaks both placeholders at the five places that used to spell them
+ *   unit      the registry is frozen and closed, holds exactly the eighteen codes, and every explanation is
+ *             ONE sentence
+ *   boundary  the TYPES, asked of the real compiler: a code the registry does not hold FAILS TO COMPILE; the
+ *             six public unions are exactly the members they were (they did not widen); the sentences are
+ *             typed `string`; and every registered code belongs to a declared vocabulary (none is orphaned)
+ *   scenario  the five slice notes still say the 9.31.0 bytes; each code the slice queries and the fold
+ *             EMIT is on the registry, and the signals that carry no code gained no field; the `/trace` door
+ *             hands out the very registry; a redacted run still speaks both placeholders
+ *             (`memory/placeholders.ts`) at the five places that used to spell them
  *
- * The bytes below were taken from the library at 9.31.0, before the notes went through `note()` and the
- * placeholders moved here. Nothing in this file changed a runtime string.
+ * The bytes below were taken from the library at 9.31.0, before the placeholders moved. Nothing in this file
+ * changed a runtime string.
  */
 import { join, resolve } from 'path';
 import ts from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { decide, flowChart, FlowChartExecutor } from '../../../src';
-import * as advancedDoor from '../../../src/advanced';
-import * as detachDoor from '../../../src/detach';
-import * as rootDoor from '../../../src/index';
-import { HONESTY_CODES, LOG_PLACEHOLDER, note, SCOPE_PLACEHOLDER } from '../../../src/lib/memory/honesty';
-import { REDACTED } from '../../../src/lib/memory/redaction';
+import { HONESTY_CODES } from '../../../src/lib/memory/honesty';
+import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from '../../../src/lib/memory/placeholders';
 import type { CommitBundle } from '../../../src/lib/memory/types';
 import {
   conservativeEdgesNote,
@@ -30,17 +29,25 @@ import {
   truncatedNote,
   unknownKeyNote,
 } from '../../../src/lib/slice/keyIndex';
-import * as recordersDoor from '../../../src/recorders';
 import * as traceDoor from '../../../src/trace';
-import { causalChain, stateAt } from '../../../src/trace';
-import * as zodDoor from '../../../src/zod';
+import {
+  arrayProvenance,
+  causalChain,
+  forwardSliceForKey,
+  keyTimeline,
+  sliceForKey,
+  stateAt,
+} from '../../../src/trace';
 
 const REPO = resolve(__dirname, '../../..');
 
-/** The five codes a slice's notes speak, the two a fold's basis speaks, and the two signals that carry no code. */
+/** The codes each declared vocabulary speaks, and the signals that carry no code field of their own. */
 const SLICE_CODES = ['conservative-fed-edges', 'pre-run-origin', 'reads-not-recorded', 'unknown-key', 'truncated'];
+const MISSING_REASONS = ['empty-log', 'never-written', 'not-an-array'];
+const FED_BASES = ['per-write', 'stage'];
+const ATTRIBUTION_BASES = ['append-verb', 'prefix-inference', 'whole-value'];
 const FOLD_BASES = ['initial+log', 'log-only'];
-const SIGNALS_WITHOUT_A_CODE_FIELD = ['log-gap', 'incomplete-sources'];
+const SIGNALS_WITHOUT_A_CODE_FIELD = ['log-gap', 'incomplete-sources', 'redacted'];
 
 // ════════════════════════════════════════════════════════════════════════════
 // unit — the registry
@@ -62,10 +69,17 @@ describe('HONESTY_CODES — unit', () => {
     }).toThrow(TypeError);
   });
 
-  it('holds exactly the nine codes the library speaks — five slice notes, two fold bases, two codeless signals', () => {
-    expect(Object.keys(HONESTY_CODES).sort()).toEqual(
-      [...SLICE_CODES, ...FOLD_BASES, ...SIGNALS_WITHOUT_A_CODE_FIELD].sort(),
-    );
+  it('holds exactly eighteen codes — five slice notes, three missing reasons, two fed-edge and three birth bases, two fold bases, three codeless signals', () => {
+    const all = [
+      ...SLICE_CODES,
+      ...MISSING_REASONS,
+      ...FED_BASES,
+      ...ATTRIBUTION_BASES,
+      ...FOLD_BASES,
+      ...SIGNALS_WITHOUT_A_CODE_FIELD,
+    ];
+    expect(all).toHaveLength(18);
+    expect(Object.keys(HONESTY_CODES).sort()).toEqual(all.sort());
   });
 
   it('every explanation is ONE non-empty sentence: starts a sentence, ends it, and ends it once', () => {
@@ -85,24 +99,6 @@ describe('HONESTY_CODES — unit', () => {
   });
 });
 
-describe('note — unit', () => {
-  it('builds the literal the slice builders always built: the same members AND the same key order (code, then detail)', () => {
-    const built = note('unknown-key', 'some detail');
-    expect(built).toEqual({ code: 'unknown-key', detail: 'some detail' });
-    expect(Object.keys(built)).toEqual(['code', 'detail']);
-    expect(JSON.stringify(built)).toBe('{"code":"unknown-key","detail":"some detail"}');
-  });
-
-  it('is pure: a fresh object per call, nothing shared, nothing added', () => {
-    const a = note('truncated', 'x');
-    const b = note('truncated', 'x');
-    expect(a).not.toBe(b);
-    expect(a).toEqual(b);
-    a.detail = 'changed';
-    expect(note('truncated', 'x').detail).toBe('x');
-  });
-});
-
 // ════════════════════════════════════════════════════════════════════════════
 // boundary — the types, asked of the real compiler
 // ════════════════════════════════════════════════════════════════════════════
@@ -115,11 +111,19 @@ describe('note — unit', () => {
  */
 const HEADER = [
   "import type { FoldBasis } from '../time-travel/types.js';",
-  "import type { HonestyNoteCode, HonestyNote } from '../slice/types.js';",
-  "import { HONESTY_CODES, note } from './honesty.js';",
+  "import type { AttributionBasis, FedBasis, HonestyNote, HonestyNoteCode } from '../slice/types.js';",
+  "import type { MissingProvenanceReason, MissingSliceReason } from '../slice/types.js';",
+  "import { HONESTY_CODES } from './honesty.js';",
   "import type { HonestyCode, RegisteredCode } from './honesty.js';",
   "type Today = 'conservative-fed-edges' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated';",
   "type TodayBasis = 'initial+log' | 'log-only';",
+  "type TodayMissing = 'empty-log' | 'never-written';",
+  "type TodayProvenance = 'empty-log' | 'never-written' | 'not-an-array';",
+  "type TodayFed = 'per-write' | 'stage';",
+  "type TodayAttribution = 'append-verb' | 'prefix-inference' | 'whole-value';",
+  // every declared vocabulary, plus the three codes a field carries instead of a `code` value
+  'type Declared = HonestyNoteCode | MissingSliceReason | MissingProvenanceReason | FedBasis | AttributionBasis | FoldBasis | ' +
+    "'log-gap' | 'incomplete-sources' | 'redacted';",
 ];
 
 const CASES: Record<string, string> = {
@@ -130,23 +134,38 @@ const CASES: Record<string, string> = {
   // the declared unions sit inside the registry …
   sliceCodesAreRegistered: 'const a: HonestyCode = null as unknown as HonestyNoteCode;',
   foldBasesAreRegistered: 'const b: HonestyCode = null as unknown as FoldBasis;',
+  sliceReasonsAndBasesAreRegistered:
+    'const c0: HonestyCode = null as unknown as MissingSliceReason | MissingProvenanceReason | FedBasis | AttributionBasis;',
   // … and are exactly the members they were: mutually assignable with today's literal unions …
   sliceUnionIsToday:
     'const c: Today = null as unknown as HonestyNoteCode; const d: HonestyNoteCode = null as unknown as Today;',
   foldUnionIsToday:
     'const e: TodayBasis = null as unknown as FoldBasis; const f: FoldBasis = null as unknown as TodayBasis;',
+  missingUnionIsToday:
+    'const e1: TodayMissing = null as unknown as MissingSliceReason; const f1: MissingSliceReason = null as unknown as TodayMissing;',
+  provenanceUnionIsToday:
+    'const e2: TodayProvenance = null as unknown as MissingProvenanceReason; const f2: MissingProvenanceReason = null as unknown as TodayProvenance;',
+  fedUnionIsToday:
+    'const e3: TodayFed = null as unknown as FedBasis; const f3: FedBasis = null as unknown as TodayFed;',
+  attributionUnionIsToday:
+    'const e4: TodayAttribution = null as unknown as AttributionBasis; const f4: AttributionBasis = null as unknown as TodayAttribution;',
   // … and did NOT widen to every registered code
   sliceUnionRefusesALogGap: "const g: HonestyNoteCode = 'log-gap';",
   sliceUnionRefusesABasis: "const h: HonestyNoteCode = 'log-only';",
   foldUnionRefusesASliceCode: "const i: FoldBasis = 'truncated';",
-  // note — typed by the registry, and only a slice code makes a HonestyNote
-  noteKeepsItsCodeType: "const j: { code: 'unknown-key'; detail: string } = note('unknown-key', 'x');",
-  noteRefusesAnUnregisteredCode: "note('nonsense', 'x');",
-  aSliceNoteCanBeBuilt: "const k: HonestyNote = note('pre-run-origin', 'x');",
-  aNonSliceCodeIsNotASliceNote: "const l: HonestyNote = note('log-gap', 'x');",
+  missingUnionRefusesAProvenanceReason: "const i1: MissingSliceReason = 'not-an-array';",
+  fedUnionRefusesABirthBasis: "const i2: FedBasis = 'whole-value';",
+  // a note's code is typed by the registry: only a slice code makes a HonestyNote
+  aNoteWithASliceCodeCompiles: "const k: HonestyNote = { code: 'pre-run-origin', detail: 'x' };",
+  aNoteWithAnUnregisteredCodeFails: "const l: HonestyNote = { code: 'nonsense', detail: 'x' };",
+  // every registered code belongs to a declared vocabulary or a codeless signal — none is orphaned …
+  everyCodeIsDeclared: 'const w: Declared = null as unknown as HonestyCode;',
+  // … and that check bites: leave one out and a registered code has nowhere to go
+  aCodeLeftOverFails: "const x: Exclude<Declared, 'redacted'> = null as unknown as HonestyCode;",
   // the registry itself, as a type
   lookupByARegisteredCodeIsAString:
     "const m: string = HONESTY_CODES['unknown-key']; const n: string = HONESTY_CODES['log-only'];",
+  theSentencesAreTypedString: "const v: (typeof HONESTY_CODES)['unknown-key'] = 'x';",
   lookupByAnUnregisteredCodeFails: "HONESTY_CODES['nonsense'];",
   theRegistryIsReadonlyToo: "HONESTY_CODES['unknown-key'] = 'x';",
 };
@@ -162,7 +181,8 @@ describe('the types — asked of the real compiler', () => {
       ts.sys,
       REPO,
     );
-    const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, types: [] };
+    // `noUnusedLocals: false`: every case declares a local nothing reads, and that must never be the verdict
+    const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, noUnusedLocals: false, types: [] };
     const source = [...HEADER, ...names.map((name) => CASES[name])].join('\n');
     const host = ts.createCompilerHost(options);
     const getSourceFile = host.getSourceFile.bind(host);
@@ -189,33 +209,55 @@ describe('the types — asked of the real compiler', () => {
     expect([...byCase].filter(([name]) => name.startsWith('(header'))).toEqual([]);
   });
 
-  it('a code the registry holds compiles in RegisteredCode, in a subset check, and as a lookup key', () => {
+  it('a code the registry holds compiles in RegisteredCode, in a subset check, in a note and as a lookup key', () => {
     for (const name of [
       'registeredMembersCompile',
       'sliceCodesAreRegistered',
       'foldBasesAreRegistered',
-      'noteKeepsItsCodeType',
-      'aSliceNoteCanBeBuilt',
+      'sliceReasonsAndBasesAreRegistered',
+      'aNoteWithASliceCodeCompiles',
       'lookupByARegisteredCodeIsAString',
     ]) {
       expect(byCase.get(name), name).toBeUndefined();
     }
   });
 
-  it('a code the registry does NOT hold fails to compile — in RegisteredCode (TS2344), in note (TS2345), as a key (TS7053)', () => {
+  it('a code the registry does NOT hold fails to compile — in RegisteredCode (TS2344), in a note (TS2322), as a key (TS7053)', () => {
     expect(byCase.get('aMisspeltMemberFails')).toEqual(['TS2344']);
     expect(byCase.get('oneBadMemberPoisonsTheUnion')).toEqual(['TS2344']);
-    expect(byCase.get('noteRefusesAnUnregisteredCode')).toEqual(['TS2345']);
+    expect(byCase.get('aNoteWithAnUnregisteredCodeFails')).toEqual(['TS2322']);
     expect(byCase.get('lookupByAnUnregisteredCodeFails')).toEqual(['TS7053']);
   });
 
-  it("the public unions are exactly today's members: mutually assignable with the literal unions, and not widened", () => {
-    expect(byCase.get('sliceUnionIsToday'), 'HonestyNoteCode ≡ the five').toBeUndefined();
-    expect(byCase.get('foldUnionIsToday'), 'FoldBasis ≡ the two').toBeUndefined();
-    expect(byCase.get('sliceUnionRefusesALogGap')).toEqual(['TS2322']);
-    expect(byCase.get('sliceUnionRefusesABasis')).toEqual(['TS2322']);
-    expect(byCase.get('foldUnionRefusesASliceCode')).toEqual(['TS2322']);
-    expect(byCase.get('aNonSliceCodeIsNotASliceNote')).toEqual(['TS2322']);
+  it("the six public unions are exactly today's members: mutually assignable with the literal unions, and not widened", () => {
+    for (const name of [
+      'sliceUnionIsToday',
+      'foldUnionIsToday',
+      'missingUnionIsToday',
+      'provenanceUnionIsToday',
+      'fedUnionIsToday',
+      'attributionUnionIsToday',
+    ]) {
+      expect(byCase.get(name), name).toBeUndefined();
+    }
+    for (const name of [
+      'sliceUnionRefusesALogGap',
+      'sliceUnionRefusesABasis',
+      'foldUnionRefusesASliceCode',
+      'missingUnionRefusesAProvenanceReason',
+      'fedUnionRefusesABirthBasis',
+    ]) {
+      expect(byCase.get(name), name).toEqual(['TS2322']);
+    }
+  });
+
+  it('every registered code belongs to a declared vocabulary or a codeless signal — and the check bites', () => {
+    expect(byCase.get('everyCodeIsDeclared')).toBeUndefined();
+    expect(byCase.get('aCodeLeftOverFails')).toEqual(['TS2322']);
+  });
+
+  it('the sentences are typed `string`, not literal types — an `as const` on the registry fails here', () => {
+    expect(byCase.get('theSentencesAreTypedString')).toBeUndefined();
   });
 
   it('the registry is readonly at compile time as well as frozen at run time (TS2540)', () => {
@@ -227,7 +269,7 @@ describe('the types — asked of the real compiler', () => {
 // scenario — the bytes did not move
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('the five slice notes — the bytes the library built before they went through note()', () => {
+describe('the five slice notes — the bytes the library built at 9.31.0', () => {
   const index = (keys: string[]) => ({ writesByKey: new Map(), readsByKey: new Map(), knownKeys: new Set(keys) });
   const twelve = Array.from({ length: 12 }, (_, i) => `key${String(i).padStart(2, '0')}`);
 
@@ -301,7 +343,7 @@ describe('the five slice notes — the bytes the library built before they went 
   });
 });
 
-describe('every honesty signal the library produces is on the registry — and none gained a field', () => {
+describe('every code the slice queries and the fold emit is on the registry — and the codeless signals gained no field', () => {
   const bundle = (n: number, extra: Partial<CommitBundle> = {}): CommitBundle => ({
     idx: n,
     stage: `S${n}`,
@@ -336,24 +378,74 @@ describe('every honesty signal the library produces is on the registry — and n
     expect(Object.keys(node)).not.toContain('code');
     expect(Object.keys(HONESTY_CODES)).toContain('incomplete-sources');
   });
+
+  it("a budget that cut a causal walk stamps truncated on the root — registered as 'truncated', no code field", () => {
+    const log = [bundle(0), bundle(1)];
+    const node = causalChain(log, 's1#1', () => ['k0'], { maxDepth: 0 })!;
+    expect(node.truncated).toEqual({ byDepth: true, byNodes: false });
+    expect(Object.keys(node)).not.toContain('code');
+    expect(Object.keys(HONESTY_CODES)).toContain('truncated');
+  });
+
+  it("a fold over a scrubbed row says redacted + redactedPaths — registered as 'redacted', no code field, the log's placeholder", () => {
+    const log = [bundle(0, { overwrite: { k0: LOG_PLACEHOLDER }, redactedPaths: ['k0'] }), bundle(1)];
+    const folded = stateAt({ commitLog: log, initialState: {} }, 1);
+    expect([folded.redacted, folded.redactedPaths, folded.state.k0]).toEqual([true, ['k0'], 'REDACTED']);
+    expect(Object.keys(folded)).not.toContain('code');
+    expect(Object.keys(HONESTY_CODES)).toContain('redacted');
+  });
+
+  it('a slice with no answer says why — every missing reason the four queries emit is registered', () => {
+    const log = [bundle(0), bundle(1)];
+    const reads = () => ['k0'];
+    const emitted = [
+      sliceForKey([], 'k0', reads).missing,
+      sliceForKey(log, 'nope', reads).missing,
+      forwardSliceForKey([], 'k0', reads).missing,
+      forwardSliceForKey(log, 'nope', reads).missing,
+      keyTimeline(log, 'nope', reads).missing,
+      arrayProvenance([], 'k0').missing,
+      arrayProvenance(log, 'nope').missing,
+      arrayProvenance(log, 'k0').missing,
+    ];
+    expect(emitted).toEqual([
+      'empty-log',
+      'never-written',
+      'empty-log',
+      'never-written',
+      'never-written',
+      'empty-log',
+      'never-written',
+      'not-an-array',
+    ]);
+    for (const reason of emitted) expect(Object.keys(HONESTY_CODES)).toContain(reason);
+  });
+
+  it("a fed edge says how it was attributed — 'per-write' with recorded provenance, 'stage' without; both registered", () => {
+    const log = [
+      bundle(0),
+      bundle(1, { trace: [{ path: 'k1', verb: 'set', readKeys: ['k0'] }] }),
+      bundle(2, { trace: [{ path: 'k2', verb: 'set' }] }),
+    ];
+    const reads = (id: string) => (id === 's0#0' ? [] : ['k0']);
+    const bases = forwardSliceForKey(log, 'k0', reads).root!.fedEdges.map((edge) => edge.basis);
+    expect(bases).toEqual(['per-write', 'stage']);
+    for (const basis of bases) expect(Object.keys(HONESTY_CODES)).toContain(basis);
+  });
+
+  it("an element birth says how it was attributed — 'whole-value', 'prefix-inference', 'append-verb'; all registered", () => {
+    const write = (n: number, verb: 'set' | 'append', list: number[]) =>
+      bundle(n, { trace: [{ path: 'list', verb }], overwrite: { list } });
+    const log = [write(0, 'set', [1]), write(1, 'set', [1, 2]), write(2, 'append', [3])];
+    const bases = arrayProvenance(log, 'list').births!.map((birth) => birth.basis);
+    expect(bases).toEqual(['whole-value', 'prefix-inference', 'append-verb']);
+    for (const basis of bases) expect(Object.keys(HONESTY_CODES)).toContain(basis);
+  });
 });
 
 describe('the doors', () => {
   it('footprintjs/trace hands out the very registry object', () => {
     expect(traceDoor.HONESTY_CODES).toBe(HONESTY_CODES);
-  });
-
-  it('`note` is internal: no door hands it out', () => {
-    for (const [door, entry] of Object.entries({
-      rootDoor,
-      advancedDoor,
-      recordersDoor,
-      traceDoor,
-      detachDoor,
-      zodDoor,
-    })) {
-      expect(Object.keys(entry), door).not.toContain('note');
-    }
   });
 });
 
@@ -361,8 +453,6 @@ describe('the two placeholders — the five places that used to spell them still
   it('are the strings stored recordings and every reader already match on', () => {
     expect(LOG_PLACEHOLDER).toBe('REDACTED');
     expect(SCOPE_PLACEHOLDER).toBe('[REDACTED]');
-    // the historical name in redaction.ts is the same string, not a second one
-    expect(REDACTED).toBe('[REDACTED]');
   });
 
   interface State {

@@ -209,11 +209,15 @@ export {
 } from './lib/slice/index.js';
 
 // ── honesty — the ONE registry of what a reader cannot see ─────────────────
-// Every machine-readable honesty signal a reader meets — a slice's `HonestyNote.code`, a fold's
-// `FoldedState.basis`, a `LogGap`, a causal node's `incompleteSources` — has a code here and the
-// ONE sentence that says what it means, so a lens or an agent tool explains any of them from one
-// place instead of keeping its own table. `HonestyNoteCode` and `FoldBasis` (above) are subsets
-// of `HonestyCode`. See src/lib/memory/README.md.
+// The honesty signals this door's readers produce — a slice's `HonestyNote.code` and `missing`
+// reason, a fed edge's and an element birth's `basis`, a fold's `basis` and `redacted` paths, a
+// `LogGap`, a causal node's `incompleteSources` and `truncated` — each has a code here and the ONE
+// sentence that says what it means, so a lens or an agent tool explains any of them from one place
+// instead of keeping its own table. The unions of those codes exported above (`HonestyNoteCode`,
+// `MissingSliceReason`, `MissingProvenanceReason`, `FedBasis`, `AttributionBasis`, `FoldBasis`) are
+// subsets of `HonestyCode`, and test/architecture/honesty-vocabulary.test.ts fails on a union of
+// string literals this door exports that is neither registered nor named there as a different kind
+// of word. See src/lib/memory/README.md.
 export type { HonestyCode } from './lib/memory/index.js';
 export { HONESTY_CODES } from './lib/memory/index.js';
 

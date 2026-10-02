@@ -7,7 +7,8 @@
  * same reference); marks; the report; the ReDoS cap.
  */
 
-import { CLEAR, REDACTED, RedactionRule } from '../../../../src/lib/memory/redaction.js';
+import { SCOPE_PLACEHOLDER as REDACTED } from '../../../../src/lib/memory/placeholders.js';
+import { CLEAR, RedactionRule } from '../../../../src/lib/memory/redaction.js';
 
 describe('RedactionRule — verdict', () => {
   const rule = new RedactionRule({

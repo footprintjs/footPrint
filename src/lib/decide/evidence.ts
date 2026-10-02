@@ -8,7 +8,7 @@
  */
 
 import { summarizeValue } from '../capture/summarize.js';
-import { SCOPE_PLACEHOLDER } from '../memory/honesty.js';
+import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import type { ReadEvent, ScopeRecorder } from '../scope/types.js';
 import type { ReadInput } from './types.js';
 
