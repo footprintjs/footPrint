@@ -64,3 +64,5 @@ jobs:
       - run: npm install
       - run: npm run lint
       - run: npm run format
+      # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
+      - run: npm run check:layering
