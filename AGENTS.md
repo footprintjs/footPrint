@@ -10,7 +10,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 
 ```
 src/lib/
-├── capture/   → Value-capture/retention primitives (RetentionPolicy 'full'|'summary'|'off', read/write summary markers) — shared by the readTracking (#14) + writeTracking (#13c-A) dials; RFC-001 builds on it
+├── capture/   → Value-capture/retention primitives (RetentionPolicy 'full'|'summary'|'off', read/write summary markers) — shared by the readTracking (#14) + writeTracking (#13c-A) dials; RFC-001 builds on it; also the shared leaves `invokeHook`, `circular`, `summarizeValue` (`lib/devMode.ts`, the dev-mode flag, sits beside it)
 ├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer, EventLog)
 ├── schema/    → Validation abstraction (Zod optional, duck-typed detection)
 ├── builder/   → Fluent DSL (FlowChartBuilder, flowChart(), DeciderList, SelectorFnList)
@@ -24,7 +24,7 @@ src/lib/
 └── contract/  → I/O schema + OpenAPI generation
 ```
 
-Dependency DAG: `capture (standalone leaf) <- memory <- scope <- reactive <- engine <- runner`, `schema <- engine`, `builder (standalone) -> engine`, `contract <- schema`, `decide -> scope`
+Layering is enforced, not described: a file imports only its own layer or below. The table is `scripts/layering.config.cjs` — leaves (`capture/`, `schema/`, `pause/`, `lib/devMode.ts`) < `memory/` < `recorder/` · `scope/` · `reactive/` · `decide/` < `engine/` < `builder/` · `runner/` · `contract/` · `detach/` — checked by lint (`import/no-restricted-paths` zones + `import/no-cycle`) and `npm run check:layering` (value-level cycles + upward runtime edges). Three edges are named on purpose: builder → `runner/RunnableChart.ts`, engine → `reactive/handles.ts`, scope → `detach/spawn.ts`.
 
 Three entry points:
 - `import { ... } from 'footprintjs'` — public API
