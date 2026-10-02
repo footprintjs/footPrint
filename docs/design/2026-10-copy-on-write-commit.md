@@ -468,6 +468,30 @@ through the exported `applySmartMerge`) and blocked on two findings. What change
   `detachHeldAncestors` call in `merge` is redundant under copy-on-write (Invariants table).
 - **The pause/resume differential** the review wrote is checked in
   (`test/lib/memory/property/copy-on-write-pause-differential.property.test.ts`, 60 programs in `npm test`).
+- **B2 is tested on every run, not at one seed — the recheck's write-back family, checked in.** An independent
+  recheck of `b40aff7` found that the NESTED family reaches B2 at seed 102938 only: three fresh seeds × 2,000 NESTED
+  programs passed with the B2 fix removed. NESTED's `mutRead` edits a value but never writes it back, so a moved base
+  shows only when a later write happens to compare against it. The recheck's family aims at the shape: delete the key
+  or keep it, read it after the first write, edit the value in place, then write it back with `set` or `merge` (or
+  not), at root, nested and run-namespaced paths, in both encodings (`copy-on-write-fixture · writeBackProgram`, the
+  fourth family in the differential file; seed 7301; 200 programs in `npm test`; `COW_DIFF_SEED=<n>` → seed n+4). At
+  its fixed seed it also requires `detachBase` to have replaced a base path at least once, so a generator change
+  cannot quietly stop it reaching the law. The corpus gains 40 write-back entries with the shrunk counterexample first
+  (320 programs; the first 280 regenerate byte for byte from 9.28.0). Measured:
+  - on this head, 9,000 programs (seeds 7301–7303, 3,000 each) are identical to 9.28.0;
+  - with either B2 injection (`readState` without `detachBase`; `detachBase` a no-op), the `npm test` run fails at
+    program 91: for `delete x` (twice), a read of `x` (live `[]`), a push of `0` onto it in place and `set x`,
+    9.28.0 records `x = [0]` and the build records no row. The two seeds after it fail at programs 112 and 28. The
+    corpus's first write-back entry fails, and so does the seed-102938 NESTED property.
+  - **One shape is excluded: M3, not B2.** The family found one more difference, and it is already named. A
+    run-namespaced read that falls back to the GLOBAL key hands out the global committed object. After it is written
+    back at the run-namespaced path, 9.28.0's live state holds that one object at both positions. A later write through
+    it in the same stage (a delete below it) therefore reached the global key too. Copy-on-write copies the path and
+    changes only its own (M3, value semantics). The log, the reads and every fold are identical; only live state and
+    `stageWrites` differ. This shape is excluded exactly as the recheck excluded it: by shape, conservatively. Any
+    non-read op below a written-back path in the same stage is skipped, whether the read fell back or not
+    (`writesThroughWriteBack`, `fc.pre`; the corpus never samples one). `stageWrites` are left out where a write goes
+    through a value the stage set or wrote back (M8, widened).
 - **The families keep M6 out completely now.** A fresh seed (610000) failed the CHART family at program 1,113 and the
   pause family at 1,827 — on the head without this round's fix too: both merged a plain object back into a key that
   held a `Date` (the CHART mapper guarded `obj` only, the pause mapper `b` only; `hist` and `b` slipped through). That
@@ -478,10 +502,10 @@ through the exported `applySmartMerge`) and blocked on two findings. What change
 
 | Item | File | Status |
 |---|---|---|
-| 1. Byte identity, pinned | `test/lib/memory/scenario/copy-on-write-byte-identity.test.ts` + `reference/copy-on-write-9.28.0.json` (280 programs, three families, run on the published 9.28.0, a digest per kept field) and the three existing reference suites, unchanged | green |
-| 2. Byte identity, generative | `test/lib/memory/property/copy-on-write-differential.property.test.ts` — the published 9.28.0 (`footprintjs-baseline`, pinned exactly, out of Renovate) vs `src`, fixed seeds; chart / borrowed / nested families (+ nested at the review's seed 102938) and `copy-on-write-pause-differential.property.test.ts` (pause/resume); `COW_DIFF_RUNS=<n>` / `COW_DIFF_SEED=<n>` for the release gate | green (150 / 150 / 400 + 2,000 / 60 runs in `npm test`) |
+| 1. Byte identity, pinned | `test/lib/memory/scenario/copy-on-write-byte-identity.test.ts` + `reference/copy-on-write-9.28.0.json` (320 programs, four families — the 40 write-back entries open with the shrunk B2 program — run on the published 9.28.0, a digest per kept field) and the three existing reference suites, unchanged | green |
+| 2. Byte identity, generative | `test/lib/memory/property/copy-on-write-differential.property.test.ts` — the published 9.28.0 (`footprintjs-baseline`, pinned exactly, out of Renovate) vs `src`, fixed seeds; chart / borrowed / nested / write-back families (+ nested at the review's seed 102938) and `copy-on-write-pause-differential.property.test.ts` (pause/resume); `COW_DIFF_RUNS=<n>` / `COW_DIFF_SEED=<n>` for the release gate | green (150 / 150 / 400 + 2,000 / 200 / 60 runs in `npm test`) |
 | 3. Complexity guard, counted | `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts` (7: one-number stage × encodings × mirror, a fork child's namespaced write, a subflow's nested merge-back, a read after the first write pays for the value read) and `copy-on-write.load.test.ts` (400 commits; an agent loop) | green; all red on 9.28.0 |
-| 4. The law, as a property | `copy-on-write-commit.test.ts` (every generation a stage saw, live and mirror, unchanged at the end — typed scope; `StageContext` at nested and namespaced paths; two forks with `$update` children) + the differential's per-program generation check (chart and in-contract nested programs) | green; each fails on the review's two injections |
+| 4. The law, as a property | `copy-on-write-commit.test.ts` (every generation a stage saw, live and mirror, unchanged at the end — typed scope; `StageContext` at nested and namespaced paths; two forks with `$update` children) + the differential's per-program generation check (chart, and in-contract nested and write-back programs) | green; each fails on the review's two injections |
 | 5. Each named behaviour | `copy-on-write-commit.test.ts` — D1 (9.28.0's TypeError reproduced on the real 9.28.0), D2, M1, M1b, M2 (+ the merge variant), M3–M8 (M6 with its later-row effect), the read served from live state (B2) and a staged write-back read back, each against the real 9.28.0 | green |
 | 6. Landmines re-run | the full suite, unchanged | green |
 | Unit / security | `unit/copy-on-write.test.ts` (primitives, the three replays, private reads, generations); `security/copy-on-write.security.test.ts` (hostile paths through every replay and read; an own `__proto__` key; served views never reach the record) | green |

@@ -199,7 +199,11 @@ Counts identical in both `commitValues` encodings and both bench rounds.
   review) pauses and resumes: loops, a subflow passing parent objects
   through and merging objects back, `interrupt` and pausable stages at both
   levels, same- and cross-executor resume — every leg, every checkpoint and
-  every fold identical. A pinned corpus of 280 programs run on 9.28.0
+  every fold identical. A fifth (written by the recheck) aims at the read
+  served from live state after the first write: delete or keep a key, read
+  it, edit the value in place, write it back with `set` or `merge` — 200
+  programs in every `npm test`, failing at program 91 if the diff base is
+  left shared. A pinned corpus of 320 programs run on 9.28.0
   (`test/lib/memory/scenario/copy-on-write-byte-identity.test.ts`) and the
   three existing reference suites reproduce byte for byte.
 - `TransactionBuffer`'s commit payload, the redaction rule and `redactPatch`,

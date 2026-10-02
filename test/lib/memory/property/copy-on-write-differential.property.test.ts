@@ -27,20 +27,36 @@
  *      could not answer handed out committed state the diff base shared —
  *      an in-place edit moved the base, and the write-back recorded nothing
  *      (fixed: `TransactionBuffer · detachBase`).
+ *   4. WRITE-BACK programs — that law on every run, not at one seed: a read
+ *      after the first write that the working copy cannot answer (the stage
+ *      deleted the key, or a write replaced a container above it), edited in
+ *      place and written back with `set` or `merge` (fixture ·
+ *      `writeBackProgram`). The same comparison and generation check as
+ *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). At its fixed
+ *      seed (7301, the recheck's) the 200 programs in `npm test` fail at
+ *      program 91 if `readState` skips `detachBase` or `detachBase` is a
+ *      no-op, and the property also requires that `detachBase` really gave
+ *      the base a private copy at least once — so a generator change cannot
+ *      quietly stop it reaching the law.
  *
  * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
  *
  * Fixed seeds; `COW_DIFF_RUNS=<n>` raises every property's run count (the
- * release gate runs 6,000 chart programs) and `COW_DIFF_SEED=<n>` replaces
- * the fixed seeds with n, n+1, n+2 (one per family) — a fresh sample. A
- * counterexample prints the first differing field with both engines' bytes
+ * release gate runs 6,000 chart programs; the recheck ran 3,000 write-back
+ * programs per seed) and `COW_DIFF_SEED=<n>` replaces the fixed seeds with n,
+ * n+1, n+2 (chart / borrowed / nested) and n+4 (write-back; the pause family
+ * takes n+3) — a fresh sample. The recheck's 9,000 write-back programs:
+ * `COW_DIFF_RUNS=3000 COW_DIFF_SEED=7297` (then 7298, 7299) `-t WRITE-BACK`.
+ * A counterexample prints the first differing field with both engines' bytes
  * around it.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer.js';
 import {
   type NestedProgram,
+  type WriteBackProgram,
   BASELINE,
   borrowedProgramArb,
   BUILD,
@@ -50,7 +66,11 @@ import {
   runBorrowed,
   runChart,
   runNested,
+  runWriteBack,
+  writeBackProgramArb,
   writesThroughStagedValue,
+  writesThroughWriteBack,
+  writesThroughWriteBackOrSet,
 } from './copy-on-write-fixture.js';
 
 const RUNS = Number(process.env.COW_DIFF_RUNS ?? 0);
@@ -76,6 +96,48 @@ function nestedAgrees(p: NestedProgram): void {
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
+}
+
+/** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
+function writeBackAgrees(p: WriteBackProgram): void {
+  fc.pre(!writesThroughWriteBack(p));
+  const a = runWriteBack(BASELINE, p);
+  const laws = { editedGenerations: 0 };
+  const b = runWriteBack(BUILD, p, laws);
+  if (writesThroughWriteBackOrSet(p)) {
+    delete a.snapshots;
+    delete b.snapshots;
+  }
+  const diff = firstDifference(a, b);
+  if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+  if (!p.mutate && laws.editedGenerations !== 0) {
+    throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
+  }
+}
+
+/**
+ * Count the calls in which `TransactionBuffer · detachBase` really replaced
+ * the diff base's value at its path (the build only) — the WRITE-BACK
+ * family's proof that it reaches the B2 law. `restore()` puts the method back.
+ */
+function countBaseDetaches(): { replaced: number; restore: () => void } {
+  type Buffer = { baseSnapshot: unknown; detachBase(path: (string | number)[]): void };
+  const proto = TransactionBuffer.prototype as unknown as Buffer;
+  const original = proto.detachBase;
+  const counter = {
+    replaced: 0,
+    restore: () => {
+      proto.detachBase = original;
+    },
+  };
+  proto.detachBase = function (this: Buffer, path) {
+    const at = () =>
+      path.reduce<unknown>((x, s) => (x == null ? x : (x as Record<string, unknown>)[s]), this.baseSnapshot);
+    const before = at();
+    original.call(this, path);
+    if (at() !== before) counter.replaced += 1;
+  };
+  return counter;
 }
 
 describe('copy-on-write differential — 9.28.0 vs this build', () => {
@@ -130,6 +192,21 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'NESTED programs, seed 102938 (the review’s sample: a read served from live state after the first write) — identical',
     () => {
       fc.assert(fc.property(nestedProgramArb, nestedAgrees), { numRuns: Math.max(runs(2000), 2000), seed: 102938 });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'WRITE-BACK programs: a read served from live state after the first write, edited in place and written back — identical (B2)',
+    () => {
+      const detaches = countBaseDetaches();
+      try {
+        fc.assert(fc.property(writeBackProgramArb, writeBackAgrees), { numRuns: runs(200), seed: seed(4, 7301) });
+      } finally {
+        detaches.restore();
+      }
+      // At the fixed seed the sample must reach the law; a fresh seed's small sample may not.
+      if (SEED === undefined) expect(detaches.replaced).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

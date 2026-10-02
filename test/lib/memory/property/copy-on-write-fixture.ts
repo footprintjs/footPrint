@@ -9,7 +9,7 @@
  * never share an object. What a run KEEPS is reduced to strings (`bytes`) and
  * compared field by field.
  *
- * Three families:
+ * Four families:
  *   - CHART programs (`chartProgram`) — in-contract programs through the
  *     typed scope and the engine's nested-path doors (a subflow's plain-object
  *     seed and merge-back), forks, every dial, a redaction policy, an
@@ -22,6 +22,9 @@
  *     nested and run-namespaced paths (what `/zod`, the subflow doors and
  *     fork children do), reads interleaved with writes, optionally mutating
  *     what a read after the first write returned.
+ *   - WRITE-BACK programs (`writeBackProgram`) — NESTED aimed at one law
+ *     (B2): a read after the first write that the working copy cannot
+ *     answer, edited in place and written back with `set` or `merge`.
  */
 import fc from 'fast-check';
 import * as baselineCore from 'footprintjs-baseline';
@@ -740,6 +743,222 @@ export function runNested(
           const got = ctx.getValue(path, o.k);
           reads.push(bytes(got ?? null));
           mutateInPlace(got, 'x', o.v);
+        }
+      } catch (e) {
+        errors.push(`${o.t}:${(e as Error).name}`);
+      }
+    }
+    if (laws) generations.push({ ref: mem.getState(), copy: bytes(mem.getState()) });
+    try {
+      ctx.commit();
+    } catch (e) {
+      errors.push(`commit:${(e as Error).name}`);
+    }
+    snaps.push(bytes(ctx.getSnapshot()));
+  });
+  if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
+  const folds: string[] = [];
+  for (let i = 0; i <= log.list().length; i++) folds.push(bytes(log.materialise(i)));
+  return {
+    errors: errors.join(','),
+    reads: reads.join('\n'),
+    snapshots: snaps.join('\n'),
+    commitLog: bytes(log.list()),
+    state: bytes(mem.getState()),
+    folds: folds.join('\n'),
+  };
+}
+
+// ─── WRITE-BACK programs (the B2 law, targeted) ──────────────────────────
+
+/*
+ * B2 (design note, "The review round"): after a stage's first write, a read
+ * the working copy cannot answer (the stage deleted or unset the path, or a
+ * write replaced a container above it) is served from LIVE committed state,
+ * on 9.28.0 and here. 9.28.0's diff base was a clone taken at the first
+ * write. Here the base IS the committed generation, so `StageContext ·
+ * readState` has `TransactionBuffer · detachBase` give the base a private copy
+ * at that path before the value goes out — otherwise an in-place edit moves
+ * the base too, and the write-back records nothing.
+ *
+ * The NESTED family reaches that shape at ONE seed only (102938, program
+ * 1,976): its `mutRead` edits a value but never writes it back. This family
+ * aims at it — delete the key or keep it, read it after the first write, edit
+ * the value in place, then write it back with `set` or `merge` (or not) — at
+ * root, nested and run-namespaced paths, both encodings. Written by the PR's
+ * independent recheck: 9,000 programs (seeds 7301–7303) identical to 9.28.0,
+ * `detachBase` replacing a base path in 198 of them; with `readState`
+ * skipping `detachBase`, or `detachBase` a no-op, it fails at program 91.
+ *
+ * The values and keys are the recheck's own (no `Date`, so M6 never arises);
+ * changing an arbitrary changes what every seed generates.
+ */
+
+const WB_PATHS: string[][] = [[], ['obj'], ['obj', 'deep'], ['list']];
+const WB_KEYS = ['x', 'deep', 'list', 'cfg', '0'] as const;
+
+const wbLeaf = fc.oneof(fc.integer({ min: -5, max: 50 }), fc.constantFrom('s', ''), fc.boolean(), fc.constant(null));
+const wbValueArb: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
+  v: fc.oneof(
+    { depthSize: 'small', withCrossShrink: true },
+    wbLeaf,
+    fc.array(tie('v'), { maxLength: 3 }),
+    fc.dictionary(fc.constantFrom('x', 'n', 'deep', 'list', 'cfg'), tie('v'), { maxKeys: 3 }),
+  ),
+})).v;
+
+export type WriteBackOp =
+  | { t: 'set' | 'merge'; path: number; k: string; v: unknown }
+  | { t: 'del' | 'read'; path: number; k: string }
+  /** After the first write (out of contract): read, edit in place, write back with `how`. */
+  | { t: 'readBack'; path: number; k: string; n: number; how: 'set' | 'merge' }
+  /** The B2 shape: delete, read (served from live state), edit in place, write back with `how` — or not. */
+  | { t: 'delReadBack'; path: number; k: string; n: number; how: 'set' | 'merge' | 'none' };
+
+export type WriteBackProgram = {
+  initial: unknown;
+  stages: Array<{ runId: '' | 'r1'; ops: WriteBackOp[] }>;
+  commitValues: 'full' | 'delta';
+  /** When false, `readBack` / `delReadBack` are skipped — an in-contract program. */
+  mutate: boolean;
+};
+
+const wbPath = fc.integer({ min: 0, max: WB_PATHS.length - 1 });
+const wbKey = fc.constantFrom(...WB_KEYS);
+const writeBackOpArb: fc.Arbitrary<WriteBackOp> = fc.oneof(
+  fc.record({ t: fc.constantFrom('set' as const, 'merge' as const), path: wbPath, k: wbKey, v: wbValueArb }),
+  fc.record({ t: fc.constantFrom('del' as const, 'read' as const), path: wbPath, k: wbKey }),
+  fc.record({
+    t: fc.constant('readBack' as const),
+    path: wbPath,
+    k: wbKey,
+    n: fc.integer({ min: 0, max: 99 }),
+    how: fc.constantFrom('set' as const, 'merge' as const),
+  }),
+  fc.record({
+    t: fc.constant('delReadBack' as const),
+    path: wbPath,
+    k: wbKey,
+    n: fc.integer({ min: 0, max: 99 }),
+    how: fc.constantFrom('set' as const, 'merge' as const, 'none' as const),
+  }),
+);
+
+export const writeBackProgramArb: fc.Arbitrary<WriteBackProgram> = fc.record({
+  initial: fc.option(fc.dictionary(fc.constantFrom('obj', 'list', 'x', 'cfg', 'runs'), wbValueArb, { maxKeys: 4 }), {
+    nil: undefined,
+  }),
+  stages: fc.array(
+    fc.record({ runId: fc.constantFrom('' as const, 'r1' as const), ops: fc.array(writeBackOpArb, { maxLength: 7 }) }),
+    { minLength: 1, maxLength: 4 },
+  ),
+  commitValues: fc.constantFrom('full' as const, 'delta' as const),
+  mutate: fc.boolean(),
+});
+
+const wbAt = (o: WriteBackOp) => [...WB_PATHS[o.path], o.k].join('/');
+
+/**
+ * EXCLUDED — named behaviour M3, not B2. A read of `runs/r1/<k>` that falls
+ * back to the GLOBAL `<k>` hands out the global committed object; written
+ * back at the run-namespaced path, 9.28.0's live state then holds that one
+ * object at both positions. A later write THROUGH it in the same stage (a
+ * delete or set below it) edited the shared object on 9.28.0, so the global
+ * key changed too; copy-on-write copies the path and changes only its own
+ * (M3, value semantics — pinned in copy-on-write-commit.test.ts). The log,
+ * the reads and every fold are identical; only live state and `stageWrites`
+ * differ. The recheck found it here and excluded it by SHAPE, conservatively
+ * (any non-read op below a written-back path in the same stage, whether the
+ * read fell back or not); the property skips these programs (`fc.pre`) and
+ * the corpus never samples one.
+ */
+export function writesThroughWriteBack(p: WriteBackProgram): boolean {
+  return p.stages.some((st) => {
+    const back: string[] = [];
+    return st.ops.some((o) => {
+      const at = wbAt(o);
+      const through = o.t !== 'read' && back.some((s) => at.startsWith(`${s}/`));
+      if (o.t === 'readBack' || o.t === 'delReadBack') back.push(at);
+      return through;
+    });
+  });
+}
+
+/**
+ * Named behaviour M8, widened to this family's writes: a write THROUGH a
+ * value the same stage set or wrote back no longer edits that value in place,
+ * so the outer key's retained `stageWrites` entry is the value as written.
+ * Only `snapshots` may differ; they are left out of the comparison.
+ */
+export function writesThroughWriteBackOrSet(p: WriteBackProgram): boolean {
+  return p.stages.some((st) => {
+    const staged: string[] = [];
+    return st.ops.some((o) => {
+      const at = wbAt(o);
+      const through = staged.some((s) => at.startsWith(`${s}/`));
+      if (o.t === 'set' || o.t === 'readBack' || o.t === 'delReadBack') staged.push(at);
+      return through && o.t !== 'read';
+    });
+  });
+}
+
+/** Edit what a read returned, in place — the out-of-contract act before the write-back. */
+function editForWriteBack(x: unknown, n: number): void {
+  if (Array.isArray(x)) {
+    if (isObj(x[0])) x[0].n = n;
+    else x.push(n);
+  } else if (isObj(x)) {
+    const inner = x.x;
+    if (isObj(inner)) inner.n = n;
+    else x.n = n;
+  }
+}
+
+/**
+ * Drive `StageContext` through a write-back program, as `runNested` does: the
+ * same kept fields, the same build-only generation check (`laws`). A
+ * `readBack` / `delReadBack` runs only in a `mutate` program and only after
+ * the stage's first write — before it is M7 (named: a read before the first
+ * write, edited and written back, records no change).
+ */
+export function runWriteBack(
+  engine: Engine,
+  p: WriteBackProgram,
+  laws?: { editedGenerations: number },
+): Record<string, string> {
+  const mem = new engine.SharedMemory(undefined, materialise(p.initial));
+  const log = new engine.EventLog(mem.getState());
+  const reads: string[] = [];
+  const snaps: string[] = [];
+  const errors: string[] = [];
+  const generations: Array<{ ref: unknown; copy: string }> = [];
+  p.stages.forEach((st, i) => {
+    const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
+    if (p.commitValues === 'delta') ctx.useCommitValues('delta');
+    let wrote = false;
+    for (const o of st.ops) {
+      try {
+        const path = WB_PATHS[o.path];
+        if (o.t === 'set') {
+          ctx.setObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'merge') {
+          ctx.updateObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'del') {
+          ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
+          wrote = true;
+        } else if (o.t === 'read') {
+          reads.push(bytes(ctx.getValue(path, o.k) ?? null));
+        } else if (p.mutate && wrote) {
+          if (o.t === 'delReadBack') ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
+          const got = ctx.getValue(path, o.k);
+          reads.push(bytes(got ?? null));
+          editForWriteBack(got, o.n);
+          if (got !== null && typeof got === 'object') {
+            if (o.how === 'set') ctx.setObject(path, o.k, got);
+            else if (o.how === 'merge') ctx.updateObject(path, o.k, got);
+          }
         }
       } catch (e) {
         errors.push(`${o.t}:${(e as Error).name}`);
