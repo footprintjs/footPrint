@@ -7,9 +7,10 @@
  * no other `src/` file spells either.
  *
  * WHY TWO, AND WHY NOT UNIFIED. Both are historical and stored recordings hold the log one, so
- * neither string may change. Which one a reader sees depends on WHERE it reads, not on the policy:
- * the commit log and everything served from it say {@link LOG_PLACEHOLDER}; the scope channel says
- * {@link SCOPE_PLACEHOLDER}.
+ * neither string may change. Which one a reader sees depends on WHERE it reads: the commit log and
+ * everything served from it say {@link LOG_PLACEHOLDER}; the scope channel says
+ * {@link SCOPE_PLACEHOLDER} — except `onSubflowExit.outputState`, which carries the log's string
+ * whenever a policy keeps a mirror (see {@link SCOPE_PLACEHOLDER}).
  *
  * WHY A LEAF OF ITS OWN (and not beside `honesty.ts · HONESTY_CODES`). Different readers, different
  * reasons to change: these two strings are read by the engine's WRITE path on every redacted run,

@@ -56,8 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but `placeholders.ts`.
 - **Placeholders and the registry are separate leaves.** The engine's write path reads the placeholders
   on every redacted run; only a reader that explains a recording reads the registry. In one file, the
-  write path pulled the registry's sentences into every app bundle that runs a chart. A flowChart-only
-  bundle (esbuild, `--bundle --minify --format=esm`) is 197,414 B, against 197,432 B on 9.31.0.
+  write path pulled the registry's sentences into every app bundle that runs a chart; split, a bundle
+  that only runs a chart no longer carries them.
 - **Docs.** The slice README and `ElementBirth.value` said a slice's placeholder is `'[REDACTED]'`; a
   slice re-serves the commit log's bytes, so it is `'REDACTED'`.
 - `check:layering`: 0 value-level cycles, 0 unnamed upward edges.

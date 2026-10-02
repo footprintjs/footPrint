@@ -18,9 +18,9 @@
  *     each public union of these codes (`HonestyNoteCode`, `MissingSliceReason`,
  *     `MissingProvenanceReason`, `FedBasis`, `AttributionBasis`, `FoldBasis`) declares its members
  *     through `RegisteredCode`, so a member the registry does not hold fails to COMPILE. And
- *     `test/architecture/honesty-vocabulary.test.ts` asks the type checker for every union of
- *     string literals `footprintjs/trace` exports: each one is inside the registry or is named,
- *     with its reason, as not an honesty vocabulary.
+ *     `test/architecture/honesty-vocabulary.test.ts` asks the type checker for every exported type
+ *     alias of `footprintjs/trace` that is a union of string literals: each one is inside the
+ *     registry or is named, with its reason, as not an honesty vocabulary.
  *
  * NO OBJECT GAINS A FIELD from being registered. Three signals carry no code of their own — a
  * `LogGap` (`'log-gap'`), `CausalNode.incompleteSources` (`'incomplete-sources'`) and
@@ -51,10 +51,10 @@
  *
  * Frozen and closed: the keys are exactly the codes below, and {@link HonestyCode} is derived from
  * them. A new code is one new line here: a union declared through {@link RegisteredCode} cannot hold
- * a code that is not on it, and `test/architecture/honesty-vocabulary.test.ts` fails on a union of
- * string literals `footprintjs/trace` exports that is neither inside the registry nor named there as
- * not an honesty vocabulary. The values are typed `string`, not literal types, on purpose: the
- * sentences are for a screen and may be reworded; a consumer branches on the KEY.
+ * a code that is not on it, and `test/architecture/honesty-vocabulary.test.ts` fails on an exported
+ * type alias of `footprintjs/trace` that is a union of string literals neither inside the registry
+ * nor named there as not an honesty vocabulary. The values are typed `string`, not literal types,
+ * on purpose: the sentences are for a screen and may be reworded; a consumer branches on the KEY.
  */
 export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   // ── a slice's notes — `HonestyNote.code` (slice/) ─────────────────────────
