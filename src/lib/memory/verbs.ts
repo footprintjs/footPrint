@@ -111,17 +111,16 @@ export class UnknownVerbError extends Error {
   constructor(verb: unknown, site?: RowSite) {
     const named =
       typeof verb === 'string' ? JSON.stringify(verb) : verb === undefined ? 'undefined' : `of type ${typeof verb}`;
+    // The verb and the path come from a log nobody vetted: quoted (JSON), so a
+    // control character in either cannot reshape the message.
     const where =
       site === undefined
         ? ''
-        : ` on trace row ${site.row} (path ${pathSegments(site.path).join(' › ')}${
+        : ` on trace row ${site.row} (path ${JSON.stringify(pathSegments(site.path).join(' › '))}${
             site.commit === undefined ? '' : `, commit ${site.commit}`
           })`;
-    super(
-      `unknown verb ${named}${where}: a commit row is one of ${VERBS.join(
-        ' | ',
-      )} — the log is refused, not replayed as a merge`,
-    );
+    const one = VERBS.join(' | ');
+    super(`unknown verb ${named}${where}: a commit row is one of ${one} — the log is refused, not replayed as a merge`);
     this.name = 'UnknownVerbError';
     this.verb = verb;
     if (site !== undefined) {
