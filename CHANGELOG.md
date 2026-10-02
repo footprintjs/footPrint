@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.30.0] - 2026-10-02
+
+### Changed — the admitted record: a commit folds back to what the stage read
+
+- **Why.** A stage's commit could disagree with what the stage itself read back.
+  `$update('k', {x: 1}); $setValue('k', {y: 2}); $update('k', {z: 3})` reads back
+  `{y: 2, z: 3}` and committed `{y: 2, x: 1, z: 3}` — live state, the log and every
+  fold after it carried a key the stage had replaced. The buffer keeps ONE
+  accumulated merge delta per path and replayed it at every `merge` row, which is
+  faithful only while the merges compose; they do not across a hard write (the
+  plain typed scope: `s.k = {a: 1}; s.k.b = 2; delete s.k.b; s.k.c = 3` committed
+  the deleted `b`), an `[]` clear (`$update` `[2]`, `[]`, `[3]` over `[1]`
+  committed `[1, 3]`), a kind change, or an array union deduplicated by reference.
+  Design: `docs/design/2026-10-admitted-record.md`.
+
+- **The law.** A commit is admitted only if its bundle, replayed onto the state
+  the stage began from, gives back the stage's read-your-writes view at every path
+  it touched — and at every container and array slot its writes made on the way
+  there, below the stage's address. Compact rows (a `merge` delta, an `append`
+  tail) stay where they provably fold back; a family of rows that does not is
+  recorded as `set` rows of the values the stage read. Checked when a stage
+  staged a merge or a nested op (one fold of the candidate rows, no clone); a
+  stage of root-key `set` / `delete` only is the read-back by construction and pays
+  nothing. The read-back is compared as a record can hold it — through
+  `structuredClone`, so an `Error`'s own fields (which no record keeps) never
+  re-encode a family. `bench/commit-clones.ts`: every clone count unchanged, on the
+  set-only rows (5.0 / stage at N = 100 / 1k / 10k) and the two new ones
+  (`merge` 6.0, `nested-seed` 316.0).
+
+- **The named changes** — each pinned against the published 9.28.0:
+  - **C2** — a family whose rows do not fold back is committed as what the stage
+    read: `set` rows, descendants by last touch, the root last, in the place of
+    the family's last touch. The example above now commits `{y: 2, z: 3}`.
+  - **C3** — owner ruling R1, *the record keeps what the step read back*: an
+    in-place edit of a value at or below a path the stage wrote in that stage is
+    recorded — for a merged value too, as it already was for a set one.
+    `$update('hist', [{n: 9}]); for (const e of s.hist) e.n = 5` now commits
+    `[{n: 5}, {n: 5}]` (a later stage used to read `[1, 5]`).
+  - **C4** — `commitValues: 'delta'` commits the value the stage read; the delta
+    encoder takes its values from one fold of the stage's 'full' rows instead of
+    two private replicas of the verb law (`replayPathVerbs`, `replayFamilyVerbs`,
+    deleted — the second cloned the merge delta per op and doubled array unions).
+  - **C5** — a nested `delete` / `set` of `undefined` through an absent or
+    primitive parent (or past an array's end) changes nothing at its own path, so
+    it used to be dropped — while the stage read back the container it made. It
+    is now recorded. Reachable through `StageContext`'s nested doors (a subflow
+    seed or merge-back of an all-`undefined` object, `/zod`), never through the
+    typed scope: a run-namespaced stage's address (`runs/<id>`) is where it
+    writes, not a value it reads.
+
+- **Byte-identical**, in both encodings, for the typed scope's commits that
+  already folded back (root-key `set` / `merge` / `delete`; ~370k random programs
+  in review, 0 differences), pinned by `repeated-path-9.22.0`, `no-policy-9.18.1`,
+  `no-policy-redact-view-9.19.1`, `untagged-9.20.0` — none re-pinned. Of the 320
+  programs in the 9.28.0 corpus, 74 change; each is proven, every run, to be one
+  whose 9.28.0 record did not fold back. **State-identical, rows differ** (named,
+  not hidden): a `Map` with OBJECT keys never equals its own clone, so a stage
+  that holds one and also merges is recorded as `set` rows of the read-back (same
+  state, one extra clone); and through `StageContext`'s nested doors in delta mode
+  a family can be re-encoded where the dry fold and the working copy dedup a
+  union differently (same state, different row order).
+
+- **Security — a field mark below an array is never lost to a compact `append`.**
+  A redaction field addressed by array index (`fields: {list: ['1.token']}`)
+  counts from the start of the WHOLE array; a delta `append` row holds only the
+  tail, so the mark found nothing and the secret stayed in the log and the
+  redacted mirror. Under 9.30.0's re-encoding a lossy merge family could reach
+  that row (found in review); the same gap was already open in 9.29.0 for a hard
+  write of base + tail in delta mode. A path with a mark below it now always takes
+  the `set` of the whole value (`deltaEncoding · pushValueRow`). Pinned:
+  `security/append-under-field-mark.security.test.ts`.
+
+- **Migration.** A stored 9.29.0 recording folds unchanged; only newly written
+  commits of the named shapes differ, and they now agree with what the stage
+  read. The bundle shape is unchanged (no new field, no new verb). One change a
+  consumer can SEE (C5): a subflow input or output mapper value holding a field
+  set to `undefined` (`{cfg: {a: undefined}}`) now arrives as the container the
+  stage read (`{}`), where 9.29.0 left the key `undefined` and recorded nothing.
+
+- **Internal:** the check lives in `memory/admission.ts`, the delta encoder's
+  helpers in `memory/deltaEncoding.ts` (both internal); `TransactionBuffer`
+  accepts an optional fourth constructor argument, the stage's address.
+  `TransactionBuffer.ts` 1,048 → 958 lines; verb-switch replicas 5 → 3.
+
+- **Found, not fixed here:** `commitValueAt` clones a bundle's merge delta once
+  per row, so two `$update`s of one key after a `set` in one stage come back
+  with their array elements doubled where state and `stateAt` are right — pinned
+  as a known divergence (`it.fails`) for the packet that folds `commitValueAt`
+  through the one verb law.
+
 ## [9.29.0] - 2026-10-01
 
 ### Changed — copy-on-write commit: a write costs what it writes, not what the state holds

@@ -36,10 +36,18 @@
  *     value in place: its retained `stageWrites` entry is the value as written.
  *   Private reads never copy a value the stage staged — even the committed
  *     object itself, written back: the read hands it back, as on 9.28.0.
+ *
+ * 9.30.0 — THE ADMITTED RECORD (docs/design/2026-10-admitted-record.md)
+ * re-pins two of these against the same real 9.28.0, each with its change
+ * named where it is asserted: seed 102938's program 1,976 (C2 — a family
+ * whose rows did not fold back is committed as what the stage read) and "M2
+ * after a merge" (C3 — owner ruling R1: an in-place edit of a merged value
+ * within its stage is recorded, one law with `set`).
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { arrayProvenance } from '../../../../src/trace.js';
 import {
   type Engine,
   type NestedProgram,
@@ -50,6 +58,8 @@ import {
   firstDifference,
   nestedProgramArb,
   runNested,
+  witnessClause,
+  witnessingSync,
 } from '../property/copy-on-write-fixture.js';
 
 const ENGINES = [BASELINE, BUILD] as const;
@@ -277,52 +287,72 @@ describe('A read the working copy cannot answer — served from live state, the 
     }
 
   // The two shapes the differential's NESTED family found (StageContext).
-  const pinned: Array<[string, NestedProgram]> = [
-    [
-      'seed 102938, program 1,976: a merge replaced the container, the read below it fell through, the edit moved the base',
+  const program1976: NestedProgram = {
+    initial: { list: { list: [] } },
+    stages: [
       {
-        initial: { list: { list: [] } },
-        stages: [
-          {
-            runId: '',
-            ops: [
-              { t: 'merge', path: 0, k: 'list', v: 0 },
-              { t: 'merge', path: 3, k: 'x', v: 's' },
-              { t: 'mutRead', path: 3, k: 'list', v: 0 },
-            ],
-          },
-          { runId: '', ops: [] },
+        runId: '',
+        ops: [
+          { t: 'merge', path: 0, k: 'list', v: 0 },
+          { t: 'merge', path: 3, k: 'x', v: 's' },
+          { t: 'mutRead', path: 3, k: 'list', v: 0 },
         ],
-        commitValues: 'delta',
-        mutate: true,
       },
+      { runId: '', ops: [] },
     ],
-    [
-      'a run-namespaced read that falls back to a global key: the edit reaches live state, as on 9.28.0 (why the value is not privatised)',
+    commitValues: 'delta',
+    mutate: true,
+  };
+  const namespacedFallback: NestedProgram = {
+    initial: { x: {} },
+    stages: [
       {
-        initial: { x: {} },
-        stages: [
-          {
-            runId: 'r2',
-            ops: [
-              { t: 'merge', path: 0, k: '0', v: 0 },
-              { t: 'mutRead', path: 0, k: 'x', v: 0 },
-            ],
-          },
-          { runId: '', ops: [] },
+        runId: 'r2',
+        ops: [
+          { t: 'merge', path: 0, k: '0', v: 0 },
+          { t: 'mutRead', path: 0, k: 'x', v: 0 },
         ],
-        commitValues: 'full',
-        mutate: true,
       },
+      { runId: '', ops: [] },
     ],
-  ];
-  for (const [name, program] of pinned)
-    for (const commitValues of ['full', 'delta'] as const) {
-      it(`${name} (${commitValues})`, () => {
-        const p = { ...program, commitValues };
-        expect(firstDifference(runNested(BASELINE, p), runNested(BUILD, p))).toBe('');
-      });
-    }
+    commitValues: 'full',
+    mutate: true,
+  };
+
+  // C2 (9.30.0 — the admitted record) re-pins the first shape. A merge of
+  // the scalar 0 replaced `list`, a nested merge built `list = {x: 's'}` in
+  // its place — what the stage reads back. 9.28.0 (and 9.29.0) committed
+  // rows that fold to `{list: [], x: 's'}` — the accumulated delta replayed
+  // over the base (full mode adds the element the out-of-contract read below
+  // pushed into live state). The build commits the read-back: `set` rows,
+  // the descendant first, the root last, in both encodings; the witness says
+  // the old bundle was the one that did not fold back.
+  for (const commitValues of ['full', 'delta'] as const) {
+    it(`seed 102938, program 1,976 — C2: the family is committed as what the stage read (${commitValues})`, () => {
+      const p = { ...program1976, commitValues };
+      const [before, beforeSeen] = witnessingSync(BASELINE, () => runNested(BASELINE, p));
+      const [after, afterSeen] = witnessingSync(BUILD, () => runNested(BUILD, p));
+      const old = JSON.parse(before.commitLog)[0];
+      if (commitValues === 'full') expect(old.updates).toEqual({ list: { x: 's' } }); // replayed over list.list
+      else expect(old.overwrite).toEqual({ list: { list: [], x: 's' } });
+      const bundle = JSON.parse(after.commitLog)[0];
+      expect(bundle.trace).toEqual([
+        { path: 'list\u001fx', verb: 'set' },
+        { path: 'list', verb: 'set' },
+      ]);
+      expect(bundle.overwrite).toEqual({ list: { x: 's' } });
+      expect(bundle.updates).toEqual({});
+      expect(JSON.parse(after.state)).toEqual({ list: { x: 's' } });
+      expect(witnessClause(beforeSeen, afterSeen, true)).toBe('');
+    });
+  }
+
+  for (const commitValues of ['full', 'delta'] as const) {
+    it(`a run-namespaced read that falls back to a global key: the edit reaches live state, as on 9.28.0 (why the value is not privatised) (${commitValues})`, () => {
+      const p = { ...namespacedFallback, commitValues };
+      expect(firstDifference(runNested(BASELINE, p), runNested(BUILD, p))).toBe('');
+    });
+  }
 });
 
 describe('D1 (fix) — an inputMapper that passes a parent object through does not freeze the parent’s state', () => {
@@ -516,26 +546,41 @@ describe('M1, M1b, M2 — a read mutated in place: the behaviour 9.28.0 had, war
     expect(after.warnings[0]).toContain('changed `hist[0].n` IN PLACE');
   });
 
-  it('M2 after a merge of the same key — the merged value’s elements are the stage’s own too', async () => {
-    const { before, after } = await same(
-      linear(
-        (s) => {
-          s.hist = [{ n: 1 }];
-        },
-        (s) => {
-          s.$update('hist', [{ n: 9 }]); // the first write: a merge into the committed array
-          for (const e of s.hist) e.n = 5; // raw elements, edited in place
-        },
-        (s) => {
-          s.seen = s.hist.map((e: any) => e.n);
-        },
-      ),
+  it('M2 after a merge of the same key — C3 (9.30.0, R1): the in-place edit of the merged value is recorded', async () => {
+    const make = linear(
+      (s) => {
+        s.hist = [{ n: 1 }];
+      },
+      (s) => {
+        s.$update('hist', [{ n: 9 }]); // the first write: a merge into the committed array
+        for (const e of s.hist) e.n = 5; // raw elements, edited in place
+      },
+      (s) => {
+        s.seen = s.hist.map((e: any) => e.n);
+      },
     );
-    // The committed element's edit stayed inside the stage (its private copy);
-    // the merged-in element is the stage's OWN object, shared with the staged
-    // delta, so its edit is recorded — exactly as on 9.28.0.
-    expect(plain(after.state).seen).toEqual([1, 5]);
-    expect(after.warnings).toEqual(before.warnings);
+    const before = await run(BASELINE, make, {}, true);
+    const after = await run(BUILD, make, {}, true);
+    // 9.28.0 (and 9.29.0): the merge row replayed its delta, which shared the
+    // merged-in element (its edit came through) but not the committed one
+    // (the stage's private copy) — a later stage read [1, 5].
+    expect(plain(before.state).seen).toEqual([1, 5]);
+    expect(before.rows[1]).toBe('s1: hist:merge');
+    // C3, owner ruling R1 — the record keeps what the stage READ BACK, one law
+    // for set and merge: the stage read [5, 5], so that is what is committed,
+    // as a `set` (the merge delta does not fold back to it).
+    expect(plain(after.state).seen).toEqual([5, 5]);
+    expect(after.rows[1]).toBe('s1: hist:set');
+    expect(plain(after.fold).hist).toEqual([{ n: 5 }, { n: 5 }]);
+    // Element births for that row: a wholesale value now, not a tail inferred
+    // from a prefix.
+    const births = (log: any) =>
+      (
+        arrayProvenance(log, 'hist', { atIdx: 1 }) as { births: Array<{ commitIdx: number; basis: string }> }
+      ).births.map((b) => `${b.commitIdx}:${b.basis}`);
+    expect(births(before.snap.commitLog)).toEqual(['0:whole-value', '1:prefix-inference']);
+    expect(births(after.snap.commitLog)).toEqual(['1:whole-value', '1:whole-value']);
+    expect(after.warnings).toEqual(before.warnings); // the dev-mode warning is unchanged
   });
 });
 

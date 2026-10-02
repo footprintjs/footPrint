@@ -105,8 +105,19 @@ export function nativeDelete(obj: any, path: string | (string | number)[]): void
 // `reactive/structuralWrite.ts · setInPath` applies to a single value.
 
 /** A container a writer may own: anything `typeof 'object'` and not null. */
-function isContainer(value: unknown): value is object {
+export function isContainer(value: unknown): value is object {
   return value !== null && typeof value === 'object';
+}
+
+/**
+ * `parent[key]` when `parent` is a container that OWNS `key` — the slot
+ * {@link nativeGet} would read, refusing the same prototype-pollution
+ * segments — else `undefined`. One step of a path walk.
+ */
+export function ownChild(parent: unknown, key: string | number): unknown {
+  return isContainer(parent) && !DENIED.has(String(key)) && Object.prototype.hasOwnProperty.call(parent, key)
+    ? (parent as Record<string | number, unknown>)[key]
+    : undefined;
 }
 
 /** True for an own key of an array that is an array INDEX (`'0'`, `'12'`), not a name (`arr.note`). */

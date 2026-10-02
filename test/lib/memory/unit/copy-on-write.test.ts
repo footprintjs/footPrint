@@ -26,7 +26,7 @@ import { adopt, ownedRootOf, ownSpine, shallowCopy } from '../../../../src/lib/m
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 import type { MemoryPatch, TraceEntry } from '../../../../src/lib/memory/types';
-import { applySmartMerge, applySmartMergeInto, DELIM, nextGeneration } from '../../../../src/lib/memory/utils';
+import { applySmartMerge, applySmartMergeInto, DELIM, dryFold, nextGeneration } from '../../../../src/lib/memory/utils';
 import { containersOf } from '../property/copy-on-write-fixture';
 
 /** Freeze every container of a tree — an edit of any of them then throws. */
@@ -203,6 +203,28 @@ describe('utils — one verb switch, three replays', () => {
     expect(next.history).toBe(base.history);
   });
 
+  it('dryFold (comparison only, 9.30.0): the live commit’s answer, no clone, nothing edited, the payload by reference', () => {
+    const p = nested();
+    freezeAll(p.base);
+    freezeAll(p.overwrite);
+    freezeAll(p.updates);
+    let folded: any;
+    expect(clonesDuring(() => (folded = dryFold(p.base, p.updates, p.overwrite, p.trace)))).toBe(0);
+    expect(folded).toEqual(nextGeneration(p.base, p.updates, p.overwrite, p.trace)); // value semantics (M3), as live
+    expect(folded.b).toEqual({ v: 0 });
+    expect(folded.fresh).toBe(p.overwrite.fresh); // placed by reference: aliases the payload…
+    expect(folded.keep).toBe(p.base.keep); // …and every subtree of the base it did not write
+    // A later row that writes THROUGH a value placed by reference copies it
+    // first — the frozen payload would throw if it were edited.
+    const payload = freezeAll({ o: { a: 1 } });
+    const through = dryFold({}, {}, payload, [
+      { path: 'o', verb: 'set' },
+      { path: ['o', 'b'].join(DELIM), verb: 'set' },
+    ]);
+    expect(Object.keys(through.o)).toEqual(['a', 'b']);
+    expect(through.o).not.toBe(payload.o);
+  });
+
   it('applySmartMergeInto (folds): the root edited in place, the live law below it', () => {
     const p = nested();
     const target = structuredClone(p.base);
@@ -321,7 +343,7 @@ describe('TransactionBuffer · detachBase — a read the working copy cannot ans
     expect(trace.map((t) => t.path)).toContain('cfg');
   });
 
-  it('the same in the delta encoding: the family replay starts from the detached base', () => {
+  it('the same in the delta encoding: the family is committed as what the stage read (9.30.0 — C2 / C4)', () => {
     const base = { list: { list: [] as number[] } };
     const buf = new TransactionBuffer(base, 'delta');
     buf.merge(['list'], 0); // replaces the container…
@@ -329,7 +351,12 @@ describe('TransactionBuffer · detachBase — a read the working copy cannot ans
     expect(buf.get(['list', 'list'])).toBeUndefined();
     buf.detachBase(['list', 'list']);
     base.list.list.push(0); // the live value, edited in place
-    expect(buf.commit().overwrite).toEqual({ list: { list: [], x: 's' } }); // as on 9.28.0
+    // 9.29.0 replayed the family's ops from the detached base
+    // (`replayFamilyVerbs`, deleted) and committed { list: { list: [], x: 's' } }
+    // — the accumulated delta over the base, not what the stage read. The
+    // admitted record commits the read-back (C2), and the delta encoder no
+    // longer replays the verbs itself (C4).
+    expect(buf.commit().overwrite).toEqual({ list: { x: 's' } });
   });
 
   it('copies the way down shallowly and never edits committed state; later reads still privatise', () => {

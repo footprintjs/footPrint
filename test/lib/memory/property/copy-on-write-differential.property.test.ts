@@ -41,6 +41,17 @@
  *
  * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
  *
+ * THE ADMITTED RECORD (9.30.0) changes the bytes of exactly the commits whose
+ * rows did not fold back to what the stage read — and 9.28.0 wrote those rows
+ * too. So every program's two runs are compared byte for byte, and where
+ * they differ the WITNESS (fixture · `witnessClause`) must explain it: the
+ * first commit at which the two logs differ is one where 9.28.0's bundle did
+ * not fold back, and every commit the build made did. Each family's fixed
+ * seed must reach explained differences and leave at least a quarter of its
+ * programs byte-identical, so neither half of the clause is vacuous. (F1b
+ * widens the witness to every differing stage and moves the baseline to
+ * 9.29.0.)
+ *
  * Fixed seeds; `COW_DIFF_RUNS=<n>` raises every property's run count (the
  * release gate runs 6,000 chart programs; the recheck ran 3,000 write-back
  * programs per seed) and `COW_DIFF_SEED=<n>` replaces the fixed seeds with n,
@@ -50,12 +61,16 @@
  * A counterexample prints the first differing field with both engines' bytes
  * around it.
  */
+import { appendFileSync } from 'node:fs';
+
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer.js';
 import {
   type NestedProgram,
+  type Tally,
+  type Witnessed,
   type WriteBackProgram,
   BASELINE,
   borrowedProgramArb,
@@ -67,6 +82,9 @@ import {
   runChart,
   runNested,
   runWriteBack,
+  witnessClause,
+  witnessing,
+  witnessingSync,
   writeBackProgramArb,
   writesThroughStagedValue,
   writesThroughWriteBack,
@@ -79,11 +97,44 @@ const SEED = process.env.COW_DIFF_SEED === undefined ? undefined : Number(proces
 const seed = (family: number, fixed: number) => (SEED === undefined ? fixed : SEED + family);
 const TIMEOUT = 3_600_000;
 
+const tally = (): Tally => ({ programs: 0, explained: 0 });
+
+/** One program's two runs, held to the witness clause (header: THE ADMITTED RECORD). */
+function compare(
+  p: unknown,
+  base: Record<string, string>,
+  baseSeen: Witnessed[],
+  build: Record<string, string>,
+  buildSeen: Witnessed[],
+  seen: Tally,
+): void {
+  const diff = firstDifference(base, build);
+  const broken = witnessClause(baseSeen, buildSeen, diff !== '');
+  if (broken) throw new Error(`${broken}${diff ? `\n${diff}` : ''}\nprogram: ${JSON.stringify(p)}`);
+  seen.programs += 1;
+  if (diff) seen.explained += 1;
+}
+
+/**
+ * The fixed seed reached both halves of the clause: some programs differ
+ * (explained), and at least a quarter are byte-identical (the NESTED family,
+ * merges at nested paths through primitives, differs in ~45%).
+ * `COW_DIFF_TALLY=<file>` appends each family's tally to that file as a JSON
+ * line.
+ */
+function bothHalvesReached(seen: Tally, family: string): void {
+  if (process.env.COW_DIFF_TALLY)
+    appendFileSync(process.env.COW_DIFF_TALLY, `${JSON.stringify({ family, ...seen })}\n`);
+  if (SEED !== undefined) return; // a fresh seed's sample may not
+  expect(seen.explained).toBeGreaterThan(0);
+  expect(seen.programs - seen.explained).toBeGreaterThan(seen.programs / 4);
+}
+
 /** One NESTED program on both engines: bytes identical; on an in-contract program, no generation edited. */
-function nestedAgrees(p: NestedProgram): void {
-  const a = runNested(BASELINE, p);
+function nestedAgrees(p: NestedProgram, seen: Tally): void {
+  const [a, aSeen] = witnessingSync(BASELINE, () => runNested(BASELINE, p));
   const laws = { editedGenerations: 0 };
-  const b = runNested(BUILD, p, laws);
+  const [b, bSeen] = witnessingSync(BUILD, () => runNested(BUILD, p, laws));
   // M8 (pinned in copy-on-write-commit.test.ts): a write THROUGH a value the
   // same stage set no longer edits that value in place, so its retained
   // `stageWrites` entry is the value as written.
@@ -91,25 +142,23 @@ function nestedAgrees(p: NestedProgram): void {
     delete a.snapshots;
     delete b.snapshots;
   }
-  const diff = firstDifference(a, b);
-  if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+  compare(p, a, aSeen, b, bSeen, seen);
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
 }
 
 /** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
-function writeBackAgrees(p: WriteBackProgram): void {
+function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
   fc.pre(!writesThroughWriteBack(p));
-  const a = runWriteBack(BASELINE, p);
+  const [a, aSeen] = witnessingSync(BASELINE, () => runWriteBack(BASELINE, p));
   const laws = { editedGenerations: 0 };
-  const b = runWriteBack(BUILD, p, laws);
+  const [b, bSeen] = witnessingSync(BUILD, () => runWriteBack(BUILD, p, laws));
   if (writesThroughWriteBackOrSet(p)) {
     delete a.snapshots;
     delete b.snapshots;
   }
-  const diff = firstDifference(a, b);
-  if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+  compare(p, a, aSeen, b, bSeen, seen);
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
@@ -149,17 +198,18 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it(
     'CHART programs: log (both encodings), state, mirror, subflow results, execution tree and the fold at every stop are identical',
     async () => {
+      const seen = tally();
       await fc.assert(
         fc.asyncProperty(chartProgramArb, async (p) => {
-          const a = await runChart(BASELINE, p);
-          const b = await runChart(BUILD, p);
-          const diff = firstDifference(a.out, b.out);
-          if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+          const [a, aSeen] = await witnessing(BASELINE, () => runChart(BASELINE, p));
+          const [b, bSeen] = await witnessing(BUILD, () => runChart(BUILD, p));
+          compare(p, a.out, aSeen, b.out, bSeen, seen);
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
         }),
         { numRuns: runs(150), seed: seed(0, 20261001) },
       );
+      bothHalvesReached(seen, 'chart');
     },
     TIMEOUT,
   );
@@ -167,15 +217,16 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it(
     'BORROWED programs: a read mutated in place after the first write behaves exactly as on 9.28.0, warnings included',
     async () => {
+      const seen = tally();
       await fc.assert(
         fc.asyncProperty(borrowedProgramArb, async (p) => {
-          const a = await runBorrowed(BASELINE, p);
-          const b = await runBorrowed(BUILD, p);
-          const diff = firstDifference(a, b);
-          if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+          const [a, aSeen] = await witnessing(BASELINE, () => runBorrowed(BASELINE, p));
+          const [b, bSeen] = await witnessing(BUILD, () => runBorrowed(BUILD, p));
+          compare(p, a, aSeen, b, bSeen, seen);
         }),
         { numRuns: runs(150), seed: seed(1, 20261002) },
       );
+      bothHalvesReached(seen, 'borrowed');
     },
     TIMEOUT,
   );
@@ -183,7 +234,12 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it(
     'NESTED programs: StageContext at nested and namespaced paths — reads, log, state and folds identical',
     () => {
-      fc.assert(fc.property(nestedProgramArb, nestedAgrees), { numRuns: runs(400), seed: seed(2, 20261003) });
+      const seen = tally();
+      fc.assert(
+        fc.property(nestedProgramArb, (p) => nestedAgrees(p, seen)),
+        { numRuns: runs(400), seed: seed(2, 20261003) },
+      );
+      bothHalvesReached(seen, 'nested');
     },
     TIMEOUT,
   );
@@ -191,7 +247,12 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it(
     'NESTED programs, seed 102938 (the review’s sample: a read served from live state after the first write) — identical',
     () => {
-      fc.assert(fc.property(nestedProgramArb, nestedAgrees), { numRuns: Math.max(runs(2000), 2000), seed: 102938 });
+      const seen = tally();
+      fc.assert(
+        fc.property(nestedProgramArb, (p) => nestedAgrees(p, seen)),
+        { numRuns: Math.max(runs(2000), 2000), seed: 102938 },
+      );
+      bothHalvesReached(seen, 'nested-102938');
     },
     TIMEOUT,
   );
@@ -201,7 +262,12 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     () => {
       const detaches = countBaseDetaches();
       try {
-        fc.assert(fc.property(writeBackProgramArb, writeBackAgrees), { numRuns: runs(200), seed: seed(4, 7301) });
+        const seen = tally();
+        fc.assert(
+          fc.property(writeBackProgramArb, (p) => writeBackAgrees(p, seen)),
+          { numRuns: runs(200), seed: seed(4, 7301) },
+        );
+        bothHalvesReached(seen, 'write-back');
       } finally {
         detaches.restore();
       }

@@ -402,11 +402,11 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
  * whole-array `set` rows on one path, and this is what makes replaying them
  * O(N) instead of O(N × rows).
  *
- * Shared by `replayRows` (live state and the redacted mirror through
+ * Asked by `replayRows` — live state and the redacted mirror through
  * {@link nextGeneration}, `EventLog.materialise` and `stateAt` through
- * {@link applySmartMergeInto}, the public {@link applySmartMerge}) and
- * `TransactionBuffer.replayFamilyVerbs` (the delta encoder's per-family fold)
- * — the two loops that clone per row.
+ * {@link applySmartMergeInto}, the public {@link applySmartMerge}, and the
+ * admitted record's {@link dryFold} (9.30.0; the delta encoder's own
+ * per-family replay, which asked it too, was deleted then).
  * `commitValueAt` needs no skip: it anchors at the LAST `set` by construction.
  */
 export function supersededByNextSet(rows: readonly { path: string; verb: string }[], i: number): boolean {
@@ -488,6 +488,19 @@ export function applySmartMergeInto(
   return replayRows(target, updates, overwrite, trace, true);
 }
 
+/**
+ * The fold, for COMPARISON only (9.30.0 — the admitted record): `base` with
+ * the bundle replayed by the one verb switch, copy-on-write below the root,
+ * every recorded value placed BY REFERENCE — no clone, so it costs what the
+ * bundle wrote and nothing more. It aliases the payload and every subtree of
+ * `base` the bundle did not write, and edits neither. Never hand it out,
+ * store it or write through it: `TransactionBuffer` builds one to ask whether
+ * a bundle folds back to what the stage read, then drops it.
+ */
+export function dryFold(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
+  return replayRows(ownedRootOf(base), updates, overwrite, trace, true, false);
+}
+
 /** Does any row write THROUGH a container (a delimited, nested path)? */
 function hasNestedRow(trace: TraceEntry[]): boolean {
   for (let i = 0; i < trace.length; i++) if (trace[i].path.indexOf(DELIM) !== -1) return true;
@@ -495,11 +508,13 @@ function hasNestedRow(trace: TraceEntry[]): boolean {
 }
 
 /**
- * THE verb switch — the replay replica of CLAUDE.md's "FOUR verb-switch
- * replicas in lockstep"; every replay above runs it, there is no other.
+ * THE verb switch — the replay replica of CLAUDE.md's "THREE verb-switch
+ * replicas in lockstep" (four before 9.30.0 deleted the delta encoder's);
+ * every replay above runs it, there is no other.
  * `out` is the caller's: a fresh deep clone ({@link applySmartMerge}), the
- * owned root of a new generation ({@link nextGeneration}) or a fold's
- * private working copy ({@link applySmartMergeInto}).
+ * owned root of a new generation ({@link nextGeneration}), a fold's private
+ * working copy ({@link applySmartMergeInto}) or the comparison fold's owned
+ * root ({@link dryFold}).
  *
  * `copyOnWrite` — before a row that writes THROUGH a container (a nested
  * path), {@link ownSpine} copies the containers on its path that this replay
@@ -509,6 +524,14 @@ function hasNestedRow(trace: TraceEntry[]): boolean {
  * scope's only kind — allocates no ownership set at all. With
  * `copyOnWrite: false` the target is private through and through (a deep
  * clone) and is edited in place, exactly as before 9.29.0.
+ *
+ * `detach` — `true` for every fold that keeps its result: the `set` /
+ * `append` arms write a clone of the recorded value and the merge arm reads
+ * a detached copy of `updates`, so the result never aliases the payload.
+ * `false` only for {@link dryFold}, which compares and drops its result: the
+ * recorded values are placed by reference and never marked owned (a later
+ * row that writes through one copies it first, so the payload is never
+ * edited), and the merge arm reads `updates` itself.
  */
 function replayRows(
   out: any,
@@ -516,6 +539,7 @@ function replayRows(
   overwrite: MemoryPatch,
   trace: TraceEntry[],
   copyOnWrite: boolean,
+  detach = true,
 ): any {
   const owned = copyOnWrite && hasNestedRow(trace) ? new WeakSet<object>() : undefined;
   own(out, owned);
@@ -535,19 +559,21 @@ function replayRows(
     const segs = path.split(DELIM);
     if (owned !== undefined && segs.length > 1) ownSpine(out, segs, owned);
     if (verb === 'set') {
-      const value = structuredClone(_get(overwrite, segs));
-      own(value, owned);
+      const recorded = _get(overwrite, segs);
+      const value = detach ? structuredClone(recorded) : recorded;
+      if (detach) own(value, owned);
       _set(out, segs, value);
     } else if (verb === 'append') {
-      const tail = structuredClone(_get(overwrite, segs));
+      const recorded = _get(overwrite, segs);
+      const tail = detach ? structuredClone(recorded) : recorded;
       const current = _get(out, segs);
       const next = Array.isArray(current) && Array.isArray(tail) ? [...current, ...tail] : tail;
-      own(next, owned);
+      if (detach) own(next, owned);
       _set(out, segs, next);
     } else if (verb === 'delete') {
       nativeDelete(out, segs);
     } else {
-      deltas ??= structuredClone(updates);
+      deltas ??= detach ? structuredClone(updates) : updates;
       const current = _get(out, segs) ?? {};
       const merged = deepSmartMerge(current, _get(deltas, segs));
       own(merged, owned);

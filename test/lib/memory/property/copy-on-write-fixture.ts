@@ -161,6 +161,8 @@ export interface Engine {
   SharedMemory: any;
   EventLog: any;
   StageContext: any;
+  /** The engine's own buffer class — what the witness watches commit. */
+  TransactionBuffer: any;
 }
 
 function engine(label: string, c: any, a: any, t: any): Engine {
@@ -175,6 +177,7 @@ function engine(label: string, c: any, a: any, t: any): Engine {
     SharedMemory: a.SharedMemory,
     EventLog: a.EventLog,
     StageContext: a.StageContext,
+    TransactionBuffer: a.TransactionBuffer,
   };
 }
 
@@ -984,6 +987,160 @@ export function runWriteBack(
     folds: folds.join('\n'),
   };
 }
+
+// ─── The witness (9.30.0): did a commit fold back to what its stage read? ──
+
+/*
+ * 9.30.0 (the admitted record) changes the bytes of exactly the commits
+ * whose rows did not fold back to what the stage read — and 9.28.0 wrote
+ * those rows too. So a differential cannot ask for byte identity
+ * everywhere; it asks for it until the first commit at which the two engines
+ * differ, and there it asks the WITNESS: 9.28.0's bundle must be one that did
+ * not fold back. Everything after that commit follows from a different
+ * state and is not compared. The witness also checks every commit the build
+ * makes: each must fold back.
+ *
+ * The law is written here a second time, independently of
+ * `TransactionBuffer · admit`, so the build is not its own judge: replay the
+ * bundle onto the stage's diff base (`applySmartMerge`, the reader's replay)
+ * and, at every path the stage touched, compare it with the stage's working
+ * copy — the value (`canon`: an own `undefined` is a deleted key, arrays by
+ * index, key order free; as a record can hold it, through `structuredClone`)
+ * and, on the way there, every container and array slot the working copy
+ * holds. The run addresses (`runs`, `runs/<id>`) are
+ * where a stage writes, not a value it reads, and are not compared. F1b
+ * widens this to every differing stage and to the pause legs one by one.
+ */
+
+/** One commit as the witness saw it: its bundle's bytes, and whether the bundle folded back to what its stage read. */
+export type Witnessed = { bytes: string; foldsBack: boolean };
+
+/** A canonical spelling for the witness — own `undefined` absent, arrays by index, keys sorted, typed values spelled. */
+export function canon(v: unknown): string {
+  if (v === undefined) return 'u';
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (v instanceof Date) return `date:${v.getTime()}`;
+  if (v instanceof Map) return `map:${canon([...v.entries()])}`;
+  if (v instanceof Set) return `set:${canon([...v.values()])}`;
+  if (Array.isArray(v)) {
+    const parts: string[] = [];
+    for (let i = 0; i < v.length; i++) parts.push(canon(v[i]));
+    return `[${parts.join(',')}]`;
+  }
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(',')}}`;
+}
+
+/** The own value at `key` of a container, else `undefined`. */
+const child = (x: unknown, key: string): unknown =>
+  x !== null && typeof x === 'object' && Object.prototype.hasOwnProperty.call(x, key)
+    ? (x as Record<string, unknown>)[key]
+    : undefined;
+
+/** Does an array the working copy holds have a slot at `key` the fold lacks? */
+function slotMissing(folded: unknown, read: unknown, key: string): boolean {
+  if (!Array.isArray(read)) return false;
+  const i = Number(key);
+  if (!Number.isInteger(i) || i < 0 || String(i) !== key || i >= read.length) return false;
+  return !(Array.isArray(folded) && i < folded.length);
+}
+
+/** At one touched path: the value, and every container and array slot on the way, below the run address. */
+function agreesAt(folded: unknown, read: unknown, segs: string[]): boolean {
+  const from = segs[0] === 'runs' && segs.length >= 3 ? 2 : 0;
+  let f = folded;
+  let w = read;
+  for (let i = 0; i < segs.length; i++) {
+    if (i >= from && slotMissing(f, w, segs[i])) return false;
+    f = child(f, segs[i]);
+    w = child(w, segs[i]);
+    if (i === segs.length - 1 || w === null || typeof w !== 'object') break;
+    if (i >= from && (f === null || typeof f !== 'object' || Array.isArray(f) !== Array.isArray(w))) return false;
+  }
+  // As a record can hold it: what a stage read, through `structuredClone`
+  // (an Error's own fields do not survive one — no record can hold them).
+  const value = canon(valueAt(folded, segs));
+  return value === canon(valueAt(read, segs)) || value === canon(structuredClone(valueAt(read, segs)));
+}
+
+/** The own value at `segs`, else `undefined`. */
+function valueAt(x: unknown, segs: string[]): unknown {
+  let at = x;
+  for (const s of segs) at = child(at, s);
+  return at;
+}
+
+/** Patch `engine`'s `TransactionBuffer.prototype.commit` to witness every commit; `restore()` undoes it. */
+function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
+  const proto = engine.TransactionBuffer.prototype;
+  const commit = proto.commit;
+  const seen: Witnessed[] = [];
+  proto.commit = function (this: any) {
+    // Taken BEFORE the commit: it clears the op trace in place and drops the
+    // working copy (a new `{}`), leaving the old one intact.
+    const base = this.baseSnapshot;
+    const read = this.workingCopy;
+    const touched = [...new Set<string>(this.opTrace.map((op: { path: string }) => op.path))];
+    const payload = commit.call(this);
+    const folded = advanced.applySmartMerge(base, payload.updates, payload.overwrite, payload.trace);
+    const foldsBack = touched.every((path) => agreesAt(folded, read, path.split('\u001f')));
+    seen.push({ bytes: bytes(payload), foldsBack });
+    return payload;
+  };
+  return {
+    seen,
+    restore: () => {
+      proto.commit = commit;
+    },
+  };
+}
+
+/** Run `fn` while witnessing `engine`'s commits — awaited, so an async run stays patched until it settles. */
+export async function witnessing<T>(engine: Engine, fn: () => T | Promise<T>): Promise<[Awaited<T>, Witnessed[]]> {
+  const patch = patchWitness(engine);
+  try {
+    return [await fn(), patch.seen];
+  } finally {
+    patch.restore();
+  }
+}
+
+/** The synchronous twin of {@link witnessing}, for the `StageContext` families. */
+export function witnessingSync<T>(engine: Engine, fn: () => T): [T, Witnessed[]] {
+  const patch = patchWitness(engine);
+  try {
+    return [fn(), patch.seen];
+  } finally {
+    patch.restore();
+  }
+}
+
+/**
+ * The differentials' clause (9.30.0): every commit the build made folded back;
+ * and if the runs differ at all, the first commit at which the two logs
+ * differ is one where 9.28.0's bundle did NOT fold back. Returns '' when the
+ * clause holds, else what broke it. `differs` is whether the runs' kept
+ * bytes differ anywhere.
+ */
+export function witnessClause(baseline: Witnessed[], build: Witnessed[], differs: boolean): string {
+  const unadmitted = build.findIndex((c) => !c.foldsBack);
+  if (unadmitted >= 0) return `the build's commit ${unadmitted} does not fold back to what its stage read`;
+  if (!differs) return '';
+  const n = Math.max(baseline.length, build.length);
+  for (let i = 0; i < n; i++) {
+    if (baseline[i]?.bytes === build[i]?.bytes) continue;
+    if (baseline[i] === undefined || build[i] === undefined)
+      return `the engines made a different number of commits (${i})`;
+    return baseline[i].foldsBack ? `commit ${i} differs, but 9.28.0's bundle there folded back` : '';
+  }
+  return 'the runs differ but every commit is byte-identical';
+}
+
+/** How many programs a differential compared, and at how many the witness explained a difference. */
+export type Tally = { programs: number; explained: number };
 
 // ─── Comparison ──────────────────────────────────────────────────────────
 
