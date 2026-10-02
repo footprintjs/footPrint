@@ -23,6 +23,11 @@
       "enabled": false
     },
     {
+      "description": "the copy-on-write differential's baseline (an npm alias of footprintjs pinned to 9.28.0, the last release before copy-on-write) is pinned on purpose: bumping it changes what test/lib/memory/property/copy-on-write-differential.property.test.ts compares against",
+      "matchDepNames": ["footprintjs-baseline"],
+      "enabled": false
+    },
+    {
       "description": "majors always need a human",
       "matchUpdateTypes": ["major"],
       "automerge": false

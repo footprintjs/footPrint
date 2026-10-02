@@ -40,6 +40,17 @@ mem.getValue('run-2', [], 'name');    // undefined (isolated)
 mem.getValue('run-1', [], 'defaultTheme'); // 'light' (global fallback)
 ```
 
+**Copy-on-write (9.29.0).** The state is a sequence of GENERATIONS, and a generation is never edited. Every write — a stage's commit (`applyPatch`, through `utils · nextGeneration`), `setValue`, `updateValue` — copies the root and the containers on each path it writes, shares every other subtree with the generation before it, and swaps the new one in. That is what lets a stage hold the generation it first touched by bare reference (its read snapshot and its buffer's diff base) for free, and it makes a write cost what it writes, not what the state holds. The seed (`initialContext` + defaults) is detached once, when the store is built.
+
+```typescript
+const before = mem.getState();
+mem.applyPatch({ turn: 2 }, {}, [{ path: 'turn', verb: 'set' }]);
+const after = mem.getState();
+after === before;                    // false — a new generation
+after.history === before.history;    // true  — untouched, so shared (no clone of the history)
+before.turn;                         // still the old value — a generation is never edited
+```
+
 ---
 
 ### 2. TransactionBuffer — "The Database Transaction"
@@ -64,6 +75,17 @@ buffer.get(['user', 'name']);              // 'Alice' (read-after-write)
 
 const { overwrite, updates, trace } = buffer.commit(); // one-batch flush (net change)
 // trace = [{ path: 'user.name', verb: 'set' }, { path: 'user.tags', verb: 'merge' }]
+```
+
+**The base by reference; reads after the first write are the stage's own (9.29.0).** The buffer is built at the stage's first write from the committed generation the stage first touched — held BY REFERENCE as the net-change diff base (a generation is never edited), with a working copy that starts as a copy of the root only. Each write copies the containers on its own path. The first READ after the first write of a container still shared with committed state takes a private deep copy of it (`privatise`) — what the whole-state clone used to give every such read — so an in-place edit of a read value (out of contract: reads are borrowed) stays inside the buffer exactly as before 9.29.0. A value the stage itself staged is handed back as it is; a merge privatises the value it merges into first, because `deepSmartMerge` unions arrays by reference.
+
+```typescript
+const buffer = new TransactionBuffer(committed);  // no clone — `committed` IS the diff base
+buffer.set(['turn'], 2);                         // copies the root only
+const h = buffer.get(['history']);               // a private copy, taken once
+h.push('edit');                                  // stays private: committed.history is untouched,
+                                                 // and nothing is recorded unless the stage writes it back
+buffer.peek(['history']) === h;                  // peek: a non-copying read, for reports that only compare
 ```
 
 **Key design decision:** After commit, the working copy resets to `{}` (empty), not back to the base snapshot. This prevents a stale-read bug where the buffer would return old values instead of falling through to SharedMemory for the current committed state.
@@ -99,7 +121,7 @@ log.materialise(1);  // state after stage 1 — what did stage 2 see?
 log.materialise();   // final state
 ```
 
-**Key design decision:** Replay is O(n) from the beginning every time. Simple, correct, tiny memory footprint. For < 200 stages this is fast enough. Checkpoint caching can be added later without changing the API.
+**Key design decision:** Replay is O(n) from the beginning every time. Simple, correct, tiny memory footprint. For < 200 stages this is fast enough. Checkpoint caching can be added later without changing the API. Since 9.29.0 `materialise` clones its base once and replays every bundle into that private copy (`applySmartMergeInto` — below the root it follows the live commit's copy-on-write law, so the fold and live state agree at every path); the public `applySmartMerge` keeps its own contract, a fully detached result.
 
 ---
 
@@ -173,18 +195,20 @@ The full flow for a single stage:
 2. Stage function receives a scope object (built from StageContext by the scope layer)
 
 3. Stage writes → StageContext → TransactionBuffer
-   (buffer constructed lazily on the stage's FIRST write — #13)
+   (buffer constructed lazily on the stage's FIRST write — #13; since 9.29.0
+    it holds committed state by reference and copies only the paths written)
    (staged in buffer, not applied to shared memory yet)
    (every write recorded in operation trace)
 
 4. Stage reads → StageContext → TransactionBuffer (if a write created one) → SharedMemory (fallback)
    (read-after-write: sees own uncommitted writes)
-   (before any write: reads go straight to SharedMemory — zero clones)
+   (after the first write: a read of committed state is the stage's own copy — once per container)
+   (before any write: reads go straight to SharedMemory — zero clones, borrowed)
 
 5. Stage finishes → engine calls ctx.commit():
    a. TransactionBuffer.commit()  → returns { overwrite, updates, trace }
       (no buffer = stage never wrote → empty bundle recorded, zero clones)
-   b. SharedMemory.applyPatch()   → state updated (visible to next stage)
+   b. SharedMemory.applyPatch()   → the next generation: written paths copied, the rest shared (visible to next stage)
    c. EventLog.record()           → history recorded (replayable)
    d. DiagnosticCollector.addLog() → trace logged (debuggable)
 
@@ -221,8 +245,9 @@ Parent creates N children via createChild()
 | Diff-based EventLog (not full snapshots) | O(1) storage per commit | Can store complete history without blowing up memory |
 | Replay-based materialise | Reconstructs state at any point | Time-travel debugging: "what did the decider see at step 47?" |
 | DiagnosticCollector separate from state | Observational data can't corrupt execution | Stage narratives are always safe to capture — no side effects |
-| Lazy TransactionBuffer creation | Only clone state if stage actually writes | Performance: read-only stages are free |
-| `structuredClone` for isolation | Prevents external mutation of internal state | History is immutable — replaying always gives the same result |
+| Lazy TransactionBuffer creation | Only build a buffer if the stage actually writes | Performance: read-only stages are free |
+| `structuredClone` for isolation — of VALUES crossing the commit boundary | Prevents external mutation of internal state: a written value is cloned once at commit (9.23.0), a replayed value once per replay; the state itself is copy-on-write (next row) | History is immutable — replaying always gives the same result |
+| Copy-on-write commit (9.29.0, `utils` · `nextGeneration` / `replayRows`, `pathOps` · `ownSpine` / `ownedRootOf`, `TransactionBuffer` · `privatise`) | Every writing stage cloned the WHOLE state three times (buffer ×2, commit ×1; ×4 with a mirror), so one changed number paid for an agent's whole conversation: 8 clones / 3.05 MB / 180,053 nodes per stage at N = 10,000. THE LAW: a committed generation is never edited; a commit copies the root and every container on each written path and shares the rest; a writer edits in place only what it created in the current operation. | 5 clones / 29 B / 6 nodes at every N (`bench/commit-clones.ts`; counted guard: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`, red on 9.28.0). Byte-identical to 9.28.0 for every in-contract program — a differential against the published 9.28.0 and a pinned 320-program corpus, both encodings (`test/lib/memory/property/copy-on-write-differential.property.test.ts`). Reads after the first write stay private (option D, no setting), so in-place edits of reads behave as before; a read the working copy cannot answer (a key the stage deleted) is served from live state as before, after `TransactionBuffer` · `detachBase` gives the diff base a private copy at that path. Named moves, each pinned against the real 9.28.0 in `test/lib/memory/scenario/copy-on-write-commit.test.ts`: M3 (a write through an alias changes that path only), M4 (a class instance in `initialContext` is plain from the first stage), M5 (the seed is detached at construction), M6 (Date expandos stay in live state), M7 (a read BEFORE the first write, edited after it and written back, records no change — dev mode warns), M8 (a nested write through a value the same stage set copies it). Census (design page): with every generation frozen the engine never writes into committed state; a freeze-based dev guard waits on the typed scope proxying frozen values. Not chased: a write still copies each container on its path in full (a root with thousands of keys pays that width). |
 | Replay skips a `set` superseded by the NEXT `set` of the same path (9.22.1, `utils.ts` · `supersededByNextSet`) | A `set` row writes a clone of the recorded value; a consecutive `set` of the same path writes a clone of the SAME value over it with nothing running in between, so the first write is unobservable. The 9.22.0 element-write funnel records N whole-array `set` rows on one path; without the skip a replay clones the array N times per fold. | Replay is O(N) not O(N × rows) — fold at 1,000 rows 241 ms → 1 ms, log bytes IDENTICAL (pinned against 9.22.0 references, both encodings). CONSECUTIVE-ONLY is the law: the wider skip (any earlier row on the path) is NOT byte-safe — `set list; delete list.1; set list = 0` materialises through a primitive and the second `set` REPAIRS it; fast-check found this on run 228 and both counterexamples are pinned in `test/lib/memory/unit/repeated-path-skips.test.ts`. Shared by every replay owner via `applySmartMerge` and by the delta encoder's `replayFamilyVerbs`; `commitValueAt` anchors at the last `set` and needs none. |
 | Commit payload memoises the net-change verdict per path (9.22.1, `TransactionBuffer` · `toChangeOnlyPayload`) | The same stage writing one path k times cloned that path's value k times into the payload. | One clone per consecutive run of the same path at commit (500 sets → 1 clone, spied). Same consecutive-only law as above, for the same reason. |
 | Clone once at commit — the patch trees and the tracked writes hold the caller's REFERENCES until the stage commits (9.23.0, `TransactionBuffer` · `set` / `detachHeldAncestors`; `StageContext` · `trackWrite` / `materialiseWrites`) | After 9.22.1 the stage BODY was still O(N²) for N element writes on one array: every write paid two `structuredClone`s (the buffer's patch copy and the `_stageWrites` retention) of a value the next write overwrote. A patch only needs to be final at COMMIT, and the last write to a path wins — so the copy is taken there, once per surviving path and once per tracked key. | The law "the record never aliases a caller's object" is kept at the commit boundary (proof: `test/lib/memory/scenario/clone-once-at-commit.test.ts`); the three byte-identity reference suites pass unchanged in both encodings. The ONE moved behaviour, and it is CLAUDE.md landmine 3's first bite CLOSED: `$setValue(k, o); o.x = 1` now commits `x: 1` — the value the stage read back — instead of a stale write-time snapshot the stage itself never saw; the honest form of the old intent is `$setValue(k, structuredClone(o))`. The engine's OWN nested ops (`set a` then `merge a.b`, unreachable from the scope proxy, which writes root keys) detach the held ancestor first, because `workingCopy` alone receives a nested merge's result and a shared container would leak it into `overwrite` — the design page missed this; the `set-merge-interleaved` reference pins it. Bench (`bench/element-writes.ts`): see the CHANGELOG [9.23.0] table. |

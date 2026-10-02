@@ -5,7 +5,15 @@
  * Zero external dependencies.
  */
 
-import { nativeDelete, nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
+import {
+  nativeDelete,
+  nativeGet as _get,
+  nativeHas as _has,
+  nativeSet as _set,
+  own,
+  ownedRootOf,
+  ownSpine,
+} from './pathOps.js';
 import type { MemoryPatch, TraceEntry } from './types.js';
 
 /**
@@ -394,9 +402,11 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
  * whole-array `set` rows on one path, and this is what makes replaying them
  * O(N) instead of O(N × rows).
  *
- * Shared by {@link applySmartMerge} (live state, `EventLog.materialise`,
- * `stateAt`, the redacted mirror) and `TransactionBuffer.replayFamilyVerbs`
- * (the delta encoder's per-family fold) — the two loops that clone per row.
+ * Shared by `replayRows` (live state and the redacted mirror through
+ * {@link nextGeneration}, `EventLog.materialise` and `stateAt` through
+ * {@link applySmartMergeInto}, the public {@link applySmartMerge}) and
+ * `TransactionBuffer.replayFamilyVerbs` (the delta encoder's per-family fold)
+ * — the two loops that clone per row.
  * `commitValueAt` needs no skip: it anchors at the LAST `set` by construction.
  */
 export function supersededByNextSet(rows: readonly { path: string; verb: string }[], i: number): boolean {
@@ -410,10 +420,15 @@ export function supersededByNextSet(rows: readonly { path: string; verb: string 
  * Applies a commit bundle to a base state by replaying operations in order.
  * Guarantees "last writer wins" semantics.
  *
- * The single replay primitive — three consumers inherit every verb from it:
- * live state (`SharedMemory.applyPatch`), time travel
- * (`EventLog.materialise`), and the redacted mirror
- * (`StageContext.commit`'s second `applyPatch`).
+ * Returns a FULLY DETACHED result: the base is deep-cloned first and every
+ * value the replay writes is its own (`set` / `append` clone the recorded
+ * value; the `merge` arm reads a detached copy of `updates`), so the result
+ * shares no container with `base`, `updates` or `overwrite`. This is the
+ * public (`footprintjs/advanced`) contract, unchanged by copy-on-write
+ * (9.29.0) — byte-identical to 9.28.0 for every caller. The engine's own
+ * commit does NOT come here: `SharedMemory.applyPatch` builds the next
+ * generation with `nextGeneration`, which copies only the written
+ * paths. Both run the ONE verb switch, `replayRows`.
  *
  * Verb arms:
  *   - `'set'`    — overwrite with `overwrite[path]` (the full final value).
@@ -431,21 +446,38 @@ export function supersededByNextSet(rows: readonly { path: string; verb: string 
  *
  * Work, not bytes (9.22.1): a `set` row the NEXT row re-sets is skipped
  * ({@link supersededByNextSet}) — the rows stay in the log, only the clone
- * each would have paid is not. Every consumer above inherits the skip from
- * here; there is no second replay loop to keep in step.
+ * each would have paid is not. Every consumer inherits the skip from
+ * `replayRows`; there is no second replay loop to keep in step.
  */
 export function applySmartMerge(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
-  return applySmartMergeInto(structuredClone(base), updates, overwrite, trace);
+  return replayRows(structuredClone(base), updates, overwrite, trace, false);
 }
 
 /**
- * The same replay, INTO `target` — the one verb switch, no clone of its own.
- * For a caller that already holds a private working copy (the read-side fold
- * in `time-travel/stateAt.ts`, which clones its base ONCE and then applies
- * every bundle here), so a fold over N bundles costs N row applications, not
- * N clones of the whole state. Never hand it committed state: it mutates.
- * The values it writes are its own (`set`/`append` clone the recorded value;
- * `merge` builds new containers), so `target` never aliases the log.
+ * The engine's commit (copy-on-write, 9.29.0 — docs/design/2026-10-copy-on-
+ * write-commit.md): the NEXT committed generation. A copy of `base`'s ROOT
+ * plus a copy of every container on each written path; every other subtree
+ * is SHARED with `base`, which is never edited — committed state is
+ * immutable-after-swap, so sharing is safe, and a commit costs O(what it
+ * wrote), not O(state). `SharedMemory.applyPatch` (live state and the
+ * redacted mirror) is its caller. Internal: the public replay is
+ * {@link applySmartMerge}.
+ */
+export function nextGeneration(base: any, updates: MemoryPatch, overwrite: MemoryPatch, trace: TraceEntry[]): any {
+  return replayRows(ownedRootOf(base), updates, overwrite, trace, true);
+}
+
+/**
+ * The same replay, INTO `target` — no clone of its own. For a caller that
+ * already holds a private working copy (the read-side folds: `stateAt` in
+ * `time-travel/stateAt.ts` and `EventLog.materialise` clone their base ONCE
+ * and then apply every bundle here), so a fold over N bundles costs N row
+ * applications, not N clones of the whole state. Never hand it committed
+ * state: it mutates the ROOT in place. Below the root it follows the live
+ * commit's law ({@link nextGeneration}) — a container this call did not
+ * create is copied before a write passes through it — so a fold and the live
+ * state give the same value at every path, aliased subtrees included.
+ * The values it writes are its own, so `target` never aliases the log.
  */
 export function applySmartMergeInto(
   target: any,
@@ -453,22 +485,73 @@ export function applySmartMergeInto(
   overwrite: MemoryPatch,
   trace: TraceEntry[],
 ): any {
-  const out = target;
+  return replayRows(target, updates, overwrite, trace, true);
+}
+
+/** Does any row write THROUGH a container (a delimited, nested path)? */
+function hasNestedRow(trace: TraceEntry[]): boolean {
+  for (let i = 0; i < trace.length; i++) if (trace[i].path.indexOf(DELIM) !== -1) return true;
+  return false;
+}
+
+/**
+ * THE verb switch — the replay replica of CLAUDE.md's "FOUR verb-switch
+ * replicas in lockstep"; every replay above runs it, there is no other.
+ * `out` is the caller's: a fresh deep clone ({@link applySmartMerge}), the
+ * owned root of a new generation ({@link nextGeneration}) or a fold's
+ * private working copy ({@link applySmartMergeInto}).
+ *
+ * `copyOnWrite` — before a row that writes THROUGH a container (a nested
+ * path), {@link ownSpine} copies the containers on its path that this replay
+ * did not create, so no row edits a container another generation (or the
+ * log) holds. Each value an arm creates is marked owned, so later rows of the
+ * same bundle write into it in place. A bundle of root-key rows — the typed
+ * scope's only kind — allocates no ownership set at all. With
+ * `copyOnWrite: false` the target is private through and through (a deep
+ * clone) and is edited in place, exactly as before 9.29.0.
+ */
+function replayRows(
+  out: any,
+  updates: MemoryPatch,
+  overwrite: MemoryPatch,
+  trace: TraceEntry[],
+  copyOnWrite: boolean,
+): any {
+  const owned = copyOnWrite && hasNestedRow(trace) ? new WeakSet<object>() : undefined;
+  own(out, owned);
+  // The bundle's merge deltas, detached ONCE per replay (lazily — a bundle
+  // with no merge row pays nothing): `deepSmartMerge` places an array
+  // delta's ELEMENTS by reference, and the redacted mirror and the folds
+  // replay the LOG's own `updates`, so without the copy they would share
+  // containers with the record (D2 — before copy-on-write the next commit's
+  // whole-state clone hid that). Once, not per row: two merge rows of one
+  // bundle replay the same accumulated delta, and `deepSmartMerge` dedups an
+  // array union BY REFERENCE, so the rows must keep seeing the same objects
+  // (a per-row clone duplicated elements — the differential caught it).
+  let deltas: MemoryPatch | undefined;
   for (let i = 0; i < trace.length; i++) {
     if (supersededByNextSet(trace, i)) continue;
     const { path, verb } = trace[i];
     const segs = path.split(DELIM);
+    if (owned !== undefined && segs.length > 1) ownSpine(out, segs, owned);
     if (verb === 'set') {
-      _set(out, segs, structuredClone(_get(overwrite, segs)));
+      const value = structuredClone(_get(overwrite, segs));
+      own(value, owned);
+      _set(out, segs, value);
     } else if (verb === 'append') {
       const tail = structuredClone(_get(overwrite, segs));
       const current = _get(out, segs);
-      _set(out, segs, Array.isArray(current) && Array.isArray(tail) ? [...current, ...tail] : tail);
+      const next = Array.isArray(current) && Array.isArray(tail) ? [...current, ...tail] : tail;
+      own(next, owned);
+      _set(out, segs, next);
     } else if (verb === 'delete') {
       nativeDelete(out, segs);
     } else {
+      deltas ??= structuredClone(updates);
       const current = _get(out, segs) ?? {};
-      _set(out, segs, deepSmartMerge(current, _get(updates, segs)));
+      const merged = deepSmartMerge(current, _get(deltas, segs));
+      own(merged, owned);
+      _set(out, segs, merged);
     }
   }
   return out;

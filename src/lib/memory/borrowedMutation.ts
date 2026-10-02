@@ -95,6 +95,26 @@ export function deadFrameMessage(stageName: string, runtimeStageId: string | und
 }
 
 /**
+ * The warning text for a key the stage WROTE after changing, in place, the
+ * committed value it had read before its first write (copy-on-write, 9.29.0).
+ * The commit compares what the stage wrote against committed state — the
+ * object the in-place change also moved — so it records no change: live state
+ * keeps the edit, the log and every fold do not. (9.28.0 recorded it when the
+ * edit came after the first write, by accident of a whole-state clone.)
+ */
+export function committedMutationMessage(stageName: string, key: string, path: string): string {
+  const where = path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
+  return (
+    `[footprint] Stage "${stageName}" changed \`${where}\` IN PLACE on the committed value it read before ` +
+    'its first write, then wrote the key. The commit compares the written value with committed state — ' +
+    'which the in-place change also moved — so it records NO change: live state keeps the edit, the commit ' +
+    'log and every reader that folds it do not. Reads are BORROWED. Build the next value instead ' +
+    `(\`scope.$setValue('${key}', { ...value, … })\`), or read the key again after the stage's first ` +
+    "write — that read is the stage's own copy."
+  );
+}
+
+/**
  * The warning text. Names the stage, the exact path that moved, and the two
  * ways to write it back — because "you mutated something" is not actionable
  * and this is the one failure mode the whole design exists to prevent.

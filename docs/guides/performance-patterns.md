@@ -103,7 +103,36 @@ ms), is in [the fold and how it got fast](./the-fold-and-how-it-got-fast.md).
 Beside it, `supersededByNextSet` is *work skipping*: a `set` the next row
 re-sets is never applied, and the rows stay in the log untouched.
 
-## 6. What decides, and what does not
+## 6. Share what you did not write — the commit (9.29.0)
+
+**Problem.** Every stage that wrote anything deep-cloned the whole committed
+state three times (twice to build its transaction buffer, once to apply its
+commit). One changed number paid for an agent's whole conversation.
+
+**Pattern.** *Copy-on-write with structural sharing* — the persistent-data-
+structure idea, applied to plain objects. A generation is never edited; a
+write copies the root and the containers on its own path and shares every
+other subtree. The diff base becomes a bare reference (nothing may move it: a
+read the stage's working copy cannot answer, served from live state, first gives
+the base a private copy at that path), and a read after the first write copies
+only what it reads. One verb switch still
+(`utils · replayRows`); the public `applySmartMerge` keeps its detached
+contract.
+
+| One-number stage beside a 10 000-item history | Before | After |
+|---|---|---|
+| `structuredClone` calls · bytes per stage | 8 · 3.05 MB | 5 · 29 B |
+| CPU per stage | 18.7 ms | 0.018 ms |
+
+Where: `src/lib/memory/utils.ts · nextGeneration`, `src/lib/memory/pathOps.ts · ownSpine`,
+`src/lib/memory/TransactionBuffer.ts · privatise` / `detachBase`.
+Pinned: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`
+(counted: the same clone work at N = 100 and 10 000 — red before), and
+`test/lib/memory/property/copy-on-write-differential.property.test.ts` (every
+byte identical to the published 9.28.0).
+Bench: `npx tsx bench/commit-clones.ts` (`--src <tree>` measures another tree).
+
+## 7. What decides, and what does not
 
 Two rules run through all of the above.
 

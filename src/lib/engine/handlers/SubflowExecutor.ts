@@ -30,6 +30,44 @@ import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
+/**
+ * The mapped input, detached from the parent's state ONCE per mount (D1,
+ * 9.29.0 — docs/design/2026-10-copy-on-write-commit.md).
+ *
+ * The inputMapper reads the parent's LIVE state (`getScope()`), so a value it
+ * passes through (`(p) => ({ cfg: p.cfg })`) is the parent's committed
+ * object — and the subflow's args are deep-FROZEN in place
+ * (`readonlyInput · createFrozenArgs`). The typed scope does not proxy a
+ * frozen value (`allowlist · shouldWrapWithProxy`), so a later
+ * `scope.cfg.x = 1` in the parent met the raw frozen object: a TypeError in
+ * strict code. Before 9.29.0 the parent's next whole-state clone replaced the
+ * frozen object (a mount that committed nothing left it in place — the bug
+ * existed, it was only short-lived); under copy-on-write nothing re-clones,
+ * so the freeze would last until the key is rewritten. A mount must never
+ * edit — or freeze — the parent's committed objects: every plain object,
+ * array, `Date`, `Map` and `Set` the mapper returns is cloned here, before it
+ * becomes the args. A class instance passes by reference, as before (it
+ * cannot come from committed state, and a clone would drop its prototype).
+ * The seed is cloned again at its commit, so the subflow's state is
+ * unchanged.
+ */
+function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(input)) {
+    if (!isDetachable(value)) continue;
+    (out ??= { ...input })[key] = structuredClone(value);
+  }
+  return out ?? input;
+}
+
+/** A value `structuredClone` reproduces with its own type: plain object, array, `Date`, `Map`, `Set`. */
+function isDetachable(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value) || value instanceof Date || value instanceof Map || value instanceof Set) return true;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 export class SubflowExecutor<TOut = any, TScope = any> {
   /**
    * The resume's one-shot re-entry (`deps.resume`), or a seed-only one built
@@ -100,7 +138,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     if (mountOptions) {
       try {
         const parentScope = parentContext.getScope();
-        mappedInput = getInitialScopeValues(parentScope, mountOptions);
+        mappedInput = detachMappedInput(getInitialScopeValues(parentScope, mountOptions));
         if (Object.keys(mappedInput).length > 0) {
           // mappedInput is captured in SubflowResult.treeContext for debugging
         }

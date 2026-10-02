@@ -32,11 +32,49 @@
  * `set` path — detaches that value first ({@link detachHeldAncestors}), so
  * `workingCopy` and `overwritePatch` never share a container the engine
  * mutates on one side only.
+ *
+ * COPY-ON-WRITE (9.29.0 — docs/design/2026-10-copy-on-write-commit.md). The
+ * buffer no longer clones the committed state it starts from. `baseSnapshot`
+ * IS the committed generation the stage first touched (held by reference —
+ * committed state is immutable-after-swap), and `workingCopy` starts as a
+ * copy of its ROOT only: each write copies the containers on its own path
+ * ({@link ownSpine}), and the first READ after the stage's first write of a
+ * container still shared with committed state takes a private deep copy of
+ * it ({@link privatise}) — what the whole-state clone used to give every
+ * read, so an in-place edit of a read value stays private exactly as it did.
+ * A read the working copy cannot answer is served from live state by the
+ * caller, as before; the buffer then replaces that path of its diff base
+ * with a private copy ({@link detachBase}), as the clone had it.
  */
 
-import { nativeGet as _get, nativeSet as _set } from './pathOps.js';
+import {
+  adopt,
+  isDeniedSegment,
+  nativeGet as _get,
+  nativeSet as _set,
+  own,
+  ownedRootOf,
+  ownSpine,
+  shallowCopy,
+} from './pathOps.js';
 import type { CommitValuesMode, MemoryPatch, TraceEntry } from './types.js';
 import { deepEqual, deepSmartMerge, DELIM, normalisePath, supersededByNextSet } from './utils.js';
+
+/** A container: anything `typeof 'object'` and not null. */
+function isContainer(value: unknown): value is object {
+  return value !== null && typeof value === 'object';
+}
+
+/**
+ * `parent[key]` when `parent` is a container that OWNS `key` — the slot
+ * `nativeGet` would read, refusing the same prototype-pollution segments —
+ * else `undefined`.
+ */
+function ownChild(parent: unknown, key: string | number): unknown {
+  return isContainer(parent) && !isDeniedSegment(key) && Object.prototype.hasOwnProperty.call(parent, key)
+    ? (parent as Record<string | number, unknown>)[key]
+    : undefined;
+}
 
 /** Op-level verbs staged into `opTrace`. `'delete'` is staged distinctly so
  *  delta-mode commits (#13c-B) can emit a real `delete` trace entry; under
@@ -59,7 +97,13 @@ type Survivor = {
 };
 
 export class TransactionBuffer {
-  private readonly baseSnapshot: any;
+  /**
+   * The net-change diff base: the committed generation the stage first
+   * touched, by reference — except where {@link detachBase} replaced a path
+   * of it with a private copy (its root and the containers on the way are
+   * then copies too, owned by {@link baseOwned}).
+   */
+  private baseSnapshot: any;
   private workingCopy: any;
 
   private overwritePatch: MemoryPatch = {};
@@ -84,9 +128,54 @@ export class TransactionBuffer {
    *  causal slicing. Undefined (default) = zero cost, byte-identical ops. */
   private readonly readKeysProvider?: () => string[];
 
+  /**
+   * The containers in `workingCopy` this buffer CREATED: its root copy, the
+   * path copies its writes made, the merge results it built, and every
+   * container of the private copies its reads took. A write edits these in
+   * place. Everything else in `workingCopy` is SHARED — with the committed
+   * generation the stage first touched, or with a value the stage staged —
+   * and is copied before a write passes through it ({@link ownSpine}).
+   */
+  private owned = new WeakSet<object>();
+
+  /**
+   * Container values the stage staged with {@link set} — its own objects,
+   * held by reference (9.23.0). A read hands them back as they are, exactly
+   * as the private working copy always did, and never privatises them: a
+   * private copy of a staged value would leave `workingCopy` and
+   * `overwritePatch` disagreeing about a value the stage wrote.
+   */
+  private staged = new WeakSet<object>();
+
+  /**
+   * Owned containers with no container still shared with committed state
+   * anywhere below them (a private deep copy, a merge result built on a
+   * private base, a path copy whose shared children were privatised). A read
+   * that lands on one needs no walk — see {@link privatiseBelow}.
+   */
+  private privateTrees = new WeakSet<object>();
+
+  /**
+   * The containers of {@link baseSnapshot} that {@link detachBase} created:
+   * its root copy and the copies on the way to a detached path. Allocated
+   * only by the first detach — the in-contract stage never pays for it.
+   */
+  private baseOwned?: WeakSet<object>;
+
+  /**
+   * The private deep copies {@link detachBase} put into the diff base: nothing
+   * at or below one is committed state, so a later detach inside it is a no-op.
+   */
+  private detachedBase?: WeakSet<object>;
+
   constructor(base: any, commitValues: CommitValuesMode = 'full', readKeysProvider?: () => string[]) {
-    this.baseSnapshot = structuredClone(base);
-    this.workingCopy = structuredClone(base);
+    // `base` is the committed generation the stage first touched —
+    // immutable-after-swap, the invariant the first-touch view already rests
+    // on — so the diff base is held by REFERENCE, and the working copy starts
+    // as a copy of its ROOT only. Before 9.29.0 these two lines were two
+    // `structuredClone`s of the whole state, paid by every stage that wrote.
+    this.baseSnapshot = base;
+    this.workingCopy = ownedRootOf(base, this.owned);
     this.commitValues = commitValues;
     this.readKeysProvider = readKeysProvider;
   }
@@ -106,10 +195,15 @@ export class TransactionBuffer {
   set(path: (string | number)[], value: any, shouldRedact = false): void {
     const key = normalisePath(path);
     this.detachHeldAncestors(path);
+    ownSpine(this.workingCopy, path, this.owned);
     _set(this.workingCopy, path, value);
     _set(this.overwritePatch, path, value);
-    if (value !== null && typeof value === 'object') this.heldRefs.add(key);
-    else this.heldRefs.delete(key);
+    if (isContainer(value)) {
+      this.heldRefs.add(key);
+      this.staged.add(value);
+    } else {
+      this.heldRefs.delete(key);
+    }
     if (shouldRedact) {
       this.redactedPaths.add(key);
     }
@@ -161,6 +255,7 @@ export class TransactionBuffer {
   delete(path: (string | number)[], shouldRedact = false): void {
     const key = normalisePath(path);
     this.detachHeldAncestors(path);
+    ownSpine(this.workingCopy, path, this.owned);
     _set(this.workingCopy, path, undefined);
     _set(this.overwritePatch, path, undefined);
     this.heldRefs.delete(key);
@@ -172,11 +267,23 @@ export class TransactionBuffer {
 
   /** Deep union merge at the specified path. `deepSmartMerge` builds fresh
    *  containers, so neither tree ever holds the merge INPUT by reference;
-   *  the nested-op detach guards the ancestor it writes INTO. */
+   *  the nested-op detach guards the ancestor it writes INTO.
+   *
+   *  The value merged INTO is made private first (`privatise`), as the
+   *  whole-state clone made it before 9.29.0. Not only for the reads that
+   *  follow: `deepSmartMerge` unions arrays BY REFERENCE, so whether an
+   *  element the stage passes in is "already there" depends on which objects
+   *  the base holds — a committed array would dedup an element the stage
+   *  read from it before its first write, where the private copy (and
+   *  9.28.0) appends it. */
   merge(path: (string | number)[], value: any, shouldRedact = false): void {
     this.detachHeldAncestors(path);
+    this.privatise(path);
     const existing = _get(this.workingCopy, path) ?? {};
     const merged = deepSmartMerge(existing, value);
+    ownSpine(this.workingCopy, path, this.owned);
+    own(merged, this.owned);
+    if (isContainer(merged)) this.privateTrees.add(merged);
     _set(this.workingCopy, path, merged);
     _set(this.updatePatch, path, deepSmartMerge(_get(this.updatePatch, path) ?? {}, value));
     if (shouldRedact) {
@@ -223,9 +330,160 @@ export class TransactionBuffer {
     return out;
   }
 
-  /** Read current value at path (includes uncommitted changes). */
+  /**
+   * Read current value at path (includes uncommitted changes). The value is
+   * the stage's own — private to it, as the whole-state clone made every read
+   * after the first write before 9.29.0 (`privatise`).
+   */
   get(path: (string | number)[], defaultValue?: any) {
+    this.privatise(path);
     return _get(this.workingCopy, path, defaultValue);
+  }
+
+  /**
+   * Read the working copy at `path` WITHOUT taking a private copy — for a
+   * reader that only compares (the dev-mode borrowed-mutation report in
+   * `StageContext.commit`), never for a value handed to a stage.
+   */
+  peek(path: (string | number)[]): unknown {
+    return _get(this.workingCopy, path);
+  }
+
+  /**
+   * Keep the diff base exact under a read the working copy cannot answer.
+   *
+   * When `workingCopy` holds nothing at `path` — the stage deleted or unset
+   * it, or a write replaced a container above it — `StageContext ·
+   * readState` serves the read from LIVE committed state, exactly as 9.28.0
+   * did, so the value it hands out is committed state itself. On 9.28.0 the
+   * diff base was a whole-state clone taken at the stage's first write, and
+   * an in-place edit of that value (out of contract — reads are borrowed)
+   * could not move it: written back, the edit was recorded. Here the diff
+   * base IS a committed generation, and it very often holds that same
+   * container at `path` — the edit would move the base with it, and the
+   * write-back would commit no change. So before the value goes out, the
+   * base's value at `path` is replaced by a private deep copy (the base's
+   * root and the containers on the way copied shallowly) — what 9.28.0's
+   * base held there. The commit's net-change test compares against it and
+   * the delta encoder replays from it; the value handed out stays the live
+   * one, so whatever else an edit of it reaches (live state, the next
+   * generation) behaves as on 9.28.0 too.
+   *
+   * Not `privatise`: a private copy handed to the stage would also keep the
+   * edit out of live state, where 9.28.0 let it in — a run-namespaced read
+   * that falls back to a global key would then end differently (the
+   * differential's NESTED family fails within 100 programs that way).
+   *
+   * Copies nothing when the base holds no container at `path`, and nothing
+   * twice: a path at or below an earlier detach is already private. O(path)
+   * otherwise, plus O(value) once per detached path.
+   */
+  detachBase(path: (string | number)[]): void {
+    if (path.length === 0 || !isContainer(this.baseSnapshot)) return;
+    let at: object = this.baseSnapshot;
+    for (const k of path) {
+      if (this.detachedBase?.has(at)) return;
+      const child = ownChild(at, k);
+      if (!isContainer(child)) return;
+      at = child;
+    }
+    if (this.detachedBase?.has(at)) return;
+    const owned = (this.baseOwned ??= new WeakSet<object>());
+    if (!owned.has(this.baseSnapshot)) this.baseSnapshot = ownedRootOf(this.baseSnapshot, owned);
+    ownSpine(this.baseSnapshot, path, owned);
+    const copy: object = structuredClone(at);
+    (this.detachedBase ??= new WeakSet<object>()).add(copy);
+    _set(this.baseSnapshot, path, copy);
+  }
+
+  /**
+   * Private reads (9.29.0): make the value at `path` the stage's own before
+   * a read hands it out — so a read after the stage's first write behaves
+   * exactly as it did when the buffer began with a deep clone of the whole
+   * state. An in-place edit of what the read returned (out of contract —
+   * reads are borrowed) stays inside the buffer: it is lost unless the stage
+   * writes the value back, and then it is recorded; committed state is never
+   * touched.
+   *
+   * Walking the path from the (owned) root:
+   *  - a container still SHARED with committed state at the same position is
+   *    replaced by a private deep copy when it is the value read, or by a
+   *    shallow copy when it is a container on the way to it (so a read of
+   *    `runs/<id>/k` copies `k`, not every run's namespace);
+   *  - a container the stage STAGED (or anything else the buffer did not
+   *    take from committed state) is handed back by reference, as before;
+   *  - a container the buffer owns is walked on — and when it is the value
+   *    read, its still-shared descendants are privatised
+   *    ({@link privatiseBelow}).
+   *
+   * Cost: O(path) per read, plus O(value) ONCE per shared container a stage
+   * reads after its first write. A stage that never reads after writing pays
+   * nothing; a read before the first write never reaches the buffer.
+   */
+  private privatise(path: (string | number)[]): void {
+    if (path.length === 0) return;
+    // Resolve first: a read that lands on nothing (a missing key, a refused
+    // segment, a primitive) returns nothing and must copy nothing.
+    const chain: object[] = [];
+    let at: unknown = this.workingCopy;
+    for (const k of path) {
+      at = ownChild(at, k);
+      if (!isContainer(at)) return;
+      chain.push(at);
+    }
+    let parent: any = this.workingCopy;
+    let base: unknown = this.baseSnapshot;
+    for (let i = 0; i < path.length; i++) {
+      const k = path[i];
+      const atBase = ownChild(base, k);
+      let value = chain[i];
+      if (!this.owned.has(value)) {
+        if (value !== atBase || this.staged.has(value)) return;
+        if (i === path.length - 1) {
+          parent[k] = this.privateCopyOf(value);
+          return;
+        }
+        value = shallowCopy(value);
+        this.owned.add(value);
+        parent[k] = value;
+      }
+      parent = value;
+      base = atBase;
+    }
+    this.privatiseBelow(parent, base);
+  }
+
+  /**
+   * An OWNED container is about to be read whole (a path copy a nested write
+   * made, say): its descendants still shared with committed state are
+   * replaced by private deep copies, so nothing the read hands out is
+   * committed state. Walks owned containers only; marks each one finished
+   * ({@link privateTrees}), so a container is scanned once per stage.
+   */
+  private privatiseBelow(container: object, base: unknown): void {
+    const work: Array<[object, unknown]> = [[container, base]];
+    while (work.length > 0) {
+      const [node, nodeBase] = work.pop()!;
+      if (this.privateTrees.has(node)) continue;
+      for (const key of Object.keys(node)) {
+        const child = ownChild(node, key);
+        if (!isContainer(child)) continue;
+        const atBase = ownChild(nodeBase, key);
+        if (this.owned.has(child)) work.push([child, atBase]);
+        else if (child === atBase && !this.staged.has(child)) {
+          (node as Record<string, unknown>)[key] = this.privateCopyOf(child);
+        }
+      }
+      this.privateTrees.add(node);
+    }
+  }
+
+  /** A private deep copy of a committed container — owned through and through. */
+  private privateCopyOf(value: object): object {
+    const copy = structuredClone(value);
+    adopt(copy, this.owned);
+    this.privateTrees.add(copy);
+    return copy;
   }
 
   /**
@@ -318,6 +576,10 @@ export class TransactionBuffer {
     this.redactedPaths.clear();
     this.heldRefs.clear();
     this.workingCopy = {};
+    this.owned = new WeakSet();
+    this.owned.add(this.workingCopy);
+    this.staged = new WeakSet();
+    this.privateTrees = new WeakSet();
 
     return payload;
   }
@@ -618,16 +880,29 @@ export class TransactionBuffer {
    * encoder's own replay loop, and it clones per op just as the fold does.
    */
   private replayFamilyVerbs(rootSegments: string[], ops: { path: string; verb: OpVerb }[]): unknown {
-    const box: { v: unknown } = { v: structuredClone(_get(this.baseSnapshot, rootSegments)) };
+    // Copy-on-write (9.29.0): the box holds the family root's BASE value by
+    // reference — committed state, never edited — and each op copies the
+    // containers on its own path first, exactly as the live commit's replay
+    // does (`nextGeneration`), so 'full' and 'delta' commit the same state.
+    // The whole-subtree `structuredClone` of the base value this replaced is
+    // not needed: the family value is cloned where it is EMITTED.
+    const owned = new WeakSet<object>();
+    const box: { v: unknown } = { v: _get(this.baseSnapshot, rootSegments) };
+    owned.add(box);
     for (let i = 0; i < ops.length; i++) {
       if (supersededByNextSet(ops, i)) continue;
       const op = ops[i];
       const segments = op.path.split(DELIM);
       const at = ['v', ...segments.slice(rootSegments.length)];
+      ownSpine(box, at, owned);
       if (op.verb === 'merge') {
-        _set(box, at, deepSmartMerge(_get(box, at) ?? {}, structuredClone(_get(this.updatePatch, segments))));
+        const merged = deepSmartMerge(_get(box, at) ?? {}, structuredClone(_get(this.updatePatch, segments)));
+        own(merged, owned);
+        _set(box, at, merged);
       } else {
-        _set(box, at, structuredClone(_get(this.overwritePatch, segments)));
+        const value = structuredClone(_get(this.overwritePatch, segments));
+        own(value, owned);
+        _set(box, at, value);
       }
     }
     return box.v;

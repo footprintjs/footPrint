@@ -172,3 +172,40 @@ that working copy (`FoldMemo`), so stepping forward applies one bundle:
 4.8 ms for a step that cost 15.6 s. Both pinned by
 `test/lib/time-travel/fold-memo.test.ts` against a fresh fold at every stop,
 and measured by `npm run bench:time-travel`.
+
+## 9. Copy-on-write — the commit (footprintjs 9.29.0)
+
+Sections 4–6 made the *log* and the *fold* linear. The commit itself still paid for the
+whole state: every stage that wrote anything cloned the committed state twice to build its
+transaction buffer and once more to apply its commit. An agent's state holds its
+conversation, so a stage that changed one number paid for every message so far.
+
+The law that removed it is the one the typed scope already applied to a single value
+(`reactive/structuralWrite.ts · setInPath`): **a committed generation is never edited; a
+commit copies the root and the containers on each written path and shares everything
+else.** The buffer holds the generation it starts from by reference (it is the diff base,
+and it cannot move); the replay builds the next generation by path copy
+(`utils · nextGeneration`); the folds replay with the same law below their private root, so
+fold and live state agree at every path. One verb switch (`utils · replayRows`) behind all
+of them — the public `applySmartMerge` keeps its old contract, a fully detached result.
+
+Three things keep the bytes: a read after the stage's first write takes a private copy of
+what it reads (exactly what the whole-state clone gave it); a read the working copy cannot
+answer — a key the stage deleted — is served from live state as before, but the buffer first
+gives its diff base a private copy at that path (the clone's base could not move; this one
+must not either); and a merge privatises the value it merges into, because the array union
+dedups BY REFERENCE — the identity of the base is part of the answer. A differential against the published 9.28.0 and a pinned corpus say the
+log, the state, the mirror and every fold are unchanged.
+
+| per stage writing ONE number beside an N-item history (`bench/commit-clones.ts`) | 9.28.0 | 9.29.0 |
+|---|---|---|
+| `structuredClone` calls · bytes · nodes, N = 10,000 | 8 · 3.05 MB · 180,053 | 5 · 29 B · 6 |
+| same, N = 100 | 8 · 30.3 KB · 1,853 | 5 · 29 B · 6 |
+| CPU per stage, N = 10,000 (load average 120–200) | 18.7 ms | 0.018 ms |
+| `bench/time-travel.ts` build + run, 10,000 commits | 37.7 s | 21.6 s |
+
+Counted, never timed, in the guard: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`
+(identical counts at N = 100 and 10,000; red on 9.28.0). What it does not fix, named: a
+write still copies each container on its path in full, so a root that keeps gaining keys
+pays its width per commit; and tracked reads/writes of a large value are still cloned at
+`'full'` — a dial, §8.

@@ -209,8 +209,9 @@ export interface FlowChartExecutorOptions<TScope = any> {
    *   log becomes linear instead of O(N²) retained); `deleteValue()` commits
    *   as a real `delete` verb (replay removes the key instead of leaving
    *   `key: undefined`); bundles carry exactly ONE trace entry per surviving
-   *   path. Replay (`applySmartMerge` — live state, `materialise()`, the
-   *   redacted mirror) reconstructs every step's full state exactly.
+   *   path. Replay (the one verb switch — live state, `materialise()`, the
+   *   redacted mirror, `stateAt`) reconstructs every step's full state
+   *   exactly.
    *
    * Consumers that read `bundle.overwrite[key]` as "the full value written"
    * must switch to `commitValueAt(commitLog, idx, key)` from
@@ -1057,9 +1058,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Every field is deep-copied via one `structuredClone` of the assembled
    * checkpoint, because the raw pieces alias live engine state:
    *
-   *   - `sharedState` IS `SharedMemory`'s internal context object — the alias
-   *     only detaches at the next commit (`applySmartMerge` rebuilds it), and
-   *     after a pause there is no next commit until resume.
+   *   - `sharedState` IS `SharedMemory`'s current generation — never edited,
+   *     but (copy-on-write, 9.29.0) every later generation shares its
+   *     unchanged subtrees, so a checkpoint that aliased it would alias the
+   *     resumed run's state too.
    *   - `executionTree` nodes are fresh, but their `logs`/`errors`/`metrics`/
    *     `evals`/`stageReads`/`flowMessages` fields reference live
    *     `DiagnosticCollector` bags that keep accumulating on same-executor
@@ -1677,8 +1679,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const snapshot = this.traverser.getSnapshot(options) as RuntimeSnapshot;
     if (isDevMode()) {
       // Dev-mode mutation guard: freeze a CLONE, never the live engine
-      // state — `snapshot.sharedState` aliases SharedMemory's internal
-      // context until the next commit rebuilds it (post-run: forever).
+      // state — `snapshot.sharedState` IS SharedMemory's current generation,
+      // whose unchanged subtrees every later generation shares
+      // (copy-on-write, 9.29.0).
       // Production stays zero-copy; clone-always is a measured decision
       // deferred until the bench says it's affordable (BACKLOG #8).
       // NOTE: deepFreeze (reused from readonlyInput) freezes plain objects/

@@ -108,17 +108,19 @@ State safety is bought with structured clones. Current costs per stage:
 
 | Operation | Cost today |
 |---|---|
-| Stage's first **write** | Constructs the transaction buffer: **two `structuredClone`s of the entire shared state** |
+| Stage's first **write** | Constructs the transaction buffer: **zero state clones** since 9.29.0 (copy-on-write) — it holds committed state by reference and copies its root; each write copies only the containers on its own path. (Before 9.29.0: two `structuredClone`s of the entire shared state.) |
+| First read of a committed container AFTER the stage's first write | One `structuredClone` of THAT value — the stage's private copy, taken once per container per stage (so an in-place edit of a read stays private, as before) |
 | Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
 | Each tracked read (`getValue`) | Policy-gated (#14): one `structuredClone` of the value under the DEFAULT `readTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
 | Each net-changing write | ~3 value clones (patch, write-tracking, commit diff). The write-TRACKING clone is policy-gated (#13c-A): it fires under the DEFAULT `writeTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'`. The patch + commit-diff clones remain in EVERY mode — they are the commit path, not tracking |
 | TypedScope object/array write | + one JSON round-trip to unwrap the proxy |
 | `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
+| Commit of a writing stage | The next state generation copies the root and the containers on each written path and SHARES the rest (9.29.0) — independent of everything the stage did not write. (Before: one `structuredClone` of the entire state per commit, two with a redaction mirror.) |
 | Commit of a read-only / no-touch stage | **Zero clones** — the (empty) commit bundle is still recorded, but without buffer construction or state replay |
 
-Rules of thumb: keep shared-state values modest (the buffer clones the *whole*
-state on a stage's first write, so one huge key taxes every **writing** stage —
-read-only stages are free); prefer `getValueDirect` for read-hot inner loops;
+Rules of thumb: a huge key costs a stage only when the stage writes it, or reads
+it after its first write (since 9.29.0 nothing clones the whole state; before,
+one huge key taxed every **writing** stage); prefer `getValueDirect` for read-hot inner loops;
 batch array writes with `$batchArray`. For read-dominated production workloads
 (agent loops), turn the per-read snapshot clone off wholesale:
 `new FlowChartExecutor(chart, { readTracking: 'off' })` (or
@@ -142,17 +144,19 @@ gated — that is #13c-B's lossless delta verb.
 
 One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
 **read values are borrowed — do not mutate them.** Pre-write reads return
-references into committed shared state; post-write reads return references into
-the stage's transaction buffer. Write changes back via `setValue`/`updateValue`.
+references into committed shared state (edited in place and written back, such a
+value records NO change since 9.29.0 — the diff base is that same object; dev
+mode warns); post-write reads return the stage's own copy (taken on the first
+read of each container). Write changes back via `setValue`/`updateValue`.
 TypedScope consumers are safe automatically (the proxy routes every mutation
 through tracked writes). See `src/lib/memory/README.md`.
 
 ### Staging-state lifetime — released at commit (#13b)
 
-A stage's transaction buffer (those two full-state clones) and its first-touch
-state view (a reference pinning one full committed-state **generation** — the
-engine clones + swaps the whole state per commit) live exactly as long as the
-stage **executes**. `StageContext.commit()` releases both at its end; they
+A stage's transaction buffer (before 9.29.0 two full-state clones; now a root
+copy plus whatever its writes and reads copied) and its first-touch state view (a
+reference pinning one committed-state **generation** — generations share every
+unchanged subtree since 9.29.0) live exactly as long as the stage **executes**. `StageContext.commit()` releases both at its end; they
 re-create lazily if the engine touches the context again (fork double-commits,
 subflow output double-commits — all observably identical, byte-for-byte).
 
@@ -272,6 +276,6 @@ has to either go dark or invent a shape; a good one goes dark and says so.
 | Chain length | unbounded (flat trampoline); depth guards tree NESTING only (default 500) |
 | Loop iterations | bounded by `maxIterations` (default 1000 per node, raisable per run) and by memory — not by stack depth |
 | Dynamic-next chains | fn-bearing dynamic `next` hops bounded by the same `maxIterations` budget (run-total, default 1000) |
-| State size | modest values; whole-state clone on first WRITE per stage (read-only stages clone nothing) |
+| State size | a write costs what it writes (copy-on-write, 9.29.0); a value is cloned when a stage writes it, or reads it after its first write — never the rest of the state |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
 | Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |

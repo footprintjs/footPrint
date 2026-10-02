@@ -1,0 +1,213 @@
+/**
+ * Copy-on-write commit (9.29.0) — the DIFFERENTIAL: every byte a consumer
+ * keeps is the same as on 9.28.0, the last release before copy-on-write.
+ *
+ * `footprintjs-baseline` is the PUBLISHED 9.28.0 (an npm alias, pinned
+ * exactly in package.json and kept out of Renovate on purpose). Each property
+ * generates a program (copy-on-write-fixture.ts), runs it on 9.28.0 and on
+ * this tree's `src`, and compares field by field:
+ *
+ *   1. CHART programs (in contract) — the commit log in both encodings, live
+ *      state, the fold base, the execution tree, subflow results, the
+ *      redacted mirror and redacted subflow results, the fold at EVERY stop,
+ *      every error. Two laws checked on the build alone: no container of the
+ *      record is reachable from served state (D2), and no generation a stage
+ *      saw was edited by a later commit.
+ *   2. BORROWED programs (out of contract, dev mode) — reads mutated in place
+ *      AFTER the stage's first write (M1/M2): rows, state, folds, execution
+ *      tree and the borrowed-mutation warnings, identical (option D).
+ *   3. NESTED programs — `StageContext` driven directly at nested and
+ *      run-namespaced paths (the doors `/zod`, the subflow seed and
+ *      merge-back and fork children use), reads interleaved with writes —
+ *      in contract, and mutating reads after the first write. On an
+ *      in-contract program the build must also edit no committed generation
+ *      (each captured just before the next commit) — byte comparison alone
+ *      cannot see a replay that edits the generation it builds on.
+ *      Seed 102938 runs too: at its program 1,976 a read the working copy
+ *      could not answer handed out committed state the diff base shared —
+ *      an in-place edit moved the base, and the write-back recorded nothing
+ *      (fixed: `TransactionBuffer · detachBase`).
+ *   4. WRITE-BACK programs — that law on every run, not at one seed: a read
+ *      after the first write that the working copy cannot answer (the stage
+ *      deleted the key, or a write replaced a container above it), edited in
+ *      place and written back with `set` or `merge` (fixture ·
+ *      `writeBackProgram`). The same comparison and generation check as
+ *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). At its fixed
+ *      seed (7301, the recheck's) the 200 programs in `npm test` fail at
+ *      program 91 if `readState` skips `detachBase` or `detachBase` is a
+ *      no-op, and the property also requires that `detachBase` really gave
+ *      the base a private copy at least once — so a generator change cannot
+ *      quietly stop it reaching the law.
+ *
+ * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
+ *
+ * Fixed seeds; `COW_DIFF_RUNS=<n>` raises every property's run count (the
+ * release gate runs 6,000 chart programs; the recheck ran 3,000 write-back
+ * programs per seed) and `COW_DIFF_SEED=<n>` replaces the fixed seeds with n,
+ * n+1, n+2 (chart / borrowed / nested) and n+4 (write-back; the pause family
+ * takes n+3) — a fresh sample. The recheck's 9,000 write-back programs:
+ * `COW_DIFF_RUNS=3000 COW_DIFF_SEED=7297` (then 7298, 7299) `-t WRITE-BACK`.
+ * A counterexample prints the first differing field with both engines' bytes
+ * around it.
+ */
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+
+import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer.js';
+import {
+  type NestedProgram,
+  type WriteBackProgram,
+  BASELINE,
+  borrowedProgramArb,
+  BUILD,
+  chartProgramArb,
+  firstDifference,
+  nestedProgramArb,
+  runBorrowed,
+  runChart,
+  runNested,
+  runWriteBack,
+  writeBackProgramArb,
+  writesThroughStagedValue,
+  writesThroughWriteBack,
+  writesThroughWriteBackOrSet,
+} from './copy-on-write-fixture.js';
+
+const RUNS = Number(process.env.COW_DIFF_RUNS ?? 0);
+const runs = (fallback: number) => (RUNS > 0 ? RUNS : fallback);
+const SEED = process.env.COW_DIFF_SEED === undefined ? undefined : Number(process.env.COW_DIFF_SEED);
+const seed = (family: number, fixed: number) => (SEED === undefined ? fixed : SEED + family);
+const TIMEOUT = 3_600_000;
+
+/** One NESTED program on both engines: bytes identical; on an in-contract program, no generation edited. */
+function nestedAgrees(p: NestedProgram): void {
+  const a = runNested(BASELINE, p);
+  const laws = { editedGenerations: 0 };
+  const b = runNested(BUILD, p, laws);
+  // M8 (pinned in copy-on-write-commit.test.ts): a write THROUGH a value the
+  // same stage set no longer edits that value in place, so its retained
+  // `stageWrites` entry is the value as written.
+  if (writesThroughStagedValue(p)) {
+    delete a.snapshots;
+    delete b.snapshots;
+  }
+  const diff = firstDifference(a, b);
+  if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+  if (!p.mutate && laws.editedGenerations !== 0) {
+    throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
+  }
+}
+
+/** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
+function writeBackAgrees(p: WriteBackProgram): void {
+  fc.pre(!writesThroughWriteBack(p));
+  const a = runWriteBack(BASELINE, p);
+  const laws = { editedGenerations: 0 };
+  const b = runWriteBack(BUILD, p, laws);
+  if (writesThroughWriteBackOrSet(p)) {
+    delete a.snapshots;
+    delete b.snapshots;
+  }
+  const diff = firstDifference(a, b);
+  if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+  if (!p.mutate && laws.editedGenerations !== 0) {
+    throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
+  }
+}
+
+/**
+ * Count the calls in which `TransactionBuffer · detachBase` really replaced
+ * the diff base's value at its path (the build only) — the WRITE-BACK
+ * family's proof that it reaches the B2 law. `restore()` puts the method back.
+ */
+function countBaseDetaches(): { replaced: number; restore: () => void } {
+  type Buffer = { baseSnapshot: unknown; detachBase(path: (string | number)[]): void };
+  const proto = TransactionBuffer.prototype as unknown as Buffer;
+  const original = proto.detachBase;
+  const counter = {
+    replaced: 0,
+    restore: () => {
+      proto.detachBase = original;
+    },
+  };
+  proto.detachBase = function (this: Buffer, path) {
+    const at = () =>
+      path.reduce<unknown>((x, s) => (x == null ? x : (x as Record<string, unknown>)[s]), this.baseSnapshot);
+    const before = at();
+    original.call(this, path);
+    if (at() !== before) counter.replaced += 1;
+  };
+  return counter;
+}
+
+describe('copy-on-write differential — 9.28.0 vs this build', () => {
+  it('the baseline really is 9.28.0', async () => {
+    const pkg = await import('footprintjs-baseline/package.json');
+    expect((pkg as { version: string }).version ?? (pkg as any).default?.version).toBe('9.28.0');
+  });
+
+  it(
+    'CHART programs: log (both encodings), state, mirror, subflow results, execution tree and the fold at every stop are identical',
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(chartProgramArb, async (p) => {
+          const a = await runChart(BASELINE, p);
+          const b = await runChart(BUILD, p);
+          const diff = firstDifference(a.out, b.out);
+          if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+          expect(b.laws.servedSharesLog).toBe('');
+          expect(b.laws.editedGenerations).toBe(0);
+        }),
+        { numRuns: runs(150), seed: seed(0, 20261001) },
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'BORROWED programs: a read mutated in place after the first write behaves exactly as on 9.28.0, warnings included',
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(borrowedProgramArb, async (p) => {
+          const a = await runBorrowed(BASELINE, p);
+          const b = await runBorrowed(BUILD, p);
+          const diff = firstDifference(a, b);
+          if (diff) throw new Error(`${diff}\nprogram: ${JSON.stringify(p)}`);
+        }),
+        { numRuns: runs(150), seed: seed(1, 20261002) },
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'NESTED programs: StageContext at nested and namespaced paths — reads, log, state and folds identical',
+    () => {
+      fc.assert(fc.property(nestedProgramArb, nestedAgrees), { numRuns: runs(400), seed: seed(2, 20261003) });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'NESTED programs, seed 102938 (the review’s sample: a read served from live state after the first write) — identical',
+    () => {
+      fc.assert(fc.property(nestedProgramArb, nestedAgrees), { numRuns: Math.max(runs(2000), 2000), seed: 102938 });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'WRITE-BACK programs: a read served from live state after the first write, edited in place and written back — identical (B2)',
+    () => {
+      const detaches = countBaseDetaches();
+      try {
+        fc.assert(fc.property(writeBackProgramArb, writeBackAgrees), { numRuns: runs(200), seed: seed(4, 7301) });
+      } finally {
+        detaches.restore();
+      }
+      // At the fixed seed the sample must reach the law; a fresh seed's small sample may not.
+      if (SEED === undefined) expect(detaches.replaced).toBeGreaterThan(0);
+    },
+    TIMEOUT,
+  );
+});
