@@ -838,7 +838,8 @@ export class TransactionBuffer {
       return;
     }
     rows.trace.push({ path: family.root, verb: 'set', ...provenance(root.readKeys) });
-    _set(rows.overwrite, family.rootSegments, structuredClone(after));
+    // The clone the check took (`admission.ts · foldsBack`), when it took one.
+    _set(rows.overwrite, family.rootSegments, family.held !== undefined ? family.held.value : structuredClone(after));
   }
 
   /**

@@ -333,6 +333,21 @@ describe('TransactionBuffer — the admitted record', () => {
     expect(folded).toEqual(readBack);
   });
 
+  it('a value a record cannot hold whole (an Error’s own fields) is admitted as 9.29.0 wrote it — no row could hold more', () => {
+    // agentfootprint's reliability gate: a nested write turns the check on,
+    // and `scope.error = err` stages an Error with a custom field. Every
+    // record holds the Error's `structuredClone`, which drops `status` — so
+    // the fold can never equal the working copy, and re-encoding would only
+    // re-spell the same clone. The check compares against the clone.
+    const buf = new TransactionBuffer({ breaker: { a: 0 } });
+    buf.merge(['breaker'], { a: 1 });
+    buf.set(['error'], undefined);
+    buf.set(['error'], Object.assign(new Error('rate limited'), { status: 429 }));
+    const { trace, overwrite } = buf.commit();
+    expect(trace.map((t) => `${t.path}:${t.verb}`)).toEqual(['breaker:merge', 'error:set', 'error:set']);
+    expect((overwrite.error as Error).message).toBe('rate limited');
+  });
+
   it('a bundle that folds back is admitted byte for byte — the key order the replay builds included', () => {
     // merge k {a,c}; set k {b}; merge k {c}; merge k {a}: the stage reads
     // {b, c, a}, the replay builds {b, a, c} — equal, so nothing is

@@ -1005,8 +1005,9 @@ export function runWriteBack(
  * bundle onto the stage's diff base (`applySmartMerge`, the reader's replay)
  * and, at every path the stage touched, compare it with the stage's working
  * copy — the value (`canon`: an own `undefined` is a deleted key, arrays by
- * index, key order free) and, on the way there, every container and array
- * slot the working copy holds. The run addresses (`runs`, `runs/<id>`) are
+ * index, key order free; as a record can hold it, through `structuredClone`)
+ * and, on the way there, every container and array slot the working copy
+ * holds. The run addresses (`runs`, `runs/<id>`) are
  * where a stage writes, not a value it reads, and are not compared. F1b
  * widens this to every differing stage and to the pause legs one by one.
  */
@@ -1059,7 +1060,10 @@ function agreesAt(folded: unknown, read: unknown, segs: string[]): boolean {
     if (i === segs.length - 1 || w === null || typeof w !== 'object') break;
     if (i >= from && (f === null || typeof f !== 'object' || Array.isArray(f) !== Array.isArray(w))) return false;
   }
-  return canon(valueAt(folded, segs)) === canon(valueAt(read, segs));
+  // As a record can hold it: what a stage read, through `structuredClone`
+  // (an Error's own fields do not survive one — no record can hold them).
+  const value = canon(valueAt(folded, segs));
+  return value === canon(valueAt(read, segs)) || value === canon(structuredClone(valueAt(read, segs)));
 }
 
 /** The own value at `segs`, else `undefined`. */

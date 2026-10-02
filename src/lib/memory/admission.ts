@@ -40,6 +40,12 @@ export type Family = {
   members: Member[];
   /** Index in the op trace of the family's last op: where its re-encoded rows go. */
   slot: number;
+  /**
+   * The root's read-back as a record can hold it — its `structuredClone`,
+   * boxed — when the check took one ({@link foldsBack}); the re-encoding
+   * reuses it.
+   */
+  held?: { value: unknown };
 };
 
 /** The families whose rows did not fold back, and which family every staged path is in. */
@@ -48,8 +54,7 @@ export type Lossy = { rootOf: Map<string, string>; families: Map<string, Family>
 /**
  * The families of `ops` whose candidate rows do not fold back to what the
  * stage read — `undefined` when every family does. Each family ROOT is
- * compared: its value ({@link deepEqual} — a root covers every descendant, an
- * own `undefined` is a deleted key) and the way down to it ({@link spineHeld}).
+ * compared ({@link foldsBack}): its value and the way down to it.
  */
 export function lossyFamilies(
   candidate: Rows,
@@ -62,12 +67,30 @@ export function lossyFamilies(
   const { rootOf, families } = touchedFamilies(ops);
   let lossy: Map<string, Family> | undefined;
   for (const family of families.values()) {
-    const segments = family.rootSegments;
-    const held =
-      deepEqual(_get(fold, segments), _get(workingCopy, segments)) && spineHeld(fold, workingCopy, segments, address);
-    if (!held) (lossy ??= new Map()).set(family.root, family);
+    if (!foldsBack(fold, workingCopy, family, address)) (lossy ??= new Map()).set(family.root, family);
   }
   return lossy === undefined ? undefined : { rootOf, families: lossy };
+}
+
+/**
+ * Does the fold give back what the stage read at a family root? The way down
+ * ({@link spineHeld}), then the value by {@link deepEqual} (a root covers every
+ * descendant; an own `undefined` is a deleted key) — against the read-back as
+ * a record can hold it. A record holds `structuredClone`s of what a stage
+ * wrote (state values must survive one), and a few values do not survive one
+ * whole: an `Error`'s own fields are dropped. When the fold equals the
+ * read-back's clone, no row could hold more, and the family is admitted as it
+ * is; the clone, taken only for a root the cheap compare refused, is kept for
+ * the re-encoding.
+ */
+function foldsBack(fold: unknown, workingCopy: unknown, family: Family, address: readonly string[]): boolean {
+  const segments = family.rootSegments;
+  if (!spineHeld(fold, workingCopy, segments, address)) return false;
+  const folded = _get(fold, segments);
+  const read = _get(workingCopy, segments);
+  if (deepEqual(folded, read)) return true;
+  family.held = { value: structuredClone(read) };
+  return deepEqual(folded, family.held.value);
 }
 
 /**
