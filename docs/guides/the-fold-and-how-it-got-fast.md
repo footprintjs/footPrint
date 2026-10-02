@@ -154,7 +154,7 @@ Three shapes, and every optimisation above belongs to exactly one:
   adapter shape.
 - **The law, one owner** when the optimisation touches the verbs: §4, §5, §6. These are not
   swappable, because two implementations could disagree about the bytes — and the family's
-  rule is one owner of what a merge means (no second verb switch — F2 made it one).
+  rule is one owner of what a merge means (one verb law, `memory/verbs.ts`).
 
 The test for "should this be a strategy": could two implementations disagree about the
 bytes? If yes, it is not a strategy. It is the law.
