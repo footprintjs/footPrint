@@ -33,7 +33,7 @@
  *      place and written back with `set` or `merge` (fixture ·
  *      `writeBackProgram`). The same comparison and generation check as
  *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). At its fixed
- *      seed (7301, the recheck's) the 200 programs in `npm test` fail at
+ *      seed (7301, the recheck's) the 500 programs in `npm test` fail at
  *      program 91 if `readState` skips `detachBase` or `detachBase` is a
  *      no-op, and the property also requires that `detachBase` really gave
  *      the base a private copy at least once — so a generator change cannot
@@ -48,11 +48,20 @@
  * first commit at which the two logs differ is one where 9.28.0's bundle did
  * not fold back, and every commit the build made did. Each family's fixed
  * seed must reach explained differences and leave at least a quarter of its
- * programs byte-identical, so neither half of the clause is vacuous. (F1b
- * widens the witness to every differing stage and moves the baseline to
- * 9.29.0.)
+ * programs byte-identical, so neither half of the clause is vacuous.
  *
- * Fixed seeds; `COW_DIFF_RUNS=<n>` raises every property's run count (the
+ * THE WITNESS IS JUDGED TOO (F1b): scenario/copy-on-write-witness.test.ts
+ * tells the build's buffer lies on purpose — C1 put back, a byte change that
+ * lies about nothing — and requires the clause to name them, in every shape
+ * these programs reach and as a generative property over them. The clause
+ * stays at the FIRST differing commit of a run (after it the engines hold
+ * different states, so a later difference may merely follow from it); the
+ * pause legs, which restart from a checkpoint, are judged one by one in
+ * copy-on-write-pause-differential.property.test.ts. The baseline stays
+ * 9.28.0 (fixture header).
+ *
+ * Five hundred programs a family by default (seed 102938's sample is 2,000);
+ * fixed seeds; `COW_DIFF_RUNS=<n>` changes every property's run count (the
  * release gate runs 6,000 chart programs; the recheck ran 3,000 write-back
  * programs per seed) and `COW_DIFF_SEED=<n>` replaces the fixed seeds with n,
  * n+1, n+2 (chart / borrowed / nested) and n+4 (write-back; the pause family
@@ -207,7 +216,7 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
         }),
-        { numRuns: runs(150), seed: seed(0, 20261001) },
+        { numRuns: runs(500), seed: seed(0, 20261001) },
       );
       bothHalvesReached(seen, 'chart');
     },
@@ -224,7 +233,7 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
           const [b, bSeen] = await witnessing(BUILD, () => runBorrowed(BUILD, p));
           compare(p, a, aSeen, b, bSeen, seen);
         }),
-        { numRuns: runs(150), seed: seed(1, 20261002) },
+        { numRuns: runs(500), seed: seed(1, 20261002) },
       );
       bothHalvesReached(seen, 'borrowed');
     },
@@ -237,7 +246,7 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
       const seen = tally();
       fc.assert(
         fc.property(nestedProgramArb, (p) => nestedAgrees(p, seen)),
-        { numRuns: runs(400), seed: seed(2, 20261003) },
+        { numRuns: runs(500), seed: seed(2, 20261003) },
       );
       bothHalvesReached(seen, 'nested');
     },
@@ -265,7 +274,7 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
         const seen = tally();
         fc.assert(
           fc.property(writeBackProgramArb, (p) => writeBackAgrees(p, seen)),
-          { numRuns: runs(200), seed: seed(4, 7301) },
+          { numRuns: runs(500), seed: seed(4, 7301) },
         );
         bothHalvesReached(seen, 'write-back');
       } finally {
