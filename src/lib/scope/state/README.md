@@ -15,4 +15,6 @@ const scopeSchema = defineScopeSchema({ score: z.number() }); // a branded, stri
 const scopeFactory = toScopeFactory(scopeSchema);              // resolved through the registry
 ```
 
+Handing that factory to `FlowChartExecutor` currently hits the gap recorded in [`zod/README.md`](./zod/README.md).
+
 Layer L5 (`scripts/layering.config.cjs`): imports `scope/providers/` and `schema/detect` (L0), plus `zod` itself, and is imported only by `src/zod.ts`. See also [`../README.md`](../README.md).

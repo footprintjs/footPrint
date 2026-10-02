@@ -1,6 +1,6 @@
 # scope/recorders/ — the two built-in data-flow observers
 
-`DebugRecorder` (errors always; reads, writes and stage lifecycle in `'verbose'` mode — for troubleshooting) and `MetricRecorder` (per-step timing and read / write / commit counts, keyed by `runtimeStageId`, with per-stage totals computed on read). Both are `ScopeRecorder`s: they watch what a stage reads and writes. This folder owns those two classes and the barrel of event types they share; it does not own the `ScopeRecorder` interface (`scope/types.ts`), how events are routed or delivered (`recorder/`, `runner/`) or the `metrics()` / `debug()` factories (`src/recorders.ts`).
+`DebugRecorder` (errors, pauses and resumes always; reads, writes and stage start / end in `'verbose'` mode — for troubleshooting) and `MetricRecorder` (per-step timing and read / write / commit counts, keyed by `runtimeStageId`, with per-stage totals computed on read). Both are `ScopeRecorder`s: they watch what a stage reads and writes. This folder owns those two classes and the barrel of event types they share; it does not own the `ScopeRecorder` interface (`scope/types.ts`), how events are routed or delivered (`recorder/`, `runner/`) or the `metrics()` / `debug()` factories (`src/recorders.ts`).
 
 **The laws.**
 
@@ -14,7 +14,7 @@ import { DebugRecorder, flowChart, FlowChartExecutor, MetricRecorder } from 'foo
 
 const executor = new FlowChartExecutor(flowChart<{ n: number }>('Count', (scope) => { scope.n = 1; }, 'count').build());
 const metrics = new MetricRecorder();
-const debug = new DebugRecorder({ verbosity: 'minimal' }); // errors and stage lifecycle only
+const debug = new DebugRecorder({ verbosity: 'minimal' }); // errors, pauses and resumes only
 executor.attachScopeRecorder(metrics);
 executor.attachScopeRecorder(debug);
 await executor.run();

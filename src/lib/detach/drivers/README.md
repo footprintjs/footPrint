@@ -11,7 +11,7 @@ Each file is one `DetachDriver` (`../types.ts`): an algorithm for *when and wher
 | `createSendBeaconDriver({ url })` | `navigator.sendBeacon` | page-leave telemetry that must survive unload; browser only, ~64 KB |
 | `createWorkerThreadDriver({ worker \| workerScript })` | a worker thread | CPU-heavy work off the main thread; you supply the worker |
 
-**The law: every driver honours the `DetachDriver` contract** — `schedule()` returns a fresh handle synchronously, registers it with the registry, never throws, and reports failure through the handle. The two network/worker drivers do **not** run the child chart: `sendBeacon` POSTs the serialized input and `workerThread` posts the input to your worker (the chart is ignored in v1), so give them an input that survives `structuredClone`. Each driver has its own test, `test/lib/detach/<driver>.test.ts`.
+**The law: every driver honours the `DetachDriver` contract** — `schedule()` returns a fresh handle synchronously, registers it with the registry, never throws, and reports failure through the handle. The two network/worker drivers do **not** run the child chart: `sendBeacon` POSTs the serialized input and `workerThread` posts the input to your worker (the chart is ignored in v1), so give them an input that serializes (JSON for `sendBeacon` unless you pass `serialize`; `structuredClone` for the worker). Each driver has its own test, `test/lib/detach/<driver>.test.ts`.
 
 ```typescript
 import { createSetTimeoutDriver } from 'footprintjs/detach';
