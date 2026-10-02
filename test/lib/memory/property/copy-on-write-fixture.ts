@@ -9,6 +9,13 @@
  * never share an object. What a run KEEPS is reduced to strings (`bytes`) and
  * compared field by field.
  *
+ * THE BASELINE STAYS 9.28.0, not 9.29.0 (F1b): the alias also serves the
+ * copy-on-write pins, whose "before" IS 9.28.0 (11 cases of
+ * scenario/copy-on-write-commit.test.ts fail on 9.29.0), and the move would
+ * buy these differentials nothing — at 500 programs a family 9.29.0 explains
+ * exactly the programs 9.28.0 does, so the copy-on-write exemptions (M3, M6,
+ * M8) stay, each named where it applies.
+ *
  * Four families:
  *   - CHART programs (`chartProgram`) — in-contract programs through the
  *     typed scope and the engine's nested-path doors (a subflow's plain-object
@@ -1008,8 +1015,18 @@ export function runWriteBack(
  * index, key order free; as a record can hold it, through `structuredClone`)
  * and, on the way there, every container and array slot the working copy
  * holds. The run addresses (`runs`, `runs/<id>`) are
- * where a stage writes, not a value it reads, and are not compared. F1b
- * widens this to every differing stage and to the pause legs one by one.
+ * where a stage writes, not a value it reads, and are not compared.
+ *
+ * F1b (the witness is judged, not trusted): the clause stays at the FIRST
+ * commit at which two runs differ — after it the engines hold different
+ * states, so a later difference may merely follow from the first — except
+ * where the states are provably the same again: each resumed leg of a paused
+ * run starts from a checkpoint, and `witnessLegs` judges it on its own when
+ * both engines' checkpoints are byte-identical. The witness itself is tested
+ * against lies told on purpose (scenario/copy-on-write-witness.test.ts:
+ * `cutAdmission` puts the old accumulated-delta rows back, `rewriteCommits`
+ * changes bytes that did not lie), so a clause that stopped reading would
+ * fail there before it passed a differential.
  */
 
 /** One commit as the witness saw it: its bundle's bytes, and whether the bundle folded back to what its stage read. */
@@ -1137,6 +1154,99 @@ export function witnessClause(baseline: Witnessed[], build: Witnessed[], differs
     return baseline[i].foldsBack ? `commit ${i} differs, but 9.28.0's bundle there folded back` : '';
   }
   return 'the runs differ but every commit is byte-identical';
+}
+
+/** What judging a paused run leg by leg reached — see {@link witnessLegs}. */
+export type LegTally = {
+  /** Legs judged. */
+  legs: number;
+  /** Legs that started together and differed, each explained by a 9.28.0 bundle that did not fold back. */
+  explained: number;
+  /** Of those, legs after an earlier leg had already differed — the legs the run-wide clause never reads. */
+  rejudged: number;
+  /** Legs that started apart: only the build's half applied. */
+  downstream: number;
+};
+
+/**
+ * The pause family's clause, one leg at a time (F1b). A resumed leg starts
+ * from a checkpoint, so it is a differential of its own — when both engines
+ * start it from the same state (`startsTogether(leg)`: the checkpoint that
+ * opened it is byte-identical in both). Then its first differing commit must
+ * be a 9.28.0 bundle that did not fold back, even when an earlier leg already
+ * differed; the run-wide {@link witnessClause} stops at the first difference of
+ * the whole run and never reads on. A leg that starts apart differs because an
+ * earlier leg did, which says nothing about its own commits: only the build's
+ * half applies there (every commit it made folded back). `baseline[i]` and
+ * `build[i]` are the commits leg `i` made, each engine witnessed on its own
+ * (`witnessing` around each `run` / `resume`). '' when every leg holds, else
+ * the first leg that broke it, named.
+ */
+export function witnessLegs(
+  baseline: Witnessed[][],
+  build: Witnessed[][],
+  startsTogether: (leg: number) => boolean,
+): { broken: string; tally: LegTally } {
+  const tally: LegTally = { legs: 0, explained: 0, rejudged: 0, downstream: 0 };
+  let earlierDiffered = false;
+  for (let i = 0; i < Math.max(baseline.length, build.length); i++) {
+    const a = baseline[i] ?? [];
+    const b = build[i] ?? [];
+    const together = startsTogether(i);
+    const differs = a.length !== b.length || a.some((c, k) => c.bytes !== b[k].bytes);
+    const broken = witnessClause(a, b, together && differs);
+    if (broken) return { broken: `leg ${i}: ${broken}`, tally };
+    tally.legs += 1;
+    if (!together) tally.downstream += 1;
+    else if (differs) {
+      tally.explained += 1;
+      if (earlierDiffered) tally.rejudged += 1;
+    }
+    earlierDiffered ||= differs;
+  }
+  return { broken: '', tally };
+}
+
+// ─── Lies told on purpose: the witness's own tests ────────────────────────
+
+/*
+ * A witness that cannot go red proves nothing, so scenario/copy-on-write-
+ * witness.test.ts tells the build's buffer two lies and asks the clause to
+ * name each. Both are installed BEFORE `witnessing` (which wraps whatever
+ * `commit` is there, so it judges what the lie returned) and put back by the
+ * function they return — call it in a `finally`, innermost-first.
+ */
+
+/**
+ * Cut the build's admission (`TransactionBuffer · admit`): the compact rows go
+ * out unchecked — the accumulated merge delta replayed at every `merge` row of
+ * a path (C1) and the other shapes the admission closed (C2 to C5): the lies
+ * 9.29.0 told, in the bytes it wrote them.
+ */
+export function cutAdmission(engine: Engine): () => void {
+  const proto = engine.TransactionBuffer.prototype;
+  const admit = proto.admit;
+  if (typeof admit !== 'function') {
+    throw new Error('TransactionBuffer · admit moved — move the witness tests’ cut with the admission');
+  }
+  proto.admit = (build: (lossy: undefined) => unknown) => build(undefined);
+  return () => {
+    proto.admit = admit;
+  };
+}
+
+/** Rewrite every payload `engine`'s buffer commits (in place, before it leaves the buffer). */
+export function rewriteCommits(engine: Engine, rewrite: (payload: any) => void): () => void {
+  const proto = engine.TransactionBuffer.prototype;
+  const commit = proto.commit;
+  proto.commit = function (this: unknown) {
+    const payload = commit.call(this);
+    rewrite(payload);
+    return payload;
+  };
+  return () => {
+    proto.commit = commit;
+  };
 }
 
 /** How many programs a differential compared, and at how many the witness explained a difference. */

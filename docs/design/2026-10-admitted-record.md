@@ -123,8 +123,10 @@ order is preserved; a re-encoded family takes the place of its last touch.
 7. **How F1a keeps the 9.28.0 differentials green.** The plan left this to F1b. The differentials and the pinned
    corpus are held by a WITNESS written independently of the build's check (`copy-on-write-fixture ·
    witnessClause`): every commit on both engines is asked whether it folds back at every touched path; every build
-   commit must, and the first commit at which the two logs differ must be one where 9.28.0's did not. F1b widens it
-   to every differing stage and moves the baseline to 9.29.0.
+   commit must, and the first commit at which the two logs differ must be one where 9.28.0's did not. F1b (done)
+   judges each resumed pause leg on its own and tests the witness against lies told on purpose
+   (`scenario/copy-on-write-witness.test.ts`); the clause stays at the FIRST differing commit of a run, because after
+   it the engines hold different states, and the baseline stays 9.28.0 (reasons in the fixture header).
 8. **Compared as a record can hold it** (found downstream). agentfootprint's suite on the packed build reached the
    admission 19 times, all one shape: its reliability gate stages a nested write and `scope.error = err`, an `Error`
    with a custom field. Every record holds the Error's `structuredClone`, which drops the field, so the fold could
@@ -155,8 +157,10 @@ skipped) and "6.0 clones per stage" on the set-only bench (it reads 5.0; 6.0 is 
   `undefined` delta (pinned by the corpus and the repeated-path references). Nothing to do.
 - **L-3** — the one-time `resume-real-chart.property` failure seen in a prototype gate run: run at 10× (1,600
   programs per mode) on the build, green, no seed to record.
-- **F1b** — the witness clause at every differing stage and per pause leg, the baseline alias moved to 9.29.0, and
-  the red check against a re-introduced C1.
+- **F1b** — DONE: the witness clause per pause leg, and the red checks (C1 put back, a byte change that lies about
+  nothing) in `scenario/copy-on-write-witness.test.ts`. Not done, on purpose: the clause at every differing stage
+  (a difference after the first may follow from it) and the move of the baseline alias to 9.29.0 (it also serves the
+  copy-on-write pins, and at 500 programs a family 9.29.0 explains exactly the programs 9.28.0 does).
 - **F2** — `commitValueAt`'s per-row delta clone (decision 6).
 - **Optional C1′** — drop a staged merge delta only when a `merge` FOLLOWS the hard write; not needed for the law.
 - **The check's CPU on large merged values** (measured above). A sound way to skip it for the most common shape: a
