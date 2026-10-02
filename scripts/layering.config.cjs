@@ -62,9 +62,10 @@ const LAYERS = [
     rank: 1,
     name: 'verbs',
     files: [
-      // One file for now: paths + equality + merge + the verb fold. When the verb law
-      // gets its own module this splits (paths/equality/merge → L0, verbs → L1); until
-      // then the file is placed by its highest part.
+      // The verb law: the one step a commit row takes, and every fold of it. Imports L0 only.
+      'src/lib/memory/verbs.ts',
+      // The nested-object helpers, and the one re-export surface of paths / equality /
+      // merge (L0) and verbs (L1) — placed by its highest part.
       'src/lib/memory/utils.ts',
       'src/lib/observer-queue/**',
       // errorInfo imports schema/ (L0) only.
