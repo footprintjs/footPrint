@@ -259,9 +259,38 @@ Parent creates N children via createChild()
 
 **The story in order** — base algorithm, each optimisation, what it traded, what it measured, what was refused: [docs/guides/the-fold-and-how-it-got-fast.md](../../../docs/guides/the-fold-and-how-it-got-fast.md).
 
-## The Verb Law — and its one refusal
+## The Verb Law and the leaves under it
 
-A commit row carries one of four verbs — `set | merge | append | delete` — and one step (`verbs.ts` · `applyVerb`) turns a row into a value; every reader of the log folds that step. **A row whose verb is none of the four is refused with `UnknownVerbError` (naming the row) by `applySmartMerge`, `commitValueAt` and `arrayProvenance`, never folded as a `merge`** — engine-written logs carry only the four, so an engine run never meets it; a foreign or corrupted log does. (`stateAt`, the cursor's reader, keeps its own answer for such a bundle: a gap with the reason, and the rest of the log folds.)
+A commit row carries one of four verbs — `set | merge | append | delete` — and ONE step turns a row into a value. Every reader of the log folds that step; nothing else in the library has an arm per verb.
+
+| File | Layer | Owns |
+|---|---|---|
+| `verbs.ts` | L1 | **The one verb law.** `applyVerb` (one row → a value), `placeVerb` (put it, or remove the key), `foldRows` (one bundle into a state — the clone discipline `'private'` / `'pathCopy'` / `'byReference'` is a parameter), `foldKey` (one path across a log: `commitValueAt` runs it, `arrayProvenance` watches it), `supersededByNextSet`, `VERBS` / `isVerb`, `UnknownVerbError`, and the four doors over `foldRows`: `applySmartMerge`, `nextGeneration`, `applySmartMergeInto`, `dryFold` |
+| `paths.ts` | L0 | The path codec: `DELIM`, the one separator inside a `TraceEntry.path` (never a dot — a state key may contain one), `normalisePath` to write a path, `pathSegments` to take it apart |
+| `equality.ts` | L0 | `deepEqual` — structural equality of committed-state values: `Date` / `Map` / `Set` by content, an own `undefined` is a deleted key, cycles terminate |
+| `merge.ts` | L0 | `deepSmartMerge` — the union merge the `merge` verb applies: arrays union, objects recurse, `[]` clears, cycles terminate |
+| `utils.ts` | L1 | The nested-object helpers (`setNestedValue`, `updateNestedValue`, `updateValue`, `getNestedValue`, `redactPatch`) and the one re-export surface of the four files above, so no importer moved |
+
+`paths.ts`, `equality.ts` and `merge.ts` import nothing; `verbs.ts` imports only them and `pathOps.ts` (layer table: `scripts/layering.config.cjs`).
+
+```typescript
+import { applySmartMerge } from 'footprintjs/advanced';
+
+// One stage's commit — `s.name = 'b'; s.$update('tags', ['x']); s.$delete('tmp')` — replayed onto the state it began from.
+const next = applySmartMerge(
+  { name: 'a', tags: ['y'], tmp: 1 }, // base
+  { tags: ['x'] }, // updates: the merge deltas
+  { name: 'b' }, // overwrite: the set values
+  [
+    { path: 'name', verb: 'set' },
+    { path: 'tags', verb: 'merge' },
+    { path: 'tmp', verb: 'delete' },
+  ],
+);
+// next → { name: 'b', tags: ['y', 'x'] }
+```
+
+**A row whose verb is none of the four is refused with `UnknownVerbError` (naming the row) by `applySmartMerge`, `commitValueAt` and `arrayProvenance`, never folded as a `merge`** — engine-written logs carry only the four, so an engine run never meets it; a foreign or corrupted log does. (`stateAt`, the cursor's reader, keeps its own answer for such a bundle: a gap with the reason, and the rest of the log folds.)
 
 ```typescript
 import { commitValueAt, UnknownVerbError } from 'footprintjs/trace';
