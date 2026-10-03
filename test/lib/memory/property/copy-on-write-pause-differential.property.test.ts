@@ -62,6 +62,7 @@ import {
   firstDifference,
   isObj,
   keepOffDates,
+  r13Seeds,
   rewriteCommits,
   witnessClause,
   witnessing,
@@ -282,14 +283,16 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.log`] = bytes(snap.commitLog);
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
-    out[`leg${i}.sub`] = bytes(snap.subflowResults ?? null);
+    // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
+    const results = (r: any) => (E === BASELINE ? r13Seeds(r, snap.commitLog) : r ?? null);
+    out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
     out[`leg${i}.folds`] = folds.join('\n');
     if (p.cfg.policy) {
       const red = ex.getSnapshot({ redact: true });
       out[`leg${i}.red`] = bytes(red.sharedState);
-      out[`leg${i}.redsub`] = bytes(red.subflowResults ?? null);
+      out[`leg${i}.redsub`] = bytes(results(red.subflowResults));
     }
   };
   leg(0);
