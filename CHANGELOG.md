@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A forward jump into a decider's own `next` chain runs the tail once.** A branch of a decider that has a `next` of its own, returning a jump by id (`{ name, next: 'after' }`) to a node on that `next` chain, ran the tail inside the branch frame and then AGAIN as the decider's continuation (`seed,X1,after,later,after,later` — in 9.39.0 too). The branch frame now also leaves on a jump to any node of an enclosing decider's `next` chain (`FlowchartTraverser · tailIds`, cached per chain head): the decider follows it flat and skips its own `next`, so the tail runs once (`seed,X1,after,later`; a jump to `later` runs `seed,X1,later`). A sideways jump to a sibling branch and a loop back are unchanged.
+  - **Breaks:** a chart with this shape records the tail once (commit log, narrative, events). *Migration:* none — the double run was the bug.
+
 ## [9.40.0] - 2026-10-03
 
 ### Fixed — depth is nesting, loops are flat, any thrown value fails loudly

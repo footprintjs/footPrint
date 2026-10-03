@@ -274,7 +274,7 @@ describe('decider with its own next — a pause inside the loop resumes flat', (
   });
 });
 
-describe('decider with its own next — a jump that is not a loop back stays in the branch (as 9.39.0)', () => {
+describe('decider with its own next — a jump by id from a branch', () => {
   async function jumpTo(target: string) {
     const chart = flowChart<any>('Seed', async () => {}, 'seed')
       .addDeciderFunction('D', async () => 'x', 'd')
@@ -282,6 +282,7 @@ describe('decider with its own next — a jump that is not a loop back stays in 
       .addFunctionBranch('y', 'Y', async () => {})
       .end()
       .addFunction('After', async () => {}, 'after')
+      .addFunction('Later', async () => {}, 'later')
       .build();
     const ex = new FlowChartExecutor(chart);
     const seen: string[] = [];
@@ -290,11 +291,15 @@ describe('decider with its own next — a jump that is not a loop back stays in 
     return seen;
   }
 
-  it('a sideways jump to a sibling branch runs it, then the decider next', async () => {
-    expect(await jumpTo('y')).toEqual(['Seed', 'D', 'X1', 'Y', 'After']);
+  it('sideways to a sibling branch: stays in the branch, then the decider next (as 9.39.0)', async () => {
+    expect(await jumpTo('y')).toEqual(['Seed', 'D', 'X1', 'Y', 'After', 'Later']);
   });
 
-  it('a forward jump past the decider runs in the branch, then the decider next runs too', async () => {
-    expect(await jumpTo('after')).toEqual(['Seed', 'D', 'X1', 'After', 'After']);
+  it("forward to the decider's own next: the tail runs ONCE (9.40.0 ran after,later twice)", async () => {
+    expect(await jumpTo('after')).toEqual(['Seed', 'D', 'X1', 'After', 'Later']);
+  });
+
+  it('forward to a node further down the tail: the jump skips the rest, the tail runs once', async () => {
+    expect(await jumpTo('later')).toEqual(['Seed', 'D', 'X1', 'Later']);
   });
 });
