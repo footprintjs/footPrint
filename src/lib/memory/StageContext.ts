@@ -79,6 +79,14 @@ export class StageContext {
    */
   public tags?: readonly string[];
   public runId: string;
+  /**
+   * The run namespace this frame writes and reads in when that is not its own
+   * `runId` — set once, before the frame's first write, by
+   * {@link useAddressOf}. Its one user is a subflow mount's merge-back (R13):
+   * the record names the mount, the values land where the mount's parent
+   * writes. Absent → `runId`, so every other frame is untouched.
+   */
+  private addressRunId?: string;
   public branchId?: string;
   public isDecider: boolean;
   public isFork: boolean;
@@ -552,7 +560,7 @@ export class StageContext {
       // The stage's address — where `withNamespace` puts its writes (9.30.0:
       // the admitted record reads the containers there as where the stage
       // writes, never as a value it read).
-      const address = this.runId ? ['runs', this.runId] : [];
+      const address = this.namespaceId ? ['runs', this.namespaceId] : [];
       this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues, readKeysProvider, address);
     }
     return this.buffer;
@@ -560,10 +568,33 @@ export class StageContext {
 
   /** Builds an absolute path inside the shared memory (run namespace). */
   private withNamespace(path: string[], key: string): string[] {
-    if (!this.runId || this.runId === '') {
+    if (!this.namespaceId) {
       return [...path, key];
     }
-    return ['runs', this.runId, ...path, key];
+    return ['runs', this.namespaceId, ...path, key];
+  }
+
+  /** The run namespace writes and reads go to: {@link addressRunId}, else `runId`. */
+  private get namespaceId(): string {
+    return this.addressRunId ?? this.runId;
+  }
+
+  /**
+   * Write and read at ANOTHER frame's address (its run namespace) while this
+   * frame keeps its own identity on the record — `stage`, `stageId`,
+   * `runtimeStageId`, tags. A subflow mount's merge-back is the one caller
+   * (`SubflowExecutor · executeSubflow`, R13): the mount frame of a branch or
+   * fork child lands its values where its parent writes, as before, and its
+   * bundle now names the mount instead of the stage before it. Refused once
+   * the frame has staged anything — its buffer's address is fixed then.
+   */
+  useAddressOf(frame: StageContext): void {
+    if (this.buffer && frame.namespaceId !== this.namespaceId) {
+      throw new Error(
+        `[footprint] StageContext.useAddressOf: '${this.stageId}' has already staged writes at its own address.`,
+      );
+    }
+    this.addressRunId = frame.namespaceId;
   }
 
   // ── Write operations ───────────────────────────────────────────────────
@@ -679,7 +710,7 @@ export class StageContext {
     const namespaced = this.withNamespace(path, key as string);
     const fromSnapshot = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
     if (typeof fromSnapshot !== 'undefined') return fromSnapshot;
-    const live = this.sharedMemory.getValue(this.runId, path, key);
+    const live = this.sharedMemory.getValue(this.namespaceId, path, key);
     // Tier 2 after the first write: keep the diff base exact (see above).
     if (this.buffer && live !== null && typeof live === 'object') this.buffer.detachBase(namespaced);
     return live;
@@ -732,7 +763,7 @@ export class StageContext {
   }
 
   getRoot(key: string) {
-    return this.sharedMemory.getValue(this.runId, [], key);
+    return this.sharedMemory.getValue(this.namespaceId, [], key);
   }
 
   getGlobal(key: string) {

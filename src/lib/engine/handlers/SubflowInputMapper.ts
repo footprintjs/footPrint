@@ -100,12 +100,26 @@ export function createSubflowHandlerDeps<TOut = any, TScope = any>(
  * Redaction: the seed is committed as the subflow's `history[0]` by its root
  * context. `SubflowExecutor` installs the run's redaction rule on that context
  * before calling this, so the commit retains under the policy (9.19.0).
+ *
+ * `mount` names the seed bundle: the engine passes the MOUNT's frame, because
+ * the mount is the stage whose inputMapper produced the seed (R13).
  */
 export function seedSubflowGlobalStore(
   subflowRuntime: IExecutionRuntime,
   initialValues: Record<string, unknown>,
+  mount?: Pick<StageContext, 'stageName' | 'stageId' | 'runtimeStageId'>,
 ): void {
   const rootContext = subflowRuntime.rootStageContext;
+  // The mount that seeds the subflow names the seed bundle (R13) — all three
+  // fields, so its `stageId` is the stage its `runtimeStageId` names. Safe:
+  // the engine replaces this root context once the seed is committed.
+  // Omitted → the root context's own names and an empty runtimeStageId, the
+  // shape every seed had through 9.33.0.
+  if (mount) {
+    rootContext.stageName = mount.stageName;
+    rootContext.stageId = mount.stageId;
+    rootContext.runtimeStageId = mount.runtimeStageId;
+  }
 
   for (const [key, value] of Object.entries(initialValues)) {
     // An EMPTY plain object lands whole too: spread into zero writes it

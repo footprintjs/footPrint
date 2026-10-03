@@ -125,9 +125,10 @@ export interface LogGap {
  *   depends on the strategy, and the difference is load-bearing:
  *   - on a strategy that keeps every stage (`commitStops`, the one shipped)
  *     it is the run's fold BASE — the state no commit index can reach — plus
- *     any id-less leading commit, which is how a subflow's `inputMapper` seed
- *     reaches the log. So on a drilled cursor it is exactly "the input this
- *     subflow began with".
+ *     the subflow's `inputMapper` seed when the log opens with one (the
+ *     mount's commit, stamped with the mount's runtimeStageId since R13 and
+ *     with `''` through 9.33.0). So on a drilled cursor it is exactly "the
+ *     input this subflow began with".
  *   - on a strategy that FILTERS stages out, the commits of the dropped
  *     stages that ran BEFORE the first surviving stop have to fold somewhere,
  *     and `'start'` is the only place they can go without orphaning them. Its
