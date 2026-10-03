@@ -15,7 +15,6 @@
  */
 
 import { hasCircularReference } from '../capture/circular.js';
-import { invokeRecorderHook } from '../capture/invokeHook.js';
 import {
   detachAndForget as detachAndForgetSpawn,
   detachAndJoinLater as detachAndJoinLaterSpawn,
@@ -26,6 +25,8 @@ import { deadFrameMessage } from '../memory/borrowedMutation.js';
 import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
+import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
+import { fire, operationFor } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
@@ -100,7 +101,7 @@ export class ScopeFacade {
     // Under an executor the context already has the run's rule (installed on
     // the root, inherited down) and this re-installs the same object; on a
     // bare context it installs a fresh one.
-    this._stageContext.useRedactionRule?.(this.rule);
+    this._stageContext.useRedactionRule(this.rule);
 
     // Register as commit observer so ScopeRecorder.onCommit fires when StageContext.commit() is called
     this._stageContext.setCommitObserver((mutations) => {
@@ -118,11 +119,11 @@ export class ScopeFacade {
    * still share a single verdict.
    */
   private get rule(): RedactionRule {
-    const shared = this._stageContext.getRedactionRule?.();
+    const shared = this._stageContext.getRedactionRule();
     if (shared) return shared;
     if (!this._localRule) {
       this._localRule = new RedactionRule();
-      this._stageContext.useRedactionRule?.(this._localRule);
+      this._stageContext.useRedactionRule(this._localRule);
     }
     return this._localRule;
   }
@@ -362,28 +363,10 @@ export class ScopeFacade {
       timestamp: Date.now(),
     } as const;
 
-    // Dispatch with error isolation — same pattern as _invokeHook uses for
-    // other scope events. A throwing recorder's error is surfaced via
-    // onError on the other recorders; the emit loop continues unaffected.
-    for (const recorder of this._recorders) {
-      if (typeof recorder.onEmit !== 'function') continue;
-      try {
-        // Shared invoke helper — the SAME primitive the deferred tier uses
-        // at delivery time, so the two delivery paths cannot drift.
-        invokeRecorderHook(recorder, 'onEmit', event);
-      } catch (error) {
-        this._invokeHook('onError', {
-          stageName: this._stageName,
-          stageId: this._stageContext.stageId,
-          runtimeStageId: this._stageContext.runtimeStageId,
-          pipelineId: this._stageContext.runId,
-          timestamp: Date.now(),
-          error: error as Error,
-          operation: 'write',
-          channel: 'scope' as const,
-        });
-      }
-    }
+    // Dispatch with error isolation — the same `fire` loop and the same failure routing as
+    // every other scope event: a throwing recorder's error reaches onError on the recorders;
+    // the emit loop continues unaffected.
+    fire(this._recorders, 'onEmit', event, this._routeFailure);
   }
 
   // ── Detach — fire-and-forget child flowchart execution ─────────────────
@@ -691,28 +674,27 @@ export class ScopeFacade {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
-  private _invokeHook(hook: keyof Omit<ScopeRecorder, 'id'>, event: unknown): void {
-    for (const recorder of this._recorders) {
-      try {
-        // Shared invoke helper — the SAME primitive the deferred tier uses
-        // at delivery time (RFC-001 §9 mitigation): lookup + `.call(this)`
-        // semantics live in exactly one place, so the inline and deferred
-        // paths cannot drift.
-        invokeRecorderHook(recorder, hook, event);
-      } catch (error) {
-        if (hook !== 'onError') {
-          this._invokeHook('onError', {
-            stageName: this._stageName,
-            stageId: this._stageContext.stageId,
-            runtimeStageId: this._stageContext.runtimeStageId,
-            pipelineId: this._stageContext.runId,
-            timestamp: Date.now(),
-            error: error as Error,
-            operation: hook === 'onRead' ? 'read' : hook === 'onCommit' ? 'commit' : 'write',
-            channel: 'scope' as const,
-          });
-        }
-      }
-    }
+  private _invokeHook<K extends ScopeHookName>(hook: K, event: HookPayload<K>): void {
+    // The one per-recorder loop (`recorder/hooks.ts · fire`) — the SAME invoke primitive the
+    // deferred tier uses at delivery time, so the inline and deferred paths cannot drift.
+    fire(this._recorders, hook, event, this._routeFailure);
   }
+
+  /**
+   * The scope channel's isolation: a recorder's throw becomes an `onError` on every recorder
+   * (stamped with this stage), and a throw from `onError` itself is dropped.
+   */
+  private readonly _routeFailure: HookFailure = (error, _recorder, hook) => {
+    if (hook === 'onError') return;
+    this._invokeHook('onError', {
+      stageName: this._stageName,
+      stageId: this._stageContext.stageId,
+      runtimeStageId: this._stageContext.runtimeStageId,
+      pipelineId: this._stageContext.runId,
+      timestamp: Date.now(),
+      error: error as Error,
+      operation: operationFor(hook),
+      channel: 'scope' as const,
+    });
+  };
 }

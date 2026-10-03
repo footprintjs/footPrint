@@ -7,7 +7,7 @@
  * to return the raw working memory (needed for pause/resume).
  *
  * Architecture under test:
- *   - `ExecutionRuntime.enableRedactedMirror()` creates a parallel
+ *   - a run policy with `mirror: true` (`runPolicy(dials, rule, true)`) gives a parallel
  *     SharedMemory.
  *   - `StageContext.commit()` feeds already-computed redacted patches into
  *     the mirror alongside the raw patches into `globalStore`.

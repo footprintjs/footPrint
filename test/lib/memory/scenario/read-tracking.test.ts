@@ -11,7 +11,7 @@
  * The policy scopes ONLY the snapshot's stageReads payload. `onRead` events
  * (which pass the live reference, never cloned) and therefore narrative are
  * identical in every mode. Plumbed: executor option/`setReadTracking` →
- * `ExecutionRuntime.useReadTracking` → root StageContext → inherited via
+ * the run policy (`runPolicy({ readTracking })`) → root StageContext → inherited via
  * createNext/createChild → pushed into subflow roots by SubflowExecutor.
  *
  * Covers:

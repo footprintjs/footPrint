@@ -29,6 +29,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../../../../src/lib/engine/types';
+import { DEFAULT_RUN_POLICY } from '../../../../src/lib/memory/runPolicy';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ function makeContext(): any {
     appendToArray: vi.fn(),
     mergeObject: vi.fn(),
     useAddressOf: vi.fn(),
+    getPolicy: () => DEFAULT_RUN_POLICY,
   };
   ctx.createChild.mockImplementation((_runId: string, branchId: string, name: string) => {
     const child = makeContext();

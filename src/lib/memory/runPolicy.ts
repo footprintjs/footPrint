@@ -173,9 +173,8 @@ export function withRedaction(policy: RunPolicy, redaction: RedactionRule): RunP
 
 /**
  * The same policy with some settings changed — a NEW frozen object; the old one is never
- * edited. What the deprecated per-dial setters (`StageContext.useReadTracking`,
- * `ExecutionRuntime.useCommitValues`, …) delegate to: they swap in a derived policy, so no
- * mutable dial field exists anywhere.
+ * edited. A frame or runtime changes a setting by swapping in a derived policy (`usePolicy`), so
+ * no mutable dial field exists anywhere.
  */
 export function derivePolicy(policy: RunPolicy, patch: Partial<RunPolicy>): RunPolicy {
   return Object.freeze({ ...policy, ...patch });

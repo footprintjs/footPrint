@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PausableHandler } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { FLOW_RECORDER_EVENT_METHODS, RECORDER_EVENT_METHODS } from '../../../../src/lib/recorder/CombinedRecorder.js';
+import { hooksOn } from '../../../../src/lib/recorder/hooks.js';
 
 const SHARED_HOOKS = ['onError', 'onPause', 'onResume'] as const;
 
@@ -48,8 +48,8 @@ function buildPausingChart() {
 describe('shared-name hooks — routing arrays', () => {
   it('every shared hook is listed on BOTH channels (the deferred taps read these arrays)', () => {
     for (const hook of SHARED_HOOKS) {
-      expect(RECORDER_EVENT_METHODS).toContain(hook);
-      expect(FLOW_RECORDER_EVENT_METHODS).toContain(hook);
+      expect(hooksOn('scope')).toContain(hook);
+      expect(hooksOn('flow')).toContain(hook);
     }
   });
 });

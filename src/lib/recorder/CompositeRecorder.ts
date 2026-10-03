@@ -43,30 +43,31 @@
  * ```
  */
 
-import type {
-  FlowBreakEvent,
-  FlowDecisionEvent,
-  FlowErrorEvent,
-  FlowForkEvent,
-  FlowLoopEvent,
-  FlowNextEvent,
-  FlowRecorder,
-  FlowSelectedEvent,
-  FlowStageEvent,
-  FlowStageRetryEvent,
-  FlowSubflowEvent,
-  FlowSubflowRegisteredEvent,
-} from '../engine/narrative/types.js';
-import type { CommitEvent, ErrorEvent, ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../scope/types.js';
+import type { FlowRecorder } from '../engine/narrative/types.js';
+import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
+import type { ScopeRecorder } from '../scope/types.js';
+import type { HookName, HookPayload } from './hooks.js';
+import { fire, HOOK_NAMES } from './hooks.js';
+import { copyBundle } from './snapshot.js';
 
-/** Snapshot format for composite recorders — wraps child snapshots. */
+/** Snapshot format for composite recorders — wraps child snapshots, each copied by the one
+ *  bundle copier (`recorder/snapshot.ts`), so a child keeps `description`/`preferredOperation`/`meta`. */
 export interface CompositeSnapshot {
   name: string;
   data: {
-    children: Array<{ id: string; name: string; data: unknown }>;
+    children: RecorderSnapshot[];
   };
 }
 
+/** One fan-out method per registry hook (`recorder/hooks.ts · HOOKS`) — 23 names, 26 channel slots. */
+type HookMethods = { [K in HookName]: (event: HookPayload<K>) => void };
+
+// Declaration merge: the methods below are installed on the prototype from the registry, so
+// the class TYPE gets them here — a hook added to the registry is on the composite in both.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-interface
+export interface CompositeRecorder extends HookMethods {}
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
   readonly id: string;
   private readonly children: Array<ScopeRecorder | FlowRecorder>;
@@ -95,79 +96,6 @@ export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
     return this.children;
   }
 
-  // ── Scope ScopeRecorder hooks (fan-out to children that implement ScopeRecorder) ─
-
-  onRead(event: ReadEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onRead) (c as ScopeRecorder).onRead!(event);
-  }
-
-  onWrite(event: WriteEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onWrite) (c as ScopeRecorder).onWrite!(event);
-  }
-
-  onCommit(event: CommitEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onCommit) (c as ScopeRecorder).onCommit!(event);
-  }
-
-  onError(event: ErrorEvent | FlowErrorEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onError) (c as ScopeRecorder).onError!(event as any);
-  }
-
-  onStageStart(event: StageEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onStageStart) (c as ScopeRecorder).onStageStart!(event);
-  }
-
-  onStageEnd(event: StageEvent): void {
-    for (const c of this.children) if ((c as ScopeRecorder).onStageEnd) (c as ScopeRecorder).onStageEnd!(event);
-  }
-
-  // ── FlowRecorder hooks (fan-out to children that implement FlowRecorder) ─
-
-  onStageExecuted(event: FlowStageEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onStageExecuted) (c as FlowRecorder).onStageExecuted!(event);
-  }
-
-  onNext(event: FlowNextEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onNext) (c as FlowRecorder).onNext!(event);
-  }
-
-  onDecision(event: FlowDecisionEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onDecision) (c as FlowRecorder).onDecision!(event);
-  }
-
-  onFork(event: FlowForkEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onFork) (c as FlowRecorder).onFork!(event);
-  }
-
-  onSelected(event: FlowSelectedEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onSelected) (c as FlowRecorder).onSelected!(event);
-  }
-
-  onSubflowEntry(event: FlowSubflowEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onSubflowEntry) (c as FlowRecorder).onSubflowEntry!(event);
-  }
-
-  onSubflowExit(event: FlowSubflowEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onSubflowExit) (c as FlowRecorder).onSubflowExit!(event);
-  }
-
-  onSubflowRegistered(event: FlowSubflowRegisteredEvent): void {
-    for (const c of this.children)
-      if ((c as FlowRecorder).onSubflowRegistered) (c as FlowRecorder).onSubflowRegistered!(event);
-  }
-
-  onLoop(event: FlowLoopEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onLoop) (c as FlowRecorder).onLoop!(event);
-  }
-
-  onBreak(event: FlowBreakEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onBreak) (c as FlowRecorder).onBreak!(event);
-  }
-
-  onStageRetry(event: FlowStageRetryEvent): void {
-    for (const c of this.children) if ((c as FlowRecorder).onStageRetry) (c as FlowRecorder).onStageRetry!(event);
-  }
-
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   clear(): void {
@@ -176,19 +104,40 @@ export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
 
   /**
    * Snapshot merges all child snapshots into a single composite entry.
-   * Each child's snapshot is preserved with its own id/name/data.
+   * Each child's bundle is copied by the one copier, under the child's own id.
    */
   toSnapshot(): CompositeSnapshot {
-    const childSnapshots: Array<{ id: string; name: string; data: unknown }> = [];
-    for (const c of this.children) {
-      if (c.toSnapshot) {
-        const { name, data } = c.toSnapshot();
-        childSnapshots.push({ id: c.id, name, data });
-      }
-    }
+    const children: RecorderSnapshot[] = [];
+    for (const c of this.children) if (c.toSnapshot) children.push(copyBundle(c.id, c.toSnapshot()));
     return {
       name: 'Composite',
-      data: { children: childSnapshots },
+      data: { children },
     };
   }
+}
+
+// ── The generated fan-out ────────────────────────────────────────────────
+// One prototype method per registry hook. Each child is called through `fire`, so a child that
+// throws never stops its siblings: every child that implements the hook receives the event.
+// The throw is then handed to the CHANNEL's own policy — the composite cannot apply it itself
+// (the scope channel's `onError` goes to every recorder on the facade, with the stage's names,
+// which only the facade has) — by rethrowing it once the fan-out is done: one child's error as
+// itself (exactly what the channel saw before), several as one `AggregateError`.
+for (const hook of HOOK_NAMES) {
+  Object.defineProperty(CompositeRecorder.prototype, hook, {
+    value: function fanOut(this: CompositeRecorder, event: never): void {
+      const errors: unknown[] = [];
+      fire(this.getChildren(), hook, event, (error) => errors.push(error));
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(
+          errors,
+          `${errors.length} children of CompositeRecorder "${this.id}" threw in ${hook}`,
+        );
+      }
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
 }

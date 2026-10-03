@@ -1,6 +1,7 @@
 /**
- * The three leaves F0 moved (the fence and the leaves) keep their OLD paths for one
- * minor, as re-exports. This pins the promise: each old path hands back the SAME
+ * Two of the leaves F0 moved (the fence and the leaves) keep their OLD paths for one
+ * minor, as re-exports (`recorder/invokeHook.ts` was removed in F6 under the no-shims ruling;
+ * import `capture/invokeHook.ts`). This pins the promise: each old path hands back the SAME
  * function object as its new home — so the dev-mode flag in particular is one piece of
  * state, never a copy — and nothing else is exported from it.
  *
@@ -9,10 +10,8 @@
 import { describe, expect, it } from 'vitest';
 
 import * as circular from '../../../src/lib/capture/circular';
-import * as invokeHook from '../../../src/lib/capture/invokeHook';
 import * as summarize from '../../../src/lib/capture/summarize';
 import * as devMode from '../../../src/lib/devMode';
-import * as oldInvokeHook from '../../../src/lib/recorder/invokeHook';
 import * as oldDetectCircular from '../../../src/lib/scope/detectCircular';
 import * as oldSummarizeValue from '../../../src/lib/scope/recorders/summarizeValue';
 
@@ -37,11 +36,6 @@ describe('moved leaves — the old paths re-export for one minor', () => {
     } finally {
       devMode.disableDevMode();
     }
-  });
-
-  it('recorder/invokeHook re-exports capture/invokeHook', () => {
-    expect(Object.keys(oldInvokeHook)).toEqual(['invokeRecorderHook']);
-    expect(oldInvokeHook.invokeRecorderHook).toBe(invokeHook.invokeRecorderHook);
   });
 
   it('scope/recorders/summarizeValue re-exports capture/summarize · summarizeValue', () => {

@@ -13,19 +13,11 @@
 import { deepFreeze } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
-import type { RedactionRule } from '../memory/redaction.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
-import { DEFAULT_RUN_POLICY, derivePolicy } from '../memory/runPolicy.js';
+import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type {
-  CommitBundle,
-  CommitValuesMode,
-  ReadTrackingMode,
-  StageSnapshot,
-  WriteProvenanceMode,
-  WriteTrackingMode,
-} from '../memory/types.js';
+import type { CommitBundle, CommitValuesMode, StageSnapshot, WriteProvenanceMode } from '../memory/types.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -210,48 +202,6 @@ export class ExecutionRuntime {
   usePolicy(policy: RunPolicy): void {
     this.policy = policy;
     this.installPolicy(this.rootStageContext);
-  }
-
-  // ── Deprecated setters (9.35.0) — forwarders over the run policy ──────────
-  // Each derives a new frozen policy from the ROOT frame's (what the old
-  // setters wrote to) and installs it with `usePolicy`.
-
-  private derive(patch: Partial<RunPolicy>): void {
-    this.usePolicy(derivePolicy(this.rootStageContext.getPolicy(), patch));
-  }
-
-  /** @deprecated since 9.35.0 — construct with `runPolicy({ readTracking })`, or `usePolicy`. */
-  useReadTracking(mode: ReadTrackingMode): void {
-    this.derive({ readTracking: mode });
-  }
-
-  /** @deprecated since 9.35.0 — construct with `runPolicy({ writeTracking })`, or `usePolicy`. */
-  useWriteTracking(mode: WriteTrackingMode): void {
-    this.derive({ writeTracking: mode });
-  }
-
-  /** @deprecated since 9.35.0 — construct with `runPolicy({ commitValues })`, or `usePolicy`. */
-  useCommitValues(mode: CommitValuesMode): void {
-    this.derive({ commitValues: mode });
-  }
-
-  /** @deprecated since 9.35.0 — construct with `runPolicy({ writeProvenance })`, or `usePolicy`. */
-  useWriteProvenance(mode: WriteProvenanceMode): void {
-    this.derive({ writeProvenance: mode });
-  }
-
-  /** @deprecated since 9.35.0 — construct with `runPolicy(dials, rule)`, or `usePolicy`. */
-  useRedaction(rule: RedactionRule): void {
-    this.derive({ redaction: rule });
-  }
-
-  /**
-   * @deprecated since 9.35.0 — construct with `runPolicy(dials, rule, true)`.
-   * Idempotent, as before: a runtime that already keeps a mirror is untouched.
-   */
-  enableRedactedMirror(): void {
-    if (this.redactedStore) return;
-    this.derive({ mirror: true });
   }
 
   /**

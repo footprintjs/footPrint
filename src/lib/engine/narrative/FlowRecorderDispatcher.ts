@@ -4,14 +4,15 @@
  * Implements IControlFlowNarrative so it can replace the single
  * ControlFlowNarrativeGenerator in the traverser's HandlerDeps.
  *
- * Design mirrors ScopeFacade._invokeHook: iterate recorders, call optional
- * hooks, swallow errors so a failing recorder never breaks execution.
+ * Every event goes through `recorder/hooks.ts · fire` (the one per-recorder loop): a failing
+ * recorder is warned about in dev mode and never breaks execution — even when what it threw
+ * cannot be turned into a string.
  *
  * When no recorders are attached, every method is a fast no-op (empty array check).
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
-import { isDevMode } from '../../devMode.js';
+import { fire, warnInDevMode } from '../../recorder/hooks.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
@@ -24,6 +25,9 @@ import type {
   StageType,
   TraversalContext,
 } from './types.js';
+
+/** The flow channel's isolation: a throwing recorder is warned about in dev mode, then skipped. */
+const FLOW_FAILURE = warnInDevMode('FlowRecorderDispatcher');
 
 export class FlowRecorderDispatcher implements IControlFlowNarrative {
   private recorders: FlowRecorder[] = [];
@@ -58,26 +62,13 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   ): void {
     if (this.recorders.length === 0) return;
     const event: FlowStageEvent = { stageName, description, traversalContext, stageType };
-    for (const r of this.recorders) {
-      try {
-        r.onStageExecuted?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onStageExecuted: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onStageExecuted', event, FLOW_FAILURE);
   }
 
   onNext(fromStage: string, toStage: string, description?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { from: fromStage, to: toStage, description, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onNext?.(event);
-      } catch (err) {
-        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onNext: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onNext', event, FLOW_FAILURE);
   }
 
   onDecision(
@@ -97,26 +88,13 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       traversalContext,
       evidence,
     };
-    for (const r of this.recorders) {
-      try {
-        r.onDecision?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onDecision: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onDecision', event, FLOW_FAILURE);
   }
 
   onFork(parentStage: string, childNames: string[], traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { parent: parentStage, children: childNames, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onFork?.(event);
-      } catch (err) {
-        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onFork: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onFork', event, FLOW_FAILURE);
   }
 
   onSelected(
@@ -128,14 +106,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   ): void {
     if (this.recorders.length === 0) return;
     const event = { parent: parentStage, selected: selectedNames, total: totalCount, traversalContext, evidence };
-    for (const r of this.recorders) {
-      try {
-        r.onSelected?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSelected: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onSelected', event, FLOW_FAILURE);
   }
 
   onSubflowEntry(
@@ -147,14 +118,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   ): void {
     if (this.recorders.length === 0) return;
     const event = { name: subflowName, subflowId, description, traversalContext, mappedInput };
-    for (const r of this.recorders) {
-      try {
-        r.onSubflowEntry?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowEntry: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onSubflowEntry', event, FLOW_FAILURE);
   }
 
   onSubflowExit(
@@ -165,39 +129,19 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   ): void {
     if (this.recorders.length === 0) return;
     const event = { name: subflowName, subflowId, traversalContext, outputState };
-    for (const r of this.recorders) {
-      try {
-        r.onSubflowExit?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowExit: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onSubflowExit', event, FLOW_FAILURE);
   }
 
   onSubflowRegistered(subflowId: string, name: string, description?: string, specStructure?: unknown): void {
     if (this.recorders.length === 0) return;
     const event = { subflowId, name, description, specStructure };
-    for (const r of this.recorders) {
-      try {
-        r.onSubflowRegistered?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onSubflowRegistered: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onSubflowRegistered', event, FLOW_FAILURE);
   }
 
   onLoop(targetStage: string, iteration: number, description?: string, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { target: targetStage, iteration, description, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onLoop?.(event);
-      } catch (err) {
-        if (isDevMode()) console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onLoop: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onLoop', event, FLOW_FAILURE);
   }
 
   onBreak(
@@ -213,28 +157,14 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       ...(reason !== undefined && { reason }),
       ...(propagatedFromSubflow !== undefined && { propagatedFromSubflow }),
     };
-    for (const r of this.recorders) {
-      try {
-        r.onBreak?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onBreak: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onBreak', event, FLOW_FAILURE);
   }
 
   onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const structuredError = extractErrorInfo(error);
     const event = { stageName, message: errorMessage, structuredError, traversalContext, channel: 'flow' as const };
-    for (const r of this.recorders) {
-      try {
-        r.onError?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onError: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onError', event, FLOW_FAILURE);
   }
 
   onStageRetry(
@@ -259,14 +189,7 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       traversalContext,
       channel: 'flow' as const,
     };
-    for (const r of this.recorders) {
-      try {
-        r.onStageRetry?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onStageRetry: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onStageRetry', event, FLOW_FAILURE);
   }
 
   onPause(
@@ -278,66 +201,31 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
   ): void {
     if (this.recorders.length === 0) return;
     const event = { stageName, stageId, pauseData, subflowPath, traversalContext, channel: 'flow' as const };
-    for (const r of this.recorders) {
-      try {
-        r.onPause?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onPause: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onPause', event, FLOW_FAILURE);
   }
 
   onResume(stageName: string, stageId: string, hasInput: boolean, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { stageName, stageId, hasInput, traversalContext, channel: 'flow' as const };
-    for (const r of this.recorders) {
-      try {
-        r.onResume?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onResume: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onResume', event, FLOW_FAILURE);
   }
 
   onRunStart(input: unknown, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { payload: input, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onRunStart?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onRunStart: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onRunStart', event, FLOW_FAILURE);
   }
 
   onRunEnd(output: unknown, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { payload: output, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onRunEnd?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onRunEnd: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onRunEnd', event, FLOW_FAILURE);
   }
 
   onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext): void {
     if (this.recorders.length === 0) return;
     const event = { structuredError: error, traversalContext };
-    for (const r of this.recorders) {
-      try {
-        r.onRunFailed?.(event);
-      } catch (err) {
-        if (isDevMode())
-          console.warn(`[footprint] FlowRecorderDispatcher: recorder "${r.id}" threw in onRunFailed: ${err}`);
-      }
-    }
+    fire(this.recorders, 'onRunFailed', event, FLOW_FAILURE);
   }
 
   /**
