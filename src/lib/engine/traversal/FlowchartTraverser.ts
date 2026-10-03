@@ -1237,7 +1237,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         for (const [key, def] of Object.entries(resolved.subflows)) {
           const prefixedKey = joinPath(node.subflowId!, key);
           if (!this.subflows[prefixedKey]) {
-            // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): the
+            // Prefixed like the builder's `_mountSubflow` (9.37.0 fix): the
             // nested root's ids live under the lazy mount's path too.
             this.subflows[prefixedKey] = {
               root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, node.subflowId!),
@@ -1740,7 +1740,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Nested subflows inside the branch chart, same prefixing.
     if (chart.subflows) {
       for (const [key, def] of Object.entries(chart.subflows)) {
-        // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): without it
+        // Prefixed like the builder's `_mountSubflow` (9.37.0 fix): without it
         // every branch ran its nested subflow's stages under ONE id.
         this.subflows[joinPath(subflowId, key)] = {
           root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, subflowId),

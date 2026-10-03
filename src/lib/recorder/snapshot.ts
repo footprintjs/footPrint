@@ -5,7 +5,7 @@
  * cannot spoof its own `id` (the executor's, and consumers index by it) and nothing it adds
  * beyond the contract leaks into the snapshot. The cost is that a field this copier forgets
  * is dropped in silence — which is why there is exactly one copier, and why
- * `FlowChartExecutor · collectRecorderSnapshots` and `CompositeRecorder · toSnapshot` both
+ * `runner/snapshot.ts · collectRecorderSnapshots` and `CompositeRecorder · toSnapshot` both
  * call it (the composite used to keep only `name`/`data` and lost `meta`/`description`).
  *
  * A new bundle field is: one member on `RecorderSnapshot` (runner/ExecutionRuntime.ts) and

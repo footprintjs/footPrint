@@ -294,10 +294,16 @@ class BranchCursor<TOut, TScope> {
     this.admit(id, 'segment');
 
     const subflowName = mountName || id;
-    const prefixedRoot = this.b._prefixNodeTree(subflow.root, id);
+    this.b._mountSubflow(id, subflow, () => this.placeSubflowBranch(id, subflow, subflowName, options));
+  }
 
-    this.b._registerSubflowDef(id, prefixedRoot);
-
+  /** The branch mount's own node + spec, placed under the decider/selector (see `_mountSubflow`). */
+  private placeSubflowBranch(
+    id: string,
+    subflow: FlowChart<any, any>,
+    subflowName: string,
+    options: SubflowMountOptions | undefined,
+  ): void {
     const node: StageNode<TOut, TScope> = {
       name: subflowName,
       id,
@@ -329,9 +335,6 @@ class BranchCursor<TOut, TScope> {
 
     this.attach(node, spec, id);
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
-
-    this.b._mergeStageMap(subflow.stageMap, id);
-    this.b._mergeSubflows(subflow.subflows, id);
   }
 
   lazySubflowBranch(
@@ -1779,50 +1782,45 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const subflowName = mountName || id;
     const forkId = cur.id;
-    const prefixedRoot = this._prefixNodeTree(subflow.root, id);
+    this._mountSubflow(id, subflow, () => {
+      const node: StageNode<TOut, TScope> = {
+        name: subflowName,
+        id,
+        isSubflowRoot: true,
+        subflowId: id,
+        subflowName,
+      };
+      if (options) node.subflowMountOptions = options;
 
-    this._registerSubflowDef(id, prefixedRoot);
+      const spec: SerializedPipelineStructure = {
+        name: subflowName,
+        type: 'stage',
+        id,
+        isSubflowRoot: true,
+        subflowId: id,
+        subflowName,
+        isParallelChild: true,
+        parallelGroupId: forkId,
+        subflowStructure: subflow.buildTimeStructure,
+      };
 
-    const node: StageNode<TOut, TScope> = {
-      name: subflowName,
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-    };
-    if (options) node.subflowMountOptions = options;
+      // The mount's ONLY tag site: the cursor stays on the parent (see
+      // `_cursorTail`), so `.tag()` after this call refuses.
+      applyTags(node, spec, options?.tags, `addSubFlowChart('${id}')`);
 
-    const spec: SerializedPipelineStructure = {
-      name: subflowName,
-      type: 'stage',
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-      isParallelChild: true,
-      parallelGroupId: forkId,
-      subflowStructure: subflow.buildTimeStructure,
-    };
-
-    // The mount's ONLY tag site: the cursor stays on the parent (see
-    // `_cursorTail`), so `.tag()` after this call refuses.
-    applyTags(node, spec, options?.tags, `addSubFlowChart('${id}')`);
-
-    curSpec.type = 'fork';
-    cur.children = cur.children || [];
-    cur.children.push(node);
-    curSpec.children = curSpec.children || [];
-    curSpec.children.push(spec);
-    this._knownStageIds.add(id);
-    // L7.3 — Subflow mount: stage event + fork edge + mount lifecycle
-    // event. Mount-only semantics: parent recorders do NOT replay the
-    // subflow's own internal structure events.
-    this._fireStageAdded(spec);
-    this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
-    this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
-
-    this._mergeStageMap(subflow.stageMap, id);
-    this._mergeSubflows(subflow.subflows, id);
+      curSpec.type = 'fork';
+      cur.children = cur.children || [];
+      cur.children.push(node);
+      curSpec.children = curSpec.children || [];
+      curSpec.children.push(spec);
+      this._knownStageIds.add(id);
+      // L7.3 — Subflow mount: stage event + fork edge + mount lifecycle
+      // event. Mount-only semantics: parent recorders do NOT replay the
+      // subflow's own internal structure events.
+      this._fireStageAdded(spec);
+      this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
+      this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
+    });
     this._appendSubflowDescription(id, subflowName, subflow);
 
     this._cursorTail = `the subflow mount '${subflowName}'`;
@@ -1963,46 +1961,41 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
-    const prefixedRoot = this._prefixNodeTree(subflow.root, id);
+    this._mountSubflow(id, subflow, () => {
+      const node: StageNode<TOut, TScope> = {
+        name: subflowName,
+        id,
+        isSubflowRoot: true,
+        subflowId: id,
+        subflowName,
+      };
+      if (options) node.subflowMountOptions = options;
 
-    this._registerSubflowDef(id, prefixedRoot);
+      const attachedSpec: SerializedPipelineStructure = {
+        name: subflowName,
+        type: 'stage',
+        id,
+        isSubflowRoot: true,
+        subflowId: id,
+        subflowName,
+        subflowStructure: subflow.buildTimeStructure,
+      };
 
-    const node: StageNode<TOut, TScope> = {
-      name: subflowName,
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-    };
-    if (options) node.subflowMountOptions = options;
+      // A linear mount moves the cursor, so `.tag()` after it also works —
+      // `applyTags` refuses a second declaration if both sites are used.
+      applyTags(node, attachedSpec, options?.tags, `addSubFlowChartNext('${id}')`);
 
-    const attachedSpec: SerializedPipelineStructure = {
-      name: subflowName,
-      type: 'stage',
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-      subflowStructure: subflow.buildTimeStructure,
-    };
-
-    // A linear mount moves the cursor, so `.tag()` after it also works —
-    // `applyTags` refuses a second declaration if both sites are used.
-    applyTags(node, attachedSpec, options?.tags, `addSubFlowChartNext('${id}')`);
-
-    const parentSpec = curSpec;
-    cur.next = node;
-    curSpec.next = attachedSpec;
-    this._cursor = node;
-    this._advanceCursorSpec(attachedSpec);
-    this._knownStageIds.add(id);
-    // L7.3 — Linear-mount subflow.
-    this._fireStageAdded(attachedSpec);
-    this._fireNextEdgeFromParent(parentSpec, id);
-    this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
-
-    this._mergeStageMap(subflow.stageMap, id);
-    this._mergeSubflows(subflow.subflows, id);
+      const parentSpec = curSpec;
+      cur.next = node;
+      curSpec.next = attachedSpec;
+      this._cursor = node;
+      this._advanceCursorSpec(attachedSpec);
+      this._knownStageIds.add(id);
+      // L7.3 — Linear-mount subflow.
+      this._fireStageAdded(attachedSpec);
+      this._fireNextEdgeFromParent(parentSpec, id);
+      this._fireSubflowMounted(id, subflowName, id, false, subflow.buildTimeStructure);
+    });
     this._appendSubflowDescription(id, subflowName, subflow);
 
     return this;
@@ -2473,14 +2466,25 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return prefixNodeTree(node, prefix);
   }
 
-  _mergeSubflows(subflows: Record<string, { root: StageNode<TOut, TScope> }> | undefined, prefix: string) {
-    if (!subflows) return;
-    for (const [key, def] of Object.entries(subflows)) {
-      const prefixedKey = joinPath(prefix, key);
+  /**
+   * THE mount of a subflow chart under `id` (F10) — every eager mount site
+   * (`addSubFlowChart`, `addSubFlowChartNext`, a decider/selector
+   * `addSubFlowChartBranch`) goes through it, and it is the one caller of the
+   * prefixer. In order: register the chart's prefixed root under `id`;
+   * `place` the mount's own node + spec and fire its structure events; merge
+   * the chart's stage map under `id`; register its nested subflows under
+   * `id/<key>` (a key already registered is kept).
+   */
+  _mountSubflow(id: string, subflow: FlowChart<any, any>, place: () => void): void {
+    const prefixed = (root: StageNode<TOut, TScope>) => this._prefixNodeTree(root, id);
+    this._registerSubflowDef(id, prefixed(subflow.root));
+    place();
+    this._mergeStageMap(subflow.stageMap, id);
+    if (!subflow.subflows) return;
+    for (const [key, def] of Object.entries(subflow.subflows)) {
+      const prefixedKey = joinPath(id, key);
       if (!this._subflowDefs.has(prefixedKey)) {
-        this._subflowDefs.set(prefixedKey, {
-          root: this._prefixNodeTree(def.root as StageNode<TOut, TScope>, prefix),
-        });
+        this._subflowDefs.set(prefixedKey, { root: prefixed(def.root as StageNode<TOut, TScope>) });
       }
     }
   }
