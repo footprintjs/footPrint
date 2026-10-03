@@ -138,8 +138,11 @@ export class StageRunner<TOut = any, TScope = any> {
 
 /**
  * Record WHICH execution paused on the signal (first stamp wins) — the stage
- * boundary is the one place that knows it; the checkpoint carries it so a
- * resume can link to the paused execution (`TraversalContext.resumedFrom`).
+ * boundary is the one place that knows its runtimeStageId (the run is added
+ * when the checkpoint is built — `PauseSignal · completeExecution`); the
+ * checkpoint carries it so a resume can link to the paused execution
+ * (`TraversalContext.resumedFrom`). Synchronous on purpose: an extra await
+ * here would reorder parallel siblings' microtasks.
  */
 function stampedPause(signal: PauseSignal, context: StageContext): PauseSignal {
   signal.stampExecution(context.runtimeStageId);

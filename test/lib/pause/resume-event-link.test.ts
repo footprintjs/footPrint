@@ -161,6 +161,42 @@ describe('the resume event carries the real path, depth and a link', () => {
     }
   });
 
+  it('a second paused sibling keeps its OWN link through the resume of the first (same and cross executor)', async () => {
+    const ask = (k: string) => (s: S) => {
+      s[k] = interrupt(s, { k });
+    };
+    for (const cross of [false, true]) {
+      const make = () =>
+        flowChart('Init', () => undefined, 'init')
+          .addListOfFunction([
+            { id: 'fa', name: 'FA', fn: ask('a') },
+            { id: 'fb', name: 'FB', fn: ask('b') },
+          ])
+          .addFunction('End', () => undefined, 'end')
+          .build();
+      const r = recorder();
+      let executor = new FlowChartExecutor(make());
+      executor.attachFlowRecorder(r.flow);
+      await executor.run();
+      const runId = r.seen.onPause[0].runId;
+      const pauses = new Map(r.seen.onPause.map((c) => [c.stageId, c.runtimeStageId]));
+      for (let leg = 0; leg < 2; leg++) {
+        let cp = executor.getCheckpoint()!;
+        if (cross) {
+          cp = JSON.parse(JSON.stringify(cp));
+          executor = new FlowChartExecutor(make());
+          executor.attachFlowRecorder(r.flow);
+        }
+        await executor.resume(cp, leg);
+      }
+      // Both resumes link to the execution that paused, in the FIRST run.
+      expect(r.seen.onResume.map((c) => c.resumedFrom)).toEqual([
+        { runId, runtimeStageId: pauses.get('fa') },
+        { runId, runtimeStageId: pauses.get('fb') },
+      ]);
+    }
+  });
+
   it('a newly made checkpoint gains exactly one field, pausedExecution', async () => {
     const executor = new FlowChartExecutor(nestedPauseChart());
     await executor.run();

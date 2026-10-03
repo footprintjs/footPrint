@@ -125,9 +125,14 @@ describe.each(MODES)('two fork children both pause — %s-executor', (mode) => {
         subflowStates: { c2: { log: ['c2-start'] } },
         pauseData: { who: 'c2' },
         pausedBy: 'interrupt',
+        // 9.37.0 (F7): the execution c2 paused in — its own resume links to it.
+        pausedExecution: { runId: expect.any(String), runtimeStageId: 'c2/ask#6' },
       },
     ]);
     expect(run.checkpoints[1].pendingPauses).toBeUndefined();
+    // c2's checkpoint names c2's OWN execution, in the run it paused in (the first leg).
+    expect(run.checkpoints[1].pausedExecution).toEqual(run.checkpoints[0].pendingPauses![0].pausedExecution);
+    expect(run.checkpoints[1].pausedExecution!.runId).toBe(run.checkpoints[0].pausedExecution!.runId);
     expect(run.state.joined).toEqual({ c1: ['c1-start', 'c1-ans1'], c2: ['c2-start', 'c2-ans2'], q: undefined });
     // pre, c1-start, c2-start once each (the run); the join once (the last resume).
     expect(runs).toEqual(['pre', 'c1-start', 'c2-start', 'join']);

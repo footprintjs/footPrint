@@ -51,7 +51,7 @@ import { pickDials, runPolicy } from '../memory/runPolicy.js';
 import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
-import { isPauseSignal } from '../pause/types.js';
+import { isPausedExecution, isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
@@ -115,9 +115,8 @@ const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
  * than guessed.
  */
 function resumeLinkOf(checkpoint: FlowchartCheckpoint): ResumeLink | undefined {
-  const paused = checkpoint.pausedExecution as { runId?: unknown; runtimeStageId?: unknown } | undefined;
-  if (typeof paused?.runId !== 'string' || typeof paused.runtimeStageId !== 'string') return undefined;
-  return { runId: paused.runId, runtimeStageId: paused.runtimeStageId };
+  const paused: unknown = checkpoint.pausedExecution;
+  return isPausedExecution(paused) ? { runId: paused.runId, runtimeStageId: paused.runtimeStageId } : undefined;
 }
 
 /**
@@ -996,6 +995,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * scope (e.g. an Agent's `scope.history`). Empty `{}` for root-level pauses.
    */
   private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
+    // Every pause that paused in THIS run is named by it; a sibling raised again
+    // on resume keeps the run it originally paused in.
+    signal.completeExecution(this._currentRunId);
     const snapshot = this.traverser.getSnapshot();
     const sfResults = this.traverser.getSubflowResults();
     // Lean subflowResults for the checkpoint (design: docs/design/subflow-commit-visibility.md):
@@ -1022,10 +1024,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
-      // The paused EXECUTION (9.37.0) — what the resume event links to.
-      ...(signal.runtimeStageId !== undefined && {
-        pausedExecution: { runId: this._currentRunId, runtimeStageId: signal.runtimeStageId },
-      }),
+      // The paused EXECUTION (9.37.0) — a queued sibling raised on resume
+      // carries the run it ORIGINALLY paused in.
+      ...(signal.pausedExecution && { pausedExecution: signal.pausedExecution }),
       subflowPath: signal.subflowPath,
       pauseData: signal.pauseData,
       subflowStates: signal.subflowStates,

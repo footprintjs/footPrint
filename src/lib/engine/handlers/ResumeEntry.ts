@@ -63,7 +63,7 @@
  */
 
 import type { PendingPause } from '../../pause/types.js';
-import { PauseSignal } from '../../pause/types.js';
+import { isPausedExecution, PauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 
 /**
@@ -290,6 +290,10 @@ export function raiseQueuedPause(queue: readonly QueuedPause[]): PauseSignal {
   const [first, ...rest] = queue;
   const { pause, level } = first;
   const signal = new PauseSignal(pause.pauseData, pause.pausedStageId, pause.pausedBy);
+  // The sibling paused in an EARLIER run: its own execution, not this run's.
+  if (isPausedExecution(pause.pausedExecution)) {
+    signal.stampExecution(pause.pausedExecution.runtimeStageId, pause.pausedExecution.runId);
+  }
   const below = pause.subflowPath.slice(level);
   for (let i = below.length - 1; i >= 0; i--) {
     const state = ownEntry(pause.subflowStates, below[i]);
@@ -590,6 +594,11 @@ function validPendingPause(raw: unknown, n: number): PendingPause {
     subflowStates: (states as Record<string, Record<string, unknown>> | undefined) ?? {},
     ...(record.pauseData !== undefined && { pauseData: record.pauseData }),
     ...(record.pausedBy === 'interrupt' && { pausedBy: 'interrupt' as const }),
+    // A record, never a plan input: kept only when well-formed (an older or
+    // hand-edited entry simply resumes without a link).
+    ...(isPausedExecution(record.pausedExecution) && {
+      pausedExecution: { runId: record.pausedExecution.runId, runtimeStageId: record.pausedExecution.runtimeStageId },
+    }),
   };
 }
 

@@ -23,7 +23,7 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
-import { buildRuntimeStageId, joinPath } from '../../ids/runtimeStageId.js';
+import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
@@ -891,6 +891,41 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
   }
 
+  /**
+   * R5 for ids a stage ADOPTS at run time (a returned StageNode's `next` chain,
+   * `children` and subflow ids): the same refusal the builder's doors apply —
+   * `ids/runtimeStageId.ts · refuseReservedId` — so "no user id carries a
+   * grammar delimiter" stays true by construction. Loop-ref stubs (they name an
+   * existing node) and the chart's own nodes (admitted at build; a prefixed id
+   * carries `/` on purpose) are not new ids and are skipped. A subflow
+   * definition's own tree is a built chart and is not walked.
+   */
+  private admitDynamicIds(output: unknown): void {
+    if (!output || typeof output !== 'object' || !isStageNodeReturn(output)) return;
+    const root = output as StageNode<TOut, TScope>;
+    const refuse = (refusal: string | undefined) => {
+      if (refusal !== undefined) throw new Error(`[footprint] dynamic StageNode: ${refusal}`);
+    };
+    if (root.subflowId) refuse(refuseReservedId('dynamic subflow id', root.subflowId, 'segment'));
+    const seen = new Set<StageNode<TOut, TScope>>();
+    const stack: Array<StageNode<TOut, TScope> | undefined> = [root.next, ...(root.children ?? [])];
+    while (stack.length > 0) {
+      const n = stack.pop();
+      if (!n || seen.has(n) || n.isLoopRef) continue;
+      seen.add(n);
+      const refusal =
+        refuseReservedId('dynamic stage id', n.id, 'stage') ??
+        (n.subflowId ? refuseReservedId('dynamic subflow id', n.subflowId, 'segment') : undefined);
+      if (refusal !== undefined) {
+        // Only a SUSPECT id pays for the chart lookup: a chart node (and the
+        // chart below it) was admitted at build.
+        if (this.nodeResolver.findNodeById(n.id) === n) continue;
+        refuse(refusal);
+      }
+      stack.push(n.next, ...(n.children ?? []));
+    }
+  }
+
   /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
    *  predicate must never turn a failing stage into an endless retry loop. */
   private shouldRetry(policy: NonNullable<StageNode<TOut, TScope>['retry']>, error: unknown): boolean {
@@ -1071,7 +1106,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         for (const [key, def] of Object.entries(resolved.subflows)) {
           const prefixedKey = joinPath(node.subflowId!, key);
           if (!this.subflows[prefixedKey]) {
-            this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
+            // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): the
+            // nested root's ids live under the lazy mount's path too.
+            this.subflows[prefixedKey] = {
+              root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, node.subflowId!),
+            };
           }
         }
       }
@@ -1305,6 +1344,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (stageFunc) {
       try {
         stageOutput = await this.executeStage(node, stageFunc, context, breakFn, traversalContext);
+        // R5 at the run-time door: a returned StageNode adopts ids the builder
+        // never saw. Refused here, inside the try, so it takes the stage's
+        // error path (commit, onError, rethrow).
+        this.admitDynamicIds(stageOutput);
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
@@ -1579,7 +1622,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // Nested subflows inside the branch chart, same prefixing.
     if (chart.subflows) {
       for (const [key, def] of Object.entries(chart.subflows)) {
-        this.subflows[joinPath(subflowId, key)] = def as { root: StageNode<TOut, TScope> };
+        // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): without it
+        // every branch ran its nested subflow's stages under ONE id.
+        this.subflows[joinPath(subflowId, key)] = {
+          root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, subflowId),
+        };
       }
     }
   }
