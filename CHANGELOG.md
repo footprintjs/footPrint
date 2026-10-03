@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Type signatures (brands)
 
+- **No false loop passes inside `parallelForEach` branches.** A stage inside a nested subflow of a branch used to carry `loopIteration` 1/2/3 because sibling branches shared one unprefixed id and counted as re-entries; with the ids prefixed, only a real loop re-entry carries `loopIteration`.
 - `buildRuntimeStageId` returns `RuntimeStageId` (was `string`) and `parseRuntimeStageId(...).executionIndex` is `ExecutionIndex` (was `number`). Both are assignable to their plain types, so reading them needs no change. **Migration:** a variable that took its type from one of these and is later assigned a plain string/number needs an explicit `: string` / `: number` annotation.
 - Internal path move (not a public door): `lib/engine/runtimeStageId` → `lib/ids/runtimeStageId`, `lib/engine/branchSegment` → `lib/ids/branchSegment`. **Migration:** a deep import switches path; the public doors (`footprintjs/trace`, `footprintjs/advanced`) are unchanged.
 
