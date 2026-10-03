@@ -29,12 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     after:  [{ path: 'n', verb: 'set', readKeys: [] }, { path: 'flag', verb: 'set', readKeys: [] }]
   ```
 
-- **For library-internal callers** (`footprintjs/advanced`): `StageContext.useReadTracking` /
-  `useWriteTracking` / `useCommitValues` / `useWriteProvenance` and their getters, and
-  `ExecutionRuntime.use*` / `enableRedactedMirror`, are gone — pass a policy instead:
-  `new ExecutionRuntime(name, id, defaults, initial, runPolicy({ commitValues: 'delta' }))`, or
-  `ctx.usePolicy(runPolicy({ readTracking: 'off' }))` on a bare frame; read with `ctx.getPolicy()`.
-  `FlowChartExecutorOptions` now extends the new `RunDials` type (same four optional fields).
+- `FlowChartExecutorOptions` now extends the new `RunDials` type (same four optional fields). New on
+  `footprintjs/advanced`: `RunPolicy`, `runPolicy`, `DEFAULT_RUN_POLICY`; `StageContext.usePolicy` /
+  `getPolicy`; `ExecutionRuntime.usePolicy` / `newRoot` and a 5th constructor argument (the policy).
+
+### Deprecated
+
+- `StageContext.useReadTracking` / `useWriteTracking` / `useCommitValues` / `useWriteProvenance` and
+  their `get*` twins → `ctx.usePolicy(runPolicy({ readTracking: 'off' }))`, `ctx.getPolicy().readTracking`.
+- `ExecutionRuntime.useReadTracking` / `useWriteTracking` / `useCommitValues` / `useWriteProvenance` /
+  `useRedaction` / `enableRedactedMirror` → `new ExecutionRuntime(name, id, defaults, initial,
+  runPolicy(dials, rule, mirror))`, or `runtime.usePolicy(policy)`.
+- Each still works as on 9.34.0: it swaps in a derived frozen policy (`derivePolicy`) — no mutable dial
+  field returns. Pinned against the published package by
+  `test/lib/memory/deprecated-dial-forwarders.test.ts`.
 
 ## [9.34.0] - 2026-10-03
 

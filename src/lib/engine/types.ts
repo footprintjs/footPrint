@@ -482,6 +482,8 @@ export interface IExecutionRuntime {
    * subflow's seed frame for the frame its first stage runs on with it.
    */
   newRoot(name: string, id: string): StageContext;
+  /** @deprecated since 9.35.0 — the mirror follows `RunPolicy.mirror`; `ExecutionRuntime.enableRedactedMirror`. */
+  enableRedactedMirror?(): void;
   getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;
     executionTree: unknown;

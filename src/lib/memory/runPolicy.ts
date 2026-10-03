@@ -168,5 +168,15 @@ export function pickDials(source: RunDials): RunDials {
 
 /** The same policy under another rule — a NEW frozen object; the old one is never edited. */
 export function withRedaction(policy: RunPolicy, redaction: RedactionRule): RunPolicy {
-  return Object.freeze({ ...policy, redaction });
+  return derivePolicy(policy, { redaction });
+}
+
+/**
+ * The same policy with some settings changed — a NEW frozen object; the old one is never
+ * edited. What the deprecated per-dial setters (`StageContext.useReadTracking`,
+ * `ExecutionRuntime.useCommitValues`, …) delegate to: they swap in a derived policy, so no
+ * mutable dial field exists anywhere.
+ */
+export function derivePolicy(policy: RunPolicy, patch: Partial<RunPolicy>): RunPolicy {
+  return Object.freeze({ ...policy, ...patch });
 }
