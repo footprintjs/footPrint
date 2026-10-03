@@ -141,12 +141,11 @@ the cursor's stops read the same rows; a write that reached the key only
 through paths inside it carries a `'nested-rows'` note where the reader has a
 note channel (`keyTimeline`, `forwardSliceForKey`).
 
-**Known gap — the stop an outputMapper's merge-back lands in.** The bundle
-holding a merge-back is recorded under the runtimeStageId of the stage BEFORE
-the mount (`SubflowExecutor · executeSubflow`; slice/README.md has the
-details), so `commitStops` groups it into THAT stage's stop — the fold shows
-the merged value from the previous stage's stop on, and the mount's own stop
-folds two empty bundles. A stamp fix in the engine is its own packet.
+**The stop an outputMapper's merge-back lands in — the mount's (R13).** The
+bundle holding a merge-back is the mount's own first commit, so `commitStops`
+puts it in the mount's stop: the fold shows the merged value from the mount on,
+never from the stage before it. A recording made through 9.33.0 stamped it with
+the stage before the mount, and its axis folds it there, as recorded.
 
 ### `commitIndexOf(log, runtimeStageId)` / `buildCommitIndex(log)`
 
@@ -209,9 +208,10 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
   to exactly one stop, so `stateAt(stop)` is exactly the state the next stage
   started from.
 - **`'start'`** is the position before the first stage ran: the fold base, plus
-  any id-less leading commit — which is how a subflow's `inputMapper` seed
-  reaches the log. So on a drilled cursor, `'start'` is "the input this subflow
-  began with". On a FILTERING strategy's axis `'start'` means more than that and
+  a subflow's `inputMapper` seed when the log opens with one — the mount's
+  commit, stamped with the mount's runtimeStageId since R13 (whose stage address
+  is the subflow path of every stage in the log) and with `''` through 9.33.0.
+  So on a drilled cursor, `'start'` is "the input this subflow began with". On a FILTERING strategy's axis `'start'` means more than that and
   says so with `prologue: true` — see [gap 2](#2-what-start-folds-on-a-filtering-axis).
 - An **empty log yields no stops at all**, and every move then refuses with
   `'empty'`.

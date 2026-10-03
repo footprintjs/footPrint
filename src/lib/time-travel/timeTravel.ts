@@ -197,7 +197,7 @@ class Cursor<TMeta> implements TimeTravel<TMeta> {
     const start = from ?? this.stops[this.step - 1];
     // No earlier stop (we are at `'start'`) ⇒ everything up to here: nothing
     // on a run cursor, and the subflow's `inputMapper` seed on a drilled one
-    // (the start bookend covers the id-less commits that precede stage one).
+    // (the start bookend covers the seed that precedes stage one — `commitStops`).
     const toLeg = to.sourceIdx ?? 0;
     const fromLeg = start ? start.sourceIdx ?? 0 : toLeg;
     const afterIdx = start ? start.lastCommitIdx : -1;
