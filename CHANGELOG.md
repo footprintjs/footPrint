@@ -99,8 +99,8 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   the key) says `'deleted'`, not `'never-written'`; a redaction at or around the key that hid the write says
   `'redacted'` alone.
 - **`findLastWriterWithBasis(log, key, before?) → { writer?, basis }`**: `writer` is `findLastWriter`'s;
-  `basis` is `['never-written']` or `['nested-rows']` (the writer reached the key only through rows inside
-  it). `commitValueAt` and `findLastWriter` keep their signatures and answers.
+  `basis` is `['never-written']`, `['nested-rows']` (the writer reached the key only through rows inside
+  it), or `['redacted']` (no writer the log can see because a redaction at or around the key hid it). `commitValueAt` and `findLastWriter` keep their signatures and answers.
 - **Two new codes**, one sentence each in `HONESTY_CODES`: `'deleted'`, `'from-initial-state'` (21 codes).
   `'redacted'`'s sentence is reworded to be true of both emitters (a fold and a value basis). New exported
   unions `ValueBasis`, `WriterBasis` (through `RegisteredCode`).

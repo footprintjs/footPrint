@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { LOG_PLACEHOLDER } from '../../../../src/lib/memory/placeholders';
-import { commitValueAt, commitValueAtWithBasis, HONESTY_CODES } from '../../../../src/trace';
+import { commitValueAt, commitValueAtWithBasis, findLastWriterWithBasis, HONESTY_CODES } from '../../../../src/trace';
 
 async function run(policy: boolean) {
   const inner = flowChart(
@@ -106,5 +106,6 @@ describe('a removed base value and a hidden write', () => {
     );
     const log = snap.commitLog as any[];
     expect(commitValueAtWithBasis(log, log.length - 1, 'b\u001Fx')).toEqual({ value: undefined, basis: ['redacted'] });
+    expect(findLastWriterWithBasis(log, 'b\u001Fx')).toEqual({ basis: ['redacted'] });
   });
 });

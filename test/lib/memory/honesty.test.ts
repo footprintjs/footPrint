@@ -141,7 +141,7 @@ const HEADER = [
   "type TodayFed = 'per-write' | 'stage';",
   "type TodayAttribution = 'append-verb' | 'prefix-inference' | 'whole-value';",
   "type TodayValue = 'never-written' | 'deleted' | 'nested-rows' | 'from-initial-state' | 'redacted';",
-  "type TodayWriter = 'never-written' | 'nested-rows';",
+  "type TodayWriter = 'never-written' | 'nested-rows' | 'redacted';",
   // every declared vocabulary, plus the three codes a field carries instead of a `code` value
   'type Declared = HonestyNoteCode | MissingSliceReason | MissingProvenanceReason | FedBasis | AttributionBasis | FoldBasis | ' +
     'ValueBasis | WriterBasis | ' +

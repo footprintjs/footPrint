@@ -291,13 +291,14 @@ function redactionsInRange(
 /**
  * Why {@link findLastWriterWithBasis} answered what it did — registered in `HONESTY_CODES`:
  * `'never-written'` (no writer before the bound), `'nested-rows'` (the writer reached the key only
- * through rows inside it, so it wrote part of the value).
+ * through rows inside it, so it wrote part of the value), `'redacted'` (no writer the log can see, because a
+ * redaction at or around the key hid the write — the rule `commitValueAtWithBasis` follows).
  */
-export type WriterBasis = RegisteredCode<'never-written' | 'nested-rows'>;
+export type WriterBasis = RegisteredCode<'never-written' | 'nested-rows' | 'redacted'>;
 
 /** The last writer of a key, and the codes that say what kind of write it was — absent codes = a write on or around the key. */
 export interface WriterWithBasis {
-  /** Absent exactly when `basis` holds `'never-written'`. */
+  /** Absent exactly when `basis` holds `'never-written'` or `'redacted'`. */
   readonly writer?: CommitBundle;
   readonly basis: WriterBasis[];
 }
@@ -309,7 +310,10 @@ export interface WriterWithBasis {
  */
 export function findLastWriterWithBasis(commitLog: CommitBundle[], key: string, beforeIdx?: number): WriterWithBasis {
   const writer = findLastWriter(commitLog, key, beforeIdx);
-  if (writer === undefined) return { basis: ['never-written'] };
+  if (writer === undefined) {
+    const end = Math.min(beforeIdx ?? commitLog.length, commitLog.length) - 1;
+    return { basis: [redactionsInRange(commitLog, key, 0, end).hidden ? 'redacted' : 'never-written'] };
+  }
   return { writer, basis: writesOnlyInside(writer, key) ? ['nested-rows'] : [] };
 }
 

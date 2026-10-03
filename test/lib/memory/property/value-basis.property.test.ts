@@ -91,7 +91,10 @@ function checkLog(log: CommitBundle[], base: Record<string, unknown> | undefined
 
       const w = findLastWriterWithBasis(log, key, i + 1);
       expect(w.writer, `same writer ${at}`).toBe(findLastWriter(log, key, i + 1));
-      expect(w.basis.includes('never-written'), `writer reason ${at}`).toBe(w.writer === undefined);
+      expect(
+        w.basis.some((c) => c === 'never-written' || c === 'redacted'),
+        `writer reason ${at}`,
+      ).toBe(w.writer === undefined);
 
       if (base !== undefined && withBase !== undefined) {
         const folded = commitValueAtWithBasis(log, i, key, { initialState: base });
