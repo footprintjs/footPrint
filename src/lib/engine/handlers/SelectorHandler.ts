@@ -9,6 +9,7 @@
 
 import type { SelectionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
+import { thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -64,8 +65,8 @@ export class SelectorHandler<TOut = any, TScope = any> {
       }
       context.commit();
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
-      context.addError('stageExecutionError', error.toString());
-      this.deps.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
+      context.addError('stageExecutionError', thrownText(error));
+      this.deps.narrativeGenerator.onError(node.name, thrownText(error), error, traversalContext);
       throw error;
     }
 

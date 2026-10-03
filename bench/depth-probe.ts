@@ -6,7 +6,7 @@
  *
  * POST-TRAMPOLINE MODEL: `executeNode` is an iterative driver — linear
  * `next` hops and loop edges are followed in a flat loop, so neither the
- * engine's guard counter (`_executeDepth`, checked against
+ * engine's guard depth (`nestingDepthOf`, checked against
  * MAX_EXECUTE_DEPTH = 500) nor the retained promise chain grows with loop
  * iterations. Depth counts TREE nesting only (fork children, decider
  * branch dispatch with a decider-level continuation, subflow mount frames).
@@ -43,7 +43,7 @@ import { type BenchResult, formatNum, printHeader, printTable, writeResultsJson 
 export interface DepthStats {
   /** Total executeNode (driver) invocations across ALL traversers (root + subflows). */
   frames: number;
-  /** Peak of the engine's own `_executeDepth` within a single traverser —
+  /** Peak of the engine's own guard depth (`nestingDepthOf`) within a single traverser —
    *  the quantity the MAX_EXECUTE_DEPTH guard checks. Post-trampoline this
    *  counts TREE nesting only and must stay flat across loop iterations. */
   peakGuardDepth: number;
@@ -68,8 +68,8 @@ export function instrumentDepth(): { stats: DepthStats; restore: () => void } {
   proto.executeNode = async function (this: object, ...args: unknown[]) {
     stats.frames++;
 
-    // Engine's guard counter — sample what ++_executeDepth is about to become.
-    const guardDepth = (((this as Record<string, unknown>)._executeDepth as number) ?? 0) + 1;
+    // Engine's guard depth — what the driver about to run computes for its context.
+    const guardDepth = (this as { nestingDepthOf(c: unknown): number }).nestingDepthOf(args[1]);
     if (guardDepth > stats.peakGuardDepth) stats.peakGuardDepth = guardDepth;
 
     // True retained chain — decremented only when THIS frame resolves.
@@ -316,7 +316,7 @@ async function main() {
     {
       name: 'Guard depth per iteration',
       value: guardSlope.toFixed(1),
-      detail: 'engine _executeDepth slope — MUST be 0.0 (trampoline regression guard)',
+      detail: 'engine guard-depth slope — MUST be 0.0 (trampoline regression guard)',
       num: guardSlope,
       unit: 'count',
     },

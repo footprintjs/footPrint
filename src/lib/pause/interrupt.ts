@@ -89,12 +89,19 @@ export class InterruptSignal extends Error {
 
 /** Check if an error is an InterruptSignal. instanceof + name brand for cross-realm safety. */
 export function isInterruptSignal(error: unknown): error is InterruptSignal {
-  return (
-    error instanceof InterruptSignal ||
-    (error instanceof Error &&
-      error.name === 'InterruptSignal' &&
-      Object.prototype.hasOwnProperty.call(error, 'payload'))
-  );
+  // Total: a Proxy whose `getPrototypeOf` trap throws (or a revoked Proxy)
+  // is not a signal — the engine's catch blocks ask this first, and must
+  // not trade the stage's thrown value for the trap's error.
+  try {
+    return (
+      error instanceof InterruptSignal ||
+      (error instanceof Error &&
+        error.name === 'InterruptSignal' &&
+        Object.prototype.hasOwnProperty.call(error, 'payload'))
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
