@@ -13,14 +13,10 @@
  */
 
 import { isDevMode } from '../devMode.js';
-import {
-  BRANCH_SEGMENT_MARKER,
-  branchSegmentReservationMessage,
-  hasBranchSegmentMarker,
-} from '../ids/branchSegment.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
-import { joinPath } from '../ids/runtimeStageId.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
+import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegment.js';
+import { type IdPosition, joinPath, refuseReservedId } from '../ids/runtimeStageId.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
@@ -142,7 +138,28 @@ function applyTags(
 }
 
 /**
- * Refuse the reserved branch-segment marker in a user-authored SUBFLOW id.
+ * The builder's ONE id refusal (F7, R5): every id door calls it once, before
+ * the id lands anywhere. The rule lives with the grammar —
+ * `ids/runtimeStageId.ts · refuseReservedId`: `#` and `/` are refused in
+ * every id (they are the runtimeStageId grammar's delimiters), `~` in a
+ * `'segment'` id (a subflow id or a `parallelForEach` id — see below).
+ *
+ * Doors (one call each): `start`, `startSelector`, `addFunction`,
+ * `addStreamingFunction`, `addPausableFunction`, `addDeciderFunction`,
+ * `addSelectorFunction`, `addListOfFunction` (each child), `addParallelForEach`,
+ * every subflow mount (`assertSubflowIdAllowed`) and every decider/selector
+ * branch (`BranchCursor · admit`). `addDetachAndForget` /
+ * `addDetachAndJoinLater` and `addBranchList` delegate to one of these.
+ * Never called by the prefixer or a store — those hold ids that carry the
+ * delimiters on purpose.
+ */
+const admitId = (what: string, id: string, position: IdPosition): void => {
+  const refusal = refuseReservedId(what, id, position);
+  if (refusal !== undefined) fail(refusal);
+};
+
+/**
+ * Refuse the reserved characters in a user-authored SUBFLOW id.
  *
  * A subflow id IS a path segment in `runtimeStageId`, which is the same
  * position `addParallelForEach` generates its branch segments into. A
@@ -154,67 +171,72 @@ function applyTags(
  * 9.14.0 and does not use the marker behaves byte-identically.
  *
  * Called at every user-authored subflow-id entry point. Stage ids elsewhere
- * stay unvalidated by design — they occupy the `stageId` position, never the
- * `subflowPath` position, so they cannot collide with a segment.
- * (`addParallelForEach`'s own id is the one exception, refused at that method.)
- * Design: docs/design/execution-control.md.
+ * keep `~` (they occupy the `stageId` position, never the `subflowPath`
+ * position, so they cannot collide with a segment) but, since 9.37.0, not `#`
+ * or `/` — see `admitId`. (`addParallelForEach`'s own id is the one other
+ * `'segment'` id, refused at that method.) Design: docs/design/execution-control.md.
  */
-const assertSubflowIdAllowed = (id: string): void => {
-  if (hasBranchSegmentMarker(id)) fail(branchSegmentReservationMessage('subflow id', id));
-};
+const assertSubflowIdAllowed = (id: string): void => admitId('subflow id', id, 'segment');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DeciderList
+// BranchCursor — what DeciderList and SelectorFnList share (F7)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Which dispatcher a {@link BranchCursor} adds branches under. */
+type BranchKind = 'decider' | 'selector';
 
 /**
- * Fluent helper returned by addDeciderFunction to add branches.
- * `end()` sets `deciderFn = true` — the fn IS the decider.
+ * The branch-adding mechanics of a decider or a selector — ONE implementation,
+ * composed by {@link DeciderList} and {@link SelectorFnList} (until 9.36.0 each
+ * list carried its own copy of all four branch kinds and `end()`).
+ *
+ * Owns: the branch-id ledger (duplicate + reserved-character refusal in one
+ * `admit`), the node/spec pair each branch kind builds, the structure events,
+ * and the closing `finish`. The lists keep only what differs: a decider's
+ * `{ loopTo }` / `loopTo()` / `setDefault`, and the type each method returns.
  */
-export class DeciderList<TOut = any, TScope = any> {
-  private readonly b: FlowChartBuilder<TOut, TScope>;
-  private readonly curNode: StageNode<TOut, TScope>;
-  private readonly curSpec: SerializedPipelineStructure;
-  private readonly branchIds = new Set<string>();
-  private defaultId?: string;
-
-  private readonly parentDescriptionParts: string[];
-  private readonly parentStageDescriptions: Map<string, string>;
-  private readonly reservedStepNumber: number;
-  private readonly deciderDescription?: string;
+class BranchCursor<TOut, TScope> {
+  readonly branchIds = new Set<string>();
   private readonly branchDescInfo: Array<{ id: string; description?: string }> = [];
 
   constructor(
-    builder: FlowChartBuilder<TOut, TScope>,
-    curNode: StageNode<TOut, TScope>,
-    curSpec: SerializedPipelineStructure,
-    parentDescriptionParts: string[] = [],
-    parentStageDescriptions: Map<string, string> = new Map(),
-    reservedStepNumber = 0,
-    deciderDescription?: string,
-  ) {
-    this.b = builder;
-    this.curNode = curNode;
-    this.curSpec = curSpec;
-    this.parentDescriptionParts = parentDescriptionParts;
-    this.parentStageDescriptions = parentStageDescriptions;
-    this.reservedStepNumber = reservedStepNumber;
-    this.deciderDescription = deciderDescription;
+    private readonly kind: BranchKind,
+    readonly b: FlowChartBuilder<TOut, TScope>,
+    readonly curNode: StageNode<TOut, TScope>,
+    readonly curSpec: SerializedPipelineStructure,
+    readonly parentDescriptionParts: string[],
+    private readonly parentStageDescriptions: Map<string, string>,
+    private readonly reservedStepNumber: number,
+    private readonly description?: string,
+  ) {}
+
+  /** The one branch-id door: duplicate refusal, then the reserved characters (R5). */
+  private admit(id: string, position: IdPosition): void {
+    if (this.branchIds.has(id)) fail(`duplicate ${this.kind} branch id '${id}' under '${this.curNode.name}'`);
+    if (position === 'segment') assertSubflowIdAllowed(id);
+    else admitId('branch id', id, 'stage');
+    this.branchIds.add(id);
   }
 
-  addFunctionBranch(
+  /** Append the branch's node + spec and fire its stage and decision-branch edge. */
+  private attach(node: StageNode<TOut, TScope>, spec: SerializedPipelineStructure, id: string): void {
+    this.curNode.children = this.curNode.children || [];
+    this.curNode.children.push(node);
+    this.curSpec.children = this.curSpec.children || [];
+    this.curSpec.children.push(spec);
+    // L7.3 — branch: stage + decision-branch edge keyed by id.
+    this.b._fireStageAddedFromSubBuilder(spec);
+    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+  }
+
+  functionBranch(
     id: string,
     name: string,
-    fn?: StageFunction<TOut, TScope>,
-    description?: string,
-    /** `{ loopTo }` declares this branch loops back to an already-declared
-     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
-     *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
-     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
-  ): DeciderList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
-    this.branchIds.add(id);
+    fn: StageFunction<TOut, TScope> | undefined,
+    description: string | undefined,
+    options: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] } | undefined,
+  ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
+    this.admit(id, 'stage');
 
     const node: StageNode<TOut, TScope> = { name: name ?? id, id, branchId: id };
     if (description) node.description = description;
@@ -228,41 +250,19 @@ export class DeciderList<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
 
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Decider branch: stage + decision-branch edge keyed by id.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-
+    this.attach(node, spec, id);
     this.branchDescInfo.push({ id, description });
-    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
-    return this;
+    return { node, spec };
   }
 
-  /**
-   * Add a pausable stage as a decider branch.
-   *
-   * When this branch is chosen, the handler's `execute` runs. If it returns
-   * data, the pipeline pauses. On resume, `handler.resume` runs with the
-   * human's input. If `execute` returns void, the stage continues normally
-   * (conditional pause).
-   */
-  addPausableFunctionBranch(
+  pausableBranch(
     id: string,
     name: string,
     handler: PausableHandler<TScope>,
-    description?: string,
-    /** `{ loopTo }` declares this branch loops back to an already-declared
-     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
-     *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
-     *  `resume` half runs without it — a different function, a different
-     *  contract); `{ tags }` puts declared tags on it. */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
-  ): DeciderList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
-    this.branchIds.add(id);
+    description: string | undefined,
+    options: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] } | undefined,
+  ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
+    this.admit(id, 'stage');
 
     const node: StageNode<TOut, TScope> = {
       name: name ?? id,
@@ -280,28 +280,18 @@ export class DeciderList<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
 
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Pausable decider branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-
+    this.attach(node, spec, id);
     this.branchDescInfo.push({ id, description });
-    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
-    return this;
+    return { node, spec };
   }
 
-  addSubFlowChartBranch(
+  subflowBranch(
     id: string,
     subflow: FlowChart<any, any>,
-    mountName?: string,
-    options?: SubflowMountOptions,
-  ): DeciderList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
-    assertSubflowIdAllowed(id);
-    this.branchIds.add(id);
+    mountName: string | undefined,
+    options: SubflowMountOptions | undefined,
+  ): void {
+    this.admit(id, 'segment');
 
     const subflowName = mountName || id;
     const prefixedRoot = this.b._prefixNodeTree(subflow.root, id);
@@ -327,38 +317,30 @@ export class DeciderList<TOut = any, TScope = any> {
       subflowName,
       subflowStructure: subflow.buildTimeStructure,
     };
-    // STRUCTURE-ONLY convergence override — this branch's convergence edge
-    // points at `convergeAt` instead of the shared next stage (see
-    // `_fireNextEdgeFromParent`). Carried on the spec so the edge-firing
-    // chokepoint (which iterates child specs) can read it.
+    // STRUCTURE-ONLY convergence override (see `_fireNextEdgeFromParent` +
+    // `SubflowMountOptions.convergeAt`): this branch's convergence edge points at
+    // `convergeAt` (a DOWNSTREAM stage) instead of the shared next stage — e.g. a
+    // `tools` slot that bypasses `messageAPI` to pair with its output at
+    // `call-llm`. Visualization-only: NO runtime join barrier (data rides scope).
+    // Carried on the spec so the edge-firing chokepoint can read it.
     if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
     applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
 
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Subflow as decider branch: stage + decision edge + mount.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.attach(node, spec, id);
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
 
     this.b._mergeStageMap(subflow.stageMap, id);
     this.b._mergeSubflows(subflow.subflows, id);
-
-    return this;
   }
 
-  addLazySubFlowChartBranch(
+  lazySubflowBranch(
     id: string,
     resolver: () => FlowChart<any, any>,
-    mountName?: string,
-    options?: SubflowMountOptions,
-  ): DeciderList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate decider branch id '${id}' under '${this.curNode.name}'`);
-    assertSubflowIdAllowed(id);
-    this.branchIds.add(id);
+    mountName: string | undefined,
+    options: SubflowMountOptions | undefined,
+  ): void {
+    this.admit(id, 'segment');
 
     const subflowName = mountName || id;
 
@@ -388,15 +370,178 @@ export class DeciderList<TOut = any, TScope = any> {
 
     applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Lazy subflow as decider branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
+    this.attach(node, spec, id);
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
+  }
 
+  /**
+   * Close the dispatcher: validate the branches, flag the node, describe it,
+   * and fire `onDeciderComplete`. A decider passes its `setDefault` id (the
+   * synthetic `'default'` clone is appended AFTER `branchIds` is taken, so only
+   * user-specified branches are listed); a selector has no default.
+   */
+  finish(defaultId?: string): FlowChartBuilder<TOut, TScope> {
+    const kind = this.kind;
+    const children = this.curNode.children;
+    if (!children || children.length === 0) {
+      throw new Error(`[FlowChartBuilder] ${kind} at '${this.curNode.name}' requires at least one branch`);
+    }
+
+    // Validate that every branch with no embedded fn is resolvable from the stageMap
+    for (const child of children) {
+      if (!child.fn && child.id && !child.isSubflowRoot && !child.subflowResolver) {
+        const hasInMap = this.b._stageMapHas(child.id) || this.b._stageMapHas(child.name);
+        if (!hasInMap) {
+          throw new Error(
+            `[FlowChartBuilder] ${kind} branch '${child.id}' under '${this.curNode.name}' has no function — ` +
+              `provide a fn argument to addFunctionBranch('${child.id}', ...)`,
+          );
+        }
+      }
+    }
+
+    if (kind === 'decider') this.curNode.deciderFn = true;
+    else this.curNode.selectorFn = true;
+
+    this.curSpec.branchIds = children
+      .map((c) => c.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    this.curSpec.type = kind;
+    if (kind === 'selector') this.curSpec.hasSelector = true;
+
+    if (defaultId) {
+      const defaultChild = children.find((c) => c.id === defaultId);
+      if (defaultChild) {
+        children.push({ ...defaultChild, id: 'default', branchId: 'default' });
+      }
+    }
+
+    if (this.reservedStepNumber > 0) {
+      const label = this.curNode.name;
+      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
+      const mainLine =
+        kind === 'decider'
+          ? this.description
+            ? `${this.reservedStepNumber}. ${label} — ${this.description} (branches: ${branchIdList})`
+            : `${this.reservedStepNumber}. ${label} — Decides between: ${branchIdList}`
+          : this.description
+          ? `${this.reservedStepNumber}. ${label} — ${this.description}`
+          : `${this.reservedStepNumber}. ${label} — Selects from: ${branchIdList}`;
+      this.parentDescriptionParts.push(mainLine);
+
+      if (this.description) {
+        this.parentStageDescriptions.set(this.curNode.name, this.description);
+      }
+
+      for (const branch of this.branchDescInfo) {
+        if (branch.description) this.parentDescriptionParts.push(`   → ${branch.id}: ${branch.description}`);
+        if (branch.description) this.parentStageDescriptions.set(branch.id, branch.description);
+      }
+    }
+
+    // L7.3 — fire `onDeciderComplete` so consumers can trust no more
+    // branches will arrive. Branch iteration order = addition order = Set
+    // insertion order. Selectors have no default branch.
+    if (kind === 'decider') {
+      this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'decider', [...this.branchIds], defaultId);
+    } else {
+      this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'selector', [...this.branchIds]);
+    }
+    return this.b;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeciderList
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fluent helper returned by addDeciderFunction to add branches.
+ * `end()` sets `deciderFn = true` — the fn IS the decider.
+ */
+export class DeciderList<TOut = any, TScope = any> {
+  private readonly cursor: BranchCursor<TOut, TScope>;
+  private defaultId?: string;
+
+  constructor(
+    builder: FlowChartBuilder<TOut, TScope>,
+    curNode: StageNode<TOut, TScope>,
+    curSpec: SerializedPipelineStructure,
+    parentDescriptionParts: string[] = [],
+    parentStageDescriptions: Map<string, string> = new Map(),
+    reservedStepNumber = 0,
+    deciderDescription?: string,
+  ) {
+    this.cursor = new BranchCursor(
+      'decider',
+      builder,
+      curNode,
+      curSpec,
+      parentDescriptionParts,
+      parentStageDescriptions,
+      reservedStepNumber,
+      deciderDescription,
+    );
+  }
+
+  addFunctionBranch(
+    id: string,
+    name: string,
+    fn?: StageFunction<TOut, TScope>,
+    description?: string,
+    /** `{ loopTo }` declares this branch loops back to an already-declared
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
+     *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
+     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+  ): DeciderList<TOut, TScope> {
+    const { node, spec } = this.cursor.functionBranch(id, name, fn, description, options);
+    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
+    return this;
+  }
+
+  /**
+   * Add a pausable stage as a decider branch.
+   *
+   * When this branch is chosen, the handler's `execute` runs. If it returns
+   * data, the pipeline pauses. On resume, `handler.resume` runs with the
+   * human's input. If `execute` returns void, the stage continues normally
+   * (conditional pause).
+   */
+  addPausableFunctionBranch(
+    id: string,
+    name: string,
+    handler: PausableHandler<TScope>,
+    description?: string,
+    /** `{ loopTo }` declares this branch loops back to an already-declared
+     *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
+     *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
+     *  `resume` half runs without it — a different function, a different
+     *  contract); `{ tags }` puts declared tags on it. */
+    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+  ): DeciderList<TOut, TScope> {
+    const { node, spec } = this.cursor.pausableBranch(id, name, handler, description, options);
+    if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
+    return this;
+  }
+
+  addSubFlowChartBranch(
+    id: string,
+    subflow: FlowChart<any, any>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): DeciderList<TOut, TScope> {
+    this.cursor.subflowBranch(id, subflow, mountName, options);
+    return this;
+  }
+
+  addLazySubFlowChartBranch(
+    id: string,
+    resolver: () => FlowChart<any, any>,
+    mountName?: string,
+    options?: SubflowMountOptions,
+  ): DeciderList<TOut, TScope> {
+    this.cursor.lazySubflowBranch(id, resolver, mountName, options);
     return this;
   }
 
@@ -441,10 +586,10 @@ export class DeciderList<TOut = any, TScope = any> {
    * synthetic `'default'` clone are NOT valid loop targets.
    */
   loopTo(stageId: string): DeciderList<TOut, TScope> {
-    const children = this.curNode.children;
-    const specChildren = this.curSpec.children;
+    const children = this.cursor.curNode.children;
+    const specChildren = this.cursor.curSpec.children;
     if (!children || children.length === 0 || !specChildren || specChildren.length === 0) {
-      fail(`loopTo('${stageId}') called before any branch was added under '${this.curNode.name}'`);
+      fail(`loopTo('${stageId}') called before any branch was added under '${this.cursor.curNode.name}'`);
     }
     // fail() throws, so children/specChildren are non-empty here.
     this._applyBranchLoop(children![children!.length - 1]!, specChildren![specChildren!.length - 1]!, stageId);
@@ -469,7 +614,7 @@ export class DeciderList<TOut = any, TScope = any> {
     if (branchNode.next) {
       fail(`cannot set loopTo on branch '${branchSpec.id}' — it already has a continuation`);
     }
-    if (!this.b._knownStageIdsHas(stageId)) {
+    if (!this.cursor.b._knownStageIdsHas(stageId)) {
       fail(
         `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
           "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
@@ -483,75 +628,15 @@ export class DeciderList<TOut = any, TScope = any> {
 
     // Branch-scoped description — attribute the loop to the branch, not the
     // decider (parentDescriptionParts is the decider's description context).
-    this.parentDescriptionParts.push(`   → branch '${branchSpec.id}' loops back to ${stageId}`);
+    this.cursor.parentDescriptionParts.push(`   → branch '${branchSpec.id}' loops back to ${stageId}`);
 
     // Fire the loop back-edge SOURCED FROM THE BRANCH so visualizers read
     // `tool-calls → context`, not `Route → context`.
-    this.b._fireLoopEdgeAddedFromSubBuilder(branchSpec.id, stageId);
+    this.cursor.b._fireLoopEdgeAddedFromSubBuilder(branchSpec.id, stageId);
   }
 
   end(): FlowChartBuilder<TOut, TScope> {
-    const children = this.curNode.children;
-    if (!children || children.length === 0) {
-      throw new Error(`[FlowChartBuilder] decider at '${this.curNode.name}' requires at least one branch`);
-    }
-
-    // Validate that every branch with no embedded fn is resolvable from the stageMap
-    for (const child of children) {
-      if (!child.fn && child.id && !child.isSubflowRoot && !child.subflowResolver) {
-        const hasInMap = this.b._stageMapHas(child.id) || this.b._stageMapHas(child.name);
-        if (!hasInMap) {
-          throw new Error(
-            `[FlowChartBuilder] decider branch '${child.id}' under '${this.curNode.name}' has no function — ` +
-              `provide a fn argument to addFunctionBranch('${child.id}', ...)`,
-          );
-        }
-      }
-    }
-
-    this.curNode.deciderFn = true;
-
-    // Build branchIds BEFORE appending the synthetic default — only user-specified branches
-    this.curSpec.branchIds = children
-      .map((c) => c.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    this.curSpec.type = 'decider';
-
-    if (this.defaultId) {
-      const defaultChild = children.find((c) => c.id === this.defaultId);
-      if (defaultChild) {
-        children.push({ ...defaultChild, id: 'default', branchId: 'default' });
-      }
-    }
-
-    if (this.reservedStepNumber > 0) {
-      const deciderLabel = this.curNode.name;
-      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
-      const mainLine = this.deciderDescription
-        ? `${this.reservedStepNumber}. ${deciderLabel} — ${this.deciderDescription} (branches: ${branchIdList})`
-        : `${this.reservedStepNumber}. ${deciderLabel} — Decides between: ${branchIdList}`;
-      this.parentDescriptionParts.push(mainLine);
-
-      if (this.deciderDescription) {
-        this.parentStageDescriptions.set(this.curNode.name, this.deciderDescription);
-      }
-
-      for (const branch of this.branchDescInfo) {
-        const branchText = branch.description;
-        if (branchText) {
-          this.parentDescriptionParts.push(`   → ${branch.id}: ${branchText}`);
-        }
-        if (branch.description) {
-          this.parentStageDescriptions.set(branch.id, branch.description);
-        }
-      }
-    }
-
-    // L7.3 — fire `onDeciderComplete` so consumers can trust no more
-    // branches will arrive for this decider. Branch iteration order =
-    // addition order = Set insertion order.
-    this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'decider', [...this.branchIds], this.defaultId);
-    return this.b;
+    return this.cursor.finish(this.defaultId);
   }
 }
 
@@ -560,16 +645,7 @@ export class DeciderList<TOut = any, TScope = any> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class SelectorFnList<TOut = any, TScope = any> {
-  private readonly b: FlowChartBuilder<TOut, TScope>;
-  private readonly curNode: StageNode<TOut, TScope>;
-  private readonly curSpec: SerializedPipelineStructure;
-  private readonly branchIds = new Set<string>();
-
-  private readonly parentDescriptionParts: string[];
-  private readonly parentStageDescriptions: Map<string, string>;
-  private readonly reservedStepNumber: number;
-  private readonly selectorDescription?: string;
-  private readonly branchDescInfo: Array<{ id: string; description?: string }> = [];
+  private readonly cursor: BranchCursor<TOut, TScope>;
 
   constructor(
     builder: FlowChartBuilder<TOut, TScope>,
@@ -580,13 +656,16 @@ export class SelectorFnList<TOut = any, TScope = any> {
     reservedStepNumber = 0,
     selectorDescription?: string,
   ) {
-    this.b = builder;
-    this.curNode = curNode;
-    this.curSpec = curSpec;
-    this.parentDescriptionParts = parentDescriptionParts;
-    this.parentStageDescriptions = parentStageDescriptions;
-    this.reservedStepNumber = reservedStepNumber;
-    this.selectorDescription = selectorDescription;
+    this.cursor = new BranchCursor(
+      'selector',
+      builder,
+      curNode,
+      curSpec,
+      parentDescriptionParts,
+      parentStageDescriptions,
+      reservedStepNumber,
+      selectorDescription,
+    );
   }
 
   addFunctionBranch(
@@ -598,30 +677,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
      *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
     options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
-    this.branchIds.add(id);
-
-    const node: StageNode<TOut, TScope> = { name: name ?? id, id, branchId: id };
-    if (description) node.description = description;
-    if (fn) {
-      node.fn = fn;
-      this.b._addToMap(id, fn);
-    }
-
-    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
-    if (description) spec.description = description;
-    applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
-    applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
-
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Selector branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-
-    this.branchDescInfo.push({ id, description });
+    this.cursor.functionBranch(id, name, fn, description, options);
     return this;
   }
 
@@ -642,34 +698,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
      *  contract); `{ tags }` puts declared tags on it. */
     options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
-    this.branchIds.add(id);
-
-    const node: StageNode<TOut, TScope> = {
-      name: name ?? id,
-      id,
-      branchId: id,
-      fn: handler.execute as StageFunction<TOut, TScope>,
-      isPausable: true,
-      resumeFn: handler.resume,
-    };
-    if (description) node.description = description;
-    this.b._addToMap(id, handler.execute as StageFunction<TOut, TScope>);
-
-    const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
-    if (description) spec.description = description;
-    applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
-    applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
-
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Pausable selector branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-
-    this.branchDescInfo.push({ id, description });
+    this.cursor.pausableBranch(id, name, handler, description, options);
     return this;
   }
 
@@ -679,55 +708,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
-    assertSubflowIdAllowed(id);
-    this.branchIds.add(id);
-
-    const subflowName = mountName || id;
-    const prefixedRoot = this.b._prefixNodeTree(subflow.root, id);
-
-    this.b._registerSubflowDef(id, prefixedRoot);
-
-    const node: StageNode<TOut, TScope> = {
-      name: subflowName,
-      id,
-      branchId: id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-    };
-    if (options) node.subflowMountOptions = options;
-
-    const spec: SerializedPipelineStructure = {
-      name: subflowName,
-      type: 'stage',
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-      subflowStructure: subflow.buildTimeStructure,
-    };
-    // STRUCTURE-ONLY convergence override (see `_fireNextEdgeFromParent` +
-    // `SubflowMountOptions.convergeAt`): this branch's convergence edge points at
-    // `convergeAt` (a DOWNSTREAM stage) instead of the shared next stage — e.g. a
-    // `tools` slot that bypasses `messageAPI` to pair with its output at
-    // `call-llm`. Visualization-only: NO runtime join barrier (data rides scope).
-    if (options?.convergeAt) spec.convergeAt = options.convergeAt;
-
-    applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
-
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Subflow as selector branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
-
-    this.b._mergeStageMap(subflow.stageMap, id);
-    this.b._mergeSubflows(subflow.subflows, id);
-
+    this.cursor.subflowBranch(id, subflow, mountName, options);
     return this;
   }
 
@@ -737,44 +718,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): SelectorFnList<TOut, TScope> {
-    if (this.branchIds.has(id)) fail(`duplicate selector branch id '${id}' under '${this.curNode.name}'`);
-    assertSubflowIdAllowed(id);
-    this.branchIds.add(id);
-
-    const subflowName = mountName || id;
-
-    const node: StageNode<TOut, TScope> = {
-      name: subflowName,
-      id,
-      branchId: id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-      subflowResolver: resolver as any,
-    };
-    if (options) node.subflowMountOptions = options;
-
-    const spec: SerializedPipelineStructure = {
-      name: subflowName,
-      type: 'stage',
-      id,
-      isSubflowRoot: true,
-      subflowId: id,
-      subflowName,
-      isLazy: true,
-    };
-
-    applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
-
-    this.curNode.children = this.curNode.children || [];
-    this.curNode.children.push(node);
-    this.curSpec.children = this.curSpec.children || [];
-    this.curSpec.children.push(spec);
-    // L7.3 — Lazy subflow as selector branch.
-    this.b._fireStageAddedFromSubBuilder(spec);
-    this.b._fireEdgeAddedFromSubBuilder(this.curSpec.id, spec.id, 'decision-branch', id);
-    this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
-
+    this.cursor.lazySubflowBranch(id, resolver, mountName, options);
     return this;
   }
 
@@ -792,56 +736,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
   }
 
   end(): FlowChartBuilder<TOut, TScope> {
-    const children = this.curNode.children;
-    if (!children || children.length === 0) {
-      throw new Error(`[FlowChartBuilder] selector at '${this.curNode.name}' requires at least one branch`);
-    }
-
-    // Validate that every branch with no embedded fn is resolvable from the stageMap
-    for (const child of children) {
-      if (!child.fn && child.id && !child.isSubflowRoot && !child.subflowResolver) {
-        const hasInMap = this.b._stageMapHas(child.id) || this.b._stageMapHas(child.name);
-        if (!hasInMap) {
-          throw new Error(
-            `[FlowChartBuilder] selector branch '${child.id}' under '${this.curNode.name}' has no function — ` +
-              `provide a fn argument to addFunctionBranch('${child.id}', ...)`,
-          );
-        }
-      }
-    }
-
-    this.curNode.selectorFn = true;
-
-    this.curSpec.branchIds = children
-      .map((c) => c.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    this.curSpec.type = 'selector'; // was 'decider' — incorrect; selectors are distinct from deciders
-    this.curSpec.hasSelector = true;
-
-    if (this.reservedStepNumber > 0) {
-      const selectorLabel = this.curNode.name;
-      const branchIdList = this.branchDescInfo.map((b) => b.id).join(', ');
-      const mainLine = this.selectorDescription
-        ? `${this.reservedStepNumber}. ${selectorLabel} — ${this.selectorDescription}`
-        : `${this.reservedStepNumber}. ${selectorLabel} — Selects from: ${branchIdList}`;
-      this.parentDescriptionParts.push(mainLine);
-
-      if (this.selectorDescription) {
-        this.parentStageDescriptions.set(this.curNode.name, this.selectorDescription);
-      }
-
-      for (const branch of this.branchDescInfo) {
-        const branchText = branch.description;
-        if (branchText) this.parentDescriptionParts.push(`   → ${branch.id}: ${branchText}`);
-        if (branch.description) this.parentStageDescriptions.set(branch.id, branch.description);
-      }
-    }
-
-    // L7.3 — fire `onDeciderComplete` with type='selector'. Selectors
-    // have no default branch (multi-select semantics differ); pass
-    // undefined.
-    this.b._fireDeciderCompleteFromSubBuilder(this.curSpec.id, 'selector', [...this.branchIds]);
-    return this.b;
+    return this.cursor.finish();
   }
 }
 
@@ -1234,6 +1129,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { retry?: RetryPolicy; tags?: readonly string[] },
   ): this {
+    admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
     // Detect PausableHandler by duck-typing (has .execute property)
@@ -1290,6 +1186,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
+    admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
     const node: StageNode<TOut, TScope> = { name, id, fn: fn as StageFunction<TOut, TScope> };
@@ -1331,6 +1228,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
+    admitId('stage id', id, 'stage');
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
     // Capture the parent SPEC reference (not just id) BEFORE the
@@ -1369,6 +1267,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     streamId?: string,
     description?: string,
   ): this {
+    admitId('stage id', id, 'stage');
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
@@ -1428,6 +1327,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * ```
    */
   addPausableFunction(name: string, handler: PausableHandler<TScope>, id: string, description?: string): this {
+    admitId('stage id', id, 'stage');
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
@@ -1607,6 +1507,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
      *  `{ tags }` likewise. */
     options?: { retry?: RetryPolicy; tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
+    admitId('stage id', id, 'stage');
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
@@ -1658,6 +1559,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
      *  `.retry()` would be ambiguous; `{ tags }` likewise. */
     options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
+    admitId('stage id', id, 'stage');
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
@@ -1718,6 +1620,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     for (const { id, name, fn, retry, tags } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
+      admitId('fork child id', id, 'stage');
       if (cur.children?.some((c) => c.id === id)) {
         fail(`duplicate child id '${id}' under '${cur.name}'`);
       }
@@ -1813,9 +1716,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // ambiguous to parse. Refusing it here — on a brand-new method, at zero
     // back-compat cost — kills the ambiguity class outright and keeps
     // `parseBranchSegment` a split at the last marker instead of a heuristic.
-    if (hasBranchSegmentMarker(id)) {
-      fail(branchSegmentReservationMessage('parallelForEach stage id', id));
-    }
+    admitId('parallelForEach stage id', id, 'segment');
     if (!config || typeof config.items !== 'function' || typeof config.branch !== 'function') {
       fail(`addParallelForEach('${id}') requires items(scope) and branch(item, index) functions.`);
     }
