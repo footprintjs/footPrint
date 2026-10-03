@@ -73,7 +73,7 @@ export type HookPayload<K extends HookName, C extends ChannelsOf<K> = ChannelsOf
  * - `on` — every channel the hook is declared on, each mapped to the NAME of its payload type
  *   (prose for readers; the type itself is `HookPayload<K, C>`, read off the interface).
  * - `executorMade` — a LABEL (read by tests and docs, not by routing): `true` when the executor synthesizes the event itself instead of a
- *   dispatch site in the engine (today only `onResume`, fired by `FlowChartExecutor · resume`).
+ *   dispatch site in the engine (today only `onResume`, fired by `runner/resume.ts · announceResume`).
  *   Such an event goes through `fire` like every other, so a throwing recorder never aborts
  *   the executor call that made it.
  */
@@ -155,7 +155,7 @@ export interface FailureSite {
 /**
  * THE scope-channel `onError` event for a recorder that threw in `hook` — built in ONE place
  * for every path that reports one: the inline facade (`ScopeFacade · _routeFailure`), the
- * executor's own `onResume` (`FlowChartExecutor · resume`) and deferred delivery
+ * executor's own `onResume` (`runner/resume.ts · announceResume`) and deferred delivery
  * (`DeferredObserverTier · routeListenerError`). `error` is the structured form
  * (`extractErrorInfo`: `message`, `name`, `code?`, `raw` = the thrown value itself) whatever
  * was thrown — an `Error`, a string, anything (9.39.0; before, the inline paths passed the raw

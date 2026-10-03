@@ -3,7 +3,7 @@
  *
  * WHY HERE. Five places freeze a tree, all through this walk: run args (`readonlyInput ·
  * createFrozenArgs`), the fold base served as `initialState` (`ExecutionRuntime · getFoldBase`), the
- * dev-mode snapshot (`FlowChartExecutor · getSnapshot`), every state `stateAt` hands out
+ * dev-mode snapshot (`runner/snapshot.ts · servedSnapshot`), every state `stateAt` hands out
  * (`time-travel/stateAt.ts`) and, since F3, every commit bundle (`EventLog · record`). `memory/` must
  * not import `scope/` (that edge closed the memory ⇄ scope ⇄ recorder module cycle F0 removed), so the
  * walk lives in this leaf, which imports nothing.

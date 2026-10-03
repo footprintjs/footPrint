@@ -1,6 +1,6 @@
 # pause/ — what a paused run is made of
 
-The vocabulary of pause and resume: the two signals a stage can raise (`PauseSignal`, `InterruptSignal`), the `interrupt(scope, payload)` call, the serializable `FlowchartCheckpoint` (with `PendingPause` for parallel siblings) and the `PausableHandler` / `PauseResult` shapes. It owns the *types, the raise and the record codec* (`record.ts`); it does not own the walk back in — that is `engine/handlers/ResumeEntry.ts`, `StageRunner` and `runner/FlowChartExecutor` (`buildPauseCheckpoint`, `resume`).
+The vocabulary of pause and resume: the two signals a stage can raise (`PauseSignal`, `InterruptSignal`), the `interrupt(scope, payload)` call, the serializable `FlowchartCheckpoint` (with `PendingPause` for parallel siblings) and the `PausableHandler` / `PauseResult` shapes. It owns the *types, the raise and the record codec* (`record.ts`); it does not own the walk back in — that is `engine/handlers/ResumeEntry.ts`, `StageRunner` and `runner/checkpoint.ts · buildPauseCheckpoint` and `runner/resume.ts · planResume`.
 
 **The laws.**
 

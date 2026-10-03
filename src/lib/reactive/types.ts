@@ -309,9 +309,9 @@ export const EXECUTOR_INTERNAL_METHODS = new Set([
   'notifyStageStart', // StageRunner.run() line 59
   'notifyStageEnd', // StageRunner.run() line 79
   'notifyPause', // StageRunner.run() — pause detection
-  'attachScopeRecorder', // FlowChartExecutor.createTraverser() — narrative + user recorders
+  'attachScopeRecorder', // runner/attach.ts · RunObservers · composeScopeFactory — narrative + user recorders
   'detachScopeRecorder', // FlowChartExecutor.detachScopeRecorder()
   'getScopeRecorders', // FlowChartExecutor.getScopeRecorders()
-  'useSharedRedactedKeys', // FlowChartExecutor.createTraverser() — redaction wrapping
-  'useRedactionPolicy', // FlowChartExecutor.createTraverser() — redaction wrapping
+  'useSharedRedactedKeys', // runner/attach.ts · RunObservers · composeScopeFactory — redaction wrapping
+  'useRedactionPolicy', // runner/attach.ts · RunObservers · composeScopeFactory — redaction wrapping
 ]);

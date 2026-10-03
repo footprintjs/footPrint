@@ -6,7 +6,7 @@
 
 - *Kinds are flags, not an enum.* A new kind is a boolean on this one type plus a handler phase — and a variant of an existing shape (`isDynamicParallel`, serialized as `'fork'`) is cheaper still. `retry` and `tags` are *policies* on a stage, not kinds, which is why neither touched a node-type union or `computeNodeType`.
 - *`branchId` survives prefixing.* When a mounted subflow's tree is id-prefixed, `branchId` keeps the id the user's decider returns, and handlers match on `child.branchId ?? child.id`.
-- *A loop-ref stub repeats a real node's id on purpose*, so a search by id must either skip `isLoopRef` (`FlowChartExecutor · dfsFind`, `ResumeEntry`) or reach the real node first in pre-order (`FlowchartTraverser · buildNodeIdMap` and `NodeResolver`'s search keep the first match) — which is why a loop target has to be declared before the loop.
+- *A loop-ref stub repeats a real node's id on purpose*, so a search by id must either skip `isLoopRef` (`runner/resume.ts · dfsFind`, `ResumeEntry`) or reach the real node first in pre-order (`FlowchartTraverser · buildNodeIdMap` and `NodeResolver`'s search keep the first match) — which is why a loop target has to be declared before the loop.
 - *`isStageNodeReturn` is a shape test.* It needs a `name` plus a real continuation (a non-empty `children`, a `next`, a `nextNodeSelector` or `isSubflowRoot`) and answers `false` rather than throw on a hostile Proxy (`test/lib/engine/unit/StageNode.test.ts`).
 
 ```typescript
