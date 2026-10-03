@@ -204,5 +204,6 @@ export function elementProvenance(
 ): ElementBirth | undefined {
   const prov = arrayProvenance(commitLog, key, options);
   if (!prov.births || index < 0 || index >= prov.births.length) return undefined;
-  return prov.births[index];
+  const birth = prov.births[index];
+  return prov.basis === undefined ? birth : { ...birth, valueBasis: prov.basis };
 }

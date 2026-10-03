@@ -274,6 +274,26 @@ export function nestedRowsNote(key: string, commits: readonly number[]): Honesty
   };
 }
 
+/** The value a backward slice explains holds, or lost the key under, the log's redaction placeholder. */
+export function redactedValueNote(key: string): HonestyNote {
+  return {
+    code: 'redacted',
+    detail:
+      `'${shownKey(key)}' was redacted when it was written — where its value shows the log's placeholder (or ` +
+      'the key is missing under a placeholder that replaced its container), the real value was never recorded.',
+  };
+}
+
+/** No set or delete of the key, or of a container around it, is in range: the value rests on the pre-run state. */
+export function fromInitialStateNote(key: string): HonestyNote {
+  return {
+    code: 'from-initial-state',
+    detail:
+      `'${shownKey(key)}' has no write of its whole value in range — its value rests on what it held before the ` +
+      'run, which the commit log cannot see, so the writes here may be only part of it.',
+  };
+}
+
 // ── Shared honesty notes (one sentence per code, one place) ───────────────
 //
 // LAW: every forward answer states what it could not see, in the SAME words

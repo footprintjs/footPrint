@@ -11,6 +11,9 @@
  *                 (and a passed `initialState` holds K's top-level key) — the independent oracle below; and
  *                 whenever the log-only answer differs from the base fold, the code is there.
  *   NESTED        `'nested-rows'` only with no such `set` / `delete` and a row INSIDE K in range.
+ *   NEVER WRITTEN with `initialState`, `'never-written'` means the run never moved K: the base fold's value
+ *                 at K equals the base's at EVERY index up to the one asked (review finding 1: a run that
+ *                 removed a value the base held answered 'never-written').
  *
  * Logs: real runs of the copy-on-write fixture's programs (subflow seed and merge-back, fork children, a
  * redaction policy, initial context, every dial; the run's log AND each subflow's history).
@@ -64,6 +67,8 @@ function insideRow(log: CommitBundle[], key: string, i: number): boolean {
 const seen = new Map<string, number>();
 
 function checkLog(log: CommitBundle[], base: Record<string, unknown> | undefined): void {
+  const baseFolds =
+    base === undefined ? [] : log.map((_, j) => stateAt({ commitLog: log, initialState: base }, j).state as object);
   for (let i = 0; i < log.length; i++) {
     const state = stateAt({ commitLog: log }, i).state as Record<string, unknown>;
     const withBase =
@@ -97,6 +102,16 @@ function checkLog(log: CommitBundle[], base: Record<string, unknown> | undefined
         );
         if (bytes(plain.value) !== bytes(folded.value))
           expect(plain.basis, `log-only differs ${at}`).toContain('from-initial-state');
+        if (folded.basis.includes('never-written')) {
+          const atBase = bytes(nativeGet(base, segs));
+          for (let j = 0; j <= i; j++) {
+            expect(bytes(nativeGet(baseFolds[j], segs)), `never moved ${at} (index ${j})`).toBe(atBase);
+          }
+        }
+        if (folded.value === undefined) {
+          const reason = folded.basis.some((c) => c === 'never-written' || c === 'deleted' || c === 'redacted');
+          expect(reason, `reason with base ${at}`).toBe(true);
+        }
       }
     }
   }

@@ -171,8 +171,9 @@ describe('every reader that can answer undefined for a key says why', () => {
     expect(trace.sliceForKey(LOG, 'never', READS).missing).toBe('never-written');
     expect(trace.sliceForKey([], 'never', READS).missing).toBe('empty-log');
     const nested = trace.sliceForKey(LOG, 'cfg', READS);
-    expect(nested.notes?.map((n) => n.code)).toEqual(['nested-rows']);
-    expect(trace.sliceToJSON(nested).notes?.map((n) => n.code)).toEqual(['nested-rows']);
+    // the writer wrote inside the key, and no whole write of it is in range: the pre-run part is unseen
+    expect(nested.notes?.map((n) => n.code)).toEqual(['nested-rows', 'from-initial-state']);
+    expect(trace.sliceToJSON(nested).notes?.map((n) => n.code)).toEqual(['nested-rows', 'from-initial-state']);
     expect(trace.formatSlice(nested)).toContain('⚠');
     expect(trace.sliceForKey(LOG, 'x', READS)).not.toHaveProperty('notes'); // exact: the 9.32.0 shape
   });
@@ -195,6 +196,9 @@ describe('every reader that can answer undefined for a key says why', () => {
     expect(trace.arrayProvenance(LOG, 'gone')).toEqual({ key: 'gone', missing: 'not-an-array', basis: ['deleted'] });
     expect(trace.arrayProvenance(LOG, 'x')).toEqual({ key: 'x', missing: 'not-an-array' });
     expect(trace.elementProvenance(LOG, 'gone', 0)).toBeUndefined(); // the convenience; arrayProvenance says why
+    // a birth carries the basis of the array it sits in: appended only, so seeded elements are unseen
+    const appended = [bundle(0, [{ path: 'h', verb: 'append' }], { h: ['m'] })];
+    expect(trace.elementProvenance(appended, 'h', 0)?.valueBasis).toEqual(['from-initial-state']);
   });
 
   it('keyTimeline / forwardSliceForKey / stateAt', () => {

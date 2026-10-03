@@ -65,3 +65,46 @@ describe('a redacted merge-back', () => {
     expect(answer.basis).not.toContain('redacted');
   });
 });
+
+// Review findings 1 and 4 (F4b): two answers that said 'never-written' and were false.
+describe('a removed base value and a hidden write', () => {
+  async function snapOf(fn: (s: any) => void, options: Record<string, unknown>, policy?: unknown) {
+    const ex = new FlowChartExecutor(flowChart('Only', fn, 'only').build(), options);
+    if (policy) ex.setRedactionPolicy(policy as any);
+    await ex.run();
+    return ex.getSnapshot();
+  }
+  const K = 'a\u001Fb';
+
+  for (const commitValues of ['full', 'delta'] as const) {
+    it(`a run that removed a value the base held answers 'deleted' (${commitValues}: delete, and set of the container)`, async () => {
+      const shapes: Array<(s: any) => void> = [
+        (s) => {
+          delete s.a;
+        },
+        (s) => {
+          s.a = { c: 2 };
+        },
+      ];
+      for (const fn of shapes) {
+        const snap = await snapOf(fn, { commitValues, initialContext: { a: { b: 1 } } });
+        const log = snap.commitLog as any[];
+        const answer = commitValueAtWithBasis(log, log.length - 1, K, { initialState: snap.initialState as any });
+        expect(answer.value).toBeUndefined();
+        expect(answer.basis).toEqual(['deleted']);
+      }
+    });
+  }
+
+  it("a redaction that replaced the container hides the write: 'redacted' only, never 'never-written'", async () => {
+    const snap = await snapOf(
+      (s) => {
+        s.b = { x: 1 };
+      },
+      {},
+      { keys: ['b'] },
+    );
+    const log = snap.commitLog as any[];
+    expect(commitValueAtWithBasis(log, log.length - 1, 'b\u001Fx')).toEqual({ value: undefined, basis: ['redacted'] });
+  });
+});

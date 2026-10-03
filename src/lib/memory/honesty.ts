@@ -64,7 +64,7 @@ export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   'nested-rows':
     "A write this answer rests on reached the key only through paths inside it (a subflow's input seed, an outputMapper merge-back, a fork child's namespace), so it changed part of the key's value, not the whole: earlier writes may account for the rest, and a reader of the key may not have read the part that write changed.",
   'pre-run-origin':
-    'The value being followed was already there before the first write this log can see (initial state, frozen run input or a closure), so who put it there is outside the commit log.',
+    'The value being followed was absent or already there before the first write this log can see (initial state, frozen run input or a closure), so who put it there is outside the commit log.',
   'reads-not-recorded':
     "This log carries no recorded read at all (the readTracking: 'off' signature), so 'nothing read this value' is unknowable here, not true.",
   'unknown-key':

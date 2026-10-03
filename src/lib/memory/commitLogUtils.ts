@@ -6,7 +6,7 @@
  */
 
 import type { RegisteredCode } from './honesty.js';
-import { relation, rootOf, writesOnlyInside } from './keyPaths.js';
+import { queryWork, relation, rootOf, writesOnlyInside } from './keyPaths.js';
 import { leavesStringAbove, logModel, memoisedModel } from './logModel.js';
 import { nativeGet } from './pathOps.js';
 import { DELIM } from './paths.js';
@@ -61,6 +61,7 @@ export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx
   for (let i = end - 1; i >= 0; i--) {
     let write = false;
     let needsVerdict = false;
+    queryWork.units += commitLog[i].trace.length;
     for (const t of commitLog[i].trace) {
       const r = relation(t.path, key);
       if (r === 'around') needsVerdict = true;
@@ -157,8 +158,9 @@ export function commitValueAt(commitLog: CommitBundle[], idx: number, key: strin
  * `footprintjs/trace`); the union declares its members through `RegisteredCode`.
  *
  * - `'never-written'`      — no commit in range wrote the key (the writer rule — the answer
- *                            `findLastWriter` and the slice layer give), unless a `delete` on or around
- *                            it removed a value the passed `initialState` held (then `'deleted'`).
+ *                            `findLastWriter` and the slice layer give), unless the run removed a value
+ *                            the passed `initialState` held (then `'deleted'`), or a redaction at or
+ *                            around the key hid the write (then `'redacted'` alone).
  * - `'deleted'`            — the answer is `undefined` and the key WAS written: its last write left it
  *                            absent.
  * - `'nested-rows'`        — the value rests on rows INSIDE the key (a subflow seed, an outputMapper
@@ -243,26 +245,47 @@ export function commitValueAtWithBasis(
       : model.valueAt(key, end);
 
   const codes = new Set<ValueBasis>();
-  // The writer rule decides 'never-written' (as it does for `findLastWriter` and the slice layer). One
-  // exception: a `delete` on or around the key that removed a value only the passed base held.
+  // The writer rule decides 'never-written' (as it does for `findLastWriter` and the slice layer), with two
+  // corrections only the base and the redaction list can make:
+  //   - the run REMOVED a value the passed base held (a `delete` — full mode spells it a `set` — or a `set` of
+  //     a container without the key): the log-only verdict sees absent → absent, the truth is 'deleted';
+  //   - a redaction at or around the key HID the write (a placeholder string replaced the container): the
+  //     log cannot say whether the key was written, so the answer says 'redacted' and nothing else about it.
+  const segs = key.split(DELIM);
+  const red = redactionsInRange(commitLog, key, anchor === -1 ? 0 : rows[anchor].commitIdx, end);
   const deletedByRow = lastRelated !== undefined && lastRelated.relation !== 'inside' && lastRelated.verb === 'delete';
-  const deletedFromBase = deletedByRow && base !== undefined && nativeGet(base, key.split(DELIM)) !== undefined;
-  const written = (end >= 0 && model.lastWriterBefore(key, end + 1) !== -1) || deletedFromBase;
-  const redacted = redactedInRange(commitLog, key, anchor === -1 ? 0 : rows[anchor].commitIdx, end);
-  if (!written) codes.add('never-written');
-  else if (value === undefined && (deletedByRow || !redacted)) codes.add('deleted');
+  const baseHeldKey = base !== undefined && nativeGet(base, segs) !== undefined;
+  const removedFromBase = baseHeldKey && value === undefined && !red.any && (anchor !== -1 || deletedByRow);
+  const written = (end >= 0 && model.lastWriterBefore(key, end + 1) !== -1) || removedFromBase;
+  if (!written) {
+    if (!red.hidden) codes.add('never-written');
+  } else if (value === undefined && (deletedByRow || removedFromBase || !red.any)) codes.add('deleted');
   if (anchor === -1 && inside) codes.add('nested-rows');
   if (anchor === -1 && (base === undefined || baseHoldsRoot)) codes.add('from-initial-state');
-  if (redacted) codes.add('redacted');
+  if (red.any) codes.add('redacted');
   return { value, basis: VALUE_BASIS_ORDER.filter((c) => codes.has(c)) };
 }
 
-/** Does a commit in `[from, end]` list a redacted path at, inside or around `key`? */
-function redactedInRange(commitLog: readonly CommitBundle[], key: string, from: number, end: number): boolean {
+/**
+ * The redacted paths of the commits in `[from, end]` against `key`: `any` — one at, inside or around it;
+ * `hidden` — one AT or AROUND it (a placeholder replaced the key or its container, so the write is hidden).
+ */
+function redactionsInRange(
+  commitLog: readonly CommitBundle[],
+  key: string,
+  from: number,
+  end: number,
+): { any: boolean; hidden: boolean } {
+  let any = false;
   for (let c = from; c <= end; c++) {
-    for (const p of commitLog[c].redactedPaths ?? []) if (relation(p, key) !== undefined) return true;
+    for (const p of commitLog[c].redactedPaths ?? []) {
+      const r = relation(p, key);
+      if (r === undefined) continue;
+      any = true;
+      if (r !== 'inside') return { any, hidden: true };
+    }
   }
-  return false;
+  return { any, hidden: false };
 }
 
 /**
@@ -300,6 +323,7 @@ function valueByScan(commitLog: CommitBundle[], end: number, key: string): unkno
   const root = rootOf(key);
   for (let c = 0; c <= end; c++) {
     const trace = commitLog[c].trace;
+    queryWork.units += trace.length;
     for (let row = 0; row < trace.length; row++) {
       const { path, verb } = trace[row];
       if ((path === root || relation(path, root) === 'inside') && !isVerb(verb)) {

@@ -21,7 +21,9 @@
  *
  * F4b (9.33.0) added TWO codes, `'deleted'` and `'from-initial-state'` (the value basis of
  * `commitValueAtWithBasis`): the registry holds TWENTY-ONE. `'redacted'`'s sentence was reworded to be true of
- * both emitters (a fold and a key's value basis); no runtime string the engine writes changed.
+ * both emitters (a fold and a key's value basis); no runtime string the engine writes changed. `HonestyNoteCode`
+ * gains `'redacted'` and `'from-initial-state'` (a backward slice's notes say them), and `'pre-run-origin'`'s
+ * sentence says "absent or already there" (a causal node's `preRunReads` lists keys that never existed too).
  */
 import { join, resolve } from 'path';
 import ts from 'typescript';
@@ -132,7 +134,7 @@ const HEADER = [
   "import type { ValueBasis, WriterBasis } from './commitLogUtils.js';",
   "import { HONESTY_CODES } from './honesty.js';",
   "import type { HonestyCode, RegisteredCode } from './honesty.js';",
-  "type Today = 'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated';",
+  "type Today = 'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated' | 'redacted' | 'from-initial-state';",
   "type TodayBasis = 'initial+log' | 'log-only';",
   "type TodayMissing = 'empty-log' | 'never-written';",
   "type TodayProvenance = 'empty-log' | 'never-written' | 'not-an-array';",

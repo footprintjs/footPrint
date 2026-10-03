@@ -151,7 +151,10 @@ export interface VariableSlice {
   missing?: MissingSliceReason;
   /**
    * F4b (9.33.0) — what the anchor rests on, when it is not an exact write: a `'nested-rows'` note when
-   * the writer reached the key only through rows inside it. ABSENT when there is nothing to say, so a
+   * the writer reached the key only through rows inside it; a `'redacted'` note when the value it explains
+   * holds (or lost the key under) the log's placeholder; a `'from-initial-state'` note when no `set` /
+   * `delete` of the key or around it is in range, so the value rests on the pre-run state the log cannot
+   * see (the codes of `commitValueAtWithBasis` at the slice's point). ABSENT when there is nothing to say, so a
    * slice anchored at a write on or around the key keeps its 9.32.0 shape. Each causal edge says the
    * same per link (`CausalEdge.basis`).
    */
@@ -206,7 +209,14 @@ export type FedBasis = RegisteredCode<'per-write' | 'stage'>;
  * not compile.
  */
 export type HonestyNoteCode = RegisteredCode<
-  'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
+  | 'conservative-fed-edges'
+  | 'nested-rows'
+  | 'pre-run-origin'
+  | 'reads-not-recorded'
+  | 'unknown-key'
+  | 'truncated'
+  | 'redacted'
+  | 'from-initial-state'
 >;
 
 /** One honesty statement — see {@link HonestyNoteCode}. */
@@ -477,6 +487,11 @@ export interface ElementBirth {
   verb: TraceEntry['verb'];
   /** How the attribution was determined — see {@link AttributionBasis}. */
   basis: AttributionBasis;
+  /**
+   * F4b (9.33.0) — set only by `elementProvenance`: the `basis` of the array this element sits in
+   * (`ArrayProvenance.basis` — e.g. `'from-initial-state'`, `'redacted'`). Absent when that basis is empty.
+   */
+  valueBasis?: ValueBasis[];
   /**
    * The element's value as of the fold (detached clone). Redaction note:
    * values are re-served exactly as the commit log stored them — a redacted
