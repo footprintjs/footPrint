@@ -1684,9 +1684,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // (copy-on-write, 9.29.0).
       // Production stays zero-copy; clone-always is a measured decision
       // deferred until the bench says it's affordable (BACKLOG #8).
-      // NOTE: deepFreeze (reused from readonlyInput) freezes plain objects/
-      // arrays only — Map/Set INTERNALS stay mutable (`map.set()` on the
-      // frozen clone won't throw). The CLONE still isolates the engine.
+      // NOTE: deepFreeze (capture/freeze.ts — the one walk) cannot reach
+      // Map/Set INTERNALS (`map.set()` on the frozen clone won't throw) and
+      // skips typed arrays. The CLONE still isolates the engine.
       snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
     }
     const sfResults = this.traverser.getSubflowResults();

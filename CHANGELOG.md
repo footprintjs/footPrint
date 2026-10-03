@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+F3 — the log as a read model. Unreleased on purpose: it ships in ONE minor with F4b (the basis-returning
+reader), so no published version answers from a nested row without saying so.
+
+### Changed — the commit log is frozen at `record` (ruling R3)
+
+- **Why.** `getSnapshot().commitLog` was a frozen ARRAY of the engine's own, writable bundles: one
+  assignment into a snapshot (`log[0].overwrite.cfg.a = 999`) rewrote every later `commitValueAt` and
+  `stateAt` answer, silently.
+- **Now.** `EventLog · record` stamps a bundle's position and deep-freezes it — the bundle, `overwrite` and
+  `updates` at every depth, the trace and each row, `readKeys`, `redactedPaths`, `tags`,
+  `untrackedSources` — so the same assignment throws a `TypeError` in strict code. `treeContext.history`
+  holds the same frozen bundles. Live state is untouched: nothing outside the log holds a bundle's
+  containers (the log keeps the commit's own copy; live state, the redacted mirror and write retention
+  each take theirs), pinned over real runs by `test/lib/memory/property/record-reachability.property.test.ts`.
+  Not one byte of a log changes.
+- **Named holes.** What `Object.freeze` cannot reach stays mutable: Map and Set contents, a Date's time, the
+  bytes of a typed array, and an object hung on an array expando (the record walks arrays by index).
+- **Consequences to know.** A `/g` or `/y` RegExp read from a bundle throws when `exec` / `replace` advance
+  its frozen `lastIndex` — copy it (`new RegExp(re)`). `EventLog.record` (`footprintjs/advanced`) freezes the
+  bundle it is handed.
+- **Cost.** The freeze walk is at most 1.4% of the run at N = 10,000 element writes
+  (`bench/element-writes.ts`, new freeze row; budget 5%).
+
+### Changed — key queries see nested rows (ruling R4)
+
+- **Why.** Every key query matched rows on the key's EXACT path, while the fold applied every row. So a key
+  the engine wrote through a nested row — a subflow's input seed (`cfg␟a`), an outputMapper merge-back
+  (`cfg␟b`), a fork child's namespace (`runs␟c0␟x`) — read as "never written", or answered from an older
+  write, at `commitValueAt`, `findLastWriter`, `sliceForKey`, `keyTimeline`, `forwardSliceForKey`,
+  `arrayProvenance` and `causalChain`.
+- **Now — one answer, `memory/keyPaths.ts`.** A commit WROTE a key when it has a row on it, inside it, or
+  around it with the value at the key different across the commit (a `merge` of `cfg` that never reaches
+  `cfg␟a` is not a write of `cfg␟a`). The value of a key (`commitValueAt`) is the fold of every row under
+  its top-level key — what `stateAt` gives at that key when it folds the log alone. A stage READ a key when
+  its reads provider names the key, a path inside it or a container around it (a dotted engine read key,
+  `'cfg.a'`, stays the literal key it may be).
+- **Named answers that change** (before → after): `commitValueAt(cfg)` after `{ a: 1 }` and a merge-back of
+  `{ b: 2 }` → `{ a: 1, b: 2 }` (was `{ a: 1 }`); `findLastWriter(cfg)` / a slice's writer → the
+  merge-back's bundle (was the seed's); in a subflow seeded with `{ cfg: { a: 1, b: 2 } }`,
+  `findLastWriter` / `commitValueAt` / `sliceForKey` on `cfg` → the seed / `{ a: 1, b: 2 }` / a writer (was
+  none / `undefined` / `missing: 'never-written'`); `commitValueAt('cfg␟a')` after a set of `cfg` → its
+  value (was `undefined`); `arrayProvenance(['cfg', 'list'])` → births (was `never-written`); a reader of
+  `cfg` is a reader of `['cfg', 'b']`. On a log whose rows are all on their exact paths, every answer is
+  the 9.32.0 answer. `commitValueAt`'s refusal of an unknown verb now covers every row under the key's
+  top-level key (the rows it folds).
+- **A new honesty code, `'nested-rows'`** (`HONESTY_CODES`, `HonestyNoteCode`): `keyTimeline` and
+  `forwardSliceForKey` note a write that reached the key only through paths inside it — it changed part of
+  the value, and earlier writes may account for the rest. `'never-written'`'s sentence now says what it
+  means under the writer rule. `commitValueAt`, `findLastWriter` and `sliceForKey` keep their signatures;
+  their basis twin is F4b.
+- **Known gap, not closed here.** The bundle holding an outputMapper's merge-back is recorded under the
+  runtimeStageId of the stage BEFORE the mount (after a decider, the decider's) — `SubflowExecutor ·
+  executeSubflow` commits the output mapping on the mount context's parent — and a subflow's input seed
+  under an empty one. The queries now find the right bundle; the stage it names is the record's, so a
+  causal walk expands the previous stage and the cursor folds the merge-back into the previous stage's stop.
+  A stamp fix in the engine is its own packet; pinned as KNOWN LIMITATION in
+  `test/lib/slice/nested-rows.test.ts`.
+- **Pinned.** `test/lib/memory/property/keyed-fold-differential.property.test.ts` — `commitValueAt` IS the
+  log-only fold at every key and index of real subflow and fork logs and of hand-built logs with
+  array-index paths; `findLastWriter` IS a brute-force writer oracle; the base fold differs only in the
+  seeded-and-never-set class; reads on, inside and around a key are reads of it.
+  `test/lib/slice/nested-rows.test.ts` — every named change on the chart that shows it. Restated (each
+  test header says how): the verb-law differential's reader oracles (the old exact-path switches stay as
+  the CONTROL on exact-row logs), the repeated-path byte-identity answers (everything else still the
+  9.22.0 bytes), `foldKey`'s unit cases, and the honesty registry's count (19 codes).
+
+### Fixed
+
+- **A typed array no longer breaks the freeze.** `deepFreeze` threw on a non-empty typed array
+  (`Object.freeze` cannot freeze one), so `getSnapshot()` threw for a `Uint8Array` in `initialContext`, and
+  run args or the dev-mode snapshot holding one failed the same way. ArrayBuffer views are skipped now.
+
+### Deprecated
+
+- **`EventLog.materialise`** (`footprintjs/advanced`) — nothing in the library calls it; `stateAt`
+  (`footprintjs/trace`) folds the same log from the same base. Mind the index: `materialise(n)` folds
+  commits `0..n-1`, `stateAt(source, n - 1)` the same commits. Removed after one minor.
+
+### Internal
+
+- NEW `memory/keyPaths.ts` (L0): `relation`, `rootOf`, `buildWriterIndex`, `writerCandidates`. One writer
+  index serves `causalChain`'s reverse lookup and the slice layer (was: three matchers);
+  `TransactionBuffer · wasStaged` asks `relation`. `verbs · foldKey` folds one key's top-level rows
+  copy-on-write; `commitLogUtils · writersOf` applies the writer rule.
+- The freeze walk moved to `capture/freeze.ts` (memory/ must not import scope/). It still walks an
+  already-frozen object (once — a lazily created `WeakSet` ends cycles and repeats; a fresh tree never
+  creates it), so a shallow-frozen argument now comes out deep-frozen; the record walks arrays by index,
+  args and the dev-mode snapshot keep the full walk.
+
 ## [9.32.0] - 2026-10-02
 
 ### Added — `HONESTY_CODES`: one vocabulary for what a reader cannot see (no behaviour change)

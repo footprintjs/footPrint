@@ -122,7 +122,25 @@ log.materialise(1);  // state after stage 1 — what did stage 2 see?
 log.materialise();   // final state
 ```
 
-**Key design decision:** Replay is O(n) from the beginning every time. Simple, correct, tiny memory footprint. For < 200 stages this is fast enough. Checkpoint caching can be added later without changing the API. Since 9.29.0 `materialise` clones its base once and replays every bundle into that private copy (`applySmartMergeInto` — below the root it follows the live commit's copy-on-write law, so the fold and live state agree at every path); the public `applySmartMerge` keeps its own contract, a fully detached result.
+**Key design decision:** Replay is O(n) from the beginning every time. Simple, correct, tiny memory footprint. For < 200 stages this is fast enough. Checkpoint caching can be added later without changing the API. Since 9.29.0 `materialise` clones its base once and replays every bundle into that private copy (`applySmartMergeInto` — below the root it follows the live commit's copy-on-write law, so the fold and live state agree at every path); the public `applySmartMerge` keeps its own contract, a fully detached result. **`materialise` is deprecated since 9.33.0** — nothing in the library calls it; `stateAt` (footprintjs/trace) folds the same log from the same base and says how it was derived (mind the index: `materialise(n)` folds commits `0..n-1`, `stateAt(source, n - 1)` the same commits).
+
+**The record is immutable from `record` (9.33.0, ruling R3).** `EventLog · record` stamps a bundle's position and deep-freezes it (`capture/freeze.ts · deepFreeze`, arrays walked by index): the bundle, `overwrite` and `updates` at every depth, the trace and every row, each row's `readKeys`, `redactedPaths`, `tags`, `untrackedSources`. Before, `getSnapshot().commitLog` was a frozen ARRAY of the engine's own, writable bundles — one assignment into a snapshot rewrote every later `commitValueAt` and `stateAt` answer. Now it throws in strict code. Freezing cannot reach live state: nothing outside the log holds a bundle's containers — the log keeps the commit's own copy (`redactPatch`), and live state, the redacted mirror and write retention each take theirs (pinned over real runs by test/lib/memory/property/record-reachability.property.test.ts). Freezing changes no byte of the log. Cost: the walk is at most 1.4% of the run at N = 10,000 element writes (`bench/element-writes.ts`, the freeze row; budget 5%).
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const executor = new FlowChartExecutor(
+  flowChart('Seed', (scope: any) => {
+    scope.cfg = { tier: 'gold' };
+  }, 'seed').build(),
+);
+await executor.run();
+const [bundle] = executor.getSnapshot().commitLog;
+Object.isFrozen(bundle.overwrite.cfg); // true
+// (bundle.overwrite.cfg as { tier: string }).tier = 'forged'; → TypeError in strict code
+```
+
+**Named holes** — what `Object.freeze` cannot reach stays mutable: Map and Set contents, a Date's time, the bytes of a typed array (skipped: a non-empty one cannot be frozen at all — which also made `getSnapshot()` throw for a `Uint8Array` in `initialContext` until 9.33.0), and an object hung on an array expando (the record walks arrays by index; args and the dev-mode snapshot keep the full walk). A frozen RegExp's `lastIndex` is read-only, so a `/g` or `/y` regex read from a bundle throws when `exec` or `replace` advance it — copy it (`new RegExp(re)`) to use it. `EventLog.record` on `footprintjs/advanced` freezes the bundle it is handed.
 
 ---
 
@@ -265,7 +283,8 @@ A commit row carries one of four verbs — `set | merge | append | delete` — a
 
 | File | Layer | Owns |
 |---|---|---|
-| `verbs.ts` | L1 | **The one verb law.** `applyVerb` (one row → a value), `placeVerb` (put it, or remove the key), `foldRows` (one bundle into a state — the clone discipline `'private'` / `'pathCopy'` / `'byReference'` is a parameter), `foldKey` (one path across a log: `commitValueAt` runs it, `arrayProvenance` watches it), `supersededByNextSet`, `VERBS` / `isVerb`, `UnknownVerbError`, and the four doors over `foldRows`: `applySmartMerge`, `nextGeneration`, `applySmartMergeInto`, `dryFold` |
+| `verbs.ts` | L1 | **The one verb law.** `applyVerb` (one row → a value), `placeVerb` (put it, or remove the key), `foldRows` (one bundle into a state — the clone discipline `'private'` / `'pathCopy'` / `'byReference'` is a parameter), `foldKey` (one KEY across a log — every row under its top-level key, read at the key: `commitValueAt` runs it, `arrayProvenance` and the writer rule watch it), `supersededByNextSet`, `VERBS` / `isVerb`, `UnknownVerbError`, and the four doors over `foldRows`: `applySmartMerge`, `nextGeneration`, `applySmartMergeInto`, `dryFold` |
+| `keyPaths.ts` | L0 | **Which rows touch a key** (9.33.0): `relation` (a row on, inside or around a key — a segment prefix on DELIM paths), `rootOf`, `buildWriterIndex` / `writerCandidates` (one pass over a log; the commits that can have written a key). The rules every key query follows are defined in its header — see the next section |
 | `paths.ts` | L0 | The path codec: `DELIM`, the one separator inside a `TraceEntry.path` (never a dot — a state key may contain one), `normalisePath` to write a path, `pathSegments` to take it apart |
 | `equality.ts` | L0 | `deepEqual` — structural equality of committed-state values: `Date` / `Map` / `Set` by content, an own `undefined` is a deleted key, cycles terminate |
 | `merge.ts` | L0 | `deepSmartMerge` — the union merge the `merge` verb applies: arrays union, objects recurse, `[]` clears, cycles terminate |
@@ -305,13 +324,51 @@ try {
 }
 ```
 
+## Which rows touch a key — `keyPaths.ts` (9.33.0, ruling R4)
+
+Every key query — `commitValueAt`, `findLastWriter`, `findCommit`, `causalChain`, and the slice layer's `sliceForKey`, `arrayProvenance`, `keyTimeline`, `forwardSliceForKey` — asks the log ONE question, "which rows wrote this key?", and asks it here. Until 9.32 each answered with its own `row.path === key`, so a key the engine wrote through a NESTED row read as "never written" while the fold applied it: a subflow's input seed (`cfg␟a`), an outputMapper merge-back (`cfg␟b`), a fork child's namespace (`runs␟c0␟x`).
+
+| Rule | What it says | Applied by |
+|---|---|---|
+| path relation | a row is ON the key (`'exact'`), INSIDE it (`'inside'` — it wrote part of the value) or AROUND it (`'around'` — it wrote a container holding it); a segment prefix, so `cfg` is never around `cfgX` | `keyPaths · relation` |
+| writer rule | a commit WROTE the key when it has a row on or inside it, or a row around it across which the value at the key differs — the whole commit compared, so `$update('cfg', { list: [3] })` is not a write of `cfg␟a` | `commitLogUtils · writersOf` / `findLastWriter` |
+| value rule | the value of the key is the fold of EVERY row under its top-level key, anchored at that key's last `set`/`delete`, read at the key — `stateAt`'s fold restricted to one top-level key, exact because top-level keys never interact (folding only the rows that touch the key is NOT: an array union dedups the whole array) | `commitLogUtils · commitValueAt` (`verbs · foldKey`) |
+| read rule | a stage read the key when its reads provider names the key, a path inside it, or a container around it | `slice/keyIndex · readsOf` |
+
+A top-level key has nothing around it, so for it the writer rule is the path check alone and costs what the old scan cost. On exact-row logs every answer is the 9.32 answer (pinned as the CONTROL in property/verb-law-differential.property.test.ts); everywhere, `commitValueAt(log, i, k)` IS `stateAt({ commitLog: log }, i)` read at `k` (property/keyed-fold-differential.property.test.ts).
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { commitValueAt, findLastWriter } from 'footprintjs/trace';
+
+const inner = flowChart('Enrich', (scope: any) => {
+  scope.score = 7;
+}, 'enrich').build();
+const chart = flowChart('Seed', (scope: any) => {
+  scope.cfg = { tier: 'gold' };
+}, 'seed')
+  .addSubFlowChart('enrich', inner, 'Enrich', {
+    inputMapper: () => ({}),
+    outputMapper: (out: any) => ({ cfg: { score: out.score } }), // merged back as the nested row cfg␟score
+  })
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const { commitLog } = executor.getSnapshot();
+
+commitValueAt(commitLog, commitLog.length - 1, 'cfg'); // { tier: 'gold', score: 7 } — 9.32 answered { tier: 'gold' }
+findLastWriter(commitLog, 'cfg'); // the merge-back's bundle — 9.32 named the seed's
+```
+
+A write found through a row INSIDE the key changed only PART of its value; `keyTimeline` and `forwardSliceForKey` say so with the `'nested-rows'` honesty note. Known gap, not closed here: the bundle that holds an outputMapper's merge-back is stamped with the runtimeStageId of the stage BEFORE the mount (`SubflowExecutor · executeSubflow`) — see slice/README.md.
+
 ## Honesty — one vocabulary for what a reader cannot see
 
 A recording cannot always answer what it is asked, and the library says so in several places: a slice's `HonestyNote`s and `missing` reason, a fed edge's and an element birth's `basis`, a fold's `basis` and `redacted` paths, a stored log's `LogGap`s, a causal node's `incompleteSources` and `truncated`. A reader that wants to explain any of them to a person (a why-panel, an agent tool) kept its own table of code → sentence, and tables kept apart drift. `honesty.ts` is the one place that names them. It imports nothing. The placeholder a redaction leaves where a value was is a different thing with a different reader — the engine's write path — so it has its own leaf, `placeholders.ts`.
 
 | Owns | What |
 |---|---|
-| `HONESTY_CODES` (`honesty.ts`) | A frozen, closed registry: code → the one sentence that says what it means (rustc's `--explain`, LSP's `Diagnostic.code`; the code is what a consumer branches on, the sentence is for the screen). Eighteen codes: the five slice-note codes; the three `missing` reasons (`empty-log`, `never-written`, `not-an-array`); the fed-edge bases (`per-write`, `stage`) and the element-birth bases (`append-verb`, `prefix-inference`, `whole-value`); the two fold bases (`initial+log`, `log-only`); and `log-gap` / `incomplete-sources` / `redacted` — registered so a reader explains `LogGap`, `CausalNode.incompleteSources` and `FoldedState.redacted` from the same place, though none carries a `code` field (a `truncated: { byDepth, byNodes }` field means `truncated`). A pure expression, so a bundle that never reads it drops it. Served as `HONESTY_CODES` and `HonestyCode` on `footprintjs/trace` |
+| `HONESTY_CODES` (`honesty.ts`) | A frozen, closed registry: code → the one sentence that says what it means (rustc's `--explain`, LSP's `Diagnostic.code`; the code is what a consumer branches on, the sentence is for the screen). Nineteen codes: the six slice-note codes (`'nested-rows'` since 9.33.0); the three `missing` reasons (`empty-log`, `never-written`, `not-an-array`); the fed-edge bases (`per-write`, `stage`) and the element-birth bases (`append-verb`, `prefix-inference`, `whole-value`); the two fold bases (`initial+log`, `log-only`); and `log-gap` / `incomplete-sources` / `redacted` — registered so a reader explains `LogGap`, `CausalNode.incompleteSources` and `FoldedState.redacted` from the same place, though none carries a `code` field (a `truncated: { byDepth, byNodes }` field means `truncated`). A pure expression, so a bundle that never reads it drops it. Served as `HONESTY_CODES` and `HonestyCode` on `footprintjs/trace` |
 | `RegisteredCode<T>` (`honesty.ts`) | The gate. `HonestyNoteCode`, `MissingSliceReason`, `MissingProvenanceReason`, `FedBasis`, `AttributionBasis` and `FoldBasis` declare their members through it, so a code the registry does not hold fails to compile (TS2344). `RegisteredCode<T>` is `T`: the public unions are exactly the members they were, not widened to every code |
 | `LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER` (`placeholders.ts`) | The two strings a redaction leaves where a value was: `'REDACTED'` in the commit log and the mirror (`redactPatch`) — and so in a fold, a slice, and a subflow's served state, which is its own mirror (`onSubflowExit.outputState` included, whenever a policy keeps one); `'[REDACTED]'` on the scope channel (scope recorder events, `stageReads`/`stageWrites`, narrative, decision evidence, an `emitPatterns` payload). Two on purpose — stored recordings hold the first. No other `src/` file spells either as a literal (`test/architecture/placeholders.test.ts`) |
 
@@ -345,6 +402,7 @@ SharedMemory  TransactionBuffer  DiagnosticCollector
   verbs (applyVerb, foldRows, foldKey — the one verb law; applySmartMerge, nextGeneration, dryFold)
     |
   paths · equality · merge · pathOps (leaves) — utils re-exports them and holds the nested-object helpers
+  keyPaths (leaf) — which rows touch a key; read by TransactionBuffer (L2) and every log reader (L3)
   honesty (leaf) — HONESTY_CODES; typed through by slice/ and time-travel/
   placeholders (leaf) — the two redaction strings; read by utils, redaction, StageContext, decide/, scope/, runner/
     |

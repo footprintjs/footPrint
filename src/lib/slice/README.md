@@ -24,6 +24,75 @@ All three call the same queries below, so their answers can never disagree.
 Know a value was **wrong or poisoned** and need its blast radius →
 `forwardSliceForKey` (below).
 
+## What "wrote" and "read" mean — nested rows (9.33.0)
+
+Every query here asks the commit log ONE question — which rows touch a key — and asks it in one place,
+`memory/keyPaths.ts` (ruling R4). Until 9.32 each reader matched rows on the key's EXACT path, so a key
+the engine wrote through a nested row read as "never written" while the fold applied it: a subflow's
+input seed writes `cfg␟a`, an outputMapper merge-back writes `cfg␟b` into the parent, a fork child
+writes `runs␟c0␟x`.
+
+- **A commit WROTE `K`** when it has a row ON `K`, INSIDE it (`cfg␟b` is a write of `cfg`), or AROUND
+  it with the value at `K` different across the commit (a `set` of `cfg` writes `cfg␟a`;
+  `$update('cfg', { list: [3] })` does not — its delta never reaches `a`).
+- **A stage READ `K`** when the reads provider names `K`, a path inside it (part of its value) or a
+  container around it (all of it). A read key is matched as a DELIM path — the form
+  `normalisePath(['cfg', 'a'])` gives. The engine's own nested reads are spelled with dots
+  (`StageContext · getValue(path, key)`), and a dot is a legal character of a top-level key, so
+  `'cfg.a'` stays the literal key it may be. A typed scope reads top-level keys, so the common case is
+  unaffected.
+- **The value of `K`** (`commitValueAt`) is the fold of every row under `K`'s top-level key — what
+  `stateAt` gives at `K` when it folds the log alone.
+
+What moved, on the charts that show it (test/lib/slice/nested-rows.test.ts):
+
+| question | 9.32 | 9.33 |
+|---|---|---|
+| `commitValueAt(log, mergeBack, 'cfg')` after `cfg = { a: 1 }` and a merge-back of `{ cfg: { b: 2 } }` | `{ a: 1 }` | `{ a: 1, b: 2 }` (the fold) |
+| `findLastWriter(log, 'cfg')` / `sliceForKey(…).writer` there | the seed's bundle | the merge-back's bundle |
+| `keyTimeline(log, 'cfg', …)` | one write; the reader saw the seed | two writes; the reader saw the merge-back; a `'nested-rows'` note |
+| `forwardSliceForKey(log, 'cfg', …)` anchor | the seed | the merge-back, with a `'nested-rows'` note |
+| `findLastWriter` / `commitValueAt` / `sliceForKey` on `cfg` in a subflow seeded with `{ cfg: { a: 1, b: 2 } }` | none / `undefined` / `missing: 'never-written'` | the seed / `{ a: 1, b: 2 }` / a writer |
+| `commitValueAt(log, 0, 'cfg␟a')` after `cfg = { a: 1, … }` | `undefined` | `1` |
+| `findLastWriter(log, 'cfg␟a')` after that set and `$update('cfg', { list: [3] })` | none | the set — not the merge |
+| `arrayProvenance(log, ['cfg', 'list'])` | `missing: 'never-written'` | births: `whole-value`, `whole-value`, `prefix-inference` |
+| a reader of `cfg`, asked about `['cfg', 'b']` (`keyTimeline` / `forwardSliceForKey`) | no reader | a reader (a read around the key) |
+
+On a log whose rows are all on their exact paths, every answer is the 9.32 answer.
+
+**A write found through a row inside the key wrote only PART of its value.** `keyTimeline` (any such
+write moment) and `forwardSliceForKey` (such an anchor) say so with a `'nested-rows'` note naming the
+commits: earlier writes may account for the rest, and a reader of the key may not have read the part
+that write changed. `sliceForKey`, `findLastWriter` and `commitValueAt` have no note channel; their
+basis-returning twin ships in the same minor (F4b).
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { keysReadFromExecutionTree, keyTimeline } from 'footprintjs/trace';
+
+const inner = flowChart('Enrich', (scope: any) => {
+  scope.score = 7;
+}, 'enrich').build();
+const chart = flowChart('Seed', (scope: any) => {
+  scope.cfg = { tier: 'gold' };
+}, 'seed')
+  .addSubFlowChart('enrich', inner, 'Enrich', {
+    inputMapper: () => ({}),
+    outputMapper: (out: any) => ({ cfg: { score: out.score } }),
+  })
+  .addFunction('Decide', (scope: any) => {
+    scope.ok = scope.cfg.score > 5;
+  }, 'decide')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const { commitLog, executionTree } = executor.getSnapshot();
+
+const timeline = keyTimeline(commitLog, 'cfg', keysReadFromExecutionTree(executionTree));
+// moments: write @0 (the seed), write @1 (the merge-back), read by Decide — it saw the merge-back
+// notes:   [{ code: 'nested-rows', detail: "'cfg' was written only through paths inside it at commit 1 — …" }]
+```
+
 ## The queries
 
 ### `sliceForKey(commitLog, key, keysRead, options?)` → `VariableSlice`
@@ -153,9 +222,10 @@ machine-detectable signature of `readTracking: 'off'`.
 A subflow runs in an **isolated runtime**: its commits live in
 `snapshot.subflowResults[sfId].commitLog`, its reads in
 `snapshot.subflowResults[sfId].executionTree` — NOT in the root log/tree. A
-root-log slice therefore ends at the subflow **mount** commit (the
-outputMapper's write into the parent). To continue inside, re-anchor in the
-subflow's own scope with tree and log paired from the SAME snapshot:
+root-log slice therefore ends at the outputMapper's write into the parent (the
+merge-back bundle — see the known limit below for the stage it is recorded
+under). To continue inside, re-anchor in the subflow's own scope with tree and
+log paired from the SAME snapshot:
 
 ```ts
 const sf = snapshot.subflowResults['sf-tools'];
@@ -165,6 +235,29 @@ sliceForKey(sf.commitLog, key, keysReadFromExecutionTree(sf.executionTree));
 (Passing multiple trees to `keysReadFromExecutionTree` widens *read*
 resolution when one log genuinely spans them; it does not make a root slice
 cross a mount.)
+
+### Known limit — the merge-back is recorded under the wrong stage
+
+Since 9.33.0 the key queries FIND the bundle that holds an outputMapper's
+merge-back; the stage that bundle names is the record's, and the record is
+wrong. `SubflowExecutor · executeSubflow` commits the output mapping on
+`parentContext.parent` whenever the mount's context carries a branchId — which
+a LINEAR mount's does — so the bundle carries the runtimeStageId of the stage
+BEFORE the mount (after a decider, the decider's), and the mount's own two
+bundles are empty. Consequences, pinned as KNOWN LIMITATION in
+test/lib/slice/nested-rows.test.ts so the fix lands as a named diff:
+
+- `findLastWriter(log, 'cfg').runtimeStageId` and a slice's `writer` name the
+  previous stage, not the mount;
+- `causalChain` resolves that id to the stage's FIRST bundle (`buildCommitIndex`
+  keeps the first), so the walk expands the previous stage's reads;
+- `timeTravel` folds the merge-back into the previous stage's stop, not the
+  mount's;
+- a subflow's input seed is recorded with an EMPTY runtimeStageId (`''`).
+
+The fix is a change to the engine's stamp (L6), out of this read-only layer's
+reach; it is its own packet.
+
 
 ## Honesty model (inherited + added)
 
@@ -176,10 +269,11 @@ cross a mount.)
   `ForwardEdge.basis` — exact vs conservative, on every edge.
 - `keysReadKind` + `readsCoverage` — a slice can always be traced to its reads
   provider, and a reads-less provider is detectable, not silent.
-- `HonestyNote[]` (forward) — the machine-readable envelope: a consumer
-  branches on `code`, a human/LLM reads `detail`. Five codes:
+- `HonestyNote[]` (forward, timeline) — the machine-readable envelope: a consumer
+  branches on `code`, a human/LLM reads `detail`. Six codes:
   `'unknown-key'`, `'reads-not-recorded'`, `'pre-run-origin'`,
-  `'conservative-fed-edges'`, `'truncated'`. What each code MEANS is
+  `'conservative-fed-edges'`, `'truncated'`, and `'nested-rows'` (9.33.0 — a
+  write reached the key only through paths inside it). What each code MEANS is
   registered once, in `memory/honesty.ts · HONESTY_CODES` (served as
   `HONESTY_CODES` on `footprintjs/trace`): `HONESTY_CODES[note.code]` is the
   one-sentence explanation, and the `detail` is the per-instance sentence (it
@@ -195,7 +289,8 @@ cross a mount.)
   at all.)
 
 **The typo guard**, split by what the recording affords — because
-"nothing read it" and "you spelled it wrong" must never render alike:
+"nothing read it" and "you spelled it wrong" must never render alike ("write"
+and "read" as defined at the top: on, inside or around the key):
 
 | the log has | forward answer |
 |---|---|
