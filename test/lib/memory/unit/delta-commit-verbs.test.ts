@@ -16,8 +16,9 @@
  * See docs/design/13c-b-delta-commit-verb.md.
  */
 import { nativeDelete } from '../../../../src/lib/memory/pathOps';
+import { redactPatch } from '../../../../src/lib/memory/redaction';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-import { applySmartMerge, DELIM, redactPatch } from '../../../../src/lib/memory/utils';
+import { applySmartMerge, DELIM } from '../../../../src/lib/memory/utils';
 
 describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
   describe('append detection', () => {

@@ -3,18 +3,18 @@
  * re-export surface.
  *
  * The helpers here (`setNestedValue`, `updateNestedValue`, `updateValue`,
- * `getNestedValue`, `redactPatch`) walk a nested object by path with
+ * `getNestedValue`) walk a nested object by path with
  * prototype-pollution protection. Everything else this file used to hold has an
  * owner of its own and is re-exported, so no importer moved: the path codec
  * (`paths.ts`), structural equality (`equality.ts`) and the union merge
  * (`merge.ts`) at L0, and the verb law (`verbs.ts`) at L1 — `applySmartMerge`,
  * `nextGeneration`, `applySmartMergeInto`, `dryFold`, `supersededByNextSet`.
+ * The log's scrub, `redactPatch`, moved to its owner `redaction.ts` in 9.33.0.
  * Zero external dependencies.
  */
 
 import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
 import { DELIM } from './paths.js';
-import { LOG_PLACEHOLDER } from './placeholders.js';
 import type { MemoryPatch } from './types.js';
 
 export { deepEqual } from './equality.js';
@@ -131,21 +131,4 @@ export function getNestedValue(root: any, path: (string | number)[], field?: str
     return node[field];
   }
   return undefined;
-}
-
-/**
- * Redacts sensitive values in a patch for logging/debugging.
- */
-export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch {
-  const out = structuredClone(patch);
-  for (const flat of redactedSet) {
-    const pathArr = flat.split(DELIM);
-    if (_has(out, pathArr)) {
-      const curr = _get(out, pathArr);
-      if (typeof curr !== 'undefined') {
-        _set(out, pathArr, LOG_PLACEHOLDER);
-      }
-    }
-  }
-  return out;
 }

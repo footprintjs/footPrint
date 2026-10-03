@@ -16,7 +16,7 @@ import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, RedactionRule } from './redaction.js';
+import { CLEAR, RedactionRule, redactPatch } from './redaction.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
@@ -29,7 +29,6 @@ import type {
   WriteProvenanceMode,
   WriteTrackingMode,
 } from './types.js';
-import { redactPatch } from './utils.js';
 
 /** The user-level key of a write or read — dotted only for a nested path (a
  *  subflow seed's `['profile'] + 'auth'`); no allocation for the common

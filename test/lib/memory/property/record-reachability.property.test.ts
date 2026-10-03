@@ -17,6 +17,12 @@
  *   any recorder hook payload, or what a stage reads (`$getValue` of every key at the start and the end of
  *   every stage).
  * A positive control proves the detector sees a shared object when there is one.
+ *
+ * F4b (9.33.0) removed `redactPatch`'s two whole-patch clones: the log now records the transaction buffer's
+ * commit-time payload ITSELF (no policy) or a spine copy of it (a scrubbed path), and `nextGeneration` reads
+ * that same payload. So the property now runs EVERY program twice — redaction policy ON and OFF — and adds the
+ * consequence it guards: nothing a stage can reach (live `sharedState`, its own `$getValue` reads) is frozen,
+ * so an in-place edit can never meet the record's freeze as a `TypeError` in a later stage.
  */
 import fc from 'fast-check';
 
@@ -94,7 +100,11 @@ function buildChart(p: ChartProgram, errors: string[], reads: unknown[]) {
 }
 
 /** Run one program; return every place a recorded object is reachable from outside the record. */
-async function sharedWithTheRecord(p: ChartProgram, inject?: (recorded: any[], payloads: unknown[]) => void) {
+async function sharedWithTheRecord(
+  p: ChartProgram,
+  inject?: (recorded: any[], payloads: unknown[], reads: unknown[]) => void,
+) {
+  const frozen: string[] = [];
   const recorded: any[] = [];
   const realRecord = EventLog.prototype.record;
   EventLog.prototype.record = function (this: EventLog, bundle) {
@@ -123,7 +133,7 @@ async function sharedWithTheRecord(p: ChartProgram, inject?: (recorded: any[], p
     }
     const snap = executor.getSnapshot();
     const redacted = p.cfg.policy ? executor.getSnapshot({ redact: true }) : undefined;
-    inject?.(recorded, payloads);
+    inject?.(recorded, payloads, reads);
 
     const record = new Map<object, string>();
     recorded.forEach((bundle, i) => {
@@ -148,23 +158,34 @@ async function sharedWithTheRecord(p: ChartProgram, inject?: (recorded: any[], p
         if (inRecord !== undefined) hits.push(`${path} is ${inRecord}`);
       }
     }
-    return { hits, bundles: recorded.length };
+    // What a stage can edit in place: nothing there may be frozen (a frozen object would be the record's).
+    for (const [label, view] of [
+      ['sharedState', snap.sharedState],
+      ['stageReads', reads],
+    ] as Array<[string, unknown]>) {
+      for (const [o, path] of reach(view, label)) if (Object.isFrozen(o)) frozen.push(path);
+    }
+    return { hits, bundles: recorded.length, frozen };
   } finally {
     EventLog.prototype.record = realRecord;
   }
 }
 
 describe('no container of the record is reachable from outside it', () => {
-  it('over real runs — subflow seed and merge-back, fork children, redaction, every dial', async () => {
+  it('over real runs — subflow seed and merge-back, fork children, every dial; each program with redaction ON and OFF', async () => {
     await fc.assert(
-      fc.asyncProperty(chartProgramArb, async (p) => {
-        const { hits, bundles } = await sharedWithTheRecord(p);
-        expect(bundles).toBeGreaterThan(0);
-        expect(hits).toEqual([]);
+      fc.asyncProperty(chartProgramArb, async (program) => {
+        for (const policy of [false, true]) {
+          const p = { ...program, cfg: { ...program.cfg, policy } };
+          const { hits, bundles, frozen } = await sharedWithTheRecord(p);
+          expect(bundles).toBeGreaterThan(0);
+          expect(hits).toEqual([]);
+          expect(frozen).toEqual([]);
+        }
       }),
-      { numRuns: 120 },
+      { numRuns: 100 },
     );
-  }, 60_000);
+  }, 90_000);
 
   it('the positive control: an object of the record handed to a recorder payload IS reported', async () => {
     const [program] = fc.sample(chartProgramArb, { numRuns: 1, seed: 42 });
@@ -172,5 +193,25 @@ describe('no container of the record is reachable from outside it', () => {
       payloads.push({ leaked: recorded[0].trace });
     });
     expect(hits.some((h) => h.startsWith('hookPayloads') && h.includes('.trace'))).toBe(true);
+  });
+
+  it('the positive control for the freeze: an object of the record a stage could reach IS reported frozen', async () => {
+    const [program] = fc.sample(chartProgramArb, { numRuns: 1, seed: 7 });
+    const { hits, frozen } = await sharedWithTheRecord(program, (recorded, _payloads, reads) => {
+      reads.push({ held: recorded[0].trace });
+    });
+    expect(hits.some((h) => h.startsWith('stageReads'))).toBe(true);
+    expect(frozen.length).toBeGreaterThan(0);
+  });
+
+  it('runs what it claims: every program executes, with and without a policy', async () => {
+    let runs = 0;
+    for (const program of fc.sample(chartProgramArb, { numRuns: 10, seed: 11 })) {
+      for (const policy of [false, true]) {
+        const { bundles } = await sharedWithTheRecord({ ...program, cfg: { ...program.cfg, policy } });
+        if (bundles > 0) runs++;
+      }
+    }
+    expect(runs).toBe(20);
   });
 });
