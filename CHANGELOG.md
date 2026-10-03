@@ -104,6 +104,8 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   `VariableSlice.notes?: HonestyNote[]` (a `'nested-rows'` note when `sliceForKey`'s anchor wrote the key
   only through rows inside it; `SliceJSON.notes` copies it and `formatSlice` prints it as a `⚠` line);
   `CausalEdge.basis?: 'nested-rows'` on a data edge to such a writer (`SliceJSON.edges[].basis` copies it);
+  `CausalNode.preRunReads?: { code: 'pre-run-origin', keys }` — the keys a node read that no commit before
+  it wrote, which the walk used to drop without a word (`SliceJSON.nodes[id].preRunReads` copies it);
   `ArrayProvenance.basis?: ValueBasis[]` (the value twin's codes, less what `missing` says — e.g.
   `{ missing: 'not-an-array', basis: ['deleted'] }`, or `basis: ['from-initial-state']` beside the births of
   an array that was only ever appended to: elements seeded before the run are not in them).
@@ -139,6 +141,10 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
 
 ### Fixed
 
+- **`key-query-scaling` counted wall time and failed on a busy machine** (10.7× and 11.1× against its 10×
+  bound while the shape was linear). It now counts the read models' WORK (`logModel · modelWork`: rows
+  indexed and scanned, fold steps, around-verdicts, lookups) — deterministic: 4.00× for 4× the log against a
+  bound of 6×; a quadratic control measures 16.2× and is caught by the same bound.
 - **A typed array no longer breaks the freeze.** `deepFreeze` threw on a non-empty typed array
   (`Object.freeze` cannot freeze one), so `getSnapshot()` threw for a `Uint8Array` in `initialContext`, and
   run args, the dev-mode snapshot and `stateAt` over a state holding one failed the same way. ArrayBuffer

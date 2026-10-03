@@ -64,6 +64,14 @@ interface RootHistory {
 
 const MODELS = new WeakMap<readonly CommitBundle[], LogModel>();
 
+/**
+ * The WORK every read model has done — rows indexed and scanned, fold steps, around-verdicts, lookups —
+ * summed across models. A deterministic cost measure: `test/lib/memory/boundary/key-query-scaling.test.ts`
+ * asserts that a causal walk's work grows linearly in the log by counting it, where a wall-clock ratio
+ * failed on a busy machine. Never read by the library; one integer add per unit of work it already does.
+ */
+export const modelWork = { units: 0 };
+
 /** Is the log immutable — the array and every bundle and trace frozen (an engine snapshot's log)? */
 function isFrozenLog(log: readonly CommitBundle[]): boolean {
   if (!Object.isFrozen(log)) return false;
@@ -130,6 +138,7 @@ export class LogModel {
 
   constructor(readonly log: readonly CommitBundle[]) {
     this.index = buildWriterIndex(log);
+    for (const bundle of log) modelWork.units += bundle.trace.length;
   }
 
   // ── rows ─────────────────────────────────────────────────────────────────
@@ -144,6 +153,7 @@ export class LogModel {
     if (node !== undefined) {
       for (const c of subtreePositions(node)) {
         const trace = this.log[c].trace;
+        modelWork.units += trace.length;
         for (let row = 0; row < trace.length && refused === undefined; row++) {
           const { path, verb } = trace[row];
           if (path !== root && relation(path, root) !== 'inside') continue;
@@ -189,10 +199,12 @@ export class LogModel {
     const kept = new Map<number, { before: unknown; after: unknown }>();
     const replaced = new Map<PathNode, number[]>();
     const rr = this.rootRows(root);
+    modelWork.units += rr.rows.length;
     foldKey(rr.rows, [root], {
       generations: {
         at: (c, state) => {
           let keep = false;
+          modelWork.units += this.log[c].trace.length;
           for (const t of this.log[c].trace) {
             if (t.path !== root && relation(t.path, root) !== 'inside') continue;
             if ((nodeAt(this.index, t.path)?.children.size ?? 0) > 0) keep = true;
@@ -233,6 +245,7 @@ export class LogModel {
     const verdict = new Map<number, boolean>();
     let commit = -1;
     let start: unknown;
+    modelWork.units += this.rootRows(segs[0]).rows.length;
     foldKey(this.rootRows(segs[0]).rows, segs, {
       everyRow: true,
       observe: (touch, before, after) => {
@@ -265,6 +278,7 @@ export class LogModel {
       ...ancestors.map((a) => between(h.replaced.get(a) ?? [], after, before)),
     ]);
     const rest = key.split(DELIM).slice(1);
+    modelWork.units += candidates.length;
     return candidates.filter((c) => {
       const g = h.kept.get(c);
       return g !== undefined && !deepEqual(nativeGet(g.before, rest), nativeGet(g.after, rest));
@@ -287,6 +301,7 @@ export class LogModel {
 
   /** The ARRAY position of the last commit before `before` that wrote `key`, or -1. */
   lastWriterBefore(key: string, before: number): number {
+    modelWork.units += 1;
     const node = nodeAt(this.index, key);
     const lastAI = node === undefined ? -1 : lastBefore(subtreePositions(node), before);
     const ancestors = ancestorNodes(this.index, key);
@@ -339,10 +354,12 @@ export class LogModel {
             }
           }
         }
+        modelWork.units += rows.length;
         return foldKey(rows, segs);
       }
     }
     const rows = this.rowsUnderRoot(key, idx);
+    modelWork.units += rows.length;
     if (!rows.some((row) => row.relation !== undefined)) return undefined;
     // A memoised model folds from the last generation it keeps at or before `idx` — the rows after it only.
     if (MODELS.get(this.log) === this) {
