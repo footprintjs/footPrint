@@ -22,8 +22,7 @@
  *                 writes after release; recommit bundle byte-identity
  *   FUNCTIONAL  — a 100-iteration loop chart retains ZERO buffers and ZERO
  *                 state-generation references in its execution tree
- *   INTEGRATION — fork double-commit, post-commit engine write (throttle
- *                 flag), subflow outputMapper double-commit
+ *   INTEGRATION — fork double-commit, subflow outputMapper double-commit
  *   PAUSE/RESUME— reads/writes/commit bundles across same-executor AND
  *                 cross-executor resume, incl. the rewrite-to-run-start
  *                 corner (diff base must be the post-pause state)
@@ -257,54 +256,6 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
       const contexts = walkContexts(liveRoot(executor));
       expect(contexts.some((c) => staging(c).buffer !== undefined)).toBe(false);
       expect(contexts.some((c) => staging(c).stateView !== undefined)).toBe(false);
-    });
-
-    it('post-commit engine write (throttle flag) lands in stageWrites, NOT in shared state', async () => {
-      const chart = flowChart<Loose>(
-        'Seed',
-        async (scope) => {
-          scope.$setValue('k', 'orig');
-        },
-        'seed',
-      )
-        .addListOfFunction([
-          {
-            id: 'ok-child',
-            name: 'OkChild',
-            fn: async (scope: Loose & { $setValue(k: string, v: unknown): void }) => {
-              scope.$setValue('ok', true);
-            },
-          },
-          {
-            id: 'throttled-child',
-            name: 'ThrottledChild',
-            fn: async () => {
-              throw new Error('429 rate limited');
-            },
-          },
-        ])
-        .addFunction('Join', async () => undefined, 'join')
-        .build();
-      const executor = new FlowChartExecutor(chart, {
-        throttlingErrorChecker: (error: unknown) => String(error).includes('429'),
-      });
-      await executor.run();
-
-      // ChildrenExecutor writes monitor.isThrottled AFTER the wrapper commit —
-      // a staged-never-committed write on a RELEASED context. Pre-#13b it
-      // stayed in the (reset) buffer; post-#13b a fresh buffer stages it.
-      // Either way it reaches stageWrites (the snapshot) and never sharedState.
-      const snap = executor.getSnapshot();
-      const findStage = (node: any, id: string): any => {
-        if (!node) return undefined;
-        if (node.id === id) return node;
-        const inChildren = (node.children ?? []).map((c: any) => findStage(c, id)).find(Boolean);
-        return inChildren ?? findStage(node.next, id);
-      };
-      const throttled = findStage(snap.executionTree, 'throttled-child');
-      expect(throttled?.stageWrites?.['monitor.isThrottled']).toBe(true);
-      expect((snap.sharedState as Loose).monitor).toBeUndefined();
-      expect(snap.commitLog.some((b) => JSON.stringify(b.overwrite).includes('isThrottled'))).toBe(false);
     });
 
     it('subflow outputMapper double-commit: parent mount bundles + final state unchanged', async () => {

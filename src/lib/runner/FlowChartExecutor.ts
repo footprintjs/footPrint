@@ -50,12 +50,13 @@ import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials, runPolicy } from '../memory/runPolicy.js';
 import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
+import { CHECKPOINT_VERSION, decodeCheckpoint } from '../pause/record.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPausedExecution, isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
-import { fire, operationFor, warnInDevMode } from '../recorder/hooks.js';
+import { fire, recorderFailureEvent, warnInDevMode } from '../recorder/hooks.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
@@ -172,9 +173,12 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
-   * Custom error classifier for throttling detection. Return `true` if the
-   * error represents a rate-limit or backpressure condition (the executor will
-   * treat it differently from hard failures). Defaults to no throttling classification.
+   * Custom error classifier for throttling detection. Return `true` if a fork
+   * child's error represents a rate-limit or backpressure condition; the
+   * executor then fires `FlowRecorder.onThrottled` for that child (9.39.0 —
+   * an EVENT, not a state key: the `monitor.isThrottled` write it replaced
+   * never landed). The child's failure is otherwise handled as before.
+   * Defaults to no throttling classification.
    */
   throttlingErrorChecker?: (error: unknown) => boolean;
   /** Handlers for streaming stage lifecycle events (see `addStreamingFunction`). */
@@ -645,27 +649,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           'one executor per concurrent run. See docs/guides/execution-model.md.',
       );
     }
-    // ── Validate checkpoint structure (may come from untrusted external storage) ──
-    // (lastCheckpoint is wiped AFTER validation — a rejected checkpoint must
-    // not destroy the executor's existing checkpoint state.)
-    if (
-      !checkpoint ||
-      typeof checkpoint !== 'object' ||
-      typeof checkpoint.sharedState !== 'object' ||
-      checkpoint.sharedState === null ||
-      Array.isArray(checkpoint.sharedState)
-    ) {
-      throw new Error('Invalid checkpoint: sharedState must be a plain object.');
-    }
-    if (typeof checkpoint.pausedStageId !== 'string' || checkpoint.pausedStageId === '') {
-      throw new Error('Invalid checkpoint: pausedStageId must be a non-empty string.');
-    }
-    if (
-      !Array.isArray(checkpoint.subflowPath) ||
-      !checkpoint.subflowPath.every((s: unknown) => typeof s === 'string')
-    ) {
-      throw new Error('Invalid checkpoint: subflowPath must be an array of strings.');
-    }
+    // ── Decode the checkpoint (may come from untrusted external storage, from
+    // any release) — the ONE codec: upcast, then check every pause record
+    // (`pause/record.ts`). (lastCheckpoint is wiped AFTER this — a rejected
+    // checkpoint must not destroy the executor's existing checkpoint state.)
+    checkpoint = decodeCheckpoint(checkpoint);
 
     // Find the paused node in the graph
     const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
@@ -797,7 +785,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // seeding when absent, preserving the previous behavior. Same-executor
     // resume is idempotent: at pause the instance values already equal the
     // checkpoint's, so re-seeding them changes nothing.
-    if (typeof checkpoint.executionCount === 'number') {
+    if (checkpoint.executionCount !== undefined) {
       this._executionCounter.value = checkpoint.executionCount;
     }
     if (checkpoint.visitCounts) {
@@ -907,16 +895,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     fire(this.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
       // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
       // becomes an `onError` on every scope recorder, whose own throw is dropped.
-      fire(this.scopeRecorders, 'onError', {
-        stageName: scopeResumeEvent.stageName,
-        stageId: scopeResumeEvent.stageId,
-        runtimeStageId: scopeResumeEvent.runtimeStageId,
-        pipelineId: scopeResumeEvent.pipelineId,
-        timestamp: Date.now(),
-        error: error as Error,
-        operation: operationFor(hook),
-        channel: 'scope' as const,
-      }),
+      fire(this.scopeRecorders, 'onError', recorderFailureEvent(scopeResumeEvent, error, hook)),
     );
 
     // Deferred tier (RFC-001): these executor-synthesized onResume events
@@ -1021,6 +1000,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     }
     const checkpoint = {
+      // The format (9.39.0) — read back by `pause/record.ts · decodeCheckpoint`.
+      checkpointVersion: CHECKPOINT_VERSION,
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
@@ -1037,9 +1018,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionCount: this._executionCounter.value,
       visitCounts: Object.fromEntries(this._visitCounts),
       ...(Object.keys(leanSubflowResults).length > 0 && { subflowResults: leanSubflowResults }),
-      // Invoker context — collected during traversal bubble-up (not tree-walked)
+      // Invoker context — collected during traversal bubble-up (not tree-walked).
+      // (`continuationStageId` is legacy-only since 9.39.0: no longer written.)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
-      ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
       // Parallel siblings' pauses from the same fan-out, waiting their turn
       // (9.28.0). Absent when only one child paused — the shape every
       // earlier checkpoint has.

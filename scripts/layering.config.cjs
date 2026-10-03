@@ -42,6 +42,10 @@ const LAYERS = [
       'src/lib/devMode.ts',
       'src/lib/schema/**',
       'src/lib/pause/**',
+      // The thrown-value structurer (`extractErrorInfo`): imports schema/errors (L0) only. A leaf
+      // OUTSIDE engine/ since F8, so scope/ and recorder/ (L5) build the scope ErrorEvent with it
+      // without an edge into engine/, which would close the engine ⇄ recorder ⇄ scope module cycle.
+      'src/lib/errors/**',
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
       // The path codec, structural equality and the union merge: leaves that import nothing
@@ -77,8 +81,6 @@ const LAYERS = [
       // merge (L0) and verbs (L1) — placed by its highest part.
       'src/lib/memory/utils.ts',
       'src/lib/observer-queue/**',
-      // errorInfo imports schema/ (L0) only.
-      'src/lib/engine/errors/**',
     ],
   },
   {

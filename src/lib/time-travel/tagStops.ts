@@ -36,7 +36,8 @@ import type { Stop, TimeTravelStrategy } from './types.js';
  * The tags a stop's first bundle carries, or `undefined` when it carries
  * none. Reads the bundle at `stop.commitIdx` — the FIRST commit of the
  * stage, which is where `StageContext.commit` records the stamp (a fork
- * child's empty repeat and a mount's exit bundle carry none).
+ * child's repeat and a mount's exit — the bundles with a `phase` — carry
+ * none).
  */
 function tagsAt(log: readonly CommitBundle[], stop: Stop<unknown>): readonly string[] | undefined {
   const raw = log[stop.commitIdx]?.tags;
@@ -91,8 +92,12 @@ function tagsAt(log: readonly CommitBundle[], stop: Stop<unknown>): readonly str
 export function tagStops(tags?: readonly string[]): TimeTravelStrategy<readonly string[]> {
   const wanted = tags && tags.length > 0 ? new Set(tags) : undefined;
   return {
-    stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): Stop<readonly string[]>[] {
-      return filterStops<readonly string[]>(commitStops(commitLog, executionTree), (stop) => {
+    stopsFor(
+      commitLog: readonly CommitBundle[],
+      executionTree?: StageSnapshot,
+      subflowResults?: unknown,
+    ): Stop<readonly string[]>[] {
+      return filterStops<readonly string[]>(commitStops(commitLog, executionTree, subflowResults), (stop) => {
         const stamped = tagsAt(commitLog, stop);
         if (!stamped) return null;
         if (wanted && !stamped.some((tag) => wanted.has(tag))) return null;

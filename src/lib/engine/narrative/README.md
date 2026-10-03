@@ -27,4 +27,4 @@ console.log(trace.getEntries().map((e) => e.text).join('\n'));
 // Step 2: Write n = 2
 ```
 
-Layer L5 (`scripts/layering.config.cjs`) — deliberately *below* the rest of `engine/` (L6), so `recorder/` and `runner/` can use it: it imports `capture/summarize`, `decide/types`, `devMode`, `engine/errors` (L1) and `recorder/` (stores and `CombinedRecorder`), never the traverser. See also [`../README.md`](../README.md).
+Layer L5 (`scripts/layering.config.cjs`) — deliberately *below* the rest of `engine/` (L6), so `recorder/` and `runner/` can use it: it imports `capture/summarize`, `decide/types`, `devMode`, `errors/` (L0) and `recorder/` (stores and `CombinedRecorder`), never the traverser. See also [`../README.md`](../README.md).

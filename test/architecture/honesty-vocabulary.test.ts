@@ -34,6 +34,8 @@ const TRACE = join(REPO, 'src/trace.ts');
 const NOT_HONESTY: Record<string, string> = {
   AxisRefusal:
     'what splitAxis answers when a list of stops has no bookended axis — a verdict on the stops, not a gap in the recording',
+  CommitPhase:
+    'which continuation of a stage a bundle is (exit / repeat, F8) — structure of the record, not a gap in it',
   MoveRefusal: 'why a cursor move did not happen (clamped, miss, empty) — navigation, not a gap in the recording',
   StopKind: 'what a time-travel stop is (its place on the axis) — structure, not what a reader cannot see',
   InOutPhase: 'which side of a boundary an in/out entry records — structure',

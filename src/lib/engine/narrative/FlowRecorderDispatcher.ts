@@ -12,15 +12,16 @@
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
+import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
+import { extractErrorInfo } from '../../errors/errorInfo.js';
 import { fire, warnInDevMode } from '../../recorder/hooks.js';
-import type { StructuredErrorInfo } from '../errors/errorInfo.js';
-import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
   FlowBreakEvent,
   FlowRecorder,
   FlowStageEvent,
   FlowStageRetryEvent,
+  FlowThrottledEvent,
   IControlFlowNarrative,
   StageType,
   TraversalContext,
@@ -190,6 +191,20 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       channel: 'flow' as const,
     };
     fire(this.recorders, 'onStageRetry', event, FLOW_FAILURE);
+  }
+
+  onThrottled(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void {
+    if (this.recorders.length === 0) return;
+    const structuredError = extractErrorInfo(error);
+    const event: FlowThrottledEvent = {
+      stageName,
+      stageId,
+      message: structuredError.message,
+      structuredError,
+      traversalContext,
+      channel: 'flow' as const,
+    };
+    fire(this.recorders, 'onThrottled', event, FLOW_FAILURE);
   }
 
   onPause(

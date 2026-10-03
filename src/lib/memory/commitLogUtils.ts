@@ -11,7 +11,7 @@ import { queryWork, relation, rootOf, writesOnlyInside } from './keyPaths.js';
 import { leavesStringAbove, logModel, memoisedModel } from './logModel.js';
 import { nativeGet } from './pathOps.js';
 import { DELIM } from './paths.js';
-import type { CommitBundle } from './types.js';
+import type { CommitBundle, CommitPhase } from './types.js';
 import { type Touch, foldKey, isTotal, isVerb, UnknownVerbError } from './verbs.js';
 
 // Every key query here follows the writer rule and the value rule of `keyPaths.ts` (F3, 9.33.0):
@@ -361,13 +361,18 @@ function valueByScan(commitLog: CommitBundle[], end: number, key: string): unkno
 
 /**
  * Position index over a commit log: `runtimeStageId` → the ARRAY INDEX of the
- * FIRST bundle that stage committed.
+ * FIRST bundle that stage committed. The map's insertion order is the order
+ * the stages first committed — execution order.
  *
  * "First" is the contract, and it is load-bearing. A stage normally commits
- * exactly one bundle, but a subflow MOUNT commits two that share one
- * `runtimeStageId` (the output-mapping commit, then the mount-exit commit).
- * A cursor asks "where does this stage start?", so the first wins — the
- * grouping a reader's axis uses (`commitStops`) anchors at the same place.
+ * exactly one bundle, but some executions commit more under one
+ * `runtimeStageId`: a subflow MOUNT (the merge-back, then the exit), a fork
+ * child (its own commit, then the fan-out's). Since 9.39.0 the WRITER names
+ * each continuation on the bundle (`CommitBundle.phase`: `'exit'` /
+ * `'repeat'`), and every continuation is written after the execution's own
+ * bundle — so "where does this stage start?" is the first bundle, and the
+ * grouping every reader's axis uses (`commitStops`) is this index. No reader
+ * tells a continuation from the log's shape.
  *
  * Build this ONCE when resolving many ids; use {@link commitIndexOf} for a
  * single lookup.
@@ -382,6 +387,43 @@ export function buildCommitIndex(commitLog: readonly CommitBundle[]): Map<string
     if (!index.has(id)) index.set(id, i);
   }
   return index;
+}
+
+/**
+ * Whether a log RECORDS phases — any bundle carries `phase` — i.e. it was
+ * written by 9.39.0 or later and holds at least one continuation. A log that
+ * does not either has no continuation at all, or predates the field (see
+ * {@link inferLegacyPhases}).
+ */
+export function recordsPhases(commitLog: readonly CommitBundle[]): boolean {
+  for (const bundle of commitLog) if (bundle.phase !== undefined) return true;
+  return false;
+}
+
+/**
+ * THE LEGACY READER — the one place a continuation's phase is INFERRED, for a
+ * log written before 9.39.0 (which carries no `phase` anywhere). Returns the
+ * phase each bundle would have been stamped with, by the rule every reader
+ * applied through 9.38.0: a stage's bundle that IMMEDIATELY follows its first
+ * bundle is a mount's exit; any later bundle of the same `runtimeStageId` is
+ * a fork child's repeat; a first bundle is the stage's own (`undefined`).
+ *
+ * The rule is a guess, and the guess has a known miss — a single-child fork
+ * whose child is a leaf looks exactly like a mount — which is why a reader
+ * asks it only when the log records no phase AND it has no execution tree to
+ * ask instead (`commitStops`). A log that records phases is never inferred.
+ */
+export function inferLegacyPhases(commitLog: readonly CommitBundle[]): (CommitPhase | undefined)[] {
+  const phases: (CommitPhase | undefined)[] = new Array(commitLog.length).fill(undefined);
+  const firstOf = new Map<string, number>();
+  for (let i = 0; i < commitLog.length; i++) {
+    const id = commitLog[i].runtimeStageId;
+    if (!id) continue;
+    const first = firstOf.get(id);
+    if (first === undefined) firstOf.set(id, i);
+    else phases[i] = i === first + 1 ? 'exit' : 'repeat';
+  }
+  return phases;
 }
 
 /**

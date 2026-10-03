@@ -197,11 +197,12 @@ describe('the resume event carries the real path, depth and a link', () => {
     }
   });
 
-  it('a newly made checkpoint gains exactly one field, pausedExecution', async () => {
+  it('a newly made checkpoint gains pausedExecution (9.37.0) and checkpointVersion (9.39.0)', async () => {
     const executor = new FlowChartExecutor(nestedPauseChart());
     await executor.run();
     expect(Object.keys(executor.getCheckpoint()!).sort()).toEqual(
       [
+        'checkpointVersion',
         'executionCount',
         'executionTree',
         'pauseData',

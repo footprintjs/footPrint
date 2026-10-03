@@ -389,9 +389,13 @@ export interface Mark {
  * and tree, and the cursor re-steps the results into one axis. So a strategy
  * never has to know it is part of a chain, and its `commitIdx`/`lastCommitIdx`
  * stay source-local — which is what they always were.
+ *
+ * `subflowResults` (9.39.0) is the source's own `subflowResults`, as stored
+ * (untyped) — a mount's per-execution key names it a mount when no tree came
+ * with the log. A strategy may ignore it.
  */
 export interface TimeTravelStrategy<TMeta = unknown> {
-  stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): Stop<TMeta>[];
+  stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot, subflowResults?: unknown): Stop<TMeta>[];
 }
 
 // ── The cursor ─────────────────────────────────────────────────────────────

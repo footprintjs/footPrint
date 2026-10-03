@@ -8,7 +8,7 @@
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
-import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 
 /**
  *
@@ -128,6 +128,13 @@ export interface IControlFlowNarrative {
     error: unknown,
     traversalContext?: TraversalContext,
   ): void;
+
+  /**
+   * Called when a fork child failed and the run's `throttlingErrorChecker`
+   * classified its error as throttling (9.39.0). The child's failure takes
+   * its ordinary path too; this only names it as throttling.
+   */
+  onThrottled?(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void;
 
   /** Called when a pausable stage pauses execution. */
   onPause(
@@ -395,6 +402,32 @@ export interface FlowErrorEvent {
 }
 
 /**
+ * Event passed to FlowRecorder.onThrottled — a fork child failed and the
+ * executor's `throttlingErrorChecker` said its error is throttling (9.39.0).
+ *
+ * WHY an event: the checker used to write `monitor.isThrottled` into the
+ * child's frame AFTER the child's last commit, so the flag landed nowhere —
+ * not in state, not in the log. Throttling is telemetry, so it travels the
+ * way telemetry does: as an event a recorder can count, alert on, or back off
+ * from. The child's failure still takes its ordinary path (the fan-out
+ * records it as `{ isError: true }`); this event only classifies it.
+ */
+export interface FlowThrottledEvent {
+  /** The fork child whose error was classified as throttling. */
+  stageName: string;
+  /** Stable stage identifier of that child (matches spec node id). */
+  stageId: string;
+  /** Human-readable message of the child's error. */
+  message: string;
+  /** Structured details of the child's error. */
+  structuredError: StructuredErrorInfo;
+  /** The FORK's stamp — the fan-out is where the classification is made. */
+  traversalContext?: TraversalContext;
+  /** Explicit channel discriminant — see {@link FlowErrorEvent.channel}. */
+  channel?: 'flow';
+}
+
+/**
  * Event passed to FlowRecorder.onStageRetry — one failed attempt at a stage
  * that carries a declared {@link import('../types.js').RetryPolicy}, and which
  * WILL be attempted again.
@@ -522,6 +555,11 @@ export interface FlowRecorder {
    * {@link FlowStageRetryEvent} for the exact event arithmetic.
    */
   onStageRetry?(event: FlowStageRetryEvent): void;
+  /**
+   * Called when a fork child's error is classified as throttling by the
+   * executor's `throttlingErrorChecker` — see {@link FlowThrottledEvent}.
+   */
+  onThrottled?(event: FlowThrottledEvent): void;
   onPause?(event: FlowPauseEvent): void;
   onResume?(event: FlowResumeEvent): void;
   /**

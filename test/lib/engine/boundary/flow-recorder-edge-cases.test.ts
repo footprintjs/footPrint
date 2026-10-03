@@ -5,7 +5,6 @@
  * empty recorders, rapid attach/detach, and unusual parameter values.
  */
 
-import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import { FlowRecorderDispatcher } from '../../../../src/lib/engine/narrative/FlowRecorderDispatcher';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 import { AdaptiveNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/AdaptiveNarrativeFlowRecorder';
@@ -15,6 +14,7 @@ import { RLENarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/r
 import { SeparateNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/SeparateNarrativeFlowRecorder';
 import { SilentNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/SilentNarrativeFlowRecorder';
 import { WindowedNarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/recorders/WindowedNarrativeFlowRecorder';
+import { extractErrorInfo } from '../../../../src/lib/errors/errorInfo';
 
 function emitLoops(recorder: any, count: number, target = 'Retry') {
   for (let i = 1; i <= count; i++) {

@@ -62,6 +62,7 @@
  * would have held), exactly as 9.27.0 did.
  */
 
+import { decodePendingPauses } from '../../pause/record.js';
 import type { PendingPause } from '../../pause/types.js';
 import { isPausedExecution, PauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -473,7 +474,7 @@ interface LevelQueue<TOut, TScope> {
 }
 
 /**
- * Validate `checkpoint.pendingPauses` (untrusted input) and queue each at the
+ * Place `checkpoint.pendingPauses` (decoded — `pause/record.ts`) and queue each at the
  * level of its fan-out: the depth where its path parts from the paused
  * stage's. There, the paused stage's child (a mount on the path, or the stage
  * itself) and the sibling's must both hang off ONE parallel dispatcher — a
@@ -494,12 +495,15 @@ function queueSiblingPauses<TOut, TScope>(
 ): Array<LevelQueue<TOut, TScope> | undefined> {
   const queues: Array<LevelQueue<TOut, TScope> | undefined> = [];
   if (pending === undefined) return queues;
-  if (!Array.isArray(pending)) throw new Error('Invalid checkpoint: pendingPauses must be an array.');
+  // The codec's check (`pause/record.ts`) — `plan` is a public door too, so it
+  // never takes a sibling record unchecked, however it was handed one.
+  const decoded = decodePendingPauses(pending);
   const { chart, subflows, root, path, graphs, mounts, paused } = at;
   const seen = new Set<string>();
 
-  pending.forEach((raw: unknown, n) => {
-    const pause = validPendingPause(raw, n);
+  // Each record's FIELDS are checked above; here it is asked whether the
+  // record fits THIS chart.
+  decoded.forEach((pause, n) => {
     // One record per paused sibling: a repeat would ask the same question twice.
     const key = JSON.stringify([pause.subflowPath, pause.pausedStageId]);
     if (seen.has(key)) {
@@ -566,40 +570,6 @@ function walksToItsStage<TOut, TScope>(
     graph = definition.root;
   }
   return chart.stage(graph, pause.pausedStageId) !== undefined;
-}
-
-/** One `pendingPauses` entry, checked field by field — it comes from stored, untrusted data. */
-function validPendingPause(raw: unknown, n: number): PendingPause {
-  const refuse = (what: string): never => {
-    throw new Error(`Invalid checkpoint: pendingPauses[${n}] ${what}.`);
-  };
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) refuse('must be an object');
-  const record = raw as Record<string, unknown>;
-  if (typeof record.pausedStageId !== 'string' || record.pausedStageId === '') {
-    refuse('must name its paused stage (pausedStageId, a non-empty string)');
-  }
-  const subflowPath = record.subflowPath;
-  if (!Array.isArray(subflowPath) || !subflowPath.every((s) => typeof s === 'string')) {
-    refuse('must carry its subflowPath (an array of strings)');
-  }
-  const states = record.subflowStates;
-  if (states !== undefined && (states === null || typeof states !== 'object' || Array.isArray(states))) {
-    refuse('must carry its subflowStates as an object');
-  }
-  if (record.pausedBy !== undefined && record.pausedBy !== 'interrupt')
-    refuse("has an unknown pausedBy (only 'interrupt')");
-  return {
-    pausedStageId: record.pausedStageId as string,
-    subflowPath: subflowPath as string[],
-    subflowStates: (states as Record<string, Record<string, unknown>> | undefined) ?? {},
-    ...(record.pauseData !== undefined && { pauseData: record.pauseData }),
-    ...(record.pausedBy === 'interrupt' && { pausedBy: 'interrupt' as const }),
-    // A record, never a plan input: kept only when well-formed (an older or
-    // hand-edited entry simply resumes without a link).
-    ...(isPausedExecution(record.pausedExecution) && {
-      pausedExecution: { runId: record.pausedExecution.runId, runtimeStageId: record.pausedExecution.runtimeStageId },
-    }),
-  };
 }
 
 /** `record[key]` only when it is the record's OWN property — never through the prototype chain. */

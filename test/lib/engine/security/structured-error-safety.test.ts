@@ -15,11 +15,11 @@
 
 import { vi } from 'vitest';
 
-import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import type { FlowErrorEvent, FlowRecorder } from '../../../../src/lib/engine/narrative/types';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { ILogger, StageFunction } from '../../../../src/lib/engine/types';
+import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/errors/errorInfo';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import { InputValidationError } from '../../../../src/lib/schema/errors';
 

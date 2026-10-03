@@ -92,7 +92,13 @@ export {
   findCommits,
   findLastWriter,
   findLastWriterWithBasis,
+  // One stage, one record (F8, 9.39.0): does a log record its continuations
+  // (`CommitBundle.phase`), and — for a log written before it — the ONE legacy
+  // reader that infers them the way 9.38.0 did.
+  inferLegacyPhases,
+  recordsPhases,
 } from './lib/memory/commitLogUtils.js';
+export type { CommitPhase } from './lib/memory/types.js';
 
 // ── time-travel/ — the READER'S cursor over a finished trace ──────────────
 // A Trace is what the run recorded; time travel is a cursor over it with a

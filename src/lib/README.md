@@ -4,8 +4,8 @@ Every folder here does one job and sits on a layer; **a file imports only files 
 
 | Layer | What lives there | The job |
 |---|---|---|
-| L0 values and leaves | [`capture/`](./capture/README.md), [`schema/`](./schema/README.md), [`pause/`](./pause/README.md), `devMode.ts`; the leaves of `memory/`, `engine/` and `scope/` | address, compare and summarise a value; the id grammar |
-| L1 verbs | [`observer-queue/`](./observer-queue/README.md), [`engine/errors/`](./engine/errors/README.md), `memory/verbs.ts` | the one law that turns a trace row into a value; deferred delivery; error info |
+| L0 values and leaves | [`capture/`](./capture/README.md), [`schema/`](./schema/README.md), [`pause/`](./pause/README.md), [`errors/`](./errors/README.md), `devMode.ts`; the leaves of `memory/`, `engine/` and `scope/` | address, compare and summarise a value; the id grammar; error info |
+| L1 verbs | [`observer-queue/`](./observer-queue/README.md), `memory/verbs.ts` | the one law that turns a trace row into a value; deferred delivery |
 | L2 staging and commit | [`memory/`](./memory/README.md) — `TransactionBuffer`, `SharedMemory`, `redaction` | one stage's ops become one net-change bundle |
 | L3 the log as a read model | [`slice/`](./slice/README.md), [`time-travel/`](./time-travel/README.md), `memory/` — `EventLog`, `backtrack` | what a finished log can honestly say |
 | L4 the frame and run policy | `memory/StageContext`, `runner/ExecutionRuntime` | one stage's frame; the run's runtime |

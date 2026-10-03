@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { withoutRecordedPhases } from './f8-recorded-phases.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
@@ -35,11 +36,11 @@ const redactViewReference = (encoding: 'full' | 'delta') =>
 
 describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => {
   it('commitValues: full', async () => {
-    expect(await runNoPolicyFixture('full')).toBe(reference('full'));
+    expect(withoutRecordedPhases(await runNoPolicyFixture('full'))).toBe(reference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(await runNoPolicyFixture('delta')).toBe(reference('delta'));
+    expect(withoutRecordedPhases(await runNoPolicyFixture('delta'))).toBe(reference('delta'));
   });
 
   it('the reference itself is what it claims — plaintext everywhere, nothing redacted', () => {
@@ -62,11 +63,11 @@ describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => 
  */
 describe('redaction — no policy, no mirror: the served view is byte-identical to 9.19.1', () => {
   it('commitValues: full', async () => {
-    expect(await runNoPolicyRedactViewFixture('full')).toBe(redactViewReference('full'));
+    expect(withoutRecordedPhases(await runNoPolicyRedactViewFixture('full'))).toBe(redactViewReference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(await runNoPolicyRedactViewFixture('delta')).toBe(redactViewReference('delta'));
+    expect(withoutRecordedPhases(await runNoPolicyRedactViewFixture('delta'))).toBe(redactViewReference('delta'));
   });
 
   it('the reference is the RAW subflow heap — plaintext, served as the plain snapshot is', () => {

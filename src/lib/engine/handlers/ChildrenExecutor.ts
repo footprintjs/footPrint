@@ -4,7 +4,7 @@
  * Responsibilities:
  * - Execute all children in parallel (fork pattern)
  * - Execute selected children based on selector output (multi-choice)
- * - Handle throttling error flagging for rate-limited operations
+ * - Name a child's throttling error as an `onThrottled` flow event (9.39.0)
  * - Aggregate results into { childId: { result, isError } }
  */
 
@@ -80,18 +80,23 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
 
       return this.executeNode(child, childContext, childBreakFlag, childBranchPath)
         .then((result) => {
-          childContext.commit();
+          // The fan-out's settle commit is a CONTINUATION of the child's
+          // execution — named on the record (9.39.0), never inferred.
+          childContext.commit('repeat');
           updateParentBreakFlag();
           return { id: child.id!, result, isError: false };
         })
         .catch((error) => {
           // PauseSignal is expected control flow — re-throw immediately.
           if (isPauseSignal(error)) throw error;
-          childContext.commit();
+          childContext.commit('repeat');
           updateParentBreakFlag();
           this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
+          // Throttling is telemetry (R9): an event, not a state key. Before
+          // 9.39.0 this wrote `monitor.isThrottled` AFTER the child's last
+          // commit, so it landed nowhere.
           if (this.deps.throttlingErrorChecker && this.deps.throttlingErrorChecker(error)) {
-            childContext.updateObject(['monitor'], 'isThrottled', true);
+            this.deps.narrativeGenerator.onThrottled?.(child.name, child.id as string, error, traversalContext);
           }
           return { id: child.id!, result: error, isError: true };
         });

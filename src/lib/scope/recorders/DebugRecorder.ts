@@ -82,11 +82,21 @@ export class DebugRecorder implements ScopeRecorder {
   }
 
   onError(event: ErrorEvent): void {
+    // The structured fields only — never `raw` (the thrown value itself, which
+    // may be a function, a Proxy or a cycle), so a snapshot row always
+    // survives `structuredClone` (9.39.0).
+    const { message, name, code, issues } = event.error;
+    const error = {
+      message,
+      ...(name !== undefined && { name }),
+      ...(code !== undefined && { code }),
+      ...(issues !== undefined && { issues }),
+    };
     this.entries.push({
       type: 'error',
       stageName: event.stageName,
       timestamp: event.timestamp,
-      data: { error: event.error, operation: event.operation, key: event.key, pipelineId: event.pipelineId },
+      data: { error, operation: event.operation, key: event.key, pipelineId: event.pipelineId },
     });
   }
 

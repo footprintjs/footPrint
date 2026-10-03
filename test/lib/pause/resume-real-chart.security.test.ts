@@ -285,7 +285,7 @@ describe('a subflow id mounted TWICE: a pause inside it is refused, loudly, at r
 });
 
 describe('what runs after the paused stage comes from the chart, not the checkpoint', () => {
-  it('an edited continuationStageId cannot redirect a paused decider branch', async () => {
+  it('a legacy continuationStageId, edited, cannot redirect a paused decider branch (the upcaster drops it)', async () => {
     const calls: string[] = [];
     const chart = flowChart('Seed', () => undefined, 'seed')
       .addDeciderFunction('Route', () => 'ask', 'route')
@@ -314,11 +314,12 @@ describe('what runs after the paused stage comes from the chart, not the checkpo
       .build();
     const first = new FlowChartExecutor(chart);
     await first.run();
-    const checkpoint = JSON.parse(JSON.stringify(first.getCheckpoint())) as FlowchartCheckpoint;
-    expect(checkpoint.continuationStageId).toBe('after');
-
-    // Tamper: jump straight to Payout, skipping After.
-    await new FlowChartExecutor(chart).resume({ ...checkpoint, continuationStageId: 'payout' }, {});
+    const { checkpointVersion: _v, ...unversioned } = JSON.parse(
+      JSON.stringify(first.getCheckpoint()),
+    ) as FlowchartCheckpoint;
+    // A pre-9.39.0 checkpoint carried the field; tamper with it: jump straight to Payout, skipping After.
+    const legacy = { ...unversioned, continuationStageId: 'payout' } as FlowchartCheckpoint;
+    await new FlowChartExecutor(chart).resume(legacy, {});
 
     expect(calls).toEqual(['ask-resume', 'after', 'payout']);
   });

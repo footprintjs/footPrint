@@ -34,7 +34,8 @@
 import { invokeRecorderHook } from '../capture/invokeHook.js';
 import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { ScopeRecorder } from '../scope/types.js';
+import { extractErrorInfo } from '../errors/errorInfo.js';
+import type { ErrorEvent, ScopeRecorder } from '../scope/types.js';
 import type { EmitRecorder } from './EmitRecorder.js';
 
 /** Members every recorder interface shares that are NOT events. */
@@ -104,6 +105,8 @@ export const HOOKS = {
   onStageEnd: { on: { scope: 'StageEvent' }, executorMade: false },
   // Declarative per-stage retry (9.15): fires DURING a stage, once per failed attempt that will be retried.
   onStageRetry: { on: { flow: 'FlowStageRetryEvent' }, executorMade: false },
+  // Throttling (9.39.0, R9): a fork child's error the run's `throttlingErrorChecker` classified.
+  onThrottled: { on: { flow: 'FlowThrottledEvent' }, executorMade: false },
   onPause: { on: { scope: 'PauseEvent', flow: 'FlowPauseEvent' }, executorMade: false },
   onResume: { on: { scope: 'ResumeEvent', flow: 'FlowResumeEvent' }, executorMade: true },
   // Run boundaries — listed so a recorder whose ONLY hook is one of them still routes to the flow channel.
@@ -139,6 +142,36 @@ export function operationFor(hook: string): 'read' | 'write' | 'commit' {
   if (hook === 'onRead') return 'read';
   if (hook === 'onCommit') return 'commit';
   return 'write';
+}
+
+/** Where a recorder failure is reported FROM — the stage (or synthesized event) whose hook threw. */
+export interface FailureSite {
+  readonly stageName: string;
+  readonly stageId: string;
+  readonly runtimeStageId: string;
+  readonly pipelineId: string;
+}
+
+/**
+ * THE scope-channel `onError` event for a recorder that threw in `hook` — built in ONE place
+ * for every path that reports one: the inline facade (`ScopeFacade · _routeFailure`), the
+ * executor's own `onResume` (`FlowChartExecutor · resume`) and deferred delivery
+ * (`DeferredObserverTier · routeListenerError`). `error` is the structured form
+ * (`extractErrorInfo`: `message`, `name`, `code?`, `raw` = the thrown value itself) whatever
+ * was thrown — an `Error`, a string, anything (9.39.0; before, the inline paths passed the raw
+ * thrown value and the deferred tier wrapped it in `new Error(...)`).
+ */
+export function recorderFailureEvent(site: FailureSite, thrown: unknown, hook: string): ErrorEvent {
+  return {
+    stageName: site.stageName,
+    stageId: site.stageId,
+    runtimeStageId: site.runtimeStageId,
+    pipelineId: site.pipelineId,
+    timestamp: Date.now(),
+    error: extractErrorInfo(thrown),
+    operation: operationFor(hook),
+    channel: 'scope' as const,
+  };
 }
 
 /**

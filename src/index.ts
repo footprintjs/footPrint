@@ -197,6 +197,7 @@ export type {
   FlowStageRetryEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
+  FlowThrottledEvent,
   ResumeLink,
   TraversalContext,
 } from './lib/engine/index.js';

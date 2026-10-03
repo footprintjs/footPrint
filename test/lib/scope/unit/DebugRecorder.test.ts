@@ -3,8 +3,29 @@ import { DebugRecorder } from '../../../../src/lib/scope/recorders/DebugRecorder
 describe('DebugRecorder', () => {
   it('records errors regardless of verbosity', () => {
     const rec = new DebugRecorder({ verbosity: 'minimal' });
-    rec.onError({ stageName: 'a', pipelineId: 'p', timestamp: 1, error: new Error('fail'), operation: 'write' });
+    rec.onError({
+      stageName: 'a',
+      pipelineId: 'p',
+      timestamp: 1,
+      error: { message: 'fail', name: 'Error', raw: new Error('fail') },
+      operation: 'write',
+    });
     expect(rec.getErrors()).toHaveLength(1);
+  });
+
+  it('keeps the structured fields of an error, never raw — a row always survives structuredClone (9.39.0)', () => {
+    const rec = new DebugRecorder({ verbosity: 'minimal' });
+    const uncloneable = () => 'a thrown function';
+    rec.onError({
+      stageName: 'a',
+      pipelineId: 'p',
+      timestamp: 1,
+      error: { message: 'boom', name: 'TypeError', code: 'E1', raw: uncloneable },
+      operation: 'write',
+    });
+    const [row] = rec.getErrors();
+    expect((row.data as { error: unknown }).error).toEqual({ message: 'boom', name: 'TypeError', code: 'E1' });
+    expect(() => structuredClone(rec.getEntries())).not.toThrow();
   });
 
   it('records reads only in verbose mode', () => {

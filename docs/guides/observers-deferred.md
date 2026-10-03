@@ -165,7 +165,8 @@ They can't block a stage anymore. The flush budget (`flushBudgetMs`, default
 re-arms for the next one. Per-listener time accounting
 (`observerStats.perListener`) names the hog. A throwing or rejecting
 listener is isolated — siblings and the engine never see the failure (it
-routes to the other observers' `onError` and a dev-warn).
+routes to every scope observer's `onError`, the failing one included, exactly
+as inline delivery does — and a dev-warn).
 
 **What happens on crash, pause, or serverless freeze?**
 Run reject and pause both drain the queue synchronously BEFORE the rejection

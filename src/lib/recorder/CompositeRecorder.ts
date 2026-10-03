@@ -59,7 +59,7 @@ export interface CompositeSnapshot {
   };
 }
 
-/** One fan-out method per registry hook (`recorder/hooks.ts · HOOKS`) — 23 names, 26 channel slots. */
+/** One fan-out method per registry hook (`recorder/hooks.ts · HOOKS`) — 24 names, 27 channel slots. */
 type HookMethods = { [K in HookName]: (event: HookPayload<K>) => void };
 
 // Declaration merge: the methods below are installed on the prototype from the registry, so

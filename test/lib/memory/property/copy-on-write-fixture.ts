@@ -125,6 +125,12 @@ const VOLATILE = new Set([
   // F7 (9.37.0) — the one named checkpoint change: the paused execution the resume
   // event links to. 9.28.0 has no such field; pinned in resume-event-link.test.ts.
   'pausedExecution',
+  // F8 (9.39.0) — the named record change: a continuation's `phase` on its bundle ('exit' /
+  // 'repeat'; 9.28.0 has none), the checkpoint's `checkpointVersion`, and `continuationStageId`
+  // (legacy-only — no longer written). Pinned in one-stage-one-record.test.ts and pause/record.test.ts.
+  'phase',
+  'checkpointVersion',
+  'continuationStageId',
 ]);
 
 /**

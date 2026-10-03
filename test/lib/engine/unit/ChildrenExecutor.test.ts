@@ -195,9 +195,12 @@ describe('ChildrenExecutor', () => {
       expect(narrativeGenerator.onFork).toHaveBeenCalledWith('parent', ['c1'], undefined);
     });
 
-    it('checks throttling error and updates monitor when throttlingErrorChecker returns true', async () => {
+    it('a throttling error is named by an onThrottled flow event, never a state write (R9)', async () => {
       const throttlingErrorChecker = vi.fn().mockReturnValue(true);
-      const deps = makeDeps({ throttlingErrorChecker });
+      // `onThrottled` is OPTIONAL on the narrative interface: a generator that implements it hears it.
+      const onThrottled = vi.fn();
+      const narrativeGenerator = Object.assign(new NullControlFlowNarrativeGenerator(), { onThrottled });
+      const deps = makeDeps({ throttlingErrorChecker, narrativeGenerator });
       const error = new Error('rate limited');
       const executeNode = vi.fn().mockRejectedValue(error);
       const executor = new ChildrenExecutor(deps, executeNode);
@@ -209,13 +212,19 @@ describe('ChildrenExecutor', () => {
       await executor.executeNodeChildren(node, context);
 
       expect(throttlingErrorChecker).toHaveBeenCalledWith(error);
+      expect(onThrottled).toHaveBeenCalledWith('child', 'c1', error, undefined);
       const childCtx = context.createChild.mock.results[0].value;
-      expect(childCtx.updateObject).toHaveBeenCalledWith(['monitor'], 'isThrottled', true);
+      expect(childCtx.updateObject).not.toHaveBeenCalled();
+      // The fan-out's settle commit names itself a continuation of the child's execution.
+      expect(childCtx.commit).toHaveBeenCalledWith('repeat');
     });
 
-    it('does not update monitor when throttlingErrorChecker returns false', async () => {
+    it('does not fire onThrottled when throttlingErrorChecker returns false', async () => {
       const throttlingErrorChecker = vi.fn().mockReturnValue(false);
-      const deps = makeDeps({ throttlingErrorChecker });
+      // `onThrottled` is OPTIONAL on the narrative interface: a generator that implements it hears it.
+      const onThrottled = vi.fn();
+      const narrativeGenerator = Object.assign(new NullControlFlowNarrativeGenerator(), { onThrottled });
+      const deps = makeDeps({ throttlingErrorChecker, narrativeGenerator });
       const executeNode = vi.fn().mockRejectedValue(new Error('not throttled'));
       const executor = new ChildrenExecutor(deps, executeNode);
 
@@ -225,6 +234,7 @@ describe('ChildrenExecutor', () => {
 
       await executor.executeNodeChildren(node, context);
 
+      expect(onThrottled).not.toHaveBeenCalled();
       const childCtx = context.createChild.mock.results[0].value;
       expect(childCtx.updateObject).not.toHaveBeenCalled();
     });

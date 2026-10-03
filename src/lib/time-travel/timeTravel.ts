@@ -83,7 +83,9 @@ class Cursor<TMeta> implements TimeTravel<TMeta> {
     // ONE CALL PER SOURCE, with that source's own log and tree: a strategy
     // never has to know it is part of a chain, and its indices stay local to
     // the leg it was handed.
-    const perSource = this.legs.map((leg, i) => strategy.stopsFor(leg.log, readTree(sources[i].executionTree)));
+    const perSource = this.legs.map((leg, i) =>
+      strategy.stopsFor(leg.log, readTree(sources[i].executionTree), sources[i].subflowResults),
+    );
     this.stops = Object.freeze(sources.length === 1 ? perSource[0] : chainStops(perSource));
     this._marks = [...(options.marks ?? [])];
     this.step = 0;

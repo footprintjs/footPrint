@@ -73,7 +73,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       // Stamp invoker context on PauseSignal during bubble-up.
       // The decider (node) is the invoker; its .next is the continuation target.
       if (isPauseSignal(error)) {
-        error.setInvoker(node.id!, node.next?.id);
+        error.setInvoker(node.id!);
         throw error;
       }
       throw error;

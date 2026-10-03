@@ -283,8 +283,10 @@ is the child with that continuation attached where its chain ends —
 from the CHART (`ResumeEntry.plan` indexes each level's graph: node →
 enclosing dispatcher), not from the checkpoint, so it lands at the level it
 belongs to — a top-level decider's `next` runs at the top level after the
-subflow's outputMapper, not inside the subflow — and an edited
-`continuationStageId` cannot redirect a run.
+subflow's outputMapper, not inside the subflow — and no checkpoint field
+can redirect a run (the legacy `continuationStageId`, which a checkpoint
+written before 9.39.0 may carry, is dropped by the upcaster in
+`pause/record.ts`).
 
 ```typescript
 // Sequence(Conditional(agent)): the agent asks a person, deep inside.

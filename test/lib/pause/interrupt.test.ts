@@ -237,10 +237,9 @@ describe('interrupt — engine invariants hold across the new entry path', () =>
     const result = await executor.run();
     const checkpoint = (result as { checkpoint: FlowchartCheckpoint }).checkpoint;
 
-    // Stamped during bubble-up by the decider dispatch — the branch child has
-    // no `.next` of its own, so this is the only route back to 'finish'.
+    // Stamped during bubble-up by the decider dispatch. What runs after the
+    // branch ('finish') is read from the chart on resume, not the checkpoint.
     expect(checkpoint.invokerStageId).toBe('route');
-    expect(checkpoint.continuationStageId).toBe('finish');
 
     await executor.resume(checkpoint, { approved: true });
     const state = executor.getSnapshot().sharedState as RefundState;

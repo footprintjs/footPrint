@@ -4,7 +4,7 @@
  * Edge case: the decider is the last stage in the pipeline. After resume,
  * there's nowhere to continue — execution terminates cleanly.
  *
- * Tests that the engine doesn't crash when continuationStageId is undefined.
+ * Tests that the engine ends cleanly when the decider has no next node.
  *
  * Pipeline: Seed → Route(decide) → [review: Approval(PAUSE)]
  * After resume: Approval resumes → pipeline ends (no Done stage)
@@ -51,7 +51,7 @@ const chart = flowChart<State>('Seed', async (scope) => {
 
   if (executor.isPaused()) {
     const checkpoint = executor.getCheckpoint()!;
-    console.log(`Continuation: ${checkpoint.continuationStageId ?? 'none (pipeline ends)'}`);
+    console.log(`Invoker: ${checkpoint.invokerStageId}; no next node — the pipeline ends after the branch`);
 
     await executor.resume(checkpoint, { approved: true });
 

@@ -22,6 +22,7 @@ import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
+  CommitPhase,
   FlowControlType,
   FlowMessage,
   ReadTrackingMode,
@@ -818,6 +819,14 @@ export class StageContext {
    * Flush staged writes to shared memory and RELEASE the per-stage staging
    * state (#13b).
    *
+   * `phase` (9.39.0) is the caller's statement of what a CONTINUATION commit
+   * is — `'exit'` from a subflow mount's exit, `'repeat'` from a fork
+   * fan-out's settle. It is stamped on the bundle (`CommitBundle.phase`) only
+   * when this frame has ALREADY committed: the FIRST bundle of an execution
+   * is the stage's own and never carries a `phase` — so a mount without an
+   * `outputMapper` (a lazy mount, every `parallelForEach` branch), whose exit
+   * is its only bundle, records that bundle as its own, tags and all.
+   *
    * Commit is the stage's lifecycle end: `buffer` (its working copy and
    * whatever private copies its reads took) and `stateView` (a reference that
    * pins one committed-state GENERATION) are only needed DURING execution,
@@ -839,8 +848,8 @@ export class StageContext {
    *   commit, falling reads through to live state) but kept the ORIGINAL
    *   `baseSnapshot` as diff base — unreachable in practice: the engine's
    *   only writes after a commit are the subflow merge-back into a committed
-   *   branch parent (a decider or fork frame commits before its branch runs)
-   *   and the fork child's throttle marker; the other "write after commit"
+   *   branch parent (a decider or fork frame commits before its branch runs);
+   *   the other "write after commit"
    *   sites (SubflowExecutor seed → replaces the context; resume → fresh
    *   context via `leaf.createNext`) never re-use a committed context.
    * - A USER handle held past its stage is a different matter: its writes
@@ -851,7 +860,9 @@ export class StageContext {
    * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
    *   reads them post-run for the execution-tree snapshot.
    */
-  commit(): void {
+  commit(phase?: CommitPhase): void {
+    // A continuation only AFTER the execution's own bundle (see above).
+    const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
     if (!this.buffer) {
@@ -870,6 +881,7 @@ export class StageContext {
         runtimeStageId: this.runtimeStageId,
         ...this.untrackedSourcesFragment(),
         ...this.tagsFragment(),
+        ...(continuation && { phase: continuation }),
       });
       if (this._commitObserver) {
         this._commitObserver({ ...this._stageWrites });
@@ -893,6 +905,7 @@ export class StageContext {
       runtimeStageId: this.runtimeStageId,
       ...this.untrackedSourcesFragment(),
       ...this.tagsFragment(),
+      ...(continuation && { phase: continuation }),
     };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);

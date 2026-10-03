@@ -155,7 +155,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
     } catch (error: unknown) {
       // Stamp invoker context on PauseSignal during bubble-up.
       if (isPauseSignal(error)) {
-        error.setInvoker(node.id!, node.next?.id);
+        error.setInvoker(node.id!);
         throw error;
       }
       throw error;
