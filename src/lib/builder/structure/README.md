@@ -9,7 +9,7 @@ The build-time observer channel: `StructureRecorder` (six optional hooks — `on
 - *A recorder cannot break a build.* A throwing hook is caught, dev-warned and kept on `builder.getStructureBuildErrors()` (soft-capped at about 100 entries), and the other recorders still fire — except that recording the error reads `e.message` and `String(err)` outside any `try`, so a hook that throws a value that cannot be stringified (a null-prototype object, a getter that throws) makes the build throw.
 - *Specs are `readonly` by contract, not frozen* — the builder still wires `.next` after `onStageAdded` — so mutating one is undefined behaviour; attach only recorders you trust.
 
-Pinned by `test/lib/builder/structure/` (`StructureRecorder`, `StructureRecorderDispatcher`, `-wiring`, `-optionsBag`). A new hook is an interface member, a `fire*` method on the dispatcher and the builder's `_fire*` helper — it has no `RECORDER_EVENT_METHODS` twin, the dispatcher fires each hook by name.
+Pinned by `test/lib/builder/structure/` (`StructureRecorder`, `StructureRecorderDispatcher`, `-wiring`, `-optionsBag`). A new hook is an interface member, a `fire*` method on the dispatcher and the builder's `_fire*` helper — it has no entry in the runtime hook registry (`recorder/hooks.ts · HOOKS`), the dispatcher fires each hook by name.
 
 ```typescript
 import { flowChart, type StructureRecorder } from 'footprintjs';

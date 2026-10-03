@@ -319,9 +319,27 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 | `BoundaryStateStore<T>` | Live state DURING a matched `[start, stop]` interval; clears on stop. |
 | `CommitRangeIndex<T>` | Interval index over commit log positions. Generic label `T`. |
 | `CombinedRecorder` | Implement multi-channel observation in one object. |
-| `CompositeRecorder` | Bundle multiple recorders behind one ID. |
+| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26). |
 
 **Convention**: one purpose per recorder. A recorder owns exactly ONE concern (storage OR event ingestion OR state machine OR projection). Multi-concern recorders MUST be decomposed and composed via a thin facade. See `examples/recorders/` for canonical patterns.
+
+---
+
+## 7b. The hook registry and the one dispatcher (`hooks.ts`, `snapshot.ts`)
+
+**Why.** Hook names used to be kept in about ten hand lists (three routing lists, two deferred taps, the composite's methods, the snapshot copier's fields…). A list that missed a hook failed silently: the composite never forwarded `onRunStart`, and a deferred recorder never sees an event its tap list forgot. Now each hook is declared ONCE and every broadcaster derives from the declaration.
+
+- `HOOKS` — one entry per hook: the channel(s) that declare it (each with its payload type's name) and whether the executor makes it (`onResume`). It `satisfies` a type built from `ScopeRecorder` / `FlowRecorder` / `EmitRecorder`, so **a hook added to an interface and not to `HOOKS` does not compile** (pinned by `test/architecture/hook-registry-compile.test.ts`).
+- `hooksOn(channel)` — the channel's hooks in registry order. Channel routing (`has*RecorderMethods`), the deferred tier's taps and `CompositeRecorder`'s generated fan-out read it.
+- `fire(recorders, hook, event, onFailure)` — the one per-recorder loop. A throw goes to the channel's policy (scope: `onError` on the recorders; flow: a dev-mode warning) and the loop goes on; nothing a recorder throws — not even a null-prototype object — reaches the run. Executor-made events (`resume`'s `onResume`) go through it too.
+- `copyBundle(id, bundle)` (`snapshot.ts`) — the one copier from `toSnapshot()` to a snapshot row; the executor and the composite both call it, so a child row keeps `description` / `preferredOperation` / `meta`.
+
+```text
+hooksOn('flow')   → ['onStageExecuted', 'onNext', …, 'onRunFailed']   (17, registry order)
+fire(recorders, 'onLoop', event, policy)   → a throwing recorder is handed to `policy`, the rest still run
+```
+
+Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, add the entry — routing, taps and the composite follow. Fire it with `fire` at its dispatch site.
 
 ---
 

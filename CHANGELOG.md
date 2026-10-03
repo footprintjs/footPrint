@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — the hook registry and the one dispatcher (F6)
+
+- **Why.** Recorder hook names lived in about ten hand lists (three routing lists, two deferred taps, `CompositeRecorder`'s methods, the snapshot copier). A list that missed a hook failed in silence. Each hook is now declared once in `recorder/hooks.ts · HOOKS`, and every broadcaster derives from it. A hook added to `ScopeRecorder` / `FlowRecorder` / `EmitRecorder` and not to `HOOKS` does not compile.
+- **One dispatcher.** `fire(recorders, hook, event, onFailure)` is the one per-recorder loop (flow dispatcher, `ScopeFacade`, the executor's resume). One copier, `recorder/snapshot.ts · copyBundle`, turns `toSnapshot()` into a snapshot row.
+- **Behaviour (R10).** A recorder whose `onResume` throws no longer rejects `executor.resume()`. On the flow channel the throw gives a dev-mode warning; on the scope channel it becomes an `onError` on the scope recorders, as a stage hook's throw does. Also, a recorder that throws a value with no string form (a null-prototype object, a symbol) is isolated. Before this, it rejected `run()` in dev mode.
+- **Behaviour (R10).** `CompositeRecorder` children now receive `onPause`, `onResume`, `onRunStart`, `onRunEnd`, `onRunFailed` and `onEmit` (17/26 → 26/26 channel slots). Each child's snapshot row keeps `description`, `preferredOperation` and `meta`.
+- Everything else is byte-identical to 9.35.0. A canonical-JSON diff of snapshots, narrative, checkpoints and recorder rows (inline and deferred tier) on fixture programs shows no difference.
+
+### Breaking (owner ruling: no external consumers yet; migrate on adoption)
+
+- `RECORDER_EVENT_METHODS`, `FLOW_RECORDER_EVENT_METHODS`, `EMIT_RECORDER_EVENT_METHODS` (deep import, `lib/recorder/CombinedRecorder`) are removed. **Migration:** `hooksOn('scope' | 'flow' | 'emit')` from `lib/recorder/hooks` gives the same contents in the same order.
+- `CompositeSnapshot.data.children` is now `RecorderSnapshot[]` (it was `{ id, name, data }[]`). **Migration:** none for readers. Rows gain the optional `description` / `preferredOperation` / `meta`.
+- `EmitRecorder.toSnapshot()` returns `RecorderBundle`, the same type as the other channels, which adds an optional `meta`. **Migration:** none.
+
 ## [9.35.0] - 2026-10-03
 
 ### Changed — one run policy: a subflow's seed commits under the run's dials (C-F5)
