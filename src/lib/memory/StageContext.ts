@@ -871,42 +871,15 @@ export class StageContext {
       // outcome as an empty commit — the (empty) bundle is still recorded so
       // every executed stage remains a time-travel cursor stop — but with
       // ZERO clones: no buffer construction, no applyPatch replay.
-      this.eventLog?.record({
-        overwrite: {},
-        updates: {},
-        redactedPaths: [],
-        trace: [],
-        stage: this.stageName,
-        stageId: this.stageId,
-        runtimeStageId: this.runtimeStageId,
-        ...this.untrackedSourcesFragment(),
-        ...this.tagsFragment(),
-        ...(continuation && { phase: continuation }),
-      });
-      if (this._commitObserver) {
-        this._commitObserver({ ...this._stageWrites });
-      }
-      // #13b: drop the first-touch view — a read-only stage still pinned one
-      // full state generation through it. D2 markers release with it, and so
-      // do the declared tags (an empty commit is a deliberate, tagged stop —
-      // once).
-      this.stateView = undefined;
-      this._untrackedSources = undefined;
-      this.tags = undefined;
-      this._committed = true;
+      this.eventLog?.record(this.bundleFor({ overwrite: {}, updates: {}, redactedPaths: [], trace: [] }, continuation));
+      // #13b: the first-touch view — a read-only stage still pinned one full
+      // state generation through it — releases with the rest (an empty commit
+      // is a deliberate, tagged stop — once).
+      this.finishCommit();
       return;
     }
 
-    const bundle = this.buffer.commit();
-    const commitBundle = {
-      ...bundle,
-      stage: this.stageName,
-      stageId: this.stageId,
-      runtimeStageId: this.runtimeStageId,
-      ...this.untrackedSourcesFragment(),
-      ...this.tagsFragment(),
-      ...(continuation && { phase: continuation }),
-    };
+    const commitBundle = this.bundleFor(this.buffer.commit(), continuation);
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
 
@@ -927,16 +900,39 @@ export class StageContext {
       updates: redactedUpdates,
     });
 
-    // Notify observer (ScopeFacade) with tracked mutations
+    this.finishCommit();
+  }
+
+  /**
+   * THE bundle of one commit (F10): the payload (an empty one on the lazy
+   * path, the buffer's on the other), then the stage's names, then the
+   * fragments — spread once, here, for both commit paths. Key order is the
+   * record's bytes: payload keys, `stage`, `stageId`, `runtimeStageId`,
+   * `untrackedSources?`, `tags?`, `phase?`.
+   */
+  private bundleFor<P extends object>(payload: P, continuation: CommitPhase | undefined) {
+    return {
+      ...payload,
+      stage: this.stageName,
+      stageId: this.stageId,
+      runtimeStageId: this.runtimeStageId,
+      ...this.untrackedSourcesFragment(),
+      ...this.tagsFragment(),
+      ...(continuation && { phase: continuation }),
+    };
+  }
+
+  /**
+   * The tail of both commit paths: notify the observer (ScopeFacade) with the
+   * tracked mutations, THEN release the staging state (#13b — see `commit`),
+   * so the observer sees the world as it was. D2's untracked-source markers
+   * and the declared tags release with it: one stamp per execution, so the
+   * engine's double-commit paths record them exactly once.
+   */
+  private finishCommit(): void {
     if (this._commitObserver) {
       this._commitObserver({ ...this._stageWrites });
     }
-
-    // #13b: release the staging state — see the method JSDoc. Done LAST so
-    // the commit observer sees the exact same world as before the release.
-    // D2's untracked-source markers release with it: the routine
-    // double-commit paths then record the field exactly once. Declared tags
-    // release on the same law: one stamp per execution of the stage.
     this.buffer = undefined;
     this.stateView = undefined;
     this._untrackedSources = undefined;

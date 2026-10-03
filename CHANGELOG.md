@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — the executor split (F9) and one bundle constructor, one mount helper (F10)
+
+- **No behaviour change** — the record, the snapshot, the narrative, the checkpoint, the recorder rows and the
+  spec are byte-identical to 9.40.1 (canonical-JSON diff over fixture programs; the declared-tags and redaction
+  byte pins and the resume property pass unchanged). Every door exports the same symbols.
+- **Why.** `runner/FlowChartExecutor.ts` was 1,692 lines doing six jobs. It now composes `runner/attach.ts`
+  (who observes a run), `runner/resume.ts` (plan and announce a re-entry), `runner/checkpoint.ts` (the pause
+  checkpoint, with its clone-resilience helpers), `runner/snapshot.ts` (what `getSnapshot()` serves) and
+  `runner/options.ts` (the construction options). `StageContext · bundleFor` builds the bundle of both commit
+  paths; `FlowChartBuilder · _mountSubflow` is every eager mount site's one call into the prefixer.
+- **Deep import paths moved** (the public doors are unchanged):
+  - `FlowChartExecutorOptions` — from `runner/FlowChartExecutor` to `runner/options` (still exported from
+    `footprintjs` and `runner/index`).
+  - `runner/checkpointSanitize` — deleted; its helpers are module-private in `runner/checkpoint`.
+  - `FlowChartBuilder._mergeSubflows` (internal) — folded into `_mountSubflow`.
+
 ## [9.40.1] - 2026-10-03
 
 ### Fixed
