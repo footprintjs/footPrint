@@ -9,7 +9,7 @@
  * longer rewrite the history every later answer is folded from: an assignment into a bundle throws
  * a `TypeError` in strict code. Safe because nothing outside the log holds a bundle's containers:
  * the log's payload is the commit's own copy (`StageContext · commit` hands it the output of
- * `redactPatch`), and live state, the redacted mirror and write retention each take their own copy
+ * `scrubPatch`), and live state, the redacted mirror and write retention each take their own copy
  * (`verbs.ts · foldRows` detaches, `StageContext · retainedForm` clones) — pinned by
  * test/lib/memory/property/record-reachability.property.test.ts.
  *

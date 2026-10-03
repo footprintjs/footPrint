@@ -16,14 +16,14 @@
  * reasons to change: these two strings are read by the engine's WRITE path on every redacted run,
  * the honesty registry by a reader that explains a recording — and the registry's sentences have no
  * business in the bundle of an app that only runs charts. This file imports NOTHING, so it is L0:
- * `memory/redaction.ts` (L2) writes both — the log one in `redactPatch`, the scope one in `RedactionRule`
+ * `memory/redaction.ts` (L2) writes both — the log one in `scrubPatch` (and the public `redactPatch`), the scope one in `RedactionRule`
  * (`redactPatch` lived in `memory/utils.ts`, L1, until 9.33.0) — the layer table is `scripts/layering.config.cjs`.
  */
 
 /**
  * What the COMMIT LOG and the redacted MIRROR carry where a value was scrubbed.
  *
- * `memory/redaction.ts · redactPatch` writes it into the patch the log records (both encodings), and the
+ * `memory/redaction.ts · scrubPatch` writes it into the patch the log records (both encodings), and the
  * mirror's seed is scrubbed with the same string (`runner/ExecutionRuntime.ts`), so a fold of the log
  * reproduces it (`stateAt` → `FoldedState.redactedPaths`) and a slice or an element birth, which
  * re-serve the log's bytes, show it too. A subflow's SERVED state is the subflow's own nested mirror

@@ -16,7 +16,7 @@ import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, RedactionRule, redactPatch } from './redaction.js';
+import { CLEAR, RedactionRule, scrubPatch } from './redaction.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
@@ -956,8 +956,8 @@ export class StageContext {
     //   2. the event log (persisted trace)
     //   3. (future) anything else that wants a scrubbed view at commit time
     // Computing once keeps cost linear in the commit size; no post-pass walk.
-    const redactedOverwrite = redactPatch(commitBundle.overwrite, commitBundle.redactedPaths);
-    const redactedUpdates = redactPatch(commitBundle.updates, commitBundle.redactedPaths);
+    const redactedOverwrite = scrubPatch(commitBundle.overwrite, commitBundle.redactedPaths);
+    const redactedUpdates = scrubPatch(commitBundle.updates, commitBundle.redactedPaths);
 
     this.redactedSharedMemory?.applyPatch(redactedOverwrite, redactedUpdates, commitBundle.trace);
 

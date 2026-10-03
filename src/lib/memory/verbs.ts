@@ -210,7 +210,7 @@ function atPath(tree: MemoryPatch, segs: string[]): MemoryPatch {
  *     the value before.
  *   - `'append'` — (delta mode) `overwrite[path]` holds ONLY the tail: concatenate
  *     it onto the value before. When either is not an array (an out-of-order
- *     replay base, or a REDACTED tail — `redactPatch` replaces matched payloads
+ *     replay base, or a REDACTED tail — `scrubPatch` replaces matched payloads
  *     with the `'REDACTED'` string) the tail BECOMES the value — the same
  *     terminal value a redacted or corrupt `set` produces.
  *   - `'delete'` — {@link ABSENT}: the key is removed. The path stays enumerated

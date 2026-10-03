@@ -305,10 +305,10 @@ export class TransactionBuffer {
 
   /**
    * Field-level redaction (9.19.0): mark dot-paths INSIDE the value staged at
-   * `path` as secret, so `redactPatch` scrubs them in the commit log and the
+   * `path` as secret, so `scrubPatch` scrubs them in the commit log and the
    * mirror the same way a whole-key redaction is scrubbed. A field is
    * registered as a literal key AND, when dotted, as the nested path it
-   * names — whichever exists in the patch is the one `redactPatch` finds.
+   * names — whichever exists in the patch is the one `scrubPatch` finds.
    * Marked paths survive commit only while the op path they sit under does
    * (see {@link survivingRedactedPaths}).
    */

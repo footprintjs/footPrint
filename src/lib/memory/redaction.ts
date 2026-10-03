@@ -18,7 +18,7 @@
  * the facade — five of them — retained plaintext under a policy.
  *
  * TWO PLACEHOLDERS, BOTH HISTORICAL: the commit log and the mirror carry
- * `'REDACTED'` (`redactPatch`, below — the strings unchanged since 4.x); every scope-tier view —
+ * `'REDACTED'` (`scrubPatch` / `redactPatch`, below — the strings unchanged since 4.x); every scope-tier view —
  * scope recorder events, `stageReads`/`stageWrites`, narrative — carries
  * `'[REDACTED]'`. Neither string changed in 9.19.0. The strings themselves are
  * owned by `memory/placeholders.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`)
@@ -342,17 +342,20 @@ export class RedactionRule {
  *   - no path to scrub (no policy, no per-call mark — the common case) → `patch` ITSELF, no copy at all;
  *   - otherwise → a new root and a shallow copy of each container on a scrubbed path (`pathOps ·
  *     ownSpine`), every other subtree shared with `patch`. `patch` is never edited.
- * Before 9.33.0 it took a whole `structuredClone` of the patch on every call — two per commit, with or
- * without a policy. The bytes are the same: a scrubbed path holds the placeholder, every other path the
- * value the buffer cloned (pinned by the 9.18.1 / 9.19.1 redaction byte tests).
+ * The engine called the public {@link redactPatch} (a whole `structuredClone`) twice per commit before
+ * 9.33.0. The bytes are the same: a scrubbed path holds the placeholder, every other path the value the
+ * buffer cloned (pinned by the 9.18.1 / 9.19.1 redaction byte tests).
  *
  * Paths are scrubbed in the set's order, against the tree as scrubbed so far: a path under one already
  * scrubbed finds a string, not a container, and is left alone (as before).
  *
+ * INTERNAL — the result shares structure with `patch`. A caller outside the commit path wants
+ * {@link redactPatch}.
+ *
  * @param redactedPaths DELIM-joined paths (`TransactionBuffer`'s `redactedPaths`; a bundle's
  *   `redactedPaths` array works too).
  */
-export function redactPatch(patch: MemoryPatch, redactedPaths: Iterable<string>): MemoryPatch {
+export function scrubPatch(patch: MemoryPatch, redactedPaths: Iterable<string>): MemoryPatch {
   let out: MemoryPatch | undefined;
   let owned: WeakSet<object> | undefined;
   for (const flat of redactedPaths) {
@@ -367,4 +370,15 @@ export function redactPatch(patch: MemoryPatch, redactedPaths: Iterable<string>)
     nativeSet(out, segs, LOG_PLACEHOLDER);
   }
   return out ?? patch;
+}
+
+/**
+ * Redacts sensitive values in a patch for logging/debugging — the PUBLIC scrub (`footprintjs/advanced`),
+ * its contract unchanged since 4.x: a fresh deep copy of `patch` (`structuredClone`) with
+ * {@link LOG_PLACEHOLDER} at every listed path that holds a defined value. Shares nothing with `patch`
+ * and never edits it. (Moved here from `memory/utils.ts` in 9.33.0; the engine's own commit path uses the
+ * clone-free {@link scrubPatch}.)
+ */
+export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch {
+  return scrubPatch(structuredClone(patch), redactedSet);
 }
