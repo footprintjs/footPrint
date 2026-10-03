@@ -4,9 +4,10 @@
 
 **The laws.**
 
-- *A recorder only watches.* Events carry live references, so a hook never mutates them, and a hook that throws cannot break the run (`test/lib/scope/property/recorder-never-breaks-execution.test.ts`).
+- *A recorder only watches.* Events carry live references, so a hook must not mutate them, and a hook that throws cannot break `run()` (`test/lib/scope/property/recorder-never-breaks-execution.test.ts`) — except `onResume`, which `FlowChartExecutor · resume` calls unguarded, so a throwing one rejects `resume()`.
+- *Known gap — `MetricRecorder` attributes by the last stage to start.* `onRead`, `onWrite`, `onCommit`, `onPause` and `onStageEnd` write into the stage that most recently fired `onStageStart` and ignore the event's own `runtimeStageId`, so under a fork the counts and durations of concurrent stages land on the wrong key: commit and pause counts always go to the last-started child, and reads, writes and durations do too once a child awaits (a probe whose A awaited before its 2 writes, with B making 1, recorded `a#1` 0 writes and `b#2` 3).
 - *Storage is composed, not inherited.* `MetricRecorder` holds a `KeyedStore<StepMetrics>` as a field — the recorder observes, the store stores — and its aggregate views are folded when asked, never kept in step.
-- *Identity decides coexistence.* Each instance takes an auto-increment id (`debug-1`, `metrics-2`), so differently-configured recorders live side by side, while attaching the same id replaces; `new MetricRecorder('metrics')` is how an app overrides a framework-attached one. `clear()` runs before each `run()`, so nothing accumulates across runs (`test/lib/scope/unit/MetricRecorder.test.ts`, `DebugRecorder.test.ts`).
+- *Identity decides coexistence.* Each instance takes an auto-increment id (`debug-1`, `metrics-2`), so differently-configured recorders live side by side, while attaching the same id replaces; `new MetricRecorder('metrics')` is how an app overrides a framework-attached one. `clear()` runs before each `run()`, so nothing accumulates across runs (`test/lib/runner/unit/attach-recorder.test.ts`; the two recorders' own unit tests only call `clear()` / `reset()` directly).
 - *`summarizeValue.ts` is a deprecated re-export* of `capture/summarize`: nothing under `src/` may import it, and `npm run check:layering` fails if something does.
 
 ```typescript

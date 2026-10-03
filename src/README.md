@@ -5,7 +5,7 @@
 | Import | File | What it is for |
 |---|---|---|
 | `footprintjs` | `index.ts` | start here: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `interrupt`, the recorder classes, contracts, schema helpers |
-| `footprintjs/recorders` | `recorders.ts` | factories for the built-in recorders: `narrative()`, `metrics()`, `debug()`, `manifest()`, and the loop strategies |
+| `footprintjs/recorders` | `recorders.ts` | factories for the built-in recorders: `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` |
 | `footprintjs/trace` | `trace.ts` | reading a finished run: the `runtimeStageId` codec, commit-log queries, `causalChain`, `slice/` and `time-travel/`, the recorder stores |
 | `footprintjs/advanced` | `advanced.ts` | engine internals: `SharedMemory`, `StageContext`, `FlowchartTraverser`, scope providers |
 | `footprintjs/detach` | `detach.ts` | the fire-and-forget drivers |

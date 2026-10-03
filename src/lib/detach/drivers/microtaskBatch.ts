@@ -5,7 +5,8 @@
  *           agentfootprint's `EventDispatcher` flush queue and the React
  *           reconciler's microtask scheduling — accumulate during the
  *           current sync slice, drain at the next microtask boundary.
- * Role:     Default driver for in-process detach. Cheapest scheduling
+ * Role:     The in-process driver the docs name (no driver is the default:
+ *           every detach call passes one). Cheapest scheduling
  *           primitive on V8/JSC: one `queueMicrotask` per batch
  *           regardless of how many work items, so the perf budget
  *           amortizes. Suitable for browser AND node AND edge runtimes
@@ -117,8 +118,8 @@ async function executeOne(item: WorkItem, runChild: ChildRunner): Promise<void> 
 }
 
 /**
- * Default singleton. Most consumers import this and pass it to
- * `executor.detachAndJoinLater(child, input, { driver: microtaskBatchDriver })`
- * (or rely on it being the executor's default driver, set in T5b).
+ * Ready-made singleton. Most consumers import this and pass it as the first
+ * argument: `executor.detachAndJoinLater(microtaskBatchDriver, child, input)`.
+ * It is not an implicit default — nothing picks a driver for you.
  */
 export const microtaskBatchDriver: DetachDriver = createMicrotaskBatchDriver();

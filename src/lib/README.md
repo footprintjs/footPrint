@@ -1,6 +1,6 @@
 # src/lib/ — the library, by layer
 
-Every folder here does one job and sits on a layer; **a file imports only files at its own layer or below**. The table is data, `scripts/layering.config.cjs`, and it is enforced rather than described: `npm run check:layering` fails on a value-level cycle or an upward runtime edge, and the `import/no-restricted-paths` zones in `.eslintrc.js` say the same thing at lint time (`test/architecture/layering.test.ts` pins that the real tree is clean). A file takes the most specific pattern that matches it, and a file no pattern matches is an error — which is why a new file in the multi-layer folders below is placed by hand.
+Every folder here does one job and sits on a layer; **a file imports only files at its own layer or below**. The table is data, `scripts/layering.config.cjs`, and it is enforced rather than described: `npm run check:layering` fails on a value-level cycle or an upward runtime edge, and the `import/no-restricted-paths` zones in `.eslintrc.js` say the same thing at lint time (`test/architecture/layering.test.ts` pins that the real tree is clean). A file takes the most specific pattern that matches it, and a file no pattern matches is an error: a new file in a folder that has a directory pattern inherits its layer — except `memory/`, which has none (it spans L0–L4) — while a file directly under `src/lib/` or in a new folder must be added to `LAYERS` by hand.
 
 | Layer | What lives there | The job |
 |---|---|---|

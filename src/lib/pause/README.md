@@ -4,10 +4,10 @@ The vocabulary of pause and resume: the two signals a stage can raise (`PauseSig
 
 **The laws.**
 
-- *Two raise shapes, one checkpoint.* A stage pauses either because it was declared pausable (`addPausableFunction`: the first half returns a `PauseResult`, `resume` runs the second half) or because an ordinary body called `interrupt()`; `FlowchartCheckpoint.pausedBy` tells them apart.
+- *Two raise shapes, one checkpoint.* A stage pauses either because it was declared pausable (`addPausableFunction`: when the first half returns anything but `undefined` the stage pauses and that value becomes the `pauseData` — `PauseResult`, `{ pause: true, data }`, is only an explicit wrapper whose `data` is unwrapped, see `engine/handlers/StageRunner` — and `resume` runs the second half) or because an ordinary body called `interrupt()`; `FlowchartCheckpoint.pausedBy` tells them apart.
 - *An interrupt re-runs the stage from its top.* Everything before the call runs again, and the answer comes back out of the `interrupt()` call through a WeakMap keyed by the scope (`provideInterruptAnswer`) — which is why `interrupt` takes the scope first: there is no ambient "current stage" under parallel fan-out. It rides the error path's shape: `onStageEnd` does not fire, and writes made before it are committed (`test/lib/pause/interrupt.test.ts`).
-- *A checkpoint is plain data and only grows optional fields.* It is JSON-safe (no functions, no class instances), so it can sit in Redis or a file. `pausedBy`, `executionCount`, `visitCounts` and `pendingPauses` are optional, so an older checkpoint still resumes (`test/lib/pause/resume-real-chart-9.27.0-checkpoints.test.ts`). `continuationStageId` is a record, never an instruction: what runs after a resume is read from the chart, so an edited checkpoint cannot redirect a run.
-- *What a resume does not rebuild is pinned* — a pause inside a lazy subflow is refused, a paused branch stage resumes in its dispatcher's namespace, a failing resumed fork child fails the run (`test/lib/pause/resume-known-limitations.test.ts`) — and a paused-and-resumed run equals the never-paused one (a property test, `resume-real-chart.property.test.ts`).
+- *A checkpoint is plain data and only grows optional fields.* It is built by one `structuredClone`, so it holds only cloneable data — no functions, and a user-class instance comes back as a plain object — and it can be stored as JSON too, as long as your state and payload are JSON-safe: a `Date` or a `Map` in state survives the clone but not a JSON round trip. `pausedBy`, `executionCount`, `visitCounts` and `pendingPauses` are optional, so an older checkpoint still resumes — one without `executionCount` / `visitCounts` (`test/lib/pause/resume-execution-counter-continuity.test.ts`), one written by 9.27.0, before `pendingPauses` (`test/lib/pause/resume-real-chart-9.27.0-checkpoints.test.ts`). `continuationStageId` is a record, never read: what runs after a resume comes from the chart, so editing it changes nothing — but `pausedStageId` is trusted, it picks the stage a resume starts at, so treat a stored checkpoint as trusted input.
+- *What a resume does not rebuild is pinned* — a pause inside a lazy subflow is refused, a paused branch stage resumes in its dispatcher's namespace, a failing resumed fork child fails the run (`test/lib/pause/resume-known-limitations.test.ts`) — and for the chart family in `resume-real-chart.property.test.ts` a paused-and-resumed run has the same trace and final state as the never-paused one (the commit record still differs by design: the stand-in is one more execution of the paused stage).
 
 ```typescript
 import { flowChart, FlowChartExecutor, interrupt } from 'footprintjs';
@@ -23,7 +23,7 @@ const chart = flowChart<State>('Review', (scope) => {
 const executor = new FlowChartExecutor(chart);
 await executor.run();
 if (executor.isPaused()) {
-  const checkpoint = executor.getCheckpoint()!; // plain JSON — persist it anywhere
+  const checkpoint = executor.getCheckpoint()!; // one structuredClone — store it (as JSON if your state is JSON-safe)
   await new FlowChartExecutor(chart).resume(checkpoint, { approved: true });
 }
 ```

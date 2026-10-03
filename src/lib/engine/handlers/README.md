@@ -1,6 +1,6 @@
 # engine/handlers/ — the specialists the traverser hands each node shape to
 
-One class per concern, each built from the traverser's `HandlerDeps` (`../types.ts`). They own what happens *at* a fork, a decider, a loop edge, a subflow mount or a resume entry; the walk itself — the phase chain, the trampoline, `executeStage` and its retry loop — stays in `../traversal/FlowchartTraverser.ts`.
+One class per concern, built by the traverser's constructor from `HandlerDeps` (`../types.ts`) — `StageRunner`, `NodeResolver`, `ChildrenExecutor`, `SelectorHandler`, `DeciderHandler`, `ContinuationResolver`, `ParallelForEachHandler`, `SubflowExecutor` — beside four helpers that are not built from it (`RuntimeStructureManager`, `ResumeEntry`, and the functions in `SubflowInputMapper` and `servedSubflowResults`). They own what happens *at* a fork, a decider, a loop edge, a subflow mount or a resume entry; the walk itself — the phase chain, the trampoline, `executeStage` and its retry loop — stays in `../traversal/FlowchartTraverser.ts`.
 
 | File | Owns |
 |---|---|
@@ -15,7 +15,7 @@ One class per concern, each built from the traverser's `HandlerDeps` (`../types.
 **The laws.**
 
 - *Handlers never import the traverser.* They take its entry points as callbacks (`ExecuteNodeFn`, `RunStageFn` in `types.ts`), which is what lets the traverser import them.
-- *Two doors per dispatcher.* `DeciderHandler.prepareDispatch` (runs the decider stage) and `ContinuationResolver.resolveTarget` (a loop edge or dynamic next) each resolve their target **without executing it**, so the trampoline takes a branch or a loop edge as a flat hop and a loop-heavy chart never grows the stack (`test/lib/engine/traversal/trampoline.test.ts`); `handleScopeBased` and `resolve` execute it for direct callers.
+- *Two doors per dispatcher.* `DeciderHandler.prepareDispatch` (runs the decider stage) and `ContinuationResolver.resolveTarget` (a loop edge or dynamic next) each resolve their target **without executing it**, so the trampoline takes a branch or a loop edge as a flat hop, and a loop whose decider has no continuation of its own stays flat on the stack (`test/lib/engine/traversal/trampoline.test.ts`); a decider that does have a `next` nests instead — see the known gap in [`../traversal/`](../traversal/README.md). `handleScopeBased` and `resolve` execute it for direct callers.
 - *A decider commits before it resolves its branch*, so its writes are in the log when `onDecision` fires.
 - *A resume re-enters once.* `ResumeEntry`'s stand-in is only where the resumed traversal starts, never a node an id resolves to (`test/lib/pause/resume-real-chart.property.test.ts`).
 - *Known gap:* `ChildrenExecutor` can break a fork's parent when every child broke, but every call site passes no parent flag, so a fork's break does not propagate in a real run.

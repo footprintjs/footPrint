@@ -1,32 +1,33 @@
 /**
- * detach/drivers/immediate.ts — Run detached work synchronously inside `schedule()`.
+ * detach/drivers/immediate.ts — Start detached work at once: no batch, no timer.
  *
- * Pattern:  Null-object driver for the "no actual deferral" case. Same
- *           intent as a `setTimeout(fn, 0)` shim that just calls `fn()`
- *           — keeps the API surface uniform so consumers can swap drivers
- *           without changing call sites.
- * Role:     Test fixture + opt-in for consumers who want fire-and-forget
- *           ergonomics (the handle API) without actually deferring. Useful
- *           for:
+ * Pattern:  The thinnest driver. `schedule()` registers the handle, marks it
+ *           `running` SYNCHRONOUSLY and starts `runChild` on the next
+ *           microtask (`Promise.resolve().then(...)`) — one microtask per
+ *           call, nothing shared with other calls. It keeps the API surface
+ *           uniform so consumers can swap drivers without changing call sites.
+ * Role:     Test fixture + opt-in for consumers who want the handle API
+ *           without a queue to flush. Useful for:
  *
- *             - unit tests where deterministic, synchronous completion
- *               beats microtask gymnastics
- *             - very small detach payloads where the overhead of a
- *               microtask roundtrip exceeds the work itself
- *             - debugging — easier to step through with breakpoints
+ *             - unit tests where a handle that reads `running` the moment
+ *               `schedule()` returns beats waiting for a batch flush
+ *             - very small detach payloads where batching buys nothing
+ *             - debugging — fewer moving parts to step through
  *
- * Performance:
- *   - Sync runChild → handle becomes terminal before `schedule()` returns
- *   - Async runChild → handle marks running sync, terminal at runChild's
- *     resolution. The `wait()` Promise is the same one consumers use for
- *     any other driver; behaviour is uniform.
+ * What is synchronous, and what is not (test/lib/detach/immediate.test.ts, P1, pins the `running` status):
+ *   - SYNC:  the registry entry exists and `_markRunning()` has run before
+ *            `schedule()` returns, so the handle reads `running`.
+ *   - LATER: `runChild` is called on the next microtask EVEN when it is a
+ *            sync function, and the handle becomes terminal only after the
+ *            returned promise settles. The `wait()` Promise is the same one
+ *            consumers use for any other driver; behaviour is uniform.
  *
- * Caveat — this is NOT a passive-recorder by default:
- *   When runChild is sync, the parent stage observes the work's side
- *   effects WITHIN its own slice. That's intentional for the test/debug
- *   use case but means consumers should NOT use `immediateDriver` for
- *   long-running work in production hot paths — pick `microtaskBatchDriver`
- *   for that.
+ * Caveat — this does NOT run the work inside the parent's slice:
+ *   The child starts once the parent's current synchronous code has
+ *   finished, but it is neither batched nor deferred beyond that one
+ *   microtask, so it can interleave with the parent's next `await`. For
+ *   work that should leave the hot path as a single batch, pick
+ *   `microtaskBatchDriver`.
  */
 
 import type { FlowChart } from '../../builder/types.js';

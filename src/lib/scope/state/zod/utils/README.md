@@ -1,3 +1,3 @@
-# scope/state/zod/utils/ — cross-version Zod helpers
+# scope/state/zod/utils/ — Zod helpers
 
-One file, `validateHelper.ts`: `isZodNode`, `unwrap` (peels wrapper types — optional, nullable, default, effects, lazy — down to the base node, but never an array's element type), `getRecordValueType` and `parseWithThis` (a parse that survives the method-binding differences between Zod versions). Detection is delegated to `schema/detect`; the only caller is `../scopeFactory.ts`. Everything about the scope they serve is in [`../README.md`](../README.md).
+One file, `validateHelper.ts`: `isZodNode`, `unwrap`, `getRecordValueType` and `parseWithThis` (a parse that survives the method-binding differences between Zod versions). Detection is delegated to `schema/detect`; the only caller is `../scopeFactory.ts`. `unwrap` is meant to peel wrapper types (optional, nullable, default, effects, lazy) down to the base node, but it recognises them only by the Zod v3 `_def.typeName`: on Zod 4 it returns the wrapper unchanged, which is a known gap recorded with its effect in [`../README.md`](../README.md). Everything about the scope these helpers serve is there too.
