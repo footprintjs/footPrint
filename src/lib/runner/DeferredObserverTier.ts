@@ -52,11 +52,7 @@ import {
   type OverflowPolicy,
   DeferredDispatcher,
 } from '../observer-queue/index.js';
-import {
-  EMIT_RECORDER_EVENT_METHODS,
-  FLOW_RECORDER_EVENT_METHODS,
-  RECORDER_EVENT_METHODS,
-} from '../recorder/CombinedRecorder.js';
+import { describeThrown, hooksOn, operationFor } from '../recorder/hooks.js';
 import type { ScopeRecorder } from '../scope/types.js';
 
 /** Delivery tier for an attached observer (RFC-001). */
@@ -139,14 +135,6 @@ interface DeferredRegistration {
   readonly recorder: ScopeRecorder | FlowRecorder;
   /** Which envelope channels reach this recorder (inline-tier parity). */
   readonly channels: Set<CaptureChannel>;
-}
-
-/** Map an envelope method onto the scope error-event `operation` vocabulary
- *  (same mapping `ScopeFacade._invokeHook` uses for inline failures). */
-function operationFor(method: string): 'read' | 'write' | 'commit' {
-  if (method === 'onRead') return 'read';
-  if (method === 'onCommit') return 'commit';
-  return 'write';
 }
 
 export class DeferredObserverTier {
@@ -274,13 +262,13 @@ export class DeferredObserverTier {
     const recorders = this.scopeListRecorders();
     if (recorders.length === 0) return undefined;
     const tap: Record<string, unknown> = { id: DEFERRED_SCOPE_TAP_ID };
-    for (const method of RECORDER_EVENT_METHODS) {
-      if (!this.anyImplements(recorders, method)) continue;
-      tap[method] = (event: unknown) => this.captureScopeEvent('scope', method, event);
-    }
-    for (const method of EMIT_RECORDER_EVENT_METHODS) {
-      if (!this.anyImplements(recorders, method)) continue;
-      tap[method] = (event: unknown) => this.captureScopeEvent('emit', method, event);
+    // Derived from the hook registry: every hook of the scope channel and of the emit channel
+    // (which rides the scope list) — a hook the registry gains is tapped with no edit here.
+    for (const channel of ['scope', 'emit'] as const) {
+      for (const method of hooksOn(channel)) {
+        if (!this.anyImplements(recorders, method)) continue;
+        tap[method] = (event: unknown) => this.captureScopeEvent(channel, method, event);
+      }
     }
     return tap as unknown as ScopeRecorder;
   }
@@ -294,7 +282,7 @@ export class DeferredObserverTier {
     const recorders = this.flowListRecorders();
     if (recorders.length === 0) return undefined;
     const tap: Record<string, unknown> = { id: DEFERRED_FLOW_TAP_ID };
-    for (const method of FLOW_RECORDER_EVENT_METHODS) {
+    for (const method of hooksOn('flow')) {
       if (!this.anyImplements(recorders, method)) continue;
       tap[method] = (event: unknown) => this.captureFlowEvent(method, event);
     }
@@ -411,7 +399,7 @@ export class DeferredObserverTier {
       runtimeStageId: envelope.runtimeStageId,
       pipelineId: envelope.runId,
       timestamp: Date.now(),
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: error instanceof Error ? error : new Error(describeThrown(error)),
       operation: operationFor(envelope.method),
       channel: 'scope' as const,
     };
@@ -432,7 +420,7 @@ export class DeferredObserverTier {
       // eslint-disable-next-line no-console
       console.warn(
         `[footprintjs] deferred observer '${listenerId}' failed (${phase}) handling ` +
-          `${envelope.channel}.${envelope.method} (seq ${envelope.seq}): ${String(error)}`,
+          `${envelope.channel}.${envelope.method} (seq ${envelope.seq}): ${describeThrown(error)}`,
       );
     }
   }

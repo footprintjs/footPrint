@@ -117,13 +117,5 @@ export interface ScopeRecorder {
   /** Reset state before each executor.run() — prevents cross-run accumulation. */
   clear?(): void;
   /** Expose collected data for inclusion in executor.getSnapshot().recorders. */
-  toSnapshot?(): {
-    name: string;
-    description?: string;
-    preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
-    data: unknown;
-    /** Machine-readable facts about the bundle itself — see
-     *  {@link import('../runner/ExecutionRuntime.js').RecorderSnapshot.meta}. */
-    meta?: Readonly<Record<string, unknown>>;
-  };
+  toSnapshot?(): import('../recorder/snapshot.js').RecorderBundle;
 }

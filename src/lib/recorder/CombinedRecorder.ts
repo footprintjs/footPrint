@@ -58,6 +58,8 @@
 import type { FlowErrorEvent, FlowPauseEvent, FlowRecorder, FlowResumeEvent } from '../engine/narrative/types.js';
 import type { ErrorEvent, PauseEvent, ResumeEvent, ScopeRecorder } from '../scope/types.js';
 import type { EmitRecorder } from './EmitRecorder.js';
+import { hooksOn } from './hooks.js';
+import type { RecorderBundle } from './snapshot.js';
 
 /**
  * Method names that appear on BOTH `ScopeRecorder` and `FlowRecorder` but with
@@ -118,15 +120,7 @@ export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverla
 
     // Shared lifecycle hooks — same on both interfaces, shape compatible.
     clear?(): void;
-    toSnapshot?(): {
-      name: string;
-      description?: string;
-      preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
-      data: unknown;
-      /** Machine-readable facts about the bundle itself — see
-       *  {@link import('../runner/ExecutionRuntime.js').RecorderSnapshot.meta}. */
-      meta?: Readonly<Record<string, unknown>>;
-    };
+    toSnapshot?(): RecorderBundle;
 
     // Shared event method names with DIVERGENT payloads — declared as unions.
     // Consumers either handle both variants, or discriminate using the
@@ -192,66 +186,11 @@ export function isFlowEvent<T>(event: T): event is Exclude<T, { pipelineId: stri
   return e.pipelineId === undefined;
 }
 
-/**
- * Method names belonging to the `ScopeRecorder` (data-flow) interface.
- * Kept as a single source of truth so the runtime duck-type detector stays
- * in sync with the interface. If a method is added to `ScopeRecorder`, adding it
- * here is the ONLY change required to route combined-recorders correctly.
- */
-export const RECORDER_EVENT_METHODS = [
-  'onRead',
-  'onWrite',
-  'onCommit',
-  'onError',
-  'onStageStart',
-  'onStageEnd',
-  'onPause',
-  'onResume',
-] as const;
-
-/**
- * Method names belonging to the `FlowRecorder` (control-flow) interface.
- * See the note on `RECORDER_EVENT_METHODS`.
- *
- * NOTE: the `onError`, `onPause`, `onResume` methods exist on BOTH interfaces
- * with DIFFERENT event payload shapes. A `CombinedRecorder` that implements
- * any of these receives both variants (one from each channel). Consumers who
- * care about the distinction discriminate with `isFlowEvent()` (explicit
- * `channel` discriminant, legacy pipelineId-absence fallback).
- */
-export const FLOW_RECORDER_EVENT_METHODS = [
-  'onStageExecuted',
-  'onNext',
-  'onDecision',
-  'onFork',
-  'onSelected',
-  'onSubflowEntry',
-  'onSubflowExit',
-  'onSubflowRegistered',
-  'onLoop',
-  'onBreak',
-  'onError',
-  // Declarative per-stage retry (9.15) — one event per failed attempt that
-  // will be retried. Listed here so a retry-only recorder is routed to the
-  // flow channel AND so the deferred tier taps the event.
-  'onStageRetry',
-  'onPause',
-  'onResume',
-  // Run-boundary methods — included so a recorder whose ONLY event hook
-  // is a run boundary (e.g. an error bridge implementing just
-  // `onRunFailed`) is still detected as a FlowRecorder and routed to the
-  // flow channel. Previously a run-only recorder was silently dropped.
-  'onRunStart',
-  'onRunEnd',
-  'onRunFailed',
-] as const;
-
-/**
- * Method names belonging to the `EmitRecorder` (user-emitted events)
- * interface. Same convention as the other two arrays above — kept as
- * the single source of truth for duck-type detection.
- */
-export const EMIT_RECORDER_EVENT_METHODS = ['onEmit'] as const;
+// Channel routing reads the hook registry (`recorder/hooks.ts · hooksOn`) — the three hand lists
+// that used to live here (`RECORDER_EVENT_METHODS`, `FLOW_…`, `EMIT_…`) were removed in F6.
+// NOTE: `onError`, `onPause`, `onResume` exist on BOTH the scope and flow interfaces with
+// DIFFERENT payloads; a `CombinedRecorder` implementing one receives both variants and
+// discriminates with `isFlowEvent()`.
 
 /**
  * True iff the recorder declares a method named `m` either as an own
@@ -313,7 +252,7 @@ function hasOwnOrClassMethod(r: unknown, m: string): boolean {
  * its own payload variant.
  */
 export function hasRecorderMethods(r: CombinedRecorder): boolean {
-  return RECORDER_EVENT_METHODS.some((m) => hasOwnOrClassMethod(r, m));
+  return hooksOn('scope').some((m) => hasOwnOrClassMethod(r, m));
 }
 
 /**
@@ -321,7 +260,7 @@ export function hasRecorderMethods(r: CombinedRecorder): boolean {
  * See `hasRecorderMethods`.
  */
 export function hasFlowRecorderMethods(r: CombinedRecorder): boolean {
-  return FLOW_RECORDER_EVENT_METHODS.some((m) => hasOwnOrClassMethod(r, m));
+  return hooksOn('flow').some((m) => hasOwnOrClassMethod(r, m));
 }
 
 /**
@@ -330,5 +269,5 @@ export function hasFlowRecorderMethods(r: CombinedRecorder): boolean {
  * class-prototype methods count; `Object.prototype` pollution does not).
  */
 export function hasEmitRecorderMethods(r: CombinedRecorder): boolean {
-  return EMIT_RECORDER_EVENT_METHODS.some((m) => hasOwnOrClassMethod(r, m));
+  return hooksOn('emit').some((m) => hasOwnOrClassMethod(r, m));
 }

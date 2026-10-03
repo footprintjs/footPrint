@@ -59,7 +59,7 @@
  * ```
  */
 
-import type { RecorderOperation } from './RecorderOperation.js';
+import type { RecorderBundle } from './snapshot.js';
 
 /**
  * Event delivered to `EmitRecorder.onEmit`.
@@ -138,10 +138,5 @@ export interface EmitRecorder {
    * Optional: expose collected data for inclusion in
    * `executor.getSnapshot().recorders`.
    */
-  toSnapshot?(): {
-    name: string;
-    description?: string;
-    preferredOperation?: RecorderOperation;
-    data: unknown;
-  };
+  toSnapshot?(): RecorderBundle;
 }

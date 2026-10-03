@@ -732,7 +732,7 @@ describe('retry — deferred observers see it too', () => {
     await executor.run();
 
     // Terminal flush at run resolve guarantees delivery before run() returns —
-    // this is the assertion that catches a missing FLOW_RECORDER_EVENT_METHODS
+    // this is the assertion that catches a missing `HOOKS.onStageRetry` flow entry
     // entry, which would otherwise fail SILENTLY.
     expect(seen.map((e) => e.attempt)).toEqual([1, 2]);
     expect(seen[0].stageName).toBe('Flaky');

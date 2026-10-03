@@ -520,13 +520,5 @@ export interface FlowRecorder {
   /** Called before each run to reset per-run state. Implement for stateful recorders. */
   clear?(): void;
   /** Optional: expose collected data for inclusion in snapshots. */
-  toSnapshot?(): {
-    name: string;
-    description?: string;
-    preferredOperation?: 'translate' | 'accumulate' | 'aggregate';
-    data: unknown;
-    /** Machine-readable facts about the bundle itself — see
-     *  {@link import('../../runner/ExecutionRuntime.js').RecorderSnapshot.meta}. */
-    meta?: Readonly<Record<string, unknown>>;
-  };
+  toSnapshot?(): import('../../recorder/snapshot.js').RecorderBundle;
 }

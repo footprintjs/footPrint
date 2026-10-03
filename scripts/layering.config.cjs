@@ -121,6 +121,10 @@ const LAYERS = [
     rank: 5,
     name: 'scope, recorders, hooks',
     files: [
+      // The hook registry + the one dispatcher (`fire`) and the one snapshot-bundle copier (F6):
+      // asked by scope/ (ScopeFacade), engine/narrative (the flow dispatcher), runner/ (taps, resume).
+      'src/lib/recorder/hooks.ts',
+      'src/lib/recorder/snapshot.ts',
       'src/lib/recorder/**',
       'src/lib/scope/**',
       'src/lib/reactive/**',
