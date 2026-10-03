@@ -11,7 +11,7 @@ paths:
   - src/lib/memory/backtrack.ts
   - src/lib/pause/**
   - src/lib/runner/FlowChartExecutor.ts
-  - src/lib/runner/checkpointSanitize.ts
+  - src/lib/runner/checkpoint.ts (buildPauseCheckpoint + sanitize, 9.41.0)
   - src/lib/engine/handlers/SubflowExecutor.ts
   - src/lib/engine/handlers/StageRunner.ts
   - src/lib/engine/handlers/ContinuationResolver.ts
@@ -248,7 +248,7 @@ the two index checks and `basis` says so).
 ## Cross-mechanism blast radius
 - M1's trace verbs are the contract everything replays, and `verbs · applyVerb` is the ONE place a verb is interpreted: `foldRows` has its consumers through four doors — live commit and the redacted mirror (`SharedMemory · applyPatch` → `nextGeneration`), the folds (`EventLog.materialise`, `stateAt` → `applySmartMergeInto`), the admitted record's comparison (`dryFold`), and external callers (the public `applySmartMerge`); `commitValueAt` and `arrayProvenance` fold one path through `foldKey` (same step, same clone discipline). A new/renamed verb is one arm of `applyVerb` + its row in `TRAITS`; the compiler lists the rest, and the differential (test/lib/memory/property/verb-law-differential.property.test.ts) plus delta-parity tests pin it.
 - M2 depends on M1's commit-on-pause (`FlowchartTraverser · executeNodeStep`, Phase 3's pause catch) — pre-pause writes reach `checkpoint.sharedState` only because pause commits first.
-- M2 checkpoints exclude recorder state and per-subflow commit logs (`FlowChartExecutor · buildPauseCheckpoint`); M5 on a cross-executor-resumed run sees only post-resume commits.
+- M2 checkpoints exclude recorder state and per-subflow commit logs (`runner/checkpoint.ts · buildPauseCheckpoint`); M5 on a cross-executor-resumed run sees only post-resume commits.
 - M2 does NO graph surgery (9.28.0): the resume's stand-in and entries are only start nodes (never registered), and M4's loop-ref stubs resolve against the real chart through `ContinuationResolver` exactly as on a run. Changing the stub shape (`isLoopRef`) still breaks every loop, resumed or not.
 - M2 depends on the fan-out's settle order: `ChildrenExecutor` raises the FIRST paused child in child order and queues the rest; a fork that re-threw on the first pause would drop the others (the fail-fast mode waits for its siblings on a pause for this reason).
 - Parallel fan-out (`ChildrenExecutor`, failFast) is error COLLECTION, not rollback — a failed branch's committed writes persist either way.
