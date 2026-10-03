@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — ids and stamps (F7)
+
+- **Why.** The runtimeStageId grammar `[subflowPath/]stageId#executionIndex` had one owner and six hand re-derivations (`DeferredObserverTier`, `ScopeFacade`, the time-travel cursor, `getSubtreeSnapshot`, the checkpoint lean filter, `InOutRecorder`), and its delimiters were not reserved — so last-delimiter parsing was only safe if users never typed them. The subflow-id prefixer existed twice (builder and traverser byte-twins), `TraversalContext` was built by hand in three places, and `DeciderList` / `SelectorFnList` each carried a copy of the branch mechanics.
+- **One grammar owner.** `ids/runtimeStageId.ts` (moved from `engine/` with `branchSegment.ts`, so the scope and recorder layers can read it without an engine ⇄ scope ⇄ recorder module cycle) gains `isExecutionKey`, `stageIdOf`, `subflowPathOf`, `refuseReservedId` and a few path readers; every parser calls them. Grammar re-derivations 6 → 0.
+- **One prefixer.** `engine/graph/prefixNodeTree.ts`, called by the builder at mount time and the traverser at run time (2 → 1). The prefixer-equivalence test stays as the guard.
+- **One stamp constructor.** `engine/traversalContext.ts` builds every `TraversalContext` — per stage, the run-boundary root, and `onResume` (3 → 1).
+- **One branch cursor.** `DeciderList` and `SelectorFnList` compose one `BranchCursor`; their public methods and signatures are unchanged.
+- **Brands (types only).** `RuntimeStageId`, `ExecutionIndex`, `CommitIdx` (exported from `footprintjs/trace`).
+- Everything else is byte-identical to 9.36.0: a canonical-JSON diff of chart specs, snapshots, commit logs, narrative, checkpoints and every flow/scope recorder event on fixture programs (nested subflows, `parallelForEach` `~` branches, forks, a decider loop, a selector with a subflow branch, a lazy subflow, nested pause/resume and a top-level `interrupt`, same- and cross-executor) differs only in the `onResume` event below.
+
+### Behaviour changes (named)
+
+- **R5 — `#` and `/` are refused in ids at build.** Every builder id door (`start`, `startSelector`, `addFunction`, `addStreamingFunction`, `addPausableFunction`, `addDeciderFunction`, `addSelectorFunction`, each `addListOfFunction` child, `addParallelForEach`, every subflow mount, every decider/selector branch) throws `[FlowChartBuilder] stage id 'ns/a' contains the reserved character '/'. …` for an id containing `#` or `/`, as it already did for `~` in subflow ids. Before, a stage id `ns/a` was reported inside a subflow `ns` that does not exist, and a subflow id `sf#1` was dropped from `listSubflowPaths` and from the pause checkpoint as a per-iteration key. `~` stays legal in a stage id. The prefixer and the stores never refuse. **Migration:** rename the id (a dash reads the same); 0 such ids were found in this repo or in agentfootprint.
+- **The `onResume` event carries the real path, depth and a link.** Its `traversalContext` now names the paused stage's innermost subflow (`subflowId`, e.g. `'sf-out/sf-in'`) and how many subflows deep it is (`depth`; it said `0` and no subflow), and links to the paused execution through the new optional `TraversalContext.resumedFrom: { runId, runtimeStageId }` (type `ResumeLink`, exported from `footprintjs`) — an OpenTelemetry-style link, not a parent: a resume is a new `runId`. The scope-channel `ResumeEvent` carries the same `resumedFrom`. The link is known for a checkpoint object this executor made; a checkpoint that was serialized or made elsewhere resumes with no link (the checkpoint record is unchanged — recording the paused execution in it is a checkpoint-shape change, left for the checkpoint codec). The event's `runtimeStageId` still names the stand-in's own execution. **Migration:** a consumer that grouped `onResume` at depth 0 / top level reads `subflowId` and `depth`; one that read the event's `runtimeStageId` as "the paused execution" reads `resumedFrom.runtimeStageId`.
+
+### Type signatures (brands)
+
+- `buildRuntimeStageId` returns `RuntimeStageId` (was `string`) and `parseRuntimeStageId(...).executionIndex` is `ExecutionIndex` (was `number`). Both are assignable to their plain types, so reading them needs no change. **Migration:** a variable that took its type from one of these and is later assigned a plain string/number needs an explicit `: string` / `: number` annotation.
+- Internal path move (not a public door): `lib/engine/runtimeStageId` → `lib/ids/runtimeStageId`, `lib/engine/branchSegment` → `lib/ids/branchSegment`. **Migration:** a deep import switches path; the public doors (`footprintjs/trace`, `footprintjs/advanced`) are unchanged.
+
 ## [9.36.0] - 2026-10-03
 
 ### Changed — the hook registry and the one dispatcher (F6)
