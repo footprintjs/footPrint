@@ -409,10 +409,22 @@ describe('checkpoint.pendingPauses is untrusted input', () => {
   it.each([
     ['not an array', { oops: true }, /pendingPauses must be an array/],
     ['a non-object record', ['c2/ask'], /pendingPauses\[0\] must be an object/],
-    ['no stage', [{ subflowPath: [] }], /pendingPauses\[0\] must name its paused stage/],
-    ['a bad path', [{ pausedStageId: 'x', subflowPath: 'sf-a' }], /pendingPauses\[0\] must carry its subflowPath/],
-    ['bad captures', [{ pausedStageId: 'x', subflowPath: [], subflowStates: [] }], /must carry its subflowStates/],
-    ['a bad pausedBy', [{ pausedStageId: 'x', subflowPath: [], pausedBy: 'magic' }], /unknown pausedBy/],
+    ['no stage', [{ subflowPath: [] }], /pendingPauses\[0\]\.pausedStageId must be a non-empty string/],
+    [
+      'a bad path',
+      [{ pausedStageId: 'x', subflowPath: 'sf-a' }],
+      /pendingPauses\[0\]\.subflowPath must be an array of strings/,
+    ],
+    [
+      'bad captures',
+      [{ pausedStageId: 'x', subflowPath: [], subflowStates: [] }],
+      /pendingPauses\[0\]\.subflowStates must be an object/,
+    ],
+    [
+      'a bad pausedBy',
+      [{ pausedStageId: 'x', subflowPath: [], pausedBy: 'magic' }],
+      /pendingPauses\[0\]\.pausedBy must be 'interrupt'/,
+    ],
   ])('a malformed field (%s) is refused', async (_name, pendingPauses, message) => {
     const { chart, checkpoint } = await pausedTwice();
     const executor = new FlowChartExecutor(chart);

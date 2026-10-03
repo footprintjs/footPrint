@@ -130,7 +130,7 @@ describe('Resume continuation — invoker context', () => {
     expect(executor.getSnapshot().sharedState?.result).toBe('done');
   });
 
-  it('pattern 4: checkpoint carries invokerStageId + continuationStageId', async () => {
+  it('pattern 4: checkpoint carries invokerStageId (continuationStageId is legacy-only since 9.39.0)', async () => {
     const chart = flowChart<{ amount: number }>(
       'Seed',
       async (scope) => {
@@ -155,7 +155,7 @@ describe('Resume continuation — invoker context', () => {
 
     const checkpoint = executor.getCheckpoint()!;
     expect(checkpoint.invokerStageId).toBe('route');
-    expect(checkpoint.continuationStageId).toBe('after');
+    expect(Object.prototype.hasOwnProperty.call(checkpoint, 'continuationStageId')).toBe(false);
   });
 
   it('pattern 5: decider branch pause with no post-decider stages → clean termination', async () => {
@@ -184,8 +184,6 @@ describe('Resume continuation — invoker context', () => {
     expect(executor.isPaused()).toBe(true);
 
     const checkpoint = executor.getCheckpoint()!;
-    // No continuation — decider has no .next
-    expect(checkpoint.continuationStageId).toBeUndefined();
 
     await executor.resume(checkpoint, { approved: true });
 

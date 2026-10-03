@@ -50,6 +50,7 @@ import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials, runPolicy } from '../memory/runPolicy.js';
 import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
+import { CHECKPOINT_VERSION, decodeCheckpoint } from '../pause/record.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPausedExecution, isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -648,27 +649,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           'one executor per concurrent run. See docs/guides/execution-model.md.',
       );
     }
-    // ── Validate checkpoint structure (may come from untrusted external storage) ──
-    // (lastCheckpoint is wiped AFTER validation — a rejected checkpoint must
-    // not destroy the executor's existing checkpoint state.)
-    if (
-      !checkpoint ||
-      typeof checkpoint !== 'object' ||
-      typeof checkpoint.sharedState !== 'object' ||
-      checkpoint.sharedState === null ||
-      Array.isArray(checkpoint.sharedState)
-    ) {
-      throw new Error('Invalid checkpoint: sharedState must be a plain object.');
-    }
-    if (typeof checkpoint.pausedStageId !== 'string' || checkpoint.pausedStageId === '') {
-      throw new Error('Invalid checkpoint: pausedStageId must be a non-empty string.');
-    }
-    if (
-      !Array.isArray(checkpoint.subflowPath) ||
-      !checkpoint.subflowPath.every((s: unknown) => typeof s === 'string')
-    ) {
-      throw new Error('Invalid checkpoint: subflowPath must be an array of strings.');
-    }
+    // ── Decode the checkpoint (may come from untrusted external storage, from
+    // any release) — the ONE codec: upcast, then check every pause record
+    // (`pause/record.ts`). (lastCheckpoint is wiped AFTER this — a rejected
+    // checkpoint must not destroy the executor's existing checkpoint state.)
+    checkpoint = decodeCheckpoint(checkpoint);
 
     // Find the paused node in the graph
     const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
@@ -1024,6 +1009,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     }
     const checkpoint = {
+      // The format (9.39.0) — read back by `pause/record.ts · decodeCheckpoint`.
+      checkpointVersion: CHECKPOINT_VERSION,
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
@@ -1040,9 +1027,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionCount: this._executionCounter.value,
       visitCounts: Object.fromEntries(this._visitCounts),
       ...(Object.keys(leanSubflowResults).length > 0 && { subflowResults: leanSubflowResults }),
-      // Invoker context — collected during traversal bubble-up (not tree-walked)
+      // Invoker context — collected during traversal bubble-up (not tree-walked).
+      // (`continuationStageId` is legacy-only since 9.39.0: no longer written.)
       ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
-      ...(signal.continuationStageId && { continuationStageId: signal.continuationStageId }),
       // Parallel siblings' pauses from the same fan-out, waiting their turn
       // (9.28.0). Absent when only one child paused — the shape every
       // earlier checkpoint has.

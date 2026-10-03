@@ -75,14 +75,12 @@ export class PauseSignal extends Error {
    * through a decider, selector, or fork handler.
    *
    * The invoker is the stage that called executeNode() on the paused child.
-   * Captured during traversal (not reconstructed from the tree).
-   *
-   * `continuationStageId` is the invoker's `.next` node — where execution
-   * should continue after resume. Without this, branch children have no
-   * `.next` pointer and resume would terminate early.
+   * Captured during traversal (not reconstructed from the tree). (The
+   * invoker's `.next` id rode beside it until 9.39.0 as
+   * `continuationStageId`; what runs after a resume comes from the chart
+   * since 9.28.0, so it is no longer carried.)
    */
   private _invokerStageId?: string;
-  private _continuationStageId?: string;
 
   /**
    * Subflow scope capture — populated during bubble-up by
@@ -218,21 +216,13 @@ export class PauseSignal extends Error {
     return this._invokerStageId;
   }
 
-  /** Where execution should continue after resume (invoker's next node). */
-  get continuationStageId(): string | undefined {
-    return this._continuationStageId;
-  }
-
   /**
    * Stamp the invoker context during bubble-up.
    * Called by decider/selector/fork handlers when catching a child's PauseSignal.
    * First invoker wins (innermost) — subsequent calls are no-ops.
    */
-  setInvoker(invokerStageId: string, continuationStageId?: string): void {
-    if (!this._invokerStageId) {
-      this._invokerStageId = invokerStageId;
-      this._continuationStageId = continuationStageId;
-    }
+  setInvoker(invokerStageId: string): void {
+    if (!this._invokerStageId) this._invokerStageId = invokerStageId;
   }
 
   /**
@@ -371,6 +361,15 @@ export interface PauseResult {
  * ```
  */
 export interface FlowchartCheckpoint {
+  /**
+   * The checkpoint FORMAT (9.39.0): `1`. Absent on a checkpoint written
+   * before 9.39.0, which `resume()` reads through the one upcaster
+   * (`pause/record.ts · upcastCheckpoint`) — it drops the legacy
+   * `continuationStageId` (a record no resume has read since 9.28.0). A
+   * version this release does not know is refused.
+   */
+  readonly checkpointVersion?: 1;
+
   /** Scope state at the pause point — all shared memory key/values. */
   readonly sharedState: Record<string, unknown>;
 
@@ -452,16 +451,6 @@ export interface FlowchartCheckpoint {
 
   /** Stage that invoked the paused child (decider, selector, fork). Absent for linear pauses. */
   readonly invokerStageId?: string;
-
-  /**
-   * The invoker's next node ID. Absent for linear pauses.
-   *
-   * A RECORD, not an instruction: since 9.28.0 `resume()` derives what runs
-   * after the paused stage from the chart itself (the stage's own `next`, else
-   * the continuation of the dispatcher that ran it — at every level of the
-   * pause path), so an edited value cannot redirect a resumed run.
-   */
-  readonly continuationStageId?: string;
 
   /**
    * Pauses raised by PARALLEL SIBLINGS of the paused stage in the same

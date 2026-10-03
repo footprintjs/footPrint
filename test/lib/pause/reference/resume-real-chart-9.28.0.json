@@ -1,0 +1,832 @@
+{
+  "generatedBy": "footprintjs 9.28.0 (e1d5771) \u2014 the first checkpoint of each chart in test/lib/pause/resume-real-chart-fixture.ts (the 9.39.0 copy, run against the v9.28.0 tag's src), JSON round-tripped, generated 2026-10-03 for the F8 checkpoint codec",
+  "checkpoints": {
+    "askLoopInSubflow": {
+      "sharedState": {
+        "trace": []
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Inner stage",
+            "timestamp": 1791054275576,
+            "targetStage": "Inner"
+          }
+        ],
+        "next": {
+          "id": "sf",
+          "runtimeStageId": "sf#1",
+          "name": "Inner",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "subflowId": "sf",
+          "flowMessages": [
+            {
+              "type": "subflow",
+              "description": "Entering Inner subflow",
+              "timestamp": 1791054275576,
+              "targetStage": "sf"
+            }
+          ]
+        }
+      },
+      "pausedStageId": "sf/ask",
+      "subflowPath": [
+        "sf"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf": {
+          "log": [
+            "plan",
+            "ask"
+          ]
+        }
+      },
+      "executionCount": 4,
+      "visitCounts": {
+        "init": 1,
+        "sf": 1,
+        "sf/plan": 1,
+        "sf/ask": 1
+      },
+      "pausedAt": 1791054275576
+    },
+    "pauseInLoopBodySubflow": {
+      "sharedState": {
+        "iter": 1,
+        "trace": [
+          "head1"
+        ]
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "iter": 0,
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Head stage",
+            "timestamp": 1791054275577,
+            "targetStage": "Head"
+          }
+        ],
+        "next": {
+          "id": "head",
+          "runtimeStageId": "head#1",
+          "name": "Head",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "iter": 1,
+            "trace": [
+              "head1"
+            ]
+          },
+          "stageReads": {
+            "iter": 1,
+            "trace": []
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Inputs stage",
+              "timestamp": 1791054275577,
+              "targetStage": "Inputs"
+            }
+          ],
+          "next": {
+            "id": "sf-inputs",
+            "runtimeStageId": "sf-inputs#2",
+            "name": "Inputs",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "sf-inputs",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering Inputs subflow",
+                "timestamp": 1791054275577,
+                "targetStage": "sf-inputs"
+              }
+            ]
+          }
+        }
+      },
+      "pausedStageId": "sf-inputs/sf-ask",
+      "subflowPath": [
+        "sf-inputs"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf-inputs": {
+          "pass": 1
+        }
+      },
+      "executionCount": 5,
+      "visitCounts": {
+        "init": 1,
+        "head": 1,
+        "sf-inputs": 1,
+        "sf-inputs/sf-start": 1,
+        "sf-inputs/sf-ask": 1
+      },
+      "pausedAt": 1791054275577
+    },
+    "interruptInLoopingBranch": {
+      "sharedState": {
+        "iter": 1,
+        "trace": [
+          "head1"
+        ],
+        "rounds": 1
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "iter": 0,
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Head stage",
+            "timestamp": 1791054275578,
+            "targetStage": "Head"
+          }
+        ],
+        "next": {
+          "id": "head",
+          "runtimeStageId": "head#1",
+          "name": "Head",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "iter": 1,
+            "trace": [
+              "head1"
+            ]
+          },
+          "stageReads": {
+            "iter": 1,
+            "trace": []
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Route stage",
+              "timestamp": 1791054275578,
+              "targetStage": "Route"
+            }
+          ],
+          "next": {
+            "id": "route",
+            "runtimeStageId": "route#2",
+            "name": "Route",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageReads": {
+              "iter": 1
+            },
+            "flowMessages": [
+              {
+                "type": "branch",
+                "description": "Evaluated scope and returned 'tool-calls' \u2192 chose ToolCalls path.",
+                "timestamp": 1791054275578,
+                "targetStage": "ToolCalls",
+                "rationale": "returned branchId: tool-calls"
+              }
+            ],
+            "children": [
+              {
+                "id": "tool-calls",
+                "runtimeStageId": "tool-calls#3",
+                "name": "ToolCalls",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "rounds": 1
+                },
+                "stageReads": {
+                  "iter": 1
+                },
+                "description": "tool-calls"
+              }
+            ]
+          }
+        }
+      },
+      "pausedStageId": "tool-calls",
+      "subflowPath": [],
+      "pauseData": {
+        "reason": "ask 1"
+      },
+      "subflowStates": {},
+      "executionCount": 4,
+      "visitCounts": {
+        "init": 1,
+        "head": 1,
+        "route": 1,
+        "tool-calls": 1
+      },
+      "invokerStageId": "route",
+      "pausedBy": "interrupt",
+      "pausedAt": 1791054275578
+    },
+    "askLoopTopLevel": {
+      "sharedState": {
+        "trace": [
+          "plan",
+          "ask"
+        ]
+      },
+      "executionTree": {
+        "id": "plan",
+        "runtimeStageId": "plan#0",
+        "name": "Plan",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "trace": [
+            "plan"
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Ask stage",
+            "timestamp": 1791054275578,
+            "targetStage": "Ask"
+          }
+        ],
+        "next": {
+          "id": "ask",
+          "runtimeStageId": "ask#1",
+          "name": "Ask",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "trace": [
+              "plan",
+              "ask"
+            ]
+          },
+          "stageReads": {
+            "trace": [
+              "plan"
+            ]
+          },
+          "description": "ask"
+        }
+      },
+      "pausedStageId": "ask",
+      "subflowPath": [],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {},
+      "executionCount": 2,
+      "visitCounts": {
+        "plan": 1,
+        "ask": 1
+      },
+      "pausedAt": 1791054275579
+    },
+    "loopPastTopLevelPause": {
+      "sharedState": {
+        "iter": 1,
+        "trace": [
+          "head1"
+        ]
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "iter": 0,
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Head stage",
+            "timestamp": 1791054275579,
+            "targetStage": "Head"
+          }
+        ],
+        "next": {
+          "id": "head",
+          "runtimeStageId": "head#1",
+          "name": "Head",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "iter": 1,
+            "trace": [
+              "head1"
+            ]
+          },
+          "stageReads": {
+            "iter": 1,
+            "trace": []
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Ask stage",
+              "timestamp": 1791054275579,
+              "targetStage": "Ask"
+            }
+          ],
+          "next": {
+            "id": "ask",
+            "runtimeStageId": "ask#2",
+            "name": "Ask",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageReads": {
+              "iter": 1
+            }
+          }
+        }
+      },
+      "pausedStageId": "ask",
+      "subflowPath": [],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {},
+      "executionCount": 3,
+      "visitCounts": {
+        "init": 1,
+        "head": 1,
+        "ask": 1
+      },
+      "pausedAt": 1791054275579
+    },
+    "loopInsideSubflow": {
+      "sharedState": {
+        "trace": []
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Loop stage",
+            "timestamp": 1791054275579,
+            "targetStage": "Loop"
+          }
+        ],
+        "next": {
+          "id": "sf-loop",
+          "runtimeStageId": "sf-loop#1",
+          "name": "Loop",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "subflowId": "sf-loop",
+          "flowMessages": [
+            {
+              "type": "subflow",
+              "description": "Entering Loop subflow",
+              "timestamp": 1791054275579,
+              "targetStage": "sf-loop"
+            }
+          ]
+        }
+      },
+      "pausedStageId": "sf-loop/inner-ask",
+      "subflowPath": [
+        "sf-loop"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf-loop": {
+          "prior": [],
+          "count": 1,
+          "log": [
+            "in1",
+            "ask1"
+          ]
+        }
+      },
+      "executionCount": 4,
+      "visitCounts": {
+        "init": 1,
+        "sf-loop": 1,
+        "sf-loop/inner-head": 1,
+        "sf-loop/inner-ask": 1
+      },
+      "pausedAt": 1791054275579
+    },
+    "loopPastMount": {
+      "sharedState": {
+        "iter": 1,
+        "trace": [
+          "head1"
+        ]
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "iter": 0,
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Head stage",
+            "timestamp": 1791054275580,
+            "targetStage": "Head"
+          }
+        ],
+        "next": {
+          "id": "head",
+          "runtimeStageId": "head#1",
+          "name": "Head",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "iter": 1,
+            "trace": [
+              "head1"
+            ]
+          },
+          "stageReads": {
+            "iter": 1,
+            "trace": []
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Inputs stage",
+              "timestamp": 1791054275580,
+              "targetStage": "Inputs"
+            }
+          ],
+          "next": {
+            "id": "sf-inputs",
+            "runtimeStageId": "sf-inputs#2",
+            "name": "Inputs",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "sf-inputs",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering Inputs subflow",
+                "timestamp": 1791054275580,
+                "targetStage": "sf-inputs"
+              }
+            ]
+          }
+        }
+      },
+      "pausedStageId": "sf-inputs/sf-ask",
+      "subflowPath": [
+        "sf-inputs"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf-inputs": {
+          "pass": 1,
+          "prior": [
+            "head1"
+          ],
+          "log": [
+            "head1",
+            "start1",
+            "ask1"
+          ]
+        }
+      },
+      "executionCount": 5,
+      "visitCounts": {
+        "init": 1,
+        "head": 1,
+        "sf-inputs": 1,
+        "sf-inputs/sf-start": 1,
+        "sf-inputs/sf-ask": 1
+      },
+      "pausedAt": 1791054275580
+    },
+    "pauseEveryPass": {
+      "sharedState": {
+        "iter": 1,
+        "trace": [
+          "head1"
+        ]
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "iter": 0,
+          "trace": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Head stage",
+            "timestamp": 1791054275580,
+            "targetStage": "Head"
+          }
+        ],
+        "next": {
+          "id": "head",
+          "runtimeStageId": "head#1",
+          "name": "Head",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "iter": 1,
+            "trace": [
+              "head1"
+            ]
+          },
+          "stageReads": {
+            "iter": 1,
+            "trace": []
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Inputs stage",
+              "timestamp": 1791054275580,
+              "targetStage": "Inputs"
+            }
+          ],
+          "next": {
+            "id": "sf-inputs",
+            "runtimeStageId": "sf-inputs#2",
+            "name": "Inputs",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "sf-inputs",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering Inputs subflow",
+                "timestamp": 1791054275580,
+                "targetStage": "sf-inputs"
+              }
+            ]
+          }
+        }
+      },
+      "pausedStageId": "sf-inputs/sf-ask",
+      "subflowPath": [
+        "sf-inputs"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf-inputs": {
+          "pass": 1,
+          "prior": [
+            "head1"
+          ],
+          "log": [
+            "head1",
+            "ask1"
+          ]
+        }
+      },
+      "executionCount": 5,
+      "visitCounts": {
+        "init": 1,
+        "head": 1,
+        "sf-inputs": 1,
+        "sf-inputs/sf-start": 1,
+        "sf-inputs/sf-ask": 1
+      },
+      "pausedAt": 1791054275580
+    },
+    "twoDeep": {
+      "sharedState": {
+        "trace": [
+          "init"
+        ]
+      },
+      "executionTree": {
+        "id": "init",
+        "runtimeStageId": "init#0",
+        "name": "Init",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "trace": [
+            "init"
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to A stage",
+            "timestamp": 1791054275580,
+            "targetStage": "A"
+          }
+        ],
+        "next": {
+          "id": "sf-a",
+          "runtimeStageId": "sf-a#1",
+          "name": "A",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "subflowId": "sf-a",
+          "flowMessages": [
+            {
+              "type": "subflow",
+              "description": "Entering A subflow",
+              "timestamp": 1791054275580,
+              "targetStage": "sf-a"
+            }
+          ]
+        }
+      },
+      "pausedStageId": "sf-a/sf-b/b-ask",
+      "subflowPath": [
+        "sf-a",
+        "sf-a/sf-b"
+      ],
+      "pauseData": {
+        "question": "q"
+      },
+      "subflowStates": {
+        "sf-a/sf-b": {
+          "prior": [
+            "init",
+            "a-pre"
+          ],
+          "log": [
+            "init",
+            "a-pre",
+            "b-start",
+            "b-ask"
+          ]
+        },
+        "sf-a": {
+          "prior": [
+            "init"
+          ],
+          "aPreRuns": 1,
+          "log": [
+            "init",
+            "a-pre"
+          ]
+        }
+      },
+      "executionCount": 6,
+      "visitCounts": {
+        "init": 1,
+        "sf-a": 1,
+        "sf-a/a-pre": 1,
+        "sf-a/sf-b": 1,
+        "sf-a/sf-b/b-start": 1,
+        "sf-a/sf-b/b-ask": 1
+      },
+      "pausedAt": 1791054275580
+    }
+  }
+}

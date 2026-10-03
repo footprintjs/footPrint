@@ -232,7 +232,6 @@ interface ContinuationHop<TOut = any, TScope = any> {
 /** Pause-invoker context recorded by the driver for flat decider dispatches. */
 interface InvokerStamp {
   readonly invokerStageId: string;
-  readonly continuationStageId?: string;
 }
 
 function isContinuationHop<TOut, TScope>(value: unknown): value is ContinuationHop<TOut, TScope> {
@@ -1001,7 +1000,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // the old bubble-up order through nested catch frames.
       if (pendingInvokers !== undefined && isPauseSignal(error)) {
         for (let i = pendingInvokers.length - 1; i >= 0; i--) {
-          error.setInvoker(pendingInvokers[i].invokerStageId, pendingInvokers[i].continuationStageId);
+          error.setInvoker(pendingInvokers[i].invokerStageId);
         }
       }
       throw error;
@@ -1280,10 +1279,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // flat-stacked. The invoker stamp preserves PauseSignal semantics —
       // the decider is the invoker of whatever pauses in the chain.
       if (!hasNext && dispatch.kind === 'dispatch') {
-        return this.hop(dispatch.chosen, dispatch.branchContext, branchPath, {
-          invokerStageId: node.id!,
-          continuationStageId: node.next?.id,
-        });
+        return this.hop(dispatch.chosen, dispatch.branchContext, branchPath, { invokerStageId: node.id! });
       }
 
       // Decider WITH its own next: the branch chain must complete BEFORE
@@ -1298,7 +1294,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           deciderResult = await this.executeNode(dispatch.chosen, dispatch.branchContext, breakFlag, branchPath);
         } catch (error: unknown) {
           if (isPauseSignal(error)) {
-            error.setInvoker(node.id!, node.next?.id);
+            error.setInvoker(node.id!);
           }
           throw error;
         }
