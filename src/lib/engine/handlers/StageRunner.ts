@@ -10,7 +10,7 @@
 
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
-import { isPauseResult, PauseSignal } from '../../pause/types.js';
+import { isPauseResult, isPauseSignal, PauseSignal } from '../../pause/types.js';
 import { BREAK_SETTER, IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -105,7 +105,7 @@ export class StageRunner<TOut = any, TScope = any> {
         }
         throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context);
       }
-      if (error instanceof PauseSignal) stampedPause(error, context);
+      if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context);
       throw error;
     }
 

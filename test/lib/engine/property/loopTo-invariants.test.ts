@@ -4,6 +4,8 @@
  * Verifies that loops built with loopTo() maintain key invariants
  * regardless of iteration count, loop target position, or break timing.
  */
+import * as fc from 'fast-check';
+
 import { flowChart, FlowChartExecutor } from '../../../../src';
 
 describe('Property: loopTo invariants', () => {
@@ -153,5 +155,88 @@ describe('Property: loopTo invariants', () => {
     // Step should be mentioned at least 3 times (once per iteration)
     const stepMentions = narrative.filter((line) => line.includes('Step'));
     expect(stepMentions.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/**
+ * A loop through a decider is the same loop whether or not the decider has a
+ * `next` of its own: the stage order with a `next` is the order without it,
+ * plus the `next` ONCE at the end — for any pass count, a loop back to the
+ * decider or to a stage upstream of it, and at a depth cap of 2 (one nesting
+ * level; through 9.39.0 every pass stacked a level).
+ */
+describe('Property: a decider with its own next loops flat', () => {
+  function chart(passes: number, target: 'decide' | 'seed', withNext: boolean) {
+    const b = flowChart<any>(
+      'Seed',
+      async (scope) => {
+        if (scope.$getValue('i') === undefined) scope.$setValue('i', 0);
+      },
+      'seed',
+    )
+      .addDeciderFunction(
+        'Decide',
+        async (scope) => ((scope.$getValue('i') as number) < passes ? 'continue' : 'done'),
+        'decide',
+      )
+      .addFunctionBranch(
+        'continue',
+        'Tick',
+        async (scope: any) => {
+          scope.$setValue('i', (scope.$getValue('i') as number) + 1);
+        },
+        undefined,
+        { loopTo: target },
+      )
+      .addFunctionBranch('done', 'Final', async () => {})
+      .end();
+    return (withNext ? b.addFunction('After', async () => {}, 'after') : b).build();
+  }
+
+  async function order(passes: number, target: 'decide' | 'seed', withNext: boolean) {
+    const ex = new FlowChartExecutor(chart(passes, target, withNext));
+    const seen: string[] = [];
+    ex.attachFlowRecorder({ id: 'order', onStageExecuted: (e) => seen.push(e.stageName) });
+    await ex.run({ maxDepth: 2 });
+    return seen;
+  }
+
+  it('stage order with a next = stage order without it + the next once', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 0, max: 120 }),
+        fc.constantFrom('decide' as const, 'seed' as const),
+        async (passes, target) => {
+          const flat = await order(passes, target, false);
+          const withNext = await order(passes, target, true);
+          expect(withNext).toEqual([...flat, 'After']);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+});
+
+/** Fan-out width never consumes depth: every child runs at a cap of 2. */
+describe('Property: fork width is one nesting level', () => {
+  it('a fork of any width runs every child at maxDepth 2, in either error mode', async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 700 }), fc.boolean(), async (width, failFast) => {
+        let ran = 0;
+        const children = Array.from({ length: width }, (_, i) => ({
+          id: `c${i}`,
+          name: `C${i}`,
+          fn: async () => {
+            ran++;
+          },
+        }));
+        const c = flowChart<any>('Seed', async () => {}, 'seed')
+          .addListOfFunction(children, { failFast })
+          .build();
+        await new FlowChartExecutor(c).run({ maxDepth: 2 });
+        expect(ran).toBe(width);
+      }),
+      { numRuns: 20 },
+    );
   });
 });

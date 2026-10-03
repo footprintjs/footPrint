@@ -5,10 +5,10 @@
  * chains and loop edges are followed in a flat loop and consume NO depth.
  * Depth grows only with true tree nesting: fork children, decider/selector
  * branch dispatch (when the decider has its own continuation), recursive
- * composition. The guard increments per driver invocation and decrements on
- * exit (try/finally). When the counter exceeds MAX_EXECUTE_DEPTH (500), a
- * descriptive Error is thrown that names the stage and explains what depth
- * counts.
+ * composition. Depth is per call PATH (`nestingDepthOf` — parallel siblings
+ * share one level; see max-depth-siblings.test.ts). When a driver's depth
+ * exceeds MAX_EXECUTE_DEPTH (500), a descriptive TraversalDepthError is
+ * thrown that names the stage and explains what depth counts.
  */
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index';
@@ -166,7 +166,7 @@ describe('maxDepth guard — scenario: deep but finite chains', () => {
 // ---------------------------------------------------------------------------
 // Pattern 4: property — depth counter returns to 0 after normal execution
 // ---------------------------------------------------------------------------
-describe('maxDepth guard — property: depth counter is correctly maintained', () => {
+describe('maxDepth guard — property: depth does not accumulate across runs', () => {
   it('multiple sequential runs on the same executor do not accumulate depth', async () => {
     // If the counter were not decremented via finally, sequential runs would
     // accumulate and eventually hit the limit even on finite graphs.

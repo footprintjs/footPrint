@@ -42,17 +42,32 @@ export interface StructuredErrorInfo {
  * - Non-Error thrown values → coerces to string
  */
 export function extractErrorInfo(error: unknown): StructuredErrorInfo {
-  if (error instanceof InputValidationError) {
-    return {
-      message: error.message,
-      name: error.name,
-      issues: error.issues.map((issue) => ({ ...issue, path: [...issue.path] })),
-      code: 'INPUT_VALIDATION_ERROR',
-      raw: error,
-    };
+  // `instanceof` asks the value's prototype — a Proxy whose `getPrototypeOf`
+  // trap throws (or a revoked Proxy) throws right here. Total by contract:
+  // such a value is classified as a non-Error and described below.
+  let kind: 'validation' | 'error' | 'other';
+  try {
+    kind = error instanceof InputValidationError ? 'validation' : error instanceof Error ? 'error' : 'other';
+  } catch {
+    kind = 'other';
   }
 
-  if (error instanceof Error) {
+  if (kind === 'validation') {
+    const validation = error as InputValidationError;
+    try {
+      return {
+        message: validation.message,
+        name: validation.name,
+        issues: validation.issues.map((issue) => ({ ...issue, path: [...issue.path] })),
+        code: 'INPUT_VALIDATION_ERROR',
+        raw: error,
+      };
+    } catch {
+      kind = 'error'; // a hostile subclass — describe it as a plain Error
+    }
+  }
+
+  if (kind === 'error' && error instanceof Error) {
     // Guard against adversarial errors with throwing getters on .message/.name/.code
     try {
       const info: StructuredErrorInfo = {
@@ -108,4 +123,23 @@ export function formatErrorInfo(info: StructuredErrorInfo): string {
   });
 
   return `${info.message}\n${issueLines.join('\n')}`;
+}
+
+/**
+ * The one-line text of a thrown value — `error.toString()` wherever that
+ * works (every Error, string, number, object with a callable `toString`), so
+ * the engine's catch blocks keep their exact text; and, for a value it throws
+ * on — `null`, `undefined`, a null-prototype object, a Proxy whose traps
+ * throw — the `message` `extractErrorInfo` gives (`'null'`, `'undefined'`,
+ * `'[unserializable error]'`). Never throws: a catch block that describes the
+ * error must not replace it with a TypeError of its own.
+ */
+export function thrownText(error: unknown): string {
+  try {
+    const text: unknown = (error as { toString(): unknown }).toString();
+    if (typeof text === 'string') return text;
+  } catch {
+    /* fall through to the total description */
+  }
+  return extractErrorInfo(error).message;
 }
