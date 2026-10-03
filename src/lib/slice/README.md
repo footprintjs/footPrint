@@ -60,6 +60,10 @@ What moved, on the charts that show it (test/lib/slice/nested-rows.test.ts):
 
 On a log whose rows are all on their exact paths, every answer is the 9.32 answer.
 
+**A write inside the key does not end a value's life.** In `forwardSliceForKey` a life runs to the next
+write that replaces the value — never to one that only wrote a path inside the key: a reader after a
+merge-back still read the rest of the anchored value, so it stays listed.
+
 **A write found through a row inside the key wrote only PART of its value.** `keyTimeline` (any such
 write moment) and `forwardSliceForKey` (such an anchor) say so with a `'nested-rows'` note naming the
 commits: earlier writes may account for the rest, and a reader of the key may not have read the part
@@ -253,7 +257,9 @@ test/lib/slice/nested-rows.test.ts so the fix lands as a named diff:
   keeps the first), so the walk expands the previous stage's reads;
 - `timeTravel` folds the merge-back into the previous stage's stop, not the
   mount's;
-- a subflow's input seed is recorded with an EMPTY runtimeStageId (`''`).
+- a subflow's input seed is recorded with an EMPTY runtimeStageId (`''`);
+- a reads provider keyed by runtimeStageId names the previous stage's reads at BOTH of its bundles, so a
+  forward slice can list that reader twice.
 
 The fix is a change to the engine's stamp (L6), out of this read-only layer's
 reach; it is its own packet.

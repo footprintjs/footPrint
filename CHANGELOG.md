@@ -49,8 +49,13 @@ reader), so no published version answers from a nested row without saying so.
   `findLastWriter` / `commitValueAt` / `sliceForKey` on `cfg` → the seed / `{ a: 1, b: 2 }` / a writer (was
   none / `undefined` / `missing: 'never-written'`); `commitValueAt('cfg␟a')` after a set of `cfg` → its
   value (was `undefined`); `arrayProvenance(['cfg', 'list'])` → births (was `never-written`); a reader of
-  `cfg` is a reader of `['cfg', 'b']`. On a log whose rows are all on their exact paths, every answer is
-  the 9.32.0 answer. `commitValueAt`'s refusal of an unknown verb now covers every row under the key's
+  `cfg` is a reader of `['cfg', 'b']`; under a redaction policy on `cfg`, `commitValueAt(cfg)` after a
+  merge-back of `{ b: … }` answers `{ b: 'REDACTED' }` (the fold of the rows it now sees) where 9.32.0
+  answered `'REDACTED'` — F4b's basis will say `'redacted'`. In `forwardSliceForKey` a write that reached
+  the key only through paths inside it no longer ends a value's life: a reader after it still read the rest
+  of the value, so it stays listed, and every life such a write starts or crosses carries `'nested-rows'`. A write BESIDE a key through a
+  string-valued container (which `nativeSet` replaces) is a write of the key. On a log whose rows are all
+  on their exact paths, every answer is the 9.32.0 answer. `commitValueAt`'s refusal of an unknown verb now covers every row under the key's
   top-level key (the rows it folds).
 - **A new honesty code, `'nested-rows'`** (`HONESTY_CODES`, `HonestyNoteCode`): `keyTimeline` and
   `forwardSliceForKey` note a write that reached the key only through paths inside it — it changed part of
@@ -77,7 +82,8 @@ reader), so no published version answers from a nested row without saying so.
 
 - **A typed array no longer breaks the freeze.** `deepFreeze` threw on a non-empty typed array
   (`Object.freeze` cannot freeze one), so `getSnapshot()` threw for a `Uint8Array` in `initialContext`, and
-  run args or the dev-mode snapshot holding one failed the same way. ArrayBuffer views are skipped now.
+  run args, the dev-mode snapshot and `stateAt` over a state holding one failed the same way. ArrayBuffer
+  views are skipped now.
 
 ### Deprecated
 
@@ -91,10 +97,16 @@ reader), so no published version answers from a nested row without saying so.
   index serves `causalChain`'s reverse lookup and the slice layer (was: three matchers);
   `TransactionBuffer · wasStaged` asks `relation`. `verbs · foldKey` folds one key's top-level rows
   copy-on-write; `commitLogUtils · writersOf` applies the writer rule.
-- The freeze walk moved to `capture/freeze.ts` (memory/ must not import scope/). It still walks an
-  already-frozen object (once — a lazily created `WeakSet` ends cycles and repeats; a fresh tree never
-  creates it), so a shallow-frozen argument now comes out deep-frozen; the record walks arrays by index,
-  args and the dev-mode snapshot keep the full walk.
+- The freeze walk moved to `capture/freeze.ts` (memory/ must not import scope/), and `stateAt`'s own walk now
+  goes through it too (it threw on a typed array in state). Its contract is 9.32.0's: it stops at an
+  already-frozen object — a caller's frozen argument may hold live parts a stage calls — and adds only the
+  typed-array skip and the record's index walk (args and the dev-mode snapshot keep the full walk).
+- NEW `memory/logModel.ts` (L3), the read model of one log: a path trie (`keyPaths · buildWriterIndex`) gives a
+  key's candidates in O(depth + matches); each top-level key is folded at most once, keeping its value
+  before and after the commits a verdict can ask about; the last writer is found lazily. A frozen log's
+  model is memoised on it. A causal walk over nested keys went from cubic in the log (review repro: N = 1000
+  → 1.3 s, 4000 → 92 s) to near-linear (2 ms, 5 ms; 8000 → 12 ms) — pinned by
+  `test/lib/memory/boundary/key-query-scaling.test.ts`, measured by `npm run bench:key-queries`.
 
 ## [9.32.0] - 2026-10-02
 
