@@ -14,6 +14,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
+import { isTraversalDepthError } from './TraversalDepthError.js';
 import type { ExecuteNodeFn } from './types.js';
 
 export type { ExecuteNodeFn };
@@ -88,7 +89,9 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         })
         .catch((error) => {
           // PauseSignal is expected control flow — re-throw immediately.
-          if (isPauseSignal(error)) throw error;
+          // A reached depth cap is a RUN failure, never a contained child
+          // result: the child never ran, so there is nothing to record.
+          if (isPauseSignal(error) || isTraversalDepthError(error)) throw error;
           childContext.commit('repeat');
           updateParentBreakFlag();
           this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
@@ -105,6 +108,9 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     const childrenResults: Record<string, NodeResultType> = {};
     // Every child that paused, by CHILD index (not settle order) — see raisePauses.
     const pausedAt: (PauseSignal | undefined)[] = [];
+    // The first run failure by CHILD index (a reached depth cap) — rethrown
+    // after every child settles, ahead of any pause.
+    let failure: { error: unknown } | undefined;
 
     if (node.failFast) {
       // Fail-fast: first child ERROR rejects immediately (unwrapped). A pause
@@ -141,10 +147,11 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           // PauseSignal from a child — re-thrown after all children settle.
           pausedAt[i] = s.reason;
         } else {
-          this.deps.logger.error(`Execution failed: ${s.reason}`);
+          failure ??= { error: s.reason };
         }
       });
     }
+    if (failure) throw failure.error;
 
     // Re-throw after every child has settled.
     const pauses = pausedAt.filter((p): p is PauseSignal => p !== undefined);

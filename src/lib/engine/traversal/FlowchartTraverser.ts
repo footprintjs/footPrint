@@ -23,7 +23,7 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
-import { extractErrorInfo } from '../../errors/errorInfo.js';
+import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -31,6 +31,7 @@ import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
+import { commitStage } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -41,6 +42,7 @@ import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js'
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
+import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
 import type { BreakFlag } from '../handlers/types.js';
 import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
@@ -227,6 +229,25 @@ interface ContinuationHop<TOut = any, TScope = any> {
    * exactly what the recursive dispatch's catch used to do.
    */
   readonly invokerStamp?: InvokerStamp;
+  /**
+   * Present when the hop follows a LOOP edge (a back-reference resolved by
+   * `ContinuationResolver`). A decider's branch frame hands such a hop back
+   * to its decider when the target is not a node the frame ran, so the loop
+   * re-enters at the target's own level — flat, never one frame per pass.
+   */
+  readonly loop?: true;
+}
+
+/**
+ * What a driver records for each stage context it runs: its NESTING depth
+ * (see `FlowchartTraverser · nestingDepthOf`) and the node ids each driver
+ * on its BRANCH-FRAME chain has run — its own last. A decider with its own
+ * `next` hands that chain to its branch frame, so the frame can tell a loop
+ * back into an enclosing driver (leave) from any other jump (stay).
+ */
+interface DriverFrame {
+  readonly depth: number;
+  readonly ran: readonly ReadonlySet<string | undefined>[];
 }
 
 /** Pause-invoker context recorded by the driver for flat decider dispatches. */
@@ -346,17 +367,22 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private patchCount = 0;
 
   /**
-   * TREE-nesting depth counter for executeNode (the trampoline driver).
-   * Each driver invocation increments this; decrements on exit (try/finally).
+   * The frame (NESTING depth + branch-frame ran-sets) of the driver that ran each stage context — depth is a
+   * property of the call PATH, so it travels with the contexts, not in one
+   * per-traverser counter. A nested driver (fork/selector child, a decider's
+   * branch frame) sits one level below the driver that ran the context its
+   * own context was created from (`StageContext.parent`) — so parallel
+   * siblings share one depth, and 520 children of one fork are 520 drivers
+   * at the same level (through 9.39.0 a shared counter made them 520 levels).
    *
    * Linear `next` chains, loop edges, and dynamic continuations are followed
-   * ITERATIVELY inside one driver invocation, so they never grow this
-   * counter. Only true tree recursion does: fork children, decider/selector
-   * branch dispatch (when the decider has its own continuation), and
-   * unbounded dynamic recursion. Prevents call-stack overflow on runaway
-   * recursive composition.
+   * ITERATIVELY inside one driver invocation, so they never add a level.
+   * Only true tree recursion does: fork children, decider/selector branch
+   * dispatch (when the decider has its own continuation), and unbounded
+   * dynamic recursion. Prevents call-stack overflow on runaway recursive
+   * composition.
    */
-  private _executeDepth = 0;
+  private readonly _frameOf = new WeakMap<StageContext, DriverFrame>();
 
   /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
@@ -401,9 +427,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * configurable via `RunOptions.maxIterations`), which is now the binding
    * constraint for loop-heavy pipelines.
    *
-   * @remarks Not safe for concurrent `.execute()` calls on the same instance — concurrent
-   * executions race on `_executeDepth`. Use a separate `FlowchartTraverser` per concurrent
-   * execution. `FlowChartExecutor.run()` always creates a fresh traverser per call.
+   * Parallel siblings share their parent's depth + 1 — a fork or selector of any width is
+   * one level, never one level per child.
+   *
+   * @remarks Not safe for concurrent `.execute()` calls on the same instance (the break flag
+   * and the resolver's loop counts are per instance). Use a separate `FlowchartTraverser` per
+   * concurrent execution. `FlowChartExecutor.run()` always creates a fresh traverser per call.
    */
   static readonly MAX_EXECUTE_DEPTH = 500;
 
@@ -966,30 +995,46 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     context: StageContext,
     breakFlag: BreakFlag,
     branchPath?: string,
+    enclosingRan?: readonly ReadonlySet<string | undefined>[],
   ): Promise<any> {
+    // ─── Tree-depth guard ───
+    // Depth is the CALL PATH's nesting, read off the context this driver was
+    // handed (see `_frameOf`) — siblings never consume it. A reached cap is a
+    // RUN failure: `onError` fires here (no stage ran for this node, so no
+    // stage catch would) and `ChildrenExecutor` rethrows it whatever the
+    // fan-out's error mode.
+    const depth = this.nestingDepthOf(context);
+    if (depth > this._maxDepth) {
+      const error = new TraversalDepthError(this._maxDepth, node.name);
+      this.narrativeGenerator.onError(node.name, thrownText(error), error);
+      throw error;
+    }
+
     // Invoker stamps from flat decider dispatches in THIS driver — kept
     // local so nested drivers (fork children, with-next decider branches)
     // get their own windows, matching the old frame-on-stack stamping scope.
     let pendingInvokers: InvokerStamp[] | undefined;
-    // ─── Tree-depth guard ───
-    // The increment is inside `try` so `finally` always decrements — no
-    // fragile gap between check and try entry.
+    // Every driver remembers the nodes it ran. A decider's BRANCH FRAME
+    // (decider with its own `next`; `enclosingRan` = the ran-sets of the
+    // drivers it is nested in) LEAVES on a loop edge back to a node an
+    // ENCLOSING driver already ran and this frame did not — the hop is handed
+    // back to the decider, which follows it flat at its own level instead of
+    // stacking one frame per pass. Any other jump (sideways to a sibling
+    // branch, forward past the decider) stays in the frame, as through 9.39.0.
+    const ranHere = new Set<string | undefined>();
+    const frame: DriverFrame = { depth, ran: enclosingRan ? [...enclosingRan, ranHere] : [ranHere] };
     try {
-      if (++this._executeDepth > this._maxDepth) {
-        throw new Error(
-          `FlowchartTraverser: maximum traversal depth exceeded (${this._maxDepth}). ` +
-            'Depth counts NESTED dispatch (fork children, decider/selector branches, recursive composition) — ' +
-            'linear chains and loop iterations run flat and do not consume it. ' +
-            `Last stage: '${node.name}'. ` +
-            'Check for unbounded recursive chart composition, or raise the limit via RunOptions.maxDepth.',
-        );
-      }
-
       let current: ContinuationHop<TOut, TScope> = { [CONTINUE_HOP]: true, node, context, branchPath };
       for (;;) {
+        this._frameOf.set(current.context, frame);
+        ranHere.add(current.node.id);
         const result = await this.executeNodeStep(current.node, current.context, breakFlag, current.branchPath);
         if (!isContinuationHop<TOut, TScope>(result)) {
           return result;
+        }
+        if (enclosingRan !== undefined && result.loop === true && !ranHere.has(result.node.id)) {
+          const id = result.node.id;
+          if (enclosingRan.some((ran) => ran.has(id))) return result; // the loop leaves this frame
         }
         if (result.invokerStamp) (pendingInvokers ??= []).push(result.invokerStamp);
         current = result;
@@ -1004,9 +1049,19 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         }
       }
       throw error;
-    } finally {
-      this._executeDepth--;
     }
+  }
+
+  /**
+   * The nesting depth a driver handed `context` runs at: one below the
+   * driver that ran the context it was created from, 1 at the top (and for
+   * a context whose parent no driver of this traverser ran — a subflow's
+   * root, a resume's start). Read by the instrumentation in
+   * `bench/depth-probe.ts` and the trampoline tests.
+   */
+  private nestingDepthOf(context: StageContext): number {
+    const parent = context.parent;
+    return (parent === undefined ? 0 : this._frameOf.get(parent)?.depth ?? 0) + 1;
   }
 
   /** Build a flat continuation hop for the driver loop. */
@@ -1017,6 +1072,41 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     invokerStamp?: InvokerStamp,
   ): ContinuationHop<TOut, TScope> {
     return { [CONTINUE_HOP]: true, node, context, branchPath, ...(invokerStamp && { invokerStamp }) };
+  }
+
+  /**
+   * Resolve a loop edge (a `loopTo` stub or a by-id dynamic next) and hop to
+   * its target. The hop is flagged `loop` when the resolver followed a
+   * back-reference, so a decider's branch frame can tell a loop that leaves
+   * it from one that stays inside it.
+   */
+  private loopHop(
+    loopRef: string | StageNode<TOut, TScope>,
+    node: StageNode<TOut, TScope>,
+    context: StageContext,
+    branchPath: string | undefined,
+    traversalContext?: TraversalContext,
+  ): ContinuationHop<TOut, TScope> {
+    const target = this.continuationResolver.resolveTarget(loopRef, node, context, branchPath, traversalContext);
+    const hop = this.hop(target.node, target.context, branchPath);
+    return target.node === loopRef ? hop : { ...hop, loop: true };
+  }
+
+  /**
+   * Is the decider's own `next` the stub `loopTo` planted (or a
+   * reference-only node — no fn, no children, no decider/selector, not a
+   * subflow root)? The selector's and the mount's continuation ask
+   * `isLoopRef` alone.
+   */
+  private isLoopStub(next: StageNode<TOut, TScope>): boolean {
+    return (
+      next.isLoopRef === true ||
+      (!this.getStageFn(next) &&
+        !this.effChildren(next)?.length &&
+        !next.deciderFn &&
+        !next.selectorFn &&
+        !this.effIsSubflowRoot(next))
+    );
   }
 
   /**
@@ -1160,16 +1250,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // decider branch with `{ loopTo }` / `.loopTo()`. Resolve it like
         // Phase 6 does (iteration counted, `onLoop` fired); hopping into the
         // bare stub ran the target's function once and ended the run.
-        if (node.next.isLoopRef) {
-          const target = this.continuationResolver.resolveTarget(
-            node.next,
-            node,
-            context,
-            branchPath,
-            traversalContext,
-          );
-          return this.hop(target.node, target.context, branchPath);
-        }
+        if (node.next.isLoopRef) return this.loopHop(node.next, node, context, branchPath, traversalContext);
         const nextCtx = context.createNext(branchPath as string, node.next.name, node.next.id);
         return this.hop(node.next, nextCtx, branchPath);
       }
@@ -1255,6 +1336,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       );
 
       if (hasNext) {
+        // A selector's own `loopTo` is a loop edge like any other: resolved
+        // (iteration guard + `onLoop`), never a hop into the bare stub.
+        if (node.next!.isLoopRef === true) return this.loopHop(node.next!, node, context, branchPath, traversalContext);
         const nextCtx = context.createNext(branchPath as string, node.next!.name, node.next!.id);
         return this.hop(node.next!, nextCtx, branchPath);
       }
@@ -1284,20 +1368,33 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       // Decider WITH its own next: the branch chain must complete BEFORE
       // the decider's continuation runs — true tree nesting, kept
-      // recursive (a nested driver). Mirrors handleScopeBased exactly,
-      // including the PauseSignal invoker stamp on bubble-up.
+      // recursive (a nested driver, run as a BRANCH FRAME). Mirrors
+      // handleScopeBased exactly, including the PauseSignal invoker stamp
+      // on bubble-up.
       let deciderResult: any;
       if (dispatch.kind === 'break') {
         deciderResult = dispatch.branchId;
       } else {
         try {
-          deciderResult = await this.executeNode(dispatch.chosen, dispatch.branchContext, breakFlag, branchPath);
+          deciderResult = await this.executeNode(
+            dispatch.chosen,
+            dispatch.branchContext,
+            breakFlag,
+            branchPath,
+            this._frameOf.get(context)?.ran ?? [],
+          );
         } catch (error: unknown) {
           if (isPauseSignal(error)) {
             error.setInvoker(node.id!);
           }
           throw error;
         }
+        // The branch LOOPED OUT of its frame (back through this decider or
+        // further up): the branch never completed, so this decider's `next`
+        // is not due — follow the loop flat at this level. The `next` runs
+        // once, after the pass whose branch completes (CLAUDE.md "loop": a
+        // flat hop with zero stack).
+        if (isContinuationHop<TOut, TScope>(deciderResult)) return deciderResult;
       }
 
       // After branch execution, follow decider's own next (e.g., loopTo target)
@@ -1305,18 +1402,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const nextNode = originalNext!;
         // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
         // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
-        const isLoopRef =
-          nextNode.isLoopRef === true ||
-          (!this.getStageFn(nextNode) &&
-            !this.effChildren(nextNode)?.length &&
-            !nextNode.deciderFn &&
-            !nextNode.selectorFn &&
-            !this.effIsSubflowRoot(nextNode));
-
-        if (isLoopRef) {
-          const target = this.continuationResolver.resolveTarget(nextNode, node, context, branchPath);
-          return this.hop(target.node, target.context, branchPath);
-        }
+        if (this.isLoopStub(nextNode)) return this.loopHop(nextNode, node, context, branchPath);
 
         this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
         const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
@@ -1352,12 +1438,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           throw error;
         }
         context.commit();
-        this.narrativeGenerator.onError(node.name, error.toString(), error, traversalContext);
+        this.narrativeGenerator.onError(node.name, thrownText(error), error, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
-        context.addError('stageExecutionError', error.toString());
+        context.addError('stageExecutionError', thrownText(error));
         throw error;
       }
-      context.commit();
+      commitStage(context, this.narrativeGenerator, node.name, traversalContext);
       this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'linear');
 
       if (breakFlag.shouldBreak) {
@@ -1508,10 +1594,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
 
     // ─── Phase 6: CONTINUE — dynamic next / linear next ───
-    if (dynamicNext) {
-      const target = this.continuationResolver.resolveTarget(dynamicNext, node, context, branchPath);
-      return this.hop(target.node, target.context, branchPath);
-    }
+    if (dynamicNext) return this.loopHop(dynamicNext, node, context, branchPath);
 
     if (hasNext) {
       const nextNode = originalNext!;
@@ -1523,10 +1606,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // (not call-stack depth) is what bounds a loop.
       const isLoopReference = nextNode.isLoopRef;
 
-      if (isLoopReference) {
-        const target = this.continuationResolver.resolveTarget(nextNode, node, context, branchPath, traversalContext);
-        return this.hop(target.node, target.context, branchPath);
-      }
+      if (isLoopReference) return this.loopHop(nextNode, node, context, branchPath, traversalContext);
 
       this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
       context.addFlowDebugMessage('next', `Moving to ${nextNode.name} stage`, {

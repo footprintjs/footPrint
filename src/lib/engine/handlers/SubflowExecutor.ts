@@ -13,6 +13,7 @@
  * and abort signals all work inside subflows automatically.
  */
 
+import { thrownText } from '../../errors/errorInfo.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -143,7 +144,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // mappedInput is captured in SubflowResult.treeContext for debugging
         }
       } catch (error: any) {
-        parentContext.addError('inputMapperError', error.toString());
+        parentContext.addError('inputMapperError', thrownText(error));
         this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, { error });
         throw error;
       }
@@ -248,7 +249,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // The factory creates a full FlowchartTraverser with the same 7-phase algorithm,
     // sharing the parent's stageMap, subflows dict, and narrative generator.
     let subflowOutput: any;
-    let subflowError: Error | undefined;
+    // Boxed: a stage may throw ANY value, `null` and `undefined` included —
+    // a falsy thrown value must still fail the mount.
+    let subflowError: { error: unknown } | undefined;
     let traverserHandle: SubflowTraverserHandle<TOut, TScope> | undefined;
 
     try {
@@ -297,8 +300,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         error.prependSubflow(subflowId);
         throw error;
       }
-      subflowError = error;
-      parentContext.addError('subflowError', error.toString());
+      subflowError = { error };
+      parentContext.addError('subflowError', thrownText(error));
       this.deps.logger.error(`Error in subflow (${subflowId}):`, { error });
     }
 
@@ -378,7 +381,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // so the run went on — drop them, as it did. A linear mount's frame
         // is left as it always was.
         if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
-        parentContext.addError('outputMapperError', error.toString());
+        parentContext.addError('outputMapperError', thrownText(error));
         this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
       }
     }
@@ -438,7 +441,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.commit('exit');
 
     if (subflowError) {
-      throw subflowError;
+      throw subflowError.error;
     }
 
     return subflowOutput;

@@ -28,14 +28,15 @@ import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/Flowcha
 
 // ─── Instrumentation: peak engine nesting depth across all traversers ───
 // Same monkey-patch approach as bench/depth-probe.ts: wrap the driver and
-// sample `_executeDepth` on entry. Patch BEFORE creating the executor
+// sample the driver's nesting depth (`nestingDepthOf`) on entry. Patch BEFORE creating the executor
 // (handlers bind executeNode at traverser construction).
 function instrumentPeakDepth(): { stats: { peak: number }; restore: () => void } {
   const proto = FlowchartTraverser.prototype as unknown as Record<string, unknown>;
   const original = proto.executeNode as (...args: unknown[]) => Promise<unknown>;
   const stats = { peak: 0 };
   proto.executeNode = async function (this: object, ...args: unknown[]) {
-    const depth = (((this as Record<string, unknown>)._executeDepth as number) ?? 0) + 1;
+    // The depth the driver about to run computes for its context (per call PATH).
+    const depth = (this as { nestingDepthOf(c: unknown): number }).nestingDepthOf(args[1]);
     if (depth > stats.peak) stats.peak = depth;
     return original.apply(this, args);
   };

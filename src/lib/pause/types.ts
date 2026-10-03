@@ -537,11 +537,18 @@ export function isPauseResult(value: unknown): value is PauseResult {
 
 /** Check if an error is a PauseSignal. Uses instanceof + name brand fallback for cross-realm safety. */
 export function isPauseSignal(error: unknown): error is PauseSignal {
-  return (
-    error instanceof PauseSignal ||
-    (error instanceof Error &&
-      error.name === 'PauseSignal' &&
-      Object.prototype.hasOwnProperty.call(error, 'pauseData') &&
-      Object.prototype.hasOwnProperty.call(error, 'stageId'))
-  );
+  // Total: a Proxy whose `getPrototypeOf` trap throws (or a revoked Proxy)
+  // is not a signal — the engine's catch blocks ask this first, and must
+  // not trade the stage's thrown value for the trap's error.
+  try {
+    return (
+      error instanceof PauseSignal ||
+      (error instanceof Error &&
+        error.name === 'PauseSignal' &&
+        Object.prototype.hasOwnProperty.call(error, 'pauseData') &&
+        Object.prototype.hasOwnProperty.call(error, 'stageId'))
+    );
+  } catch {
+    return false;
+  }
 }

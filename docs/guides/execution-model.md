@@ -77,8 +77,11 @@ Practical consequences:
   couple thousand iterations on an 8 GB machine. Keep tracked state bounded
   (scalars, windowed arrays) for long loops, or accept the cost deliberately.
 - `RunOptions.maxDepth` still guards runaway **recursive composition**
-  (unbounded nested dispatch). 500 covers any realistic chart shape; raising
-  it is rarely needed now that chains and loops don't consume it.
+  (unbounded nested dispatch). It counts NESTING along the call path —
+  parallel siblings share one level, so a fork of any width is one level.
+  500 covers any realistic chart shape; raising it is rarely needed now that
+  chains, loops and fan-out width don't consume it. A reached cap fails the
+  run: `onError` fires and `run()` rejects with `TraversalDepthError`.
 
 Splitting long linear chains into subflows is no longer necessary for depth —
 compose subflows for meaning, not to dodge a frame budget.
