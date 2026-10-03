@@ -341,6 +341,7 @@ class BranchCursor<TOut, TScope> {
     options: SubflowMountOptions | undefined,
   ): void {
     this.admit(id, 'segment');
+    this.b._claimFreshId(id, `addLazySubFlowChartBranch('${id}')`);
 
     const subflowName = mountName || id;
 
@@ -1611,8 +1612,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Parallel (Fork) ──
 
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[], options?: { failFast?: boolean }): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
     const forkId = cur.id;
 
     curSpec.type = 'fork';
@@ -1717,6 +1717,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // back-compat cost — kills the ambiguity class outright and keeps
     // `parseBranchSegment` a split at the last marker instead of a heuristic.
     admitId('parallelForEach stage id', id, 'segment');
+    this._claimFreshId(id, `addParallelForEach('${id}')`);
     if (!config || typeof config.items !== 'function' || typeof config.branch !== 'function') {
       fail(`addParallelForEach('${id}') requires items(scope) and branch(item, index) functions.`);
     }
@@ -1769,8 +1770,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Subflow Mounting ──
 
   addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1835,13 +1835,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
     assertSubflowIdAllowed(id);
+    this._claimFreshId(id, `addLazySubFlowChart('${id}')`);
 
     const subflowName = mountName || id;
     const forkId = cur.id;
@@ -1903,6 +1903,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
     }
     assertSubflowIdAllowed(id);
+    this._claimFreshId(id, `addLazySubFlowChartNext('${id}')`);
 
     const subflowName = mountName || id;
 
@@ -2295,6 +2296,101 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
+   * The node a fan-out (`addListOfFunction`, `addSubFlowChart`,
+   * `addLazySubFlowChart`) hangs its children on — the cursor, unless the
+   * cursor's `children` already MEAN something else:
+   *
+   * - a subflow MOUNT — the engine reads a mount that carries children as the
+   *   mounted chart's OWN content (`NodeResolver · resolveSubflowReference`),
+   *   so a fork hung there ran INSIDE the subflow: the subflow's real chart
+   *   never ran, everything after the fork ran twice, and a pause after it was
+   *   checkpointed under the wrong subflow path (and refused on resume);
+   * - a DECIDER or a SELECTOR (the cursor after `.end()`) — its children are
+   *   its branches, so a fork child became a branch nobody picks;
+   * - a `parallelForEach` — its branches come from `items` at run time and
+   *   built children are never dispatched, so the fork never ran.
+   *
+   * Through 9.37.0 the builder hung the fork there anyway. So after such a
+   * node the fork continues AFTER it: a function-less fork node
+   * `<nodeId>-fork` becomes the node's `next` and the new cursor — the shape
+   * `addFunction(...).addListOfFunction(...)` already builds, which every
+   * reader (engine, resume, structure, spec) handles. A second fan-out call
+   * reuses that node, as it would any cursor. The id is reserved both ways:
+   * refused here when a stage already has it, and by `_addToMap` /
+   * `_registerSubflowDef` when a later stage or mount asks for it.
+   */
+  private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
+    const owner = this._needCursor();
+    const ownerSpec = this._needCursorSpec();
+    const childrenMeanSomethingElse =
+      owner.isSubflowRoot || owner.isDynamicParallel || owner.deciderFn || owner.selectorFn;
+    if (!childrenMeanSomethingElse) return { cur: owner, curSpec: ownerSpec };
+
+    const id = `${owner.id}-fork`;
+    if (this._idTaken(id)) {
+      fail(
+        `cannot fan out after '${owner.name}': the fork node it needs, '${id}', ` +
+          `is already a stage id. Add a stage after '${owner.name}' and fan out from it.`,
+      );
+    }
+    const node: StageNode<TOut, TScope> = { name: id, id };
+    const spec: SerializedPipelineStructure = { name: id, id, type: 'fork' };
+    owner.next = node;
+    ownerSpec.next = spec;
+    this._cursor = node;
+    this._advanceCursorSpec(spec);
+    this._knownStageIds.add(id);
+    this._forkNodeIds.add(id);
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(ownerSpec, id);
+    return { cur: node, curSpec: spec };
+  }
+
+  /** Ids `_needForkParent` generated — no later stage or mount may take one. */
+  private _forkNodeIds = new Set<string>();
+
+  /** Asked by `_addToMap` / `_registerSubflowDef`: an id a generated fork node or a claiming door holds is refused. */
+  private _refuseForkNodeId(id: string): void {
+    if (this._claimedIds.has(id)) {
+      fail(`id '${id}' is already used by a lazy subflow mount or a parallelForEach in this chart. Rename the stage.`);
+    }
+    if (!this._forkNodeIds.has(id)) return;
+    fail(
+      `id '${id}' is taken: it is the fork node the builder placed after '${id.slice(0, -'-fork'.length)}' ` +
+        '(a fan-out right after a subflow mount, decider, selector or parallelForEach continues on it). ' +
+        'Rename the stage.',
+    );
+  }
+
+  /** Ids the lazy-mount and parallelForEach doors claimed (they register in no map). */
+  private _claimedIds = new Set<string>();
+
+  /** True when an earlier stage, branch, fork child, mount or generated fork node holds `id`. */
+  private _idTaken(id: string): boolean {
+    return (
+      this._knownStageIds.has(id) ||
+      this._stageMap.has(id) ||
+      this._subflowDefs.has(id) ||
+      this._claimedIds.has(id) ||
+      this._forkNodeIds.has(id)
+    );
+  }
+
+  /**
+   * @internal The lazy-mount doors and `addParallelForEach` register their id
+   * in no map, so through 9.37.0 they accepted an id another stage or mount
+   * already had (and a later stage could take theirs). They claim it here:
+   * refused when taken, recorded when fresh. Loop-ref stubs never pass
+   * through a door, so they stay the one deliberate duplicate.
+   */
+  _claimFreshId(id: string, door: string): void {
+    if (this._idTaken(id)) {
+      fail(`${door}: id '${id}' is already used by another stage or mount in this chart. Give it its own id.`);
+    }
+    this._claimedIds.add(id);
+  }
+
+  /**
    * Advance the spec cursor. Retained as a method so call sites stay
    * one-liners and future cursor-related side effects have a hook.
    */
@@ -2332,6 +2428,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * here, at build time, where the id can still be changed.
    */
   _registerSubflowDef(id: string, root: StageNode<TOut, TScope>): void {
+    this._refuseForkNodeId(id);
     if (!this._subflowDefs.has(id)) {
       this._subflowDefs.set(id, { root });
       return;
@@ -2347,6 +2444,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   _addToMap(id: string, fn: StageFunction<TOut, TScope>) {
+    this._refuseForkNodeId(id);
     if (this._stageMap.has(id)) {
       const existing = this._stageMap.get(id);
       if (existing !== fn) fail(`stageMap collision for id '${id}'`);

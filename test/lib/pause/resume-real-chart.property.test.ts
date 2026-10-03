@@ -22,7 +22,13 @@
  *   - `linear`   — on the spine (`addSubFlowChartNext` / `addPausableFunction`);
  *   - `decider`  — a branch of a decider whose `next` is the continuation;
  *   - `selector` — a branch of a selector that also picks a SIDE subflow;
- *   - `fork`     — a fork child beside a SIDE subflow, the continuation its join.
+ *   - `fork`     — a fork child beside a SIDE subflow, the continuation its join;
+ *   - `afterFork` — on the spine, AFTER a fork that follows another mount
+ *                  (`⟨pre⟩ → [fa, fb] → ⟨·⟩`): the fork must continue after
+ *                  `⟨pre⟩`, never inside it (through 9.37.0 it landed ON the
+ *                  mount, ran inside it, and the pause was refused on resume);
+ *   - `afterDecider` — the same after a decider (`route ─┬─ … → [fa] → ⟨·⟩`):
+ *                  through 9.37.0 the fork became a branch nobody picks.
  *
  * (At the deepest level a `selector`/`fork` placement wraps d-ask in its own
  * one-stage subflow: a parallel branch that is a plain STAGE resumes in its
@@ -54,8 +60,8 @@ import type { FlowChart, SubflowMountOptions } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
 import { type ResumeMode, type S, drive } from './resume-real-chart-fixture.js';
 
-type Place = 'linear' | 'decider' | 'selector' | 'fork';
-const PLACES: Place[] = ['linear', 'decider', 'selector', 'fork'];
+type Place = 'linear' | 'decider' | 'selector' | 'fork' | 'afterFork' | 'afterDecider';
+const PLACES: Place[] = ['linear', 'decider', 'selector', 'fork', 'afterFork', 'afterDecider'];
 
 interface Plan {
   /** Loop iterations at the top level (1–4). */
@@ -144,6 +150,42 @@ function placeMount(
       return b
         .addSubFlowChart(id, sub, id, options)
         .addSubFlowChart(`side-${sideAt.depth}`, sideAt.chart, `Side${sideAt.depth}`, sideAt.options);
+    case 'afterFork':
+      return b
+        .addSubFlowChartNext(`pre-${id}`, flowChart('Pre', () => undefined, 'pre').build(), `Pre-${id}`)
+        .addListOfFunction([
+          {
+            id: `fa-${id}`,
+            name: `FA-${id}`,
+            fn: (s: S) => {
+              s.hit = true;
+            },
+          },
+          {
+            id: `fb-${id}`,
+            name: `FB-${id}`,
+            fn: (s: S) => {
+              s.hit = true;
+            },
+          },
+        ])
+        .addSubFlowChartNext(id, sub, id, options);
+    case 'afterDecider':
+      return b
+        .addDeciderFunction(`Pre-${id}`, () => `pa-${id}`, `pre-${id}`)
+        .addFunctionBranch(`pa-${id}`, `PA-${id}`, () => undefined)
+        .addFunctionBranch(`pb-${id}`, `PB-${id}`, () => undefined)
+        .end()
+        .addListOfFunction([
+          {
+            id: `fa-${id}`,
+            name: `FA-${id}`,
+            fn: (s: S) => {
+              s.hit = true;
+            },
+          },
+        ])
+        .addSubFlowChartNext(id, sub, id, options);
   }
 }
 
