@@ -27,6 +27,18 @@
  *   READER 2  `arrayProvenance` equals the old fold outside the same class
  *             (anywhere before `end` — births are a history), and on it still
  *             keeps the module invariant (`births` aligned with the value).
+ *
+ * F3 (9.33.0, ruling R4) RESTATED BOTH READERS' ORACLES — the only change to
+ * this file. A key query now sees every row under the key's top-level key (the
+ * value rule, `memory/keyPaths.ts`), not only rows on its exact path, so:
+ *   - READER 1's oracle is the old replay over the rows UNDER THE KEY'S
+ *     TOP-LEVEL KEY (it was: rows on the exact path), read at the key — the
+ *     value `stateAt` gives there;
+ *   - the old exact-path switches stay as the named CONTROL, compared on
+ *     EXACT-ROW logs only (every row under the top-level key up to the asked
+ *     index is on the key itself) — there nothing may move;
+ *   - READER 2's invariant branch asks the writer rule (a row on, inside or
+ *     around the key), not "a row on the exact path".
  *   REFUSAL   R2: a row whose verb is not set | merge | append | delete throws
  *             `UnknownVerbError` naming the row at every door — where the old
  *             switches folded it as a merge (the control still does, below).
@@ -427,19 +439,48 @@ function inClassD(touches: { verb: Verb; commit: number }[], from: number): bool
   return [...merges.values()].some((n) => n >= 2);
 }
 
-/** The per-key slice of the OLD REPLAY: each bundle's rows on the key, folded onto `{}`, read at the key. */
+/** Is `path` the top-level key `top`, or a path under it? */
+function underTop(path: string, top: string): boolean {
+  return path === top || path.startsWith(top + DELIM);
+}
+
+/**
+ * The per-key slice of the OLD REPLAY (F3's value rule): each bundle's rows UNDER THE KEY'S TOP-LEVEL KEY, folded
+ * onto `{}` copy-on-write as the live commit and `stateAt` fold, read at the key.
+ */
 function replayOracle(log: CommitBundle[], key: string, end: number): unknown {
-  const root: Record<string, unknown> = {};
+  const top = key.split(DELIM)[0];
+  const state: Record<string, unknown> = {};
   for (let c = 0; c <= Math.min(end, log.length - 1); c++) {
-    const rows = log[c].trace.filter((t) => t.path === key);
+    const rows = log[c].trace.filter((t) => underTop(t.path, top));
     if (rows.length > 0)
-      oldReplayRows(root, structuredClone(log[c].updates), structuredClone(log[c].overwrite), rows, false);
+      oldReplayRows(state, structuredClone(log[c].updates), structuredClone(log[c].overwrite), rows, true);
   }
-  return nativeGet(root, key.split(DELIM));
+  return nativeGet(state, key.split(DELIM));
+}
+
+/** The CONTROL's domain: every row under the key's top-level key in `log[0..end]` is ON the key (no nested row). */
+function exactRowsOnly(log: CommitBundle[], key: string, end: number): boolean {
+  const top = key.split(DELIM)[0];
+  for (let c = 0; c <= Math.min(end, log.length - 1); c++) {
+    for (const t of log[c].trace) if (underTop(t.path, top) && t.path !== key) return false;
+  }
+  return true;
+}
+
+/** The writer rule's path half, read by the TEST: a row on the key, inside it, or around it. */
+function relatedRows(log: CommitBundle[], key: string, end: number): number {
+  let n = 0;
+  for (let c = 0; c <= Math.min(end, log.length - 1); c++) {
+    for (const t of log[c].trace) {
+      if (t.path === key || t.path.startsWith(key + DELIM) || key.startsWith(t.path + DELIM)) n++;
+    }
+  }
+  return n;
 }
 
 describe('READER 1 — commitValueAt', () => {
-  it('equals the per-key slice of the replay on every log, and the old switch on every log outside class D', () => {
+  it('equals the per-key slice of the replay on every log, and the old switch on every exact-row log outside class D', () => {
     fc.assert(
       fc.property(keyedLogArb, ({ log, key, idx }) => {
         const end = Math.min(idx, log.length - 1);
@@ -450,10 +491,11 @@ describe('READER 1 — commitValueAt', () => {
         });
 
         const actual = commitValueAt(log, idx, key);
-        const slice = touches.length === 0 ? undefined : replayOracle(log, key, end);
+        const slice = relatedRows(log, key, end) === 0 ? undefined : replayOracle(log, key, end);
         expect(isDeepStrictEqual(actual, slice)).toBe(true);
 
-        if (!inClassD(touches, anchor)) {
+        // THE CONTROL — on exact-row logs F3 moved nothing.
+        if (exactRowsOnly(log, key, end) && !inClassD(touches, anchor)) {
           expect(isDeepStrictEqual(actual, oldCommitValueAt(log, idx, key))).toBe(true);
         }
       }),
@@ -479,7 +521,7 @@ describe('READER 1 — commitValueAt', () => {
 });
 
 describe('READER 2 — arrayProvenance', () => {
-  it('equals the old fold on every log outside class D, and keeps the module invariant on all of them', () => {
+  it('equals the old fold on every exact-row log outside class D, and keeps the module invariant on all of them', () => {
     fc.assert(
       fc.property(keyedLogArb, ({ log, key, idx }) => {
         if (log.length === 0) return;
@@ -487,7 +529,8 @@ describe('READER 2 — arrayProvenance', () => {
         const touches = touchesOf(log, key, end);
         const actual = arrayProvenance(log, key, { atIdx: end });
 
-        if (!inClassD(touches, 0)) {
+        // THE CONTROL — on exact-row logs F3 moved nothing.
+        if (exactRowsOnly(log, key, end) && !inClassD(touches, 0)) {
           expect(isDeepStrictEqual(actual, oldArrayProvenance(log, key, { atIdx: end }))).toBe(true);
         }
         // The invariant, on every log: births are index-aligned with the value, and the value is commitValueAt's.
@@ -497,7 +540,10 @@ describe('READER 2 — arrayProvenance', () => {
           expect(actual.births.length).toBe(actual.length);
           expect(actual.length).toBe((value as unknown[]).length);
           actual.births.forEach((b, i) => expect(b.index).toBe(i));
-        } else if (touches.length > 0) {
+        } else if (actual.missing === 'never-written') {
+          // No commit wrote the key under the writer rule, so the fold leaves it absent.
+          expect(commitValueAt(log, end, key)).toBeUndefined();
+        } else if (relatedRows(log, key, end) > 0) {
           expect(actual.missing).toBe('not-an-array');
           expect(Array.isArray(commitValueAt(log, end, key))).toBe(false);
         }

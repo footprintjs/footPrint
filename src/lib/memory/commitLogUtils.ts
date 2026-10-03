@@ -85,8 +85,10 @@ export function writersOf(commitLog: readonly CommitBundle[], key: string, optio
 
 /**
  * The commits in `candidates` (ascending; every row near the key is AROUND it) across which the
- * value at `key` changes. The verdict is taken at each of the commit's rows, while the values are
- * current: a later commit may edit the fold's own copy in place.
+ * value at `key` changes — compared from before the commit's FIRST row under the key's top-level key
+ * to after its LAST (every row is watched: a sibling can move the key, see `KeyFold.everyRow`). The
+ * verdict is retaken at each row, while the values are current: a later commit may edit the fold's
+ * own copy in place.
  */
 function aroundWritersOf(commitLog: readonly CommitBundle[], key: string, candidates: readonly number[]): number[] {
   const wanted = new Set(candidates);
@@ -94,6 +96,7 @@ function aroundWritersOf(commitLog: readonly CommitBundle[], key: string, candid
   let commit = -1;
   let start: unknown;
   foldKey(rowsUnderRoot(commitLog, key, candidates[candidates.length - 1]), key.split(DELIM), {
+    everyRow: true,
     observe: (touch, before, after) => {
       if (!wanted.has(touch.commitIdx)) return;
       if (touch.commitIdx !== commit) {

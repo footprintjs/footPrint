@@ -11,6 +11,20 @@
  * every index, under both `commitValues` encodings. Own `undefined` shells
  * are part of the bytes (`shellJSON`).
  *
+ * F3 (9.33.0, ruling R4) RESTATED ONE PART OF THE ORACLE — the `commitValueAt`
+ * answers — and regenerated nothing. A key query now folds every row under the
+ * key's top-level key (the value rule, `memory/keyPaths.ts`), so a key with a
+ * nested row answers what the fold gives there: `profile` after the subflow
+ * seed (`profile␟name`, `profile␟auth`) and the merge-back (`profile␟seen`), `a`
+ * beside `a␟b`, `nested␟leaf` under its seeded parent. So:
+ *   - everything else in the reference — every commit-log row, the final state,
+ *     every fold, every `materialise` — must still match byte for byte (F3
+ *     changes readers, never the log);
+ *   - an answer for a key whose rows are all on its exact path must still
+ *     match the 9.22.0 answer — the CONTROL;
+ *   - an answer that rests on a nested row must equal the log-only fold of the
+ *     REFERENCE log, read at the key (the value rule's own oracle).
+ *
  * To regenerate after an INTENDED log change, run the fixtures on the old
  * tag and replace the files — never on the new code:
  *   npx tsx -e "import('./test/lib/memory/scenario/repeated-path-fixture.ts')
@@ -24,21 +38,94 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runRepeatedPathBuffer, runRepeatedPathChart } from './repeated-path-fixture.js';
+import { nativeGet } from '../../../../src/lib/memory/pathOps.js';
+import { DELIM } from '../../../../src/lib/memory/paths.js';
+import type { CommitBundle } from '../../../../src/lib/memory/types.js';
+import { stateAt } from '../../../../src/trace.js';
+import { runRepeatedPathBuffer, runRepeatedPathChart, shellJSON } from './repeated-path-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const reference = (encoding: 'full' | 'delta'): { chart: string; buffer: string } =>
   JSON.parse(readFileSync(join(here, 'reference', `repeated-path-9.22.0.${encoding}.json`), 'utf8'));
 
+type Fold = { idx: number; state: unknown; values: Record<string, unknown> };
+type Bytes = { commitLog: CommitBundle[]; folds: Fold[]; subflow?: { history: CommitBundle[]; folds: Fold[] } };
+
+/** The bytes WITHOUT the `commitValueAt` answers: the log, the states, every fold and materialisation. */
+function withoutAnswers(json: string): string {
+  const parsed = JSON.parse(json) as Bytes;
+  const strip = (folds: Fold[]) => folds.map(({ values: _answers, ...rest }) => rest);
+  return JSON.stringify({
+    ...parsed,
+    folds: strip(parsed.folds),
+    ...(parsed.subflow && { subflow: { ...parsed.subflow, folds: strip(parsed.subflow.folds) } }),
+  });
+}
+
+/** Put the own-`undefined` shells `shellJSON` spelled as a sentinel back, so the reference log folds as recorded. */
+function restoreShells<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  const node = value as Record<string, unknown>;
+  for (const key of Object.keys(node)) {
+    if (node[key] === '«undefined»') node[key] = undefined;
+    else restoreShells(node[key]);
+  }
+  return value;
+}
+
+/** Every row under the key's top-level key in `log[0..idx]` is on the key itself — the CONTROL's domain. */
+function exactRowsOnly(log: CommitBundle[], key: string, idx: number): boolean {
+  const top = key.split(DELIM)[0];
+  for (let c = 0; c <= idx; c++) {
+    for (const t of log[c].trace)
+      if ((t.path === top || t.path.startsWith(top + DELIM)) && t.path !== key) return false;
+  }
+  return true;
+}
+
+/** The answers: the 9.22.0 bytes on exact-row keys, the reference log's own fold where a nested row is involved. */
+function expectAnswers(actualJson: string, referenceJson: string): void {
+  const actual = JSON.parse(actualJson) as Bytes;
+  const ref = JSON.parse(referenceJson) as Bytes;
+  const sections: Array<[Fold[], Fold[], CommitBundle[]]> = [[actual.folds, ref.folds, ref.commitLog]];
+  if (ref.subflow && actual.subflow) sections.push([actual.subflow.folds, ref.subflow.folds, ref.subflow.history]);
+  let control = 0;
+  let nested = 0;
+  for (const [folds, refFolds, refLog] of sections) {
+    const log = restoreShells(structuredClone(refLog));
+    refFolds.forEach((refFold, f) => {
+      for (const key of Object.keys(refFold.values)) {
+        const answer = folds[f].values[key];
+        if (refFold.idx < 0 || exactRowsOnly(log, key, refFold.idx)) {
+          control++;
+          expect(answer, `${key} @${refFold.idx} (control)`).toEqual(refFold.values[key]);
+        } else {
+          nested++;
+          const fold = stateAt({ commitLog: log }, refFold.idx).state;
+          const oracle = JSON.parse(shellJSON(nativeGet(fold, key.split(DELIM))));
+          expect(answer, `${key} @${refFold.idx} (value rule)`).toEqual(oracle);
+        }
+      }
+    });
+  }
+  // Both halves are exercised: the reference holds exact-row keys AND keys with nested rows.
+  expect(control).toBeGreaterThan(0);
+  expect(nested).toBeGreaterThan(0);
+}
+
 describe('repeated-path skips — log, folds and commitValueAt are byte-identical to 9.22.0', () => {
   for (const encoding of ['full', 'delta'] as const) {
     describe(`commitValues: ${encoding}`, () => {
       it('a real run through the executor (top-level paths, a nested subflow seed)', async () => {
-        expect(await runRepeatedPathChart(encoding)).toBe(reference(encoding).chart);
+        const actual = await runRepeatedPathChart(encoding);
+        expect(withoutAnswers(actual)).toBe(withoutAnswers(reference(encoding).chart));
+        expectAnswers(actual, reference(encoding).chart);
       });
 
       it('the buffer driven directly (nested paths beside their ancestor, deletes, reverts)', () => {
-        expect(runRepeatedPathBuffer(encoding)).toBe(reference(encoding).buffer);
+        const actual = runRepeatedPathBuffer(encoding);
+        expect(withoutAnswers(actual)).toBe(withoutAnswers(reference(encoding).buffer));
+        expectAnswers(actual, reference(encoding).buffer);
       });
     });
   }

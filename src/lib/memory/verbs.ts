@@ -444,13 +444,19 @@ export interface KeyFold {
   readonly anchored?: boolean;
   /**
    * Called after each applied row that has a {@link Touch.relation} — on, inside
-   * or around the key — with the value AT THE KEY before it and after it
+   * or around the key (every row, with `everyRow`) — with the value AT THE KEY before it and after it
    * (`undefined` for an absent key). The seam a provenance track and the writer
    * rule hang on: they watch the fold, they never have a verb switch of their
    * own. For a row INSIDE the key, an array `before` is a shallow snapshot: that
    * row edits the fold's own copy in place.
    */
   readonly observe?: (touch: Touch, before: unknown, after: unknown) => void;
+  /**
+   * Observe EVERY applied row, not only the key's own. The writer rule needs it: it compares the value at the
+   * key across a WHOLE commit, and a sibling under the same top-level key can move that value — a write
+   * through a container that holds a primitive replaces the container (`nativeSet`), and with it the key.
+   */
+  readonly everyRow?: boolean;
 }
 
 /**
@@ -491,7 +497,7 @@ export function foldKey(touches: readonly Touch[], segs: string[], options: KeyF
       atCommit = touch.commitIdx;
     }
     const rowSegs = touch.path === root ? [root] : touch.path.split(DELIM);
-    const watched = observe !== undefined && touch.relation !== undefined;
+    const watched = observe !== undefined && (touch.relation !== undefined || options.everyRow === true);
     let before: unknown;
     if (watched) {
       before = nativeGet(state, segs);

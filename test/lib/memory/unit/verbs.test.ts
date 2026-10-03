@@ -7,6 +7,12 @@
  * `foldRows` under its three disciplines, `foldKey` with and without the anchor,
  * and the shape of `UnknownVerbError`. The old replicas are compared against
  * this module in property/verb-law-differential.property.test.ts.
+ *
+ * F3 (9.33.0, ruling R4): `foldKey` folds ONE KEY — every row under its
+ * top-level key — and a `Touch` names its own `path` and its `relation` to the
+ * key. The four exact-path cases below build their touches with
+ * `path: 'k', relation: 'exact'` (the only change to them; every assertion
+ * stands); the cases after them pin the rows inside, around and beside a key.
  */
 import { DELIM } from '../../../../src/lib/memory/paths';
 import type { CommitBundle, MemoryPatch, TraceEntry } from '../../../../src/lib/memory/types';
@@ -244,7 +250,7 @@ describe('foldRows — one loop, three disciplines', () => {
   });
 });
 
-describe('foldKey — one path across a log', () => {
+describe('foldKey — one key across a log (exact-path rows)', () => {
   const bundle = (overwrite: MemoryPatch, updates: MemoryPatch = {}): CommitBundle => ({
     stage: 'S',
     stageId: 's',
@@ -254,7 +260,13 @@ describe('foldKey — one path across a log', () => {
     overwrite,
     updates,
   });
-  const touch = (verb: Verb, b: CommitBundle, commitIdx: number): Touch => ({ verb, bundle: b, commitIdx });
+  const touch = (verb: Verb, b: CommitBundle, commitIdx: number): Touch => ({
+    verb,
+    bundle: b,
+    commitIdx,
+    path: 'k',
+    relation: 'exact',
+  });
 
   it('folds from an absent key: set, append, merge, delete', () => {
     const b0 = bundle({ k: [1] });
@@ -302,6 +314,87 @@ describe('foldKey — one path across a log', () => {
     const other = bundle({}, delta);
     const two = foldKey([touch('set', same, 0), touch('merge', same, 0), touch('merge', other, 1)], ['k']);
     expect(two).toHaveLength(4);
+  });
+});
+
+describe('foldKey — the rows under the key: inside, around and beside it (F3)', () => {
+  const at = (path: string) => path.split('.').join(DELIM);
+  const bundle = (trace: TraceEntry[], overwrite: MemoryPatch, updates: MemoryPatch = {}): CommitBundle => ({
+    stage: 'S',
+    stageId: 's',
+    runtimeStageId: 's#0',
+    trace,
+    redactedPaths: [],
+    overwrite,
+    updates,
+  });
+  const row = (b: CommitBundle, i: number, commitIdx: number, relation?: Touch['relation']): Touch => ({
+    verb: b.trace[i].verb,
+    bundle: b,
+    commitIdx,
+    path: b.trace[i].path,
+    ...(relation !== undefined && { relation }),
+  });
+
+  it('a row INSIDE the key folds into it: cfg is { a: 1, b: 2 } after set cfg, then set cfg.b', () => {
+    const b0 = bundle([{ path: 'cfg', verb: 'set' }], { cfg: { a: 1 } });
+    const b1 = bundle([{ path: at('cfg.b'), verb: 'set' }], { cfg: { b: 2 } });
+    expect(foldKey([row(b0, 0, 0, 'exact'), row(b1, 0, 1, 'inside')], ['cfg'])).toEqual({ a: 1, b: 2 });
+  });
+
+  it('a row AROUND the key decides it: cfg.a is 1 after set cfg = { a: 1 }', () => {
+    const b0 = bundle([{ path: 'cfg', verb: 'set' }], { cfg: { a: 1 } });
+    expect(foldKey([row(b0, 0, 0, 'around')], ['cfg', 'a'])).toBe(1);
+  });
+
+  it('a SIBLING under the same top-level key is applied but not observed — the union on a container above the key needs it', () => {
+    // set a = [1, 2]; then a sibling element a.0 = 2; then merge a with [3]: the union dedups the WHOLE array.
+    const b0 = bundle([{ path: 'a', verb: 'set' }], { a: [1, 2] });
+    const b1 = bundle([{ path: at('a.0'), verb: 'set' }], { a: { 0: 2 } });
+    const b2 = bundle([{ path: 'a', verb: 'merge' }], {}, { a: [3] });
+    const seen: number[] = [];
+    const value = foldKey([row(b0, 0, 0, 'around'), row(b1, 0, 1), row(b2, 0, 2, 'around')], ['a', '1'], {
+      observe: (t) => seen.push(t.commitIdx),
+    });
+    expect(value).toBe(3); // [2, 2] ∪ [3] = [2, 3] — what the full fold gives
+    expect(seen).toEqual([0, 2]); // the sibling row moved the answer, but is not one of the key's rows
+    // Folding only the key's own rows would have answered 2: [1, 2] ∪ [3] = [1, 2, 3].
+    expect(foldKey([row(b0, 0, 0, 'around'), row(b2, 0, 2, 'around')], ['a', '1'])).toBe(2);
+  });
+
+  it('anchored starts at the last set/delete of the TOP-LEVEL key only — a set below it is not an anchor', () => {
+    const b0 = bundle([{ path: 'a', verb: 'set' }], { a: [1, 2] });
+    const b1 = bundle([{ path: at('a.0'), verb: 'set' }], { a: { 0: 2 } });
+    const b2 = bundle([{ path: at('a.1'), verb: 'set' }], { a: { 1: 2 } });
+    const b3 = bundle([{ path: 'a', verb: 'merge' }], {}, { a: [3] });
+    const touches = [row(b0, 0, 0, 'around'), row(b1, 0, 1), row(b2, 0, 2, 'exact'), row(b3, 0, 3, 'around')];
+    const seen = (anchored: boolean) => {
+      const rows: number[] = [];
+      const value = foldKey(touches, ['a', '1'], { anchored, observe: (t) => rows.push(t.commitIdx) });
+      return { value, rows };
+    };
+    // [2, 2] then the union with [3] dedups to [2, 3]: a[1] is 3 either way, and the anchor is the root's set (row 0).
+    expect(seen(false)).toEqual({ value: 3, rows: [0, 2, 3] });
+    expect(seen(true)).toEqual({ value: 3, rows: [0, 2, 3] });
+    const root = bundle([{ path: 'a', verb: 'set' }], { a: ['x', 'y'] });
+    const anchoredAtRoot = [...touches, row(root, 0, 4, 'around')];
+    expect(foldKey(anchoredAtRoot, ['a', '1'], { anchored: true })).toBe('y');
+  });
+
+  it('an observer of a row INSIDE the key is handed a snapshot of the array before it — the fold edits its own copy in place', () => {
+    const b0 = bundle([{ path: 'list', verb: 'set' }], { list: [1, 2] });
+    const b1 = bundle([{ path: at('list.1'), verb: 'set' }], { list: { 1: 9 } });
+    const steps: Array<[unknown, unknown]> = [];
+    foldKey([row(b0, 0, 0, 'exact'), row(b1, 0, 1, 'inside')], ['list'], {
+      observe: (_t, before, after) => steps.push([structuredClone(before), structuredClone(after)]),
+    });
+    expect(steps).toEqual([
+      [undefined, [1, 2]],
+      [
+        [1, 2],
+        [1, 9],
+      ],
+    ]);
   });
 });
 
