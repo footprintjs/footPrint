@@ -53,12 +53,16 @@ const LAYERS = [
       'src/lib/memory/honesty.ts',
       // The two redaction placeholders (F4a): import nothing; written from L1 (redactPatch) up.
       'src/lib/memory/placeholders.ts',
+      // Which rows touch a key — the path half of the writer rule and the writer index (F3).
+      // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
+      'src/lib/memory/keyPaths.ts',
       // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',
       'src/lib/engine/branchSegment.ts',
-      // `deepFreeze`: a pure leaf that lives under scope/protection. runner/ExecutionRuntime
-      // (L4) calls it today, and freezing the commit log at `record` will call it from L3.
+      // `assertNotReadonly` / `createFrozenArgs`: a leaf under scope/protection (it imports
+      // capture/ only). The freeze walk itself moved to `capture/freeze.ts` in F3, so that
+      // `EventLog · record` (memory/) can freeze without a memory → scope edge.
       'src/lib/scope/protection/readonlyInput.ts',
     ],
   },
@@ -93,6 +97,8 @@ const LAYERS = [
     files: [
       'src/lib/memory/EventLog.ts',
       'src/lib/memory/commitLogUtils.ts',
+      // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
+      'src/lib/memory/logModel.ts',
       'src/lib/memory/backtrack.ts',
       'src/lib/slice/**',
       'src/lib/time-travel/**',

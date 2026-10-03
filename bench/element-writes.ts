@@ -18,6 +18,11 @@
  * law). Beside it, the bulk path `$batchArray` at each N: one clone, one row.
  * That ratio is the number `src/lib/reactive/README.md` quotes.
  *
+ * The FREEZE row (F3, 9.33.0): every commit bundle is deep-frozen at `EventLog · record`. `freeze ms`
+ * is that walk timed on its own — `deepFreeze(structuredClone(work bundle), 'indices')`, the same
+ * tree the engine freezes — and `freeze %` is it against the run total. The budget is ≤ 5% of the
+ * run at N ≥ 10k; the last line says whether every such row is inside it.
+ *
  * A NESTED array (`scope.k.arr[i].n = i`) commits the same way — `set` of
  * `k` — and measures the same; the top-level key is used so `$batchArray`
  * applies to the identical shape.
@@ -45,6 +50,8 @@ type Lib = {
     getSnapshot(): { commitLog: Array<{ trace: unknown[] }>; initialState?: unknown };
   };
   stateAt: (source: unknown, idx: number) => unknown;
+  /** The commit log's freeze walk; absent in a built tree that predates it. */
+  deepFreeze?: (value: unknown, arrays?: 'every-key' | 'indices') => unknown;
 };
 
 async function loadLib(): Promise<{ lib: Lib; label: string }> {
@@ -53,11 +60,13 @@ async function loadLib(): Promise<{ lib: Lib; label: string }> {
     const root = process.argv[flag + 1].replace(/\/$/, ''); // absolute path of a built tree
     const core = await import(`file://${root}/dist/esm/index.js`);
     const trace = await import(`file://${root}/dist/esm/trace.js`);
-    return { lib: { ...core, stateAt: trace.stateAt } as Lib, label: root };
+    const freeze = await import(`file://${root}/dist/esm/lib/capture/freeze.js`).catch(() => undefined);
+    return { lib: { ...core, stateAt: trace.stateAt, deepFreeze: freeze?.deepFreeze } as Lib, label: root };
   }
   const core = (await import('../src/index')) as unknown as Lib;
   const trace = (await import('../src/trace')) as unknown as { stateAt: Lib['stateAt'] };
-  return { lib: { ...core, stateAt: trace.stateAt }, label: 'src' };
+  const freeze = (await import('../src/lib/capture/freeze')) as unknown as { deepFreeze: Lib['deepFreeze'] };
+  return { lib: { ...core, stateAt: trace.stateAt, deepFreeze: freeze.deepFreeze }, label: 'src' };
 }
 
 function sizes(): number[] {
@@ -90,7 +99,7 @@ function buildChart(lib: Lib, n: number, variant: Variant, body: { ms: number })
   return lib.flowChart('Seed', seed, 'seed').addFunction('Work', work, 'work').build();
 }
 
-type Sample = { total: number; body: number; fold: number; rows: number };
+type Sample = { total: number; body: number; fold: number; freeze: number; rows: number };
 
 async function once(lib: Lib, n: number, variant: Variant, commitValues: 'full' | 'delta'): Promise<Sample> {
   const body = { ms: 0 };
@@ -103,8 +112,18 @@ async function once(lib: Lib, n: number, variant: Variant, commitValues: 'full' 
   const t1 = performance.now();
   lib.stateAt(snapshot, snapshot.commitLog.length - 1);
   const fold = performance.now() - t1;
-  const rows = snapshot.commitLog[snapshot.commitLog.length - 1].trace.length;
-  return { total, body: body.ms, fold, rows };
+  const workBundle = snapshot.commitLog[snapshot.commitLog.length - 1];
+  const rows = workBundle.trace.length;
+  // The record's freeze, on its own: a fresh (unfrozen) copy of the work bundle, walked as
+  // `EventLog · record` walks it. NaN when the tree under test has no freeze.
+  let freeze = Number.NaN;
+  if (lib.deepFreeze) {
+    const copy = structuredClone(workBundle);
+    const t2 = performance.now();
+    lib.deepFreeze(copy, 'indices');
+    freeze = performance.now() - t2;
+  }
+  return { total, body: body.ms, fold, freeze, rows };
 }
 
 function median(values: number[]): number {
@@ -122,11 +141,17 @@ async function measure(lib: Lib, n: number, variant: Variant, commitValues: 'ful
     total: median(samples.map((s) => s.total)),
     body: median(samples.map((s) => s.body)),
     fold: median(samples.map((s) => s.fold)),
+    freeze: median(samples.map((s) => s.freeze)),
     rows: samples[0].rows,
   };
 }
 
-const fmt = (ms: number) => (ms >= 100 ? ms.toFixed(0) : ms.toFixed(2)).padStart(8);
+const fmt = (ms: number) => (Number.isNaN(ms) ? '-' : ms >= 100 ? ms.toFixed(0) : ms.toFixed(2)).padStart(8);
+const pct = (part: number, whole: number) =>
+  (Number.isNaN(part) ? '-' : `${((100 * part) / whole).toFixed(1)}%`).padStart(7);
+
+/** The freeze budget: the record's freeze is at most this share of the run at N ≥ SLOW_FROM. */
+const FREEZE_BUDGET_PCT = 5;
 
 async function main() {
   const { lib, label } = await loadLib();
@@ -135,8 +160,11 @@ async function main() {
   );
   console.log(
     `${'N'.padStart(6)} ${'mode'.padEnd(5)} ${'variant'.padEnd(7)} ${'rows'.padStart(6)} ${'total ms'.padStart(8)} ` +
-      `${'body ms'.padStart(8)} ${'fold ms'.padStart(8)}   loop/batch`,
+      `${'body ms'.padStart(8)} ${'fold ms'.padStart(8)} ${'freeze ms'.padStart(9)} ${'freeze %'.padStart(
+        8,
+      )}   loop/batch`,
   );
+  let worstFreezePct = Number.NaN;
   for (const n of sizes()) {
     for (const commitValues of ['full', 'delta'] as const) {
       const loop = await measure(lib, n, 'loop', commitValues);
@@ -151,10 +179,24 @@ async function main() {
             : '';
         console.log(
           `${String(n).padStart(6)} ${commitValues.padEnd(5)} ${variant.padEnd(7)} ${String(s.rows).padStart(6)} ` +
-            `${fmt(s.total)} ${fmt(s.body)} ${fmt(s.fold)}   ${ratio}`,
+            `${fmt(s.total)} ${fmt(s.body)} ${fmt(s.fold)} ${fmt(s.freeze).padStart(9)} ${pct(
+              s.freeze,
+              s.total,
+            ).padStart(8)}   ${ratio}`,
         );
+        if (n >= SLOW_FROM && !Number.isNaN(s.freeze)) {
+          const share = (100 * s.freeze) / s.total;
+          worstFreezePct = Number.isNaN(worstFreezePct) ? share : Math.max(worstFreezePct, share);
+        }
       }
     }
+  }
+  if (!Number.isNaN(worstFreezePct)) {
+    const ok = worstFreezePct <= FREEZE_BUDGET_PCT;
+    console.log(
+      `freeze budget (≤ ${FREEZE_BUDGET_PCT}% of the run at N ≥ ${SLOW_FROM}): ` +
+        `${ok ? 'OK' : 'OVER BUDGET'} — worst row ${worstFreezePct.toFixed(1)}%`,
+    );
   }
 }
 

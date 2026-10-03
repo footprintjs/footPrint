@@ -2,9 +2,25 @@
  * EventLog — Time-travel snapshot storage for flowchart execution
  *
  * Like git history: stores commit bundles (diffs), not full snapshots.
- * materialise(stepIdx) reconstructs state at any point by replaying commits.
+ *
+ * THE RECORD IS IMMUTABLE FROM `record` (F3, ruling R3). Every bundle is deep-frozen as it is
+ * recorded — the bundle, `overwrite` and `updates` at every depth, the trace and each row, the
+ * row's `readKeys`, `redactedPaths`, `tags`, `untrackedSources` — so a holder of a snapshot can no
+ * longer rewrite the history every later answer is folded from: an assignment into a bundle throws
+ * a `TypeError` in strict code. Safe because nothing outside the log holds a bundle's containers:
+ * the log's payload is the commit's own copy (`StageContext · commit` hands it the output of
+ * `redactPatch`), and live state, the redacted mirror and write retention each take their own copy
+ * (`verbs.ts · foldRows` detaches, `StageContext · retainedForm` clones) — pinned by
+ * test/lib/memory/property/record-reachability.property.test.ts.
+ *
+ * Named holes — what `Object.freeze` cannot reach stays mutable: Map and Set contents, a Date's
+ * time, the bytes of a typed array (skipped: a non-empty one cannot be frozen), and an object hung
+ * on an array EXPANDO (arrays are walked by index — `deepFreeze`'s `'indices'` walk, which keeps
+ * the freeze inside its budget). A frozen RegExp's `lastIndex` is read-only, so a `/g` or `/y`
+ * regex read from a bundle throws when `exec` or `replace` advance it.
  */
 
+import { deepFreeze } from '../capture/freeze.js';
 import type { CommitBundle, MemoryPatch } from './types.js';
 import { applySmartMergeInto } from './utils.js';
 
@@ -54,6 +70,11 @@ export class EventLog {
    * below the root, 9.29.0, so the fold and the live state agree at every
    * path). The result is the caller's: it shares nothing with the base or
    * the log.
+   *
+   * @deprecated Since 9.33.0 — use `stateAt` from `footprintjs/trace`, which folds the same log
+   * from the same base (`RuntimeSnapshot.initialState`) and says how it was derived (`basis`).
+   * Nothing in the library calls this; it stays for one minor and is then removed. Mind the
+   * index: `materialise(n)` folds commits `0..n-1`, `stateAt(source, n - 1)` the same commits.
    */
   materialise(stepIdx = this.steps.length): any {
     const out = structuredClone(this.base);
@@ -64,13 +85,19 @@ export class EventLog {
     return out;
   }
 
-  /** Persists a commit bundle for a finished stage. */
+  /**
+   * Persists a commit bundle for a finished stage, and FREEZES it (see the module doc): the bundle
+   * is stamped with its position, then deep-frozen, then appended. The engine hands it a bundle
+   * built for the log alone; a caller of this class (`footprintjs/advanced`) hands over a bundle it
+   * will no longer edit — its own object is the one frozen.
+   */
   record(bundle: CommitBundle): void {
     bundle.idx = this.steps.length;
+    deepFreeze(bundle, 'indices');
     this.steps.push(bundle);
   }
 
-  /** Gets all recorded commit bundles. */
+  /** Gets all recorded commit bundles — the live array; every bundle in it is frozen. */
   list(): CommitBundle[] {
     return this.steps;
   }

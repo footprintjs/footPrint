@@ -1,7 +1,7 @@
 /**
  * honesty.ts — the ONE vocabulary for what a reader cannot see (F4a).
  *
- *   unit      the registry is frozen and closed, holds exactly the eighteen codes, and every explanation is
+ *   unit      the registry is frozen and closed, holds exactly the nineteen codes, and every explanation is
  *             ONE sentence
  *   boundary  the TYPES, asked of the real compiler: a code the registry does not hold FAILS TO COMPILE; the
  *             six public unions are exactly the members they were (they did not widen); the sentences are
@@ -13,6 +13,11 @@
  *
  * The bytes below were taken from the library at 9.31.0, before the placeholders moved. Nothing in this file
  * changed a runtime string.
+ *
+ * F3 (9.33.0, ruling R4) added ONE code, `'nested-rows'` (a slice note), so exactly two pins moved, and only by
+ * that member: the registry holds NINETEEN codes (six slice notes), and `HonestyNoteCode`'s literal union `Today`
+ * gains `'nested-rows'`. The five 9.31.0 note bytes, and the check that their builders speak exactly those five,
+ * are untouched (`SLICE_CODES_9_31`); the new note's builder is pinned on its own.
  */
 import { join, resolve } from 'path';
 import ts from 'typescript';
@@ -24,6 +29,7 @@ import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from '../../../src/lib/memory/plac
 import type { CommitBundle } from '../../../src/lib/memory/types';
 import {
   conservativeEdgesNote,
+  nestedRowsNote,
   preRunOriginNote,
   readsNotRecordedNote,
   truncatedNote,
@@ -42,7 +48,10 @@ import {
 const REPO = resolve(__dirname, '../../..');
 
 /** The codes each declared vocabulary speaks, and the signals that carry no code field of their own. */
-const SLICE_CODES = ['conservative-fed-edges', 'pre-run-origin', 'reads-not-recorded', 'unknown-key', 'truncated'];
+/** The five slice notes the library built at 9.31.0 — the bytes pinned below. */
+const SLICE_CODES_9_31 = ['conservative-fed-edges', 'pre-run-origin', 'reads-not-recorded', 'unknown-key', 'truncated'];
+/** Every slice note today: the five, and F3's `'nested-rows'`. */
+const SLICE_CODES = [...SLICE_CODES_9_31, 'nested-rows'];
 const MISSING_REASONS = ['empty-log', 'never-written', 'not-an-array'];
 const FED_BASES = ['per-write', 'stage'];
 const ATTRIBUTION_BASES = ['append-verb', 'prefix-inference', 'whole-value'];
@@ -69,7 +78,7 @@ describe('HONESTY_CODES — unit', () => {
     }).toThrow(TypeError);
   });
 
-  it('holds exactly eighteen codes — five slice notes, three missing reasons, two fed-edge and three birth bases, two fold bases, three codeless signals', () => {
+  it('holds exactly nineteen codes — six slice notes, three missing reasons, two fed-edge and three birth bases, two fold bases, three codeless signals', () => {
     const all = [
       ...SLICE_CODES,
       ...MISSING_REASONS,
@@ -78,7 +87,7 @@ describe('HONESTY_CODES — unit', () => {
       ...FOLD_BASES,
       ...SIGNALS_WITHOUT_A_CODE_FIELD,
     ];
-    expect(all).toHaveLength(18);
+    expect(all).toHaveLength(19);
     expect(Object.keys(HONESTY_CODES).sort()).toEqual(all.sort());
   });
 
@@ -115,7 +124,7 @@ const HEADER = [
   "import type { MissingProvenanceReason, MissingSliceReason } from '../slice/types.js';",
   "import { HONESTY_CODES } from './honesty.js';",
   "import type { HonestyCode, RegisteredCode } from './honesty.js';",
-  "type Today = 'conservative-fed-edges' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated';",
+  "type Today = 'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated';",
   "type TodayBasis = 'initial+log' | 'log-only';",
   "type TodayMissing = 'empty-log' | 'never-written';",
   "type TodayProvenance = 'empty-log' | 'never-written' | 'not-an-array';",
@@ -338,8 +347,25 @@ describe('the five slice notes — the bytes the library built at 9.31.0', () =>
 
   it('every code a builder speaks is on the registry, and each of the five is spoken', () => {
     const spoken = new Set(Object.values(NOTES).map((n) => n.built.code));
-    expect([...spoken].sort()).toEqual([...SLICE_CODES].sort());
+    expect([...spoken].sort()).toEqual([...SLICE_CODES_9_31].sort());
     for (const code of spoken) expect(Object.keys(HONESTY_CODES), code).toContain(code);
+  });
+});
+
+describe("F3's slice note — 'nested-rows'", () => {
+  it('its builder speaks a registered code and names the key by its segments, the commits and the overflow', () => {
+    const one = nestedRowsNote('cfg', [1]);
+    expect(one.code).toBe('nested-rows');
+    expect(Object.keys(HONESTY_CODES)).toContain(one.code);
+    expect(one.detail).toBe(
+      "'cfg' was written only through paths inside it at commit 1 — such a write changed part of its value, not the whole: earlier writes may account for the rest, and a reader of the key may not have read the part it changed.",
+    );
+    const many = nestedRowsNote(['cfg', 'inner'].join('\u001F'), [1, 2, 3, 4, 5, 6, 7]);
+    expect(
+      many.detail.startsWith(
+        "'cfg › inner' was written only through paths inside it at commits 1, 2, 3, 4, 5 (+2 more) — ",
+      ),
+    ).toBe(true);
   });
 });
 

@@ -91,9 +91,12 @@ export interface ReadsCoverage {
  * Why a slice could not be produced. Honest absence is a first-class result:
  * - `'empty-log'`     — there are no commits at all (run never executed, or
  *   snapshot came from elsewhere).
- * - `'never-written'` — no commit in range wrote `key`. The value (if any)
- *   came from the run's INITIAL state, run `input` (frozen args channel), or
- *   a closure — none of which the commit log can see. Same blind spot as
+ * - `'never-written'` — no commit in range wrote `key`: none wrote it whole,
+ *   none wrote a path inside it, none changed it by writing a container around
+ *   it (the writer rule, `memory/keyPaths.ts` — since 9.33.0 a subflow seed or
+ *   an outputMapper merge-back of `cfg␟b` IS a write of `cfg`). The value (if
+ *   any) came from the run's INITIAL state, run `input` (frozen args channel),
+ *   or a closure — none of which the commit log can see. Same blind spot as
  *   `findLastWriter`.
  *
  * Each member is registered, with the one sentence that says what it means,
@@ -126,7 +129,15 @@ export interface VariableSlice {
    * value).
    */
   before?: number;
-  /** The commit that last wrote `key` — the slice anchor. Absent when missing. */
+  /**
+   * The commit that last wrote `key` — the slice anchor. Absent when missing.
+   * Under the writer rule (9.33.0) it may have written only a path INSIDE the
+   * key (a subflow seed, an outputMapper merge-back): it then made part of the
+   * value, and earlier writers may account for the rest. An outputMapper's
+   * merge-back bundle carries the runtimeStageId of the stage BEFORE the mount
+   * (or of the branching decider), not the mount's — a known gap in the record
+   * (`SubflowExecutor · executeSubflow`), named in slice/README.md.
+   */
   writer?: CommitBundle;
   /**
    * The backward causal DAG rooted at the writer (same `CausalNode` shape as
@@ -187,7 +198,7 @@ export type FedBasis = RegisteredCode<'per-write' | 'stage'>;
  * not compile.
  */
 export type HonestyNoteCode = RegisteredCode<
-  'conservative-fed-edges' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
+  'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
 >;
 
 /** One honesty statement — see {@link HonestyNoteCode}. */
@@ -290,7 +301,8 @@ export interface ForwardNode {
  * ABSENCE, split by what the recording affords (a typo must never read as
  * "this variable has no history"):
  * - `'empty-log'` — nothing executed.
- * - `'never-written'` — no write AND no recorded read of the key, in a log
+ * - `'never-written'` — no write (the writer rule) AND no recorded read on,
+ *   inside or around the key, in a log
  *   that DOES carry recorded reads. The log can see readers and this key has
  *   none, so "no history" is a finding, not a blind spot: no root node, and
  *   an `'unknown-key'` {@link HonestyNote} names the keys the log does know.
@@ -471,7 +483,8 @@ export interface ElementBirth {
  * Why element provenance could not be produced (mirrors
  * {@link MissingSliceReason} — one honest-absence pattern module-wide):
  * - `'empty-log'`     — no commits at all.
- * - `'never-written'` — no commit in range touched the key.
+ * - `'never-written'` — no commit in range wrote the key (the writer rule:
+ *   a row on it, inside it, or around it that changed it).
  * - `'not-an-array'`  — the key WAS written but its folded value is not an
  *   array at the queried point: a scalar/object key, a deleted key, or a
  *   merge that degraded it. Element provenance is an array concept — for

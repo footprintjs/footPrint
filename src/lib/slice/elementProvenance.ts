@@ -19,7 +19,10 @@
  * `commitValueAt` runs (`memory/verbs.ts` · `foldKey`: one step, `applyVerb`,
  * for every verb; this file has no verb switch of its own) — while carrying a
  * births array kept index-aligned with the value. The observer is told, after
- * each row, the value before it and after it, and keeps the births: a row that
+ * each row on, inside or around the key, the value at the key before it and
+ * after it, and keeps the births — for the commits that WROTE the key under
+ * the writer rule (`commitLogUtils · writersOf`; since 9.33.0 a write inside
+ * the key or around it counts, as it does for every key query): a row that
  * records only its tail (`append`) earns an exact attribution; every other row
  * is a whole-value transition attributed by inference. One difference from
  * `commitValueAt`: that helper ANCHORS at the latest `set`/`delete` as a skip
@@ -46,7 +49,7 @@
  * Post-hoc query, off the hot path — acceptable; measured in the perf tests.
  */
 
-import { keyTouches } from '../memory/commitLogUtils.js';
+import { rowsUnderRoot, writersOf } from '../memory/commitLogUtils.js';
 import type { CommitBundle } from '../memory/types.js';
 import { deepEqual, DELIM } from '../memory/utils.js';
 import { type Touch, foldKey, recordsTail } from '../memory/verbs.js';
@@ -99,19 +102,22 @@ export function arrayProvenance(
   const end = Math.min(options?.atIdx ?? commitLog.length - 1, commitLog.length - 1);
   const segs = normalisedKey.split(DELIM);
 
-  // Every touch of the key up to `end`, in commit order — the same scan
-  // commitValueAt does (refusing a verb the law does not know), with the
+  // Every row under the key's top-level key up to `end`, in commit order — the
+  // rows commitValueAt folds (refusing a verb the law does not know), with the
   // commit position the birth records need.
-  const touches = keyTouches(commitLog, normalisedKey, end);
-  if (touches.length === 0) return { key: normalisedKey, missing: 'never-written' };
+  const rows = rowsUnderRoot(commitLog, normalisedKey, end);
+  // The commits that WROTE the key — the writer rule every key query shares.
+  const writers = new Set(writersOf(commitLog, normalisedKey, { end }));
+  if (writers.size === 0) return { key: normalisedKey, missing: 'never-written' };
 
   // The append-fold: the key's one fold, watched. `births` is the added
   // provenance track, index-aligned whenever the value is an array (the
-  // module invariant).
+  // module invariant). A row of a commit that did not write the key (a merge
+  // around it that never reached it) moves no birth.
   let births: ElementBirth[] = [];
-  const value = foldKey(touches, segs, {
+  const value = foldKey(rows, segs, {
     observe: (touch, before, after) => {
-      births = nextBirths(births, touch, before, after);
+      if (writers.has(touch.commitIdx)) births = nextBirths(births, touch, before, after);
     },
   });
 
@@ -129,7 +135,12 @@ export function arrayProvenance(
  * the track.
  */
 function nextBirths(births: ElementBirth[], touch: Touch, before: unknown, after: unknown): ElementBirth[] {
-  if (!recordsTail(touch.verb)) return rebaseBirths(before, after, births, touch, 'prefix-inference');
+  // An `append` records the tail of ITS OWN path. On a container around the key (or a path inside it) the
+  // key's value changed wholesale — `append a` with a non-array tail replaces `a`, and `a␟b` with it — so
+  // only an append ON the key earns exact tail attribution.
+  if (!recordsTail(touch.verb) || touch.relation !== 'exact') {
+    return rebaseBirths(before, after, births, touch, 'prefix-inference');
+  }
   if (Array.isArray(before) && Array.isArray(after)) {
     // The step extended the array: the elements past the old length are the
     // recorded tail — exact attribution.

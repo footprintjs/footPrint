@@ -18,6 +18,7 @@
  */
 
 import type { FlowChart } from '../builder/types.js';
+import { deepFreeze } from '../capture/freeze.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import { isDevMode } from '../devMode.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
@@ -57,7 +58,6 @@ import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
-import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
@@ -1684,9 +1684,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // (copy-on-write, 9.29.0).
       // Production stays zero-copy; clone-always is a measured decision
       // deferred until the bench says it's affordable (BACKLOG #8).
-      // NOTE: deepFreeze (reused from readonlyInput) freezes plain objects/
-      // arrays only — Map/Set INTERNALS stay mutable (`map.set()` on the
-      // frozen clone won't throw). The CLONE still isolates the engine.
+      // NOTE: deepFreeze (capture/freeze.ts — the one walk) cannot reach
+      // Map/Set INTERNALS (`map.set()` on the frozen clone won't throw) and
+      // skips typed arrays. The CLONE still isolates the engine.
       snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
     }
     const sfResults = this.traverser.getSubflowResults();

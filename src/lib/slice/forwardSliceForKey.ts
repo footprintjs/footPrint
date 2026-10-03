@@ -15,6 +15,10 @@
  *    (the last writer, or the last writer before `before`).
  * 2. That value lives until the key's NEXT write (`nextWriteIdx`). Every
  *    stage that READ `key` inside that window saw THIS value — a `read`.
+ *    (9.33.0: a write that reached the key only through paths INSIDE it — a
+ *    subflow seed, an outputMapper merge-back — changed part of the value
+ *    and does NOT end its life: a reader after it still read the rest. Every
+ *    life such a write starts or crosses carries a `'nested-rows'` note.)
  * 3. A reading stage that also WROTE something carried the value onward —
  *    a `fed` edge to that write, which is itself the start of a new life.
  * 4. Descend into fed lives breadth-first (visited-set guarded, budgeted).
@@ -50,6 +54,7 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
+import { relation } from '../memory/keyPaths.js';
 import type { CommitBundle } from '../memory/types.js';
 import { DELIM } from '../memory/utils.js';
 import {
@@ -61,10 +66,13 @@ import {
   indicesInRange,
   lastIndexBefore,
   lastTraceEntry,
+  nestedOnlyWrites,
+  nestedRowsNote,
   preRunOriginNote,
   readsNotRecordedNote,
   truncatedNote,
   unknownKeyNote,
+  writeEntry,
   writtenPaths,
 } from './keyIndex.js';
 import { resolveKeysReadSource } from './keysReadSources.js';
@@ -105,7 +113,9 @@ function makeNode(
   writeIdx: number | undefined,
   depth: number,
 ): ForwardNode {
-  const writes = index.writesByKey.get(key);
+  // A life ends at the next write that replaces the value — never at one that only wrote a path INSIDE the
+  // key (a seed, a merge-back): a reader after that one still read the rest of this value.
+  const writes = index.closingWritesOf(key);
   if (writeIdx === undefined) {
     const firstWrite = writes?.[0];
     return {
@@ -118,7 +128,7 @@ function makeNode(
     };
   }
   const bundle = commitLog[writeIdx];
-  const entry = lastTraceEntry(bundle, key);
+  const entry = writeEntry(bundle, key);
   const next = firstIndexAfter(writes, writeIdx);
   return {
     key,
@@ -180,7 +190,7 @@ export function forwardSliceForKey(
   // Unknown key + NO reads recorded → a typo and a seeded-but-unread key are
   // genuinely indistinguishable; the pre-run life below is the only honest
   // answer, and it must carry BOTH notes so nobody reads it as "unread".
-  const known = index.knownKeys.has(normalisedKey);
+  const known = index.isKnown(normalisedKey);
   if (!known) {
     notes.push(unknownKeyNote(index, normalisedKey));
     if (readsRecorded) return { ...base, missing: 'never-written', notes };
@@ -196,7 +206,7 @@ export function forwardSliceForKey(
   let truncatedByNodes = false;
   let anyConservative = false;
 
-  const anchorIdx = lastIndexBefore(index.writesByKey.get(normalisedKey), options?.before);
+  const anchorIdx = lastIndexBefore(index.writesOf(normalisedKey), options?.before);
   const root = makeNode(commitLog, index, normalisedKey, anchorIdx, 0);
   nodes.set(nodeKey(anchorIdx, normalisedKey), root);
   created = 1;
@@ -206,7 +216,7 @@ export function forwardSliceForKey(
     const node = queue.shift()!;
     // Live range: open below the write, CLOSED at the next write (see LAW).
     const from = node.commitIdx !== undefined ? node.commitIdx + 1 : 0;
-    const readers = indicesInRange(index.readsByKey.get(node.key), from, node.nextWriteIdx);
+    const readers = indicesInRange(index.readsOf(node.key), from, node.nextWriteIdx);
 
     if (node.depth >= maxDepth) {
       // Only a life that still HAD readers to expand counts as a cut.
@@ -229,8 +239,9 @@ export function forwardSliceForKey(
         const entry = lastTraceEntry(bundle, path);
         let basis: FedBasis;
         if (entry?.readKeys !== undefined) {
-          // EXACT both ways: recorded provenance can include or EXCLUDE.
-          if (!entry.readKeys.includes(node.key)) continue;
+          // EXACT both ways: recorded provenance can include or EXCLUDE. A read
+          // on the key, inside it or around it is a read of its value.
+          if (!entry.readKeys.some((read) => relation(read, node.key) !== undefined)) continue;
           basis = 'per-write';
         } else {
           basis = 'stage';
@@ -257,6 +268,26 @@ export function forwardSliceForKey(
 
   // ── Honesty envelope, deterministic order ─────────────────────────────
   if (root.origin === 'pre-run') notes.push(preRunOriginNote(normalisedKey));
+  // Every life a write INSIDE its key starts or crosses — the anchor's, a pre-run life's, a child's — says so.
+  const partial = new Map<string, Set<number>>();
+  for (const node of nodes.values()) {
+    const start = node.commitIdx ?? -1;
+    const crossed = index
+      .writesOf(node.key)
+      .filter((c) => (c === start || c > start) && (node.nextWriteIdx === undefined || c < node.nextWriteIdx));
+    for (const c of nestedOnlyWrites(commitLog, node.key, crossed)) {
+      const set = partial.get(node.key) ?? new Set<number>();
+      set.add(c);
+      partial.set(node.key, set);
+    }
+  }
+  for (const [key, commits] of partial)
+    notes.push(
+      nestedRowsNote(
+        key,
+        [...commits].sort((a, b) => a - b),
+      ),
+    );
   if (anyConservative) notes.push(conservativeEdgesNote(normalisedKey));
   if (truncatedByDepth || truncatedByNodes) {
     root.truncated = { byDepth: truncatedByDepth, byNodes: truncatedByNodes };

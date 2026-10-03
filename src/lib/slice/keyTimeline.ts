@@ -29,10 +29,12 @@ import {
   buildKeyIndex,
   hasRecordedReads,
   lastIndexBefore,
-  lastTraceEntry,
+  nestedOnlyWrites,
+  nestedRowsNote,
   preRunOriginNote,
   readsNotRecordedNote,
   unknownKeyNote,
+  writeEntry,
 } from './keyIndex.js';
 import { resolveKeysReadSource } from './keysReadSources.js';
 import { normaliseStateKey } from './sliceForKey.js';
@@ -82,16 +84,18 @@ export function keyTimeline(
   const notes: HonestyNote[] = [];
 
   // Same typo guard as the forward walk — one rule, both doors.
-  if (!index.knownKeys.has(normalisedKey)) {
+  if (!index.isKnown(normalisedKey)) {
     notes.push(unknownKeyNote(index, normalisedKey));
     if (readsRecorded) return { ...base, missing: 'never-written', notes };
   }
   if (!readsRecorded) notes.push(readsNotRecordedNote());
 
   const limit = options?.before ?? commitLog.length;
-  const allWrites = index.writesByKey.get(normalisedKey) ?? [];
+  // Writes under the writer rule (on the key, inside it, or around it and
+  // changing it); reads on the key, inside it or around it (keyIndex.ts).
+  const allWrites = index.writesOf(normalisedKey);
   const writes = allWrites.filter((i) => i < limit);
-  const reads = (index.readsByKey.get(normalisedKey) ?? []).filter((i) => i < limit);
+  const reads = index.readsOf(normalisedKey).filter((i) => i < limit);
 
   // Merge two ascending index lists. At the SAME commit index a read comes
   // first: reads fire before their stage's commit (the engine's event order,
@@ -119,7 +123,7 @@ export function keyTimeline(
     } else {
       const idx = writes[w++];
       const bundle = commitLog[idx];
-      const entry = lastTraceEntry(bundle, normalisedKey);
+      const entry = writeEntry(bundle, normalisedKey);
       moments.push({
         kind: 'write',
         commitIdx: idx,
@@ -132,5 +136,7 @@ export function keyTimeline(
   }
 
   if (sawPreRunRead) notes.push(preRunOriginNote(normalisedKey));
+  const nested = nestedOnlyWrites(commitLog, normalisedKey, writes);
+  if (nested.length > 0) notes.push(nestedRowsNote(normalisedKey, nested));
   return { ...base, moments, notes };
 }

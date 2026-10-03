@@ -120,6 +120,29 @@ const inner = getSubtreeSnapshot(snapshot, 'sf-payment')!;
 stateAt(inner, 0).state;       // the subflow's own log, its own base
 ```
 
+### The key queries agree with this fold (9.33.0)
+
+`commitValueAt(log, i, key)` IS `stateAt({ commitLog: log }, i)` read at `key` —
+for every key, nested paths and array indices included (the value rule,
+`memory/keyPaths.ts`; property/keyed-fold-differential.property.test.ts checks
+every key at every index of real subflow and fork logs). Until 9.32 it folded
+only rows on the key's exact path, so a key written through a nested row — a
+subflow seed, an outputMapper merge-back — answered `undefined` or an older
+value here while the fold showed the new one. The one difference left is the
+base: `commitValueAt` never receives `initialState`, so a key seeded before the
+run and not `set` or `delete`d in range folds from absent there (`stateAt`
+with the base reports the whole value). `findLastWriter`, the slice layer and
+the cursor's stops read the same rows; a write that reached the key only
+through paths inside it carries a `'nested-rows'` note where the reader has a
+note channel (`keyTimeline`, `forwardSliceForKey`).
+
+**Known gap — the stop an outputMapper's merge-back lands in.** The bundle
+holding a merge-back is recorded under the runtimeStageId of the stage BEFORE
+the mount (`SubflowExecutor · executeSubflow`; slice/README.md has the
+details), so `commitStops` groups it into THAT stage's stop — the fold shows
+the merged value from the previous stage's stop on, and the mount's own stop
+folds two empty bundles. A stamp fix in the engine is its own packet.
+
 ### `commitIndexOf(log, runtimeStageId)` / `buildCommitIndex(log)`
 
 The address translation between the id an event carries and the index every
@@ -563,7 +586,11 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
 - `SubflowResult.treeContext.initialState` — the same for a subflow's own log,
   surfaced as `getSubtreeSnapshot(...).initialState`.
 - `getSnapshot().commitLog` is a **detached, frozen** copy of the engine's live
-  log. A snapshot is a fold result: it does not keep changing under its holder.
+  log ARRAY, and since 9.33.0 every bundle in it is frozen too, to every depth,
+  at `EventLog · record` — a holder can no longer rewrite the history a fold
+  reads (Map/Set contents and typed-array bytes are the named holes;
+  memory/README.md). A snapshot is a fold result: it does not keep changing
+  under its holder.
 - `initialState` is the run's RAW seed — `initialContext` merged with
   `defaultValuesForContext` — and no redaction policy ever touched it: a policy
   scrubs stage WRITES at the scope facade, and nothing wrote the base. So
