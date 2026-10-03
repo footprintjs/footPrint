@@ -76,6 +76,7 @@ function makeContext(): any {
     getGlobal: vi.fn(),
     appendToArray: vi.fn(),
     mergeObject: vi.fn(),
+    useAddressOf: vi.fn(),
   };
   ctx.createChild.mockImplementation((_runId: string, branchId: string, name: string) => {
     const child = makeContext();
@@ -292,7 +293,7 @@ describe('SubflowExecutor — boundary', () => {
     expect(getLastOptions().readOnlyContext).toEqual({});
   });
 
-  it('uses parent context for output when parentContext has branchId', async () => {
+  it("a branch mount stages its merge-back on its OWN frame, at its parent's address (R13)", async () => {
     const deps = makeDeps();
     const { factory } = makeFactory();
     const executor = new SubflowExecutor(deps, factory);
@@ -317,8 +318,14 @@ describe('SubflowExecutor — boundary', () => {
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
 
-    // Output should be committed to parent of branch
-    expect(parentOfBranch.commit).toHaveBeenCalled();
+    // The mount's frame writes where its parent writes, and commits the
+    // merge-back itself — so the bundle names the mount (through 9.33.0 the
+    // parent's frame committed it and the bundle named the stage before).
+    expect(context.useAddressOf).toHaveBeenCalledWith(parentOfBranch);
+    expect(context.setGlobal).toHaveBeenCalledWith('mapped', undefined);
+    expect(context.commit).toHaveBeenCalled();
+    expect(parentOfBranch.setGlobal).not.toHaveBeenCalled();
+    expect(parentOfBranch.commit).not.toHaveBeenCalled();
   });
 
   it('preserves next when subflow root has both fan-out children and a join stage', async () => {

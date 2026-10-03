@@ -78,14 +78,14 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
   const haveTree = executionTree !== undefined;
 
   // First commit of each distinct runtimeStageId, in execution order.
-  // An EMPTY runtimeStageId is not a stage: it is a root-context commit made
-  // before any stage ran — a subflow's `inputMapper` seed. It gets no stop of
-  // its own (a stop with no id could not be jumped to or marked); it belongs
-  // to the `'start'` bookend, which is where a reader looks for "the input
-  // this chart began with" anyway.
+  // A subflow's `inputMapper` seed is not one of the subflow's stages: it is
+  // the MOUNT's commit, made before any of them ran. It gets no stop of its
+  // own; it belongs to the `'start'` bookend, which is where a reader looks
+  // for "the input this chart began with" anyway. See {@link seedCommits}.
+  const seeds = seedCommits(commitLog, executionTree);
   const firsts: number[] = [];
   const seen = new Set<string>();
-  for (let i = 0; i < commitLog.length; i++) {
+  for (let i = seeds; i < commitLog.length; i++) {
     const id = commitLog[i].runtimeStageId;
     if (!id || seen.has(id)) continue;
     seen.add(id);
@@ -97,7 +97,7 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
       step: 0,
       runtimeStageId: '',
       commitIdx: -1,
-      // Covers any leading id-less commits — the subflow input seed.
+      // Covers the subflow input seed, when the log opens with one.
       lastCommitIdx: (firsts.length > 0 ? firsts[0] : commitLog.length) - 1,
       stageId: '',
       label: 'Run start',
@@ -142,3 +142,39 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
 
 /** `commitStops` as a {@link TimeTravelStrategy} — the default for `timeTravel`. */
 export const commitStopsStrategy: TimeTravelStrategy = { stopsFor: commitStops };
+
+/**
+ * How many commits at the head of a log are a subflow's input seed — 0 on a
+ * run's own log. The seed is `history[0]` of the subflow's log, committed by
+ * the MOUNT before any of the subflow's stages ran:
+ *
+ * - since R13 it carries the mount's runtimeStageId — and a mount's stage
+ *   address (the id before `#`) IS the subflow path of every stage in the
+ *   log it opens (`sub#2` opens `sub/in#3`; `outer/sub#5` opens
+ *   `outer/sub/in#6`), which no stage of that log can be;
+ * - through 9.33.0 it carried `''`, which is still read the same way, so an
+ *   old recording keeps its axis.
+ *
+ * A log that holds ONLY the seed (the subflow committed no stage — it paused
+ * or failed first) has no stage to compare with; the execution tree's root
+ * stands in for it: a subflow's tree is rooted at one of its own stages,
+ * whose id carries the same subflow path. Without a tree such a log reads as
+ * one stop.
+ */
+function seedCommits(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): number {
+  const head = commitLog[0]?.runtimeStageId;
+  if (head === undefined) return 0;
+  if (head === '') {
+    let n = 0;
+    while (n < commitLog.length && commitLog[n].runtimeStageId === '') n++;
+    return n;
+  }
+  let next = 1;
+  while (next < commitLog.length && commitLog[next].runtimeStageId === head) next++;
+  const address = head.slice(0, head.lastIndexOf('#'));
+  if (next >= commitLog.length) {
+    const rootId = executionTree?.id;
+    return typeof rootId === 'string' && rootId.startsWith(`${address}/`) ? next : 0;
+  }
+  return parseRuntimeStageId(commitLog[next].runtimeStageId).subflowPath === address ? next : 0;
+}

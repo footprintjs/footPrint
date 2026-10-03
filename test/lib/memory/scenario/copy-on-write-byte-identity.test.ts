@@ -38,6 +38,14 @@
  * every digest, and the witness checks that every commit the build made on
  * it folded back.
  *
+ * R13 — THE MOUNT NAMES ITS OWN ACTS. `runChart` sees the baseline through
+ * the fixture's R13 view (restamped merge-backs and seeds; the merge-back
+ * rows' `readKeys` and the tracking R13 moved left out on both engines —
+ * fixture, above `ChartRun`), so the corpus was regenerated once from the
+ * 9.28.0 baseline through that view: 62 chart entries with a subflow moved,
+ * in their commitLog / executionTree / subflowResults / redactedSubflows
+ * digests only; every other entry, and every ADMITTED index, is unchanged.
+ *
  * Regenerate ONLY from the 9.28.0 baseline, never from the new code:
  *   npx tsx -e "Promise.all([import('./test/lib/memory/scenario/copy-on-write-corpus.ts'),
  *     import('./test/lib/memory/property/copy-on-write-fixture.ts')])

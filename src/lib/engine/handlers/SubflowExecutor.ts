@@ -216,13 +216,19 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // context first so the seed commit retains under the policy like every
       // other write, and lands in the mirror as the placeholder.
       this.inheritRedaction(nestedRuntime, nestedRootContext, redactionRule, keepsMirror);
-      seedSubflowGlobalStore(nestedRuntime, seedValues);
-      // Refresh rootStageContext so WriteBuffer sees committed data
+      // The seed is the mount's act too: its bundle — `history[0]` of the
+      // subflow's own log — carries the mount's stage, stageId and
+      // runtimeStageId (R13; through 9.33.0 it carried runtimeStageId '' and
+      // the first stage's names, which on a resume was the re-entry point).
+      seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
+      // Refresh rootStageContext so WriteBuffer sees committed data. Named
+      // after the first node again — the seed context now carries the mount's
+      // names (R13), which belong to the seed bundle only.
       const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
       nestedRootContext = new StageContextClass(
         '',
-        nestedRootContext.stageName,
-        nestedRootContext.stageId,
+        firstNode.name,
+        firstNode.id,
         nestedRuntime.globalStore,
         '',
         nestedRuntime.executionHistory,
@@ -393,9 +399,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // ─── Output Mapping ───
     if (!subflowError && mountOptions?.outputMapper) {
       try {
-        let outputContext = parentContext;
-        if (parentContext.branchId && parentContext.branchId !== '' && parentContext.parent) {
-          outputContext = parentContext.parent;
+        // The merge-back is the MOUNT's act, so the mount's frame stages and
+        // commits it — its bundle carries the mount's runtimeStageId (R13).
+        // A branch or fork-child mount still lands its values where its
+        // parent writes (the parent's run namespace), as before; until 9.33.0
+        // it committed ON the parent's frame, so the bundle named the stage
+        // before the mount, or the branching decider.
+        const outputContext = parentContext;
+        if (parentContext.branchId && parentContext.parent) {
+          outputContext.useAddressOf(parentContext.parent);
         }
 
         const parentScope = outputContext.getScope();
@@ -415,6 +427,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
         outputContext.commit();
       } catch (error: any) {
+        // A merge-back that failed to commit (an uncloneable value) leaves its
+        // writes staged on the mount's frame; the mount's exit commit below
+        // would throw them again, outside this catch. Through 9.33.0 they
+        // were staged on the parent's frame, which was not committed again,
+        // so the run went on — drop them, as it did. A linear mount's frame
+        // is left as it always was.
+        if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
         parentContext.addError('outputMapperError', error.toString());
         this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
       }

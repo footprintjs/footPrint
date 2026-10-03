@@ -374,7 +374,7 @@ commitValueAtWithBasis(snap.commitLog, last, 'cfg');
 // { value: { b: 'REDACTED' }, basis: ['nested-rows', 'from-initial-state', 'redacted'] } — a redacted merge-back
 commitValueAtWithBasis(snap.commitLog, last, 'cfg', { initialState: snap.initialState }).value; // the stateAt value
 HONESTY_CODES['from-initial-state']; // the one sentence to show
-``` Known gap, not closed here: the bundle that holds an outputMapper's merge-back is stamped with the runtimeStageId of the stage BEFORE the mount (`SubflowExecutor · executeSubflow`) — see slice/README.md.
+``` Since R13 that bundle is the subflow MOUNT's own commit, so the writer it names is the mount — see slice/README.md.
 
 ## Honesty — one vocabulary for what a reader cannot see
 

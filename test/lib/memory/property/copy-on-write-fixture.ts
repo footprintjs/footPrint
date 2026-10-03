@@ -404,6 +404,100 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
   return b.build();
 }
 
+// ── R13: the mount names its own acts — the one named change since the baseline ──
+//
+// A subflow mount's merge-back is committed by the mount's frame and its bundle carries the
+// mount's names; a subflow's seed (`history[0]`) carries them too. 9.28.0 (and every release
+// through 9.33.0) stamped the merge-back with the frame BEFORE a branch / fork-child mount and
+// the seed with the first stage's names and runtimeStageId ''. The differentials compare the
+// baseline seen through `r13Log` / `r13Seeds` (its bytes, restamped) and, on both engines,
+// what R13 moved from the stage before the mount to the mount left out: the merge-back rows'
+// `readKeys` (`withoutMergeBackReadKeys`) and the two nodes' tracked reads and writes
+// (`withoutMovedTracking`) — the baseline cannot say which of that stage's tracked keys were
+// its own once the merge-back overwrote them.
+
+const stagePartOf = (runtimeStageId: string) => runtimeStageId.slice(0, runtimeStageId.lastIndexOf('#'));
+
+/** A baseline log, its merge-back bundles restamped with their mount (the first bundle of each mount id). */
+export function r13Log(log: any[], mountIds: ReadonlySet<string>): any[] {
+  const out = structuredClone(log);
+  const seen = new Set<string>();
+  out.forEach((b: any, i: number) => {
+    const first = !seen.has(b.runtimeStageId);
+    seen.add(b.runtimeStageId);
+    if (!first || i === 0 || !mountIds.has(stagePartOf(b.runtimeStageId))) return;
+    const prev = out[i - 1];
+    // The old merge-back: the stage before's SECOND bundle, right before the mount's first.
+    const repeat = out.slice(0, i - 1).some((x: any) => x.runtimeStageId === prev.runtimeStageId);
+    if (!repeat || prev.stageId === b.stageId) return;
+    prev.stage = b.stage;
+    prev.stageId = b.stageId;
+    prev.runtimeStageId = b.runtimeStageId;
+  });
+  return out;
+}
+
+/**
+ * A log without the `readKeys` of its merge-back rows (each mount id's first bundle), on both
+ * engines: staged on the frame before the mount, they held THAT stage's read prefix; staged on
+ * the mount's frame (R13) they hold only the merge-back's own reads.
+ */
+export function withoutMergeBackReadKeys(log: any[], mountIds: ReadonlySet<string>): any[] {
+  const out = structuredClone(log);
+  const seen = new Set<string>();
+  for (const b of out) {
+    if (seen.has(b.runtimeStageId)) continue;
+    seen.add(b.runtimeStageId);
+    if (!mountIds.has(stagePartOf(b.runtimeStageId))) continue;
+    for (const row of b.trace ?? []) delete row.readKeys;
+  }
+  return out;
+}
+
+/** Baseline subflow results, every seed named after its mount (the per-execution key names it). */
+export function r13Seeds(results: Record<string, any> | null | undefined, topLog: any[]): any {
+  if (!results) return results ?? null;
+  const out = structuredClone(results);
+  const nameOf = (rsid: string) => topLog.find((b: any) => b.runtimeStageId === rsid)?.stage;
+  const keys = Object.keys(out).filter((k) => k.includes('#'));
+  for (const key of keys) {
+    const seed = out[key]?.treeContext?.history?.[0];
+    if (!seed || seed.runtimeStageId !== '') continue;
+    seed.stage = nameOf(key) ?? seed.stage;
+    seed.stageId = stagePartOf(key);
+    seed.runtimeStageId = key;
+  }
+  // The path key holds the LAST execution's record (structuredClone kept a shared object shared).
+  for (const key of Object.keys(out).filter((k) => !k.includes('#'))) {
+    const seed = out[key]?.treeContext?.history?.[0];
+    const last = keys.filter((k) => stagePartOf(k) === key).pop();
+    if (!seed || seed.runtimeStageId !== '' || !last) continue;
+    seed.stage = nameOf(last) ?? seed.stage;
+    seed.stageId = key;
+    seed.runtimeStageId = last;
+  }
+  return out;
+}
+
+/** The execution tree without the tracked reads and writes of a mount and of the node it hangs off. */
+export function withoutMovedTracking(tree: any, mountIds: ReadonlySet<string>): any {
+  const out = structuredClone(tree);
+  const strip = (n: any) => {
+    delete n.stageWrites;
+    delete n.stageReads;
+  };
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return;
+    const kids: any[] = Array.isArray(n.children) ? n.children : [];
+    if (kids.some((c) => mountIds.has(c?.id))) strip(n);
+    if (mountIds.has(n.id)) strip(n);
+    kids.forEach(walk);
+    walk(n.next);
+  };
+  walk(out);
+  return out;
+}
+
 export type ChartRun = {
   /** Field → bytes; compared across engines. */
   out: Record<string, string>;
@@ -437,19 +531,22 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     runError = (e as Error).name;
   }
   const snap = ex.getSnapshot();
+  // R13 (header above `ChartRun`): the baseline seen restamped, the moved tracking left out on both.
+  const mounts = new Set<string>(p.sub ? ['sub'] : []);
+  const old = engine === BASELINE;
   const out: Record<string, string> = {
     runError,
     stageErrors: errors.join(','),
-    commitLog: bytes(snap.commitLog),
+    commitLog: bytes(withoutMergeBackReadKeys(old ? r13Log(snap.commitLog, mounts) : snap.commitLog, mounts)),
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
-    executionTree: bytes(snap.executionTree),
-    subflowResults: bytes(snap.subflowResults ?? null),
+    executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
+    subflowResults: bytes(old ? r13Seeds(snap.subflowResults, snap.commitLog) : snap.subflowResults ?? null),
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
     out.redactedState = bytes(red.sharedState);
-    out.redactedSubflows = bytes(red.subflowResults ?? null);
+    out.redactedSubflows = bytes(old ? r13Seeds(red.subflowResults, snap.commitLog) : red.subflowResults ?? null);
   }
   const folds: string[] = [];
   for (let i = 0; i < snap.commitLog.length; i++) folds.push(bytes(engine.stateAt(snap, i).state));
@@ -1104,7 +1201,12 @@ function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
     const payload = commit.call(this);
     const folded = advanced.applySmartMerge(base, payload.updates, payload.overwrite, payload.trace);
     const foldsBack = touched.every((path) => agreesAt(folded, read, path.split('\u001f')));
-    seen.push({ bytes: bytes(payload), foldsBack });
+    // `readKeys` left out: the witness judges VALUES. A merge-back's rows hold
+    // the read prefix of the frame that staged them, which R13 moved (header
+    // above `ChartRun`); every other row's `readKeys` is still compared, in
+    // the log.
+    const trace = payload.trace.map(({ readKeys: _provenance, ...row }: { readKeys?: unknown }) => row);
+    seen.push({ bytes: bytes({ ...payload, trace }), foldsBack });
     return payload;
   };
   return {

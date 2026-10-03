@@ -13,8 +13,9 @@
  *   honesty   a write that reached the key only through paths inside it carries the `'nested-rows'` note, and
  *             never ends a forward life: the anchor's, a pre-run life's and a child's readers after it are listed
  *   edge      a write BESIDE a key, through a string-valued container, moves it — the writer rule finds it
- *   KNOWN LIMITATION  the merge-back is recorded under the wrong stage — pinned so the L6 packet that fixes the
- *             stamp (`SubflowExecutor · executeSubflow`) shows up as a named diff here
+ *   scenario  R13: the merge-back and the seed are recorded under the subflow MOUNT (they were stamped with the
+ *             stage before the mount, or the decider, and '' through 9.33.0)
+ *   regression  a recording in the pre-R13 shape still reads with every reader, with its old answers
  */
 import type { CommitBundle } from '../../../src';
 import { flowChart, FlowChartExecutor } from '../../../src';
@@ -33,6 +34,7 @@ import {
   keyTimeline,
   sliceForKey,
   stateAt,
+  timeTravel,
 } from '../../../src/trace';
 
 const at = (...segments: string[]) => segments.join(DELIM);
@@ -115,8 +117,8 @@ describe('R4 — a subflow merge-back is a write of the key it merges into', () 
   it('findCommit with a key matches a commit that wrote it through a nested row', async () => {
     const { log } = await mergeBackRun();
     const onlyNested: CommitBundle[] = [log[1]]; // the merge-back alone
-    expect(findCommit(onlyNested, 'seed', 'cfg')).toBe(log[1]);
-    expect(findCommit(onlyNested, 'seed', 'other')).toBeUndefined();
+    expect(findCommit(onlyNested, 'sub', 'cfg')).toBe(log[1]); // the mount's commit (R13)
+    expect(findCommit(onlyNested, 'sub', 'other')).toBeUndefined();
   });
 });
 
@@ -325,9 +327,9 @@ describe("FORWARD — a write inside the key does not end a value's life, and ev
     const mergeBack = log.findIndex((b) => b.trace.some((t) => t.path === at('cfg', 'b')));
     const slice = forwardSliceForKey(log, 'cfg', keysReadFromExecutionTree(snap.executionTree), { before: mergeBack });
     expect(slice.root?.origin).toBe('pre-run');
-    // 'before' twice: the merge-back bundle carries the Before stage's runtimeStageId (the attribution gap
-    // below), so the reads provider names Before's reads at both of its commits. No read is dropped.
-    expect(slice.root?.reads.map((r) => r.stageId)).toEqual(['before', 'before', 'after']);
+    // Each reader once: the merge-back is the mount's commit (R13), so Before's reads are named at Before's
+    // commit only. Through 9.33.0 it carried Before's runtimeStageId and Before was listed twice.
+    expect(slice.root?.reads.map((r) => r.stageId)).toEqual(['before', 'after']);
     expect(slice.notes.map((n) => n.code)).toContain('nested-rows');
   });
 
@@ -446,14 +448,13 @@ describe('arrayProvenance — an append AROUND the key is a whole-value change, 
   });
 });
 
-describe('KNOWN LIMITATION — the merge-back is recorded under the wrong stage (an L6 packet, R13)', () => {
-  // `SubflowExecutor · executeSubflow` commits the output mapping on `parentContext.parent` whenever the mount's
-  // context carries a branchId — which a LINEAR mount's does — so the bundle holding the merged-back rows carries
-  // the runtimeStageId of the stage BEFORE the mount (or of the branching decider); the mount's own two bundles
-  // are empty. F3 finds the right BUNDLE; the stage it names is the record's. A causal walk then resolves that
-  // id to the stage's FIRST bundle. Pinned as it is today, so the fix lands as a named diff.
+describe('R13 — the merge-back and the seed are recorded under the subflow MOUNT', () => {
+  // `SubflowExecutor · executeSubflow` stages and commits the output mapping on the MOUNT's frame (at its parent's
+  // address, so the values land where they always did), and stamps the subflow's seed with the mount's names.
+  // Through 9.33.0 the merge-back was committed on the frame before a branch / fork-child mount — its bundle named
+  // the stage before the mount, or the decider — and the seed carried runtimeStageId ''.
 
-  it('a linear mount: the merge-back bundle is stamped with the previous stage; the mount commits two empty bundles', async () => {
+  async function linearMountRun() {
     const inner = flowChart(
       'In',
       (s: any) => {
@@ -475,22 +476,30 @@ describe('KNOWN LIMITATION — the merge-back is recorded under the wrong stage 
         },
         'b',
       )
-      .addSubFlowChart('sub', inner, 'Sub', { inputMapper: () => ({}), outputMapper: () => ({ cfg: { m: 2 } }) })
+      .addSubFlowChart('sub', inner, 'Sub', {
+        inputMapper: () => ({ seeded: 1 }),
+        outputMapper: () => ({ cfg: { m: 2 } }),
+      })
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    const log = executor.getSnapshot().commitLog as CommitBundle[];
-    expect(log.map((b) => [b.runtimeStageId, b.trace.map((t) => t.path)])).toEqual([
-      ['a#0', ['cfg']],
-      ['b#1', ['b']],
-      ['b#1', [at('cfg', 'm')]],
-      ['sub#2', []],
-      ['sub#2', []],
+    return executor.getSnapshot();
+  }
+
+  it("a fork-child mount: the merge-back is the first of the mount's three bundles", async () => {
+    const log = (await linearMountRun()).commitLog as CommitBundle[];
+    expect(log.map((b) => [b.runtimeStageId, b.stageId, b.trace.map((t) => t.path)])).toEqual([
+      ['a#0', 'a', ['cfg']],
+      ['b#1', 'b', ['b']],
+      ['sub#2', 'sub', [at('cfg', 'm')]],
+      ['sub#2', 'sub', []],
+      ['sub#2', 'sub', []],
     ]);
-    expect(findLastWriter(log, 'cfg')?.runtimeStageId).toBe('b#1'); // the right bundle, the wrong stage name
+    expect(findLastWriter(log, 'cfg')?.runtimeStageId).toBe('sub#2');
+    expect(findLastWriter(log, 'b')?.runtimeStageId).toBe('b#1');
   });
 
-  it('a decider-branch mount: the merge-back bundle is stamped with the decider', async () => {
+  it('a decider-branch mount: the merge-back bundle names the branch mount, not the decider', async () => {
     const inner = flowChart(
       'In',
       (s: any) => {
@@ -513,38 +522,96 @@ describe('KNOWN LIMITATION — the merge-back is recorded under the wrong stage 
     await executor.run();
     const log = executor.getSnapshot().commitLog as CommitBundle[];
     const mergeBack = log.find((b) => b.trace.some((t) => t.path === at('cfg', 'm')))!;
-    expect(mergeBack.runtimeStageId).toBe('d#1');
+    expect([mergeBack.runtimeStageId, mergeBack.stageId, mergeBack.stage]).toEqual(['go#2', 'go', 'Go']);
+    expect(log.filter((b) => b.runtimeStageId === 'd#1').every((b) => b.trace.length === 0)).toBe(true);
   });
 
-  it("a causal walk from the reader resolves the merge-back's id to that stage's FIRST bundle", async () => {
+  it("a causal walk from the reader reaches the merge-back as the mount's own commit", async () => {
     const { log, mergeBack, reads } = await mergeBackRun();
     const readId = log.find((b) => b.stageId === 'read')!.runtimeStageId;
     const root = causalChain(log, readId, reads.lookup);
-    expect(log[mergeBack].runtimeStageId).toBe(log[0].runtimeStageId); // seed#0 — both bundles
-    expect(root?.parents.map((p) => p.runtimeStageId)).toEqual(['seed#0']);
+    expect(log[mergeBack].runtimeStageId).toBe('sub#1');
+    expect(root?.parents.map((p) => p.runtimeStageId)).toEqual(['sub#1']);
   });
 
-  it("a subflow's input seed is recorded with an empty runtimeStageId", async () => {
+  it("a subflow's input seed names its mount", async () => {
+    const snap = await linearMountRun();
+    const history = (snap.subflowResults as Record<string, any>).sub.treeContext.history as CommitBundle[];
+    expect([history[0].runtimeStageId, history[0].stageId, history[0].stage]).toEqual(['sub#2', 'sub', 'Sub']);
+    expect(findLastWriter(history, 'seeded')?.runtimeStageId).toBe('sub#2');
+    // The drilled cursor still folds the seed into its 'start' bookend — the input the subflow began with.
+    const inner = timeTravel(snap).drill('sub#2')!;
+    expect(inner.stops.map((s) => s.kind)).toEqual(['start', 'commit', 'end']);
+    expect(inner.stops[0].lastCommitIdx).toBe(0);
+  });
+});
+
+describe('a recording in the pre-R13 shape (through 9.33.0) still reads, with its old answers', () => {
+  /** Put a run back into the old shape: the merge-back named after the stage before the mount, the seed ''. */
+  function asRecordedThrough933(snap: any) {
+    const old = structuredClone(snap);
+    const log = old.commitLog as CommitBundle[];
+    const merge = log.findIndex((b) => b.trace.some((t) => t.path === at('cfg', 'm')));
+    Object.assign(log[merge], { stage: 'B', stageId: 'b', runtimeStageId: 'b#1' });
+    for (const result of Object.values(old.subflowResults as Record<string, any>)) {
+      Object.assign(result.treeContext.history[0], { stage: 'In', stageId: 'sub/in', runtimeStageId: '' });
+    }
+    return old;
+  }
+
+  it('every reader answers on it without throwing', async () => {
     const inner = flowChart(
       'In',
       (s: any) => {
-        s.y = 1;
+        s.r = 1;
       },
       'in',
     ).build();
     const chart = flowChart(
-      'S',
+      'A',
       (s: any) => {
-        s.k = 1;
+        s.cfg = { a: 1 };
       },
-      's',
+      'a',
     )
-      .addSubFlowChart('sub', inner, 'Sub', { inputMapper: () => ({ cfg: { a: 1 } }) })
+      .addFunction(
+        'B',
+        (s: any) => {
+          s.b = 1;
+        },
+        'b',
+      )
+      .addSubFlowChart('sub', inner, 'Sub', {
+        inputMapper: () => ({ seeded: 1 }),
+        outputMapper: () => ({ cfg: { m: 2 } }),
+      })
+      .addFunction(
+        'C',
+        (s: any) => {
+          s.c = Object.keys(s.cfg).join(',');
+        },
+        'c',
+      )
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    const history = (executor.getSnapshot().subflowResults as Record<string, any>).sub.treeContext
-      .history as CommitBundle[];
-    expect(findLastWriter(history, 'cfg')?.runtimeStageId).toBe('');
+    const old = asRecordedThrough933(executor.getSnapshot());
+    const log = old.commitLog as CommitBundle[];
+    const reads = keysReadFromExecutionTree(old.executionTree);
+    const history = old.subflowResults.sub.treeContext.history as CommitBundle[];
+
+    expect(findLastWriter(log, 'cfg')?.runtimeStageId).toBe('b#1'); // the old (wrong) name, read as recorded
+    expect(commitValueAt(log, log.length - 1, 'cfg')).toEqual({ a: 1, m: 2 });
+    expect(causalChain(log, 'c#4', reads.lookup)?.parents.map((p) => p.runtimeStageId)).toEqual(['b#1']);
+    expect(sliceForKey(log, 'cfg', reads)).toBeDefined();
+    expect(forwardSliceForKey(log, 'cfg', reads).root).toBeDefined();
+    expect(keyTimeline(log, 'cfg', reads).missing).toBeUndefined();
+    expect(stateAt({ commitLog: log }, log.length - 1).state).toMatchObject({ cfg: { a: 1, m: 2 } });
+    expect(findLastWriter(history, 'seeded')?.runtimeStageId).toBe('');
+    const cursor = timeTravel(old);
+    expect(cursor.stops.map((s) => s.runtimeStageId)).toEqual(['', 'a#0', 'b#1', 'sub#2', 'c#4', '']);
+    const drilled = cursor.drill('sub#2')!;
+    expect(drilled.stops.map((s) => s.kind)).toEqual(['start', 'commit', 'end']);
+    expect(drilled.stops[0].lastCommitIdx).toBe(0); // the id-less seed folds into 'start', as before
   });
 });

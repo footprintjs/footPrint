@@ -251,29 +251,16 @@ sliceForKey(sf.commitLog, key, keysReadFromExecutionTree(sf.executionTree));
 resolution when one log genuinely spans them; it does not make a root slice
 cross a mount.)
 
-### Known limit — the merge-back is recorded under the wrong stage
+### Who a merge-back names — the mount (R13)
 
-Since 9.33.0 the key queries FIND the bundle that holds an outputMapper's
-merge-back; the stage that bundle names is the record's, and the record is
-wrong. `SubflowExecutor · executeSubflow` commits the output mapping on
-`parentContext.parent` whenever the mount's context carries a branchId — which
-a LINEAR mount's does — so the bundle carries the runtimeStageId of the stage
-BEFORE the mount (after a decider, the decider's), and the mount's own two
-bundles are empty. Consequences, pinned as KNOWN LIMITATION in
-test/lib/slice/nested-rows.test.ts so the fix lands as a named diff:
-
-- `findLastWriter(log, 'cfg').runtimeStageId` and a slice's `writer` name the
-  previous stage, not the mount;
-- `causalChain` resolves that id to the stage's FIRST bundle (`buildCommitIndex`
-  keeps the first), so the walk expands the previous stage's reads;
-- `timeTravel` folds the merge-back into the previous stage's stop, not the
-  mount's;
-- a subflow's input seed is recorded with an EMPTY runtimeStageId (`''`);
-- a reads provider keyed by runtimeStageId names the previous stage's reads at BOTH of its bundles, so a
-  forward slice can list that reader twice.
-
-The fix is a change to the engine's stamp (L6), out of this read-only layer's
-reach; it is its own packet.
+The bundle that holds an outputMapper's merge-back is the MOUNT's commit, and
+a subflow's input seed (`history[0]` of its log) carries the mount's names
+too. So `findLastWriter(log, 'cfg')` and a slice's `writer` name the mount,
+`causalChain` reaches the mount's own commit, and a reads provider keyed by
+runtimeStageId names each reader once. A recording made through 9.33.0
+stamped the merge-back with the stage before a branch or fork-child mount (or
+the decider) and the seed with `''`; every reader still reads it, and answers
+with the names it recorded (`test/lib/slice/nested-rows.test.ts`).
 
 
 ## Honesty model (inherited + added)

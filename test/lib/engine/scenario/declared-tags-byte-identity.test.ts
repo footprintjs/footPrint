@@ -20,10 +20,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
+import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+/** The 9.20.0 bytes, with the one named R13 change: the subflow's seed names its mount. */
 const reference = (encoding: 'full' | 'delta') =>
-  readFileSync(join(here, 'reference', `untagged-9.20.0.${encoding}.json`), 'utf8');
+  withSeedsNamedByMount(
+    readFileSync(join(here, 'reference', `untagged-9.20.0.${encoding}.json`), 'utf8'),
+    bothKeys(['paused'], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#9' }),
+  );
 
 describe('declared tags — an untagged chart is byte-identical to 9.20.0', () => {
   it('commitValues: full', async () => {

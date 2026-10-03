@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — a subflow's merge-back and seed are recorded under the MOUNT (ruling R13)
+
+- **Why.** The `outputMapper` merge-back of a branch or fork-child mount (`addSubFlowChart`,
+  `addSubFlowChartBranch`, a selector's subflow child) was committed on the frame BEFORE the
+  mount (`SubflowExecutor · executeSubflow` used `parentContext.parent` whenever the mount's context carried
+  a branchId), so its bundle named the previous stage — or the branching decider — while the mount's own
+  bundles were empty. `findLastWriter` found the right bundle and named the wrong stage, `causalChain`
+  resolved that id to the stage's FIRST bundle, a forward slice could list the previous stage's reader
+  twice, and `timeTravel` folded the merge-back into the previous stage's stop. A subflow's seed bundle
+  (`history[0]`) carried runtimeStageId `''`.
+- **Now.** The mount's own frame stages and commits the merge-back — at its parent's address
+  (`StageContext · useAddressOf`), so the values land exactly where they did — and the seed is stamped with
+  the mount's `stage`, `stageId` and `runtimeStageId`: the mount is the stage whose mappers produced both,
+  and its id needs no new execution index. This changes the bytes of every log that has a branch or
+  fork-child mount with an `outputMapper`, and of every subflow log with a seed; the bundle COUNT and every
+  value are unchanged. A linear mount (`addSubFlowChartNext`) already committed its merge-back on its own
+  frame; only its seed moves.
+
+  ```text
+  flowChart('A', …, 'a').addFunction('B', …, 'b')
+    .addSubFlowChart('sub', inner, 'Sub', { inputMapper: () => ({ seeded: 1 }), outputMapper: () => ({ cfg: { m: 2 } }) })
+
+  commitLog                          before (≤ 9.33.0)            after
+    [2] trace cfg␟m                  b#1  · stageId 'b'           sub#2 · stageId 'sub'
+    [3] [4] mount entry/exit (empty) sub#2                        sub#2
+  subflowResults.sub history[0]      '' · stageId 'sub/in'        sub#2 · stageId 'sub' · stage 'Sub'
+  findLastWriter(log, 'cfg')         b#1                          sub#2
+  ```
+
+  Moved with it: the merge-back's tracked reads and writes now sit on the mount's node of the execution
+  tree (they sat on the previous stage's), its rows' `readKeys` under `writeProvenance: 'reads-prefix'` are
+  the merge-back's own reads (they were the previous stage's read prefix), and the mount's declared tags
+  ride its first bundle — the merge-back. A drilled cursor still folds the seed into its `'start'` bookend
+  (`commitStops` recognises it by the mount's stage address being the subflow path of the log's stages).
+  `seedSubflowGlobalStore` (`/advanced`) takes the mount as an optional third argument; omitted, it keeps
+  the old shape.
+- **Old recordings still read.** A log recorded through 9.33.0 is read by every reader with the names it
+  recorded; an id-less seed still folds into `'start'`.
+- **Pinned.** `test/lib/slice/nested-rows.test.ts` — the former KNOWN LIMITATION block flipped (the writer
+  is the mount; the forward slice lists each reader once; the walk reaches the mount's commit; the seed
+  names its mount) and a pre-R13 recording read by every reader. The frozen byte references (9.18.1,
+  9.19.1, 9.20.0, 9.22.0, the 9.30.0 seed pin) are compared through one named edit,
+  `test/lib/engine/scenario/r13-seed-named-by-mount.ts`; the copy-on-write differentials see the 9.28.0
+  baseline through the same change and their corpus was regenerated from that baseline (62 chart entries
+  with a subflow moved, nothing else). `test/lib/pause/resume-real-chart.property.test.ts` stays green: a
+  resumed run still equals the never-paused one.
+
 ## [9.33.0] - 2026-10-03
 
 F3 — the log as a read model, and F4b — the basis-returning reader and the clone-free scrub. Unreleased on

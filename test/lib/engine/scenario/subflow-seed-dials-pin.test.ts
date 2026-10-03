@@ -148,7 +148,7 @@ async function firstEntryRun(options: FlowChartExecutorOptions) {
 const D = DELIM;
 
 /** Normal entry: the seed is the inputMapper's values. `cfg` spreads into one row per field. */
-const SEED_FIRST_ENTRY = JSON.stringify({
+const SEED_FIRST_ENTRY_PUBLISHED = JSON.stringify({
   overwrite: { n: 1, cfg: { a: 1, b: { c: 2 } }, list: [1, 2], flag: true },
   updates: {},
   redactedPaths: [],
@@ -166,7 +166,7 @@ const SEED_FIRST_ENTRY = JSON.stringify({
 });
 
 /** Resumed leg: the seed is the pause-time capture — everything the subflow had written by then. */
-const SEED_RESUMED = JSON.stringify({
+const SEED_RESUMED_PUBLISHED = JSON.stringify({
   overwrite: { n: 1, cfg: { a: 1, b: { c: 2 } }, list: [1, 2], flag: true, doubled: 2, log: [1], step: 2 },
   updates: {},
   redactedPaths: [],
@@ -185,6 +185,17 @@ const SEED_RESUMED = JSON.stringify({
   runtimeStageId: '',
   idx: 0,
 });
+
+/**
+ * R13: the seed is the MOUNT's commit, so it carries the mount's names — `stage`, `stageId`,
+ * `runtimeStageId` — and nothing else moved. Through 9.33.0 (the published control) it carried the
+ * subflow's first stage's names (on a resumed leg: the re-entry stage's) and runtimeStageId ''.
+ */
+function namedByMount(published: string, runtimeStageId: string): string {
+  return JSON.stringify({ ...JSON.parse(published), stage: 'Mount', stageId: 'sf', runtimeStageId });
+}
+const SEED_FIRST_ENTRY = namedByMount(SEED_FIRST_ENTRY_PUBLISHED, 'sf#1');
+const SEED_RESUMED = namedByMount(SEED_RESUMED_PUBLISHED, 'sf#4'); // the mount's execution on the resumed leg
 
 describe('subflow seed (history[0]) — the bytes are the same under every dial, as of 9.30.0', () => {
   describe.each(DIALS)('%s', (_name, options) => {
@@ -209,9 +220,9 @@ describe('subflow seed (history[0]) — the bytes are the same under every dial,
     expect(bytes(historyOf(executor)[0])).toBe(SEED_RESUMED);
   });
 
-  it('the PUBLISHED package commits the same seed bytes — the pin is not an accident of this build', async () => {
-    expect(bytes((await firstEntry({}, PUBLISHED))[0])).toBe(SEED_FIRST_ENTRY);
-    expect(bytes((await resumedLeg({}, PUBLISHED))[0])).toBe(SEED_RESUMED);
+  it('the PUBLISHED package commits the same seed bytes, but for the names R13 moved — the pin is not an accident of this build', async () => {
+    expect(bytes((await firstEntry({}, PUBLISHED))[0])).toBe(SEED_FIRST_ENTRY_PUBLISHED);
+    expect(bytes((await resumedLeg({}, PUBLISHED))[0])).toBe(SEED_RESUMED_PUBLISHED);
   });
 
   it('the named leaf the run-policy packet will change: no seed row carries `readKeys` today, even under reads-prefix', async () => {
