@@ -14,7 +14,9 @@
  *   commitValueAt          → its twin `commitValueAtWithBasis` (`basis`; same value, pinned by a property)
  *   findLastWriter         → its twin `findLastWriterWithBasis` (`basis`)
  *   sliceForKey            → `missing` (empty-log | never-written), `notes` ('nested-rows')
- *   causalChain            → per edge `basis` ('nested-rows'); `undefined` only for an id not in the log
+ *   causalChain            → per edge `basis` ('nested-rows'); per node `preRunReads` ('pre-run-origin': a
+ *                            read with no writer, which the walk used to drop silently); `undefined` only
+ *                            for an id not in the log
  *   arrayProvenance        → `missing`, and `basis` (the value twin's codes)
  *   elementProvenance      → `arrayProvenance` (documented: the Map.get-like convenience; ask it for `missing`)
  *   keyTimeline / forwardSliceForKey → `missing`, `notes`
@@ -119,7 +121,7 @@ const LOG: CommitBundle[] = [
   bundle(2, [{ path: `cfg${D}a`, verb: 'set' }], { cfg: { a: 1 } }),
   bundle(3, [{ path: 'y', verb: 'set' }], { y: 2 }),
 ];
-const READS = trace.keysReadFromMap(new Map([['s3#3', ['cfg']]]));
+const READS = trace.keysReadFromMap(new Map([['s3#3', ['cfg', 'never']]]));
 const registered = (code: string) => Object.prototype.hasOwnProperty.call(HONESTY_CODES, code);
 
 describe('every reader that can answer undefined for a key says why', () => {
@@ -178,9 +180,13 @@ describe('every reader that can answer undefined for a key says why', () => {
   it('causalChain: an edge to a writer inside the key carries basis nested-rows; undefined only for an unknown id', () => {
     const root = trace.causalChain(LOG, 's3#3', READS.lookup)!;
     expect(root.parentEdges.map((e) => [e.key, e.basis])).toEqual([['cfg', 'nested-rows']]);
-    expect(trace.sliceToJSON({ key: 'y', keysReadKind: 'map', writer: LOG[3], root }).edges?.[0].basis).toBe(
-      'nested-rows',
-    );
+    // a read no commit wrote has no edge — and says why, instead of vanishing
+    expect(root.preRunReads).toEqual({ code: 'pre-run-origin', keys: ['never'] });
+    expect(registered(root.preRunReads!.code)).toBe(true);
+    expect(root.parentEdges[0].parent).not.toHaveProperty('preRunReads'); // every read had a writer: 9.32.0 shape
+    const json = trace.sliceToJSON({ key: 'y', keysReadKind: 'map', writer: LOG[3], root });
+    expect(json.edges?.[0].basis).toBe('nested-rows');
+    expect(json.nodes?.['s3#3'].preRunReads?.keys).toEqual(['never']);
     expect(trace.causalChain(LOG, 'nope#9', READS.lookup)).toBeUndefined();
   });
 
@@ -192,9 +198,9 @@ describe('every reader that can answer undefined for a key says why', () => {
   });
 
   it('keyTimeline / forwardSliceForKey / stateAt', () => {
-    expect(trace.keyTimeline(LOG, 'never', READS).missing).toBe('never-written');
+    expect(trace.keyTimeline(LOG, 'absent', READS).missing).toBe('never-written');
     expect(trace.keyTimeline(LOG, 'cfg', READS).notes.map((n) => n.code)).toContain('nested-rows');
-    expect(trace.forwardSliceForKey(LOG, 'never', READS).missing).toBe('never-written');
+    expect(trace.forwardSliceForKey(LOG, 'absent', READS).missing).toBe('never-written');
     const folded = trace.stateAt({ commitLog: LOG }, 3);
     expect((folded.state as Record<string, unknown>).never).toBeUndefined();
     expect(folded.basis).toBe('log-only');

@@ -65,6 +65,7 @@ export function sliceToJSON(slice: VariableSlice): SliceJSON {
       keysWritten: node.keysWritten,
       depth: node.depth,
       ...(node.incompleteSources !== undefined && { incompleteSources: node.incompleteSources }),
+      ...(node.preRunReads !== undefined && { preRunReads: node.preRunReads }),
     };
     for (const edge of node.parentEdges) {
       edges.push({

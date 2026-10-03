@@ -560,6 +560,8 @@ export interface SliceJSON {
       keysWritten: string[];
       depth: number;
       incompleteSources?: ReadonlyArray<UntrackedSource>;
+      /** Copied from `CausalNode.preRunReads` (9.33.0); absent when every read had a writer. */
+      preRunReads?: { code: RegisteredCode<'pre-run-origin'>; keys: string[] };
     }
   >;
   /** Id-referenced edges: child (`from`) depends on parent (`to`). */

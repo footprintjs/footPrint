@@ -123,6 +123,15 @@ export interface CausalNode {
    * `code`.
    */
   truncated?: { byDepth: boolean; byNodes: boolean };
+  /**
+   * F4b (9.33.0) — the keys this node read that NO commit before it wrote (under the writer rule), so the
+   * walk has no edge to follow for them: their value came from the initial state, frozen run input or a
+   * closure — outside the commit log. The code says so (`'pre-run-origin'`, registered in
+   * `memory/honesty.ts · HONESTY_CODES`); `keys` are in the order the walk met them. ABSENT when every key
+   * the node expanded had a writer, so such a node keeps its 9.32.0 shape. Before 9.33.0 these reads were
+   * dropped without a word.
+   */
+  preRunReads?: { code: RegisteredCode<'pre-run-origin'>; keys: string[] };
 }
 
 /**
@@ -551,7 +560,12 @@ export function causalChain(
     const keysRead = keysToExpand;
     for (const key of keysRead) {
       const writer = findWriter(key, commitIdx);
-      if (!writer) continue;
+      if (!writer) {
+        // F4b: say why there is no edge — no commit before this node wrote the key.
+        node.preRunReads ??= { code: 'pre-run-origin', keys: [] };
+        if (!node.preRunReads.keys.includes(key)) node.preRunReads.keys.push(key);
+        continue;
+      }
       linkParent(node, writer, 'data', key, depth);
     }
 

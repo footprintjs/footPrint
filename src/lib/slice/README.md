@@ -70,7 +70,7 @@ commits: earlier writes may account for the rest, and a reader of the key may no
 that write changed. The other readers carry the same code (F4b, same minor): `sliceForKey` has an
 optional `notes` (a `'nested-rows'` note when its anchor wrote the key only through paths inside it —
 absent otherwise, so an exact slice keeps its 9.32 shape; `sliceToJSON` copies it, `formatSlice` prints
-it); each `causalChain` data edge to such a writer carries `basis: 'nested-rows'`; `arrayProvenance` has
+it); each `causalChain` data edge to such a writer carries `basis: 'nested-rows'`, and a node that read a key no commit before it wrote says so in `preRunReads: { code: 'pre-run-origin', keys }` (the walk used to drop such a read silently); `arrayProvenance` has
 an optional `basis` — the codes of `commitValueAtWithBasis` at `atIdx`, less what `missing` already says.
 
 ```typescript
