@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [9.33.0] - 2026-10-03
 
 F3 — the log as a read model, and F4b — the basis-returning reader and the clone-free scrub. Unreleased on
 purpose: the two ship in ONE minor, so no published version answers from a nested row without saying so.
