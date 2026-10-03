@@ -59,7 +59,8 @@
 
 import { isDevMode } from '../devMode.js';
 import { findLastWriter } from './commitLogUtils.js';
-import { relation } from './keyPaths.js';
+import type { RegisteredCode } from './honesty.js';
+import { relation, writesOnlyInside } from './keyPaths.js';
 import { logModel } from './logModel.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from './types.js';
 
@@ -140,6 +141,14 @@ export interface CausalEdge {
   kind: 'data' | 'control';
   key?: string;
   weight: number;
+  /**
+   * F4b (9.33.0) — present only on a `'data'` edge whose parent wrote `key` ONLY through rows inside it
+   * (a subflow's input seed, an outputMapper merge-back, a fork child's namespace): that write made part
+   * of the value, and earlier writers may account for the rest. Registered as `'nested-rows'` in
+   * `memory/honesty.ts · HONESTY_CODES`. Absent for a write on or around the key, so an exact edge keeps
+   * its 9.32.0 shape.
+   */
+  basis?: RegisteredCode<'nested-rows'>;
 }
 
 /**
@@ -512,7 +521,14 @@ export function causalChain(
           /* weigher threw — keep 1.0, the slice stays usable */
         }
       }
-      node.parentEdges.push({ parent: parentNode, kind, key, weight });
+      const nested = kind === 'data' && key !== undefined && writesOnlyInside(parentCommit, key);
+      node.parentEdges.push({
+        parent: parentNode,
+        kind,
+        key,
+        weight,
+        ...(nested && { basis: 'nested-rows' as const }),
+      });
     }
   }
 

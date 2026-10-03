@@ -23,6 +23,7 @@
  */
 
 import type { CausalNode, KeysReadLookup } from '../memory/backtrack.js';
+import type { ValueBasis } from '../memory/commitLogUtils.js';
 import type { RegisteredCode } from '../memory/honesty.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from '../memory/types.js';
 
@@ -148,6 +149,13 @@ export interface VariableSlice {
   root?: CausalNode;
   /** Present ONLY when `root` is absent — why there is no slice. */
   missing?: MissingSliceReason;
+  /**
+   * F4b (9.33.0) — what the anchor rests on, when it is not an exact write: a `'nested-rows'` note when
+   * the writer reached the key only through rows inside it. ABSENT when there is nothing to say, so a
+   * slice anchored at a write on or around the key keeps its 9.32.0 shape. Each causal edge says the
+   * same per link (`CausalEdge.basis`).
+   */
+  notes?: HonestyNote[];
   /** Which {@link KeysReadSource} strategy resolved reads (honesty/debug). */
   keysReadKind: string;
   /**
@@ -517,6 +525,14 @@ export interface ArrayProvenance {
   births?: ElementBirth[];
   /** Present ONLY when `births` is absent — why there is no provenance. */
   missing?: MissingProvenanceReason;
+  /**
+   * F4b (9.33.0) — the codes `commitValueAtWithBasis` gives the key's value at `atIdx` (or at the end of
+   * the log): `'nested-rows'`, `'from-initial-state'` (elements seeded before the run are invisible to the
+   * fold), `'redacted'`, `'deleted'`. A code `missing` already says is left out (`'never-written'`, and the
+   * initial-state caveat that sentence already states). ABSENT when empty, so an exact answer keeps its
+   * 9.32.0 shape.
+   */
+  basis?: ValueBasis[];
 }
 
 // ── JSON-safe serialization (for wire transfer / LLM tools) ────────────────
@@ -547,7 +563,17 @@ export interface SliceJSON {
     }
   >;
   /** Id-referenced edges: child (`from`) depends on parent (`to`). */
-  edges?: Array<{ from: string; to: string; kind: 'data' | 'control'; key?: string; weight: number }>;
+  edges?: Array<{
+    from: string;
+    to: string;
+    kind: 'data' | 'control';
+    key?: string;
+    weight: number;
+    /** Copied from `CausalEdge.basis` (9.33.0); absent for an exact edge. */
+    basis?: RegisteredCode<'nested-rows'>;
+  }>;
   /** Copied from the root when a budget cut the slice — registered as `'truncated'` in `HONESTY_CODES`. */
   truncated?: { byDepth: boolean; byNodes: boolean };
+  /** Copied from {@link VariableSlice.notes} (9.33.0); absent when the slice has none. */
+  notes?: HonestyNote[];
 }

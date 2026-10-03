@@ -73,12 +73,14 @@ export function sliceToJSON(slice: VariableSlice): SliceJSON {
         kind: edge.kind,
         ...(edge.key !== undefined && { key: edge.key }),
         weight: edge.weight,
+        ...(edge.basis !== undefined && { basis: edge.basis }),
       });
     }
   }
   out.nodes = nodes;
   out.edges = edges;
   if (slice.root.truncated) out.truncated = slice.root.truncated;
+  if (slice.notes !== undefined) out.notes = slice.notes;
   return out;
 }
 
@@ -120,7 +122,7 @@ export function formatSlice(slice: VariableSlice): string {
     );
   }
   if (slice.root) lines.push(formatCausalChain(slice.root));
-  return lines.join('\n');
+  return [...lines, ...noteLines(slice.notes ?? [])].join('\n');
 }
 
 // ── Forward projections ───────────────────────────────────────────────────
@@ -204,6 +206,7 @@ export function forwardSliceToJSON(slice: ForwardSlice): ForwardSliceJSON {
     node.fedEdges.map((edge) => ({ from: ids.get(node)!, to: ids.get(edge.child)!, basis: edge.basis })),
   );
   if (slice.root.truncated) out.truncated = slice.root.truncated;
+  if (slice.notes !== undefined) out.notes = slice.notes;
   return out;
 }
 

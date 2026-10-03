@@ -39,6 +39,10 @@
  *     index is on the key itself) — there nothing may move;
  *   - READER 2's invariant branch asks the writer rule (a row on, inside or
  *     around the key), not "a row on the exact path".
+ * F4b (9.33.0) added ONE field to READER 2's answer, `ArrayProvenance.basis`
+ * (the value twin's codes — `commitValueAtWithBasis` — less what `missing`
+ * says; absent when empty). The control compares the answer WITHOUT it, and
+ * the field is checked against the twin on every log.
  *   REFUSAL   R2: a row whose verb is not set | merge | append | delete throws
  *             `UnknownVerbError` naming the row at every door — where the old
  *             switches folded it as a merge (the control still does, below).
@@ -52,7 +56,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import fc from 'fast-check';
 
-import { commitValueAt } from '../../../../src/lib/memory/commitLogUtils';
+import { commitValueAt, commitValueAtWithBasis } from '../../../../src/lib/memory/commitLogUtils';
 import { deepEqual } from '../../../../src/lib/memory/equality';
 import { deepSmartMerge } from '../../../../src/lib/memory/merge';
 import { nativeDelete, nativeGet, nativeSet, own, ownedRootOf, ownSpine } from '../../../../src/lib/memory/pathOps';
@@ -531,7 +535,15 @@ describe('READER 2 — arrayProvenance', () => {
 
         // THE CONTROL — on exact-row logs F3 moved nothing.
         if (exactRowsOnly(log, key, end) && !inClassD(touches, 0)) {
-          expect(isDeepStrictEqual(actual, oldArrayProvenance(log, key, { atIdx: end }))).toBe(true);
+          const { basis: _basis, ...withoutBasis } = actual;
+          expect(isDeepStrictEqual(withoutBasis, oldArrayProvenance(log, key, { atIdx: end }))).toBe(true);
+        }
+        // F4b: the basis is the value twin's, less what `missing` already says; absent when empty.
+        {
+          const said = actual.missing === 'never-written' ? ['never-written', 'from-initial-state'] : [];
+          const expected = commitValueAtWithBasis(log, end, key).basis.filter((c) => !said.includes(c));
+          expect(actual.basis ?? []).toEqual(expected);
+          if (actual.basis !== undefined) expect(actual.basis.length).toBeGreaterThan(0);
         }
         // The invariant, on every log: births are index-aligned with the value, and the value is commitValueAt's.
         if (actual.births !== undefined) {

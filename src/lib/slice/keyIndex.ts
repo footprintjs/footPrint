@@ -27,7 +27,14 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
-import { type WriterIndex, ascendingUnion, pathsWritten, relation, rootOf } from '../memory/keyPaths.js';
+import {
+  type WriterIndex,
+  ascendingUnion,
+  pathsWritten,
+  relation,
+  rootOf,
+  writesOnlyInside,
+} from '../memory/keyPaths.js';
 import { logModel } from '../memory/logModel.js';
 import { pathSegments } from '../memory/paths.js';
 import type { CommitBundle, TraceEntry } from '../memory/types.js';
@@ -242,15 +249,7 @@ export function writeEntry(bundle: CommitBundle, key: string): TraceEntry | unde
  * names.
  */
 export function nestedOnlyWrites(commitLog: readonly CommitBundle[], key: string, writes: readonly number[]): number[] {
-  return writes.filter((i) => {
-    let inside = false;
-    for (const t of commitLog[i].trace) {
-      const r = relation(t.path, key);
-      if (r === 'exact' || r === 'around') return false;
-      if (r === 'inside') inside = true;
-    }
-    return inside;
-  });
+  return writes.filter((i) => writesOnlyInside(commitLog[i], key));
 }
 
 /** How many commit positions a `'nested-rows'` note lists before it says "+N more". */
