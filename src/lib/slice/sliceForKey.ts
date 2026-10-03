@@ -14,9 +14,10 @@
  */
 
 import { type CausalChainOptions, type KeysReadLookup, causalChain } from '../memory/backtrack.js';
-import { findLastWriter } from '../memory/commitLogUtils.js';
+import { commitValueAtWithBasis, findLastWriterWithBasis } from '../memory/commitLogUtils.js';
 import type { CommitBundle } from '../memory/types.js';
 import { normalisePath } from '../memory/utils.js';
+import { fromInitialStateNote, nestedRowsNote, redactedValueNote } from './keyIndex.js';
 import { resolveKeysReadSource } from './keysReadSources.js';
 import type { KeysReadSource, StateKey, VariableSlice } from './types.js';
 
@@ -70,8 +71,22 @@ export function sliceForKey(
 
   if (commitLog.length === 0) return { ...base, missing: 'empty-log' };
 
-  const writer = findLastWriter(commitLog, normalisedKey, options?.before);
-  if (!writer) return { ...base, missing: 'never-written' };
+  const { writer, basis } = findLastWriterWithBasis(commitLog, normalisedKey, options?.before);
+  // F4b: what the value at the slice's point rests on, from the value twin — a redaction, the pre-run base.
+  const end = Math.min(options?.before ?? commitLog.length, commitLog.length) - 1;
+  const value = end >= 0 ? commitValueAtWithBasis(commitLog, end, normalisedKey).basis : [];
+  if (!writer) {
+    // 'never-written' already says the value came from before the run; a redaction that hid the write does not.
+    return {
+      ...base,
+      missing: 'never-written',
+      ...(value.includes('redacted') && { notes: [redactedValueNote(normalisedKey)] }),
+    };
+  }
+  // A writer that reached the key only through rows inside it made part of the value — say so.
+  const notes = basis.includes('nested-rows') ? [nestedRowsNote(normalisedKey, [commitLog.indexOf(writer)])] : [];
+  if (value.includes('from-initial-state')) notes.push(fromInitialStateNote(normalisedKey));
+  if (value.includes('redacted')) notes.push(redactedValueNote(normalisedKey));
 
   // INVARIANT: `writer` came FROM this commitLog, so its runtimeStageId is
   // always present in causalChain's index — causalChain cannot return
@@ -91,5 +106,5 @@ export function sliceForKey(
     edgeAttribution: options?.edgeAttribution ?? 'per-write',
     rootLinkKeys: options?.rootLinkKeys ?? [normalisedKey],
   })!;
-  return { ...base, writer, root };
+  return { ...base, writer, root, ...(notes.length > 0 && { notes }) };
 }

@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-F3 — the log as a read model. Unreleased on purpose: it ships in ONE minor with F4b (the basis-returning
-reader), so no published version answers from a nested row without saying so.
+F3 — the log as a read model, and F4b — the basis-returning reader and the clone-free scrub. Unreleased on
+purpose: the two ship in ONE minor, so no published version answers from a nested row without saying so.
 
 ### Changed — the commit log is frozen at `record` (ruling R3)
 
@@ -76,10 +76,87 @@ reader), so no published version answers from a nested row without saying so.
   `test/lib/slice/nested-rows.test.ts` — every named change on the chart that shows it. Restated (each
   test header says how): the verb-law differential's reader oracles (the old exact-path switches stay as
   the CONTROL on exact-row logs), the repeated-path byte-identity answers (everything else still the
-  9.22.0 bytes), `foldKey`'s unit cases, and the honesty registry's count (19 codes).
+  9.22.0 bytes), `foldKey`'s unit cases, and the honesty registry's count (19 codes; 21 after F4b). F4b
+  restates one more: READER 2's control in the verb-law differential compares `arrayProvenance` without its
+  new `basis`, and checks `basis` against the value twin on every log.
+
+### Added — every absence names its basis (F4b)
+
+- **Why.** Since F3 a key query answers from rows inside the key, and `commitValueAt` / `findLastWriter`
+  answered `undefined` for four different reasons (never written, deleted, seeded before the run, a
+  redaction) without saying which — `commitValueAt(cfg)` after a redacted merge-back answers
+  `{ b: 'REDACTED' }`, and nothing told the caller that `'REDACTED'` is not data.
+- **`commitValueAtWithBasis(log, idx, key, { initialState? }) → { value, basis }`** (`footprintjs/trace`):
+  `value` is `commitValueAt`'s (pinned at every key and index of real runs); `basis` lists, in this order,
+  `'never-written'` (no writer — the writer rule), `'deleted'` (written, and its last write left it absent),
+  `'nested-rows'` (the value rests on rows inside the key, no `set`/`delete` of it or around it in range),
+  `'from-initial-state'` (no such `set`/`delete`: with `initialState` the value folds from that base — the
+  value `stateAt` gives with it, closing F3's one named gap — and without it the answer is partial),
+  `'redacted'` (a commit the value rests on lists a path at, inside or around the key in its
+  `redactedPaths` — the path list decides, never the placeholder string). An exact answer: `basis: []`.
+  Two writer-rule answers are corrected, since the log alone cannot see them: a run that REMOVED a value
+  the passed `initialState` held (a delete — full mode spells it a `set` — or a set of the container without
+  the key) says `'deleted'`, not `'never-written'`; a redaction at or around the key that hid the write says
+  `'redacted'` alone.
+- **`findLastWriterWithBasis(log, key, before?) → { writer?, basis }`**: `writer` is `findLastWriter`'s;
+  `basis` is `['never-written']`, `['nested-rows']` (the writer reached the key only through rows inside
+  it), or `['redacted']` (no writer the log can see because a redaction at or around the key hid it). `commitValueAt` and `findLastWriter` keep their signatures and answers.
+- **Two new codes**, one sentence each in `HONESTY_CODES`: `'deleted'`, `'from-initial-state'` (21 codes).
+  `'redacted'`'s sentence is reworded to be true of both emitters (a fold and a value basis). New exported
+  unions `ValueBasis`, `WriterBasis` (through `RegisteredCode`).
+- **New optional fields — absent when empty, so every exact answer keeps its 9.32.0 bytes:**
+  `VariableSlice.notes?: HonestyNote[]` (a `'nested-rows'` note when `sliceForKey`'s anchor wrote the key
+  only through rows inside it; `SliceJSON.notes` copies it and `formatSlice` prints it as a `⚠` line);
+  `CausalEdge.basis?: 'nested-rows'` on a data edge to such a writer (`SliceJSON.edges[].basis` copies it);
+  `CausalNode.preRunReads?: { code: 'pre-run-origin', keys }` — the keys a node read that no commit before
+  it wrote, which the walk used to drop without a word (`SliceJSON.nodes[id].preRunReads` copies it;
+  `'pre-run-origin'`'s sentence now says the value was "absent or already there");
+  `VariableSlice.notes` also says `'redacted'` and `'from-initial-state'` when the value twin does at the
+  slice's point (`HonestyNoteCode` gains both); `ElementBirth.valueBasis?` — `elementProvenance` carries
+  its array's `ArrayProvenance.basis`;
+  `ArrayProvenance.basis?: ValueBasis[]` (the value twin's codes, less what `missing` says — e.g.
+  `{ missing: 'not-an-array', basis: ['deleted'] }`, or `basis: ['from-initial-state']` beside the births of
+  an array that was only ever appended to: elements seeded before the run are not in them).
+- **The review question, pinned.** `test/architecture/absence-codes.test.ts` classifies every function
+  `footprintjs/trace` exports as a key reader or not (with the reason; a new export on neither list fails)
+  and asks each key reader for a never-written, a deleted and a nested key: every `undefined` or empty
+  answer carries a registered code or names the twin that does (`elementProvenance` → `arrayProvenance`;
+  `findCommit(log, stageId, key)` is a membership question whose `undefined` states its own answer).
+
+### Changed — the clone-free scrub (F4b; byte-identical)
+
+- **The engine's commit path no longer clones to scrub.** It calls a new internal `scrubPatch`
+  (`memory/redaction.ts`): with nothing to scrub (no policy, no per-call mark) it hands back the transaction
+  buffer's commit-time payload itself; otherwise it copies only the root and the containers on each
+  scrubbed path, sharing every other subtree, and never edits its input. Before, the commit called
+  `redactPatch` — a whole `structuredClone` of the patch — twice, policy or not. Every byte of the log and
+  the mirror is unchanged (the 9.18.1 / 9.19.1 redaction pins pass untouched).
+- **The public `redactPatch` (`footprintjs/advanced`) is unchanged**: still a fresh deep copy that shares
+  nothing with its input (pinned). It moved from `memory/utils.ts` to `memory/redaction.ts` and is now
+  `scrubPatch` over a `structuredClone`; the door and the contract are the same.
+- **Cost** (`bench/commit-clones.ts`, clones per stage, no policy; N = 100 and 1,000 alike): `redactPatch`
+  2 → 0 in every scenario (the commit path's scrub is `scrubPatch` now; it takes no clone). Totals: `small` 5 → 3, `mirror` (a policy on an unrelated key) 6 → 4, `merge`
+  6 → 4, `readback` 7 → 5, `agent` 12 → 8 (bytes cloned per turn at N = 1,000: 614.2 → 511.8 KB under
+  `'full'`), `nested-seed` 316 → 310 per interval. CPU per small-write stage unchanged within noise
+  (0.013 → 0.012 ms).
+- **Why it is safe.** The log now holds the buffer's payload, which `nextGeneration` also reads — it takes
+  its own copy of every value it places, and the buffer is dropped at commit. The record-reachability
+  property now runs every fixture program with the redaction policy ON and OFF: no object of any bundle is
+  reachable from live `sharedState`, the redacted mirror, `stageWrites`/`stageReads`, `subflowResults`,
+  recorder snapshots, any recorder hook payload or a stage's own reads, and nothing a stage can reach (live
+  state, its `$getValue` reads) is frozen — so the record's freeze can never surface as a `TypeError` in a
+  later stage. A positive control for each detector.
+- **The `append` degrade.** No arm asked the placeholder string (the placeholders test forbids the
+  literal): `applyVerb`'s `append` degrades on SHAPE (a non-array tail becomes the value). Whether a degrade
+  was a redaction is now asked of `bundle.redactedPaths` — the `'redacted'` basis.
 
 ### Fixed
 
+- **`key-query-scaling` counted wall time and failed on a busy machine** (10.7× and 11.1× against its 10×
+  bound while the shape was linear). It now counts the WORK of the whole walk (`keyPaths · queryWork`: rows
+  indexed and scanned, fold steps, around-verdicts, trie / ancestor / binary-search steps, and causalChain's
+  own queue, read-key and dedup loops) — deterministic: 4.00× for 4× the log against a bound of 6× (3.75×
+  for 200 single questions); a quadratic control measures 16.1× and is caught by the same bound.
 - **A typed array no longer breaks the freeze.** `deepFreeze` threw on a non-empty typed array
   (`Object.freeze` cannot freeze one), so `getSnapshot()` threw for a `Uint8Array` in `initialContext`, and
   run args, the dev-mode snapshot and `stateAt` over a state holding one failed the same way. ArrayBuffer

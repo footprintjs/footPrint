@@ -49,7 +49,7 @@
  * Post-hoc query, off the hot path — acceptable; measured in the perf tests.
  */
 
-import { rowsUnderRoot, writersOf } from '../memory/commitLogUtils.js';
+import { type ValueBasis, commitValueAtWithBasis, rowsUnderRoot, writersOf } from '../memory/commitLogUtils.js';
 import type { CommitBundle } from '../memory/types.js';
 import { deepEqual, DELIM } from '../memory/utils.js';
 import { type Touch, foldKey, recordsTail } from '../memory/verbs.js';
@@ -108,7 +108,14 @@ export function arrayProvenance(
   const rows = rowsUnderRoot(commitLog, normalisedKey, end);
   // The commits that WROTE the key — the writer rule every key query shares.
   const writers = new Set(writersOf(commitLog, normalisedKey, { end }));
-  if (writers.size === 0) return { key: normalisedKey, missing: 'never-written' };
+  // F4b: what the value at `end` rests on — the basis twin's codes, less what `missing` already says.
+  const { basis } = commitValueAtWithBasis(commitLog, end, normalisedKey);
+  const said = (also: ValueBasis[]) => {
+    const rest = basis.filter((c) => !also.includes(c));
+    return rest.length > 0 ? { basis: rest } : {};
+  };
+  if (writers.size === 0)
+    return { key: normalisedKey, missing: 'never-written', ...said(['never-written', 'from-initial-state']) };
 
   // The append-fold: the key's one fold, watched. `births` is the added
   // provenance track, index-aligned whenever the value is an array (the
@@ -121,8 +128,8 @@ export function arrayProvenance(
     },
   });
 
-  if (!Array.isArray(value)) return { key: normalisedKey, missing: 'not-an-array' };
-  return { key: normalisedKey, atIdx: end, length: value.length, births };
+  if (!Array.isArray(value)) return { key: normalisedKey, missing: 'not-an-array', ...said([]) };
+  return { key: normalisedKey, atIdx: end, length: value.length, births, ...said([]) };
 }
 
 /**
@@ -197,5 +204,6 @@ export function elementProvenance(
 ): ElementBirth | undefined {
   const prov = arrayProvenance(commitLog, key, options);
   if (!prov.births || index < 0 || index >= prov.births.length) return undefined;
-  return prov.births[index];
+  const birth = prov.births[index];
+  return prov.basis === undefined ? birth : { ...birth, valueBasis: prov.basis };
 }

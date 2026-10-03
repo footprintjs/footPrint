@@ -23,6 +23,7 @@
  */
 
 import type { CausalNode, KeysReadLookup } from '../memory/backtrack.js';
+import type { ValueBasis } from '../memory/commitLogUtils.js';
 import type { RegisteredCode } from '../memory/honesty.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from '../memory/types.js';
 
@@ -148,6 +149,16 @@ export interface VariableSlice {
   root?: CausalNode;
   /** Present ONLY when `root` is absent — why there is no slice. */
   missing?: MissingSliceReason;
+  /**
+   * F4b (9.33.0) — what the anchor rests on, when it is not an exact write: a `'nested-rows'` note when
+   * the writer reached the key only through rows inside it; a `'redacted'` note when the value it explains
+   * holds (or lost the key under) the log's placeholder; a `'from-initial-state'` note when no `set` /
+   * `delete` of the key or around it is in range, so the value rests on the pre-run state the log cannot
+   * see (the codes of `commitValueAtWithBasis` at the slice's point). ABSENT when there is nothing to say, so a
+   * slice anchored at a write on or around the key keeps its 9.32.0 shape. Each causal edge says the
+   * same per link (`CausalEdge.basis`).
+   */
+  notes?: HonestyNote[];
   /** Which {@link KeysReadSource} strategy resolved reads (honesty/debug). */
   keysReadKind: string;
   /**
@@ -198,7 +209,14 @@ export type FedBasis = RegisteredCode<'per-write' | 'stage'>;
  * not compile.
  */
 export type HonestyNoteCode = RegisteredCode<
-  'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated'
+  | 'conservative-fed-edges'
+  | 'nested-rows'
+  | 'pre-run-origin'
+  | 'reads-not-recorded'
+  | 'unknown-key'
+  | 'truncated'
+  | 'redacted'
+  | 'from-initial-state'
 >;
 
 /** One honesty statement — see {@link HonestyNoteCode}. */
@@ -470,6 +488,11 @@ export interface ElementBirth {
   /** How the attribution was determined — see {@link AttributionBasis}. */
   basis: AttributionBasis;
   /**
+   * F4b (9.33.0) — set only by `elementProvenance`: the `basis` of the array this element sits in
+   * (`ArrayProvenance.basis` — e.g. `'from-initial-state'`, `'redacted'`). Absent when that basis is empty.
+   */
+  valueBasis?: ValueBasis[];
+  /**
    * The element's value as of the fold (detached clone). Redaction note:
    * values are re-served exactly as the commit log stored them — a redacted
    * key's `'REDACTED'` placeholder (`memory/placeholders.ts ·
@@ -517,6 +540,14 @@ export interface ArrayProvenance {
   births?: ElementBirth[];
   /** Present ONLY when `births` is absent — why there is no provenance. */
   missing?: MissingProvenanceReason;
+  /**
+   * F4b (9.33.0) — the codes `commitValueAtWithBasis` gives the key's value at `atIdx` (or at the end of
+   * the log): `'nested-rows'`, `'from-initial-state'` (elements seeded before the run are invisible to the
+   * fold), `'redacted'`, `'deleted'`. A code `missing` already says is left out (`'never-written'`, and the
+   * initial-state caveat that sentence already states). ABSENT when empty, so an exact answer keeps its
+   * 9.32.0 shape.
+   */
+  basis?: ValueBasis[];
 }
 
 // ── JSON-safe serialization (for wire transfer / LLM tools) ────────────────
@@ -544,10 +575,22 @@ export interface SliceJSON {
       keysWritten: string[];
       depth: number;
       incompleteSources?: ReadonlyArray<UntrackedSource>;
+      /** Copied from `CausalNode.preRunReads` (9.33.0); absent when every read had a writer. */
+      preRunReads?: { code: RegisteredCode<'pre-run-origin'>; keys: string[] };
     }
   >;
   /** Id-referenced edges: child (`from`) depends on parent (`to`). */
-  edges?: Array<{ from: string; to: string; kind: 'data' | 'control'; key?: string; weight: number }>;
+  edges?: Array<{
+    from: string;
+    to: string;
+    kind: 'data' | 'control';
+    key?: string;
+    weight: number;
+    /** Copied from `CausalEdge.basis` (9.33.0); absent for an exact edge. */
+    basis?: RegisteredCode<'nested-rows'>;
+  }>;
   /** Copied from the root when a budget cut the slice — registered as `'truncated'` in `HONESTY_CODES`. */
   truncated?: { byDepth: boolean; byNodes: boolean };
+  /** Copied from {@link VariableSlice.notes} (9.33.0); absent when the slice has none. */
+  notes?: HonestyNote[];
 }

@@ -1,7 +1,7 @@
 /**
  * honesty.ts — the ONE vocabulary for what a reader cannot see (F4a).
  *
- *   unit      the registry is frozen and closed, holds exactly the nineteen codes, and every explanation is
+ *   unit      the registry is frozen and closed, holds exactly the twenty-one codes, and every explanation is
  *             ONE sentence
  *   boundary  the TYPES, asked of the real compiler: a code the registry does not hold FAILS TO COMPILE; the
  *             six public unions are exactly the members they were (they did not widen); the sentences are
@@ -18,6 +18,12 @@
  * that member: the registry holds NINETEEN codes (six slice notes), and `HonestyNoteCode`'s literal union `Today`
  * gains `'nested-rows'`. The five 9.31.0 note bytes, and the check that their builders speak exactly those five,
  * are untouched (`SLICE_CODES_9_31`); the new note's builder is pinned on its own.
+ *
+ * F4b (9.33.0) added TWO codes, `'deleted'` and `'from-initial-state'` (the value basis of
+ * `commitValueAtWithBasis`): the registry holds TWENTY-ONE. `'redacted'`'s sentence was reworded to be true of
+ * both emitters (a fold and a key's value basis); no runtime string the engine writes changed. `HonestyNoteCode`
+ * gains `'redacted'` and `'from-initial-state'` (a backward slice's notes say them), and `'pre-run-origin'`'s
+ * sentence says "absent or already there" (a causal node's `preRunReads` lists keys that never existed too).
  */
 import { join, resolve } from 'path';
 import ts from 'typescript';
@@ -56,6 +62,8 @@ const MISSING_REASONS = ['empty-log', 'never-written', 'not-an-array'];
 const FED_BASES = ['per-write', 'stage'];
 const ATTRIBUTION_BASES = ['append-verb', 'prefix-inference', 'whole-value'];
 const FOLD_BASES = ['initial+log', 'log-only'];
+/** F4b (9.33.0): the two codes only a key's value basis speaks (`ValueBasis` — the rest of it is shared). */
+const VALUE_BASES = ['deleted', 'from-initial-state'];
 const SIGNALS_WITHOUT_A_CODE_FIELD = ['log-gap', 'incomplete-sources', 'redacted'];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -78,16 +86,17 @@ describe('HONESTY_CODES — unit', () => {
     }).toThrow(TypeError);
   });
 
-  it('holds exactly nineteen codes — six slice notes, three missing reasons, two fed-edge and three birth bases, two fold bases, three codeless signals', () => {
+  it('holds exactly twenty-one codes — six slice notes, three missing reasons, two fed-edge and three birth bases, two fold bases, two value bases, three codeless signals', () => {
     const all = [
       ...SLICE_CODES,
       ...MISSING_REASONS,
       ...FED_BASES,
       ...ATTRIBUTION_BASES,
       ...FOLD_BASES,
+      ...VALUE_BASES,
       ...SIGNALS_WITHOUT_A_CODE_FIELD,
     ];
-    expect(all).toHaveLength(19);
+    expect(all).toHaveLength(21);
     expect(Object.keys(HONESTY_CODES).sort()).toEqual(all.sort());
   });
 
@@ -122,16 +131,20 @@ const HEADER = [
   "import type { FoldBasis } from '../time-travel/types.js';",
   "import type { AttributionBasis, FedBasis, HonestyNote, HonestyNoteCode } from '../slice/types.js';",
   "import type { MissingProvenanceReason, MissingSliceReason } from '../slice/types.js';",
+  "import type { ValueBasis, WriterBasis } from './commitLogUtils.js';",
   "import { HONESTY_CODES } from './honesty.js';",
   "import type { HonestyCode, RegisteredCode } from './honesty.js';",
-  "type Today = 'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated';",
+  "type Today = 'conservative-fed-edges' | 'nested-rows' | 'pre-run-origin' | 'reads-not-recorded' | 'unknown-key' | 'truncated' | 'redacted' | 'from-initial-state';",
   "type TodayBasis = 'initial+log' | 'log-only';",
   "type TodayMissing = 'empty-log' | 'never-written';",
   "type TodayProvenance = 'empty-log' | 'never-written' | 'not-an-array';",
   "type TodayFed = 'per-write' | 'stage';",
   "type TodayAttribution = 'append-verb' | 'prefix-inference' | 'whole-value';",
+  "type TodayValue = 'never-written' | 'deleted' | 'nested-rows' | 'from-initial-state' | 'redacted';",
+  "type TodayWriter = 'never-written' | 'nested-rows' | 'redacted';",
   // every declared vocabulary, plus the three codes a field carries instead of a `code` value
   'type Declared = HonestyNoteCode | MissingSliceReason | MissingProvenanceReason | FedBasis | AttributionBasis | FoldBasis | ' +
+    'ValueBasis | WriterBasis | ' +
     "'log-gap' | 'incomplete-sources' | 'redacted';",
 ];
 
@@ -158,6 +171,10 @@ const CASES: Record<string, string> = {
     'const e3: TodayFed = null as unknown as FedBasis; const f3: FedBasis = null as unknown as TodayFed;',
   attributionUnionIsToday:
     'const e4: TodayAttribution = null as unknown as AttributionBasis; const f4: AttributionBasis = null as unknown as TodayAttribution;',
+  valueUnionIsToday:
+    'const e5: TodayValue = null as unknown as ValueBasis; const f5: ValueBasis = null as unknown as TodayValue;',
+  writerUnionIsToday:
+    'const e6: TodayWriter = null as unknown as WriterBasis; const f6: WriterBasis = null as unknown as TodayWriter;',
   // … and did NOT widen to every registered code
   sliceUnionRefusesALogGap: "const g: HonestyNoteCode = 'log-gap';",
   sliceUnionRefusesABasis: "const h: HonestyNoteCode = 'log-only';",
@@ -238,8 +255,10 @@ describe('the types — asked of the real compiler', () => {
     expect(byCase.get('lookupByAnUnregisteredCodeFails')).toEqual(['TS7053']);
   });
 
-  it("the six public unions are exactly today's members: mutually assignable with the literal unions, and not widened", () => {
+  it("the eight public unions are exactly today's members: mutually assignable with the literal unions, and not widened", () => {
     for (const name of [
+      'valueUnionIsToday',
+      'writerUnionIsToday',
       'sliceUnionIsToday',
       'foldUnionIsToday',
       'missingUnionIsToday',
@@ -548,7 +567,7 @@ describe('the two placeholders — the five places that used to spell them still
     const live = executor.getSnapshot();
     const safe = executor.getSnapshot({ redact: true });
 
-    // LOG tier — memory/utils.ts · redactPatch: what the commit log recorded
+    // LOG tier — memory/redaction.ts · redactPatch: what the commit log recorded
     const seedCommit = (live.commitLog as CommitBundle[]).find((b) => b.stageId === 'seed')!;
     expect(seedCommit.overwrite).toMatchObject({ ssn: 'REDACTED', apiKey: 'REDACTED' });
     // LOG tier — runner/ExecutionRuntime.ts: the mirror's seed is scrubbed with the log's string

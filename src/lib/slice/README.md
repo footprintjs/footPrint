@@ -67,8 +67,19 @@ merge-back still read the rest of the anchored value, so it stays listed.
 **A write found through a row inside the key wrote only PART of its value.** `keyTimeline` (any such
 write moment) and `forwardSliceForKey` (such an anchor) say so with a `'nested-rows'` note naming the
 commits: earlier writes may account for the rest, and a reader of the key may not have read the part
-that write changed. `sliceForKey`, `findLastWriter` and `commitValueAt` have no note channel; their
-basis-returning twin ships in the same minor (F4b).
+that write changed. The other readers carry the same code (F4b, same minor): `sliceForKey` has an
+optional `notes` (a `'nested-rows'` note when its anchor wrote the key only through paths inside it —
+absent otherwise, so an exact slice keeps its 9.32 shape; `sliceToJSON` copies it, `formatSlice` prints
+it); each `causalChain` data edge to such a writer carries `basis: 'nested-rows'`, and a node that read a key no commit before it wrote says so in `preRunReads: { code: 'pre-run-origin', keys }` (the walk used to drop such a read silently); `arrayProvenance` has
+an optional `basis` — the codes of `commitValueAtWithBasis` at `atIdx`, less what `missing` already says.
+
+```typescript
+import { arrayProvenance, sliceForKey } from 'footprintjs/trace';
+
+sliceForKey(log, 'cfg', reads).notes;   // [{ code: 'nested-rows', detail: "'cfg' was written only through paths inside it at commit 3 — …" }]
+sliceForKey(log, 'score', reads).notes; // undefined — the anchor wrote 'score' itself
+arrayProvenance(log, 'gone');           // { key: 'gone', missing: 'not-an-array', basis: ['deleted'] }
+```
 
 ```typescript
 import { flowChart, FlowChartExecutor } from 'footprintjs';

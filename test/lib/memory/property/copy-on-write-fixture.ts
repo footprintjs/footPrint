@@ -1268,3 +1268,36 @@ export function firstDifference(a: Record<string, string>, b: Record<string, str
   }
   return '';
 }
+
+/**
+ * Every commit log one run of a chart program keeps — the run's and each subflow's own `history` — with the
+ * fold base that travelled with it (`initialState`). Used by the key-query properties (F4b, 9.33.0).
+ */
+export async function chartLogs(
+  engine: Engine,
+  p: ChartProgram,
+): Promise<Array<{ log: any[]; base: Record<string, unknown> | undefined }>> {
+  const ex = new engine.FlowChartExecutor(
+    buildChart(engine, p, [], () => undefined),
+    {
+      commitValues: p.cfg.commitValues,
+      readTracking: p.cfg.readTracking,
+      writeTracking: p.cfg.writeTracking,
+      writeProvenance: p.cfg.writeProvenance,
+      ...(p.cfg.initial ? { initialContext: { a: 'init', obj: { x: 0, nest: { q: [1, 2] } }, hist: [{ n: 1 }] } } : {}),
+    },
+  );
+  if (p.cfg.policy) ex.setRedactionPolicy({ keys: ['b'], fields: { obj: ['y'] } });
+  try {
+    await ex.run();
+  } catch {
+    /* the log holds what landed */
+  }
+  const snap = ex.getSnapshot();
+  const logs = [{ log: snap.commitLog as any[], base: snap.initialState as Record<string, unknown> | undefined }];
+  for (const [id, sf] of Object.entries(snap.subflowResults ?? {}) as Array<[string, any]>) {
+    if (id.includes('#')) continue; // the same result, dual-keyed by its runtimeStageId
+    logs.push({ log: sf.treeContext.history, base: sf.treeContext.initialState });
+  }
+  return logs;
+}

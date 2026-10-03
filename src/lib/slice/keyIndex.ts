@@ -27,7 +27,14 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
-import { type WriterIndex, ascendingUnion, pathsWritten, relation, rootOf } from '../memory/keyPaths.js';
+import {
+  type WriterIndex,
+  ascendingUnion,
+  pathsWritten,
+  relation,
+  rootOf,
+  writesOnlyInside,
+} from '../memory/keyPaths.js';
 import { logModel } from '../memory/logModel.js';
 import { pathSegments } from '../memory/paths.js';
 import type { CommitBundle, TraceEntry } from '../memory/types.js';
@@ -242,15 +249,7 @@ export function writeEntry(bundle: CommitBundle, key: string): TraceEntry | unde
  * names.
  */
 export function nestedOnlyWrites(commitLog: readonly CommitBundle[], key: string, writes: readonly number[]): number[] {
-  return writes.filter((i) => {
-    let inside = false;
-    for (const t of commitLog[i].trace) {
-      const r = relation(t.path, key);
-      if (r === 'exact' || r === 'around') return false;
-      if (r === 'inside') inside = true;
-    }
-    return inside;
-  });
+  return writes.filter((i) => writesOnlyInside(commitLog[i], key));
 }
 
 /** How many commit positions a `'nested-rows'` note lists before it says "+N more". */
@@ -272,6 +271,26 @@ export function nestedRowsNote(key: string, commits: readonly number[]): Honesty
       `'${shownKey(key)}' was written only through paths inside it at ${at} — such a write changed part of ` +
       'its value, not the whole: earlier writes may account for the rest, and a reader of the key may ' +
       'not have read the part it changed.',
+  };
+}
+
+/** The value a backward slice explains holds, or lost the key under, the log's redaction placeholder. */
+export function redactedValueNote(key: string): HonestyNote {
+  return {
+    code: 'redacted',
+    detail:
+      `'${shownKey(key)}' was redacted when it was written — where its value shows the log's placeholder (or ` +
+      'the key is missing under a placeholder that replaced its container), the real value was never recorded.',
+  };
+}
+
+/** No set or delete of the key, or of a container around it, is in range: the value rests on the pre-run state. */
+export function fromInitialStateNote(key: string): HonestyNote {
+  return {
+    code: 'from-initial-state',
+    detail:
+      `'${shownKey(key)}' has no write of its whole value in range — its value rests on what it held before the ` +
+      'run, which the commit log cannot see, so the writes here may be only part of it.',
   };
 }
 

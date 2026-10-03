@@ -3,13 +3,13 @@
  * Covers: redactPatch, updateValue, deepSmartMerge
  */
 
+import { redactPatch, scrubPatch } from '../../../../src/lib/memory/redaction';
 import {
   deepEqual,
   deepSmartMerge,
   DELIM,
   normalisePath,
   pathSegments,
-  redactPatch,
   updateValue,
 } from '../../../../src/lib/memory/utils';
 
@@ -170,6 +170,46 @@ describe('redactPatch', () => {
     const patch = { a: { b: { c: 'secret' } } };
     const redacted = redactPatch(patch, new Set([`a${DELIM}b${DELIM}c`]));
     expect(redacted.a.b.c).toBe('REDACTED');
+  });
+
+  it('the PUBLIC redactPatch keeps its 4.x contract: a fresh deep copy, sharing nothing, input untouched', () => {
+    const patch = { user: { ssn: 's', addr: { city: 'X' } }, other: { big: [1] } };
+    for (const set of [new Set<string>(), new Set([`user${DELIM}ssn`])]) {
+      const out = redactPatch(patch, set);
+      expect(out).not.toBe(patch);
+      expect(out.user).not.toBe(patch.user);
+      expect(out.user.addr).not.toBe(patch.user.addr);
+      expect(out.other).not.toBe(patch.other);
+    }
+    expect(patch.user.ssn).toBe('s');
+  });
+
+  // 9.33.0 — scrubPatch, the engine's clone-free scrub: the patch is the buffer's commit-time copy already.
+  it('returns the patch ITSELF when there is nothing to scrub (no policy) — no copy at all', () => {
+    const patch = { a: { b: 1 }, list: [1, 2] };
+    expect(scrubPatch(patch, new Set())).toBe(patch);
+    expect(scrubPatch(patch, new Set([`zz${DELIM}q`]))).toBe(patch);
+  });
+
+  it('copies only the spine of a scrubbed path; every other subtree is shared and the input is never edited', () => {
+    const patch = { user: { name: 'Alice', ssn: 's', addr: { city: 'X' } }, other: { big: [1, 2, 3] } };
+    const redacted = scrubPatch(patch, new Set([`user${DELIM}ssn`]));
+    expect(redacted).not.toBe(patch);
+    expect(redacted.user).not.toBe(patch.user);
+    expect(redacted.user.addr).toBe(patch.user.addr);
+    expect(redacted.other).toBe(patch.other);
+    expect(patch.user.ssn).toBe('s');
+    expect(redacted).toEqual({
+      user: { name: 'Alice', ssn: 'REDACTED', addr: { city: 'X' } },
+      other: { big: [1, 2, 3] },
+    });
+  });
+
+  it('a path under one already scrubbed is left alone, in either order (the 4.x behaviour)', () => {
+    const patch = { a: { b: 'secret' } };
+    expect(scrubPatch(patch, new Set(['a', `a${DELIM}b`]))).toEqual({ a: 'REDACTED' });
+    expect(scrubPatch(patch, new Set([`a${DELIM}b`, 'a']))).toEqual({ a: 'REDACTED' });
+    expect(patch).toEqual({ a: { b: 'secret' } });
   });
 });
 

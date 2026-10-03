@@ -16,8 +16,9 @@
  * See docs/design/13c-b-delta-commit-verb.md.
  */
 import { nativeDelete } from '../../../../src/lib/memory/pathOps';
+import { scrubPatch } from '../../../../src/lib/memory/redaction';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-import { applySmartMerge, DELIM, redactPatch } from '../../../../src/lib/memory/utils';
+import { applySmartMerge, DELIM } from '../../../../src/lib/memory/utils';
 
 describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
   describe('append detection', () => {
@@ -367,7 +368,7 @@ describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
       const mirror = applySmartMerge(
         base,
         bundle.updates,
-        redactPatch(bundle.overwrite, bundle.redactedPaths),
+        scrubPatch(bundle.overwrite, bundle.redactedPaths),
         bundle.trace,
       );
       expect(JSON.stringify(mirror)).not.toContain('SECRET');

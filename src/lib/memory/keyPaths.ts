@@ -42,6 +42,15 @@
 import { DELIM } from './paths.js';
 import type { CommitBundle } from './types.js';
 
+/**
+ * The WORK every key query has done — rows indexed and scanned, fold steps, around-verdicts, trie and
+ * ancestor steps, binary searches, a causal walk's own loops — summed across calls. A deterministic cost
+ * measure: `test/lib/memory/boundary/key-query-scaling.test.ts` asserts a causal walk's work grows linearly
+ * in the log by COUNTING it (a wall-clock ratio failed on a busy machine). Never read by the library; one
+ * integer add per unit of work it already does. Here, at L0, so every layer that does that work can count it.
+ */
+export const queryWork = { units: 0 };
+
 /** How a row's path sits against a key's path. `undefined` from {@link relation} means disjoint. */
 export type PathRelation = 'exact' | 'inside' | 'around';
 
@@ -152,6 +161,7 @@ export function pathsWritten(index: WriterIndex): string[] {
 /** The node for `key`, or undefined when no row was written on it or below it. */
 export function nodeAt(index: WriterIndex, key: string): PathNode | undefined {
   const segs = key.split(DELIM);
+  queryWork.units += segs.length;
   let node = index.roots.get(segs[0]);
   for (let s = 1; node !== undefined && s < segs.length; s++) node = node.children.get(segs[s]);
   return node;
@@ -161,6 +171,7 @@ export function nodeAt(index: WriterIndex, key: string): PathNode | undefined {
 export function ancestorNodes(index: WriterIndex, key: string): PathNode[] {
   const segs = key.split(DELIM);
   const out: PathNode[] = [];
+  queryWork.units += segs.length;
   let node = index.roots.get(segs[0]);
   for (let s = 1; node !== undefined && s < segs.length; s++) {
     out.push(node);
@@ -171,12 +182,14 @@ export function ancestorNodes(index: WriterIndex, key: string): PathNode[] {
 
 /** Every commit with a row on `node`'s path or below it — ascending, memoised on the node. */
 export function subtreePositions(node: PathNode): readonly number[] {
+  queryWork.units += 1;
   if (node.subtree === undefined) {
     if (node.children.size === 0) node.subtree = node.positions;
     else {
       const lists: (readonly number[])[] = [node.positions];
       for (const child of node.children.values()) lists.push(subtreePositions(child));
       node.subtree = ascendingUnion(lists);
+      queryWork.units += node.subtree.length;
     }
   }
   return node.subtree;
@@ -184,6 +197,7 @@ export function subtreePositions(node: PathNode): readonly number[] {
 
 /** The first index in an ascending list holding a value >= `value`. */
 export function lowerBound(sorted: readonly number[], value: number): number {
+  queryWork.units += 1;
   let lo = 0;
   let hi = sorted.length;
   while (lo < hi) {
@@ -202,7 +216,9 @@ export function lastBefore(sorted: readonly number[], before: number): number {
 
 /** The values of an ascending list in the OPEN range (`after`, `before`). */
 export function between(sorted: readonly number[], after: number, before: number): readonly number[] {
-  return sorted.slice(lowerBound(sorted, after + 1), lowerBound(sorted, before));
+  const out = sorted.slice(lowerBound(sorted, after + 1), lowerBound(sorted, before));
+  queryWork.units += out.length;
+  return out;
 }
 
 /** The commits that can have written a key, split by what the writer rule still has to ask. */
@@ -233,4 +249,19 @@ export function ascendingUnion(lists: readonly (readonly number[])[]): number[] 
   const all = new Set<number>();
   for (const list of lists) for (const i of list) all.add(i);
   return [...all].sort((a, b) => a - b);
+}
+
+/**
+ * Did this commit reach `key` ONLY through rows inside it — at least one row `'inside'` the key, and no
+ * row on it or around it? Such a write changed part of the key's value, not the whole: the one test
+ * behind every `'nested-rows'` code (a slice note, a causal edge's `basis`, `findLastWriterWithBasis`).
+ */
+export function writesOnlyInside(bundle: CommitBundle, key: string): boolean {
+  let inside = false;
+  for (const t of bundle.trace) {
+    const r = relation(t.path, key);
+    if (r === 'exact' || r === 'around') return false;
+    if (r === 'inside') inside = true;
+  }
+  return inside;
 }

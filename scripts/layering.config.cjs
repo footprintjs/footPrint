@@ -51,7 +51,7 @@ const LAYERS = [
       'src/lib/memory/merge.ts',
       // The honesty vocabulary (F4a): code → the one sentence; imports nothing, typed through from L3.
       'src/lib/memory/honesty.ts',
-      // The two redaction placeholders (F4a): import nothing; written from L1 (redactPatch) up.
+      // The two redaction placeholders (F4a): import nothing; written from L2 (redaction.ts) up.
       'src/lib/memory/placeholders.ts',
       // Which rows touch a key — the path half of the writer rule and the writer index (F3).
       // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.

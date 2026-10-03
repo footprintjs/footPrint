@@ -59,7 +59,8 @@
 
 import { isDevMode } from '../devMode.js';
 import { findLastWriter } from './commitLogUtils.js';
-import { relation } from './keyPaths.js';
+import type { RegisteredCode } from './honesty.js';
+import { queryWork, relation, writesOnlyInside } from './keyPaths.js';
 import { logModel } from './logModel.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from './types.js';
 
@@ -122,6 +123,15 @@ export interface CausalNode {
    * `code`.
    */
   truncated?: { byDepth: boolean; byNodes: boolean };
+  /**
+   * F4b (9.33.0) — the keys this node read that NO commit before it wrote (under the writer rule), so the
+   * walk has no edge to follow for them: their value came from the initial state, frozen run input or a
+   * closure — outside the commit log. The code says so (`'pre-run-origin'`, registered in
+   * `memory/honesty.ts · HONESTY_CODES`); `keys` are in the order the walk met them. ABSENT when every key
+   * the node expanded had a writer, so such a node keeps its 9.32.0 shape. Before 9.33.0 these reads were
+   * dropped without a word.
+   */
+  preRunReads?: { code: RegisteredCode<'pre-run-origin'>; keys: string[] };
 }
 
 /**
@@ -140,6 +150,14 @@ export interface CausalEdge {
   kind: 'data' | 'control';
   key?: string;
   weight: number;
+  /**
+   * F4b (9.33.0) — present only on a `'data'` edge whose parent wrote `key` ONLY through rows inside it
+   * (a subflow's input seed, an outputMapper merge-back, a fork child's namespace): that write made part
+   * of the value, and earlier writers may account for the rest. Registered as `'nested-rows'` in
+   * `memory/honesty.ts · HONESTY_CODES`. Absent for a write on or around the key, so an exact edge keeps
+   * its 9.32.0 shape.
+   */
+  basis?: RegisteredCode<'nested-rows'>;
 }
 
 /**
@@ -357,6 +375,7 @@ export function causalChain(
   for (let i = 0; i < commitLog.length; i++) {
     idxMap.set(commitLog[i].runtimeStageId, i);
   }
+  queryWork.units += commitLog.length;
 
   const startIdx = idxMap.get(startId);
   if (startIdx === undefined) return undefined;
@@ -437,6 +456,8 @@ export function causalChain(
     depth: number,
   ): void {
     const parentId = parentCommit.runtimeStageId;
+    // the dedup scans below, and the parent's trace when it is new — counted for the scaling test
+    queryWork.units += 1 + node.parents.length + node.parentEdges.length;
     // #P1: the parent's expansion reads, resolved LAZILY (only for new nodes
     // or per-write re-expansion — duplicate links under 'stage' pay nothing).
     // Data links expand through the reads that fed the parent's write of
@@ -458,6 +479,7 @@ export function causalChain(
       const parentIdx = idxMap.get(parentId);
       if (parentIdx === undefined) return;
 
+      queryWork.units += parentCommit.trace.length;
       parentNode = {
         runtimeStageId: parentId,
         stageId: parentCommit.stageId,
@@ -512,12 +534,20 @@ export function causalChain(
           /* weigher threw — keep 1.0, the slice stays usable */
         }
       }
-      node.parentEdges.push({ parent: parentNode, kind, key, weight });
+      const nested = kind === 'data' && key !== undefined && writesOnlyInside(parentCommit, key);
+      node.parentEdges.push({
+        parent: parentNode,
+        kind,
+        key,
+        weight,
+        ...(nested && { basis: 'nested-rows' as const }),
+      });
     }
   }
 
   while (queue.length > 0) {
     const [node, commitIdx, depth, keysToExpand] = queue.shift()!;
+    queryWork.units += 1 + keysToExpand.length;
 
     if (depth >= maxDepth) {
       // D4: only a node that still HAD something to expand counts as a cut
@@ -535,7 +565,12 @@ export function causalChain(
     const keysRead = keysToExpand;
     for (const key of keysRead) {
       const writer = findWriter(key, commitIdx);
-      if (!writer) continue;
+      if (!writer) {
+        // F4b: say why there is no edge — no commit before this node wrote the key.
+        node.preRunReads ??= { code: 'pre-run-origin', keys: [] };
+        if (!node.preRunReads.keys.includes(key)) node.preRunReads.keys.push(key);
+        continue;
+      }
       linkParent(node, writer, 'data', key, depth);
     }
 

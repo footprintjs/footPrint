@@ -131,7 +131,12 @@ subflow seed, an outputMapper merge-back — answered `undefined` or an older
 value here while the fold showed the new one. The one difference left is the
 base: `commitValueAt` never receives `initialState`, so a key seeded before the
 run and not `set` or `delete`d in range folds from absent there (`stateAt`
-with the base reports the whole value). `findLastWriter`, the slice layer and
+with the base reports the whole value). Its twin closes it (F4b, same minor):
+`commitValueAtWithBasis(log, i, key, { initialState })` folds such a key from
+the base — the value `stateAt` gives with it (pinned by
+property/value-basis.property.test.ts) — and its `basis` says
+`'from-initial-state'`; without the base, the same code marks the answer
+partial. `findLastWriter`, the slice layer and
 the cursor's stops read the same rows; a write that reached the key only
 through paths inside it carries a `'nested-rows'` note where the reader has a
 note channel (`keyTimeline`, `forwardSliceForKey`).

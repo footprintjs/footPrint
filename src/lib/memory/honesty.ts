@@ -16,7 +16,8 @@
  *     per-instance `detail` a note carries (that names the key, the budget, the rows).
  *   - `HonestyCode` / `RegisteredCode` — what makes the registry the owner and not a suggestion:
  *     each public union of these codes (`HonestyNoteCode`, `MissingSliceReason`,
- *     `MissingProvenanceReason`, `FedBasis`, `AttributionBasis`, `FoldBasis`) declares its members
+ *     `MissingProvenanceReason`, `FedBasis`, `AttributionBasis`, `FoldBasis`, and since 9.33.0 `ValueBasis` /
+ *     `WriterBasis` — the basis twins of `commitValueAt` / `findLastWriter`) declares its members
  *     through `RegisteredCode`, so a member the registry does not hold fails to COMPILE. And
  *     `test/architecture/honesty-vocabulary.test.ts` asks the type checker for every exported type
  *     alias of `footprintjs/trace` that is a union of string literals: each one is inside the
@@ -63,7 +64,7 @@ export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   'nested-rows':
     "A write this answer rests on reached the key only through paths inside it (a subflow's input seed, an outputMapper merge-back, a fork child's namespace), so it changed part of the key's value, not the whole: earlier writes may account for the rest, and a reader of the key may not have read the part that write changed.",
   'pre-run-origin':
-    'The value being followed was already there before the first write this log can see (initial state, frozen run input or a closure), so who put it there is outside the commit log.',
+    'The value being followed was absent or already there before the first write this log can see (initial state, frozen run input or a closure), so who put it there is outside the commit log.',
   'reads-not-recorded':
     "This log carries no recorded read at all (the readTracking: 'off' signature), so 'nothing read this value' is unknowable here, not true.",
   'unknown-key':
@@ -100,9 +101,14 @@ export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   // ── untracked reads a stage also consumed — `CausalNode.incompleteSources` ─
   'incomplete-sources':
     'The stage also consumed read paths that bypass read tracking (args, env or an unshadowed silent read), so a slice through it may be incomplete: those reads produce no read-to-write edge to follow.',
-  // ── values scrubbed at write time — `FoldedState.redacted` / `redactedPaths` ─
+  // ── values scrubbed at write time — `FoldedState.redacted` / `redactedPaths`, a value basis ─
   redacted:
-    "Values at the paths listed in redactedPaths were scrubbed when they were written (by a redaction policy, or a write marked redacted), so where this fold holds the log's placeholder 'REDACTED' it stands in for a value the log never recorded.",
+    "Values at the paths listed in redactedPaths (a fold's, or a commit's in the range a key's value rests on) were scrubbed when they were written (by a redaction policy, or a write marked redacted), so where the answer holds the log's placeholder 'REDACTED', or lost a key under a container the placeholder replaced, it stands in for a value the log never recorded.",
+  // ── how one key's value was read off the log — `ValueBasis` (commitValueAtWithBasis) ─
+  deleted:
+    "The key's last write in the range asked about left it absent (a delete of the key or of a container around it, or a set of a container that no longer holds it), so the answer is undefined because the record says the key was gone at that point, not because nothing was recorded.",
+  'from-initial-state':
+    "No set or delete of the key, or of a container around it, is in the range asked about, so the answer rests on the value the key had before the run: folded from the initialState passed in when there was one, and otherwise only what the log's merges, appends and nested writes added to it (or nothing), which is partial for a key seeded before the run.",
 } satisfies Record<string, string>);
 
 /** Any code in {@link HONESTY_CODES} — the key a reader looks an explanation up by. */
