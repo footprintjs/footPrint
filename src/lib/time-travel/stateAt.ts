@@ -9,21 +9,11 @@
  * the verbs here.
  */
 
+import { deepFreeze } from '../capture/freeze.js';
 import type { CommitBundle, MemoryPatch } from '../memory/types.js';
 import { applySmartMergeInto } from '../memory/utils.js';
 import { readLog } from './bundles.js';
 import type { FoldBasis, FoldedState, FoldSource, LogGap } from './types.js';
-
-/** Deeply freeze a POJO tree so a fold result cannot be mutated by its holder. */
-function freezeDeep<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  Object.freeze(value);
-  for (const key of Object.getOwnPropertyNames(value)) {
-    const inner = (value as Record<string, unknown>)[key];
-    if (inner && typeof inner === 'object' && !Object.isFrozen(inner)) freezeDeep(inner);
-  }
-  return value;
-}
 
 /** One source, read: its log (gaps held in place) and its fold base. */
 export interface ReadSource {
@@ -143,7 +133,8 @@ export function foldLegsFrom(
 
   const basis: FoldBasis = based ? 'initial+log' : 'log-only';
   const folded: FoldedState = {
-    state: freezeDeep(structuredClone(out)),
+    // The one freeze walk (`capture/freeze.ts`): a typed array in state is skipped, not thrown on.
+    state: deepFreeze(structuredClone(out)),
     basis,
     redacted: redactedPaths.size > 0,
     redactedPaths: Object.freeze([...redactedPaths].sort()),

@@ -1,18 +1,20 @@
 /**
  * freeze.ts — the ONE deep-freeze walk (moved here from `scope/protection/readonlyInput.ts` in F3).
  *
- * WHY HERE. Four places freeze a tree: run args (`readonlyInput · createFrozenArgs`), the fold base
- * served as `initialState` (`ExecutionRuntime · getFoldBase`), the dev-mode snapshot
- * (`FlowChartExecutor · getSnapshot`) and, since F3, every commit bundle (`EventLog · record`).
- * `memory/` must not import `scope/` (that edge closed the memory ⇄ scope ⇄ recorder module cycle
- * F0 removed), so the walk lives in this leaf, which imports nothing.
+ * WHY HERE. Five places freeze a tree, all through this walk: run args (`readonlyInput ·
+ * createFrozenArgs`), the fold base served as `initialState` (`ExecutionRuntime · getFoldBase`), the
+ * dev-mode snapshot (`FlowChartExecutor · getSnapshot`), every state `stateAt` hands out
+ * (`time-travel/stateAt.ts`) and, since F3, every commit bundle (`EventLog · record`). `memory/` must
+ * not import `scope/` (that edge closed the memory ⇄ scope ⇄ recorder module cycle F0 removed), so the
+ * walk lives in this leaf, which imports nothing.
  *
  * @example
  * ```typescript
  * import { deepFreeze } from './freeze.js';
  *
- * const args = deepFreeze({ order: Object.freeze({ lines: [{ sku: 'A' }] }) });
- * Object.isFrozen(args.order.lines[0]); // true — a shallow-frozen input is still walked
+ * const args = deepFreeze({ order: { lines: [{ sku: 'A' }] }, bytes: new Uint8Array([1]) });
+ * Object.isFrozen(args.order.lines[0]); // true
+ * Object.isFrozen(args.bytes); // false — a typed array cannot be frozen; it is skipped
  * ```
  */
 
@@ -32,12 +34,10 @@ export type ArrayWalk = 'every-key' | 'indices';
 /**
  * Freezes `obj` and every object reachable through its own properties, and returns `obj`.
  *
- * - An object that is ALREADY frozen is still descended, once: a shallow-frozen input
- *   (`Object.freeze({ inner: { x: 1 } })`) comes out with `inner` frozen too. The walk remembers
- *   the frozen objects it descended in a `WeakSet` created on first need, which is what ends a
- *   cycle or a repeated reference. A fresh tree (every object unfrozen when first reached, none
- *   reached twice) never creates the set, and a frozen object with no object below it (a frozen
- *   list of names) needs neither the descent nor the set.
+ * - An object that is ALREADY frozen is left as it is, and not descended — 9.32.0's contract, kept:
+ *   args may hold a caller's frozen object with live parts inside (a class instance a stage calls),
+ *   and freezing past it would break them. It is also what ends a cycle. The commit log never meets
+ *   one: its payloads are fresh `structuredClone`s.
  * - ArrayBuffer views (typed arrays, `DataView`) are skipped: `Object.freeze` throws on a non-empty
  *   typed array, so a `Uint8Array` in state, args or the fold base used to fail the run or the
  *   snapshot here.
@@ -47,57 +47,25 @@ export type ArrayWalk = 'every-key' | 'indices';
  * - Functions are not descended (they are not values the engine stores).
  */
 export function deepFreeze<T>(obj: T, arrays: ArrayWalk = 'every-key'): T {
-  freezeValue(obj, { indices: arrays === 'indices', seen: undefined });
+  freezeValue(obj, arrays === 'indices');
   return obj;
 }
 
-/** One {@link deepFreeze} call's walk: how arrays are enumerated, and the set made on first need. */
-interface FreezeWalk {
-  readonly indices: boolean;
-  seen: WeakSet<object> | undefined;
-}
-
-function freezeValue(value: unknown, walk: FreezeWalk): void {
-  if (value === null || typeof value !== 'object' || ArrayBuffer.isView(value)) return;
-  if (Object.isFrozen(value)) {
-    // Frozen before this walk reached it (a shallow-frozen input), or frozen by this walk and met
-    // again (a cycle, a shared reference): descend it ONCE.
-    if (!hasObjectChild(value, walk)) return;
-    const seen = (walk.seen ??= new WeakSet<object>());
-    if (seen.has(value)) return;
-    seen.add(value);
-  } else {
-    Object.freeze(value);
-  }
-  // The two loops are written out (here and in hasObjectChild) rather than shared through a
-  // callback: this runs once per object of every commit, and a closure per object is measurable.
-  if (walk.indices && Array.isArray(value)) {
+function freezeValue(value: unknown, indices: boolean): void {
+  if (value === null || typeof value !== 'object' || ArrayBuffer.isView(value) || Object.isFrozen(value)) return;
+  Object.freeze(value);
+  // The two loops are written out rather than shared through a callback: this runs once per object of
+  // every commit, and a closure per object is measurable.
+  if (indices && Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const child: unknown = value[i];
-      if (child !== null && typeof child === 'object') freezeValue(child, walk);
+      if (child !== null && typeof child === 'object') freezeValue(child, indices);
     }
     return;
   }
   const names = Object.getOwnPropertyNames(value);
   for (let i = 0; i < names.length; i++) {
     const child = (value as Record<string, unknown>)[names[i]];
-    if (child !== null && typeof child === 'object') freezeValue(child, walk);
+    if (child !== null && typeof child === 'object') freezeValue(child, indices);
   }
-}
-
-/** Does `value` hold an object anywhere the walk would descend? */
-function hasObjectChild(value: object, walk: FreezeWalk): boolean {
-  if (walk.indices && Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      const child: unknown = value[i];
-      if (child !== null && typeof child === 'object') return true;
-    }
-    return false;
-  }
-  const names = Object.getOwnPropertyNames(value);
-  for (let i = 0; i < names.length; i++) {
-    const child = (value as Record<string, unknown>)[names[i]];
-    if (child !== null && typeof child === 'object') return true;
-  }
-  return false;
 }

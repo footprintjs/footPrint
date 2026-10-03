@@ -4,13 +4,14 @@
  *
  *   unit      the walk freezes every object reachable through own properties, arrays included, and returns
  *             its argument; functions are not descended
- *   boundary  an ALREADY-frozen object is still descended, once: a shallow-frozen input comes out deep-frozen;
- *             a cycle and a repeated reference terminate; a fresh tree never creates the WeakSet that does it
+ *   boundary  an ALREADY-frozen object is left as it is and not walked past (9.32.0's contract — a caller's
+ *             frozen argument may hold live parts a stage calls); a cycle and a repeated reference terminate
  *   edge      ArrayBuffer views are skipped (a non-empty typed array cannot be frozen — it used to throw);
  *             the holes `Object.freeze` cannot close (Map/Set contents, a Date's time) stay open; a frozen
  *             RegExp's `lastIndex` is read-only; `'indices'` walks arrays by index, so an object on an array
  *             expando is left unfrozen there — and ONLY there: the default walk still reaches it
  */
+import { flowChart, FlowChartExecutor } from '../../../src';
 import { deepFreeze } from '../../../src/lib/capture/freeze';
 import { createFrozenArgs } from '../../../src/lib/scope/protection/readonlyInput';
 
@@ -36,19 +37,37 @@ describe('deepFreeze — the walk', () => {
   });
 });
 
-describe('deepFreeze — an already-frozen object is still descended, once', () => {
-  it('a shallow-frozen input comes out deep-frozen', () => {
+describe("deepFreeze — an already-frozen object is left as it is (9.32.0's contract)", () => {
+  it('a shallow-frozen input is not walked past: its children stay as the caller made them', () => {
     const inner = { x: 1, deeper: { y: 2 } };
     const input = Object.freeze({ inner });
-    deepFreeze(input);
-    expect(Object.isFrozen(inner)).toBe(true);
-    expect(Object.isFrozen(inner.deeper)).toBe(true);
+    deepFreeze({ input });
+    expect(Object.isFrozen(inner)).toBe(false);
+    expect(Object.isFrozen(inner.deeper)).toBe(false);
   });
 
-  it('a frozen array holding unfrozen objects: the objects are frozen', () => {
-    const element = { n: 1 };
-    deepFreeze({ list: Object.freeze([element]) });
-    expect(Object.isFrozen(element)).toBe(true);
+  it('regression: a class instance inside a frozen argument stays callable — and the caller’s object is not frozen', async () => {
+    class Counter {
+      n = 0;
+      bump() {
+        this.n++;
+      }
+    }
+    const svc = new Counter();
+    const chart = flowChart(
+      'A',
+      (s: any) => {
+        svc.bump();
+        s.x = 1;
+      },
+      'a',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run({ input: { cfg: Object.freeze({ svc }) } });
+    expect(svc.n).toBe(1);
+    expect(Object.isFrozen(svc)).toBe(false);
+    svc.bump(); // after the run, the caller's object is still the caller's
+    expect(svc.n).toBe(2);
   });
 
   it('a cycle terminates, and every node of it ends frozen', () => {
@@ -61,39 +80,10 @@ describe('deepFreeze — an already-frozen object is still descended, once', () 
     expect(Object.isFrozen(b)).toBe(true);
   });
 
-  it('a cycle through an already-frozen object terminates too', () => {
-    const child: Record<string, unknown> = { v: 1 };
-    const parent = Object.freeze({ child });
-    child.parent = parent;
-    deepFreeze(parent);
-    expect(Object.isFrozen(child)).toBe(true);
-  });
-
-  it('a repeated reference is frozen once and terminates', () => {
+  it('a repeated reference is frozen once', () => {
     const shared = { v: { w: 1 } };
     deepFreeze({ left: shared, right: [shared, shared] });
     expect(Object.isFrozen(shared.v)).toBe(true);
-  });
-
-  it('a FRESH tree never creates the WeakSet — a frozen list of names does not either', () => {
-    const RealWeakSet = globalThis.WeakSet;
-    let created = 0;
-    class CountingWeakSet<T extends object> extends RealWeakSet<T> {
-      constructor() {
-        super();
-        created++;
-      }
-    }
-    globalThis.WeakSet = CountingWeakSet as unknown as WeakSetConstructor;
-    try {
-      deepFreeze({ a: [{ b: 1 }, { c: [2, 3] }], tags: Object.freeze(['x', 'y']) }, 'indices');
-      deepFreeze({ a: [{ b: 1 }] });
-      expect(created).toBe(0);
-      deepFreeze({ inner: Object.freeze({ deeper: {} }) }); // a frozen object WITH an object below it
-      expect(created).toBe(1);
-    } finally {
-      globalThis.WeakSet = RealWeakSet;
-    }
   });
 });
 
@@ -142,11 +132,15 @@ describe('deepFreeze — edges and named holes', () => {
     expect(Object.isFrozen(note2)).toBe(true); // args and the dev-mode snapshot keep it
   });
 
-  it('createFrozenArgs keeps its contract and gains the stronger walk: a shallow-frozen argument is frozen all the way down', () => {
-    const order = Object.freeze({ lines: [{ sku: 'A' }] });
-    const args = createFrozenArgs({ order, bytes: new Uint8Array([1]) }) as { order: typeof order };
+  it('createFrozenArgs keeps its 9.32.0 contract: a shallow-frozen argument is not walked past; a typed array is skipped', () => {
+    const lines = [{ sku: 'A' }];
+    const order = Object.freeze({ lines });
+    const args = createFrozenArgs({ order, plain: { n: 1 }, bytes: new Uint8Array([1]) }) as {
+      order: typeof order;
+      plain: { n: number };
+    };
     expect(Object.isFrozen(args)).toBe(true);
-    expect(Object.isFrozen(args.order.lines)).toBe(true);
-    expect(Object.isFrozen(args.order.lines[0])).toBe(true);
+    expect(Object.isFrozen(args.plain)).toBe(true);
+    expect(Object.isFrozen(lines)).toBe(false);
   });
 });
