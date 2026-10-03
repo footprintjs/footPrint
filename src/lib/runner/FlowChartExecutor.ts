@@ -172,9 +172,12 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
-   * Custom error classifier for throttling detection. Return `true` if the
-   * error represents a rate-limit or backpressure condition (the executor will
-   * treat it differently from hard failures). Defaults to no throttling classification.
+   * Custom error classifier for throttling detection. Return `true` if a fork
+   * child's error represents a rate-limit or backpressure condition; the
+   * executor then fires `FlowRecorder.onThrottled` for that child (9.39.0 —
+   * an EVENT, not a state key: the `monitor.isThrottled` write it replaced
+   * never landed). The child's failure is otherwise handled as before.
+   * Defaults to no throttling classification.
    */
   throttlingErrorChecker?: (error: unknown) => boolean;
   /** Handlers for streaming stage lifecycle events (see `addStreamingFunction`). */

@@ -21,6 +21,7 @@ import type {
   FlowRecorder,
   FlowStageEvent,
   FlowStageRetryEvent,
+  FlowThrottledEvent,
   IControlFlowNarrative,
   StageType,
   TraversalContext,
@@ -190,6 +191,20 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
       channel: 'flow' as const,
     };
     fire(this.recorders, 'onStageRetry', event, FLOW_FAILURE);
+  }
+
+  onThrottled(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void {
+    if (this.recorders.length === 0) return;
+    const structuredError = extractErrorInfo(error);
+    const event: FlowThrottledEvent = {
+      stageName,
+      stageId,
+      message: structuredError.message,
+      structuredError,
+      traversalContext,
+      channel: 'flow' as const,
+    };
+    fire(this.recorders, 'onThrottled', event, FLOW_FAILURE);
   }
 
   onPause(

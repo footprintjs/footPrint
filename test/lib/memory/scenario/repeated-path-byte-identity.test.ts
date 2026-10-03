@@ -42,6 +42,7 @@ import { nativeGet } from '../../../../src/lib/memory/pathOps.js';
 import { DELIM } from '../../../../src/lib/memory/paths.js';
 import type { CommitBundle } from '../../../../src/lib/memory/types.js';
 import { stateAt } from '../../../../src/trace.js';
+import { withoutRecordedPhases } from '../../engine/scenario/f8-recorded-phases.js';
 import { nameSeedsByMount } from '../../engine/scenario/r13-seed-named-by-mount.js';
 import { runRepeatedPathBuffer, runRepeatedPathChart, shellJSON } from './repeated-path-fixture.js';
 
@@ -124,7 +125,7 @@ describe('repeated-path skips — log, folds and commitValueAt are byte-identica
     describe(`commitValues: ${encoding}`, () => {
       it('a real run through the executor (top-level paths, a nested subflow seed)', async () => {
         const actual = await runRepeatedPathChart(encoding);
-        expect(withoutAnswers(actual)).toBe(withoutAnswers(reference(encoding).chart));
+        expect(withoutAnswers(withoutRecordedPhases(actual))).toBe(withoutAnswers(reference(encoding).chart));
         expectAnswers(actual, reference(encoding).chart);
       });
 

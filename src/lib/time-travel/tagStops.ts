@@ -36,7 +36,8 @@ import type { Stop, TimeTravelStrategy } from './types.js';
  * The tags a stop's first bundle carries, or `undefined` when it carries
  * none. Reads the bundle at `stop.commitIdx` — the FIRST commit of the
  * stage, which is where `StageContext.commit` records the stamp (a fork
- * child's empty repeat and a mount's exit bundle carry none).
+ * child's repeat and a mount's exit — the bundles with a `phase` — carry
+ * none).
  */
 function tagsAt(log: readonly CommitBundle[], stop: Stop<unknown>): readonly string[] | undefined {
   const raw = log[stop.commitIdx]?.tags;

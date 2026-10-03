@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — one stage, one record (F8)
+
+- **Why.** A stage can commit more than one bundle under one `runtimeStageId` (a mount's merge-back then its exit; a fork child's own commit then the fan-out's), and nothing on the record said which was which — the time-travel axis GUESSED a mount from "the second bundle follows the first", which a one-child fork also does. The writer knows; now it says.
+- **`CommitBundle.phase?: 'exit' | 'repeat'`** — stamped by the writer on a mount's exit commit (`'exit'`) and a fork child's fan-out settle commit (`'repeat'`); absent (no key) on every stage's own bundle. `commitStops` groups by `runtimeStageId` (`buildCommitIndex`, the one index) and reads `phase`: a stage with an `'exit'` bundle is a `'mount'`, with or without the execution tree — a mount with no `outputMapper` (the exit is its only bundle) is now named a mount tree-less too. Shape-inference sites in readers: `looksLikeMount` + `commitStops`' private first-wins loop → 0.
+  - **Breaks:** a log/snapshot consumer comparing bytes sees the new key on exit/repeat bundles. *Migration:* ignore or read `bundle.phase`; a stage's own bundle is the one without it.
+  - **Old logs:** a log with no `phase` anywhere (written before 9.39.0) is read by ONE legacy function, `commitLogUtils · inferLegacyPhases` (9.38.0's adjacency rule), only when no execution tree is passed — a stored recording keeps its axis, known miss included. Chosen over refusing: stored recordings must stay readable.
+- **Throttling is a flow event (R9).** `throttlingErrorChecker` now fires `FlowRecorder.onThrottled({ stageName, stageId, message, structuredError, traversalContext })` for a fork child whose error it classifies (`traversalContext` is the fork's). The `monitor.isThrottled` write it replaced landed nowhere (written after the child's last commit).
+  - **Breaks:** nothing could have read `monitor.isThrottled` (it never reached state or the log). *Migration:* attach a flow recorder with `onThrottled`.
+
 ## [9.38.0] - 2026-10-03
 
 ### Fixed

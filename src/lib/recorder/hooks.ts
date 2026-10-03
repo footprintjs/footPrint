@@ -104,6 +104,8 @@ export const HOOKS = {
   onStageEnd: { on: { scope: 'StageEvent' }, executorMade: false },
   // Declarative per-stage retry (9.15): fires DURING a stage, once per failed attempt that will be retried.
   onStageRetry: { on: { flow: 'FlowStageRetryEvent' }, executorMade: false },
+  // Throttling (9.39.0, R9): a fork child's error the run's `throttlingErrorChecker` classified.
+  onThrottled: { on: { flow: 'FlowThrottledEvent' }, executorMade: false },
   onPause: { on: { scope: 'PauseEvent', flow: 'FlowPauseEvent' }, executorMade: false },
   onResume: { on: { scope: 'ResumeEvent', flow: 'FlowResumeEvent' }, executorMade: true },
   // Run boundaries — listed so a recorder whose ONLY hook is one of them still routes to the flow channel.

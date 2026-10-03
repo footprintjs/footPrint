@@ -195,6 +195,7 @@ export type {
   FlowSelectedEvent,
   FlowStageEvent,
   FlowStageRetryEvent,
+  FlowThrottledEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
   ResumeLink,

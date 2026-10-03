@@ -197,12 +197,31 @@ chain — a pause and its resume read as one axis (see
 One stop per executed stage, plus `'start'` / `'end'` bookends.
 
 - **One stop per `runtimeStageId`.** A stage can commit more than one bundle: a
-  subflow mount commits its output-mapping bundle and then its mount-exit
-  bundle; a fork child is committed by the fan-out and again by the stage
-  funnel, and siblings interleave. Every repeat after the first is empty — the
-  staging buffer was released by the first commit. The axis shows the stage
-  once, which keeps `runtimeStageId → stop` one-to-one: what `jumpTo` and marks
-  depend on.
+  subflow mount commits its output-mapping bundle and then its EXIT; a fork
+  child is committed by the stage funnel and again by the fan-out (its REPEAT),
+  and siblings interleave. Since 9.39.0 the WRITER names each continuation on
+  its bundle — `phase: 'exit'` / `'repeat'`, absent on the stage's own bundle —
+  so the grouping is read, never inferred: the axis shows the stage once, at its
+  first bundle (`buildCommitIndex`), which keeps `runtimeStageId → stop`
+  one-to-one — what `jumpTo` and marks depend on — and a stage with an `'exit'`
+  bundle is a `'mount'`, with or without the execution tree. A continuation is
+  normally empty (the first commit released the staging buffer); one that
+  carries a write folds where it sits in the log, which is when it happened.
+- **A log older than 9.39.0** carries no `phase` anywhere. With its execution
+  tree, the tree names the mounts and nothing is inferred; without it,
+  `commitStops` asks the ONE legacy reader (`inferLegacyPhases`, in
+  `memory/commitLogUtils.ts`), which applies 9.38.0's rule — a stage's bundle
+  right after its first is a mount's exit — so a stored recording keeps the
+  axis it always had, known miss included (a one-child fork of a leaf child
+  reads as a mount). A log that records any phase is never inferred.
+
+  ```ts
+  import { commitStops } from 'footprintjs/trace';
+
+  const log = executor.getSnapshot().commitLog;      // 9.39.0+: phases recorded
+  commitStops(log).filter((s) => s.kind === 'mount'); // every mount — no tree needed
+  log.filter((b) => b.phase === 'repeat');            // every fork child's settle commit
+  ```
 - **Stops partition the log.** `commitIdx` is the stop's own first commit;
   `lastCommitIdx` runs to just before the next stop begins. Every bundle belongs
   to exactly one stop, so `stateAt(stop)` is exactly the state the next stage
@@ -503,7 +522,7 @@ Only the first was missing from the record. Its laws:
 Stamped once per execution of the stage, on its FIRST bundle: retry attempts
 share one stamp, a failed stage keeps its tag (the error path commits before it
 rethrows), an empty commit is a tagged stop, a fork child's fan-out repeat and
-a mount's exit bundle carry none, and a stage that pauses and is resumed on a
+a mount's exit bundle (the bundles with a `phase`) carry none, and a stage that pauses and is resumed on a
 fresh executor is two tagged stops on a chained axis — it ran twice.
 
 **Example 1 — declared, scrubbed by `tagStops`.**

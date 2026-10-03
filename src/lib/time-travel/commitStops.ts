@@ -10,14 +10,16 @@
  */
 
 import { isWithinSubflow, parseRuntimeStageId, stageIdOf } from '../ids/runtimeStageId.js';
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import { buildCommitIndex, inferLegacyPhases, recordsPhases } from '../memory/commitLogUtils.js';
+import type { CommitBundle, CommitPhase, StageSnapshot } from '../memory/types.js';
 import type { Stop, TimeTravelStrategy } from './types.js';
 
 /**
  * Every `runtimeStageId` in the execution tree that the engine marked as a
- * subflow mount. This is the AUTHORITATIVE mount signal; the shape heuristic
- * in {@link commitStops} is only the fallback for a log handed over without
- * its tree (a stored bundle stream, a hand-built log).
+ * subflow mount. Authoritative, as is a bundle's recorded `phase: 'exit'`
+ * (9.39.0) — the log itself names every mount it holds. Only a log written
+ * before 9.39.0 AND handed over without its tree falls back to the legacy
+ * inference (`inferLegacyPhases`).
  */
 function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
   const ids = new Set<string>();
@@ -36,13 +38,16 @@ function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
  * Derive one stop per executed stage from a recorded commit log.
  *
  * **One stop per `runtimeStageId`.** A stage can commit MORE than one bundle:
- * a subflow mount commits its output-mapping bundle and then its mount-exit
- * bundle; a parallel fork child is committed once by the fan-out and once by
- * the stage funnel, and siblings interleave. Every repeat after the first is
- * an EMPTY bundle — the staging buffer was released by the first commit — so
- * they are cursor positions without content. The axis shows the stage ONCE, at
- * its first commit, which keeps `runtimeStageId → stop` one-to-one: the
- * property `jumpTo` and marks depend on.
+ * a subflow mount commits its output-mapping bundle and then its EXIT; a
+ * parallel fork child is committed by the stage funnel and again by the
+ * fan-out (its REPEAT), and siblings interleave. The writer names each
+ * continuation on its bundle (`phase: 'exit' | 'repeat'`, 9.39.0), so the
+ * grouping is read, never inferred: the axis shows the stage ONCE, at its
+ * first commit ({@link buildCommitIndex}), which keeps `runtimeStageId → stop`
+ * one-to-one — the property `jumpTo` and marks depend on — and a stage whose
+ * bundles include an `'exit'` is a `'mount'`. A continuation is normally empty
+ * (the first commit released the staging buffer); one that carries a write is
+ * folded where it sits in the log, which is when it happened.
  *
  * **Stops PARTITION the log.** A stop's range runs from its own first commit
  * up to (and including) the last commit before the NEXT stop begins —
@@ -72,25 +77,19 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
   if (commitLog.length === 0) return [];
 
   const mountIds = mountIdsFrom(executionTree);
-  // With the tree in hand the mount set is AUTHORITATIVE; the shape heuristic
-  // below is the fallback for a log handed over without its tree, and must not
-  // second-guess the tree (a single-child fork looks exactly like a mount).
-  const haveTree = executionTree !== undefined;
+  const phases = phasesOf(commitLog, executionTree !== undefined);
 
-  // First commit of each distinct runtimeStageId, in execution order.
+  // First commit of each distinct runtimeStageId, in execution order — the
+  // one index every reader shares (`buildCommitIndex`).
   // A subflow's `inputMapper` seed is not one of the subflow's stages: it is
   // the MOUNT's commit, made before any of them ran. It gets no stop of its
   // own; it belongs to the `'start'` bookend, which is where a reader looks
   // for "the input this chart began with" anyway. See {@link seedCommits}.
   const seeds = seedCommits(commitLog, executionTree);
   const firsts: number[] = [];
-  const seen = new Set<string>();
-  for (let i = seeds; i < commitLog.length; i++) {
-    const id = commitLog[i].runtimeStageId;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    firsts.push(i);
-  }
+  for (const [id, i] of buildCommitIndex(commitLog)) if (id && i >= seeds) firsts.push(i);
+  const exits = new Set<string>();
+  for (let i = seeds; i < commitLog.length; i++) if (phases[i] === 'exit') exits.add(commitLog[i].runtimeStageId);
 
   const stops: Stop[] = [
     {
@@ -110,11 +109,6 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
     const bundle = commitLog[first];
     // Partition boundary: everything up to the next stage's first commit.
     const last = g + 1 < firsts.length ? firsts[g + 1] - 1 : commitLog.length - 1;
-    // No tree? A mount is the one stage whose SECOND bundle follows its first
-    // immediately — the entry/exit pair. An interleaved fork-child repeat does
-    // not look like that, which is exactly the pair this must not match.
-    const looksLikeMount =
-      first + 1 < commitLog.length && commitLog[first + 1].runtimeStageId === bundle.runtimeStageId;
     stops.push({
       step: stops.length,
       runtimeStageId: bundle.runtimeStageId,
@@ -123,7 +117,7 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
       stageId: bundle.stageId,
       subflowPath: parseRuntimeStageId(bundle.runtimeStageId).subflowPath,
       label: bundle.stage || bundle.stageId || bundle.runtimeStageId,
-      kind: mountIds.has(bundle.runtimeStageId) || (!haveTree && looksLikeMount) ? 'mount' : 'commit',
+      kind: mountIds.has(bundle.runtimeStageId) || exits.has(bundle.runtimeStageId) ? 'mount' : 'commit',
     });
   }
 
@@ -138,6 +132,18 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
   });
 
   return stops;
+}
+
+/**
+ * The phase of every bundle: as RECORDED when the log records any (9.39.0+).
+ * A log that records none is either free of continuations (nothing to read)
+ * or older than the field: with its execution tree the tree names the mounts,
+ * so nothing is inferred; without it, the one legacy reader infers what
+ * 9.38.0 inferred (`inferLegacyPhases`) — a stored recording keeps its axis.
+ */
+function phasesOf(commitLog: readonly CommitBundle[], haveTree: boolean): readonly (CommitPhase | undefined)[] {
+  if (recordsPhases(commitLog)) return commitLog.map((bundle) => bundle.phase);
+  return haveTree ? [] : inferLegacyPhases(commitLog);
 }
 
 /** `commitStops` as a {@link TimeTravelStrategy} — the default for `timeTravel`. */

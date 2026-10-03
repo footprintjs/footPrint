@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
+import { withoutRecordedPhases } from './f8-recorded-phases.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,11 +33,11 @@ const reference = (encoding: 'full' | 'delta') =>
 
 describe('declared tags — an untagged chart is byte-identical to 9.20.0', () => {
   it('commitValues: full', async () => {
-    expect(await runUntaggedFixture('full')).toBe(reference('full'));
+    expect(withoutRecordedPhases(await runUntaggedFixture('full'))).toBe(reference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(await runUntaggedFixture('delta')).toBe(reference('delta'));
+    expect(withoutRecordedPhases(await runUntaggedFixture('delta'))).toBe(reference('delta'));
   });
 
   it('the reference is what it claims — every commit path present, no `tags` key anywhere', () => {

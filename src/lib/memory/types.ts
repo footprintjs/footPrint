@@ -103,13 +103,33 @@ export interface CommitBundle {
    * consumer's id conventions. ABSENT when the stage declares none, so an
    * untagged chart's log is byte-identical to 9.20.0 (the law
    * `untrackedSources` keeps). Recorded on the FIRST bundle of each execution
-   * of the stage — retry attempts stamp it once, a fork child's empty repeat
-   * and a mount's exit bundle carry none. Free strings: footprintjs assigns
+   * of the stage — retry attempts stamp it once, a fork child's repeat
+   * (`phase: 'repeat'`) and a mount's exit bundle carry none. Free strings: footprintjs assigns
    * them no meaning; `tagStops` (footprintjs/trace) keeps a stop when any of
    * them matches.
    */
   tags?: readonly string[];
+  /**
+   * Which CONTINUATION of a stage's execution this bundle is (9.39.0) —
+   * stamped by the WRITER, absent on the stage's ordinary bundle:
+   *
+   * - `'exit'` — a subflow mount's exit commit (`SubflowExecutor`), made after
+   *   the subflow returned and after the mount's merge-back bundle (when it
+   *   has an `outputMapper`). A mount without one has the exit as its only
+   *   bundle, so a log names every mount without its execution tree.
+   * - `'repeat'` — the fan-out's second commit of a fork child's frame
+   *   (`ChildrenExecutor`), made when the child settles.
+   *
+   * A reader groups a stage's bundles by `runtimeStageId` and reads this
+   * field to know what each continuation is; it never infers it from the
+   * log's shape. A log written before 9.39.0 carries no `phase` anywhere —
+   * see `inferLegacyPhases` (footprintjs/trace) for how it is still read.
+   */
+  phase?: CommitPhase;
 }
+
+/** The continuation a bundle records — see {@link CommitBundle.phase}. */
+export type CommitPhase = 'exit' | 'repeat';
 
 // ── Flow Control Narrative ─────────────────────────────────────────────────
 

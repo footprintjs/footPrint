@@ -433,7 +433,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     });
     this.deps.narrativeGenerator.onSubflowExit(subflowName, subflowId, parentTraversalContext, exitState);
 
-    parentContext.commit();
+    // The mount's EXIT — a continuation of the mount's execution, named as one
+    // on the record (9.39.0) so no reader infers it from the log's shape.
+    parentContext.commit('exit');
 
     if (subflowError) {
       throw subflowError;
