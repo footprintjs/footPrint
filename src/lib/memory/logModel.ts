@@ -67,7 +67,13 @@ const MODELS = new WeakMap<readonly CommitBundle[], LogModel>();
 /** Is the log immutable — the array and every bundle and trace frozen (an engine snapshot's log)? */
 function isFrozenLog(log: readonly CommitBundle[]): boolean {
   if (!Object.isFrozen(log)) return false;
-  for (const bundle of log) if (!Object.isFrozen(bundle) || !Object.isFrozen(bundle.trace)) return false;
+  // The shape `EventLog · record` leaves: the bundle, its payloads and its rows. A hand-built log
+  // frozen less deeply than that could change after a query, so it is never memoised.
+  for (const bundle of log) {
+    if (!Object.isFrozen(bundle) || !Object.isFrozen(bundle.trace)) return false;
+    if (!Object.isFrozen(bundle.overwrite) || !Object.isFrozen(bundle.updates)) return false;
+    if (!bundle.trace.every((row) => Object.isFrozen(row))) return false;
+  }
   return true;
 }
 
