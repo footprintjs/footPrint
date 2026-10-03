@@ -9,7 +9,7 @@
  * `TimeTravelStrategy`, they do not go here.
  */
 
-import { isWithinSubflow, parseRuntimeStageId, stageIdOf } from '../ids/runtimeStageId.js';
+import { isExecutionKey, isWithinSubflow, parseRuntimeStageId, stageIdOf } from '../ids/runtimeStageId.js';
 import { buildCommitIndex, inferLegacyPhases, recordsPhases } from '../memory/commitLogUtils.js';
 import type { CommitBundle, CommitPhase, StageSnapshot } from '../memory/types.js';
 import type { Stop, TimeTravelStrategy } from './types.js';
@@ -75,10 +75,18 @@ function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
  * {@link splitAxis} is the one guard that reads it — a composer calls that, or
  * {@link filterStops} which calls it, instead of writing its own.
  */
-export function commitStops(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): Stop[] {
+export function commitStops(
+  commitLog: readonly CommitBundle[],
+  executionTree?: StageSnapshot,
+  subflowResults?: unknown,
+): Stop[] {
   if (commitLog.length === 0) return [];
 
-  const mountIds = mountIdsFrom(executionTree);
+  // No tree? The snapshot's `subflowResults` still keys every mount EXECUTION
+  // by its runtimeStageId (9.39.0) — the mapper-less mounts whose one bundle
+  // carries no `phase` (fork / selector children, lazy mounts, `parallelForEach`
+  // branches) included.
+  const mountIds = executionTree ? mountIdsFrom(executionTree) : mountKeysOf(subflowResults);
   const phases = phasesOf(commitLog, executionTree !== undefined);
 
   // First commit of each distinct runtimeStageId, in execution order — the
@@ -134,6 +142,14 @@ export function commitStops(commitLog: readonly CommitBundle[], executionTree?: 
   });
 
   return stops;
+}
+
+/** The per-execution mount keys of a snapshot's `subflowResults` (`'#'` keys; path keys skipped). */
+function mountKeysOf(subflowResults: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (subflowResults === null || typeof subflowResults !== 'object') return ids;
+  for (const key of Object.keys(subflowResults)) if (isExecutionKey(key)) ids.add(key);
+  return ids;
 }
 
 /**

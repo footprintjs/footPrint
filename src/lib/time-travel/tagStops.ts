@@ -92,8 +92,12 @@ function tagsAt(log: readonly CommitBundle[], stop: Stop<unknown>): readonly str
 export function tagStops(tags?: readonly string[]): TimeTravelStrategy<readonly string[]> {
   const wanted = tags && tags.length > 0 ? new Set(tags) : undefined;
   return {
-    stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): Stop<readonly string[]>[] {
-      return filterStops<readonly string[]>(commitStops(commitLog, executionTree), (stop) => {
+    stopsFor(
+      commitLog: readonly CommitBundle[],
+      executionTree?: StageSnapshot,
+      subflowResults?: unknown,
+    ): Stop<readonly string[]>[] {
+      return filterStops<readonly string[]>(commitStops(commitLog, executionTree, subflowResults), (stop) => {
         const stamped = tagsAt(commitLog, stop);
         if (!stamped) return null;
         if (wanted && !stamped.some((tag) => wanted.has(tag))) return null;

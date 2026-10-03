@@ -151,6 +151,67 @@ describe('the writer names every continuation', () => {
   });
 });
 
+describe('without the tree, subflowResults names every mount (9.39.0) — the same axis as with the tree', () => {
+  const leaf = () => flowChart<L>('Leaf', async (s: any) => s.$setValue('x', 1), 'leaf').build();
+  const CASES: ReadonlyArray<readonly [string, () => any, string]> = [
+    [
+      'a mapper-less fork child',
+      () =>
+        flowChart<L>('Seed', async () => undefined, 'seed')
+          .addSubFlowChart('fk', leaf(), 'Fk')
+          .addSubFlowChart('fk2', leaf(), 'Fk2'),
+      'fk',
+    ],
+    [
+      'a mapper-less selector child',
+      () =>
+        flowChart<L>('Seed', async () => undefined, 'seed')
+          .addSelectorFunction('Pick', () => ['sel'], 'pick')
+          .addSubFlowChartBranch('sel', leaf(), 'Sel')
+          .end(),
+      'sel',
+    ],
+    [
+      'a linear lazy mount',
+      () => flowChart<L>('Seed', async () => undefined, 'seed').addLazySubFlowChartNext('lazy', leaf, 'Lazy'),
+      'lazy',
+    ],
+    [
+      'a parallelForEach branch',
+      () =>
+        flowChart<L>('Seed', async (s: any) => s.$setValue('items', [1, 2]), 'seed').addParallelForEach(
+          'Each',
+          'each',
+          {
+            items: (s: any) => s.items,
+            branch: () => leaf(),
+            into: 'out',
+            maxBranches: 4,
+          },
+        ),
+      'each~0',
+    ],
+  ];
+
+  it.each(CASES)('%s', async (_, build, stageId) => {
+    const ex = new FlowChartExecutor(build().build());
+    await ex.run();
+    const snap = ex.getSnapshot();
+    const kinds = (stops: readonly { kind: string; runtimeStageId: string }[]) =>
+      stops.map((x) => [x.kind, x.runtimeStageId]);
+    const withTree = kinds(commitStops(snap.commitLog, snap.executionTree));
+    const treeless = kinds(
+      timeTravel({
+        commitLog: snap.commitLog,
+        initialState: snap.initialState,
+        subflowResults: snap.subflowResults,
+      } as never).stops,
+    );
+    expect(treeless).toEqual(withTree);
+    expect(treeless.find(([, id]) => id.startsWith(`${stageId}#`))?.[0]).toBe('mount');
+  });
+});
+
 // ── Readers ───────────────────────────────────────────────────────────────
 
 describe('readers group by runtimeStageId and read phase', () => {

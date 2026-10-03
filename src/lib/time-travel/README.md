@@ -207,7 +207,9 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
   what `jumpTo` and marks depend on. A stage with an `'exit'` bundle is a
   `'mount'` even without the tree; a mount with no merge-back (no
   `outputMapper`, a lazy mount, a `parallelForEach` branch) has ONE bundle, its
-  own, so only the execution tree names it a mount. A continuation is
+  own: the execution tree names it a mount, and without a tree so does the
+  snapshot's `subflowResults` (its per-execution key), which `timeTravel` hands
+  every strategy as `stopsFor`'s third argument. A continuation is
   normally empty (the first commit released the staging buffer); one that
   carries a write folds where it sits in the log, which is when it happened.
 - **A log older than 9.39.0** carries no `phase` anywhere. With its execution
