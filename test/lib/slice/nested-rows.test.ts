@@ -411,6 +411,41 @@ describe('WRITER RULE — a write BESIDE a key through a string-valued container
   });
 });
 
+describe('arrayProvenance — an append AROUND the key is a whole-value change, not a tail (counterexample, seed 567362012)', () => {
+  // Bundle 1's `append a` carries a non-array tail, so it REPLACES `a` — and `a␟b` with it. Read as a tail of
+  // `a␟b`, it kept two births for a one-element array, and the next append made three for two.
+  it('births stay aligned with the value', () => {
+    const bundle = (n: number, trace: CommitBundle['trace']): CommitBundle => ({
+      idx: n,
+      stage: 'S',
+      stageId: `s${n}`,
+      runtimeStageId: `s${n}#${n}`,
+      trace,
+      overwrite: { a: { b: [{ n: 0 }] } },
+      updates: {},
+      redactedPaths: [],
+    });
+    const key = at('a', 'b');
+    const log = [
+      bundle(0, [
+        { path: 'a', verb: 'set' },
+        { path: key, verb: 'append' },
+      ]),
+      bundle(1, [
+        { path: 'a', verb: 'append' },
+        { path: key, verb: 'append' },
+      ]),
+    ];
+    const prov = arrayProvenance(log, ['a', 'b'], { atIdx: 1 });
+    expect(commitValueAt(log, 1, key)).toEqual([{ n: 0 }, { n: 0 }]);
+    expect(prov.length).toBe(2);
+    expect(prov.births?.map((b) => [b.index, b.commitIdx, b.basis])).toEqual([
+      [0, 1, 'whole-value'],
+      [1, 1, 'append-verb'],
+    ]);
+  });
+});
+
 describe('KNOWN LIMITATION — the merge-back is recorded under the wrong stage (an L6 packet, R13)', () => {
   // `SubflowExecutor · executeSubflow` commits the output mapping on `parentContext.parent` whenever the mount's
   // context carries a branchId — which a LINEAR mount's does — so the bundle holding the merged-back rows carries

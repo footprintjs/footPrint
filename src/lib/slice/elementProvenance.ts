@@ -135,7 +135,12 @@ export function arrayProvenance(
  * the track.
  */
 function nextBirths(births: ElementBirth[], touch: Touch, before: unknown, after: unknown): ElementBirth[] {
-  if (!recordsTail(touch.verb)) return rebaseBirths(before, after, births, touch, 'prefix-inference');
+  // An `append` records the tail of ITS OWN path. On a container around the key (or a path inside it) the
+  // key's value changed wholesale — `append a` with a non-array tail replaces `a`, and `a␟b` with it — so
+  // only an append ON the key earns exact tail attribution.
+  if (!recordsTail(touch.verb) || touch.relation !== 'exact') {
+    return rebaseBirths(before, after, births, touch, 'prefix-inference');
+  }
   if (Array.isArray(before) && Array.isArray(after)) {
     // The step extended the array: the elements past the old length are the
     // recorded tail — exact attribution.
