@@ -60,7 +60,7 @@
 import { isDevMode } from '../devMode.js';
 import { findLastWriter } from './commitLogUtils.js';
 import type { RegisteredCode } from './honesty.js';
-import { relation, writesOnlyInside } from './keyPaths.js';
+import { queryWork, relation, writesOnlyInside } from './keyPaths.js';
 import { logModel } from './logModel.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from './types.js';
 
@@ -375,6 +375,7 @@ export function causalChain(
   for (let i = 0; i < commitLog.length; i++) {
     idxMap.set(commitLog[i].runtimeStageId, i);
   }
+  queryWork.units += commitLog.length;
 
   const startIdx = idxMap.get(startId);
   if (startIdx === undefined) return undefined;
@@ -455,6 +456,8 @@ export function causalChain(
     depth: number,
   ): void {
     const parentId = parentCommit.runtimeStageId;
+    // the dedup scans below, and the parent's trace when it is new — counted for the scaling test
+    queryWork.units += 1 + node.parents.length + node.parentEdges.length;
     // #P1: the parent's expansion reads, resolved LAZILY (only for new nodes
     // or per-write re-expansion — duplicate links under 'stage' pay nothing).
     // Data links expand through the reads that fed the parent's write of
@@ -476,6 +479,7 @@ export function causalChain(
       const parentIdx = idxMap.get(parentId);
       if (parentIdx === undefined) return;
 
+      queryWork.units += parentCommit.trace.length;
       parentNode = {
         runtimeStageId: parentId,
         stageId: parentCommit.stageId,
@@ -543,6 +547,7 @@ export function causalChain(
 
   while (queue.length > 0) {
     const [node, commitIdx, depth, keysToExpand] = queue.shift()!;
+    queryWork.units += 1 + keysToExpand.length;
 
     if (depth >= maxDepth) {
       // D4: only a node that still HAD something to expand counts as a cut

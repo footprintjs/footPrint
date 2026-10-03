@@ -8,15 +8,16 @@
  * once, and needs no verdict at all when no write around the key falls after its last write.
  *
  * The test runs the same shape at N and 4N and asserts the WORK ratio stays near linear: < 6× for 4× the log
- * (a quadratic walk is 16×, the old cubic one 64×). Work is counted, not timed (F4b): `logModel · modelWork`
- * sums every row the models index and scan, every fold step, every around-verdict and every lookup — the
+ * (a quadratic walk is 16×, the old cubic one 64×). Work is counted, not timed (F4b): `keyPaths · queryWork`
+ * sums every row indexed and scanned, every fold step, every around-verdict, every trie, ancestor and
+ * binary-search step, and causalChain's own loops (queue, read keys, dedup scans) — the
  * same count on every machine, so the ratio cannot fail on load (the wall-clock version failed at 10.7× and
  * 11.1× on a busy runner while the shape was linear). A quadratic control proves the counter sees a shape
  * that is not.
  */
 import type { CommitBundle } from '../../../../src';
 import { deepFreeze } from '../../../../src/lib/capture/freeze';
-import { modelWork } from '../../../../src/lib/memory/logModel';
+import { queryWork } from '../../../../src/lib/memory/keyPaths';
 import { causalChain, commitValueAt, findLastWriter } from '../../../../src/trace';
 
 const D = '\u001F';
@@ -56,9 +57,9 @@ function workOf(
   width = Number.POSITIVE_INFINITY,
 ): number {
   const s = shape(n, frozen, width);
-  const before = modelWork.units;
+  const before = queryWork.units;
   work(s);
-  return modelWork.units - before;
+  return queryWork.units - before;
 }
 
 const ask = (s: ReturnType<typeof shape>) => {
