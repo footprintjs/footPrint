@@ -21,7 +21,7 @@ src/lib/
 └── contract/  → I/O schema + OpenAPI
 ```
 
-Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
+Entry points (six doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
 
 ## Key API — TypedScope (Recommended)
 
@@ -54,8 +54,9 @@ const chart = flowChart<State>('Intake', async (scope) => {
   .build();
 
 const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();      // the narrative is OFF until enabled
 await executor.run();
-executor.getNarrative();  // causal trace with decision evidence
+executor.getNarrativeEntries();  // CombinedNarrativeEntry[] — causal trace with decision evidence
 ```
 
 ### TypedScope $-methods (escape hatches)
@@ -92,21 +93,22 @@ select(scope, [
 
 ```typescript
 const executor = new FlowChartExecutor(chart);
+executor.enableNarrative()         // before run() — the narrative is off by default
 await executor.run({ input, env: { traceId: 'req-123' } });
-executor.getNarrative()            // string[]
-executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
+executor.getNarrativeEntries()     // CombinedNarrativeEntry[] (type, text, depth, …) — not strings
+executor.getNarrativeEntries().map((e) => e.text)  // plain lines
 executor.getSnapshot()             // memory state
-executor.attachRecorder(recorder)  // scope observer
+executor.attachScopeRecorder(recorder)  // scope observer
 executor.attachFlowRecorder(r)     // flow observer
 executor.setRedactionPolicy({ keys, patterns, fields })
 ```
 
 ## Observer Systems
 
-- **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
-- **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
-- 8 built-in FlowRecorder strategies
-- Narrative via `executor.recorder(narrative())` at runtime
+- **Scope Recorder**: `onStageStart` → `onRead` / `onWrite` (DURING the stage) → `onStageEnd` → `onCommit`
+- **FlowRecorder**: fires AFTER the commit (`onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`); a decider's `onDecision` fires BEFORE its `onStageExecuted`
+- 9 built-in FlowRecorder strategies
+- Narrative via `executor.enableNarrative()`; one-shot form: `chart.recorder(narrative()).run()` on the built chart, read back with `trace.getEntries()`
 
 ## Rules
 
@@ -115,4 +117,4 @@ executor.setRedactionPolicy({ keys, patterns, fields })
 - Use typed property access (not getValue/setValue)
 - Use `$getArgs()` for input, `$getEnv()` for environment
 - Never post-process the tree — use recorders
-- Use `.recorder(narrative())` at runtime for narrative setup
+- Use `executor.enableNarrative()` for narrative setup (it is off until called)

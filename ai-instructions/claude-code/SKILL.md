@@ -325,7 +325,7 @@ console.log(JSON.stringify(executor.getSubflowManifest().map((m) => m.subflowId)
 // ["credit-sub","detailed"]
 ```
 
-`inputMapper` seeds the subflow (without one it starts empty — it does not see the parent's keys); `outputMapper(subOut, parentScope)` returns the keys to merge back into the parent.
+`inputMapper` returns the subflow's input: readable as `scope.key` and `$getArgs()`, but read-only — a subflow stage that writes one of those keys throws, as with `run({ input })`. Without an `inputMapper` the subflow starts empty and sees none of the parent's keys. `outputMapper(subOut, parentScope)` returns the keys to merge back into the parent.
 
 ### Loops
 
@@ -757,7 +757,7 @@ subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflo
 1. **Never post-process the tree.** Don't walk the spec after execution to collect data. Use recorders (or the `footprintjs/trace` queries over the recorded log).
 2. **Don't use `$getValue()`/`$setValue()` for keys you know.** Use typed property access (`scope.amount = 50000`); those two are escape hatches for dynamic keys. A plain `scope.getValue(...)` does not exist on a TypedScope.
 3. **Don't give a state key the name of a `$` method** (`scope.$break = 1` throws "conflicts with a reserved TypedScope method"). The reserved names are `SCOPE_METHOD_NAMES` in `footprintjs/advanced` (`$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, `$emit`, `$log`, `$read`, …); avoid `$`-prefixed state keys altogether.
-4. **Don't write a state key that is also an input key.** `run({ input: { requestId } })` makes `requestId` read-only for the run — name the state key differently.
+4. **Don't write a state key that is also an input key.** `run({ input: { requestId } })` makes `requestId` read-only for the run (a subflow's `inputMapper` keys are read-only inside that subflow) — name the state key differently.
 5. **`CombinedNarrativeBuilder` is gone** (removed in v1.0). The narrative comes from `CombinedNarrativeRecorder`, which you get from `executor.enableNarrative()` or the `narrative()` factory — never construct it yourself.
 6. **Don't extract a shared base class** for scope and flow recorders. The built-ins compose a store (`KeyedStore` / `SequenceStore`, exported from `footprintjs/trace`) as a field instead of inheriting.
 7. **Don't call `$getArgs()` for tracked data.** `$getArgs()` returns frozen readonly input. Use typed scope properties for state that should appear in the narrative.
