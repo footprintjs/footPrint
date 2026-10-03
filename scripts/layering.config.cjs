@@ -60,8 +60,9 @@ const LAYERS = [
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',
       'src/lib/engine/branchSegment.ts',
-      // `deepFreeze`: a pure leaf that lives under scope/protection. runner/ExecutionRuntime
-      // (L4) calls it today, and freezing the commit log at `record` will call it from L3.
+      // `assertNotReadonly` / `createFrozenArgs`: a leaf under scope/protection (it imports
+      // capture/ only). The freeze walk itself moved to `capture/freeze.ts` in F3, so that
+      // `EventLog · record` (memory/) can freeze without a memory → scope edge.
       'src/lib/scope/protection/readonlyInput.ts',
     ],
   },

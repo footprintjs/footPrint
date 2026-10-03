@@ -10,6 +10,7 @@
  * After execution, consumers query it for the full execution state.
  */
 
+import { deepFreeze } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RedactionRule } from '../memory/redaction.js';
@@ -23,7 +24,6 @@ import type {
   WriteProvenanceMode,
   WriteTrackingMode,
 } from '../memory/types.js';
-import { deepFreeze } from '../scope/protection/readonlyInput.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -350,7 +350,9 @@ export class ExecutionRuntime {
       // DETACHED: the engine keeps its live EventLog; the snapshot gets a
       // frozen copy of the array. Serving `list()` directly aliased the
       // internal array, so a snapshot taken mid-run kept growing under its
-      // holder and a consumer could splice the engine's own history.
+      // holder and a consumer could splice the engine's own history. The
+      // bundles in it are the log's own, frozen at `EventLog · record` (F3).
+      // The copy stays: it is what keeps a holder's array from growing.
       commitLog: Object.freeze(this.executionHistory.list().slice()) as CommitBundle[],
       commitValues: this.commitValues,
       writeProvenance: this.writeProvenance,
