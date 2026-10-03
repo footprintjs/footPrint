@@ -894,7 +894,7 @@ Gated diagnostics (not exhaustive; each is gated on `isDevMode()` in the source)
 - **Empty-recorder warning** in `attachCombinedRecorder(r)` — catches `r` with no `on*` handler
 - **`decide()` / `select()` rules** that throw while evaluating, or filter ops that are not one of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` (the rule counts as not matched)
 - **Snapshot integrity** in `getSubtreeSnapshot()`
-- **Recorder hook errors** — a recorder that throws is warned about (it never aborts the run, in any mode)
+- **Recorder hook errors** — a recorder hook that throws is isolated and, in dev mode, warned about; it does not abort the run — except `onResume`, which the executor calls unguarded (a throw rejects `resume()`), and, in dev mode, a hook that throws a value that cannot be stringified (a null-prototype object rejects `run()`).
 - **`getSnapshot().sharedState`** becomes a deep-frozen clone, so a mutation throws instead of corrupting engine state
 - **A subflow id mounted twice** — warned at build time (a pause inside it could not be resumed)
 
