@@ -390,7 +390,8 @@ after the resume fails the run. Each as in 9.27.0.
 - **One stamp constructor.** [`traversalContext.ts`](./traversalContext.ts)
   builds every `TraversalContext`: the per-stage stamp, the run-boundary root,
   and the executor's `onResume`. The resume stamp names the real subflow
-  (`subflowId`, the paused stage's innermost) and depth (subflows deep), and
+  (`subflowId`, the paused stage's innermost) and depth (subflows deep — the
+  one meaning `depth` has on every stamp), and
   LINKS to the paused execution through `resumedFrom` — a link, not a parent:
   a resume is a new `runId`.
 
@@ -412,9 +413,10 @@ await executor.resume(executor.getCheckpoint()!, { answer: 'yes' });
 // → 'sf' { runId: '<the paused run>', runtimeStageId: 'sf/ask#3' }
 ```
 
-The link is held beside the checkpoint object this executor made; a checkpoint
-that was serialized or made elsewhere resumes without one (the checkpoint record
-does not carry the paused execution — that is a checkpoint-shape change).
+The link is read off the checkpoint's one optional `pausedExecution` field, so a
+resume records the same wherever its checkpoint came from; an older checkpoint
+resumes without one. `depth` has one meaning on every stamp — the subflow
+nesting of the stage's address, read off its runtimeStageId.
 
 ---
 

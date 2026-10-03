@@ -94,10 +94,13 @@ describe('the resume event carries the real path, depth and a link', () => {
     expect(resumed.resumedFrom).toEqual({ runId: r.seen.onPause[0].runId, runtimeStageId: 'gate#1' });
   });
 
-  it('a checkpoint this executor did not make (serialized, cross-executor) resumes with no link — never a guess', async () => {
+  it('the link is read off the checkpoint: a serialized checkpoint on a fresh executor records the same', async () => {
     const first = new FlowChartExecutor(nestedPauseChart());
+    const a = recorder();
+    first.attachFlowRecorder(a.flow);
     await first.run();
     const stored: FlowchartCheckpoint = JSON.parse(JSON.stringify(first.getCheckpoint()));
+    expect(stored.pausedExecution).toEqual({ runId: a.seen.onPause[0].runId, runtimeStageId: 'sf-out/sf-in/ask#5' });
 
     const second = new FlowChartExecutor(nestedPauseChart());
     const r = recorder();
@@ -106,10 +109,59 @@ describe('the resume event carries the real path, depth and a link', () => {
     const resumed = r.seen.onResume[0];
     expect(resumed.subflowId).toBe('sf-out/sf-in');
     expect(resumed.depth).toBe(2);
-    expect(resumed).not.toHaveProperty('resumedFrom');
+    expect(resumed.resumedFrom).toEqual(stored.pausedExecution);
   });
 
-  it('the checkpoint record is unchanged — the link is held beside it, not in it', async () => {
+  it('a checkpoint without pausedExecution (made before 9.37.0) resumes, with no link — never a guess', async () => {
+    const first = new FlowChartExecutor(nestedPauseChart());
+    await first.run();
+    const { pausedExecution: _dropped, ...old } = first.getCheckpoint()!;
+    const r = recorder();
+    const second = new FlowChartExecutor(nestedPauseChart());
+    second.attachFlowRecorder(r.flow);
+    await second.resume(old as FlowchartCheckpoint, { ok: true });
+    expect(r.seen.onResume[0]).not.toHaveProperty('resumedFrom');
+    expect(second.getSnapshot().sharedState).toMatchObject({ i: 1 });
+  });
+
+  it('depth has one meaning: the resume event and the stand-in stage events agree (same and cross executor)', async () => {
+    const charts = {
+      nested: nestedPauseChart,
+      root: () =>
+        flowChart('Init', () => undefined, 'init')
+          .addFunction(
+            'Gate',
+            (s: S) => {
+              s.answer = interrupt(s, { q: 1 });
+            },
+            'gate',
+          )
+          .build(),
+    };
+    for (const make of Object.values(charts)) {
+      for (const cross of [false, true]) {
+        let executor = new FlowChartExecutor(make());
+        const r = recorder();
+        executor.attachFlowRecorder(r.flow);
+        await executor.run();
+        let cp = executor.getCheckpoint()!;
+        if (cross) {
+          cp = JSON.parse(JSON.stringify(cp));
+          executor = new FlowChartExecutor(make());
+          executor.attachFlowRecorder(r.flow);
+        }
+        await executor.resume(cp, 'yes');
+        const resumed = r.seen.onResume[0];
+        const standIn = r.seen.onStageExecuted.filter((c) => c.runtimeStageId === resumed.runtimeStageId);
+        expect(standIn.length).toBeGreaterThan(0);
+        for (const c of standIn) expect(c.depth).toBe(resumed.depth);
+        // ...and the paused execution's own events carried it too.
+        expect(r.seen.onPause[0].depth).toBe(resumed.depth);
+      }
+    }
+  });
+
+  it('a newly made checkpoint gains exactly one field, pausedExecution', async () => {
     const executor = new FlowChartExecutor(nestedPauseChart());
     await executor.run();
     expect(Object.keys(executor.getCheckpoint()!).sort()).toEqual(
@@ -118,6 +170,7 @@ describe('the resume event carries the real path, depth and a link', () => {
         'executionTree',
         'pauseData',
         'pausedAt',
+        'pausedExecution',
         'pausedStageId',
         'sharedState',
         'subflowPath',

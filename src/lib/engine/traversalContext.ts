@@ -8,6 +8,10 @@
  * the third forecast what it could not know (depth 0, no subflow). Now all
  * three call `traversalContextFor`, through the two named shapes below.
  *
+ * `depth` has ONE meaning on every stamp: the subflow nesting of the stage's
+ * address, read off its runtimeStageId (9.37.0 — stage events used to stamp
+ * the parent-chain length of the stage's context).
+ *
  * Key ORDER and key PRESENCE are part of the bytes (a recorder that serializes
  * the stamp sees them), so `traversalContextFor` writes a key only when the
  * caller passed it — `parentStageId`, `subflowId` and `subflowPath` are written
@@ -15,7 +19,7 @@
  * has always done.
  */
 
-import { type RuntimeStageId, buildRuntimeStageId } from '../ids/runtimeStageId.js';
+import { type RuntimeStageId, buildRuntimeStageId, subflowSegmentsOf } from '../ids/runtimeStageId.js';
 import type { ResumeLink, TraversalContext } from './narrative/types.js';
 
 /** Everything a stamp can carry; optional keys are written only when PRESENT on this object. */
@@ -29,7 +33,6 @@ export interface TraversalStamp {
   readonly loopIteration?: number;
   readonly subflowId?: string;
   readonly subflowPath?: string;
-  readonly depth: number;
   readonly resumedFrom?: ResumeLink;
 }
 
@@ -49,7 +52,9 @@ export function traversalContextFor(stamp: TraversalStamp): TraversalContext {
     ...(stamp.loopIteration !== undefined && { loopIteration: stamp.loopIteration }),
     ...(has(stamp, 'subflowId') && { subflowId: stamp.subflowId }),
     ...(has(stamp, 'subflowPath') && { subflowPath: stamp.subflowPath }),
-    depth: stamp.depth,
+    // ONE meaning (F7): how many subflows deep the stage's ADDRESS is — read
+    // off the runtimeStageId, so every stamp (stage, root, resume) agrees.
+    depth: subflowSegmentsOf(stamp.runtimeStageId).length,
     ...(stamp.resumedFrom && { resumedFrom: stamp.resumedFrom }),
   };
 }
@@ -73,7 +78,6 @@ export function rootTraversalContext(runId: string): TraversalContext {
     stageId: ROOT_STAGE_ID,
     runtimeStageId: buildRuntimeStageId(ROOT_STAGE_ID, 0),
     stageName: ROOT_STAGE_ID,
-    depth: 0,
   });
 }
 
@@ -82,8 +86,9 @@ export function rootTraversalContext(runId: string): TraversalContext {
  * the id its commit carries), the REAL subflow it runs in — `subflowId` is the
  * paused stage's innermost subflow (`checkpoint.subflowPath`'s last entry, the
  * prefixed id every in-subflow stamp carries), absent at the top level — and
- * `depth` = how many subflows deep that is. `resumedFrom` LINKS to the paused
- * execution (OTel span-link style) instead of forecasting a parent.
+ * the same `depth` its own stage events carry (both read the address).
+ * `resumedFrom` LINKS to the paused execution (OTel span-link style, read off
+ * `checkpoint.pausedExecution`) instead of forecasting a parent.
  */
 export function resumeTraversalContext(resume: {
   readonly runId: string;
@@ -101,7 +106,6 @@ export function resumeTraversalContext(resume: {
     runtimeStageId: resume.runtimeStageId,
     stageName: resume.stageName,
     ...(innermost !== undefined && { subflowId: innermost }),
-    depth: resume.subflowPath.length,
     ...(resume.resumedFrom && { resumedFrom: resume.resumedFrom }),
   });
 }

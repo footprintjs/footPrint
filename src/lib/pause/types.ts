@@ -324,6 +324,15 @@ export interface FlowchartCheckpoint {
   /** ID of the stage that paused. Used by resume() to find the node in the graph. */
   readonly pausedStageId: string;
 
+  /**
+   * The paused EXECUTION (9.37.0): the run that paused and the paused stage's
+   * runtimeStageId in it (the id its `onPause` event and its commit carry).
+   * Read by `resume()` into the `onResume` event's `traversalContext.resumedFrom`
+   * link — never used to plan the re-entry. Absent on an older checkpoint,
+   * which then resumes without a link.
+   */
+  readonly pausedExecution?: { readonly runId: string; readonly runtimeStageId: string };
+
   /** Path through subflows to the paused stage (e.g., ['sf-payment', 'sf-validation']).
    *  Empty array when paused at the top level. */
   readonly subflowPath: readonly string[];

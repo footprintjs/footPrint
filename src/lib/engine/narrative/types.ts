@@ -229,7 +229,14 @@ export interface TraversalContext {
   readonly subflowId?: string;
   /** Full subflow path for nested subflows (e.g., "sf-outer/sf-inner"). */
   readonly subflowPath?: string;
-  /** Nesting depth (0 = root, 1 = inside first subflow, etc.). */
+  /**
+   * Subflow nesting depth of the stage's ADDRESS: how many subflow segments its
+   * `runtimeStageId` carries (0 = top level, 1 = inside a subflow or a
+   * `parallelForEach` branch, 2 = a subflow inside that, …). One meaning on
+   * every stamp — stage events, the run-boundary root (0) and `onResume`
+   * (9.37.0; until 9.36.0 stage events stamped the parent-chain length of the
+   * stage's context instead).
+   */
   readonly depth: number;
   /**
    * How many times this stage has executed BEFORE in this run — the loop

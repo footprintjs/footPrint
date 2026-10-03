@@ -24,7 +24,6 @@ describe('traversalContextFor', () => {
       loopIteration: undefined,
       subflowId: undefined,
       subflowPath: undefined,
-      depth: 0,
     });
     expect(Object.keys(ctx)).toEqual([
       'runId',
@@ -38,6 +37,15 @@ describe('traversalContextFor', () => {
     ]);
   });
 
+  it('depth has one meaning: the subflow nesting of the address', () => {
+    const at = (runtimeStageId: string) =>
+      traversalContextFor({ runId: 'r', stageId: 's', runtimeStageId, stageName: 'S' }).depth;
+    expect(at('s#0')).toBe(0);
+    expect(at('sf/s#3')).toBe(1);
+    expect(at('review~2/score#14')).toBe(1);
+    expect(at('sf-out/sf-in/ask#5')).toBe(2);
+  });
+
   it('writes parentRuntimeStageId / loopIteration only when they hold a value', () => {
     const ctx = traversalContextFor({
       runId: 'r',
@@ -49,7 +57,6 @@ describe('traversalContextFor', () => {
       loopIteration: 1,
       subflowId: 'sf',
       subflowPath: undefined,
-      depth: 2,
     });
     expect(Object.keys(ctx)).toEqual([
       'runId',

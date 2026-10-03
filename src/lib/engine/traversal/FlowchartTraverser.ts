@@ -360,16 +360,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private _executeDepth = 0;
 
   /**
-   * Memoized parent-chain depth per StageContext. The context tree deepens
-   * by one per executed stage along a chain, so the naive parent-walk in
-   * `computeContextDepth` is O(chain length) per stage — O(n²) per run once
-   * the trampoline allows chains of tens of thousands of stages. Contexts
-   * are visited parent-before-child, so the memo makes each lookup O(1)
-   * amortized. WeakMap — dies with the traverser.
-   */
-  private readonly contextDepthCache = new WeakMap<StageContext, number>();
-
-  /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
    * Shared with child traversers (subflows) so indices are globally unique within a run.
    */
@@ -1056,7 +1046,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       loopIteration,
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
-      depth: this.computeContextDepth(context),
     });
 
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
@@ -1558,38 +1547,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       parentStageId,
       pipelineStructure: childStructure,
     });
-  }
-
-  /**
-   * Parent-chain length of a StageContext — same value the pre-trampoline
-   * walk produced, memoized. The context tree deepens by one per executed
-   * stage along a chain, so the naive walk is O(chain length) per stage —
-   * O(n²) per run once chains reach trampoline scale. Contexts are visited
-   * parent-before-child, so the cached parent makes this O(1) amortized.
-   */
-  private computeContextDepth(context: StageContext): number {
-    const cached = this.contextDepthCache.get(context);
-    if (cached !== undefined) return cached;
-
-    // Walk up to the nearest cached ancestor (or the root), then fill the
-    // cache back down — iterative, so a cold deep chain can't overflow.
-    const uncached: StageContext[] = [];
-    let depth = -1; // depth of the node ABOVE the first uncached entry
-    let current: StageContext | undefined = context;
-    while (current) {
-      const hit = this.contextDepthCache.get(current);
-      if (hit !== undefined) {
-        depth = hit;
-        break;
-      }
-      uncached.push(current);
-      current = current.parent;
-    }
-    for (let i = uncached.length - 1; i >= 0; i--) {
-      depth++;
-      this.contextDepthCache.set(uncached[i], depth);
-    }
-    return depth;
   }
 
   /**

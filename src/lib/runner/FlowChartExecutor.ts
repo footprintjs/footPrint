@@ -108,6 +108,19 @@ function standInFor<TOut, TScope>(
 const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
 
 /**
+ * The resume event's link, read off the checkpoint itself — so a resume records
+ * the same wherever its checkpoint came from. `undefined` for a checkpoint
+ * without `pausedExecution` (made before 9.37.0) or with a malformed one: the
+ * link is a record, never used to plan the re-entry, so it is left out rather
+ * than guessed.
+ */
+function resumeLinkOf(checkpoint: FlowchartCheckpoint): ResumeLink | undefined {
+  const paused = checkpoint.pausedExecution as { runId?: unknown; runtimeStageId?: unknown } | undefined;
+  if (typeof paused?.runId !== 'string' || typeof paused.runtimeStageId !== 'string') return undefined;
+  return { runId: paused.runId, runtimeStageId: paused.runtimeStageId };
+}
+
+/**
  * Options object for `FlowChartExecutor` — preferred over positional params.
  *
  * ```typescript
@@ -203,15 +216,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   private redactionRule = new RedactionRule();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
-  /**
-   * The paused EXECUTION behind each checkpoint THIS executor made — what the
-   * resume event links to (`TraversalContext.resumedFrom`, 9.37.0). Keyed by
-   * the checkpoint object itself, so only that object earns the link: a
-   * checkpoint that was serialized, copied or made elsewhere resumes without
-   * one (the checkpoint record does not carry the paused execution — adding it
-   * is a checkpoint-shape change, F8's). Weak, so a dropped checkpoint frees it.
-   */
-  private readonly pauseLinks = new WeakMap<FlowchartCheckpoint, ResumeLink>();
   /**
    * `true` once `run()` (or a previous `resume()`) has executed on
    * this instance. `resume()` branches on it:
@@ -858,7 +862,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // the same runId-change pattern they use for `onRunStart`. The stamp is
     // built by the one constructor (`engine/traversalContext.ts`): it names the
     // REAL subflow the stand-in runs in and its depth, and LINKS to the paused
-    // execution (`resumedFrom`, read off the checkpoint) — 9.37.0.
+    // execution (`resumedFrom`, read off `checkpoint.pausedExecution`) — 9.37.0.
     //
     // The runtimeStageId is the STAND-IN's own: it runs after one mount per
     // subflow on the path (each entered at its mount), so its execution index
@@ -871,7 +875,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const hasInput = resumeInput !== undefined;
     const stepsBeforeStandIn = resumeEntry.stepsBeforeStandIn ?? checkpoint.subflowPath.length;
     const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value + stepsBeforeStandIn);
-    const resumedFrom = this.pauseLinks.get(checkpoint);
+    const resumedFrom = resumeLinkOf(checkpoint);
     const flowResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
@@ -940,7 +944,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     } catch (error: unknown) {
       this.deferredTier?.terminalFlush();
       if (isPauseSignal(error)) {
-        this.lastCheckpoint = this.checkpointFor(error);
+        this.lastCheckpoint = this.buildPauseCheckpoint(error);
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
       }
       throw error;
@@ -991,18 +995,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * checkpoint here lets cross-executor resume restore pre-pause subflow
    * scope (e.g. an Agent's `scope.history`). Empty `{}` for root-level pauses.
    */
-  /**
-   * The pause's checkpoint, with the paused EXECUTION remembered beside it
-   * (`pauseLinks`) so a resume of THIS object can link to it.
-   */
-  private checkpointFor(signal: PauseSignal): FlowchartCheckpoint {
-    const checkpoint = this.buildPauseCheckpoint(signal);
-    if (signal.runtimeStageId !== undefined) {
-      this.pauseLinks.set(checkpoint, { runId: this._currentRunId, runtimeStageId: signal.runtimeStageId });
-    }
-    return checkpoint;
-  }
-
   private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
     const snapshot = this.traverser.getSnapshot();
     const sfResults = this.traverser.getSubflowResults();
@@ -1030,6 +1022,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
+      // The paused EXECUTION (9.37.0) — what the resume event links to.
+      ...(signal.runtimeStageId !== undefined && {
+        pausedExecution: { runId: this._currentRunId, runtimeStageId: signal.runtimeStageId },
+      }),
       subflowPath: signal.subflowPath,
       pauseData: signal.pauseData,
       subflowStates: signal.subflowStates,
@@ -1536,7 +1532,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       if (isPauseSignal(error)) {
         // Build a detached checkpoint from current execution state — see
         // buildPauseCheckpoint() for the deep-copy rationale.
-        this.lastCheckpoint = this.checkpointFor(error);
+        this.lastCheckpoint = this.buildPauseCheckpoint(error);
         // Return a PauseResult-shaped value so callers can check without try/catch
         return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
       }
