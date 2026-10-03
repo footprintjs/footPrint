@@ -4,9 +4,9 @@
  * addPausableFunctionBranch puts the pause directly inside the decider's
  * branch. After resume, execution continues to post-decider stages.
  *
- * This tests the invoker context fix: the checkpoint carries
- * continuationStageId (the decider's next node), so resume() knows
- * where to continue after the branch completes.
+ * The checkpoint names the invoker (the decider); what runs after the
+ * branch completes (the decider's next node) is read from the chart on
+ * resume, never from the checkpoint.
  *
  * Pipeline: Seed → Route(decide) → [manual: Approval(PAUSE)] / [auto: Auto] → Done
  * After resume: Approval resumes → Done runs (result = 'processed')
@@ -66,8 +66,7 @@ const chart = flowChart<State>('Seed', async (scope) => {
     const checkpoint = executor.getCheckpoint()!;
 
     // Checkpoint carries invoker context (collected during traversal)
-    console.log(`Invoker: ${checkpoint.invokerStageId}`);       // 'route'
-    console.log(`Continuation: ${checkpoint.continuationStageId}`); // 'done'
+    console.log(`Invoker: ${checkpoint.invokerStageId}`); // 'route'
 
     await executor.resume(checkpoint, { approved: true, approver: 'Sarah' });
 

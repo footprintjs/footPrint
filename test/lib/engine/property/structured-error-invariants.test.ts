@@ -11,7 +11,7 @@
 
 import * as fc from 'fast-check';
 
-import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
+import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/errors/errorInfo';
 import type { ValidationIssue } from '../../../../src/lib/schema/errors';
 import { InputValidationError } from '../../../../src/lib/schema/errors';
 

@@ -12,9 +12,9 @@
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
+import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
+import { extractErrorInfo } from '../../errors/errorInfo.js';
 import { fire, warnInDevMode } from '../../recorder/hooks.js';
-import type { StructuredErrorInfo } from '../errors/errorInfo.js';
-import { extractErrorInfo } from '../errors/errorInfo.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
   FlowBreakEvent,

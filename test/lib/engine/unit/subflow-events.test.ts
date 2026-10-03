@@ -1,7 +1,7 @@
-import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import { FlowRecorderDispatcher } from '../../../../src/lib/engine/narrative/FlowRecorderDispatcher';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
 import type { FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../../../../src/lib/engine/narrative/types';
+import { extractErrorInfo } from '../../../../src/lib/errors/errorInfo';
 
 describe('Subflow event enrichment', () => {
   describe('FlowRecorderDispatcher', () => {

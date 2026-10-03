@@ -56,7 +56,7 @@ import { isPausedExecution, isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
-import { fire, operationFor, warnInDevMode } from '../recorder/hooks.js';
+import { fire, recorderFailureEvent, warnInDevMode } from '../recorder/hooks.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
@@ -895,16 +895,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     fire(this.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
       // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
       // becomes an `onError` on every scope recorder, whose own throw is dropped.
-      fire(this.scopeRecorders, 'onError', {
-        stageName: scopeResumeEvent.stageName,
-        stageId: scopeResumeEvent.stageId,
-        runtimeStageId: scopeResumeEvent.runtimeStageId,
-        pipelineId: scopeResumeEvent.pipelineId,
-        timestamp: Date.now(),
-        error: error as Error,
-        operation: operationFor(hook),
-        channel: 'scope' as const,
-      }),
+      fire(this.scopeRecorders, 'onError', recorderFailureEvent(scopeResumeEvent, error, hook)),
     );
 
     // Deferred tier (RFC-001): these executor-synthesized onResume events

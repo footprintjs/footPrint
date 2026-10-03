@@ -27,7 +27,7 @@ import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
-import { fire, operationFor } from '../recorder/hooks.js';
+import { fire, recorderFailureEvent } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
@@ -683,15 +683,18 @@ export class ScopeFacade {
    */
   private readonly _routeFailure: HookFailure = (error, _recorder, hook) => {
     if (hook === 'onError') return;
-    this._invokeHook('onError', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
-      error: error as Error,
-      operation: operationFor(hook),
-      channel: 'scope' as const,
-    });
+    this._invokeHook(
+      'onError',
+      recorderFailureEvent(
+        {
+          stageName: this._stageName,
+          stageId: this._stageContext.stageId,
+          runtimeStageId: this._stageContext.runtimeStageId,
+          pipelineId: this._stageContext.runId,
+        },
+        error,
+        hook,
+      ),
+    );
   };
 }

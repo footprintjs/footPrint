@@ -6,6 +6,8 @@
  * attached to Scope instances to observe read/write/commit operations.
  */
 
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+
 // ============================================================================
 // Event Types
 // ============================================================================
@@ -43,8 +45,20 @@ export interface CommitEvent extends RecorderContext {
   }>;
 }
 
+/**
+ * A recorder threw in a scope-channel hook (`operation` says which kind:
+ * a read, a write, or a commit hook). Delivered to every recorder on the
+ * scope channel, inline and deferred alike (`recorder/hooks.ts ·
+ * recorderFailureEvent`).
+ */
 export interface ErrorEvent extends RecorderContext {
-  error: Error;
+  /**
+   * What the recorder threw, in the structured form (9.39.0): `message` and
+   * `name` read as before; `raw` is the thrown value itself (an `Error`, a
+   * string, anything). One shape on every path — until 9.38.0 the inline
+   * paths passed the raw thrown value and the deferred tier a `new Error(...)`.
+   */
+  error: StructuredErrorInfo;
   operation: 'read' | 'write' | 'commit';
   key?: string;
   /**

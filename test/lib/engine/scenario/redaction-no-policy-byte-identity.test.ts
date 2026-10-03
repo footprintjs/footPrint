@@ -19,8 +19,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
+import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

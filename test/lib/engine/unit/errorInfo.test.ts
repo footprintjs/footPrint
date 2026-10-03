@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
+import { extractErrorInfo, formatErrorInfo } from '../../../../src/lib/errors/errorInfo';
 import { InputValidationError } from '../../../../src/lib/schema/errors';
 
 describe('extractErrorInfo', () => {

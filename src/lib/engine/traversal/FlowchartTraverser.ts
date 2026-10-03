@@ -23,11 +23,11 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
+import { extractErrorInfo } from '../../errors/errorInfo.js';
 import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
-import { extractErrorInfo } from '../errors/errorInfo.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';

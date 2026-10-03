@@ -1,5 +1,5 @@
-import { extractErrorInfo } from '../../../../src/lib/engine/errors/errorInfo';
 import { NarrativeFlowRecorder } from '../../../../src/lib/engine/narrative/NarrativeFlowRecorder';
+import { extractErrorInfo } from '../../../../src/lib/errors/errorInfo';
 
 describe('NarrativeFlowRecorder', () => {
   let recorder: NarrativeFlowRecorder;

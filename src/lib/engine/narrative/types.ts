@@ -8,7 +8,7 @@
  */
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
-import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 
 /**
  *

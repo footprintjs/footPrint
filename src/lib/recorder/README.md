@@ -69,7 +69,8 @@ ScopeRecorder
 ├── onWrite                — every shared-state write
 ├── onCommit               — transaction flush
 ├── onStageEnd             — stage completes
-└── onError                — stage threw
+└── onError                — a recorder threw in one of the hooks above
+                             (event.error: StructuredErrorInfo — message, name?, raw)
 ```
 
 **Why this channel exists**: gives you the **data-level "stack trace"**. When the rejection decision says `'high-risk'`, you want to know: which key was read, what value did it have, what threshold was checked, did it match. Logs answer "this happened." Scope events answer "*because* X was Y."
@@ -92,6 +93,7 @@ FlowRecorder
 ├── onBreak                — $break() called
 ├── onError                — stage threw
 ├── onStageRetry           — an attempt failed and is being retried (declared `retry` policy)
+├── onThrottled            — a fork child's error was classified as throttling (`throttlingErrorChecker`, 9.39.0)
 ├── onPause/onResume       — pause/resume signal
 └── onRunStart/onRunEnd    — top-level run boundary
 ```
@@ -332,10 +334,15 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 - `HOOKS` — one entry per hook: the channel(s) that declare it (each with its payload type's name) and whether the executor makes it (`onResume`). It `satisfies` a type built from `ScopeRecorder` / `FlowRecorder` / `EmitRecorder`, so **a hook added to an interface and not to `HOOKS` does not compile** (pinned by `test/architecture/hook-registry-compile.test.ts`).
 - `hooksOn(channel)` — the channel's hooks in registry order. Channel routing (`has*RecorderMethods`), and the deferred tier's taps read it; `CompositeRecorder`'s generated fan-out reads `HOOK_NAMES`.
 - `fire(recorders, hook, event, onFailure)` — the one per-recorder loop. A throw goes to the channel's policy (scope: `onError` on the recorders; flow: a dev-mode warning) and the loop goes on; nothing a recorder throws — not even a null-prototype object — reaches the run. Executor-made events (`resume`'s `onResume`) go through it too.
+- `recorderFailureEvent(site, thrown, hook)` — THE scope `onError` event for a recorder that threw (9.39.0). Every path that reports one builds it here: the inline facade, the executor's `onResume`, and deferred delivery. `error` is the structured form (`extractErrorInfo`: `message`, `name?`, `code?`, `raw` = exactly what was thrown), so a string thrown inline and the same string thrown by a deferred recorder arrive as the same event. Deferred delivery hands it to every scope observer — the failing one included, as the inline tier does — so a `CompositeRecorder`'s other children hear a sibling's throw; a throw from `onError` is not routed again. Pinned by `test/lib/recorder/error-event-shape.test.ts`.
+
+  ```ts
+  executor.attachScopeRecorder({ id: 'alerts', onError: (e) => alert(e.error.message, e.error.raw) });
+  ```
 - `copyBundle(id, bundle)` (`snapshot.ts`) — the one copier from `toSnapshot()` to a snapshot row; the executor and the composite both call it, so a child row keeps `description` / `preferredOperation` / `meta`.
 
 ```text
-hooksOn('flow')   → ['onStageExecuted', 'onNext', …, 'onRunFailed']   (17, registry order)
+hooksOn('flow')   → ['onStageExecuted', 'onNext', …, 'onRunFailed']   (18, registry order)
 fire(recorders, 'onLoop', event, policy)   → a throwing recorder is handed to `policy`, the rest still run
 ```
 

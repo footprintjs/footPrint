@@ -53,7 +53,6 @@ const chart = flowChart<State>('Seed', async (scope) => {
   if (executor.isPaused()) {
     const checkpoint = executor.getCheckpoint()!;
     console.log(`Invoker: ${checkpoint.invokerStageId}`);
-    console.log(`Continuation: ${checkpoint.continuationStageId}`);
 
     await executor.resume(checkpoint, { approved: true });
 

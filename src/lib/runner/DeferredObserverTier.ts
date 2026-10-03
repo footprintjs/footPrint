@@ -53,7 +53,7 @@ import {
   type OverflowPolicy,
   DeferredDispatcher,
 } from '../observer-queue/index.js';
-import { describeThrown, hooksOn, operationFor } from '../recorder/hooks.js';
+import { describeThrown, hooksOn, recorderFailureEvent } from '../recorder/hooks.js';
 import type { ScopeRecorder } from '../scope/types.js';
 
 /** Delivery tier for an attached observer (RFC-001). */
@@ -381,9 +381,12 @@ export class DeferredObserverTier {
 
   /**
    * Route a deferred listener failure into the existing recorder error
-   * channel: every OTHER registered observer (deferred siblings first, in
-   * registration order) receives a scope-shaped `onError` event — the same
-   * contract the inline tier honors when a recorder throws mid-dispatch.
+   * channel: every registered scope observer — the failing one included, in
+   * registration order — receives the scope-shaped `onError` event the inline
+   * tier builds (`recorderFailureEvent`), and a throw from `onError` itself
+   * is not routed again: the contract the inline tier honors when a recorder
+   * throws mid-dispatch (9.39.0 — before, the failing listener was skipped,
+   * so a CompositeRecorder's other children never heard a sibling's throw).
    * The error sink must never become an error source: sink throws are
    * swallowed (isolation is absolute).
    */
@@ -393,18 +396,32 @@ export class DeferredObserverTier {
     envelope: CaptureEnvelope,
     phase: 'sync' | 'async',
   ): void {
-    const errorEvent = {
-      stageName: '',
-      stageId: stageIdOf(envelope.runtimeStageId),
-      runtimeStageId: envelope.runtimeStageId,
-      pipelineId: envelope.runId,
-      timestamp: Date.now(),
-      error: error instanceof Error ? error : new Error(describeThrown(error)),
-      operation: operationFor(envelope.method),
-      channel: 'scope' as const,
-    };
-    for (const [id, { recorder, channels }] of this.registrations) {
-      if (id === listenerId) continue;
+    // Inline parity (9.39.0): the inline tier hands a recorder's throw to EVERY recorder on the
+    // scope list — the thrower included, so a CompositeRecorder's other children hear it — and
+    // drops a throw from `onError` itself. Same here, with the same event (`recorderFailureEvent`).
+    if (envelope.method !== 'onError') this.deliverListenerError(error, envelope);
+    if (isDevMode()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprintjs] deferred observer '${listenerId}' failed (${phase}) handling ` +
+          `${envelope.channel}.${envelope.method} (seq ${envelope.seq}): ${describeThrown(error)}`,
+      );
+    }
+  }
+
+  /** Hand one listener failure to every scope observer as an `onError` — see {@link routeListenerError}. */
+  private deliverListenerError(error: unknown, envelope: CaptureEnvelope): void {
+    const errorEvent = recorderFailureEvent(
+      {
+        stageName: '',
+        stageId: stageIdOf(envelope.runtimeStageId),
+        runtimeStageId: envelope.runtimeStageId,
+        pipelineId: envelope.runId,
+      },
+      error,
+      envelope.method,
+    );
+    for (const [, { recorder, channels }] of this.registrations) {
       // Inline-tier parity (review CRITICAL-1): the synthesized event is
       // scope-typed, so it reaches ONLY recorders registered on the scope
       // lists — a flow-only recorder never receives scope-channel errors
@@ -415,13 +432,6 @@ export class DeferredObserverTier {
       } catch {
         // Swallow — same rule as DeferredDispatcher.safeOnError.
       }
-    }
-    if (isDevMode()) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[footprintjs] deferred observer '${listenerId}' failed (${phase}) handling ` +
-          `${envelope.channel}.${envelope.method} (seq ${envelope.seq}): ${describeThrown(error)}`,
-      );
     }
   }
 

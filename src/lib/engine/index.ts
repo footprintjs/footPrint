@@ -54,8 +54,8 @@ export type {
 } from './narrative/types.js';
 
 // Structured error extraction
-export type { StructuredErrorInfo } from './errors/errorInfo.js';
-export { extractErrorInfo, formatErrorInfo } from './errors/errorInfo.js';
+export type { StructuredErrorInfo } from '../errors/errorInfo.js';
+export { extractErrorInfo, formatErrorInfo } from '../errors/errorInfo.js';
 
 // Built-in FlowRecorder strategies (tree-shakeable)
 export { AdaptiveNarrativeFlowRecorder } from './narrative/recorders/AdaptiveNarrativeFlowRecorder.js';
