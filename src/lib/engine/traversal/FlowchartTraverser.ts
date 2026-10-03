@@ -44,7 +44,7 @@ import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
-import { buildRuntimeStageId } from '../runtimeStageId.js';
+import { buildRuntimeStageId } from '../../ids/runtimeStageId.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
@@ -1641,7 +1641,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * must come out identical either way. `test/lib/engine/branch-segment-prefixer-equivalence.test.ts`
    * pins that — any edit here must be mirrored there, and vice versa.
    *
-   * Generated branch segments (`<stageId>~<index>`, see `engine/branchSegment.ts`)
+   * Generated branch segments (`<stageId>~<index>`, see `ids/branchSegment.ts`)
    * ride this exact path with no special case: the segment is just a prefix, so
    * a branch's inner ids become `<segment>/<id>` and its stages address as
    * `<segment>/<id>#<n>` — the shipped grammar, which is why every trace query

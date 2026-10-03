@@ -42,7 +42,7 @@
  * `@throws`, and in the README.
  */
 
-import { parseRuntimeStageId } from '../engine/runtimeStageId.js';
+import { parseRuntimeStageId } from '../ids/runtimeStageId.js';
 import type { CommitBundle } from '../memory/types.js';
 import { DELIM } from '../memory/utils.js';
 import { type ReadSource, foldLegs } from './stateAt.js';

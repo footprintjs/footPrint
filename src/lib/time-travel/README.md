@@ -578,7 +578,7 @@ declaration is the fact.
 
 ## DAG position
 
-`memory ← time-travel`, plus `engine/runtimeStageId` — the zero-dependency id
+`memory ← time-travel`, plus `ids/runtimeStageId` — the zero-dependency id
 grammar that defines what a `runtimeStageId` means, and therefore the one piece
 of `engine/` a reader of ids cannot honestly re-implement. Recorders, traversal
 and runner are never imported here: the snapshot arrives as a plain structural

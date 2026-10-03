@@ -10,7 +10,7 @@ import {
   createExecutionCounter,
   parseRuntimeStageId,
   splitStageId,
-} from '../../../../src/lib/engine/runtimeStageId';
+} from '../../../../src/lib/ids/runtimeStageId';
 
 describe('buildRuntimeStageId', () => {
   it('basic — stageId + executionIndex', () => {

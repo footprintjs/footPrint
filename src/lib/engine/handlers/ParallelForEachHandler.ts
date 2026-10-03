@@ -10,7 +10,7 @@
  * Almost everything here is existing machinery, wired together:
  *
  * - **Each branch is a generated SUBFLOW.** Its path segment is
- *   `<parentStageId>~<index>` (see `engine/branchSegment.ts`) — a subflowPath
+ *   `<parentStageId>~<index>` (see `ids/branchSegment.ts`) — a subflowPath
  *   segment in the grammar that already ships, NOT a new delimiter class. So a
  *   branch gets, for free: a fresh isolated `ExecutionRuntime` (branches cannot
  *   corrupt each other's in-flight state), the inputMapper seam for feeding the
@@ -51,11 +51,11 @@
  * knowable until the branches settle.
  */
 
+import { buildBranchSegment } from '../../ids/branchSegment.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import { IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
-import { buildBranchSegment } from '../branchSegment.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';

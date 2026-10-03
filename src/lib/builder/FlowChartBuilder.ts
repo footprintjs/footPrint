@@ -17,7 +17,7 @@ import {
   BRANCH_SEGMENT_MARKER,
   branchSegmentReservationMessage,
   hasBranchSegmentMarker,
-} from '../engine/branchSegment.js';
+} from '../ids/branchSegment.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
@@ -2475,7 +2475,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * any edit here must be mirrored there, and vice versa.
    *
    * Generated branch segments (`<stageId>~<index>`, see
-   * `engine/branchSegment.ts`) ride this exact path with no special case: a
+   * `ids/branchSegment.ts`) ride this exact path with no special case: a
    * segment is just a prefix. That is the mechanical tolerance the design
    * relies on — the runtimeStageId grammar accepts it unchanged, which is why
    * no parser in the library had to learn the marker.

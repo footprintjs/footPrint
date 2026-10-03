@@ -5,6 +5,7 @@
  * These helpers provide type-safe queries without (b: any) casts.
  */
 
+import type { CommitIdx } from '../ids/runtimeStageId.js';
 import type { RegisteredCode } from './honesty.js';
 import { queryWork, relation, rootOf, writesOnlyInside } from './keyPaths.js';
 import { leavesStringAbove, logModel, memoisedModel } from './logModel.js';
@@ -347,7 +348,7 @@ function valueByScan(commitLog: CommitBundle[], end: number, key: string): unkno
       if (r === 'around' || (nested && r === 'exact' && verb === 'delete')) {
         return logModel(commitLog).valueAt(key, end);
       }
-      rows.push({ verb: verb as Touch['verb'], bundle: commitLog[c], commitIdx: c, path, relation: r });
+      rows.push({ verb: verb as Touch['verb'], bundle: commitLog[c], commitIdx: c as CommitIdx, path, relation: r });
       if (r === 'exact' && (verb === 'set' || verb === 'delete')) {
         anchored = true;
         break;

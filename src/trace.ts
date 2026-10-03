@@ -31,13 +31,13 @@
  */
 
 // Runtime stage ID — unique execution step identifiers
-export type { ExecutionCounter } from './lib/engine/runtimeStageId.js';
+export type { CommitIdx, ExecutionCounter, ExecutionIndex, RuntimeStageId } from './lib/ids/runtimeStageId.js';
 export {
   buildRuntimeStageId,
   createExecutionCounter,
   parseRuntimeStageId,
   splitStageId,
-} from './lib/engine/runtimeStageId.js';
+} from './lib/ids/runtimeStageId.js';
 
 // Generated branch segments — the subflow path segments `addParallelForEach`
 // mints for its branches (`<stageId>~<index>`). A branch is addressed by the
@@ -52,7 +52,7 @@ export {
   hasBranchSegmentMarker,
   isBranchSegment,
   parseBranchSegment,
-} from './lib/engine/branchSegment.js';
+} from './lib/ids/branchSegment.js';
 
 // walkSubflowSpec — flat ordered traversal of a subflow's structure
 // (consume via StructureRecorder.onSubflowMounted's subflowSpec payload)

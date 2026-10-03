@@ -29,7 +29,7 @@ import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import { buildRuntimeStageId } from '../engine/runtimeStageId.js';
+import { buildRuntimeStageId, isExecutionKey } from '../ids/runtimeStageId.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
   type ExecutorResult,
@@ -986,7 +986,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     //     checkpoint bloat. The flat agent's checkpoint carries no commit history either → symmetric.
     const leanSubflowResults: Record<string, unknown> = {};
     for (const [key, value] of sfResults) {
-      if (key.includes('#')) continue; // per-iteration keys are snapshot-only
+      if (isExecutionKey(key)) continue; // per-iteration keys are snapshot-only
       const v = value as unknown as { treeContext?: Record<string, unknown> };
       if (v?.treeContext) {
         const treeCtxRest: Record<string, unknown> = {};

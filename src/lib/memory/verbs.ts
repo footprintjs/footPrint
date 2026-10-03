@@ -29,6 +29,7 @@
  * every engine run folds byte-for-byte as before.
  */
 
+import type { CommitIdx } from '../ids/runtimeStageId.js';
 import type { PathRelation } from './keyPaths.js';
 import { deepSmartMerge } from './merge.js';
 import { nativeDelete, nativeGet, nativeSet, own, ownedRootOf, ownSpine } from './pathOps.js';
@@ -419,7 +420,7 @@ export interface Touch {
   readonly verb: Verb;
   readonly bundle: CommitBundle;
   /** The bundle's position in the commit log. */
-  readonly commitIdx: number;
+  readonly commitIdx: CommitIdx;
   /** The row's own path (DELIM-joined `TraceEntry.path`). */
   readonly path: string;
   /**

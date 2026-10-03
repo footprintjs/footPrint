@@ -43,6 +43,7 @@
 import { invokeRecorderHook } from '../capture/invokeHook.js';
 import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
+import { stageIdOf } from '../ids/runtimeStageId.js';
 import {
   type CaptureChannel,
   type CaptureEnvelope,
@@ -392,10 +393,9 @@ export class DeferredObserverTier {
     envelope: CaptureEnvelope,
     phase: 'sync' | 'async',
   ): void {
-    const hashIdx = envelope.runtimeStageId.lastIndexOf('#');
     const errorEvent = {
       stageName: '',
-      stageId: hashIdx >= 0 ? envelope.runtimeStageId.slice(0, hashIdx) : envelope.runtimeStageId,
+      stageId: stageIdOf(envelope.runtimeStageId),
       runtimeStageId: envelope.runtimeStageId,
       pipelineId: envelope.runId,
       timestamp: Date.now(),

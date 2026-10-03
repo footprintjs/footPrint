@@ -37,7 +37,7 @@ import { describe, expect, it } from 'vitest';
 import { ArrayMergeMode } from '../../../src/advanced.js';
 import type { FlowChart, FlowRecorder, RuntimeSnapshot, ScopeRecorder } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
-import { parseRuntimeStageId } from '../../../src/lib/engine/runtimeStageId.js';
+import { parseRuntimeStageId } from '../../../src/lib/ids/runtimeStageId.js';
 import { stateAt, tagStops, timeTravel } from '../../../src/trace.js';
 import { type ResumeMode, type S, askLoopTopLevelChart, drive, RESUME_CHARTS } from './resume-real-chart-fixture.js';
 

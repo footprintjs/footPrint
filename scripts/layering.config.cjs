@@ -56,10 +56,11 @@ const LAYERS = [
       // Which rows touch a key — the path half of the writer rule and the writer index (F3).
       // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
       'src/lib/memory/keyPaths.ts',
-      // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
-      // so they cannot sit above it.
-      'src/lib/engine/runtimeStageId.ts',
-      'src/lib/engine/branchSegment.ts',
+      // The id grammar (F7): `runtimeStageId.ts` (the one owner — build/parse/read/refuse) and
+      // `branchSegment.ts` (the generated `~` segment). Pure leaves: time-travel/ (L3), scope/ and
+      // recorder/ (L5) read them, so they cannot sit above L0 — and they left engine/ in F7 because
+      // a scope → engine edge closes the engine ⇄ scope ⇄ recorder module cycle.
+      'src/lib/ids/**',
       // `assertNotReadonly` / `createFrozenArgs`: a leaf under scope/protection (it imports
       // capture/ only). The freeze walk itself moved to `capture/freeze.ts` in F3, so that
       // `EventLog · record` (memory/) can freeze without a memory → scope edge.
@@ -135,7 +136,13 @@ const LAYERS = [
   {
     rank: 6,
     name: 'engine',
-    files: ['src/lib/engine/**'],
+    files: [
+      // F7: the one subflow-id prefixer (builder at mount, traverser at run) and the one
+      // TraversalContext constructor (traverser + executor).
+      'src/lib/engine/graph/prefixNodeTree.ts',
+      'src/lib/engine/traversalContext.ts',
+      'src/lib/engine/**',
+    ],
   },
   {
     rank: 7,
