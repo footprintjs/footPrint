@@ -217,15 +217,11 @@ const TYPE_ONLY_ALLOWANCES = [
 ];
 
 /**
- * Old import paths kept as re-exports for one minor (the three leaves moved out of
- * scope/ and recorder/). Nothing under src/ may import them; the shims exist for
+ * Old import paths kept as re-exports for one minor (two of the leaves moved out of
+ * scope/; recorder/invokeHook.ts went in F6). Nothing under src/ may import them; the shims exist for
  * out-of-tree importers and are deleted the minor after.
  */
-const SHIMS = [
-  'src/lib/scope/detectCircular.ts',
-  'src/lib/recorder/invokeHook.ts',
-  'src/lib/scope/recorders/summarizeValue.ts',
-];
+const SHIMS = ['src/lib/scope/detectCircular.ts', 'src/lib/scope/recorders/summarizeValue.ts'];
 
 // ── matching ─────────────────────────────────────────────────────────────────
 

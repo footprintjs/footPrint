@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One dispatcher.** `fire(recorders, hook, event, onFailure)` is the one per-recorder loop (flow dispatcher, `ScopeFacade`, the executor's resume). One copier, `recorder/snapshot.ts · copyBundle`, turns `toSnapshot()` into a snapshot row.
 - **Behaviour (R10).** A recorder whose `onResume` throws no longer rejects `executor.resume()`. On the flow channel the throw gives a dev-mode warning; on the scope channel it becomes an `onError` on the scope recorders, as a stage hook's throw does. Also, a recorder that throws a value with no string form (a null-prototype object, a symbol) is isolated. Before this, it rejected `run()` in dev mode.
 - **Behaviour (R10).** `CompositeRecorder` children now receive `onPause`, `onResume`, `onRunStart`, `onRunEnd`, `onRunFailed` and `onEmit` (17/26 → 26/26 channel slots). Each child's snapshot row keeps `description`, `preferredOperation` and `meta`.
+- **Behaviour.** `CompositeRecorder` isolates each child through `fire`. A child that throws no longer stops the children after it from receiving the event. The error still goes to the channel's own policy (scope: `onError` on the recorders; flow: dev-mode warning). One throwing child is rethrown as itself, as before; several are rethrown together as one `AggregateError`.
 - Everything else is byte-identical to 9.35.0. A canonical-JSON diff of snapshots, narrative, checkpoints and recorder rows (inline and deferred tier) on fixture programs shows no difference.
 
 ### Breaking (owner ruling: no external consumers yet; migrate on adoption)
 
 - `RECORDER_EVENT_METHODS`, `FLOW_RECORDER_EVENT_METHODS`, `EMIT_RECORDER_EVENT_METHODS` (deep import, `lib/recorder/CombinedRecorder`) are removed. **Migration:** `hooksOn('scope' | 'flow' | 'emit')` from `lib/recorder/hooks` gives the same contents in the same order.
 - `CompositeSnapshot.data.children` is now `RecorderSnapshot[]` (it was `{ id, name, data }[]`). **Migration:** none for readers. Rows gain the optional `description` / `preferredOperation` / `meta`.
+- The F0 shim `lib/recorder/invokeHook` is removed. **Migration:** import `invokeRecorderHook` from `lib/capture/invokeHook`.
 - `EmitRecorder.toSnapshot()` returns `RecorderBundle`, the same type as the other channels, which adds an optional `meta`. **Migration:** none.
 
 ### Removed — F5's compatibility layer (owner ruling: no external consumers yet)
