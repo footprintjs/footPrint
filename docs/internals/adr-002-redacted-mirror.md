@@ -56,6 +56,6 @@ The runtime needs raw values (pause/resume replays against real state, scope rea
 
 ## References
 
-- Implementation: `src/lib/memory/StageContext.ts::commit()`, `src/lib/runner/ExecutionRuntime.ts::enableRedactedMirror()`, `src/lib/runner/FlowChartExecutor.ts::getSnapshot()`
+- Implementation: `src/lib/memory/StageContext.ts::commit()`, `src/lib/runner/ExecutionRuntime.ts · installPolicy` (the mirror is kept when the run's `RunPolicy.mirror` is set — `src/lib/memory/runPolicy.ts`, F5), `src/lib/runner/FlowChartExecutor.ts::getSnapshot()`
 - Tests: `test/lib/runner/redacted-snapshot.test.ts`
 - Upstream consumer: `agentfootprint.exportTrace()` (planned — will default to `{ redact: true }`)

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — one run policy: a subflow's seed commits under the run's dials (C-F5)
+
+- **Why.** The four observability dials, the redaction rule and the redacted mirror were copied field
+  by field down three paths — `ExecutionRuntime.use*` on the root, six assignments in each of
+  `StageContext.createNext`/`createChild`, and a duck-typed push per dial in
+  `SubflowExecutor · executeSubflow` — so a new dial was six edits, a missed one ran a subflow on the
+  default silently, and the subflow push happened AFTER the seed: a subflow's `history[0]` was the only
+  commit of a run that ignored the dials.
+- **Now.** `memory/runPolicy.ts` holds them as ONE frozen `RunPolicy`, built once per leg (run and
+  resume) by the executor, given to `ExecutionRuntime` at construction, and held BY REFERENCE by every
+  frame — a subflow's runtime is constructed with it, so its seed frame is too. The one byte change:
+  under `writeProvenance: 'reads-prefix'` every row of a subflow's seed bundle carries `readKeys: []`
+  (the seed read nothing before it wrote). Under the other three dials the seed is byte-identical, and
+  every other byte of every run is unchanged.
+
+  ```text
+  new FlowChartExecutor(chart, { writeProvenance: 'reads-prefix' })   // chart mounts a subflow with an inputMapper
+  getSubtreeSnapshot(snapshot, 'sf').history[0].trace
+    before: [{ path: 'n', verb: 'set' }, { path: 'flag', verb: 'set' }]
+    after:  [{ path: 'n', verb: 'set', readKeys: [] }, { path: 'flag', verb: 'set', readKeys: [] }]
+  ```
+
+- **For library-internal callers** (`footprintjs/advanced`): `StageContext.useReadTracking` /
+  `useWriteTracking` / `useCommitValues` / `useWriteProvenance` and their getters, and
+  `ExecutionRuntime.use*` / `enableRedactedMirror`, are gone — pass a policy instead:
+  `new ExecutionRuntime(name, id, defaults, initial, runPolicy({ commitValues: 'delta' }))`, or
+  `ctx.usePolicy(runPolicy({ readTracking: 'off' }))` on a bare frame; read with `ctx.getPolicy()`.
+  `FlowChartExecutorOptions` now extends the new `RunDials` type (same four optional fields).
+
 ## [9.34.0] - 2026-10-03
 
 ### Changed — a subflow's merge-back and seed are recorded under the MOUNT (ruling R13)
