@@ -1,4 +1,4 @@
-# footprint.js — Cline Rules
+# footprint.js
 
 This is the footprint.js library — the flowchart pattern for backend code. Self-explainable systems that AI can reason about.
 
@@ -14,66 +14,107 @@ src/lib/
 ├── schema/    → Validation (Zod optional, duck-typed)
 ├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
 ├── scope/     → Per-stage facades + recorders + providers
+├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
+├── decide/    → decide()/select() decision evidence capture
 ├── engine/    → DFS traversal + narrative + handlers
 ├── runner/    → FlowChartExecutor
 └── contract/  → I/O schema + OpenAPI
 ```
 
-Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
+Entry points (six doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
 
-## Builder API
-
-```typescript
-flowChart(name, fn, id, extractor?, description?)
-  .addFunction(name, fn, id, description?)
-  .addDeciderFunction(name, fn, id, description?)
-    .addFunctionBranch(branchId, name, fn) / .setDefault(id) / .end()
-  .addSelectorFunction(name, fn, id, description?)
-  .addListOfFunction([...], { failFast? })
-  .addSubFlowChartNext(id, subflow, mount, { inputMapper?, outputMapper? })
-  .loopTo(stageId)
-  .setEnableNarrative()
-  .build() / .toSpec() / .toMermaid()
-```
-
-## Stage Functions
+## Key API — TypedScope (Recommended)
 
 ```typescript
-(scope: ScopeFacade, breakPipeline: () => void, streamCallback?: StreamCallback) => void | Promise<void>
+import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
+
+interface State {
+  creditScore: number;
+  riskTier: string;
+  decision?: string;
+}
+
+const chart = flowChart<State>('Intake', async (scope) => {
+  scope.creditScore = 750;          // typed write (no setValue needed)
+  scope.riskTier = 'low';           // typed write
+}, 'intake')
+  .addDeciderFunction('Route', (scope) => {
+    return decide(scope, [
+      { when: { riskTier: { eq: 'low' } }, then: 'approved', label: 'Low risk' },
+    ], 'rejected');
+  }, 'route', 'Route based on risk')
+    .addFunctionBranch('approved', 'Approve', async (scope) => {
+      scope.decision = 'Approved';
+    })
+    .addFunctionBranch('rejected', 'Reject', async (scope) => {
+      scope.decision = 'Rejected';
+    })
+    .setDefault('rejected')
+    .end()
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();      // the narrative is OFF until enabled
+await executor.run();
+executor.getNarrativeEntries();  // CombinedNarrativeEntry[] — causal trace with decision evidence
 ```
 
-## ScopeFacade
+### TypedScope $-methods (escape hatches)
 
 ```typescript
-scope.getValue('key')              // tracked read → narrative
-scope.setValue('key', value)        // tracked write → narrative
-scope.updateValue('key', partial)  // deep merge (tracked)
-scope.deleteValue('key')           // tracked delete
-scope.getArgs<T>()                 // frozen readonly input (NOT tracked)
+scope.$getArgs<T>()        // frozen readonly input
+scope.$getEnv()            // execution environment (signal, timeoutMs, traceId)
+scope.$break()             // stop pipeline
+scope.$debug(key, value)   // debug info
+scope.$metric(name, value) // metrics
 ```
 
-## Executor
+### decide() / select()
+
+```typescript
+// Filter syntax — captures operators + thresholds
+decide(scope, [
+  { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
+], 'rejected');
+
+// Function syntax — captures which keys were read
+decide(scope, [
+  { when: (s) => s.creditScore > 700, then: 'approved' },
+], 'rejected');
+
+// select() — all matching branches (not first-match)
+select(scope, [
+  { when: { glucose: { gt: 100 } }, then: 'diabetes' },
+  { when: { bmi: { gt: 30 } }, then: 'obesity' },
+]);
+```
+
+### Executor
 
 ```typescript
 const executor = new FlowChartExecutor(chart);
-await executor.run({ input, timeoutMs?, signal? });
-executor.getNarrative()            // combined flow + data
-executor.getNarrativeEntries()     // structured entries
+executor.enableNarrative()         // before run() — the narrative is off by default
+await executor.run({ input, env: { traceId: 'req-123' } });
+executor.getNarrativeEntries()     // CombinedNarrativeEntry[] (type, text, depth, …) — not strings
+executor.getNarrativeEntries().map((e) => e.text)  // plain lines
 executor.getSnapshot()             // memory state
-executor.attachFlowRecorder(r)     // plug flow observer
+executor.attachScopeRecorder(recorder)  // scope observer
+executor.attachFlowRecorder(r)     // flow observer
 executor.setRedactionPolicy({ keys, patterns, fields })
 ```
 
 ## Observer Systems
 
-- **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
-- **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
-- 8 strategies: Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest
-- `CombinedNarrativeRecorder` implements both — auto-attached by `setEnableNarrative()`
+- **Scope Recorder**: `onStageStart` → `onRead` / `onWrite` (DURING the stage) → `onStageEnd` → `onCommit`
+- **FlowRecorder**: fires AFTER the commit (`onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`); a decider's `onDecision` fires BEFORE its `onStageExecuted`
+- 9 built-in FlowRecorder strategies
+- Narrative via `executor.enableNarrative()`; one-shot form: `chart.recorder(narrative()).run()` on the built chart, read back with `trace.getEntries()`
 
 ## Rules
 
+- Use `flowChart<T>()` — scopeFactory is auto-embedded
+- Use `decide()` / `select()` in decider/selector functions
+- Use typed property access (not getValue/setValue)
+- Use `$getArgs()` for input, `$getEnv()` for environment
 - Never post-process the tree — use recorders
-- `getValue()`/`setValue()` for tracked state; `getArgs()` for frozen input
-- Don't use deprecated `CombinedNarrativeBuilder`
-- `setEnableNarrative()` is all you need
+- Use `executor.enableNarrative()` for narrative setup (it is off until called)

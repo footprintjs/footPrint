@@ -12,7 +12,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 src/lib/
 ├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer)
 ├── schema/    → Validation (Zod optional, duck-typed)
-├── builder/   → Fluent DSL (FlowChartBuilder, flowChart(), typedFlowChart())
+├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
 ├── scope/     → Per-stage facades + recorders + providers
 ├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
 ├── decide/    → decide()/select() decision evidence capture
@@ -21,12 +21,12 @@ src/lib/
 └── contract/  → I/O schema + OpenAPI
 ```
 
-Entry points: `footprintjs` (public) and `footprintjs/advanced` (internals).
+Entry points (six doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
 
 ## Key API — TypedScope (Recommended)
 
 ```typescript
-import { typedFlowChart, FlowChartExecutor, decide } from 'footprintjs';
+import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
 
 interface State {
   creditScore: number;
@@ -34,11 +34,10 @@ interface State {
   decision?: string;
 }
 
-const chart = typedFlowChart<State>('Intake', async (scope) => {
+const chart = flowChart<State>('Intake', async (scope) => {
   scope.creditScore = 750;          // typed write (no setValue needed)
   scope.riskTier = 'low';           // typed write
 }, 'intake')
-  .setEnableNarrative()
   .addDeciderFunction('Route', (scope) => {
     return decide(scope, [
       { when: { riskTier: { eq: 'low' } }, then: 'approved', label: 'Low risk' },
@@ -54,9 +53,10 @@ const chart = typedFlowChart<State>('Intake', async (scope) => {
     .end()
   .build();
 
-const executor = new FlowChartExecutor(chart<State>());
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();      // the narrative is OFF until enabled
 await executor.run();
-executor.getNarrative();  // causal trace with decision evidence
+executor.getNarrativeEntries();  // CombinedNarrativeEntry[] — causal trace with decision evidence
 ```
 
 ### TypedScope $-methods (escape hatches)
@@ -92,28 +92,29 @@ select(scope, [
 ### Executor
 
 ```typescript
-const executor = new FlowChartExecutor(chart<State>());
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative()         // before run() — the narrative is off by default
 await executor.run({ input, env: { traceId: 'req-123' } });
-executor.getNarrative()            // string[]
-executor.getNarrativeEntries()     // CombinedNarrativeEntry[]
+executor.getNarrativeEntries()     // CombinedNarrativeEntry[] (type, text, depth, …) — not strings
+executor.getNarrativeEntries().map((e) => e.text)  // plain lines
 executor.getSnapshot()             // memory state
-executor.attachRecorder(recorder)  // scope observer
+executor.attachScopeRecorder(recorder)  // scope observer
 executor.attachFlowRecorder(r)     // flow observer
 executor.setRedactionPolicy({ keys, patterns, fields })
 ```
 
 ## Observer Systems
 
-- **Scope Recorder**: fires DURING stage (`onRead`, `onWrite`, `onCommit`)
-- **FlowRecorder**: fires AFTER stage (`onStageExecuted`, `onDecision`, `onFork`, `onLoop`)
+- **Scope Recorder**: `onStageStart` → `onRead` / `onWrite` (DURING the stage) → `onStageEnd` → `onCommit`
+- **FlowRecorder**: fires AFTER the commit (`onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`); a decider's `onDecision` fires BEFORE its `onStageExecuted`
 - 9 built-in FlowRecorder strategies
-- `setEnableNarrative()` auto-attaches `CombinedNarrativeRecorder`
+- Narrative via `executor.enableNarrative()`; one-shot form: `chart.recorder(narrative()).run()` on the built chart, read back with `trace.getEntries()`
 
 ## Rules
 
-- Use `typedFlowChart<T>()` — scopeFactory is auto-embedded, no `createTypedScopeFactory` needed
+- Use `flowChart<T>()` — scopeFactory is auto-embedded
 - Use `decide()` / `select()` in decider/selector functions
 - Use typed property access (not getValue/setValue)
 - Use `$getArgs()` for input, `$getEnv()` for environment
 - Never post-process the tree — use recorders
-- `setEnableNarrative()` is all you need for narrative setup
+- Use `executor.enableNarrative()` for narrative setup (it is off until called)
