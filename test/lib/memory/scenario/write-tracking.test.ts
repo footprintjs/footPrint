@@ -51,7 +51,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CommitEvent, WriteSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import { derivePolicy, runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 import type { StageSnapshot } from '../../../../src/lib/memory/types';
@@ -639,8 +639,8 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       const { ctx } = freshCtx();
       ctx.usePolicy(runPolicy({ writeTracking: 'off' }));
       expect(ctx.getPolicy().readTracking).toBe('full');
-      ctx.usePolicy(runPolicy({ readTracking: 'summary' }));
-      expect(ctx.getPolicy().writeTracking).toBe('full');
+      ctx.usePolicy(derivePolicy(ctx.getPolicy(), { readTracking: 'summary' }));
+      expect(ctx.getPolicy().writeTracking).toBe('off');
     });
 
     it("e2e: writeTracking 'off' leaves stageReads at full fidelity", async () => {

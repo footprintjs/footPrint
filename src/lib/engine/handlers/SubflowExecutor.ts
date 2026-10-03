@@ -14,6 +14,7 @@
  */
 
 import type { RunPolicy } from '../../memory/runPolicy.js';
+import { DEFAULT_RUN_POLICY } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -156,7 +157,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // object, and the nested runtime keeps a mirror of its own exactly when
     // the run does (its SERVED state is then the fold of its own scrubbed
     // log, never a second scrub).
-    const policy = parentContext.getPolicy();
+    // Tolerant of a hand-built frame or runtime without the policy door (9.34.0 shape): the
+    // runtime root's policy, else the defaults.
+    const policy: RunPolicy =
+      parentContext.getPolicy?.() ?? this.deps.executionRuntime.rootStageContext?.getPolicy?.() ?? DEFAULT_RUN_POLICY;
     const redactionRule = policy.redaction;
     // Narrative receives the RETAINED form of the mapped input — an
     // inputMapper may inject values from anywhere, so the seed is scrubbed
@@ -200,6 +204,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     ) => IExecutionRuntime;
     const firstNode = resumeHop?.entry ?? node;
     const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id, undefined, undefined, policy);
+    adoptPolicy(nestedRuntime, nestedRuntime.rootStageContext, policy);
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause
@@ -223,7 +228,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // after the first node again — the seed context now carries the mount's
       // names (R13), which belong to the seed bundle only. `newRoot` gives it
       // the same policy and mirror.
-      nestedRuntime.rootStageContext = nestedRuntime.newRoot(firstNode.name, firstNode.id);
+      nestedRuntime.rootStageContext = nestedRuntime.newRoot
+        ? nestedRuntime.newRoot(firstNode.name, firstNode.id)
+        : freshRoot(nestedRuntime, nestedRuntime.rootStageContext, firstNode, policy);
     }
 
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
@@ -441,4 +448,38 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     return subflowOutput;
   }
+}
+
+/**
+ * A custom runtime class (9.34.0 shape) may ignore the constructor's policy argument: hand its
+ * root the policy — and its mirror, when the policy keeps one — as the old per-dial push did.
+ * A no-op for `ExecutionRuntime`, whose root already holds it.
+ */
+function adoptPolicy(runtime: IExecutionRuntime, root: StageContext, policy: RunPolicy): void {
+  if (root.getPolicy?.() !== policy) root.usePolicy?.(policy);
+  if (!policy.mirror) return;
+  if (!runtime.redactedStore) runtime.enableRedactedMirror?.();
+  if (runtime.redactedStore && root.getRedactedSharedMemory?.() !== runtime.redactedStore) {
+    root.useRedactedMirror?.(runtime.redactedStore);
+  }
+}
+
+/** The 9.34.0 path for a runtime without `newRoot`: a fresh frame of the root's class, then the policy. */
+function freshRoot(
+  runtime: IExecutionRuntime,
+  seedRoot: StageContext,
+  firstNode: { name: string; id: string },
+  policy: RunPolicy,
+): StageContext {
+  const StageContextClass = seedRoot.constructor as new (...args: any[]) => StageContext;
+  const root = new StageContextClass(
+    '',
+    firstNode.name,
+    firstNode.id,
+    runtime.globalStore,
+    '',
+    runtime.executionHistory,
+  );
+  adoptPolicy(runtime, root, policy);
+  return root;
 }

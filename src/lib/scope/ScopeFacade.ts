@@ -100,7 +100,7 @@ export class ScopeFacade {
     // Under an executor the context already has the run's rule (installed on
     // the root, inherited down) and this re-installs the same object; on a
     // bare context it installs a fresh one.
-    this._stageContext.useRedactionRule(this.rule);
+    this._stageContext.useRedactionRule?.(this.rule);
 
     // Register as commit observer so ScopeRecorder.onCommit fires when StageContext.commit() is called
     this._stageContext.setCommitObserver((mutations) => {
@@ -118,11 +118,11 @@ export class ScopeFacade {
    * still share a single verdict.
    */
   private get rule(): RedactionRule {
-    const shared = this._stageContext.getRedactionRule();
+    const shared = this._stageContext.getRedactionRule?.();
     if (shared) return shared;
     if (!this._localRule) {
       this._localRule = new RedactionRule();
-      this._stageContext.useRedactionRule(this._localRule);
+      this._stageContext.useRedactionRule?.(this._localRule);
     }
     return this._localRule;
   }

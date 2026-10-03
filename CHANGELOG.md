@@ -41,8 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `useRedaction` / `enableRedactedMirror` → `new ExecutionRuntime(name, id, defaults, initial,
   runPolicy(dials, rule, mirror))`, or `runtime.usePolicy(policy)`.
 - Each still works as on 9.34.0: it swaps in a derived frozen policy (`derivePolicy`) — no mutable dial
-  field returns. Pinned against the published package by
-  `test/lib/memory/deprecated-dial-forwarders.test.ts`.
+  field returns. Pinned by `test/lib/memory/deprecated-dial-forwarders.test.ts` against the
+  differential control package, `footprintjs-baseline` (9.28.0 — the members behaved the same through
+  9.34.0).
+- **Compatibility, kept:** a hand-built frame or runtime of the 9.34.0 shape still drives a subflow —
+  `IExecutionRuntime.newRoot` is optional (without it the nested root is built as before, then given the
+  policy), a frame without `getPolicy` falls back to the runtime root's policy, else `DEFAULT_RUN_POLICY`,
+  and `ScopeFacade` still tolerates a context without `useRedactionRule` / `getRedactionRule`. Pinned:
+  `test/lib/engine/unit/SubflowExecutor.test.ts` passes with its 9.34.0 mock shape, unedited.
 
 ## [9.34.0] - 2026-10-03
 
