@@ -18,6 +18,8 @@ import {
   branchSegmentReservationMessage,
   hasBranchSegmentMarker,
 } from '../ids/branchSegment.js';
+import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
+import { joinPath } from '../ids/runtimeStageId.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
@@ -2453,7 +2455,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   _mergeStageMap(other: Map<string, StageFunction<TOut, TScope>>, prefix?: string) {
     for (const [k, v] of other) {
-      const key = prefix ? `${prefix}/${k}` : k;
+      const key = prefix ? joinPath(prefix, k) : k;
       if (this._stageMap.has(key)) {
         const existing = this._stageMap.get(key);
         if (existing !== v) fail(`stageMap collision while mounting flowchart at '${key}'`);
@@ -2464,40 +2466,18 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Prefix a node tree with a subflow path segment.
-   *
-   * ── BYTE-TWIN CONTRACT ──────────────────────────────────────────────────
-   * This function and `FlowchartTraverser.prefixNodeTree` are byte-twins by
-   * contract: this one prefixes at MOUNT time, the traverser's at RUN time
-   * (lazy subflows, and the generated branches of `addParallelForEach`), and a
-   * chart must come out identical either way.
-   * `test/lib/engine/branch-segment-prefixer-equivalence.test.ts` pins that —
-   * any edit here must be mirrored there, and vice versa.
-   *
-   * Generated branch segments (`<stageId>~<index>`, see
-   * `ids/branchSegment.ts`) ride this exact path with no special case: a
-   * segment is just a prefix. That is the mechanical tolerance the design
-   * relies on — the runtimeStageId grammar accepts it unchanged, which is why
-   * no parser in the library had to learn the marker.
-   * Design: docs/design/execution-control.md.
+   * Prefix a node tree with a subflow path segment at MOUNT time — the one
+   * prefixer, `engine/graph/prefixNodeTree.ts` (the traverser calls the same
+   * function at RUN time). Kept as the builder's door for its mount sites.
    */
   _prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
-    if (!node) return node;
-    const clone: StageNode<TOut, TScope> = { ...node };
-    clone.name = `${prefix}/${node.name}`;
-    clone.id = `${prefix}/${node.id}`;
-    if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
-    if (clone.next) clone.next = this._prefixNodeTree(clone.next, prefix);
-    if (clone.children) {
-      clone.children = clone.children.map((c) => this._prefixNodeTree(c, prefix));
-    }
-    return clone;
+    return prefixNodeTree(node, prefix);
   }
 
   _mergeSubflows(subflows: Record<string, { root: StageNode<TOut, TScope> }> | undefined, prefix: string) {
     if (!subflows) return;
     for (const [key, def] of Object.entries(subflows)) {
-      const prefixedKey = `${prefix}/${key}`;
+      const prefixedKey = joinPath(prefix, key);
       if (!this._subflowDefs.has(prefixedKey)) {
         this._subflowDefs.set(prefixedKey, {
           root: this._prefixNodeTree(def.root as StageNode<TOut, TScope>, prefix),

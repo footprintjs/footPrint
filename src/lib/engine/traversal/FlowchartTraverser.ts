@@ -23,10 +23,12 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
+import { buildRuntimeStageId, joinPath } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
+import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
@@ -44,7 +46,6 @@ import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
-import { buildRuntimeStageId } from '../../ids/runtimeStageId.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
@@ -1075,7 +1076,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       // Merge stageMap entries
       for (const [key, fn] of resolved.stageMap) {
-        const prefixedKey = `${node.subflowId}/${key}`;
+        const prefixedKey = joinPath(node.subflowId!, key);
         if (!this.stageMap.has(prefixedKey)) {
           this.stageMap.set(prefixedKey, fn as StageFunction<TOut, TScope>);
         }
@@ -1084,7 +1085,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Merge nested subflows
       if (resolved.subflows) {
         for (const [key, def] of Object.entries(resolved.subflows)) {
-          const prefixedKey = `${node.subflowId}/${key}`;
+          const prefixedKey = joinPath(node.subflowId!, key);
           if (!this.subflows[prefixedKey]) {
             this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
           }
@@ -1620,44 +1621,24 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // Stage functions land under the branch's prefix, matching the prefixed ids.
     for (const [key, fn] of chart.stageMap) {
-      this.stageMap.set(`${subflowId}/${key}`, fn as StageFunction<TOut, TScope>);
+      this.stageMap.set(joinPath(subflowId, key), fn as StageFunction<TOut, TScope>);
     }
 
     // Nested subflows inside the branch chart, same prefixing.
     if (chart.subflows) {
       for (const [key, def] of Object.entries(chart.subflows)) {
-        this.subflows[`${subflowId}/${key}`] = def as { root: StageNode<TOut, TScope> };
+        this.subflows[joinPath(subflowId, key)] = def as { root: StageNode<TOut, TScope> };
       }
     }
   }
 
   /**
-   * Prefix a node tree with a subflow path segment.
-   *
-   * ── BYTE-TWIN CONTRACT ──────────────────────────────────────────────────
-   * This function and `FlowChartBuilder._prefixNodeTree` are byte-twins by
-   * contract: the builder prefixes at MOUNT time, this one at RUN time (lazy
-   * subflows, and the generated branches of `addParallelForEach`), and a chart
-   * must come out identical either way. `test/lib/engine/branch-segment-prefixer-equivalence.test.ts`
-   * pins that — any edit here must be mirrored there, and vice versa.
-   *
-   * Generated branch segments (`<stageId>~<index>`, see `ids/branchSegment.ts`)
-   * ride this exact path with no special case: the segment is just a prefix, so
-   * a branch's inner ids become `<segment>/<id>` and its stages address as
-   * `<segment>/<id>#<n>` — the shipped grammar, which is why every trace query
-   * reads branch commits unmodified. Design: docs/design/execution-control.md.
+   * Prefix a node tree with a subflow path segment at RUN time (lazy subflows,
+   * the generated branches of `addParallelForEach`) — the one prefixer,
+   * `engine/graph/prefixNodeTree.ts`, which the builder calls at mount time.
    */
   private prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
-    if (!node) return node;
-    const clone: StageNode<TOut, TScope> = { ...node };
-    clone.name = `${prefix}/${node.name}`;
-    clone.id = `${prefix}/${clone.id}`;
-    if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
-    if (clone.next) clone.next = this.prefixNodeTree(clone.next, prefix);
-    if (clone.children) {
-      clone.children = clone.children.map((c) => this.prefixNodeTree(c, prefix));
-    }
-    return clone;
+    return prefixNodeTree(node, prefix);
   }
 
   private autoRegisterSubflowDef(
