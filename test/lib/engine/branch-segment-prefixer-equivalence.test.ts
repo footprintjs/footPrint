@@ -23,9 +23,9 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { FlowChartBuilder } from '../../../src/lib/builder/FlowChartBuilder.js';
-import { buildBranchSegment } from '../../../src/lib/engine/branchSegment.js';
 import type { StageNode } from '../../../src/lib/engine/graph/StageNode.js';
 import { FlowchartTraverser } from '../../../src/lib/engine/traversal/FlowchartTraverser.js';
+import { buildBranchSegment } from '../../../src/lib/ids/branchSegment.js';
 
 /**
  * Reach both prefixers.

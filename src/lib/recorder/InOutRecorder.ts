@@ -62,6 +62,7 @@
  */
 
 import type { FlowRecorder, FlowRunEvent, FlowSubflowEvent } from '../engine/narrative/types.js';
+import { pathSegments } from '../ids/runtimeStageId.js';
 import { SequenceStore } from './SequenceStore.js';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -276,7 +277,7 @@ function buildSubflowEntry(event: FlowSubflowEvent, phase: InOutPhase): InOutEnt
   if (!subflowId) return undefined;
 
   const runtimeStageId = event.traversalContext?.runtimeStageId ?? '';
-  const segments = subflowId.split('/').filter((s) => s.length > 0);
+  const segments = pathSegments(subflowId);
   const subflowPath: readonly string[] = [ROOT_SUBFLOW_ID, ...segments];
   const depth = subflowPath.length - 1;
   const localSubflowId = segments[segments.length - 1] ?? subflowId;

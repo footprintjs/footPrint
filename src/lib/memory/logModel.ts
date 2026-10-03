@@ -26,6 +26,7 @@
  * is not frozen (hand-built, parsed from JSON) gets a fresh model per question.
  */
 
+import type { CommitIdx } from '../ids/runtimeStageId.js';
 import { deepEqual } from './equality.js';
 import {
   type PathNode,
@@ -155,7 +156,7 @@ export class LogModel {
             refusedAt = c;
             // the refused commit and everything after it are left out: an answer that reaches them is refused
             while (rows.length > 0 && rows[rows.length - 1].commitIdx === c) rows.pop();
-          } else rows.push({ verb, bundle: this.log[c], commitIdx: c, path });
+          } else rows.push({ verb, bundle: this.log[c], commitIdx: c as CommitIdx, path });
         }
         if (refused !== undefined) break;
       }
@@ -341,7 +342,7 @@ export class LogModel {
               rows.push({
                 verb: trace[row].verb as Touch['verb'],
                 bundle: this.log[c],
-                commitIdx: c,
+                commitIdx: c as CommitIdx,
                 path: trace[row].path,
                 relation: r,
               });

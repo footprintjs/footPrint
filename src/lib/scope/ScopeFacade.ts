@@ -21,6 +21,7 @@ import {
 } from '../detach/spawn.js';
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
+import { subflowSegmentsOf } from '../ids/runtimeStageId.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
 import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
@@ -398,7 +399,7 @@ export class ScopeFacade {
    * Build the subflowPath (outer → inner) for event enrichment.
    *
    * Parses from `runtimeStageId` which has the format
-   * `[subflowPath/]stageId#executionIndex` (see `lib/engine/runtimeStageId.ts`).
+   * `[subflowPath/]stageId#executionIndex` (see `lib/ids/runtimeStageId.ts`).
    * Subflow isolation prevents walking the parent-chain across boundaries,
    * so the runtimeStageId — globally unique, includes full path — is the
    * canonical source of truth for the subflow hierarchy at emit time.
@@ -411,14 +412,10 @@ export class ScopeFacade {
   private _getSubflowPath(): readonly string[] {
     const rtid = this._stageContext.runtimeStageId;
     if (!rtid) return ScopeFacade._EMPTY_SUBFLOW_PATH;
-    // Strip the trailing `#executionIndex` to isolate the path portion.
-    const hashIdx = rtid.lastIndexOf('#');
-    const pathPortion = hashIdx >= 0 ? rtid.slice(0, hashIdx) : rtid;
-    // pathPortion is now `[subflowPath/]stageId`. Split on '/' and drop the
-    // last segment (stageId) — what remains is the subflow path.
-    const segments = pathPortion.split('/');
-    if (segments.length <= 1) return ScopeFacade._EMPTY_SUBFLOW_PATH;
-    return Object.freeze(segments.slice(0, -1));
+    // The grammar's one owner reads the path portion (`ids/runtimeStageId.ts`).
+    const segments = subflowSegmentsOf(rtid);
+    if (segments.length === 0) return ScopeFacade._EMPTY_SUBFLOW_PATH;
+    return Object.freeze(segments);
   }
 
   // ── Non-Tracking State Inspection (for TypedScope proxy internals) ──────

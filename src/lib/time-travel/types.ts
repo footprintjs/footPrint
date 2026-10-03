@@ -11,7 +11,7 @@
  * once, in the library that owns the substrate.
  *
  * DAG position: memory ← time-travel. This module may import ONLY from
- * memory/ plus `engine/runtimeStageId` — the zero-dependency id grammar that
+ * memory/ plus `ids/runtimeStageId` — the zero-dependency id grammar that
  * defines what a `runtimeStageId` means, and therefore the one piece of
  * engine/ a reader of ids cannot honestly re-implement. Recorders, traversal
  * and runner must never be imported here; the

@@ -29,6 +29,7 @@
  */
 
 import type { SerializedPipelineStructure } from '../builder/types.js';
+import { joinPath } from '../ids/runtimeStageId.js';
 
 export interface WalkerOptions {
   /** Auto-recurse into nested subflows (default: true). When false,
@@ -136,7 +137,7 @@ function* walkNode(
 
   // Nested subflow mount — yield the marker, optionally recurse.
   if (node.isSubflowRoot && node.subflowId !== undefined) {
-    const nestedPath = `${subflowPath}/${node.subflowId}`;
+    const nestedPath = joinPath(subflowPath, node.subflowId);
     const nestedSpec = node.subflowStructure;
     if (nestedSpec) {
       yield {

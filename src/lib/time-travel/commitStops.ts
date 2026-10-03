@@ -9,7 +9,7 @@
  * `TimeTravelStrategy`, they do not go here.
  */
 
-import { parseRuntimeStageId } from '../engine/runtimeStageId.js';
+import { isWithinSubflow, parseRuntimeStageId, stageIdOf } from '../ids/runtimeStageId.js';
 import type { CommitBundle, StageSnapshot } from '../memory/types.js';
 import type { Stop, TimeTravelStrategy } from './types.js';
 
@@ -171,10 +171,10 @@ function seedCommits(commitLog: readonly CommitBundle[], executionTree?: StageSn
   }
   let next = 1;
   while (next < commitLog.length && commitLog[next].runtimeStageId === head) next++;
-  const address = head.slice(0, head.lastIndexOf('#'));
+  const address = stageIdOf(head);
   if (next >= commitLog.length) {
     const rootId = executionTree?.id;
-    return typeof rootId === 'string' && rootId.startsWith(`${address}/`) ? next : 0;
+    return typeof rootId === 'string' && isWithinSubflow(rootId, address) ? next : 0;
   }
   return parseRuntimeStageId(commitLog[next].runtimeStageId).subflowPath === address ? next : 0;
 }

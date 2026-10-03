@@ -105,6 +105,15 @@ const chart = flowChart('input', inputFn)
 
 ---
 
+**Since 9.37.0 (F7):** `DeciderList` and `SelectorFnList` compose ONE `BranchCursor` (in `FlowChartBuilder.ts`) — the branch-id ledger, the four branch kinds and `end()` live there once; the lists keep only what differs (a decider's `loopTo` and `setDefault`). Every id door — `start`, every `add*`, every branch — refuses the runtimeStageId delimiters `#` and `/` through one helper (`admitId` → `ids/runtimeStageId.ts · refuseReservedId`):
+
+```typescript
+import { flowChart } from 'footprintjs';
+
+flowChart('Start', () => {}, 'start').addFunction('A', () => {}, 'ns/a');
+// throws: [FlowChartBuilder] stage id 'ns/a' contains the reserved character '/'. …
+```
+
 ### 3. SelectorFnList — "The Fan-Out"
 
 Returned by `addSelectorFunction()`. Mirrors `addDeciderFunction()` exactly, except the function returns an **array** of branch IDs instead of a single one — enabling fan-out to multiple branches.

@@ -376,6 +376,48 @@ its dispatcher's context, not its branch's `runs/<branch>` namespace; and the
 resumed child of a fan-out runs outside the fan-out's `allSettled`, so a failure
 after the resume fails the run. Each as in 9.27.0.
 
+### Ids and stamps — one owner each (F7, 9.37.0)
+
+- **The id grammar** `[subflowPath/]stageId#executionIndex` has one owner,
+  [`../ids/runtimeStageId.ts`](../ids/README.md). Every reader asks it
+  (`stageIdOf`, `subflowPathOf`, `isExecutionKey`, …) — no file outside
+  `ids/` splits on `#` or `/`. Its delimiters are RESERVED: the builder refuses
+  them in every user-authored id (R5), so last-delimiter parsing is sound.
+- **One prefixer.** [`graph/prefixNodeTree.ts`](./graph/prefixNodeTree.ts) is
+  the subflow-id prefixer for both the builder (mount time) and the traverser
+  (lazy subflows, `parallelForEach` branches). It never refuses — the ids it
+  writes carry `/` on purpose.
+- **One stamp constructor.** [`traversalContext.ts`](./traversalContext.ts)
+  builds every `TraversalContext`: the per-stage stamp, the run-boundary root,
+  and the executor's `onResume`. The resume stamp names the real subflow
+  (`subflowId`, the paused stage's innermost) and depth (subflows deep — the
+  one meaning `depth` has on every stamp), and
+  LINKS to the paused execution through `resumedFrom` — a link, not a parent:
+  a resume is a new `runId`.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const inner = flowChart('Plan', () => {}, 'plan')
+  .addPausableFunction('Ask', { execute: () => ({ q: 'ok?' }), resume: () => {} }, 'ask')
+  .build();
+const chart = flowChart('Init', () => {}, 'init').addSubFlowChartNext('sf', inner, 'Inner').build();
+
+const executor = new FlowChartExecutor(chart);
+executor.attachFlowRecorder({
+  id: 'resume-probe',
+  onResume: (e) => console.log(e.traversalContext?.subflowId, e.traversalContext?.resumedFrom),
+});
+await executor.run();
+await executor.resume(executor.getCheckpoint()!, { answer: 'yes' });
+// → 'sf' { runId: '<the paused run>', runtimeStageId: 'sf/ask#3' }
+```
+
+The link is read off the checkpoint's one optional `pausedExecution` field, so a
+resume records the same wherever its checkpoint came from; an older checkpoint
+resumes without one. `depth` has one meaning on every stamp — the subflow
+nesting of the stage's address, read off its runtimeStageId.
+
 ---
 
 ## Design Decisions — Each Traced Back to the Main Goal

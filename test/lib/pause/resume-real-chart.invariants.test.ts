@@ -37,7 +37,7 @@ import { describe, expect, it } from 'vitest';
 import { ArrayMergeMode } from '../../../src/advanced.js';
 import type { FlowChart, FlowRecorder, RuntimeSnapshot, ScopeRecorder } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
-import { parseRuntimeStageId } from '../../../src/lib/engine/runtimeStageId.js';
+import { parseRuntimeStageId } from '../../../src/lib/ids/runtimeStageId.js';
 import { stateAt, tagStops, timeTravel } from '../../../src/trace.js';
 import { type ResumeMode, type S, askLoopTopLevelChart, drive, RESUME_CHARTS } from './resume-real-chart-fixture.js';
 
@@ -416,7 +416,7 @@ describe('interrupt() re-entry re-runs the stage from its top (unchanged)', () =
   });
 });
 
-describe('the checkpoint shape is unchanged from 9.27.0', () => {
+describe("the checkpoint shape is 9.27.0's plus one field, pausedExecution (9.37.0)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const reference = JSON.parse(readFileSync(join(here, 'reference', 'resume-real-chart-9.27.0.json'), 'utf8')) as {
     checkpoints: Record<string, Record<string, unknown>>;
@@ -434,7 +434,9 @@ describe('the checkpoint shape is unchanged from 9.27.0', () => {
           .sort()
           .map((k) => [k, Array.isArray(cp[k]) ? 'array' : typeof cp[k]]),
       );
-    expect(kinds(now)).toEqual(kinds(then));
+    // The one named change since 9.27.0: `pausedExecution` (F7) — the paused
+    // execution the resume event links to. Every other key and kind is 9.27.0's.
+    expect(kinds(now)).toEqual({ ...kinds(then), pausedExecution: 'object' });
     // And the parts resume reads are the same values.
     for (const key of ['pausedStageId', 'subflowPath', 'pauseData', 'pausedBy', 'sharedState', 'subflowStates']) {
       expect(now[key]).toEqual(then[key]);

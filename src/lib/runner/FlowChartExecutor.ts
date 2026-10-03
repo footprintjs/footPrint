@@ -28,9 +28,9 @@ import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrative
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
-import type { FlowRecorder } from '../engine/narrative/types.js';
-import { buildRuntimeStageId } from '../engine/runtimeStageId.js';
+import type { FlowRecorder, ResumeLink } from '../engine/narrative/types.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
+import { resumeTraversalContext } from '../engine/traversalContext.js';
 import {
   type ExecutorResult,
   type PausedResult,
@@ -44,13 +44,14 @@ import {
   type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
+import { buildRuntimeStageId, isExecutionKey } from '../ids/runtimeStageId.js';
 import { RedactionRule } from '../memory/redaction.js';
 import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials, runPolicy } from '../memory/runPolicy.js';
 import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
-import { isPauseSignal } from '../pause/types.js';
+import { isPausedExecution, isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
@@ -105,6 +106,18 @@ function standInFor<TOut, TScope>(
 
 /** The flow channel's isolation for the executor-made `onResume` (dev-mode warning, then skip). */
 const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
+
+/**
+ * The resume event's link, read off the checkpoint itself — so a resume records
+ * the same wherever its checkpoint came from. `undefined` for a checkpoint
+ * without `pausedExecution` (made before 9.37.0) or with a malformed one: the
+ * link is a record, never used to plan the re-entry, so it is left out rather
+ * than guessed.
+ */
+function resumeLinkOf(checkpoint: FlowchartCheckpoint): ResumeLink | undefined {
+  const paused: unknown = checkpoint.pausedExecution;
+  return isPausedExecution(paused) ? { runId: paused.runId, runtimeStageId: paused.runtimeStageId } : undefined;
+}
 
 /**
  * Options object for `FlowChartExecutor` — preferred over positional params.
@@ -845,7 +858,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Fire onResume event on all recorders (flow + scope). Stamp the
     // synthetic TraversalContext for the resumed stage with the NEW
     // runId so consumers detect "this is a fresh logical run" via
-    // the same runId-change pattern they use for `onRunStart`.
+    // the same runId-change pattern they use for `onRunStart`. The stamp is
+    // built by the one constructor (`engine/traversalContext.ts`): it names the
+    // REAL subflow the stand-in runs in and its depth, and LINKS to the paused
+    // execution (`resumedFrom`, read off `checkpoint.pausedExecution`) — 9.37.0.
     //
     // The runtimeStageId is the STAND-IN's own: it runs after one mount per
     // subflow on the path (each entered at its mount), so its execution index
@@ -858,17 +874,19 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const hasInput = resumeInput !== undefined;
     const stepsBeforeStandIn = resumeEntry.stepsBeforeStandIn ?? checkpoint.subflowPath.length;
     const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value + stepsBeforeStandIn);
+    const resumedFrom = resumeLinkOf(checkpoint);
     const flowResumeEvent = {
       stageName: pausedNode.name,
       stageId: pausedNode.id,
       hasInput,
-      traversalContext: {
+      traversalContext: resumeTraversalContext({
         runId: this._currentRunId,
         stageId: pausedNode.id,
-        runtimeStageId: resumeRuntimeStageId,
         stageName: pausedNode.name,
-        depth: 0,
-      },
+        runtimeStageId: resumeRuntimeStageId,
+        subflowPath: checkpoint.subflowPath,
+        resumedFrom,
+      }),
       channel: 'flow' as const,
     };
     // Executor-made (`HOOKS.onResume.executorMade`): fired through the same `fire` loop as every
@@ -881,6 +899,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       stageId: pausedNode.id,
       runtimeStageId: resumeRuntimeStageId,
       hasInput,
+      ...(resumedFrom && { resumedFrom }),
       pipelineId: '',
       timestamp: Date.now(),
       channel: 'scope' as const,
@@ -976,6 +995,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * scope (e.g. an Agent's `scope.history`). Empty `{}` for root-level pauses.
    */
   private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
+    // Every pause that paused in THIS run is named by it; a sibling raised again
+    // on resume keeps the run it originally paused in.
+    signal.completeExecution(this._currentRunId);
     const snapshot = this.traverser.getSnapshot();
     const sfResults = this.traverser.getSubflowResults();
     // Lean subflowResults for the checkpoint (design: docs/design/subflow-commit-visibility.md):
@@ -986,7 +1008,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     //     checkpoint bloat. The flat agent's checkpoint carries no commit history either → symmetric.
     const leanSubflowResults: Record<string, unknown> = {};
     for (const [key, value] of sfResults) {
-      if (key.includes('#')) continue; // per-iteration keys are snapshot-only
+      if (isExecutionKey(key)) continue; // per-iteration keys are snapshot-only
       const v = value as unknown as { treeContext?: Record<string, unknown> };
       if (v?.treeContext) {
         const treeCtxRest: Record<string, unknown> = {};
@@ -1002,6 +1024,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       sharedState: snapshot.sharedState,
       executionTree: snapshot.executionTree,
       pausedStageId: signal.stageId,
+      // The paused EXECUTION (9.37.0) — a queued sibling raised on resume
+      // carries the run it ORIGINALLY paused in.
+      ...(signal.pausedExecution && { pausedExecution: signal.pausedExecution }),
       subflowPath: signal.subflowPath,
       pauseData: signal.pauseData,
       subflowStates: signal.subflowStates,

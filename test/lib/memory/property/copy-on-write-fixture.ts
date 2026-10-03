@@ -122,6 +122,9 @@ const VOLATILE = new Set([
   'startTime',
   'endTime',
   'pausedAt',
+  // F7 (9.37.0) — the one named checkpoint change: the paused execution the resume
+  // event links to. 9.28.0 has no such field; pinned in resume-event-link.test.ts.
+  'pausedExecution',
 ]);
 
 /**

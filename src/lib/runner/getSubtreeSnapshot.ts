@@ -23,6 +23,7 @@
 
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
+import { isExecutionKey, joinPath, lastSegmentOf, pathSegments } from '../ids/runtimeStageId.js';
 import type { StageSnapshot } from '../memory/types.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 
@@ -76,11 +77,11 @@ export function getSubtreeSnapshot(
 ): SubtreeSnapshot | undefined {
   if (!snapshot || !path) return undefined;
 
-  const normalizedPath = path.split('/').filter(Boolean).join('/');
+  const normalizedPath = joinPath(...pathSegments(path));
   if (!normalizedPath) return undefined;
 
   const subflowResults = snapshot.subflowResults;
-  const lastSegment = normalizedPath.split('/').pop()!;
+  const lastSegment = lastSegmentOf(normalizedPath);
 
   // Strategy 1: Direct lookup in subflowResults by full path.
   // SubflowExecutor stores nested results with composite slash-separated keys.
@@ -137,7 +138,7 @@ export function listSubflowPaths(snapshot: RuntimeSnapshot): string[] {
   // per-iteration mount `runtimeStageId`s (which contain '#'). This function's contract is
   // path-only, so filter the '#' keys out — addressing a specific iteration is done by passing
   // its runtimeStageId straight to getSubtreeSnapshot.
-  return Object.keys(snapshot.subflowResults).filter((k) => !k.includes('#'));
+  return Object.keys(snapshot.subflowResults).filter((k) => !isExecutionKey(k));
 }
 
 /**
@@ -147,7 +148,7 @@ export function listSubflowPaths(snapshot: RuntimeSnapshot): string[] {
  */
 function extractScopedNarrative(entries: CombinedNarrativeEntry[], path: string): CombinedNarrativeEntry[] {
   // The last segment of the path is the subflowId stored on entries
-  const subflowId = path.split('/').pop()!;
+  const subflowId = lastSegmentOf(path);
   return entries.filter((entry) => {
     // Include entries whose subflowId matches (events emitted while inside this subflow)
     if (entry.subflowId === subflowId) return true;

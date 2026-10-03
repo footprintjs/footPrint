@@ -21,8 +21,8 @@ import {
   hasBranchSegmentMarker,
   isBranchSegment,
   parseBranchSegment,
-} from '../../../src/lib/engine/branchSegment.js';
-import { parseRuntimeStageId, splitStageId } from '../../../src/lib/engine/runtimeStageId.js';
+} from '../../../src/lib/ids/branchSegment.js';
+import { parseRuntimeStageId, splitStageId } from '../../../src/lib/ids/runtimeStageId.js';
 
 describe('branchSegment — the generated-segment grammar', () => {
   // ── Unit ────────────────────────────────────────────────────

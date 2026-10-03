@@ -10,7 +10,7 @@ describe('Property: build produces valid tree', () => {
     fc.assert(
       fc.property(
         fc.array(
-          fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s)),
+          fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s) && !/[#/]/.test(s)), // 9.37.0: '#' and '/' are reserved in ids
           { minLength: 1, maxLength: 20 },
         ),
         (names) => {
@@ -42,7 +42,7 @@ describe('Property: build produces valid tree', () => {
     fc.assert(
       fc.property(
         fc.array(
-          fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s)),
+          fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s) && !/[#/]/.test(s)), // 9.37.0: '#' and '/' are reserved in ids
           { minLength: 1, maxLength: 15 },
         ),
         (names) => {

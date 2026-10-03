@@ -199,8 +199,8 @@ export {
 } from './lib/engine/index.js';
 
 // Trace utilities — re-exported here for convenience. Canonical path: 'footprintjs/trace'
-export type { ExecutionCounter } from './lib/engine/runtimeStageId.js';
-export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/engine/runtimeStageId.js';
+export type { ExecutionCounter } from './lib/ids/runtimeStageId.js';
+export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/ids/runtimeStageId.js';
 export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
 // ============================================================================

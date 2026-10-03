@@ -9,7 +9,7 @@
  * See README.md for the five laws, the strategy seam, and a worked example of
  * every export.
  *
- * DAG position: memory ← time-travel (plus `engine/runtimeStageId`, the
+ * DAG position: memory ← time-travel (plus `ids/runtimeStageId`, the
  * zero-dependency id grammar).
  */
 

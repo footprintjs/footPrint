@@ -29,6 +29,24 @@
 // ── PauseSignal ─────────────────────────────────────────────
 
 /**
+ * The paused EXECUTION (9.37.0): the run that paused and the paused stage's
+ * runtimeStageId in it. Recorded on the checkpoint (and on each queued
+ * sibling's pending record) so a resume can LINK to it.
+ */
+export interface PausedExecution {
+  readonly runId: string;
+  readonly runtimeStageId: string;
+}
+
+/** True for a well-formed {@link PausedExecution} (two non-empty strings). */
+export function isPausedExecution(value: unknown): value is PausedExecution {
+  const v = value as { runId?: unknown; runtimeStageId?: unknown } | null | undefined;
+  return (
+    typeof v?.runId === 'string' && v.runId !== '' && typeof v.runtimeStageId === 'string' && v.runtimeStageId !== ''
+  );
+}
+
+/**
  * Thrown by `scope.$pause()` to signal that execution should stop
  * and create a serializable checkpoint.
  *
@@ -90,6 +108,13 @@ export class PauseSignal extends Error {
    */
   private _pendingPauses: MutablePendingPause[] = [];
 
+  /**
+   * WHICH execution paused — its runtimeStageId stamped once at the stage
+   * boundary (`StageRunner`), its run added when the checkpoint is built
+   * (`completeExecution`), or both carried over for a queued sibling.
+   */
+  private _pausedExecution?: { runtimeStageId: string; runId?: string };
+
   constructor(data: unknown, stageId: string, pausedBy?: 'interrupt') {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -103,6 +128,38 @@ export class PauseSignal extends Error {
 
   get subflowPath(): readonly string[] {
     return this._subflowPath;
+  }
+
+  /** The paused execution (its run and `[path/]stageId#N`), once both are known. */
+  get pausedExecution(): PausedExecution | undefined {
+    const e = this._pausedExecution;
+    return e?.runId !== undefined ? { runId: e.runId, runtimeStageId: e.runtimeStageId } : undefined;
+  }
+
+  /**
+   * Record which EXECUTION paused. First stamp wins: the signal bubbles
+   * through outer boundaries that must not overwrite it. The stage boundary
+   * knows only the runtimeStageId; a queued sibling raised again on resume
+   * carries both (it paused in an EARLIER run).
+   */
+  stampExecution(runtimeStageId: string, runId?: string): void {
+    if (this._pausedExecution !== undefined || !runtimeStageId) return;
+    this._pausedExecution = { runtimeStageId, ...(runId !== undefined && { runId }) };
+  }
+
+  /**
+   * Name the run for every pause on this signal that paused in it — this one
+   * and its queued siblings that do not already carry a run (a sibling raised
+   * again on resume keeps the run it paused in). Called once, when the
+   * checkpoint is built.
+   */
+  completeExecution(runId: string): void {
+    if (this._pausedExecution && this._pausedExecution.runId === undefined) this._pausedExecution.runId = runId;
+    for (const pending of this._pendingPauses) {
+      if (pending.pausedExecution && pending.pausedExecution.runId === undefined) {
+        pending.pausedExecution = { runtimeStageId: pending.pausedExecution.runtimeStageId, runId };
+      }
+    }
   }
 
   /**
@@ -126,12 +183,18 @@ export class PauseSignal extends Error {
       subflowStates: { ...pause.subflowStates },
       ...(pause.pauseData !== undefined && { pauseData: pause.pauseData }),
       ...(pause.pausedBy && { pausedBy: pause.pausedBy }),
+      ...(pause.pausedExecution &&
+        typeof pause.pausedExecution.runtimeStageId === 'string' && { pausedExecution: { ...pause.pausedExecution } }),
     });
   }
 
-  /** Parallel siblings' pauses waiting behind this one, in the order they will be asked. */
+  /**
+   * Parallel siblings' pauses waiting behind this one, in the order they will
+   * be asked. In flight, a sibling that paused in THIS run carries only its
+   * runtimeStageId; `completeExecution` (at checkpoint build) adds the run.
+   */
   get pendingPauses(): readonly PendingPause[] {
-    return this._pendingPauses;
+    return this._pendingPauses as readonly PendingPause[];
   }
 
   /**
@@ -139,12 +202,14 @@ export class PauseSignal extends Error {
    * behind a sibling's pause when both paused in one fan-out.
    */
   toPendingPause(): PendingPause {
-    return {
+    // In flight (see `pendingPauses`): the run is added at checkpoint build.
+    return <PendingPause>{
       pausedStageId: this.stageId,
       subflowPath: [...this._subflowPath],
       subflowStates: { ...this._subflowStates },
       ...(this.pauseData !== undefined && { pauseData: this.pauseData }),
       ...(this.pausedBy && { pausedBy: this.pausedBy }),
+      ...(this._pausedExecution && { pausedExecution: { ...this._pausedExecution } }),
     };
   }
 
@@ -231,10 +296,19 @@ export interface PendingPause {
   readonly pauseData?: unknown;
   /** How the sibling paused (as `pausedBy`). */
   readonly pausedBy?: 'interrupt';
+  /** Which execution the sibling paused in (as `pausedExecution`, 9.37.0) — kept so its own resume links to it. */
+  readonly pausedExecution?: PausedExecution;
 }
 
 /** A pending pause whose path still grows as its signal bubbles up (internal). */
-type MutablePendingPause = Omit<PendingPause, 'subflowPath'> & { subflowPath: string[] };
+/**
+ * The signal's own copy of a pending pause. Its `pausedExecution` may still
+ * lack the run (a sibling that paused in THIS run) until `completeExecution`.
+ */
+type MutablePendingPause = Omit<PendingPause, 'subflowPath' | 'pausedExecution'> & {
+  subflowPath: string[];
+  pausedExecution?: { runtimeStageId: string; runId?: string };
+};
 
 // ── PauseResult ─────────────────────────────────────────────
 
@@ -306,6 +380,15 @@ export interface FlowchartCheckpoint {
 
   /** ID of the stage that paused. Used by resume() to find the node in the graph. */
   readonly pausedStageId: string;
+
+  /**
+   * The paused EXECUTION (9.37.0): the run that paused and the paused stage's
+   * runtimeStageId in it (the id its `onPause` event and its commit carry).
+   * Read by `resume()` into the `onResume` event's `traversalContext.resumedFrom`
+   * link — never used to plan the re-entry. Absent on an older checkpoint,
+   * which then resumes without a link.
+   */
+  readonly pausedExecution?: PausedExecution;
 
   /** Path through subflows to the paused stage (e.g., ['sf-payment', 'sf-validation']).
    *  Empty array when paused at the top level. */

@@ -177,8 +177,10 @@ export async function runUntaggedFixture(commitValues: CommitValuesMode): Promis
   first.enableNarrative();
   await first.run();
   // `pausedAt` is a wall-clock stamp — the one checkpoint field two runs
-  // cannot agree on. Everything else in the checkpoint is kept.
-  const { pausedAt: _pausedAt, ...checkpoint } = first.getCheckpoint()!;
+  // cannot agree on. `pausedExecution` is the one named change since 9.20.0
+  // (F7, 9.37.0): it carries the run id (wall-clock too) and is pinned in
+  // test/lib/pause/resume-event-link.test.ts. Everything else is kept.
+  const { pausedAt: _pausedAt, pausedExecution: _pausedExecution, ...checkpoint } = first.getCheckpoint()!;
 
   const second = new FlowChartExecutor(chart, { commitValues });
   second.enableNarrative();

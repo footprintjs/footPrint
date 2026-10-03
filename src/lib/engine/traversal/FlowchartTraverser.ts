@@ -23,10 +23,12 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
+import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
+import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
@@ -44,7 +46,7 @@ import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
-import { buildRuntimeStageId } from '../runtimeStageId.js';
+import { rootTraversalContext, traversalContextFor } from '../traversalContext.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
@@ -358,16 +360,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private _executeDepth = 0;
 
   /**
-   * Memoized parent-chain depth per StageContext. The context tree deepens
-   * by one per executed stage along a chain, so the naive parent-walk in
-   * `computeContextDepth` is O(chain length) per stage — O(n²) per run once
-   * the trampoline allows chains of tens of thousands of stages. Contexts
-   * are visited parent-before-child, so the memo makes each lookup O(1)
-   * amortized. WeakMap — dies with the traverser.
-   */
-  private readonly contextDepthCache = new WeakMap<StageContext, number>();
-
-  /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
    * Shared with child traversers (subflows) so indices are globally unique within a run.
    */
@@ -614,13 +606,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // root-stage defaults (stageId='__root__', runtimeStageId='__root__#0',
     // depth 0) so the runId is reliably available on run events without
     // forcing recorders to handle `traversalContext === undefined`.
-    const rootContext: TraversalContext = {
-      runId: this.runId,
-      stageId: '__root__',
-      runtimeStageId: '__root__#0',
-      stageName: '__root__',
-      depth: 0,
-    };
+    const rootContext = rootTraversalContext(this.runId);
     if (isTopLevel) {
       // `readOnlyContext` is the engine's view of `run({input})` — passed
       // through from `FlowChartExecutor.run()` as the validated input.
@@ -905,6 +891,41 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
   }
 
+  /**
+   * R5 for ids a stage ADOPTS at run time (a returned StageNode's `next` chain,
+   * `children` and subflow ids): the same refusal the builder's doors apply —
+   * `ids/runtimeStageId.ts · refuseReservedId` — so "no user id carries a
+   * grammar delimiter" stays true by construction. Loop-ref stubs (they name an
+   * existing node) and the chart's own nodes (admitted at build; a prefixed id
+   * carries `/` on purpose) are not new ids and are skipped. A subflow
+   * definition's own tree is a built chart and is not walked.
+   */
+  private admitDynamicIds(output: unknown): void {
+    if (!output || typeof output !== 'object' || !isStageNodeReturn(output)) return;
+    const root = output as StageNode<TOut, TScope>;
+    const refuse = (refusal: string | undefined) => {
+      if (refusal !== undefined) throw new Error(`[footprint] dynamic StageNode: ${refusal}`);
+    };
+    if (root.subflowId) refuse(refuseReservedId('dynamic subflow id', root.subflowId, 'segment'));
+    const seen = new Set<StageNode<TOut, TScope>>();
+    const stack: Array<StageNode<TOut, TScope> | undefined> = [root.next, ...(root.children ?? [])];
+    while (stack.length > 0) {
+      const n = stack.pop();
+      if (!n || seen.has(n) || n.isLoopRef) continue;
+      seen.add(n);
+      const refusal =
+        refuseReservedId('dynamic stage id', n.id, 'stage') ??
+        (n.subflowId ? refuseReservedId('dynamic subflow id', n.subflowId, 'segment') : undefined);
+      if (refusal !== undefined) {
+        // Only a SUSPECT id pays for the chart lookup: a chart node (and the
+        // chart below it) was admitted at build.
+        if (this.nodeResolver.findNodeById(n.id) === n) continue;
+        refuse(refusal);
+      }
+      stack.push(n.next, ...(n.children ?? []));
+    }
+  }
+
   /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
    *  predicate must never turn a failing stage into an endless retry loop. */
   private shouldRetry(policy: NonNullable<StageNode<TOut, TScope>['retry']>, error: unknown): boolean {
@@ -1050,18 +1071,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const loopIteration = visitCount > 1 ? visitCount - 1 : undefined;
 
     // Build traversal context for recorder events — created once per stage, shared by all events
-    const traversalContext: TraversalContext = {
+    const traversalContext = traversalContextFor({
       runId: this.runId,
       stageId: contextStageId,
       runtimeStageId: context.runtimeStageId,
       stageName: node.name,
       parentStageId: context.parent?.stageId,
-      ...(parentRuntimeStageId && { parentRuntimeStageId }),
-      ...(loopIteration !== undefined && { loopIteration }),
+      parentRuntimeStageId,
+      loopIteration,
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
-      depth: this.computeContextDepth(context),
-    };
+    });
 
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
     // Guard uses the per-traverser resolvedLazySubflows set (not the shared node) so
@@ -1075,7 +1095,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
       // Merge stageMap entries
       for (const [key, fn] of resolved.stageMap) {
-        const prefixedKey = `${node.subflowId}/${key}`;
+        const prefixedKey = joinPath(node.subflowId!, key);
         if (!this.stageMap.has(prefixedKey)) {
           this.stageMap.set(prefixedKey, fn as StageFunction<TOut, TScope>);
         }
@@ -1084,9 +1104,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Merge nested subflows
       if (resolved.subflows) {
         for (const [key, def] of Object.entries(resolved.subflows)) {
-          const prefixedKey = `${node.subflowId}/${key}`;
+          const prefixedKey = joinPath(node.subflowId!, key);
           if (!this.subflows[prefixedKey]) {
-            this.subflows[prefixedKey] = def as { root: StageNode<TOut, TScope> };
+            // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): the
+            // nested root's ids live under the lazy mount's path too.
+            this.subflows[prefixedKey] = {
+              root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, node.subflowId!),
+            };
           }
         }
       }
@@ -1320,6 +1344,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (stageFunc) {
       try {
         stageOutput = await this.executeStage(node, stageFunc, context, breakFn, traversalContext);
+        // R5 at the run-time door: a returned StageNode adopts ids the builder
+        // never saw. Refused here, inside the try, so it takes the stage's
+        // error path (commit, onError, rethrow).
+        this.admitDynamicIds(stageOutput);
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
@@ -1565,38 +1593,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
-   * Parent-chain length of a StageContext — same value the pre-trampoline
-   * walk produced, memoized. The context tree deepens by one per executed
-   * stage along a chain, so the naive walk is O(chain length) per stage —
-   * O(n²) per run once chains reach trampoline scale. Contexts are visited
-   * parent-before-child, so the cached parent makes this O(1) amortized.
-   */
-  private computeContextDepth(context: StageContext): number {
-    const cached = this.contextDepthCache.get(context);
-    if (cached !== undefined) return cached;
-
-    // Walk up to the nearest cached ancestor (or the root), then fill the
-    // cache back down — iterative, so a cold deep chain can't overflow.
-    const uncached: StageContext[] = [];
-    let depth = -1; // depth of the node ABOVE the first uncached entry
-    let current: StageContext | undefined = context;
-    while (current) {
-      const hit = this.contextDepthCache.get(current);
-      if (hit !== undefined) {
-        depth = hit;
-        break;
-      }
-      uncached.push(current);
-      current = current.parent;
-    }
-    for (let i = uncached.length - 1; i >= 0; i--) {
-      depth++;
-      this.contextDepthCache.set(uncached[i], depth);
-    }
-    return depth;
-  }
-
-  /**
    * Register a generated `parallelForEach` branch as a subflow — OVERWRITING
    * any registration from a previous visit.
    *
@@ -1620,44 +1616,28 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // Stage functions land under the branch's prefix, matching the prefixed ids.
     for (const [key, fn] of chart.stageMap) {
-      this.stageMap.set(`${subflowId}/${key}`, fn as StageFunction<TOut, TScope>);
+      this.stageMap.set(joinPath(subflowId, key), fn as StageFunction<TOut, TScope>);
     }
 
     // Nested subflows inside the branch chart, same prefixing.
     if (chart.subflows) {
       for (const [key, def] of Object.entries(chart.subflows)) {
-        this.subflows[`${subflowId}/${key}`] = def as { root: StageNode<TOut, TScope> };
+        // Prefixed like the builder's `_mergeSubflows` (9.37.0 fix): without it
+        // every branch ran its nested subflow's stages under ONE id.
+        this.subflows[joinPath(subflowId, key)] = {
+          root: prefixNodeTree((def as { root: StageNode<TOut, TScope> }).root, subflowId),
+        };
       }
     }
   }
 
   /**
-   * Prefix a node tree with a subflow path segment.
-   *
-   * ── BYTE-TWIN CONTRACT ──────────────────────────────────────────────────
-   * This function and `FlowChartBuilder._prefixNodeTree` are byte-twins by
-   * contract: the builder prefixes at MOUNT time, this one at RUN time (lazy
-   * subflows, and the generated branches of `addParallelForEach`), and a chart
-   * must come out identical either way. `test/lib/engine/branch-segment-prefixer-equivalence.test.ts`
-   * pins that — any edit here must be mirrored there, and vice versa.
-   *
-   * Generated branch segments (`<stageId>~<index>`, see `engine/branchSegment.ts`)
-   * ride this exact path with no special case: the segment is just a prefix, so
-   * a branch's inner ids become `<segment>/<id>` and its stages address as
-   * `<segment>/<id>#<n>` — the shipped grammar, which is why every trace query
-   * reads branch commits unmodified. Design: docs/design/execution-control.md.
+   * Prefix a node tree with a subflow path segment at RUN time (lazy subflows,
+   * the generated branches of `addParallelForEach`) — the one prefixer,
+   * `engine/graph/prefixNodeTree.ts`, which the builder calls at mount time.
    */
   private prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope> {
-    if (!node) return node;
-    const clone: StageNode<TOut, TScope> = { ...node };
-    clone.name = `${prefix}/${node.name}`;
-    clone.id = `${prefix}/${clone.id}`;
-    if (clone.subflowId) clone.subflowId = `${prefix}/${clone.subflowId}`;
-    if (clone.next) clone.next = this.prefixNodeTree(clone.next, prefix);
-    if (clone.children) {
-      clone.children = clone.children.map((c) => this.prefixNodeTree(c, prefix));
-    }
-    return clone;
+    return prefixNodeTree(node, prefix);
   }
 
   private autoRegisterSubflowDef(

@@ -21,6 +21,7 @@
  * and lineage checks, and for why commit indices stay run-local.
  */
 
+import { executionIndexOf, isExecutionKey, stageIdOf } from '../ids/runtimeStageId.js';
 import { isPlainish, readTree } from './bundles.js';
 import { refuseChain } from './chain.js';
 import { commitStopsStrategy } from './commitStops.js';
@@ -159,19 +160,17 @@ class Cursor<TMeta> implements TimeTravel<TMeta> {
    * Naming a neighbour is a courtesy for the UI — it never moves the cursor.
    */
   private nearestTo(runtimeStageId: string): Stop<TMeta> | undefined {
-    const hash = runtimeStageId.lastIndexOf('#');
-    if (hash === -1) return undefined;
-    const stagePart = runtimeStageId.slice(0, hash);
-    const wanted = Number.parseInt(runtimeStageId.slice(hash + 1), 10);
+    if (!isExecutionKey(runtimeStageId)) return undefined;
+    const stagePart = stageIdOf(runtimeStageId);
+    const wanted = executionIndexOf(runtimeStageId);
 
     let sameStage: Stop<TMeta> | undefined;
     let byIndex: Stop<TMeta> | undefined;
     for (const stop of this.stops) {
-      const stopHash = stop.runtimeStageId.lastIndexOf('#');
-      if (stopHash === -1) continue;
-      if (stop.runtimeStageId.slice(0, stopHash) === stagePart) sameStage = stop;
+      if (!isExecutionKey(stop.runtimeStageId)) continue;
+      if (stageIdOf(stop.runtimeStageId) === stagePart) sameStage = stop;
       if (!Number.isNaN(wanted)) {
-        const idx = Number.parseInt(stop.runtimeStageId.slice(stopHash + 1), 10);
+        const idx = executionIndexOf(stop.runtimeStageId);
         if (!Number.isNaN(idx) && idx <= wanted) byIndex = stop;
       }
     }

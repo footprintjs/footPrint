@@ -9,7 +9,7 @@ describe('Property: stage names unique', () => {
   it('duplicate name with different fn always throws', () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s)),
+        fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s) && !/[#/]/.test(s)), // 9.37.0: '#' and '/' are reserved in ids
         (name) => {
           const fn1 = async () => {};
           const fn2 = async () => {};
@@ -26,7 +26,7 @@ describe('Property: stage names unique', () => {
   it('same name with same fn reference does not throw', () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s)),
+        fc.string({ minLength: 1, maxLength: 12 }).filter((s) => /^[a-zA-Z]/.test(s) && !/[#/]/.test(s)), // 9.37.0: '#' and '/' are reserved in ids
         (name) => {
           const fn = async () => {};
 
