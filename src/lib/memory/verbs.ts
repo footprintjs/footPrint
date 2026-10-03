@@ -5,8 +5,9 @@
  * `set | merge | append | delete` — and ONE step turns it into a value:
  * {@link applyVerb}. State is a left fold of that step (the event-sourcing
  * reducer): {@link foldRows} folds one bundle's rows into a state, and
- * {@link foldKey} folds one PATH's rows across a log. Every reader of the log
- * runs one of the two —
+ * {@link foldKey} folds ONE KEY across a log — every row under the key's
+ * top-level key, read at the key (the value rule, `keyPaths.ts`). Every reader
+ * of the log runs one of the two —
  *
  *   - the live commit and the redacted mirror (`nextGeneration`),
  *   - the public replay (`applySmartMerge`), the read-side folds
@@ -28,6 +29,7 @@
  * every engine run folds byte-for-byte as before.
  */
 
+import type { PathRelation } from './keyPaths.js';
 import { deepSmartMerge } from './merge.js';
 import { nativeDelete, nativeGet, nativeSet, own, ownedRootOf, ownSpine } from './pathOps.js';
 import { DELIM, pathSegments } from './paths.js';
@@ -256,8 +258,8 @@ export function placeVerb(out: any, segs: string[], next: unknown): void {
  * {@link nextGeneration}, `EventLog.materialise` and `stateAt` through
  * {@link applySmartMergeInto}, the public {@link applySmartMerge}, and the
  * admitted record's {@link dryFold}. {@link foldKey} needs no skip: it
- * anchors at the LAST `set`, or (provenance) a repeated `set` of the one
- * recorded value changes no birth.
+ * anchors at the top-level key's LAST `set`/`delete`, or (provenance) a
+ * repeated `set` of the one recorded value changes no birth.
  */
 export function supersededByNextSet(rows: readonly { path: string; verb: string }[], i: number): boolean {
   const row = rows[i];
@@ -407,68 +409,100 @@ export function dryFold(base: any, updates: MemoryPatch, overwrite: MemoryPatch,
   return foldRows(ownedRootOf(base), updates, overwrite, trace, 'byReference');
 }
 
-// ─── The fold over one path ──────────────────────────────────────────────────
+// ─── The fold over one key ───────────────────────────────────────────────────
 
-/** One row of the log that touches the path being folded. */
+/**
+ * One row of the log under the folded key's TOP-LEVEL key — what {@link foldKey}
+ * applies, in commit order.
+ */
 export interface Touch {
   readonly verb: Verb;
   readonly bundle: CommitBundle;
   /** The bundle's position in the commit log. */
   readonly commitIdx: number;
+  /** The row's own path (DELIM-joined `TraceEntry.path`). */
+  readonly path: string;
+  /**
+   * How the row sits against the folded key (`keyPaths · relation`). ABSENT for a
+   * row on another path under the same top-level key: such a row is APPLIED (an
+   * array union on a container above the key dedups the whole array, so a sibling
+   * changes where it leaves the key) but never observed.
+   */
+  readonly relation?: PathRelation;
 }
 
 /** What a reader asks of {@link foldKey}. */
 export interface KeyFold {
   /**
-   * Start at the LAST row that decides the value alone ({@link isTotal}) — rows
-   * before it cannot change the final value, so a reader that wants only the
-   * value skips them. Off by default: a reader that tracks how the value GREW
-   * must see every row.
+   * Start at the LAST row that sets or deletes the whole TOP-LEVEL key ({@link
+   * isTotal}, on the root path itself) — rows before it cannot change anything
+   * under that key, so a reader that wants only the value skips them. A `set` of
+   * a path below the root is NOT an anchor: an earlier sibling can still move
+   * the key through a later union. Off by default: a reader that tracks how the
+   * value GREW must see every row.
    */
   readonly anchored?: boolean;
   /**
-   * Called after each applied row with the value before it and after it
-   * (`undefined` for an absent key). The seam a provenance track hangs on: it
-   * watches the fold, it never has a verb switch of its own.
+   * Called after each applied row that has a {@link Touch.relation} — on, inside
+   * or around the key — with the value AT THE KEY before it and after it
+   * (`undefined` for an absent key). The seam a provenance track and the writer
+   * rule hang on: they watch the fold, they never have a verb switch of their
+   * own. For a row INSIDE the key, an array `before` is a shallow snapshot: that
+   * row edits the fold's own copy in place.
    */
   readonly observe?: (touch: Touch, before: unknown, after: unknown) => void;
 }
 
 /**
- * The value of ONE path after `touches` — its rows in commit order, each
- * already checked with {@link isVerb} — folded from an absent key, with the
- * same step ({@link applyVerb}) and the same clone discipline as
- * {@link foldRows}: `set` / `append` values are clones, and the merge delta is
- * detached once per BUNDLE, so two `merge` rows of one bundle see the same
- * objects, exactly as the replay does. Returns `undefined` for an absent key.
+ * The value of ONE key after `touches` — EVERY row under its top-level key, in
+ * commit order, each already checked with {@link isVerb} — folded from an absent
+ * key, read at the key (`segs`, its DELIM segments): the value rule of
+ * `keyPaths.ts`, the fold `stateAt` does restricted to one top-level key. Top-level
+ * keys never interact under the step, so the restriction is exact.
  *
- * The per-path slice of {@link applySmartMerge}: O(the path's rows), not O(the
- * log). It sees EXACT-path rows only — a row on an ancestor or a descendant of
- * the path is not a touch.
+ * The same step ({@link applyVerb}) and the same discipline as {@link foldRows}'s
+ * `'pathCopy'`: `set` / `append` values are clones, the merge delta is detached
+ * once per BUNDLE (narrowed to the top-level key), so two `merge` rows of one
+ * bundle see the same objects, and a row that writes through a container this
+ * fold did not create copies it first. Returns `undefined` for an absent key.
+ * O(the rows under the key's top-level key), not O(the log).
  */
 export function foldKey(touches: readonly Touch[], segs: string[], options: KeyFold = {}): unknown {
+  const root = segs[0];
   let from = 0;
   if (options.anchored === true) {
     for (let i = touches.length - 1; i >= 0; i--) {
-      if (isTotal(touches[i].verb)) {
+      if (isTotal(touches[i].verb) && touches[i].path === root) {
         from = i;
         break;
       }
     }
   }
-  let value: unknown;
+  const state: Record<string, unknown> = {};
+  const owned = new WeakSet<object>();
+  owned.add(state);
+  const observe = options.observe;
   let at: RecordedPayload | undefined;
   let atCommit = -1;
   for (let i = from; i < touches.length; i++) {
     const touch = touches[i];
     if (at === undefined || touch.commitIdx !== atCommit) {
-      at = new RecordedPayload(touch.bundle.updates, touch.bundle.overwrite, true, segs);
+      at = new RecordedPayload(touch.bundle.updates, touch.bundle.overwrite, true, [root]);
       atCommit = touch.commitIdx;
     }
-    const before = value;
-    const next = applyVerb(touch.verb, before, at, segs);
-    value = next === ABSENT ? undefined : next;
-    options.observe?.(touch, before, value);
+    const rowSegs = touch.path === root ? [root] : touch.path.split(DELIM);
+    const watched = observe !== undefined && touch.relation !== undefined;
+    let before: unknown;
+    if (watched) {
+      before = nativeGet(state, segs);
+      if (touch.relation === 'inside' && Array.isArray(before)) before = before.slice();
+    }
+    if (rowSegs.length > 1) ownSpine(state, rowSegs, owned);
+    // A total verb reads nothing from what came before it (isTotal).
+    const next = applyVerb(touch.verb, isTotal(touch.verb) ? undefined : nativeGet(state, rowSegs), at, rowSegs);
+    own(next, owned);
+    placeVerb(state, rowSegs, next);
+    if (watched) observe(touch, before, nativeGet(state, segs));
   }
-  return value;
+  return nativeGet(state, segs);
 }

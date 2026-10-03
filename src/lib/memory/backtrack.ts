@@ -12,6 +12,9 @@
  * 1. Locate startId in commitLog → root node
  * 2. Get keysRead for root via `getKeysRead` callback
  * 3. For each key read, find who last wrote it before this step → parent commit
+ *    ("wrote" is the writer rule of `keyPaths.ts`, 9.33.0: a row on the key, inside it, or
+ *    around it that changed it — so a stage that read `cfg` links to the subflow seed or
+ *    merge-back that wrote `cfg␟b`)
  * 4. Create parent CausalNode, link to root.parents
  * 5. Enqueue parent. Repeat until queue empty or limits hit.
  *
@@ -55,8 +58,9 @@
  */
 
 import { isDevMode } from '../devMode.js';
-import { findLastWriter } from './commitLogUtils.js';
-import type { CommitBundle, UntrackedSource } from './types.js';
+import { findLastWriter, writersOf } from './commitLogUtils.js';
+import { buildWriterIndex, relation } from './keyPaths.js';
+import type { CommitBundle, TraceEntry, UntrackedSource } from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -251,27 +255,23 @@ function linearScanLookup(commitLog: CommitBundle[]): WriterLookup {
 
 /**
  * Strategy 2: Reverse index — O(N×U) build, O(log N) per lookup.
- * Builds a Map<key, sortedIndices[]> where indices are commit positions
- * that wrote that key. Lookup uses binary search to find the last writer
- * before a given position.
+ * Builds the log's writer index once (`keyPaths · buildWriterIndex`), resolves
+ * each key's writers ONCE under the writer rule (`commitLogUtils · writersOf` —
+ * rows on, inside or around the key), then answers every lookup by binary
+ * search for the last writer before a given position. The same answer
+ * `findLastWriter` gives, so the strategy switch below never changes a slice.
  */
 function reverseIndexLookup(commitLog: CommitBundle[]): WriterLookup {
-  // Build: key → sorted array of commit indices that wrote this key
-  const index = new Map<string, number[]>();
-  for (let i = 0; i < commitLog.length; i++) {
-    for (const t of commitLog[i].trace) {
-      let arr = index.get(t.path);
-      if (!arr) {
-        arr = [];
-        index.set(t.path, arr);
-      }
-      arr.push(i); // already sorted (we iterate in order)
-    }
-  }
+  const index = buildWriterIndex(commitLog);
+  const writersByKey = new Map<string, number[]>();
 
   return (key: string, beforeIdx: number): CommitBundle | undefined => {
-    const indices = index.get(key);
-    if (!indices || indices.length === 0) return undefined;
+    let indices = writersByKey.get(key);
+    if (indices === undefined) {
+      indices = writersOf(commitLog, key, { index });
+      writersByKey.set(key, indices);
+    }
+    if (indices.length === 0) return undefined;
 
     // Binary search: find largest index < beforeIdx
     let lo = 0;
@@ -290,6 +290,19 @@ function reverseIndexLookup(commitLog: CommitBundle[]): WriterLookup {
 
     return result >= 0 ? commitLog[result] : undefined;
   };
+}
+
+/**
+ * The trace entries of `commit` that make it a writer of `linkKey` — the entries whose read
+ * prefix (`TraceEntry.readKeys`) a per-write edge expands through. The FIRST entry on the exact
+ * path when there is one (the #P1 behaviour, unchanged); otherwise every entry inside or around
+ * the key (9.33.0: the commit wrote the key through a nested row — a subflow seed, an
+ * outputMapper merge-back — and all of those rows wrote it).
+ */
+function linkingEntries(commit: CommitBundle, linkKey: string): TraceEntry[] {
+  const exact = commit.trace.find((t) => t.path === linkKey);
+  if (exact !== undefined) return [exact];
+  return commit.trace.filter((t) => relation(t.path, linkKey) !== undefined);
 }
 
 /**
@@ -413,12 +426,12 @@ export function causalChain(
     }
     const union = new Set<string>();
     for (const linkKey of linkKeys) {
-      const entry = commit.trace.find((t) => t.path === linkKey);
-      if (!entry || entry.readKeys === undefined) {
+      const entries = linkingEntries(commit, linkKey);
+      if (entries.length === 0 || entries.some((e) => e.readKeys === undefined)) {
         // Mixed/dial-off log — degrade THIS node to stage level, honestly.
         return [getKeysRead(commit.runtimeStageId), true];
       }
-      for (const rk of entry.readKeys) union.add(rk);
+      for (const entry of entries) for (const rk of entry.readKeys as string[]) union.add(rk);
     }
     return [[...union], false];
   }

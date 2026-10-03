@@ -5,13 +5,24 @@
  * These helpers provide type-safe queries without (b: any) casts.
  */
 
+import { deepEqual } from './equality.js';
+import { type WriterIndex, ascendingUnion, buildWriterIndex, relation, rootOf, writerCandidates } from './keyPaths.js';
 import { DELIM } from './paths.js';
 import type { CommitBundle } from './types.js';
 import { type Touch, foldKey, isVerb, UnknownVerbError } from './verbs.js';
 
-/** Find the first commit by stageId, optionally filtering by a written key. */
+// Every key query here follows the writer rule and the value rule of `keyPaths.ts` (F3, 9.33.0):
+// a key is written by a row ON it, INSIDE it, or AROUND it when that changed it — never by an
+// exact path match alone, which called every subflow seed and merge-back "never written".
+
+/**
+ * Find the first commit by `stageId`, optionally the first one that WROTE `key` — under the writer
+ * rule: a row on the key, inside it, or around it that changed it (see {@link writersOf}).
+ */
 export function findCommit(commitLog: CommitBundle[], stageId: string, key?: string): CommitBundle | undefined {
-  return commitLog.find((b) => b.stageId === stageId && (!key || b.trace.some((t) => t.path === key)));
+  if (!key) return commitLog.find((b) => b.stageId === stageId);
+  const writers = new Set(writersOf(commitLog, key));
+  return commitLog.find((b, i) => b.stageId === stageId && writers.has(i));
 }
 
 /** Find all commits by stageId. */
@@ -19,39 +30,110 @@ export function findCommits(commitLog: CommitBundle[], stageId: string): CommitB
   return commitLog.filter((b) => b.stageId === stageId);
 }
 
-/** Find the last commit that wrote a specific key (for backtracking). */
+/**
+ * Find the last commit that WROTE `key` before `beforeIdx` (exclusive; default: the whole log) —
+ * the anchor of every backward question ("who made it this?").
+ *
+ * The writer rule (`keyPaths.ts`): a commit writes `key` when one of its rows is ON the key,
+ * INSIDE it (a subflow's input seed writes `cfg␟a`; an outputMapper merge-back writes `cfg␟b`;
+ * either is a write of `cfg`), or AROUND it with the value at the key different across the commit
+ * (a `set` of `cfg` writes `cfg␟a`; a `merge` of `cfg` that never reaches `a` does not). A write
+ * found through a row INSIDE the key wrote only PART of its value — the slice readers say so with
+ * the `'nested-rows'` note.
+ *
+ * @param key  A DELIM-joined path (`normalisePath`); a top-level key is a one-segment path.
+ */
 export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx?: number): CommitBundle | undefined {
   const end = beforeIdx ?? commitLog.length;
-  for (let i = end - 1; i >= 0; i--) {
-    if (commitLog[i].trace.some((t) => t.path === key)) {
-      return commitLog[i];
+  if (rootOf(key) === key) {
+    // A top-level key has no row AROUND it: the writer rule is the path relation alone, and the
+    // backward scan stops at the first writer it meets.
+    for (let i = end - 1; i >= 0; i--) {
+      if (commitLog[i].trace.some((t) => relation(t.path, key) !== undefined)) return commitLog[i];
     }
+    return undefined;
   }
-  return undefined;
+  const writers = writersOf(commitLog, key, { end: end - 1 });
+  return writers.length > 0 ? commitLog[writers[writers.length - 1]] : undefined;
+}
+
+/** What {@link writersOf} is asked. */
+export interface WritersOptions {
+  /** The last commit ARRAY index considered, inclusive. Default: the whole log. */
+  readonly end?: number;
+  /** An index of THIS log ({@link buildWriterIndex}) — build it once when asking about many keys. */
+  readonly index?: WriterIndex;
 }
 
 /**
- * Every row on `key` in `commitLog[0..end]`, in commit order — the touches a
- * per-path fold ({@link foldKey}) runs over. `key` is matched against
- * `TraceEntry.path` exactly (DELIM-joined for nested paths). A row whose verb
- * is not one of the four is refused with {@link UnknownVerbError} naming the
- * row — whether or not the fold would have reached it: the answer must not
- * depend on where an optimisation starts.
+ * The ARRAY positions (ascending) of every commit in `commitLog[0..end]` that WROTE `key` — the
+ * writer rule of `keyPaths.ts`, the one definition every key query shares.
  *
- * Internal: `commitValueAt` and `arrayProvenance` are its two readers.
+ * A commit with a row on or inside the key is a writer by its path. A commit whose only rows near
+ * the key are AROUND it is a writer when the value at the key differs across the whole commit —
+ * decided by one fold of the rows under the key's top-level key ({@link foldKey}), and only when
+ * such a commit exists, which needs a nested key: a top-level key has nothing around it.
  */
-export function keyTouches(commitLog: readonly CommitBundle[], key: string, end: number): Touch[] {
-  const touches: Touch[] = [];
+export function writersOf(commitLog: readonly CommitBundle[], key: string, options: WritersOptions = {}): number[] {
+  const end = Math.min(options.end ?? commitLog.length - 1, commitLog.length - 1);
+  const { atOrInside, aroundOnly } = writerCandidates(options.index ?? buildWriterIndex(commitLog), key);
+  const written = atOrInside.filter((i) => i <= end);
+  const around = aroundOnly.filter((i) => i <= end);
+  if (around.length === 0) return written;
+  return ascendingUnion([written, aroundWritersOf(commitLog, key, around)]);
+}
+
+/**
+ * The commits in `candidates` (ascending; every row near the key is AROUND it) across which the
+ * value at `key` changes. The verdict is taken at each of the commit's rows, while the values are
+ * current: a later commit may edit the fold's own copy in place.
+ */
+function aroundWritersOf(commitLog: readonly CommitBundle[], key: string, candidates: readonly number[]): number[] {
+  const wanted = new Set(candidates);
+  const verdict = new Map<number, boolean>();
+  let commit = -1;
+  let start: unknown;
+  foldKey(rowsUnderRoot(commitLog, key, candidates[candidates.length - 1]), key.split(DELIM), {
+    observe: (touch, before, after) => {
+      if (!wanted.has(touch.commitIdx)) return;
+      if (touch.commitIdx !== commit) {
+        commit = touch.commitIdx;
+        start = before;
+      }
+      verdict.set(commit, !deepEqual(start, after));
+    },
+  });
+  return candidates.filter((i) => verdict.get(i) === true);
+}
+
+/**
+ * Every row under `key`'s TOP-LEVEL key in `commitLog[0..end]`, in commit order — the rows the value
+ * rule folds ({@link foldKey}), each with its {@link Touch.relation} to `key` (absent for a sibling
+ * under the same top-level key: applied, not observed). A row whose verb is not one of the four is
+ * refused with {@link UnknownVerbError} naming the row — whether or not the fold would have reached
+ * it: the answer must not depend on where an optimisation starts.
+ *
+ * Internal: `commitValueAt`, `arrayProvenance` and the writer rule are its readers.
+ */
+export function rowsUnderRoot(commitLog: readonly CommitBundle[], key: string, end: number): Touch[] {
+  const root = rootOf(key);
+  const rows: Touch[] = [];
   for (let i = 0; i <= end; i++) {
     const trace = commitLog[i].trace;
     for (let row = 0; row < trace.length; row++) {
-      if (trace[row].path !== key) continue;
+      const path = trace[row].path;
+      if (path !== root && relation(path, root) !== 'inside') continue;
       const verb = trace[row].verb;
-      if (!isVerb(verb)) throw new UnknownVerbError(verb, { path: key, row, commit: i });
-      touches.push({ verb, bundle: commitLog[i], commitIdx: i });
+      if (!isVerb(verb)) throw new UnknownVerbError(verb, { path, row, commit: i });
+      const r = relation(path, key);
+      rows.push(
+        r === undefined
+          ? { verb, bundle: commitLog[i], commitIdx: i, path }
+          : { verb, bundle: commitLog[i], commitIdx: i, path, relation: r },
+      );
     }
   }
-  return touches;
+  return rows;
 }
 
 /**
@@ -59,41 +141,39 @@ export function keyTouches(commitLog: readonly CommitBundle[], key: string, end:
  * (inclusive) — the migration helper for the "read `bundle.overwrite[key]`
  * as the full value written" pattern (#13c-B).
  *
- * Under `commitValues: 'delta'`, an `append` bundle's `overwrite[key]` holds
- * only the TAIL of the array; this helper folds the verbs back together:
- * it scans `commitLog[0..idx]` for trace entries on `key`, anchors at the
- * latest full-value write (`set` — or `delete`, which resets to absent), and
- * folds forward with the SAME step and clone discipline the replay uses
- * (`verbs.ts` · `foldKey`) — the per-key slice of `applySmartMerge`'s replay,
- * O(key's commit span) instead of a full `materialise()`. Two `merge` rows of
- * one bundle see one copy of the bundle's delta, as the replay's do (a clone per
- * row, as this helper once took, made an array union — which deduplicates by
- * reference — duplicate the elements the first row had placed).
+ * The value rule (`keyPaths.ts`, 9.33.0): every row under the key's TOP-LEVEL
+ * key in `commitLog[0..idx]` is folded, anchored at that key's last `set` /
+ * `delete`, with the SAME step and clone discipline the replay uses
+ * (`verbs.ts` · `foldKey`), and the result is read at `key`. So the answer is
+ * the value `stateAt` gives at that path when it folds the log alone — rows
+ * INSIDE the key (a subflow seed, an outputMapper merge-back) and AROUND it (a
+ * `set` of the container) count; before 9.33.0 only rows on the exact path did,
+ * and a seeded `cfg` read as `undefined`. Under `commitValues: 'delta'`, an
+ * `append` row's `overwrite[key]` holds only the TAIL; the fold puts the array
+ * back together. Two `merge` rows of one bundle see one copy of the bundle's
+ * delta, as the replay's do.
  *
- * Works on full-mode logs too (every `set` is its own anchor — equivalent to
- * `findLastWriter(...).overwrite[key]`).
- *
- * @param key  Matched against `TraceEntry.path` exactly (same contract as
- *   `findLastWriter`) — DELIM-joined for nested paths.
+ * @param key  A DELIM-joined path (`normalisePath`); a top-level key is a
+ *   one-segment path.
  * @param idx  CommitBundle ARRAY index (the `bundle.idx` position),
  *   inclusive. NOT the executionIndex from a runtimeStageId.
- * @returns The reconstructed value (a detached clone), or `undefined` when
- *   the key was never written in `commitLog[0..idx]` or its last write was a
- *   delete. Caveat: values derived purely from the run's INITIAL state (no
- *   `set` anchor in the log — e.g. merges onto a seeded key) fold from
- *   absent; the commit log alone cannot see the pre-run base (the same blind
- *   spot `findLastWriter` has). Since 9.17.0 the base TRAVELS with the log, so
- *   `stateAt(snapshot, idx).state[key]` (footprintjs/trace) answers this case
- *   correctly — it folds from `RuntimeSnapshot.initialState`, which this
- *   function never receives.
- * @throws {@link UnknownVerbError} when a row on `key` carries a verb other
- *   than `set | merge | append | delete` — a foreign or corrupted log is
- *   refused, not folded as a `merge`. Engine-written logs never carry one.
+ * @returns The reconstructed value (a detached clone), or `undefined` when no
+ *   row in `commitLog[0..idx]` is on, inside or around the key, or the fold
+ *   leaves it absent (its last write was a delete). Caveat: a key that held a
+ *   value in the run's INITIAL state folds from absent here — the log alone
+ *   cannot see the pre-run base, so merges and nested writes onto a seeded key
+ *   give only what they added. Since 9.17.0 the base TRAVELS with the log:
+ *   `stateAt(snapshot, idx)` (footprintjs/trace) folds from
+ *   `RuntimeSnapshot.initialState`, which this function never receives.
+ * @throws {@link UnknownVerbError} when a row under the key's top-level key
+ *   carries a verb other than `set | merge | append | delete` — a foreign or
+ *   corrupted log is refused, not folded as a `merge`. Engine-written logs
+ *   never carry one.
  */
 export function commitValueAt(commitLog: CommitBundle[], idx: number, key: string): unknown {
-  const touches = keyTouches(commitLog, key, Math.min(idx, commitLog.length - 1));
-  if (touches.length === 0) return undefined;
-  return foldKey(touches, key.split(DELIM), { anchored: true });
+  const rows = rowsUnderRoot(commitLog, key, Math.min(idx, commitLog.length - 1));
+  if (!rows.some((row) => row.relation !== undefined)) return undefined;
+  return foldKey(rows, key.split(DELIM), { anchored: true });
 }
 
 /**

@@ -60,6 +60,8 @@ export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   // ── a slice's notes — `HonestyNote.code` (slice/) ─────────────────────────
   'conservative-fed-edges':
     "At least one 'fed' edge is stage-level (conservative): its write carries no per-write read provenance, so the edge may not be real — turn on writeProvenance: 'reads-prefix' for exact edges.",
+  'nested-rows':
+    "A write this answer rests on reached the key only through paths inside it (a subflow's input seed, an outputMapper merge-back, a fork child's namespace), so it changed part of the key's value, not the whole: earlier writes may account for the rest, and a reader of the key may not have read the part that write changed.",
   'pre-run-origin':
     'The value being followed was already there before the first write this log can see (initial state, frozen run input or a closure), so who put it there is outside the commit log.',
   'reads-not-recorded':
@@ -72,7 +74,7 @@ export const HONESTY_CODES = /* @__PURE__ */ Object.freeze({
   'empty-log':
     'The commit log holds no commit at all (nothing has executed, or the log handed in is empty), so there is no history to answer from.',
   'never-written':
-    'No commit in the range asked about wrote the key (a forward slice or a timeline also found no recorded read of it), so there is no write to start from: any value it has came from the initial state, the frozen run input or a closure, none of which the commit log can see.',
+    'No commit in the range asked about wrote the key — not its whole value, not a path inside it, and not a container around it in a way that changed it (a forward slice or a timeline also found no recorded read on, inside or around it) — so there is no write to start from: any value it has came from the initial state, the frozen run input or a closure, none of which the commit log can see.',
   'not-an-array':
     'The key was written, but its value at the point asked about is not an array (a scalar or object key, a deleted key, or a merge that degraded it), so element provenance does not apply: sliceForKey is the query for it.',
   // ── how a fed edge was attributed — `ForwardEdge.basis` (slice/: FedBasis) ─
