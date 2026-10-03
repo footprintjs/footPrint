@@ -187,6 +187,77 @@ describe('CompositeRecorder fans out every registry hook (26/26)', () => {
   });
 });
 
+// ── A child's error never costs a sibling its event ───────────────────────────────────
+
+describe('CompositeRecorder isolates each child; the error goes where the channel sends it', () => {
+  const chart = () =>
+    flowChart<{ v?: number }>(
+      'A',
+      (s) => {
+        s.v = 1;
+      },
+      'a',
+    ).build();
+
+  it("scope channel: B still sees onWrite; A's error reaches onError on the recorders", async () => {
+    const seen: string[] = [];
+    const errors: string[] = [];
+    const a = {
+      id: 'A',
+      onWrite: () => {
+        throw new Error('A broke');
+      },
+    };
+    const b = { id: 'B', onWrite: () => seen.push('B') };
+    const ex = new FlowChartExecutor(chart());
+    ex.attachScopeRecorder(new CompositeRecorder('comp', [a, b]));
+    ex.attachScopeRecorder({ id: 'watch', onError: (e) => errors.push(`${e.operation}:${e.error.message}`) });
+    await ex.run();
+    expect(seen).toEqual(['B']);
+    expect(errors).toEqual(['write:A broke']);
+  });
+
+  it("flow channel: B still sees onStageExecuted; A's error is the dev-mode warning", async () => {
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const seen: string[] = [];
+    const a = {
+      id: 'A',
+      onStageExecuted: () => {
+        throw new Error('A broke');
+      },
+    };
+    const b = { id: 'B', onStageExecuted: () => seen.push('B') };
+    const ex = new FlowChartExecutor(chart());
+    ex.attachFlowRecorder(new CompositeRecorder('comp', [a, b]));
+    await ex.run();
+    expect(seen).toEqual(['B']);
+    expect(warn.mock.calls.some(([m]) => String(m).includes('"comp" threw in onStageExecuted: Error: A broke'))).toBe(
+      true,
+    );
+  });
+
+  it('two children throwing: every sibling still runs, the channel gets one AggregateError', () => {
+    const seen: string[] = [];
+    const boom = (id: string) => ({
+      id,
+      onLoop: () => {
+        throw new Error(id);
+      },
+    });
+    const comp = new CompositeRecorder('comp', [boom('x'), { id: 'ok', onLoop: () => seen.push('ok') }, boom('y')]);
+    let caught: unknown;
+    try {
+      comp.onLoop({ target: 't', iteration: 1 } as never);
+    } catch (e) {
+      caught = e;
+    }
+    expect(seen).toEqual(['ok']);
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors.map((e) => (e as Error).message)).toEqual(['x', 'y']);
+  });
+});
+
 // ── R10 — executor-made events go through `fire` ──────────────────────────────────────
 
 function pausingChart() {

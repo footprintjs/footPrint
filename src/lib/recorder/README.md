@@ -319,7 +319,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 | `BoundaryStateStore<T>` | Live state DURING a matched `[start, stop]` interval; clears on stop. |
 | `CommitRangeIndex<T>` | Interval index over commit log positions. Generic label `T`. |
 | `CombinedRecorder` | Implement multi-channel observation in one object. |
-| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26). |
+| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26); a child that throws never costs a sibling the event. |
 
 **Convention**: one purpose per recorder. A recorder owns exactly ONE concern (storage OR event ingestion OR state machine OR projection). Multi-concern recorders MUST be decomposed and composed via a thin facade. See `examples/recorders/` for canonical patterns.
 

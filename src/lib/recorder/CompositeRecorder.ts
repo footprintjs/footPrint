@@ -43,12 +43,11 @@
  * ```
  */
 
-import { invokeRecorderHook } from '../capture/invokeHook.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { HookName, HookPayload } from './hooks.js';
-import { HOOK_NAMES } from './hooks.js';
+import { fire, HOOK_NAMES } from './hooks.js';
 import { copyBundle } from './snapshot.js';
 
 /** Snapshot format for composite recorders — wraps child snapshots, each copied by the one
@@ -118,14 +117,24 @@ export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
 }
 
 // ── The generated fan-out ────────────────────────────────────────────────
-// One prototype method per registry hook: hand the event to every child that implements the
-// hook, in order. NOT isolated per child on purpose — a throw leaves the composite exactly as it
-// did when the methods were hand-written, so the channel that called the composite isolates it
-// with its own policy (the scope channel routes it to `onError`; the flow channel warns).
+// One prototype method per registry hook. Each child is called through `fire`, so a child that
+// throws never stops its siblings: every child that implements the hook receives the event.
+// The throw is then handed to the CHANNEL's own policy — the composite cannot apply it itself
+// (the scope channel's `onError` goes to every recorder on the facade, with the stage's names,
+// which only the facade has) — by rethrowing it once the fan-out is done: one child's error as
+// itself (exactly what the channel saw before), several as one `AggregateError`.
 for (const hook of HOOK_NAMES) {
   Object.defineProperty(CompositeRecorder.prototype, hook, {
-    value: function fanOut(this: CompositeRecorder, event: unknown): void {
-      for (const child of this.getChildren()) invokeRecorderHook(child, hook, event);
+    value: function fanOut(this: CompositeRecorder, event: never): void {
+      const errors: unknown[] = [];
+      fire(this.getChildren(), hook, event, (error) => errors.push(error));
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(
+          errors,
+          `${errors.length} children of CompositeRecorder "${this.id}" threw in ${hook}`,
+        );
+      }
     },
     writable: true,
     configurable: true,
