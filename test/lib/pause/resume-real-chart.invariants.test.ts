@@ -72,13 +72,27 @@ function allLogs(legs: RuntimeSnapshot[], mode: ResumeMode): Bundle[][] {
 }
 
 /**
+ * A subflow's SEED commit (`history[0]`, committed before any of its stages
+ * runs). Since R13 it is the MOUNT's commit and carries the mount's
+ * runtimeStageId — whose stage address is the subflow path of every stage in
+ * the log it opens; that execution is counted in the parent's log, not here.
+ */
+function isSeed(log: Bundle[], i: number): boolean {
+  if (i !== 0) return false;
+  const id = log[0].runtimeStageId;
+  const next = log.find((b) => b.runtimeStageId !== id);
+  return (
+    next !== undefined && parseRuntimeStageId(next.runtimeStageId).subflowPath === id.slice(0, id.lastIndexOf('#'))
+  );
+}
+
+/**
  * The stage executions a log records: a mount's consecutive entry/exit
- * bundles collapse into one, and a subflow's SEED commit (`history[0]`,
- * committed by the nested root before any stage runs — runtimeStageId `''`)
- * is not a stage execution.
+ * bundles collapse into one, and a subflow's seed commit ({@link isSeed}) is
+ * the mount's execution, not one of the subflow's.
  */
 function executionsOf(log: Bundle[]): Bundle[] {
-  return log.filter((b, i) => b.runtimeStageId !== '' && (i === 0 || log[i - 1].runtimeStageId !== b.runtimeStageId));
+  return log.filter((b, i) => !isSeed(log, i) && (i === 0 || log[i - 1].runtimeStageId !== b.runtimeStageId));
 }
 
 describe.each(MODES)('invariants across a resume — %s-executor', (mode) => {
@@ -119,10 +133,8 @@ describe.each(MODES)('invariants across a resume — %s-executor', (mode) => {
       for (const log of allLogs(run.legs, mode)) {
         const seen = new Map<string, number>();
         log.forEach((b, i) => {
-          if (b.runtimeStageId === '') {
-            expect(i).toBe(0); // a subflow's seed commit, and only ever first
-            return;
-          }
+          expect(b.runtimeStageId).not.toBe(''); // R13: the seed names its mount
+          if (isSeed(log, i)) return; // a subflow's seed commit — the mount's, and only ever first
           const repeat = i > 0 && log[i - 1].runtimeStageId === b.runtimeStageId;
           if (!repeat) {
             expect(seen.has(b.runtimeStageId)).toBe(false); // never re-used later in the log
@@ -481,7 +493,6 @@ describe.each(MODES)('a bundle’s stageId names the stage its runtimeStageId na
     const bad: string[] = [];
     for (const log of everyLog(run.legs)) {
       for (const b of log) {
-        if (b.runtimeStageId === '') continue; // a subflow's seed commit (history[0])
         if (b.stageId !== stagePart(b.runtimeStageId)) bad.push(`${b.runtimeStageId} stageId=${b.stageId}`);
       }
     }
@@ -497,7 +508,7 @@ describe.each(MODES)('a bundle’s stageId names the stage its runtimeStageId na
       // after the seed is its entry — the next mount on the path, or the stand-in.
       const firsts = run.legs.slice(1).flatMap((leg) =>
         logsOf(leg, false)
-          .map((log) => log.find((b) => b.runtimeStageId !== ''))
+          .map((log) => log.find((_, i) => !isSeed(log, i)))
           .filter((b): b is Bundle => b !== undefined),
       );
       expect(firsts.length).toBeGreaterThan(0);

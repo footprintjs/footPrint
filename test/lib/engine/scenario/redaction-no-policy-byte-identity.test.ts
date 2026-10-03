@@ -19,13 +19,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+/** The one named R13 change on both references: the subflow's seed names its mount. */
+const SEED = bothKeys([], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#2' });
 const reference = (encoding: 'full' | 'delta') =>
-  readFileSync(join(here, 'reference', `no-policy-9.18.1.${encoding}.json`), 'utf8');
+  withSeedsNamedByMount(readFileSync(join(here, 'reference', `no-policy-9.18.1.${encoding}.json`), 'utf8'), SEED);
 const redactViewReference = (encoding: 'full' | 'delta') =>
-  readFileSync(join(here, 'reference', `no-policy-redact-view-9.19.1.${encoding}.json`), 'utf8');
+  withSeedsNamedByMount(
+    readFileSync(join(here, 'reference', `no-policy-redact-view-9.19.1.${encoding}.json`), 'utf8'),
+    SEED,
+  );
 
 describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => {
   it('commitValues: full', async () => {

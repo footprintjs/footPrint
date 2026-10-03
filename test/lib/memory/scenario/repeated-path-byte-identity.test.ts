@@ -42,11 +42,17 @@ import { nativeGet } from '../../../../src/lib/memory/pathOps.js';
 import { DELIM } from '../../../../src/lib/memory/paths.js';
 import type { CommitBundle } from '../../../../src/lib/memory/types.js';
 import { stateAt } from '../../../../src/trace.js';
+import { nameSeedsByMount } from '../../engine/scenario/r13-seed-named-by-mount.js';
 import { runRepeatedPathBuffer, runRepeatedPathChart, shellJSON } from './repeated-path-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const reference = (encoding: 'full' | 'delta'): { chart: string; buffer: string } =>
-  JSON.parse(readFileSync(join(here, 'reference', `repeated-path-9.22.0.${encoding}.json`), 'utf8'));
+/** The 9.22.0 bytes, with the one named R13 change on the chart run: the subflow's seed names its mount. */
+const reference = (encoding: 'full' | 'delta'): { chart: string; buffer: string } => {
+  const ref = JSON.parse(readFileSync(join(here, 'reference', `repeated-path-9.22.0.${encoding}.json`), 'utf8'));
+  const chart = JSON.parse(ref.chart);
+  nameSeedsByMount(chart, [{ at: ['subflow', 'history', 0], stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#4' }]);
+  return { ...ref, chart: JSON.stringify(chart) };
+};
 
 type Fold = { idx: number; state: unknown; values: Record<string, unknown> };
 type Bytes = { commitLog: CommitBundle[]; folds: Fold[]; subflow?: { history: CommitBundle[]; folds: Fold[] } };

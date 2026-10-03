@@ -107,12 +107,13 @@ describe('generated branches read back through the SHIPPED trace queries, unmodi
 
   /**
    * Stage commits only. A subflow seeded through an inputMapper also commits
-   * on its ROOT frame (that is how `{ item, index }` becomes visible in the
-   * branch's own log) and a root frame has no `stageId#index` — the shipped
-   * shape for every seeded subflow, generated or hand-authored.
+   * the seed (that is how `{ item, index }` becomes visible in the branch's
+   * own log) — and since R13 the seed carries the MOUNT's runtimeStageId
+   * (`review-chunks~0#3`), not one of the branch's stages (`review-chunks~0/…`)
+   * — the shipped shape for every seeded subflow, generated or hand-authored.
    */
   function stageCommitsOf(snapshot: Awaited<ReturnType<typeof runIt>>, segment: string) {
-    return branchLogOf(snapshot, segment).filter((b: any) => b.runtimeStageId.includes('#'));
+    return branchLogOf(snapshot, segment).filter((b: any) => b.runtimeStageId.startsWith(`${segment}/`));
   }
 
   it('parseRuntimeStageId decomposes a branch stage exactly like a hand-authored subflow stage', async () => {
@@ -245,7 +246,10 @@ describe('generated branches read back through the SHIPPED trace queries, unmodi
 
   it("the branch's seeded item is IN its own commit log — provenance, not a hidden closure", async () => {
     const snapshot = await runIt();
-    const seedCommit = branchLogOf(snapshot, 'review-chunks~0').find((b: any) => !b.runtimeStageId.includes('#'))!;
+    const seedCommit = branchLogOf(snapshot, 'review-chunks~0')[0];
+    // The seed is the branch MOUNT's commit — named after the generated mount (R13).
+    expect(seedCommit.runtimeStageId).toMatch(/^review-chunks~0#\d+$/);
+    expect(seedCommit.stageId).toBe('review-chunks~0');
     expect(seedCommit.overwrite?.item).toBe('alpha');
     expect(seedCommit.overwrite?.index).toBe(0);
   });
