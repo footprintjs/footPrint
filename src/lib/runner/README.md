@@ -90,6 +90,27 @@ executor.getSubflowResults();    // per-subflow results
 
 The executor is a thin delegation layer. Every introspection method forwards to the traverser, which forwards to the appropriate internal component. No logic lives here — just wiring and forwarding.
 
+### The executor's modules (F9)
+
+`FlowChartExecutor.ts` keeps the per-run state (traverser, runId, counters, checkpoint) and the run lifecycle
+that threads it. Each other job is one module it composes:
+
+| Module | One job |
+|---|---|
+| `options.ts` | `FlowChartExecutorOptions` + `resolveExecutorArgs` — either constructor form → the args every leg reads |
+| `attach.ts` | `RunObservers` — the narrative recorder, the inline scope/flow lists, the deferred tier; the `attach*Recorder` family delegates here, and each leg asks it for the composed scope factory and flow list |
+| `resume.ts` | `planResume` (decode → find the paused stage → stand-in → `ResumeEntry.plan`; every refusal before any state moves), `seedCounters`, `announceResume` (the executor-made `onResume`) |
+| `checkpoint.ts` | `buildPauseCheckpoint` — one detached `structuredClone`, stamped with the codec's version (`pause/record.ts`); sanitizes non-cloneable diagnostics and names a consumer-data violation |
+| `snapshot.ts` | `servedSnapshot` + `collectRecorderSnapshots` — one recorder row per id across channels and tiers |
+
+```typescript
+// resume(), read top to bottom — the executor only threads state between the steps:
+const plan = planResume(chart, checkpoint, input);   // refuses here, nothing touched yet
+seedCounters(plan.checkpoint, counter, visitCounts); // mutate, never replace (shared by reference)
+traverser = createTraverser({ resume: plan.entry });
+announceResume(plan, input, { runId, executionCount, observers });
+```
+
 ---
 
 ## Design Decisions
@@ -148,7 +169,7 @@ Subflow paths use slash-separated subflow IDs, matching how footprintjs stores n
 ## Dependency Graph
 
 ```
-  FlowChartExecutor
+  FlowChartExecutor ── options · attach · resume · checkpoint · snapshot
        |
   engine/FlowchartTraverser (traversal algorithm)
        |

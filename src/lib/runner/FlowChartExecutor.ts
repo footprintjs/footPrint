@@ -14,254 +14,80 @@
  *   // 2-param form (accepts a ScopeFactory directly, for backward compatibility):
  *   const executor = new FlowChartExecutor(chart, myFactory);
  *
+ *
+ * The executor composes four modules, one job each (F9): `attach.ts` (who
+ * observes a run), `resume.ts` (plan and announce a re-entry), `checkpoint.ts`
+ * (the pause checkpoint), `snapshot.ts` (what `getSnapshot()` serves). What
+ * stays here is the per-run state and the run lifecycle that threads it.
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
 import type { FlowChart } from '../builder/types.js';
-import { deepFreeze } from '../capture/freeze.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
-import { isDevMode } from '../devMode.js';
-import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
-import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
+import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
-import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
-import type { FlowRecorder, ResumeLink } from '../engine/narrative/types.js';
+import type { FlowRecorder } from '../engine/narrative/types.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
-import { resumeTraversalContext } from '../engine/traversalContext.js';
 import {
   type ExecutorResult,
   type PausedResult,
   type RunOptions,
   type ScopeFactory,
   type SerializedPipelineStructure,
-  type StageFunction,
   type StageNode,
-  type StreamHandlers,
   type SubflowResult,
-  type TraversalResult,
   defaultLogger,
 } from '../engine/types.js';
-import { buildRuntimeStageId, isExecutionKey } from '../ids/runtimeStageId.js';
 import { RedactionRule } from '../memory/redaction.js';
-import type { RunDials } from '../memory/runPolicy.js';
-import { pickDials, runPolicy } from '../memory/runPolicy.js';
-import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
-import { provideInterruptAnswer } from '../pause/interrupt.js';
-import { CHECKPOINT_VERSION, decodeCheckpoint } from '../pause/record.js';
-import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
-import { isPausedExecution, isPauseSignal } from '../pause/types.js';
+import { runPolicy } from '../memory/runPolicy.js';
+import type { CommitValuesMode, ReadTrackingMode, WriteTrackingMode } from '../memory/types.js';
+import type { FlowchartCheckpoint } from '../pause/types.js';
+import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
-import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
-import { fire, recorderFailureEvent, warnInDevMode } from '../recorder/hooks.js';
-import { copyBundle } from '../recorder/snapshot.js';
-import type { ScopeProtectionMode } from '../scope/protection/types.js';
-import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
-import { describeCheckpointCloneFailure, sanitizeDiagnosticBags } from './checkpointSanitize.js';
-import { type AttachRecorderOptions, type ObserverDrainResult, DeferredObserverTier } from './DeferredObserverTier.js';
-import { type RecorderSnapshot, type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { RunObservers } from './attach.js';
+import { buildPauseCheckpoint } from './checkpoint.js';
+import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
+import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
+import { announceResume, planResume, seedCounters } from './resume.js';
 import { generateRunId } from './runId.js';
+import { servedSnapshot } from './snapshot.js';
 import { validateInput } from './validateInput.js';
-
-/** Default scope factory — creates a plain ScopeFacade for each stage. */
-const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
-  new ScopeFacade(ctx, stageName, readOnly, env);
-
-/**
- * The paused stage's stand-in for a resume: the stage's OWN node — so it keeps
- * its shape (a decider's or selector's branches, a fork parent's children,
- * its `next`) and its name, description and declared tags — with `fn` swapped
- * for the resume half.
- *
- * Dropped: `resumeFn` and `isPausable` (the resume half must not pause
- * because it returned a value — the original pausable contract); and, on the
- * `addPausableFunction` re-entry, the policies declared for the stage's OWN
- * function (`retry`, streaming) — that re-entry runs a different function
- * (`resumeFn`) under a different contract. The `interrupt()` re-entry re-runs
- * the stage's own function, so it keeps them.
- *
- * Tags follow the stage on BOTH re-entries (9.21.0): a tag is the stage's
- * NAME, not a policy over its function, and the resumed execution is that
- * stage running again — its bundle must carry it, or a chained axis would
- * show the paused leg tagged and the resumed leg silently not.
- */
-function standInFor<TOut, TScope>(
-  pausedNode: StageNode<TOut, TScope>,
-  fn: StageFunction<TOut, TScope>,
-  isInterruptResume: boolean,
-): StageNode<TOut, TScope> {
-  const standIn: StageNode<TOut, TScope> = { ...pausedNode, fn };
-  delete standIn.resumeFn;
-  delete standIn.isPausable;
-  if (!isInterruptResume) {
-    delete standIn.retry;
-    delete standIn.isStreaming;
-    delete standIn.streamId;
-  }
-  return standIn;
-}
-
-/** The flow channel's isolation for the executor-made `onResume` (dev-mode warning, then skip). */
-const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
-
-/**
- * The resume event's link, read off the checkpoint itself — so a resume records
- * the same wherever its checkpoint came from. `undefined` for a checkpoint
- * without `pausedExecution` (made before 9.37.0) or with a malformed one: the
- * link is a record, never used to plan the re-entry, so it is left out rather
- * than guessed.
- */
-function resumeLinkOf(checkpoint: FlowchartCheckpoint): ResumeLink | undefined {
-  const paused: unknown = checkpoint.pausedExecution;
-  return isPausedExecution(paused) ? { runId: paused.runId, runtimeStageId: paused.runtimeStageId } : undefined;
-}
-
-/**
- * Options object for `FlowChartExecutor` — preferred over positional params.
- *
- * ```typescript
- * const ex = new FlowChartExecutor(chart, {
- *   scopeFactory: myFactory,
- *   defaultValuesForContext: { ... },
- * });
- * ```
- *
- * **Sync note for maintainers:** Every field added here must also appear in the
- * `flowChartArgs` private field type and in the constructor's options-resolution
- * block (the `else if` branch that reads from `opts`). Missing any one of the
- * three causes silent omission — the option is accepted but never applied.
- * The observability DIALS are the exception: they come from `RunDials`
- * (memory/runPolicy.ts) and travel as one `dials` field, so a new dial is
- * added there and nowhere here.
- *
- * **TScope inference note:** When using the options-object form with a custom scope,
- * TypeScript cannot infer `TScope` through the options object. Pass the type
- * explicitly: `new FlowChartExecutor<TOut, MyScope>(chart, { scopeFactory })`.
- */
-export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
-  // ── Common options (most callers need only these) ────────────────────────
-
-  /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
-  scopeFactory?: ScopeFactory<TScope>;
-
-  // ── Context options ──────────────────────────────────────────────────────
-
-  /**
-   * Default values pre-populated into the shared context before **each** stage
-   * (re-applied every stage, acting as baseline defaults).
-   */
-  defaultValuesForContext?: unknown;
-  /**
-   * Initial context values merged into the shared context **once** at startup
-   * (applied before the first stage, not repeated on subsequent stages).
-   * Distinct from `defaultValuesForContext`, which is re-applied every stage.
-   */
-  initialContext?: unknown;
-  /** Read-only input accessible via `scope.getArgs()` — never tracked or written. */
-  readOnlyContext?: unknown;
-
-  // ── Observability cost options ────────────────────────────────────────────
-  // The four dials — `readTracking`, `writeTracking`, `commitValues`,
-  // `writeProvenance` — are inherited from `RunDials` (memory/runPolicy.ts,
-  // where each is documented): the executor picks them off this object and
-  // builds the run's ONE policy from them (F5).
-
-  // ── Advanced / escape-hatch options (most callers do not need these) ─────
-
-  /**
-   * Custom error classifier for throttling detection. Return `true` if a fork
-   * child's error represents a rate-limit or backpressure condition; the
-   * executor then fires `FlowRecorder.onThrottled` for that child (9.39.0 —
-   * an EVENT, not a state key: the `monitor.isThrottled` write it replaced
-   * never landed). The child's failure is otherwise handled as before.
-   * Defaults to no throttling classification.
-   */
-  throttlingErrorChecker?: (error: unknown) => boolean;
-  /** Handlers for streaming stage lifecycle events (see `addStreamingFunction`). */
-  streamHandlers?: StreamHandlers;
-  /** Scope protection mode for TypedScope direct-assignment detection. */
-  scopeProtectionMode?: ScopeProtectionMode;
-}
 
 export class FlowChartExecutor<TOut = any, TScope = any> {
   private traverser: FlowchartTraverser<TOut, TScope>;
-  /** Shared execution counter — survives pause/resume. Reset on fresh run(). */
+  /** Shared execution counter and per-stage visit counts (loopIteration) — shared BY
+   *  REFERENCE with every traverser of the run; survive pause/resume, reset on run(). */
   private _executionCounter = { value: 0 };
-  /** Shared per-run visit counts (by stageId) driving TraversalContext.loopIteration.
-   *  Twin of _executionCounter: survives pause/resume, reset on fresh run(). */
   private _visitCounts = new Map<string, number>();
-  /** Per-`run()` identifier — generated fresh per run + per resume. Threaded
-   *  through every TraversalContext so recorders can scope state to a single
-   *  run. See `runId.ts`. */
+  /** Fresh per run() and per resume() — stamped on every TraversalContext (`runId.ts`). */
   private _currentRunId = '';
-  private narrativeEnabled = false;
-  private narrativeOptions?: CombinedNarrativeRecorderOptions;
-  private combinedRecorder: CombinedNarrativeRecorder | undefined;
-  private flowRecorders: FlowRecorder[] = [];
-  private scopeRecorders: ScopeRecorder[] = [];
-  /**
-   * RFC-001 deferred-observer wiring — created LAZILY on the first
-   * `delivery: 'deferred'` attach. `undefined` for every executor that never
-   * opts in: zero allocation, zero per-event cost, byte-identical behavior
-   * (the emit fast-path precedent).
-   */
-  private deferredTier?: DeferredObserverTier;
+  /** Who observes the run — narrative, inline lists, deferred tier (`attach.ts`). */
+  private readonly observers = new RunObservers();
   private redactionPolicy: RedactionPolicy | undefined;
-  /**
-   * The run's ONE redaction rule (`memory/redaction.ts`): built fresh per
-   * `createTraverser` (per-call marks reset per run and per resume, as the
-   * shared set always did), installed on the runtime root so every context
-   * retains under it, and read by every `ScopeFacade` through its context.
-   */
+  /** The run's ONE redaction rule (`memory/redaction.ts`), built fresh per leg. */
   private redactionRule = new RedactionRule();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
   /**
-   * `true` once `run()` (or a previous `resume()`) has executed on
-   * this instance. `resume()` branches on it:
-   *
-   *   • true  → reuse the constructor-time runtime (same-executor
-   *             continuity: execution tree, recorders, narrative
-   *             accumulate across pause/resume cycles)
-   *   • false → seed a fresh runtime from `checkpoint.sharedState`
-   *             (cross-executor / cross-process resume: new instance
-   *             reconstructed from a serialized checkpoint)
-   *
-   * Without this flag, fresh executors silently discarded the
-   * checkpoint's sharedState and resume handlers couldn't read pre-pause
-   * scope. See `test/lib/pause/cross-executor-resume.test.ts`.
+   * `true` once run() (or a resume) executed here. `resume()` branches on it:
+   * true → reuse the runtime (execution tree, recorders, narrative accumulate);
+   * false → seed a fresh runtime from `checkpoint.sharedState` (cross-executor
+   * resume). See `test/lib/pause/cross-executor-resume.test.ts`.
    */
   private _hasRunBefore = false;
   /**
-   * Re-entrancy guard. `run()` and `resume()` mutate per-run instance state
-   * (traverser, runId, execution counter, checkpoint) and clear attached
-   * recorders — a second concurrent entry on the SAME executor would
-   * interleave runIds and cross-contaminate recorder/narrative state, and
-   * `getCheckpoint()` would return whichever run paused last. One executor =
-   * one in-flight execution; create an executor per concurrent run.
+   * Re-entrancy guard: run()/resume() mutate per-run state (traverser, runId,
+   * counters, checkpoint, recorders) — one executor = one in-flight execution.
    * See docs/guides/execution-model.md.
    */
   private _isExecuting = false;
 
-  // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
-  // AND be assigned in the constructor's options-resolution block (the `else if` branch).
-  // Adding a field to only one of the three places causes silent omission.
-  // (The dials ride `dials` whole — `pickDials` reads every one RunDials declares.)
-  private readonly flowChartArgs: {
-    flowChart: FlowChart<TOut, TScope>;
-    scopeFactory: ScopeFactory<TScope>;
-    defaultValuesForContext?: unknown;
-    initialContext?: unknown;
-    readOnlyContext?: unknown;
-    throttlingErrorChecker?: (error: unknown) => boolean;
-    streamHandlers?: StreamHandlers;
-    scopeProtectionMode?: ScopeProtectionMode;
-    /** The dials as given (absent = default) — the run's policy is built from them per leg. */
-    dials: RunDials;
-  };
+  private readonly flowChartArgs: ExecutorArgs<TOut, TScope>;
 
   /**
    * Create a FlowChartExecutor.
@@ -283,42 +109,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     flowChart: FlowChart<TOut, TScope>,
     factoryOrOptions?: ScopeFactory<TScope> | FlowChartExecutorOptions<TScope>,
   ) {
-    // Detect options-object form vs factory form
-    let scopeFactory: ScopeFactory<TScope> | undefined;
-    let defaultValuesForContext: unknown;
-    let initialContext: unknown;
-    let readOnlyContext: unknown;
-    let throttlingErrorChecker: ((error: unknown) => boolean) | undefined;
-    let streamHandlers: StreamHandlers | undefined;
-    let scopeProtectionMode: ScopeProtectionMode | undefined;
-    let dials: RunDials = {};
-
-    if (typeof factoryOrOptions === 'function') {
-      // 2-param form: new FlowChartExecutor(chart, scopeFactory)
-      scopeFactory = factoryOrOptions;
-    } else if (factoryOrOptions !== undefined) {
-      // Options object form
-      const opts = factoryOrOptions;
-      scopeFactory = opts.scopeFactory;
-      defaultValuesForContext = opts.defaultValuesForContext;
-      initialContext = opts.initialContext;
-      readOnlyContext = opts.readOnlyContext;
-      throttlingErrorChecker = opts.throttlingErrorChecker;
-      streamHandlers = opts.streamHandlers;
-      scopeProtectionMode = opts.scopeProtectionMode;
-      dials = pickDials(opts);
-    }
-    this.flowChartArgs = {
-      flowChart,
-      scopeFactory: scopeFactory ?? flowChart.scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
-      defaultValuesForContext,
-      initialContext,
-      readOnlyContext,
-      throttlingErrorChecker,
-      streamHandlers,
-      scopeProtectionMode,
-      dials,
-    };
+    this.flowChartArgs = resolveExecutorArgs(flowChart, factoryOrOptions);
     this.traverser = this.createTraverser();
   }
 
@@ -332,119 +123,36 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       initialContext?: unknown;
       preserveRecorders?: boolean;
       existingRuntime?: InstanceType<typeof ExecutionRuntime>;
-      /** The resume's one-shot re-entry — where the resumed traversal
-       *  starts (`resume.start`) and what each subflow on the pause path
-       *  takes on its first entry. The traverser still walks the REAL chart
-       *  (`fc.root`, `fc.subflows`): the re-entry is never a node an id can
-       *  resolve to. Undefined on normal run() paths. */
+      /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
       resume?: ResumeEntry<TOut, TScope>;
     },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
-    const narrativeFlag = this.narrativeEnabled || (fc.enableNarrative ?? false);
-
-    // ── Composed scope factory ─────────────────────────────────────────
-    // Collect all scope modifiers (recorders, redaction) into a single list,
-    // then create ONE factory that applies them in a loop. Replaces the
-    // previous 4-deep closure nesting with a flat, debuggable composition.
-
-    if (overrides?.preserveRecorders) {
-      // Resume mode: keep existing combinedRecorder so narrative accumulates
-    } else if (narrativeFlag) {
-      this.combinedRecorder = new CombinedNarrativeRecorder(this.narrativeOptions);
-    } else {
-      this.combinedRecorder = undefined;
-    }
+    const narrativeFlag = this.observers.startLeg(fc.enableNarrative ?? false, overrides?.preserveRecorders === true);
 
     this.redactionRule = new RedactionRule(this.redactionPolicy);
-
-    // Build modifier list — each modifier receives the scope after creation
-    type ScopeModifier = (scope: any) => void;
-    const modifiers: ScopeModifier[] = [];
-
-    // 1. Narrative recorder (if enabled)
-    if (this.combinedRecorder) {
-      const recorder = this.combinedRecorder;
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(recorder);
-      });
-    }
-
-    // 2. User-provided scope recorders
-    if (this.scopeRecorders.length > 0) {
-      const recorders = this.scopeRecorders;
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') {
-          for (const r of recorders) scope.attachScopeRecorder(r);
-        }
-      });
-    }
-
-    // 2b. Deferred-observer scope tap (RFC-001 Block 7) — a synthetic
-    // recorder whose hooks CAPTURE into the bounded queue instead of doing
-    // observer work. It rides the same per-stage recorder list as inline
-    // recorders, so it receives exactly the post-redaction events they do.
-    // Absent (zero work, identical list) when nobody opted into deferral.
-    const scopeTap = this.deferredTier?.buildScopeTap();
-    if (scopeTap) {
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(scopeTap);
-      });
-    }
-
-    // 3. Redaction policy (conditional — only when policy is set). A
-    // `ScopeFacade` already reads the run's rule through its context (the
-    // rule is installed on the runtime root below); this call is the legacy
-    // protocol for custom scopes that are not facades, and on a facade it
-    // re-states the executor's policy on the shared rule (a no-op).
-    if (this.redactionPolicy) {
-      const policy = this.redactionPolicy;
-      modifiers.push((scope) => {
-        if (typeof scope.useRedactionPolicy === 'function') {
-          scope.useRedactionPolicy(policy);
-        }
-      });
-    }
-
-    // Compose: base factory + modifiers in a single pass.
-    // The marked-keys set is ALWAYS wired up (unconditional — ensures cross-stage
-    // propagation even without a policy, because stages can call setValue(key, val, true)
-    // for per-call redaction). Optional modifiers (recorders, policy) are in the list.
-    const baseFactory = args.scopeFactory;
-    const sharedRedactedKeys = this.redactionRule.markedKeys();
-    const scopeFactory = ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
-      const scope = baseFactory(ctx, stageName, readOnly, envArg);
-      // Always wire shared redaction state
-      if (typeof (scope as any).useSharedRedactedKeys === 'function') {
-        (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
-      }
-      // Apply optional modifiers
-      for (const mod of modifiers) mod(scope);
-      return scope;
-    }) as ScopeFactory<TScope>;
+    // ONE factory: the base factory, then every scope modifier (recorders,
+    // deferred tap, redaction) in a flat pass — see `RunObservers`.
+    const scopeFactory = this.observers.composeScopeFactory(
+      args.scopeFactory,
+      this.redactionPolicy,
+      this.redactionRule.markedKeys(),
+    );
 
     // The first stage this traversal runs: the resume's entry, else the chart root.
     const effectiveRoot = overrides?.resume?.start ?? fc.root;
     const effectiveInitialContext = overrides?.initialContext ?? args.initialContext;
 
-    // The run's policy (F5): the four dials, the redaction rule and the
-    // mirror flag as ONE frozen object, built once per leg — run AND resume
-    // (a resume brings a fresh rule, as per-call marks reset per leg). The
-    // runtime installs it on its root; every frame of the run, a subflow's
-    // included, holds the same reference. The rule is installed even without
-    // a policy: a per-call `setValue(key, value, true)` marks the key on it,
-    // and the paths that bypass the facade (subflow seed, outputMapper
-    // merge-back, resume re-seed) honour that mark through it. The mirror —
-    // a parallel redacted heap, so `getSnapshot({ redact: true })` is served
-    // at zero post-pass cost — is kept only under a policy.
+    // The run's policy (F5): the dials, the rule (installed even without a
+    // policy — per-call `setValue(k, v, true)` marks live on it) and the mirror
+    // flag (a redacted heap, kept only under a policy), ONE frozen object per
+    // leg that every frame of the run holds by reference.
     const policy = runPolicy(args.dials, this.redactionRule, this.redactionPolicy !== undefined);
 
     let runtime: ExecutionRuntime;
     if (overrides?.existingRuntime) {
-      // Resume mode: reuse existing runtime so execution tree continues from pause point.
-      // Preserve the original root for getSnapshot() (full tree), then advance
-      // rootStageContext to a continuation from the leaf (for traversal).
+      // Same-executor resume: the tree continues from the leaf; getSnapshot() keeps the full tree.
       runtime = overrides.existingRuntime;
       runtime.preserveSnapshotRoot();
       let leaf = runtime.rootStageContext;
@@ -462,9 +170,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
 
     return new FlowchartTraverser<TOut, TScope>({
-      // Always the REAL chart — every id (loop targets, a re-visit of the
-      // paused stage) resolves against it. A resume only moves where the
-      // traversal STARTS (`entry`), once.
+      // Always the REAL chart; a resume only moves where the traversal STARTS, once.
       root: fc.root,
       ...(overrides?.resume?.start && { entry: overrides.resume.start }),
       ...(overrides?.resume?.startPendingPauses && { pendingPauses: overrides.resume.startPendingPauses }),
@@ -482,7 +188,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       logger: fc.logger ?? defaultLogger,
       signal,
       executionEnv: env,
-      flowRecorders: this.buildFlowRecordersList(),
+      flowRecorders: this.observers.flowRecordersList(),
       executionCounter: this._executionCounter,
       visitCounts: this._visitCounts,
       runId: this._currentRunId,
@@ -492,8 +198,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   enableNarrative(options?: CombinedNarrativeRecorderOptions): void {
-    this.narrativeEnabled = true;
-    if (options) this.narrativeOptions = options;
+    this.observers.enableNarrative(options);
   }
 
   /**
@@ -505,34 +210,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.redactionRule = new RedactionRule(policy);
   }
 
-  /**
-   * Set the read-tracking policy for `StageSnapshot.stageReads` (#14).
-   * Must be called before run(). Equivalent to the `readTracking`
-   * constructor option — see {@link FlowChartExecutorOptions.readTracking}
-   * for the mode semantics ('full' default / 'summary' / 'off').
-   */
+  /** The `readTracking` dial (see {@link FlowChartExecutorOptions.readTracking}). Call before run(). */
   setReadTracking(mode: ReadTrackingMode): void {
     this.flowChartArgs.dials = { ...this.flowChartArgs.dials, readTracking: mode };
   }
 
-  /**
-   * Set the write-tracking policy for `StageSnapshot.stageWrites` (#13c-A).
-   * Must be called before run(). Equivalent to the `writeTracking`
-   * constructor option — see {@link FlowChartExecutorOptions.writeTracking}
-   * for the mode semantics ('full' default / 'summary' / 'off'), the
-   * onCommit-payload consequence, and the redaction-precedence rule.
-   */
+  /** The `writeTracking` dial (see {@link FlowChartExecutorOptions.writeTracking}). Call before run(). */
   setWriteTracking(mode: WriteTrackingMode): void {
     this.flowChartArgs.dials = { ...this.flowChartArgs.dials, writeTracking: mode };
   }
 
-  /**
-   * Set the commit-values encoding policy for the commit log (#13c-B).
-   * Must be called before run(). Equivalent to the `commitValues`
-   * constructor option — see {@link FlowChartExecutorOptions.commitValues}
-   * for the mode semantics ('full' default / 'delta'), the verb-qualified
-   * `overwrite` consequence, and the `commitValueAt` migration helper.
-   */
+  /** The `commitValues` dial (see {@link FlowChartExecutorOptions.commitValues}). Call before run(). */
   setCommitValues(mode: CommitValuesMode): void {
     this.flowChartArgs.dials = { ...this.flowChartArgs.dials, commitValues: mode };
   }
@@ -551,12 +239,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Returns the checkpoint from the most recent paused execution, or `undefined`
    * if the last run completed without pausing.
    *
-   * The checkpoint is JSON-serializable — store it in Redis, Postgres, localStorage, etc.
-   *
-   * It is fully DETACHED from engine state: every field was deep-copied at
-   * pause time (see `buildPauseCheckpoint`). Holding, mutating, or persisting
-   * it cannot affect the executor, and a later same-executor resume cannot
-   * mutate a checkpoint you already stored.
+   * JSON-serializable (store it in Redis, Postgres, localStorage…) and fully
+   * DETACHED from engine state (`checkpoint.ts`): mutating or persisting it
+   * cannot affect the executor, nor a later resume a checkpoint you stored.
    *
    * @example
    * ```typescript
@@ -585,14 +270,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * Returns 0 before any run; after, returns the cumulative commit
    * count across the executor's lifetime (including resumes).
-   *
-   * IMPLEMENTATION NOTE: this returns `runtime.executionHistory.length`,
-   * which is the same value as `getSnapshot().commitLog.length`. The
-   * naming asymmetry is historical — the underlying `EventLog` field
-   * is named `executionHistory` but stores the `CommitBundle[]` that
-   * `commitLog` exposes. They always report the same LENGTH (verified by the
-   * "matches commitLog.length" integration test); since 9.17.0 the snapshot
-   * serves a detached frozen COPY of the array, not the live one.
+   * Always equals `getSnapshot().commitLog.length` (the log is the
+   * `EventLog`'s `executionHistory`; the snapshot serves a frozen copy).
    */
   getCommitCount(): number {
     const runtime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime> | undefined;
@@ -602,25 +281,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /**
    * Resume a paused flowchart from a checkpoint.
    *
-   * Restores the scope state, calls the paused stage's `resumeFn` with the
-   * provided input (or, for an `interrupt()` pause, re-runs the stage with the
-   * answer), then continues with whatever ran after that stage on the run —
-   * its own `next`, or the continuation of the decider, selector or fork that
-   * dispatched it, at every level of the pause path — and from there walks the
-   * chart as built. When parallel siblings paused in the same fan-out
-   * (`checkpoint.pendingPauses`), the run pauses again with the next sibling's
-   * question once this one's branch is done; the fan-out's join runs after the
-   * last answer. See `ResumeEntry` (`footprintjs/advanced`).
+   * Restores the scope state, runs the paused stage's `resumeFn` with the input
+   * (an `interrupt()` pause re-runs the stage with the answer), then continues
+   * with whatever ran after that stage on the run — its `next`, or its
+   * dispatcher's continuation, at every level of the pause path. Parallel
+   * siblings that paused together (`checkpoint.pendingPauses`) are asked in
+   * turn; the join runs after the last answer. See `ResumeEntry`.
    *
-   * The checkpoint can come from `getCheckpoint()` on a previous run, or from
-   * a serialized checkpoint stored in Redis/Postgres/localStorage.
-   *
-   * **Recorder/narrative state depends on the resume mode.** Resuming on the SAME
-   * executor that ran preserves and accumulates narrative/metrics/debug across the
-   * pause/resume cycle (preserveRecorders). Resuming on a FRESH executor
-   * (reconstructed from a stored checkpoint) starts with empty recorder state —
-   * collect what you need before discarding the paused executor. A fresh `runId`
-   * is generated either way.
+   * The checkpoint comes from `getCheckpoint()` or from storage. On the SAME
+   * executor, narrative/recorder state accumulates across the pause; on a
+   * FRESH executor it starts empty. A fresh `runId` either way.
    *
    * @example
    * ```typescript
@@ -639,195 +309,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     resumeInput?: unknown,
     options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations'>,
   ): Promise<ExecutorResult> {
-    // Re-entrancy guard FIRST — resume() mutates the same per-run state run()
-    // does (traverser, runId, checkpoint), so resume-during-run and
-    // double-resume are the same corruption class as concurrent run().
-    if (this._isExecuting) {
-      throw new Error(
-        'FlowChartExecutor: resume() called while another run()/resume() is in flight on this ' +
-          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
-          'one executor per concurrent run. See docs/guides/execution-model.md.',
-      );
-    }
-    // ── Decode the checkpoint (may come from untrusted external storage, from
-    // any release) — the ONE codec: upcast, then check every pause record
-    // (`pause/record.ts`). (lastCheckpoint is wiped AFTER this — a rejected
-    // checkpoint must not destroy the executor's existing checkpoint state.)
-    checkpoint = decodeCheckpoint(checkpoint);
-
-    // Find the paused node in the graph
-    const pausedNode = this.findNodeInGraph(checkpoint.pausedStageId, checkpoint.subflowPath);
-    if (!pausedNode) {
-      throw new Error(
-        `Cannot resume: stage '${checkpoint.pausedStageId}' not found in flowchart. ` +
-          'The chart may have changed since the checkpoint was created.',
-      );
-    }
-    // Two re-entry shapes, chosen by HOW the pause was raised:
-    //
-    //   • interrupt()      → RE-RUN THE STAGE'S OWN FUNCTION FROM ITS TOP.
-    //     Stages are atomic (the same law `resumeOnError` states): a stage that
-    //     stopped mid-body has no half to resume into, so the whole body runs
-    //     again and the answer comes back out of the `interrupt()` call itself.
-    //     Everything the body did before the interrupt is re-done — which is
-    //     why the docs tell you to keep that half idempotent.
-    //   • addPausableFunction → run the declared `resumeFn`.
-    //
-    // The discriminant is on the checkpoint, so this works cross-executor
-    // (a checkpoint restored from Redis on a fresh process resumes the same way).
-    const isInterruptResume = checkpoint.pausedBy === 'interrupt';
-    if (!pausedNode.resumeFn && !isInterruptResume) {
-      throw new Error(
-        `Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) has no resumeFn. ` +
-          'Only stages created with addPausableFunction(), or stages that paused via interrupt(), can be resumed.',
-      );
-    }
-    // The resume half — what the paused stage's stand-in runs.
-    // resumeFn signature is (scope, input) per PausableHandler — wrap to match StageFunction(scope, breakFn).
-    let resumeStageFn: StageFunction<TOut, TScope>;
-    if (isInterruptResume) {
-      const originalFn =
-        pausedNode.fn ??
-        this.flowChartArgs.flowChart.stageMap.get(pausedNode.id) ??
-        this.flowChartArgs.flowChart.stageMap.get(pausedNode.name);
-      if (!originalFn) {
-        throw new Error(
-          `Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) paused via interrupt() but its ` +
-            'stage function is no longer in the chart. The chart may have changed since the checkpoint ' +
-            'was created.',
-        );
-      }
-      resumeStageFn = (scope, breakFn, streamCallback) => {
-        // Deposit the answer for THIS scope instance before the body runs, so
-        // the `interrupt()` call that threw last time returns it this time.
-        // Keyed by scope identity — safe when several branches resume at once.
-        provideInterruptAnswer(scope, resumeInput);
-        return originalFn(scope, breakFn, streamCallback);
-      };
-    } else {
-      const resumeFn = pausedNode.resumeFn!;
-      resumeStageFn = (scope: TScope) => {
-        return resumeFn(scope, resumeInput) as TOut | Promise<TOut>;
-      };
-    }
-
-    // The paused stage's STAND-IN: the stage's OWN node — id, name,
-    // description, tags, and its shape (a decider's branches, a selector's, a
-    // fork parent's children, its `next`) — with its function swapped for the
-    // resume half. Built from the whole node so an `interrupt()` raised inside
-    // a decider, selector or fork-parent function DISPATCHES on resume, as the
-    // stage did on the run (before 9.28.0 only fn/next/tags/retry were copied
-    // and the dispatch was silently skipped). It is where the resumed
-    // traversal starts — and nothing else: it is never in a node map or the
-    // subflow dictionary, so a loop back to the paused id finds the REAL
-    // stage, which pauses again (see ResumeEntry). What runs after it — its
-    // own `next`, else its dispatcher's continuation — is attached by
-    // `ResumeEntry.plan`, from the chart.
-    const standIn = standInFor(pausedNode, resumeStageFn, isInterruptResume);
-
-    // Where the resume re-enters, planned against the chart as built:
-    //
-    //   • TOP-LEVEL PAUSE (subflowPath empty): the resumed traversal starts
-    //     at the stand-in.
-    //   • PAUSE INSIDE SUBFLOWS: it starts at the mount of the first subflow
-    //     on the path, so the outputMappers and the parent's continuation
-    //     run. Each subflow on the path is entered ONCE through its hop: its
-    //     nested runtime is seeded from its capture (in place of the
-    //     inputMapper's values) and its traversal starts at the mount of the
-    //     next subflow — or, at the leaf, at the stand-in. An outer subflow's
-    //     stages before that mount do not run again.
-    //   • AT EVERY LEVEL the entry carries what its dispatcher would have run
-    //     after it — a decider's `next`, a selector's, a fork's join — so a
-    //     subflow mounted as a branch or a fork child hands control back to
-    //     its parent's continuation at the parent's level.
-    //   • Parallel siblings that paused in the same fan-out wait in
-    //     `checkpoint.pendingPauses`: each is raised again in turn, and the
-    //     join runs only once the last one is resumed.
-    //
-    // Everything else walks the REAL chart: `fc.root` and `fc.subflows` are
-    // untouched, so every later loop target and every later subflow entry
-    // (real root, inputMapper) resolves as it would on a run. Refused HERE —
-    // before any state is touched — when the checkpoint's path does not fit
-    // this chart.
-    //
-    // Clone-in: the captures seed nested runtimes (shallow-merged into each
-    // nested SharedMemory), so without a copy the engine would hold live
-    // references into the caller's checkpoint object — caller mutations would
-    // bleed into the resumed run and engine writes would reach a checkpoint
-    // the caller may have already persisted. The same for the waiting
-    // siblings' captures.
-    const fc = this.flowChartArgs.flowChart;
-    const resumeEntry = ResumeEntry.plan<TOut, TScope>({
-      root: fc.root,
-      subflows: fc.subflows,
-      path: checkpoint.subflowPath,
-      captures: structuredClone(checkpoint.subflowStates),
-      standIn,
-      ...(checkpoint.pendingPauses !== undefined && { pendingPauses: structuredClone(checkpoint.pendingPauses) }),
-    });
-
-    // ── Seed the shared execution counter + per-stage visit counts ──
-    //
-    // Only now — every refusal above (the checkpoint's shape, the paused
-    // stage, the plan) leaves the executor exactly as it was. MUST run before
-    // the counter is READ below (the stand-in's runtimeStageId for
-    // `onResume`) AND before createTraverser() hands the traverser these
-    // objects BY REFERENCE. Seeding keeps runtimeStageIds unique and
-    // loopIteration monotonic across a CROSS-executor resume (a fresh
-    // executor starts both at 0/empty; the checkpoint carries the pause-time
-    // values).
-    //
-    // MUTATE, never REPLACE: `_executionCounter` and `_visitCounts` are shared
-    // by reference into the traverser (and, transitively, every subflow
-    // traverser — see FlowchartTraverser's sub-traverser factory). Assigning a
-    // fresh object here would sever that shared reference. Both fields are
-    // optional on the checkpoint (older persisted checkpoints omit them) — skip
-    // seeding when absent, preserving the previous behavior. Same-executor
-    // resume is idempotent: at pause the instance values already equal the
-    // checkpoint's, so re-seeding them changes nothing.
-    if (checkpoint.executionCount !== undefined) {
-      this._executionCounter.value = checkpoint.executionCount;
-    }
-    if (checkpoint.visitCounts) {
-      this._visitCounts.clear();
-      for (const [stageId, count] of Object.entries(checkpoint.visitCounts)) {
-        this._visitCounts.set(stageId, count);
-      }
-    }
-    // (Wiped only now: every refusal above leaves the executor's existing
-    // checkpoint untouched.)
+    this.assertIdle('resume');
+    // Every refusal happens in the plan — before any state below is touched,
+    // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
+    const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
+    // MUST precede the counter read in `announceResume` and the traverser,
+    // which takes both counters BY REFERENCE.
+    seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
     this.lastCheckpoint = undefined;
 
-    // Don't clear recorders — resume continues from previous state.
-    // Narrative, metrics, debug entries accumulate across pause/resume.
-    //
-    // Two-mode resume:
-    //   • Same-executor (run() previously called on THIS instance):
-    //     reuse the existing runtime so the execution tree continues
-    //     from the pause point and recorders/narrative accumulate.
-    //   • Cross-executor (fresh executor reconstructed from a stored
-    //     checkpoint): seed a NEW runtime from `checkpoint.sharedState`
-    //     so resume handlers can read pre-pause scope. The execution
-    //     tree starts at the resume entry — we don't have the previous
-    //     traversal's tree on a fresh process anyway.
-    const sameExecutor = this._hasRunBefore;
-    const existingRuntime = sameExecutor
+    // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
+    // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
+    const existingRuntime = this._hasRunBefore
       ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
       : undefined;
     this._hasRunBefore = true; // any path that resumes counts as a run
-    // Resume gets a NEW runId — resume is logically a distinct run.
-    // Original runId is recoverable from checkpoint metadata if a consumer
-    // needs cross-run audit (we don't store it on the checkpoint today;
-    // future enhancement). See `runId.ts`.
     this._currentRunId = generateRunId();
-
-    // Initial context: `checkpoint.sharedState` — the top level's view at the
-    // pause (a subflow's outputMapper writes back into it). Same-executor, the
-    // existing runtime is reused and this is moot, but passed for consistency.
-    // Clone-in for the same reason as the captures: `initialContext` seeds
-    // the fresh SharedMemory via `mergeContextWins`, which copies only the TOP
-    // level — nested objects would alias the caller's checkpoint.
-    const resumeInitialContext = structuredClone(checkpoint.sharedState);
 
     this.traverser = this.createTraverser(
       options?.signal,
@@ -836,80 +333,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       options?.maxDepth,
       options?.maxIterations,
       {
-        initialContext: resumeInitialContext,
+        // Clone-in: `initialContext` seeds the fresh SharedMemory with a
+        // top-level-only merge — nested objects would alias the caller's checkpoint.
+        initialContext: structuredClone(plan.checkpoint.sharedState),
         preserveRecorders: true,
         ...(existingRuntime ? { existingRuntime } : {}),
-        resume: resumeEntry,
+        resume: plan.entry,
       },
     );
-
-    // Fire onResume event on all recorders (flow + scope). Stamp the
-    // synthetic TraversalContext for the resumed stage with the NEW
-    // runId so consumers detect "this is a fresh logical run" via
-    // the same runId-change pattern they use for `onRunStart`. The stamp is
-    // built by the one constructor (`engine/traversalContext.ts`): it names the
-    // REAL subflow the stand-in runs in and its depth, and LINKS to the paused
-    // execution (`resumedFrom`, read off `checkpoint.pausedExecution`) — 9.37.0.
-    //
-    // The runtimeStageId is the STAND-IN's own: it runs after one mount per
-    // subflow on the path (each entered at its mount), so its execution index
-    // is the counter plus the path's length — the event and the stand-in's
-    // commit name the same execution. (Fired before the traversal on purpose:
-    // `onResume` precedes `onRunStart`, which recorders rely on to adopt the
-    // new runId without resetting.) The one shape where the index cannot be
-    // known up front — a degraded checkpoint missing an OUTER subflow's
-    // capture, whose opening stages then re-run — names the planned position.
-    const hasInput = resumeInput !== undefined;
-    const stepsBeforeStandIn = resumeEntry.stepsBeforeStandIn ?? checkpoint.subflowPath.length;
-    const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, this._executionCounter.value + stepsBeforeStandIn);
-    const resumedFrom = resumeLinkOf(checkpoint);
-    const flowResumeEvent = {
-      stageName: pausedNode.name,
-      stageId: pausedNode.id,
-      hasInput,
-      traversalContext: resumeTraversalContext({
-        runId: this._currentRunId,
-        stageId: pausedNode.id,
-        stageName: pausedNode.name,
-        runtimeStageId: resumeRuntimeStageId,
-        subflowPath: checkpoint.subflowPath,
-        resumedFrom,
-      }),
-      channel: 'flow' as const,
-    };
-    // Executor-made (`HOOKS.onResume.executorMade`): fired through the same `fire` loop as every
-    // engine event, so a throwing recorder is isolated instead of rejecting `resume()` (R10).
-    const flowListeners = this.combinedRecorder ? [this.combinedRecorder, ...this.flowRecorders] : this.flowRecorders;
-    fire(flowListeners, 'onResume', flowResumeEvent, RESUME_FLOW_FAILURE);
-
-    const scopeResumeEvent = {
-      stageName: pausedNode.name,
-      stageId: pausedNode.id,
-      runtimeStageId: resumeRuntimeStageId,
-      hasInput,
-      ...(resumedFrom && { resumedFrom }),
-      pipelineId: '',
-      timestamp: Date.now(),
-      channel: 'scope' as const,
-    };
-    fire(this.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
-      // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
-      // becomes an `onError` on every scope recorder, whose own throw is dropped.
-      fire(this.scopeRecorders, 'onError', recorderFailureEvent(scopeResumeEvent, error, hook)),
-    );
-
-    // Deferred tier (RFC-001): these executor-synthesized onResume events
-    // bypass the per-stage dispatch sites, so capture them directly.
-    if (this.deferredTier) {
-      this.deferredTier.capture('flow', 'onResume', resumeRuntimeStageId, this._currentRunId, flowResumeEvent);
-      this.deferredTier.capture(
-        'scope',
-        'onResume',
-        scopeResumeEvent.runtimeStageId,
-        scopeResumeEvent.pipelineId,
-        scopeResumeEvent,
-      );
-    }
+    // Before the traversal on purpose: `onResume` precedes `onRunStart`.
+    announceResume(plan, resumeInput, {
+      runId: this._currentRunId,
+      executionCount: this._executionCounter.value,
+      observers: this.observers,
+    });
 
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
     // flag); no await between the top-of-method check and here, so race-free.
@@ -917,373 +354,100 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     try {
       const result = await this.traverser.execute();
       // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
-      this.deferredTier?.terminalFlush();
+      this.observers.deferredTier?.terminalFlush();
       return result;
     } catch (error: unknown) {
-      this.deferredTier?.terminalFlush();
-      if (isPauseSignal(error)) {
-        this.lastCheckpoint = this.buildPauseCheckpoint(error);
-        return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
-      }
-      throw error;
+      return this.pausedOrThrow(error);
     } finally {
       this._isExecuting = false;
     }
   }
 
   /**
-   * Build a fully DETACHED checkpoint from a caught PauseSignal.
-   *
-   * Every field is deep-copied via one `structuredClone` of the assembled
-   * checkpoint, because the raw pieces alias live engine state:
-   *
-   *   - `sharedState` IS `SharedMemory`'s current generation — never edited,
-   *     but (copy-on-write, 9.29.0) every later generation shares its
-   *     unchanged subtrees, so a checkpoint that aliased it would alias the
-   *     resumed run's state too.
-   *   - `executionTree` nodes are fresh, but their `logs`/`errors`/`metrics`/
-   *     `evals`/`stageReads`/`flowMessages` fields reference live
-   *     `DiagnosticCollector` bags that keep accumulating on same-executor
-   *     resume.
-   *   - `subflowStates` values are shallow copies whose NESTED objects alias
-   *     subflow memory, and they get seeded back into live runtimes on resume.
-   *   - `subflowResults` values stay referenced by the traverser's results map.
-   *
-   * The checkpoint is persisted by contract ("store in Redis/Postgres") — it
-   * must never share structure with the engine. Pause is not a hot path; the
-   * clone cost is irrelevant.
-   *
-   * The JSON-safe checkpoint contract (no functions, no class instances)
-   * governs CONSUMER-owned data — but the executionTree's diagnostic bags
-   * accept ANY value at write time without cloning ($debug/$error/$metric/
-   * $eval store raw references), so a contract-compliant run can still carry
-   * a non-cloneable diagnostic. Observability side-bags never abort traversal
-   * anywhere else in the library, so they must not abort the pause either:
-   * on clone failure we sanitize the diagnostic bags (non-cloneable values
-   * become '[non-serializable: …]' markers — the live engine bags are never
-   * touched) and retry. If the retry STILL fails, the violation is in
-   * consumer-owned data (realistically `pauseData` — a function can never
-   * reach shared state in the first place: TransactionBuffer clones every
-   * written value at write time, so the offending write already rejected)
-   * and we throw a DESCRIPTIVE contract error naming the offending
-   * checkpoint field(s). A naked DataCloneError never escapes.
-   *
-   * Subflow scope capture (`subflowStates`) survives ONLY on the signal — the
-   * nested runtimes are GC'd as the stack unwinds. Promoting it onto the
-   * checkpoint here lets cross-executor resume restore pre-pause subflow
-   * scope (e.g. an Agent's `scope.history`). Empty `{}` for root-level pauses.
+   * The settle of a leg that threw: flush the deferred tier (the OUTERMOST
+   * handler — a pause re-throws through subflow traversers without exit
+   * events, so per-traverser hooks would miss it), then turn a pause into a
+   * detached checkpoint (`checkpoint.ts`) and a `PausedResult`; anything else
+   * is rethrown.
    */
-  private buildPauseCheckpoint(signal: PauseSignal): FlowchartCheckpoint {
-    // Every pause that paused in THIS run is named by it; a sibling raised again
-    // on resume keeps the run it originally paused in.
-    signal.completeExecution(this._currentRunId);
-    const snapshot = this.traverser.getSnapshot();
-    const sfResults = this.traverser.getSubflowResults();
-    // Lean subflowResults for the checkpoint (design: docs/design/subflow-commit-visibility.md):
-    //   • DROP the per-iteration mount-runtimeStageId keys ('#') that the snapshot dual-keys —
-    //     they would DOUBLE the checkpoint, and resume restores scope from `subflowStates`, not these.
-    //   • STRIP each subflow's `treeContext.history` — resume NEVER reads `subflowResults` (it
-    //     restores from `subflowStates` + `sharedState`), so the per-subflow commit log is pure
-    //     checkpoint bloat. The flat agent's checkpoint carries no commit history either → symmetric.
-    const leanSubflowResults: Record<string, unknown> = {};
-    for (const [key, value] of sfResults) {
-      if (isExecutionKey(key)) continue; // per-iteration keys are snapshot-only
-      const v = value as unknown as { treeContext?: Record<string, unknown> };
-      if (v?.treeContext) {
-        const treeCtxRest: Record<string, unknown> = {};
-        for (const ck of Object.keys(v.treeContext)) {
-          if (ck !== 'history') treeCtxRest[ck] = v.treeContext[ck]; // strip the per-subflow commit log
-        }
-        leanSubflowResults[key] = { ...(value as unknown as Record<string, unknown>), treeContext: treeCtxRest };
-      } else {
-        leanSubflowResults[key] = value;
-      }
+  private pausedOrThrow(error: unknown): PausedResult {
+    this.observers.deferredTier?.terminalFlush();
+    if (isPauseSignal(error)) {
+      this.lastCheckpoint = buildPauseCheckpoint(error, this.traverser, {
+        runId: this._currentRunId,
+        executionCount: this._executionCounter.value,
+        visitCounts: this._visitCounts,
+      });
+      return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
     }
-    const checkpoint = {
-      // The format (9.39.0) — read back by `pause/record.ts · decodeCheckpoint`.
-      checkpointVersion: CHECKPOINT_VERSION,
-      sharedState: snapshot.sharedState,
-      executionTree: snapshot.executionTree,
-      pausedStageId: signal.stageId,
-      // The paused EXECUTION (9.37.0) — a queued sibling raised on resume
-      // carries the run it ORIGINALLY paused in.
-      ...(signal.pausedExecution && { pausedExecution: signal.pausedExecution }),
-      subflowPath: signal.subflowPath,
-      pauseData: signal.pauseData,
-      subflowStates: signal.subflowStates,
-      // Counter continuity — seeded back in resume() so runtimeStageIds stay
-      // unique and loopIteration stays monotonic across a CROSS-executor resume
-      // (both are plain number/record, so they ride the single structuredClone
-      // below untouched). See test/lib/pause/resume-execution-counter-continuity.test.ts.
-      executionCount: this._executionCounter.value,
-      visitCounts: Object.fromEntries(this._visitCounts),
-      ...(Object.keys(leanSubflowResults).length > 0 && { subflowResults: leanSubflowResults }),
-      // Invoker context — collected during traversal bubble-up (not tree-walked).
-      // (`continuationStageId` is legacy-only since 9.39.0: no longer written.)
-      ...(signal.invokerStageId && { invokerStageId: signal.invokerStageId }),
-      // Parallel siblings' pauses from the same fan-out, waiting their turn
-      // (9.28.0). Absent when only one child paused — the shape every
-      // earlier checkpoint has.
-      ...(signal.pendingPauses.length > 0 && { pendingPauses: signal.pendingPauses }),
-      // HOW the pause was raised. One checkpoint shape, one extra optional
-      // field — an interrupt() pause is not a second kind of checkpoint, it is
-      // the same checkpoint that resume() re-enters differently (stage top vs
-      // resumeFn). Absent for every pre-9.14.0 checkpoint, which is correct.
-      ...(signal.pausedBy && { pausedBy: signal.pausedBy }),
-      pausedAt: Date.now(),
-    };
-    try {
-      return structuredClone(checkpoint);
-    } catch {
-      // Non-cloneable diagnostics must not swallow the pause — sanitize the
-      // executionTree's bags (markers replace the offenders) and retry.
-      try {
-        checkpoint.executionTree = sanitizeDiagnosticBags(checkpoint.executionTree as StageSnapshot);
-        return structuredClone(checkpoint);
-      } catch (retryError) {
-        // Genuine JSON-safe contract violation in consumer-owned data.
-        throw describeCheckpointCloneFailure(checkpoint, retryError);
-      }
+    throw error;
+  }
+
+  /** The re-entrancy guard: one executor = one in-flight execution. */
+  private assertIdle(method: 'run' | 'resume'): void {
+    if (this._isExecuting) {
+      throw new Error(
+        `FlowChartExecutor: ${method}() called while another run()/resume() is in flight on this ` +
+          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
+          'one executor per concurrent run. See docs/guides/execution-model.md.',
+      );
     }
   }
+
+  // ─── Recorders (the register lives in `attach.ts`) ───
 
   /**
-   * Find a StageNode in the compiled graph by ID.
-   * Handles subflow paths by drilling into registered subflows.
-   */
-  private findNodeInGraph(stageId: string, subflowPath: readonly string[]): StageNode<TOut, TScope> | undefined {
-    const fc = this.flowChartArgs.flowChart;
-
-    if (subflowPath.length === 0) {
-      // Top-level: DFS from root
-      return this.dfsFind(fc.root, stageId);
-    }
-
-    // Subflow: drill into the subflow chain, then search from the last subflow's root
-    let subflowRoot: StageNode<TOut, TScope> | undefined;
-    for (const sfId of subflowPath) {
-      const subflow = fc.subflows?.[sfId];
-      if (!subflow) return undefined;
-      subflowRoot = subflow.root;
-    }
-    if (!subflowRoot) return undefined;
-    return this.dfsFind(subflowRoot, stageId);
-  }
-
-  /** DFS search for a node by ID in the StageNode graph. Cycle-safe via visited set. */
-  private dfsFind(
-    node: StageNode<TOut, TScope>,
-    targetId: string,
-    visited = new Set<string>(),
-  ): StageNode<TOut, TScope> | undefined {
-    // Skip loop back-edge references (they share the target's ID but have no fn/resumeFn)
-    if (node.isLoopRef) return undefined;
-    if (visited.has(node.id)) return undefined;
-    visited.add(node.id);
-    if (node.id === targetId) return node;
-    if (node.children) {
-      for (const child of node.children) {
-        const found = this.dfsFind(child, targetId, visited);
-        if (found) return found;
-      }
-    }
-    if (node.next) return this.dfsFind(node.next, targetId, visited);
-    return undefined;
-  }
-
-  // ─── ScopeRecorder Management ───
-
-  /**
-   * Attach a scope ScopeRecorder to observe data operations (reads, writes, commits).
-   * Automatically attached to every ScopeFacade created during traversal.
-   * Must be called before run().
-   *
-   * **Idempotent by ID:** If a recorder with the same `id` is already attached,
-   * it is replaced (not duplicated). This prevents double-counting when both
-   * a framework and the user attach the same recorder type.
-   *
-   * Built-in recorders use auto-increment IDs (`metrics-1`, `debug-1`, ...) by
-   * default, so multiple instances with different configs coexist. To override
-   * a framework-attached recorder, pass the same well-known ID.
+   * Attach a ScopeRecorder to observe data operations (reads, writes, commits)
+   * on every stage scope. Call before run(). **Idempotent by `id`** (replaced,
+   * never duplicated). `{ delivery: 'deferred' }` moves it off the hot path —
+   * delivered at the next microtask checkpoint; re-attaching an id on the
+   * other tier SWAPS tiers (`docs/guides/observers-deferred.md`).
    *
    * @example
    * ```typescript
-   * // Multiple recorders with different configs — each gets a unique ID
    * executor.attachScopeRecorder(new MetricRecorder());
-   * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'minimal' }));
-   *
-   * // Override a framework-attached recorder by passing its well-known ID
-   * executor.attachScopeRecorder(new MetricRecorder('metrics'));
-   *
-   * // Attaching twice with same ID replaces (no double-counting)
-   * executor.attachScopeRecorder(new MetricRecorder('my-metrics'));
-   * executor.attachScopeRecorder(new MetricRecorder('my-metrics')); // replaces previous
+   * executor.attachScopeRecorder(new MetricRecorder('my-metrics')); // replaces same id
    * ```
-   *
-   * **Delivery tier (RFC-001):** pass `{ delivery: 'deferred' }` to take the
-   * recorder out of the engine's hot path — events are captured into a
-   * bounded queue and delivered at the next microtask checkpoint ("one beat
-   * behind"). Omitting `delivery` keeps the historical synchronous call,
-   * byte-identical to previous releases. Re-attaching the same `id` with a
-   * different tier SWAPS tiers cleanly — never double delivery. See
-   * `docs/guides/observers-deferred.md`.
    */
   attachScopeRecorder(recorder: ScopeRecorder, options?: AttachRecorderOptions): void {
-    // Tier swap, both directions: an id lives on exactly ONE tier per list.
-    this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== recorder.id);
-    if (options?.delivery === 'deferred') {
-      this.ensureDeferredTier(options).register(recorder, { scope: true }, options);
-      return;
-    }
-    this.deferredTier?.removeFromLists(recorder.id, { scope: true });
-    this.scopeRecorders.push(recorder);
-  }
-
-  /**
-   * Lazily create the executor's ONE deferred-observer tier (one merged
-   * queue, total event order across all three channels). The FIRST deferred
-   * attach's options configure the dispatcher; later differing options are
-   * dev-warned and ignored (see `AttachRecorderOptions`).
-   */
-  private ensureDeferredTier(options?: AttachRecorderOptions): DeferredObserverTier {
-    if (!this.deferredTier) this.deferredTier = new DeferredObserverTier(options);
-    return this.deferredTier;
-  }
-
-  // ─── Detach (T4) ─────────────────────────────────────────────────────────
-  //
-  // Bare-executor entry point for fire-and-forget child flowchart execution.
-  // Use from outside any chart (consumer code that wants to detach work
-  // without first running a parent chart). For detach FROM INSIDE a stage,
-  // use `scope.$detachAndJoinLater(...)` / `scope.$detachAndForget(...)` —
-  // those mint refIds from the calling stage's runtimeStageId for trace
-  // correlation; the bare-executor entries use a synthetic prefix
-  // (`__executor__`) instead.
-
-  /**
-   * Detach a child flowchart on the given driver and return a `DetachHandle`
-   * the caller can `wait()` on (Promise) or read `.status` from (sync).
-   *
-   * The driver is a REQUIRED first argument — there is no library-default,
-   * to keep the engine free of driver imports and to make the choice of
-   * scheduling algorithm explicit at the call site.
-   *
-   * @example
-   * ```typescript
-   * import { microtaskBatchDriver } from 'footprintjs/detach';
-   *
-   * const exec = new FlowChartExecutor(parentChart);
-   * const handle = exec.detachAndJoinLater(microtaskBatchDriver, telemetryChart, { event: 'x' });
-   * await handle.wait(); // optional
-   * ```
-   */
-  detachAndJoinLater(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): import('../detach/types.js').DetachHandle {
-    return _detachAndJoinLater(driver, child, input, '__executor__');
-  }
-
-  /**
-   * Detach a child flowchart on the given driver and DISCARD the handle.
-   * Use for telemetry exports / fire-and-forget side effects where the
-   * caller doesn't care about the result.
-   *
-   * Errors raised by the child still land on the (discarded) handle — they
-   * go silent unless surfaced through a recorder. For observable detach,
-   * prefer `detachAndJoinLater` and surface failures via `.wait().catch()`.
-   */
-  detachAndForget(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): void {
-    _detachAndForget(driver, child, input, '__executor__');
+    this.observers.attachScope(recorder, options);
   }
 
   /** Detach all scope Recorders with the given ID — both delivery tiers. */
   detachScopeRecorder(id: string): void {
-    this.scopeRecorders = this.scopeRecorders.filter((r) => r.id !== id);
-    this.deferredTier?.removeFromLists(id, { scope: true });
+    this.observers.detachScope(id);
   }
 
   /** Returns a defensive copy of attached scope Recorders (both tiers). */
   getScopeRecorders(): ScopeRecorder[] {
-    return [...this.scopeRecorders, ...(this.deferredTier?.scopeListRecorders() ?? [])];
+    return this.observers.scopeList();
   }
 
-  // ─── FlowRecorder Management ───
-
   /**
-   * Attach a FlowRecorder to observe control flow events.
-   * Automatically enables narrative if not already enabled.
-   * Must be called before run() — recorders are passed to the traverser at creation time.
-   *
-   * **Idempotent by ID:** replaces existing recorder with same `id`.
-   *
-   * **Delivery tier (RFC-001):** pass `{ delivery: 'deferred' }` for
-   * next-checkpoint delivery off the hot path — see `attachScopeRecorder`.
+   * Attach a FlowRecorder to observe control flow events. Automatically
+   * enables narrative. Must be called before run(). Idempotent by `id`;
+   * `{ delivery: 'deferred' }` as for `attachScopeRecorder`.
    */
   attachFlowRecorder(recorder: FlowRecorder, options?: AttachRecorderOptions): void {
-    // Tier swap, both directions: an id lives on exactly ONE tier per list.
-    this.flowRecorders = this.flowRecorders.filter((r) => r.id !== recorder.id);
-    this.narrativeEnabled = true;
-    if (options?.delivery === 'deferred') {
-      this.ensureDeferredTier(options).register(recorder, { flow: true }, options);
-      return;
-    }
-    this.deferredTier?.removeFromLists(recorder.id, { flow: true });
-    this.flowRecorders.push(recorder);
+    this.observers.attachFlow(recorder, options);
   }
 
   /** Detach all FlowRecorders with the given ID — both delivery tiers. */
   detachFlowRecorder(id: string): void {
-    this.flowRecorders = this.flowRecorders.filter((r) => r.id !== id);
-    this.deferredTier?.removeFromLists(id, { flow: true });
+    this.observers.detachFlow(id);
   }
 
   /** Returns a defensive copy of attached FlowRecorders (both tiers). */
   getFlowRecorders(): FlowRecorder[] {
-    return [...this.flowRecorders, ...(this.deferredTier?.flowListRecorders() ?? [])];
+    return this.observers.flowList();
   }
 
-  // ─── Combined ScopeRecorder Management ───
-
   /**
-   * Attach a recorder that may observe multiple event streams (scope
-   * data-flow, control-flow, or both). Detects at runtime which streams the
-   * recorder has methods for and routes it to the correct internal channels.
-   *
-   * Preferred over calling `attachScopeRecorder` and `attachFlowRecorder`
-   * separately, because forgetting one of the two is a silent foot-gun —
-   * half your events never fire and there is no runtime warning. With
-   * `attachCombinedRecorder` the library guarantees the recorder's declared
-   * methods all fire, and adds no overhead versus two explicit calls.
-   *
-   * ## Idempotency
-   *
-   * Idempotent by `id` across ALL channels — re-attaching with the same `id`
-   * replaces the previous instance everywhere it was registered. Mixing
-   * `attachCombinedRecorder(x)` with a prior `attachScopeRecorder(y)` or
-   * `attachFlowRecorder(y)` that share `x.id === y.id` is also safe: the
-   * combined attach replaces the single-channel registration on whichever
-   * channel(s) `x` has methods for. No duplicate firings occur.
-   *
-   * ## Narrative activation
-   *
-   * If the recorder has any control-flow methods, `enableNarrative()` is
-   * called as a side effect (the narrative subsystem is required to emit
-   * control-flow events). Data-flow-only recorders do NOT activate the
-   * narrative.
-   *
-   * ## Detection rule
-   *
-   * Only **own** event methods count (see `hasRecorderMethods`). Methods
-   * inherited via the prototype chain are ignored — this protects against
-   * accidental `Object.prototype` pollution attaching handlers you never
-   * declared. A recorder that provides only `clear`/`toSnapshot` is a
-   * no-op and emits a dev-mode warning to surface the likely mistake.
+   * Attach a recorder to every channel (scope, flow, emit) it has OWN `on*`
+   * methods for — preferred over single-channel calls, where forgetting one
+   * silently loses events. Idempotent by `id` across all channels; a flow
+   * method enables the narrative; `delivery` comes from the options or the
+   * recorder's own field.
    *
    * @example
    * ```typescript
@@ -1296,66 +460,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * ```
    */
   attachCombinedRecorder(recorder: CombinedRecorder, options?: AttachRecorderOptions): void {
-    const hasData = hasRecorderMethods(recorder);
-    const hasFlow = hasFlowRecorderMethods(recorder);
-    const hasEmit = hasEmitRecorderMethods(recorder);
-
-    // Delivery tier (RFC-001): options bag OR the recorder's own
-    // `delivery: 'deferred'` field. The field is a string — channel routing
-    // above counts event-METHOD properties only, so declaring it never
-    // changes which channels the recorder lands on.
-    const delivery = options?.delivery ?? recorder.delivery;
-    const tierOptions: AttachRecorderOptions | undefined = delivery === undefined ? options : { ...options, delivery };
-
-    // Emit recorders live on the SAME channel as data-flow recorders
-    // (ScopeFacade iterates `_recorders` for onEmit dispatch). So
-    // attachEmitRecorder internally calls attachScopeRecorder — but we want to
-    // avoid double-attach when the recorder implements BOTH onEmit AND
-    // other ScopeRecorder methods. Short-circuit: if hasData OR hasEmit, the
-    // recorder lands on the scope-recorder list exactly once.
-    if (hasData || hasEmit) this.attachScopeRecorder(recorder as ScopeRecorder, tierOptions);
-    if (hasFlow) this.attachFlowRecorder(recorder as FlowRecorder, tierOptions);
-
-    if (!hasData && !hasFlow && !hasEmit && isDevMode()) {
-      // Dev-mode only: silent skips are invisible and produce hard-to-debug
-      // "why didn't my recorder fire" reports. Per library convention, gated
-      // on the central isDevMode() flag (not process.env) so consumers can
-      // control dev tooling centrally via enableDevMode()/disableDevMode().
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[footprintjs] attachCombinedRecorder: recorder '${recorder.id}' has ` +
-          'no observer event methods — nothing to attach. Did you forget to ' +
-          'add an on* handler (onWrite, onDecision, onSubflowEntry, ...)? ' +
-          'Note: only OWN properties count; methods on the prototype chain ' +
-          'are ignored on purpose.',
-      );
-    }
+    this.observers.attachCombined(recorder, options);
   }
 
-  /**
-   * Detach a combined recorder from all channels it was attached to.
-   * Safe to call if the recorder was only on one channel or never attached.
-   */
+  /** Detach a combined recorder from every channel it was attached to (safe if never attached). */
   detachCombinedRecorder(id: string): void {
     this.detachScopeRecorder(id);
     this.detachFlowRecorder(id);
   }
 
-  // ─── Emit ScopeRecorder Management (Phase 3) ───
-
   /**
-   * Attach an `EmitRecorder` — an observer for consumer-emitted structured
-   * events fired via `scope.$emit(name, payload)`.
-   *
-   * Internally, emit recorders share the scope-recorder channel because
-   * emit events fire from inside `ScopeFacade` during stage execution,
-   * same timing as `onRead`/`onWrite`. This method is a convenience that
-   * delegates to `attachScopeRecorder` — consumers can also use
-   * `attachScopeRecorder` directly for a recorder that implements BOTH
-   * `onWrite` and `onEmit`. Either approach places the recorder on the
-   * same underlying list, so `onEmit` fires exactly once per event.
-   *
-   * **Idempotent by `id`:** replaces existing recorder with same `id`.
+   * Attach an `EmitRecorder` for `scope.$emit(name, payload)` events. It rides
+   * the scope list, so `onEmit` fires exactly once per event. Idempotent by `id`.
    *
    * @example
    * ```typescript
@@ -1376,48 +492,63 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.detachScopeRecorder(id);
   }
 
-  /**
-   * Returns a defensive copy of attached recorders (both delivery tiers)
-   * filtered to those that implement `onEmit`. Useful for inspection during
-   * testing.
-   */
+  /** Returns a defensive copy of attached recorders (both tiers) that implement `onEmit`. */
   getEmitRecorders(): EmitRecorder[] {
     return this.getScopeRecorders().filter(
       (r): r is EmitRecorder => typeof (r as { onEmit?: unknown }).onEmit === 'function',
     );
   }
 
+  // ─── Detach (T4) ───
+  // Bare-executor entry points for fire-and-forget child charts. From inside a
+  // stage use `scope.$detachAndJoinLater(...)` / `scope.$detachAndForget(...)`,
+  // which mint refIds from the calling stage; these use `__executor__`.
+
   /**
-   * Returns structured narrative entries — the single public narrative API.
-   * Each entry has a type (stage, step, condition, fork, etc.), text, and
-   * depth. Consumers render however they want; call `.map(e => e.text)`
-   * if a flat `string[]` is needed locally.
+   * Detach a child flowchart on the given driver and return a `DetachHandle`
+   * the caller can `wait()` on (Promise) or read `.status` from (sync). The
+   * driver is REQUIRED — there is no library default.
+   *
+   * @example
+   * ```typescript
+   * import { microtaskBatchDriver } from 'footprintjs/detach';
+   *
+   * const exec = new FlowChartExecutor(parentChart);
+   * const handle = exec.detachAndJoinLater(microtaskBatchDriver, telemetryChart, { event: 'x' });
+   * await handle.wait(); // optional
+   * ```
    */
-  getNarrativeEntries(): CombinedNarrativeEntry[] {
-    if (this.combinedRecorder) {
-      return this.combinedRecorder.getEntries();
-    }
-    const flowSentences = this.traverser.getNarrative();
-    return flowSentences.map((text) => ({ type: 'stage' as const, text, depth: 0 }));
+  detachAndJoinLater(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): import('../detach/types.js').DetachHandle {
+    return _detachAndJoinLater(driver, child, input, '__executor__');
   }
 
   /**
-   * Returns the combined FlowRecorders list. When narrative is enabled,
-   * includes the CombinedNarrativeRecorder (which builds merged flow+data
-   * entries inline). Plus any user-attached recorders.
+   * Detach a child flowchart on the given driver and DISCARD the handle — for
+   * fire-and-forget side effects. A child's error lands on the discarded handle;
+   * for observable detach prefer `detachAndJoinLater` + `.wait().catch()`.
    */
-  private buildFlowRecordersList(): FlowRecorder[] | undefined {
-    const recorders: FlowRecorder[] = [];
-    if (this.combinedRecorder) {
-      recorders.push(this.combinedRecorder);
+  detachAndForget(
+    driver: import('../detach/types.js').DetachDriver,
+    child: import('../builder/types.js').FlowChart,
+    input?: unknown,
+  ): void {
+    _detachAndForget(driver, child, input, '__executor__');
+  }
+
+  /**
+   * Structured narrative entries (type, text, depth) — the one public narrative
+   * API; `.map(e => e.text)` for a flat `string[]`.
+   */
+  getNarrativeEntries(): CombinedNarrativeEntry[] {
+    if (this.observers.combinedRecorder) {
+      return this.observers.combinedRecorder.getEntries();
     }
-    recorders.push(...this.flowRecorders);
-    // Deferred-observer flow tap (RFC-001 Block 7) — captures every flow
-    // event for deferred listeners. Appended like any other flow recorder,
-    // so the FlowRecorderDispatcher site needs no tier logic of its own.
-    const flowTap = this.deferredTier?.buildFlowTap();
-    if (flowTap) recorders.push(flowTap);
-    return recorders.length > 0 ? recorders : undefined;
+    const flowSentences = this.traverser.getNarrative();
+    return flowSentences.map((text) => ({ type: 'stage' as const, text, depth: 0 }));
   }
 
   /**
@@ -1438,20 +569,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * checkpoint). Create one executor per concurrent run.
    */
   async run(options?: RunOptions): Promise<ExecutorResult> {
-    // Re-entrancy guard FIRST — before clearing recorders or touching any
-    // per-run field, so a rejected concurrent call leaves the in-flight run
-    // completely untouched.
-    if (this._isExecuting) {
-      throw new Error(
-        'FlowChartExecutor: run() called while another run()/resume() is in flight on this ' +
-          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
-          'one executor per concurrent run. See docs/guides/execution-model.md.',
-      );
-    }
-    // Validate input against inputSchema if both are present. Validation runs
-    // BEFORE the timeout timer is created so a rejected input can't leak a
-    // pending timer (same "failed entry leaves no side effects" rule as the
-    // re-entrancy guard above).
+    // A failed entry leaves no side effects: the guard FIRST (the in-flight
+    // run stays untouched), validation before the timeout timer exists.
+    this.assertIdle('run');
     let validatedInput = options?.input;
     if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
       validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
@@ -1459,8 +579,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     let signal = options?.signal;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    // Create an internal AbortController for timeoutMs
     if (options?.timeoutMs && !signal) {
       const controller = new AbortController();
       signal = controller.signal;
@@ -1470,23 +588,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
-    // User-attached recorders (flowRecorders + scopeRecorders) are cleared via clear() to prevent
-    // cross-run accumulation. The combinedRecorder is NOT cleared here — createTraverser() always
-    // creates a fresh CombinedNarrativeRecorder instance on each run, so stale state is never an issue.
-    for (const r of this.flowRecorders) {
-      r.clear?.();
-    }
-    for (const r of this.scopeRecorders) {
-      r.clear?.();
-    }
-    this.deferredTier?.clearRecorders();
-
+    this.observers.clearForRun(); // no cross-run accumulation
     this.lastCheckpoint = undefined;
-    this._executionCounter = { value: 0 }; // Reset counter on fresh run
-    this._visitCounts = new Map(); // Reset loop-iteration counts on fresh run (twin of _executionCounter)
-    this._currentRunId = generateRunId(); // Fresh runId per run() call
-    this._hasRunBefore = true; // mark so a later resume() takes the
-    // same-executor branch (reuse runtime, accumulate execution tree).
+    this._executionCounter = { value: 0 };
+    this._visitCounts = new Map();
+    this._currentRunId = generateRunId();
+    this._hasRunBefore = true; // a later resume() reuses this runtime
     this.traverser = this.createTraverser(
       signal,
       validatedInput,
@@ -1494,31 +601,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       options?.maxDepth,
       options?.maxIterations,
     );
-    // Set AFTER all sync validation throws (nothing above can leak the flag);
-    // no await between the top-of-method check and here, so this is race-free.
+    // After every sync throw, with no await since the guard: race-free.
     this._isExecuting = true;
     try {
       const result = await this.traverser.execute();
-      // Terminal flush (RFC-001 Block 8) at the RESOLVE boundary: every
-      // captured-but-undelivered observer event is delivered synchronously
-      // before run() returns — "one beat behind" never becomes "lost at exit".
-      this.deferredTier?.terminalFlush();
+      // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
+      this.observers.deferredTier?.terminalFlush();
       return result;
     } catch (error: unknown) {
-      // Terminal flush at the PAUSE and REJECT boundaries — this is the
-      // OUTERMOST handler (a pause re-throws through subflow traversers
-      // without exit events, so per-traverser hooks would miss it). Runs
-      // before the checkpoint is exposed and before the error reaches the
-      // caller.
-      this.deferredTier?.terminalFlush();
-      if (isPauseSignal(error)) {
-        // Build a detached checkpoint from current execution state — see
-        // buildPauseCheckpoint() for the deep-copy rationale.
-        this.lastCheckpoint = this.buildPauseCheckpoint(error);
-        // Return a PauseResult-shaped value so callers can check without try/catch
-        return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
-      }
-      throw error;
+      return this.pausedOrThrow(error);
     } finally {
       this._isExecuting = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
@@ -1526,17 +617,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Flush the deferred-observer backlog, then await async listener
-   * completions under a deadline (RFC-001 Block 8 — the serverless /
-   * graceful-shutdown pattern: call before the process freezes or exits so
-   * "one beat behind" work is not lost). Resolves immediately with zeros
-   * when no deferred observer was ever attached. `pending === 0` means a
-   * full drain; a non-zero `pending` reports continuations (plus any queued
-   * events) still outstanding at the deadline — honest, never silent.
+   * Flush the deferred-observer backlog, then await async listener completions
+   * under a deadline — call before a serverless process freezes or exits.
+   * Zeros when no deferred observer was attached; `pending > 0` reports what
+   * was still outstanding at the deadline.
    */
   drainObservers(opts?: { timeoutMs?: number }): Promise<ObserverDrainResult> {
-    if (!this.deferredTier) return Promise.resolve({ done: 0, failed: 0, pending: 0 });
-    return this.deferredTier.drain(opts);
+    const tier = this.observers.deferredTier;
+    if (!tier) return Promise.resolve({ done: 0, failed: 0, pending: 0 });
+    return tier.drain(opts);
   }
 
   // ─── Introspection ───
@@ -1544,98 +633,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /**
    * Returns the runtime snapshot.
    *
-   * @param options.redact  When `true`, `sharedState` comes from the parallel
-   *   redacted mirror (if maintained — see `setRedactionPolicy`). This is
-   *   the safe view for exporting traces externally (paste into a viewer,
-   *   share with support). When no redaction policy is configured the
-   *   redacted mirror is not maintained, so this flag is a no-op —
-   *   `sharedState` is the raw working memory either way. Default `false`.
-   *
-   *   The commit log is already redacted at write-time regardless of this
-   *   flag, and the execution tree carries only structural metadata.
-   *   `subflowResults[*].treeContext.globalContext` follows the flag too
-   *   (9.20.0): under `redact: true` it is each subflow's own redacted
-   *   mirror; plain, the subflow's live heap.
+   * @param options.redact  `true` serves `sharedState` (and each subflow's
+   *   `globalContext`) from the redacted mirror — the safe view to export. A
+   *   no-op without a redaction policy. The commit log is redacted at write
+   *   time regardless. Default `false`.
    *
    * **Treat `sharedState` as READ-ONLY.** In production it is a live view of
-   * the engine's working memory (zero copy cost) — mutating it corrupts
-   * engine state. In dev mode (`enableDevMode()`) it is a deep-frozen CLONE,
-   * so any consumer mutation throws loudly instead of corrupting silently.
+   * engine memory; in dev mode a deep-frozen clone, so a mutation throws.
    */
   getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
-    const snapshot = this.traverser.getSnapshot(options) as RuntimeSnapshot;
-    if (isDevMode()) {
-      // Dev-mode mutation guard: freeze a CLONE, never the live engine
-      // state — `snapshot.sharedState` IS SharedMemory's current generation,
-      // whose unchanged subtrees every later generation shares
-      // (copy-on-write, 9.29.0).
-      // Production stays zero-copy; clone-always is a measured decision
-      // deferred until the bench says it's affordable (BACKLOG #8).
-      // NOTE: deepFreeze (capture/freeze.ts — the one walk) cannot reach
-      // Map/Set INTERNALS (`map.set()` on the frozen clone won't throw) and
-      // skips typed arrays. The CLONE still isolates the engine.
-      snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
-    }
-    const sfResults = this.traverser.getSubflowResults();
-    if (sfResults.size > 0) {
-      // Under `redact: true` each subflow's `globalContext` is its own mirror
-      // (9.20.0) — served, never written into the record (see
-      // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.
-      snapshot.subflowResults = servedSubflowResults(sfResults, options?.redact === true);
-    }
-
-    const recorderSnapshots = this.collectRecorderSnapshots();
-    if (recorderSnapshots.length > 0) {
-      snapshot.recorders = recorderSnapshots;
-    }
-
-    // RFC-001 Block 9: the deferred-observer accounting surface. Present
-    // ONLY when a deferred observer was attached on this executor —
-    // zero-cost discipline for everyone else.
-    if (this.deferredTier) {
-      snapshot.observerStats = this.deferredTier.getStats();
-    }
-
-    return snapshot;
-  }
-
-  /**
-   * Collect `toSnapshot()` bundles from every attached recorder — ONE entry
-   * per recorder id, across all channels and both delivery tiers.
-   *
-   * The dedupe is load-bearing, not tidiness. A recorder that implements a
-   * shared-name hook (`onError` / `onPause` / `onResume` — declared on BOTH
-   * the scope and flow interfaces) is legitimately registered on BOTH inline
-   * lists by `attachCombinedRecorder`, and that is by design: each channel
-   * calls the hook with its own payload variant. `MetricRecorder.onPause` is
-   * the everyday case. Walking the lists without a shared `seen` set turned
-   * that into a DUPLICATED snapshot entry (same id twice), which breaks every
-   * consumer that indexes `snapshot.recorders` by id.
-   *
-   * Ordering is scope list → flow list → deferred tier, and the FIRST bundle
-   * for an id wins. A recorder with no `toSnapshot` never claims an id, so it
-   * cannot shadow a same-id recorder that does have one.
-   *
-   * The row is REBUILT field by field by the one copier (`recorder/snapshot.ts
-   * · copyBundle`, shared with `CompositeRecorder`) rather than spread, so a
-   * recorder cannot smuggle an `id` of its own choosing into the snapshot (the
-   * id is the executor's, and consumers index by it).
-   */
-  private collectRecorderSnapshots(): RecorderSnapshot[] {
-    const out: RecorderSnapshot[] = [];
-    const seen = new Set<string>();
-    const collect = (r: ScopeRecorder | FlowRecorder): void => {
-      if (!r.toSnapshot || seen.has(r.id)) return;
-      seen.add(r.id);
-      out.push(copyBundle(r.id, r.toSnapshot()));
-    };
-    for (const r of this.scopeRecorders) collect(r);
-    for (const r of this.flowRecorders) collect(r);
-    if (this.deferredTier) {
-      for (const r of this.deferredTier.scopeListRecorders()) collect(r);
-      for (const r of this.deferredTier.flowListRecorders()) collect(r);
-    }
-    return out;
+    return servedSnapshot(this.traverser, this.observers, options);
   }
 
   /** @internal */
@@ -1673,7 +680,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Returns empty array if no ManifestFlowRecorder is attached.
    */
   getSubflowManifest(): ManifestEntry[] {
-    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+    const recorder = this.observers.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
       | ManifestFlowRecorder
       | undefined;
     return recorder?.getManifest() ?? [];
@@ -1684,7 +691,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Requires an attached ManifestFlowRecorder that observed the registration.
    */
   getSubflowSpec(subflowId: string): unknown | undefined {
-    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+    const recorder = this.observers.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
       | ManifestFlowRecorder
       | undefined;
     return recorder?.getSpec(subflowId);

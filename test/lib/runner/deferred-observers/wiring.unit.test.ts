@@ -42,19 +42,19 @@ describe('Block 6 — tier router (unit)', () => {
   it('is lazy: no dispatcher exists until the first deferred attach', () => {
     const executor = new FlowChartExecutor(simpleChart());
     executor.attachScopeRecorder({ id: 'inline-only', onWrite: () => undefined });
-    expect((executor as unknown as { deferredTier?: unknown }).deferredTier).toBeUndefined();
+    expect((executor as unknown as { observers: { deferredTier?: unknown } }).observers.deferredTier).toBeUndefined();
 
     executor.attachScopeRecorder({ id: 'deferred-one', onWrite: () => undefined }, { delivery: 'deferred' });
-    expect((executor as unknown as { deferredTier?: unknown }).deferredTier).toBeDefined();
+    expect((executor as unknown as { observers: { deferredTier?: unknown } }).observers.deferredTier).toBeDefined();
   });
 
   it('keeps ONE dispatcher per executor across multiple deferred attaches', () => {
     const executor = new FlowChartExecutor(simpleChart());
     executor.attachScopeRecorder({ id: 'a', onWrite: () => undefined }, { delivery: 'deferred' });
-    const tier = (executor as unknown as { deferredTier?: unknown }).deferredTier;
+    const tier = (executor as unknown as { observers: { deferredTier?: unknown } }).observers.deferredTier;
     executor.attachFlowRecorder({ id: 'b', onStageExecuted: () => undefined }, { delivery: 'deferred' });
     executor.attachEmitRecorder({ id: 'c', onEmit: () => undefined }, { delivery: 'deferred' });
-    expect((executor as unknown as { deferredTier?: unknown }).deferredTier).toBe(tier);
+    expect((executor as unknown as { observers: { deferredTier?: unknown } }).observers.deferredTier).toBe(tier);
   });
 
   it('accepts the options bag on all four attach methods', () => {
@@ -64,7 +64,8 @@ describe('Block 6 — tier router (unit)', () => {
     executor.attachEmitRecorder({ id: 'e', onEmit: () => undefined }, { delivery: 'deferred' });
     executor.attachCombinedRecorder({ id: 'c', onWrite: () => undefined }, { delivery: 'deferred' });
     // All four landed on the deferred tier, not the inline lists.
-    const inlineScope = (executor as unknown as { scopeRecorders: ScopeRecorder[] }).scopeRecorders;
+    const inlineScope = (executor as unknown as { observers: { scopeRecorders: ScopeRecorder[] } }).observers
+      .scopeRecorders;
     expect(inlineScope.map((r) => r.id)).toEqual([]);
     expect(
       executor
@@ -79,9 +80,10 @@ describe('Block 6 — tier router (unit)', () => {
     const executor = new FlowChartExecutor(simpleChart());
     const rec: CombinedRecorder = { id: 'field-form', delivery: 'deferred', onWrite: () => undefined };
     executor.attachCombinedRecorder(rec);
-    const inlineScope = (executor as unknown as { scopeRecorders: ScopeRecorder[] }).scopeRecorders;
+    const inlineScope = (executor as unknown as { observers: { scopeRecorders: ScopeRecorder[] } }).observers
+      .scopeRecorders;
     expect(inlineScope.length).toBe(0);
-    expect((executor as unknown as { deferredTier?: unknown }).deferredTier).toBeDefined();
+    expect((executor as unknown as { observers: { deferredTier?: unknown } }).observers.deferredTier).toBeDefined();
     expect(executor.getScopeRecorders().map((r) => r.id)).toEqual(['field-form']);
   });
 
@@ -107,7 +109,8 @@ describe('Block 6 — tier router (unit)', () => {
     const rec: ScopeRecorder = { id: 'x', onWrite: () => undefined };
     executor.attachScopeRecorder(rec);
     executor.attachScopeRecorder(rec, { delivery: 'deferred' });
-    const inlineScope = (executor as unknown as { scopeRecorders: ScopeRecorder[] }).scopeRecorders;
+    const inlineScope = (executor as unknown as { observers: { scopeRecorders: ScopeRecorder[] } }).observers
+      .scopeRecorders;
     expect(inlineScope.length).toBe(0);
     expect(executor.getScopeRecorders().map((r) => r.id)).toEqual(['x']); // exactly once, deferred tier
   });
@@ -118,7 +121,8 @@ describe('Block 6 — tier router (unit)', () => {
     executor.attachScopeRecorder(rec, { delivery: 'deferred' });
     executor.attachScopeRecorder(rec); // back to inline
     expect(executor.getScopeRecorders().map((r) => r.id)).toEqual(['x']); // exactly once, inline tier
-    const tier = (executor as unknown as { deferredTier: { has(id: string): boolean } }).deferredTier;
+    const tier = (executor as unknown as { observers: { deferredTier: { has(id: string): boolean } } }).observers
+      .deferredTier;
     expect(tier.has('x')).toBe(false);
   });
 

@@ -11,7 +11,8 @@
 
 import { flowChart } from '../../../../src/index';
 import type { ScopeFactory } from '../../../../src/lib/engine/types';
-import { type FlowChartExecutorOptions, FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
+import { FlowChartExecutor } from '../../../../src/lib/runner/FlowChartExecutor';
+import type { FlowChartExecutorOptions } from '../../../../src/lib/runner/options';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 const noop = async () => {};

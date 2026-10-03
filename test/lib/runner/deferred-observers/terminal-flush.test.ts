@@ -154,12 +154,14 @@ describe('Block 8 — terminal flush', () => {
     );
     const tier = (
       executor as unknown as {
-        deferredTier: {
-          capture(c: 'scope', m: string, r: string, run: string, p: unknown): void;
-          terminalFlush(): void;
+        observers: {
+          deferredTier: {
+            capture(c: 'scope', m: string, r: string, run: string, p: unknown): void;
+            terminalFlush(): void;
+          };
         };
       }
-    ).deferredTier;
+    ).observers.deferredTier;
 
     // Seed one event, then drive the terminal flush synchronously (no run —
     // a mid-run cascade would starve the engine's own awaits by design).

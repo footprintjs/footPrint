@@ -151,6 +151,13 @@ const LAYERS = [
     name: 'builder and executor',
     files: [
       'src/lib/builder/**',
+      // F9: the executor composes these — who observes a run, the re-entry, the pause
+      // checkpoint, the served snapshot, the construction options.
+      'src/lib/runner/attach.ts',
+      'src/lib/runner/resume.ts',
+      'src/lib/runner/checkpoint.ts',
+      'src/lib/runner/snapshot.ts',
+      'src/lib/runner/options.ts',
       'src/lib/runner/**',
       'src/lib/contract/**',
       'src/lib/detach/**',
