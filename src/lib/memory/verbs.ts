@@ -457,6 +457,22 @@ export interface KeyFold {
    * through a container that holds a primitive replaces the container (`nativeSet`), and with it the key.
    */
   readonly everyRow?: boolean;
+  /**
+   * Keep GENERATIONS at chosen commits: `at` is asked before a commit's first row (with the fold's state as
+   * it stands); for a commit it accepts, `keep` is handed the value at the key before the commit and after
+   * it — copy-on-write around that commit (the fold drops ownership of every container before and after it),
+   * so no later row edits either value. The writer rule's memoised root fold (`commitLogUtils · LogModel`)
+   * keeps the commits a key's verdict needs, once per top-level key.
+   */
+  /**
+   * The value the top-level key holds BEFORE the first row — default: absent. Never edited: the fold copies
+   * it before writing through it. `commitValueAt` on a memoised log starts from a kept generation.
+   */
+  readonly start?: unknown;
+  readonly generations?: {
+    at(commitIdx: number, state: Readonly<Record<string, unknown>>): boolean;
+    keep(commitIdx: number, before: unknown, after: unknown): void;
+  };
 }
 
 /**
@@ -485,14 +501,33 @@ export function foldKey(touches: readonly Touch[], segs: string[], options: KeyF
     }
   }
   const state: Record<string, unknown> = {};
-  const owned = new WeakSet<object>();
+  if (options.start !== undefined) state[root] = options.start;
+  let owned = new WeakSet<object>();
   owned.add(state);
   const observe = options.observe;
+  const generations = options.generations;
+  let kept = -1;
+  let keptBefore: unknown;
+  /** Drop ownership of every container: the next write through one copies it, so a kept value stays as it is. */
+  const release = () => {
+    owned = new WeakSet<object>();
+    owned.add(state);
+  };
   let at: RecordedPayload | undefined;
   let atCommit = -1;
   for (let i = from; i < touches.length; i++) {
     const touch = touches[i];
     if (at === undefined || touch.commitIdx !== atCommit) {
+      if (kept !== -1) {
+        generations!.keep(kept, keptBefore, nativeGet(state, segs));
+        kept = -1;
+        release();
+      }
+      if (generations !== undefined && generations.at(touch.commitIdx, state)) {
+        release();
+        kept = touch.commitIdx;
+        keptBefore = nativeGet(state, segs);
+      }
       at = new RecordedPayload(touch.bundle.updates, touch.bundle.overwrite, true, [root]);
       atCommit = touch.commitIdx;
     }
@@ -510,5 +545,6 @@ export function foldKey(touches: readonly Touch[], segs: string[], options: KeyF
     placeVerb(state, rowSegs, next);
     if (watched) observe(touch, before, nativeGet(state, segs));
   }
+  if (kept !== -1) generations!.keep(kept, keptBefore, nativeGet(state, segs));
   return nativeGet(state, segs);
 }

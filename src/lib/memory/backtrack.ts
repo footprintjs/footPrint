@@ -58,8 +58,9 @@
  */
 
 import { isDevMode } from '../devMode.js';
-import { findLastWriter, writersOf } from './commitLogUtils.js';
-import { buildWriterIndex, relation } from './keyPaths.js';
+import { findLastWriter } from './commitLogUtils.js';
+import { relation } from './keyPaths.js';
+import { logModel } from './logModel.js';
 import type { CommitBundle, TraceEntry, UntrackedSource } from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -254,41 +255,18 @@ function linearScanLookup(commitLog: CommitBundle[]): WriterLookup {
 }
 
 /**
- * Strategy 2: Reverse index — O(N×U) build, O(log N) per lookup.
- * Builds the log's writer index once (`keyPaths · buildWriterIndex`), resolves
- * each key's writers ONCE under the writer rule (`commitLogUtils · writersOf` —
- * rows on, inside or around the key), then answers every lookup by binary
- * search for the last writer before a given position. The same answer
- * `findLastWriter` gives, so the strategy switch below never changes a slice.
+ * Strategy 2: Reverse index — one O(rows) build, O(depth + log N) per lookup.
+ * The log's read model (`logModel.ts`: a path trie, each top-level key folded at
+ * most once) answers the writer rule — rows on, inside or around the key — by
+ * binary search for the last write on or inside it, then a verdict only for the
+ * around-candidates after it. The same answer `findLastWriter` gives, so the
+ * strategy switch below never changes a slice.
  */
 function reverseIndexLookup(commitLog: CommitBundle[]): WriterLookup {
-  const index = buildWriterIndex(commitLog);
-  const writersByKey = new Map<string, number[]>();
-
+  const model = logModel(commitLog);
   return (key: string, beforeIdx: number): CommitBundle | undefined => {
-    let indices = writersByKey.get(key);
-    if (indices === undefined) {
-      indices = writersOf(commitLog, key, { index });
-      writersByKey.set(key, indices);
-    }
-    if (indices.length === 0) return undefined;
-
-    // Binary search: find largest index < beforeIdx
-    let lo = 0;
-    let hi = indices.length - 1;
-    let result = -1;
-
-    while (lo <= hi) {
-      const mid = (lo + hi) >>> 1;
-      if (indices[mid] < beforeIdx) {
-        result = indices[mid];
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-
-    return result >= 0 ? commitLog[result] : undefined;
+    const at = model.lastWriterBefore(key, beforeIdx);
+    return at >= 0 ? commitLog[at] : undefined;
   };
 }
 

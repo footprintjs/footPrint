@@ -27,8 +27,8 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
-import { writersOf } from '../memory/commitLogUtils.js';
-import { type WriterIndex, ascendingUnion, buildWriterIndex, relation, rootOf } from '../memory/keyPaths.js';
+import { type WriterIndex, ascendingUnion, pathsWritten, relation, rootOf } from '../memory/keyPaths.js';
+import { logModel } from '../memory/logModel.js';
 import { pathSegments } from '../memory/paths.js';
 import type { CommitBundle, TraceEntry } from '../memory/types.js';
 import type { HonestyNote } from './types.js';
@@ -52,6 +52,11 @@ export interface KeyIndex {
   readonly writers: WriterIndex;
   /** key → commit ARRAY positions that WROTE it under the writer rule, ascending. Memoised per key. */
   writesOf(key: string): number[];
+  /**
+   * The writes that END a value's life: every write except one that reached the key only through paths
+   * inside it — that one changed part of the value, and a reader after it still read the rest. Memoised.
+   */
+  closingWritesOf(key: string): number[];
   /** Read key, as the reads provider named it → commit ARRAY positions whose stage READ it, ascending. */
   readonly readsByKey: Map<string, number[]>;
   /** key → commit ARRAY positions whose stage read it, a path inside it or a container around it, ascending. Memoised. */
@@ -75,7 +80,8 @@ function push(map: Map<string, number[]>, key: string, idx: number): void {
  * binary searches instead of a scan.
  */
 export function buildKeyIndex(commitLog: CommitBundle[], lookup: KeysReadLookup): KeyIndex {
-  const writers = buildWriterIndex(commitLog);
+  const model = logModel(commitLog);
+  const writers = model.index;
   const readsByKey = new Map<string, number[]>();
   const readKeysByRoot = new Map<string, string[]>();
   for (let i = 0; i < commitLog.length; i++) {
@@ -99,12 +105,14 @@ export function buildKeyIndex(commitLog: CommitBundle[], lookup: KeysReadLookup)
     }
   }
 
-  const writes = new Map<string, number[]>();
-  const writesOf = (key: string): number[] => {
-    let positions = writes.get(key);
+  const writesOf = (key: string): number[] => model.writersOf(key) as number[];
+  const closing = new Map<string, number[]>();
+  const closingWritesOf = (key: string): number[] => {
+    let positions = closing.get(key);
     if (positions === undefined) {
-      positions = writersOf(commitLog, key, { index: writers });
-      writes.set(key, positions);
+      const nested = new Set(nestedOnlyWrites(commitLog, key, writesOf(key)));
+      positions = writesOf(key).filter((c) => !nested.has(c));
+      closing.set(key, positions);
     }
     return positions;
   };
@@ -120,9 +128,9 @@ export function buildKeyIndex(commitLog: CommitBundle[], lookup: KeysReadLookup)
     }
     return positions;
   };
-  const knownKeys = new Set<string>([...writers.byPath.keys(), ...readsByKey.keys()]);
+  const knownKeys = new Set<string>([...pathsWritten(writers), ...readsByKey.keys()]);
   const isKnown = (key: string): boolean => writesOf(key).length > 0 || readsOf(key).length > 0;
-  return { writers, writesOf, readsByKey, readsOf, knownKeys, isKnown };
+  return { writers, writesOf, closingWritesOf, readsByKey, readsOf, knownKeys, isKnown };
 }
 
 /**

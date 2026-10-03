@@ -67,39 +67,142 @@ export function rootOf(path: string): string {
   return cut === -1 ? path : path.slice(0, cut);
 }
 
-/** The positions in a log where each written path was written — see {@link buildWriterIndex}. */
-export interface WriterIndex {
-  /** Every distinct written path → the ascending ARRAY positions of the commits with a row on it, one per commit. */
-  readonly byPath: ReadonlyMap<string, readonly number[]>;
-  /** Every top-level key → the distinct written paths under it (itself included), in first-write order. */
-  readonly byRoot: ReadonlyMap<string, readonly string[]>;
+/**
+ * One written path in a {@link WriterIndex} — a node of the path TRIE built over a log. A node exists for
+ * every written path and every prefix of one.
+ */
+export interface PathNode {
+  /** The DELIM-joined path this node stands for. */
+  readonly path: string;
+  /** ARRAY positions of the commits with a row exactly on this path — ascending, one per commit. */
+  readonly positions: number[];
+  /** The subset of {@link positions} whose row here is a `set` or a `delete` (it decides the value alone). */
+  readonly totals: number[];
+  /** Positions of commits whose row with a non-`delete` verb sits on this path (the rest are deletes only). */
+  readonly writes: number[];
+  /** The next segment → its node. */
+  readonly children: Map<string, PathNode>;
+  /** Memo of {@link subtreePositions}. */
+  subtree?: readonly number[];
 }
 
 /**
- * One pass over `commitLog`: where every path was written. Build it ONCE when a reader asks about
- * many keys (a causal walk, a forward slice); a single question needs no index.
+ * The positions in a log where each written path was written: a path trie per top-level key. Built in ONE
+ * pass (`O(total path segments)`); a key's candidates then cost `O(depth + matches)` — its node, its
+ * ancestors, its subtree — never a scan of every path under its top-level key.
+ */
+export interface WriterIndex {
+  /** Every top-level key → the root of its trie. */
+  readonly roots: ReadonlyMap<string, PathNode>;
+}
+
+function nodeOf(path: string): PathNode {
+  return { path, positions: [], totals: [], writes: [], children: new Map() };
+}
+
+/** Append `i` to an ascending list unless it is already its last element. */
+function pushOnce(list: number[], i: number): void {
+  if (list[list.length - 1] !== i) list.push(i);
+}
+
+/**
+ * One pass over `commitLog`: the path trie of every written path. Build it ONCE when a reader asks about
+ * many keys (a causal walk, a forward slice) — or let `commitLogUtils · logModel` memoise it for a frozen log.
  */
 export function buildWriterIndex(commitLog: readonly CommitBundle[]): WriterIndex {
-  const byPath = new Map<string, number[]>();
-  const byRoot = new Map<string, string[]>();
+  const roots = new Map<string, PathNode>();
   for (let i = 0; i < commitLog.length; i++) {
     const trace = commitLog[i].trace;
     for (let row = 0; row < trace.length; row++) {
-      const path = trace[row].path;
-      const positions = byPath.get(path);
-      if (positions !== undefined) {
-        // Several rows on one path in one commit are one write of it.
-        if (positions[positions.length - 1] !== i) positions.push(i);
-        continue;
+      const { path, verb } = trace[row];
+      const segs = path.split(DELIM);
+      let node: PathNode | undefined = roots.get(segs[0]);
+      if (node === undefined) {
+        node = nodeOf(segs[0]);
+        roots.set(segs[0], node);
       }
-      byPath.set(path, [i]);
-      const root = rootOf(path);
-      const paths = byRoot.get(root);
-      if (paths !== undefined) paths.push(path);
-      else byRoot.set(root, [path]);
+      for (let s = 1; s < segs.length; s++) {
+        let child: PathNode | undefined = node.children.get(segs[s]);
+        if (child === undefined) {
+          child = nodeOf(node.path + DELIM + segs[s]);
+          node.children.set(segs[s], child);
+        }
+        node = child;
+      }
+      pushOnce(node.positions, i);
+      if (verb === 'set' || verb === 'delete') pushOnce(node.totals, i);
+      if (verb !== 'delete') pushOnce(node.writes, i);
     }
   }
-  return { byPath, byRoot };
+  return { roots };
+}
+
+/** Every path a row was written on, in trie order. */
+export function pathsWritten(index: WriterIndex): string[] {
+  const out: string[] = [];
+  const stack = [...index.roots.values()];
+  while (stack.length > 0) {
+    const node = stack.pop() as PathNode;
+    if (node.positions.length > 0) out.push(node.path);
+    for (const child of node.children.values()) stack.push(child);
+  }
+  return out;
+}
+
+/** The node for `key`, or undefined when no row was written on it or below it. */
+export function nodeAt(index: WriterIndex, key: string): PathNode | undefined {
+  const segs = key.split(DELIM);
+  let node = index.roots.get(segs[0]);
+  for (let s = 1; node !== undefined && s < segs.length; s++) node = node.children.get(segs[s]);
+  return node;
+}
+
+/** The nodes of `key`'s PROPER ancestors that exist in the index, top-level key first. */
+export function ancestorNodes(index: WriterIndex, key: string): PathNode[] {
+  const segs = key.split(DELIM);
+  const out: PathNode[] = [];
+  let node = index.roots.get(segs[0]);
+  for (let s = 1; node !== undefined && s < segs.length; s++) {
+    out.push(node);
+    node = node.children.get(segs[s]);
+  }
+  return out;
+}
+
+/** Every commit with a row on `node`'s path or below it — ascending, memoised on the node. */
+export function subtreePositions(node: PathNode): readonly number[] {
+  if (node.subtree === undefined) {
+    if (node.children.size === 0) node.subtree = node.positions;
+    else {
+      const lists: (readonly number[])[] = [node.positions];
+      for (const child of node.children.values()) lists.push(subtreePositions(child));
+      node.subtree = ascendingUnion(lists);
+    }
+  }
+  return node.subtree;
+}
+
+/** The first index in an ascending list holding a value >= `value`. */
+export function lowerBound(sorted: readonly number[], value: number): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** The last value in an ascending list that is < `before`, or -1. */
+export function lastBefore(sorted: readonly number[], before: number): number {
+  const at = lowerBound(sorted, before);
+  return at > 0 ? sorted[at - 1] : -1;
+}
+
+/** The values of an ascending list in the OPEN range (`after`, `before`). */
+export function between(sorted: readonly number[], after: number, before: number): readonly number[] {
+  return sorted.slice(lowerBound(sorted, after + 1), lowerBound(sorted, before));
 }
 
 /** The commits that can have written a key, split by what the writer rule still has to ask. */
@@ -110,21 +213,17 @@ export interface WriterCandidates {
   readonly aroundOnly: readonly number[];
 }
 
-/** The path half of the writer rule over an index: every commit that can have written `key`. */
+/** The path half of the writer rule over an index: every commit that can have written `key`. `O(depth + matches)`. */
 export function writerCandidates(index: WriterIndex, key: string): WriterCandidates {
-  const paths = index.byRoot.get(rootOf(key));
-  if (paths === undefined) return { atOrInside: [], aroundOnly: [] };
-  const atOrInside: (readonly number[])[] = [];
-  const around: (readonly number[])[] = [];
-  for (const path of paths) {
-    const r = relation(path, key);
-    if (r === undefined) continue;
-    (r === 'around' ? around : atOrInside).push(index.byPath.get(path) as readonly number[]);
-  }
-  const written = ascendingUnion(atOrInside);
-  if (around.length === 0) return { atOrInside: written, aroundOnly: [] };
+  const node = nodeAt(index, key);
+  const written = node === undefined ? [] : subtreePositions(node);
+  const ancestors = ancestorNodes(index, key);
+  if (ancestors.length === 0) return { atOrInside: written, aroundOnly: [] };
   const already = new Set(written);
-  return { atOrInside: written, aroundOnly: ascendingUnion(around).filter((i) => !already.has(i)) };
+  return {
+    atOrInside: written,
+    aroundOnly: ascendingUnion(ancestors.map((a) => a.positions)).filter((i) => !already.has(i)),
+  };
 }
 
 /** The ascending, de-duplicated union of ascending position lists. */

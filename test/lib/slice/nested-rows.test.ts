@@ -10,12 +10,16 @@
  *
  *   scenario  each named change, before → after, on the chart that shows it
  *   scenario  reads ON, INSIDE and AROUND a key, on a real chart (and a dotted read key stays literal)
- *   honesty   a write that reached the key only through paths inside it carries the `'nested-rows'` note
+ *   honesty   a write that reached the key only through paths inside it carries the `'nested-rows'` note, and
+ *             never ends a forward life: the anchor's, a pre-run life's and a child's readers after it are listed
+ *   edge      a write BESIDE a key, through a string-valued container, moves it — the writer rule finds it
  *   KNOWN LIMITATION  the merge-back is recorded under the wrong stage — pinned so the L6 packet that fixes the
  *             stamp (`SubflowExecutor · executeSubflow`) shows up as a named diff here
  */
 import type { CommitBundle } from '../../../src';
 import { flowChart, FlowChartExecutor } from '../../../src';
+import { deepFreeze } from '../../../src/lib/capture/freeze';
+import { nativeGet } from '../../../src/lib/memory/pathOps';
 import { DELIM } from '../../../src/lib/memory/paths';
 import {
   arrayProvenance,
@@ -275,6 +279,135 @@ describe('READS — on, inside and around the key (a real chart)', () => {
     const timeline = keyTimeline(log, ['cfg', 'zzz'], reads);
     expect(timeline.missing).toBeUndefined();
     expect(timeline.notes.map((n) => n.code)).not.toContain('unknown-key');
+  });
+});
+
+describe("FORWARD — a write inside the key does not end a value's life, and every such life says so", () => {
+  it("the anchor: the seed's life runs past the merge-back, so the Read stage that read cfg.a from the seed is listed", async () => {
+    const { log, mergeBack, reads } = await mergeBackRun();
+    const read = log.findIndex((b) => b.stageId === 'read');
+    const slice = forwardSliceForKey(log, 'cfg', reads, { before: 1 });
+    expect(slice.root?.commitIdx).toBe(0);
+    expect(slice.root?.nextWriteIdx).toBeUndefined(); // the merge-back changed part of the value; it does not close the life
+    expect(slice.root?.reads.map((r) => r.commitIdx)).toEqual([read]);
+    expect(slice.notes.map((n) => n.code)).toEqual(['nested-rows']);
+    expect(slice.notes[0].detail).toContain(`at commit ${mergeBack} —`);
+  });
+
+  it('a pre-run life: a seeded key read before and after a merge-back keeps both readers', async () => {
+    const inner = flowChart(
+      'In',
+      (s: any) => {
+        s.r = 1;
+      },
+      'in',
+    ).build();
+    const chart = flowChart(
+      'Before',
+      (s: any) => {
+        s.out1 = s.cfg.a;
+      },
+      'before',
+    )
+      .addSubFlowChart('sub', inner, 'Sub', { inputMapper: () => ({}), outputMapper: () => ({ cfg: { b: 2 } }) })
+      .addFunction(
+        'After',
+        (s: any) => {
+          s.out2 = Object.keys(s.cfg).join(',');
+        },
+        'after',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart, { initialContext: { cfg: { a: 1 } } });
+    await executor.run();
+    const snap = executor.getSnapshot();
+    const log = snap.commitLog as CommitBundle[];
+    const mergeBack = log.findIndex((b) => b.trace.some((t) => t.path === at('cfg', 'b')));
+    const slice = forwardSliceForKey(log, 'cfg', keysReadFromExecutionTree(snap.executionTree), { before: mergeBack });
+    expect(slice.root?.origin).toBe('pre-run');
+    // 'before' twice: the merge-back bundle carries the Before stage's runtimeStageId (the attribution gap
+    // below), so the reads provider names Before's reads at both of its commits. No read is dropped.
+    expect(slice.root?.reads.map((r) => r.stageId)).toEqual(['before', 'before', 'after']);
+    expect(slice.notes.map((n) => n.code)).toContain('nested-rows');
+  });
+
+  it('a child life: a value fed into cfg, then crossed by a merge-back, keeps its later reader', async () => {
+    const inner = flowChart(
+      'In',
+      (s: any) => {
+        s.r = 1;
+      },
+      'in',
+    ).build();
+    const chart = flowChart(
+      'Seed',
+      (s: any) => {
+        s.src = 1;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Make',
+        (s: any) => {
+          s.cfg = { a: s.src };
+        },
+        'make',
+      )
+      .addSubFlowChart('sub', inner, 'Sub', { inputMapper: () => ({}), outputMapper: () => ({ cfg: { b: 2 } }) })
+      .addFunction(
+        'Read',
+        (s: any) => {
+          s.out = s.cfg.a;
+        },
+        'read',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const snap = executor.getSnapshot();
+    const log = snap.commitLog as CommitBundle[];
+    const slice = forwardSliceForKey(log, 'src', keysReadFromExecutionTree(snap.executionTree));
+    const child = slice.root?.fedEdges.find((e) => e.child.key === 'cfg')?.child;
+    expect(child?.reads.map((r) => r.stageId)).toEqual(['read']);
+    expect(slice.notes.map((n) => n.code)).toContain('nested-rows');
+  });
+});
+
+describe('WRITER RULE — a write BESIDE a key through a string-valued container moves the key (review fix 4)', () => {
+  // commit 1 merges r with the string 'ab', so r␟1 reads 'b'; commit 2 writes r␟a␟1 THROUGH that string, which
+  // nativeSet replaces with an object — r␟1 is gone. No row of commit 2 is on, inside or around r␟1.
+  const hand = () => {
+    const bundle = (
+      n: number,
+      trace: CommitBundle['trace'],
+      overwrite: object,
+      updates: object = {},
+    ): CommitBundle => ({
+      idx: n,
+      stage: `S${n}`,
+      stageId: `s${n}`,
+      runtimeStageId: `s${n}#${n}`,
+      trace,
+      overwrite,
+      updates,
+      redactedPaths: [],
+    });
+    return [
+      bundle(0, [{ path: 'other', verb: 'set' }], { other: 1 }),
+      bundle(1, [{ path: 'r', verb: 'merge' }], {}, { r: 'ab' }),
+      bundle(2, [{ path: at('r', 'a', '1'), verb: 'set' }], { r: { a: { 1: 'x' } } }),
+    ];
+  };
+
+  it('findLastWriter(r␟1) is commit 2 — where stateAt changes — on a hand-built log and on a frozen one', () => {
+    for (const log of [hand(), deepFreeze(hand(), 'indices')]) {
+      expect(nativeGet(stateAt({ commitLog: log }, 1).state, ['r', '1'])).toBe('b');
+      expect(nativeGet(stateAt({ commitLog: log }, 2).state, ['r', '1'])).toBeUndefined();
+      expect(findLastWriter(log, at('r', '1'), 3)?.idx).toBe(2);
+      expect(findLastWriter(log, at('r', '1'), 2)?.idx).toBe(1);
+      expect(commitValueAt(log, 1, at('r', '1'))).toBe('b');
+      expect(commitValueAt(log, 2, at('r', '1'))).toBeUndefined();
+    }
   });
 });
 

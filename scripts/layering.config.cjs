@@ -97,6 +97,8 @@ const LAYERS = [
     files: [
       'src/lib/memory/EventLog.ts',
       'src/lib/memory/commitLogUtils.ts',
+      // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
+      'src/lib/memory/logModel.ts',
       'src/lib/memory/backtrack.ts',
       'src/lib/slice/**',
       'src/lib/time-travel/**',

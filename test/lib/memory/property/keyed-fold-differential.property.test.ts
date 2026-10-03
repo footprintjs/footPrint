@@ -69,14 +69,14 @@ function lastWriterOracle(log: CommitBundle[], folds: unknown[], key: string, i:
   let last = -1;
   for (let c = 0; c <= i; c++) {
     let atOrInside = false;
-    let around = false;
     for (const t of log[c].trace) {
       const r = relation(t.path, key);
       if (r === 'exact' || r === 'inside') atOrInside = true;
-      if (r === 'around') around = true;
     }
     const changed = !deepEqual(nativeGet(c > 0 ? folds[c - 1] : {}, segs), nativeGet(folds[c], segs));
-    if (atOrInside || (around && changed)) last = c;
+    // A commit with no row near the key can still move it: a write THROUGH a string-valued container beside
+    // it replaces the string, and the characters the key read from it (the one sibling case).
+    if (atOrInside || changed) last = c;
   }
   return last;
 }
@@ -307,7 +307,7 @@ describe('READS — a read on, inside or around K is a read of K', () => {
     expect(timeline.moments?.filter((m) => m.kind === 'read')).toEqual([]);
   });
 
-  it('forwardSliceForKey: the anchor value’s readers are the commits in its life that read a related key', () => {
+  it('forwardSliceForKey: the anchor value’s readers are the commits in its life (closed only by a write that is not inside-only) that read a related key', () => {
     fc.assert(
       fc.property(
         handLogArb,
@@ -321,7 +321,18 @@ describe('READS — a read on, inside or around K is a read of K', () => {
           const folds = log.map((_, i) => stateAt({ commitLog: log }, i).state);
           const writes = log.map((_, c) => c).filter((c) => lastWriterOracle(log, folds, key, c) === c);
           const anchor = slice.root.commitIdx;
-          const next = writes.find((c) => c > anchor);
+          // A life ends at the next write that is not INSIDE-only (one that only wrote paths inside the key
+          // changed part of the value; a reader after it still read the rest).
+          const insideOnly = (c: number) => {
+            let inside = false;
+            for (const t of log[c].trace) {
+              const r = relation(t.path, key);
+              if (r === 'exact' || r === 'around') return false;
+              if (r === 'inside') inside = true;
+            }
+            return inside;
+          };
+          const next = writes.find((c) => c > anchor && !insideOnly(c));
           const expected = log
             .map((_, c) => c)
             .filter((c) => c > anchor && (next === undefined || c <= next))

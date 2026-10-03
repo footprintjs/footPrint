@@ -5,15 +5,18 @@
  * These helpers provide type-safe queries without (b: any) casts.
  */
 
-import { deepEqual } from './equality.js';
-import { type WriterIndex, ascendingUnion, buildWriterIndex, relation, rootOf, writerCandidates } from './keyPaths.js';
+import { relation, rootOf } from './keyPaths.js';
+import { leavesStringAbove, logModel, memoisedModel } from './logModel.js';
 import { DELIM } from './paths.js';
 import type { CommitBundle } from './types.js';
 import { type Touch, foldKey, isVerb, UnknownVerbError } from './verbs.js';
 
 // Every key query here follows the writer rule and the value rule of `keyPaths.ts` (F3, 9.33.0):
 // a key is written by a row ON it, INSIDE it, or AROUND it when that changed it — never by an
-// exact path match alone, which called every subflow seed and merge-back "never written".
+// exact path match alone, which called every subflow seed and merge-back "never written". The
+// read model that answers them at a cost proportional to the answer is `logModel.ts`; a frozen
+// log's model is memoised, and a single question on a log that is not frozen first tries a
+// backward scan that stops at the answer.
 
 /**
  * Find the first commit by `stageId`, optionally the first one that WROTE `key` — under the writer
@@ -21,7 +24,7 @@ import { type Touch, foldKey, isVerb, UnknownVerbError } from './verbs.js';
  */
 export function findCommit(commitLog: CommitBundle[], stageId: string, key?: string): CommitBundle | undefined {
   if (!key) return commitLog.find((b) => b.stageId === stageId);
-  const writers = new Set(writersOf(commitLog, key));
+  const writers = new Set(logModel(commitLog).writersOf(key));
   return commitLog.find((b, i) => b.stageId === stageId && writers.has(i));
 }
 
@@ -44,99 +47,61 @@ export function findCommits(commitLog: CommitBundle[], stageId: string): CommitB
  * @param key  A DELIM-joined path (`normalisePath`); a top-level key is a one-segment path.
  */
 export function findLastWriter(commitLog: CommitBundle[], key: string, beforeIdx?: number): CommitBundle | undefined {
-  const end = beforeIdx ?? commitLog.length;
-  if (rootOf(key) === key) {
-    // A top-level key has no row AROUND it: the writer rule is the path relation alone, and the
-    // backward scan stops at the first writer it meets.
-    for (let i = end - 1; i >= 0; i--) {
-      if (commitLog[i].trace.some((t) => relation(t.path, key) !== undefined)) return commitLog[i];
-    }
-    return undefined;
+  const end = Math.min(beforeIdx ?? commitLog.length, commitLog.length);
+  const model = memoisedModel(commitLog);
+  if (model !== undefined) {
+    const at = model.lastWriterBefore(key, end);
+    return at >= 0 ? commitLog[at] : undefined;
   }
-  const writers = writersOf(commitLog, key, { end: end - 1 });
-  return writers.length > 0 ? commitLog[writers[writers.length - 1]] : undefined;
+  // Not frozen: scan back and stop at the first write on or inside the key. A row AROUND the key
+  // (or a nested `delete`, which cannot replace a string container) needs a verdict — the model's.
+  const nested = rootOf(key) !== key;
+  for (let i = end - 1; i >= 0; i--) {
+    let write = false;
+    let needsVerdict = false;
+    for (const t of commitLog[i].trace) {
+      const r = relation(t.path, key);
+      if (r === 'around') needsVerdict = true;
+      else if (r !== undefined) {
+        if (t.verb !== 'delete' || !nested) write = true;
+        else needsVerdict = true;
+      }
+    }
+    if (write && (!needsVerdict || !leavesStringAbove(commitLog[i], key))) return commitLog[i];
+    if (needsVerdict) {
+      const at = logModel(commitLog).lastWriterBefore(key, end);
+      return at >= 0 ? commitLog[at] : undefined;
+    }
+  }
+  return undefined;
 }
 
 /** What {@link writersOf} is asked. */
 export interface WritersOptions {
   /** The last commit ARRAY index considered, inclusive. Default: the whole log. */
   readonly end?: number;
-  /** An index of THIS log ({@link buildWriterIndex}) — build it once when asking about many keys. */
-  readonly index?: WriterIndex;
 }
 
 /**
  * The ARRAY positions (ascending) of every commit in `commitLog[0..end]` that WROTE `key` — the
- * writer rule of `keyPaths.ts`, the one definition every key query shares.
- *
- * A commit with a row on or inside the key is a writer by its path. A commit whose only rows near
- * the key are AROUND it is a writer when the value at the key differs across the whole commit —
- * decided by one fold of the rows under the key's top-level key ({@link foldKey}), and only when
- * such a commit exists, which needs a nested key: a top-level key has nothing around it.
+ * writer rule of `keyPaths.ts`, the one definition every key query shares (`logModel.ts` applies it).
  */
 export function writersOf(commitLog: readonly CommitBundle[], key: string, options: WritersOptions = {}): number[] {
-  const end = Math.min(options.end ?? commitLog.length - 1, commitLog.length - 1);
-  const { atOrInside, aroundOnly } = writerCandidates(options.index ?? buildWriterIndex(commitLog), key);
-  const written = atOrInside.filter((i) => i <= end);
-  const around = aroundOnly.filter((i) => i <= end);
-  if (around.length === 0) return written;
-  return ascendingUnion([written, aroundWritersOf(commitLog, key, around)]);
-}
-
-/**
- * The commits in `candidates` (ascending; every row near the key is AROUND it) across which the
- * value at `key` changes — compared from before the commit's FIRST row under the key's top-level key
- * to after its LAST (every row is watched: a sibling can move the key, see `KeyFold.everyRow`). The
- * verdict is retaken at each row, while the values are current: a later commit may edit the fold's
- * own copy in place.
- */
-function aroundWritersOf(commitLog: readonly CommitBundle[], key: string, candidates: readonly number[]): number[] {
-  const wanted = new Set(candidates);
-  const verdict = new Map<number, boolean>();
-  let commit = -1;
-  let start: unknown;
-  foldKey(rowsUnderRoot(commitLog, key, candidates[candidates.length - 1]), key.split(DELIM), {
-    everyRow: true,
-    observe: (touch, before, after) => {
-      if (!wanted.has(touch.commitIdx)) return;
-      if (touch.commitIdx !== commit) {
-        commit = touch.commitIdx;
-        start = before;
-      }
-      verdict.set(commit, !deepEqual(start, after));
-    },
-  });
-  return candidates.filter((i) => verdict.get(i) === true);
+  const end = options.end ?? commitLog.length - 1;
+  return logModel(commitLog)
+    .writersOf(key)
+    .filter((i) => i <= end);
 }
 
 /**
  * Every row under `key`'s TOP-LEVEL key in `commitLog[0..end]`, in commit order — the rows the value
  * rule folds ({@link foldKey}), each with its {@link Touch.relation} to `key` (absent for a sibling
- * under the same top-level key: applied, not observed). A row whose verb is not one of the four is
- * refused with {@link UnknownVerbError} naming the row — whether or not the fold would have reached
- * it: the answer must not depend on where an optimisation starts.
- *
- * Internal: `commitValueAt`, `arrayProvenance` and the writer rule are its readers.
+ * under the same top-level key: applied, not observed) — found through the log's index. A row whose
+ * verb is not one of the four is refused with {@link UnknownVerbError} naming the row — whether or
+ * not the fold would have reached it: the answer must not depend on where an optimisation starts.
  */
 export function rowsUnderRoot(commitLog: readonly CommitBundle[], key: string, end: number): Touch[] {
-  const root = rootOf(key);
-  const rows: Touch[] = [];
-  for (let i = 0; i <= end; i++) {
-    const trace = commitLog[i].trace;
-    for (let row = 0; row < trace.length; row++) {
-      const path = trace[row].path;
-      if (path !== root && relation(path, root) !== 'inside') continue;
-      const verb = trace[row].verb;
-      if (!isVerb(verb)) throw new UnknownVerbError(verb, { path, row, commit: i });
-      const r = relation(path, key);
-      rows.push(
-        r === undefined
-          ? { verb, bundle: commitLog[i], commitIdx: i, path }
-          : { verb, bundle: commitLog[i], commitIdx: i, path, relation: r },
-      );
-    }
-  }
-  return rows;
+  return logModel(commitLog).rowsUnderRoot(key, end);
 }
 
 /**
@@ -174,9 +139,50 @@ export function rowsUnderRoot(commitLog: readonly CommitBundle[], key: string, e
  *   never carry one.
  */
 export function commitValueAt(commitLog: CommitBundle[], idx: number, key: string): unknown {
-  const rows = rowsUnderRoot(commitLog, key, Math.min(idx, commitLog.length - 1));
-  if (!rows.some((row) => row.relation !== undefined)) return undefined;
-  return foldKey(rows, key.split(DELIM), { anchored: true });
+  const end = Math.min(idx, commitLog.length - 1);
+  const model = memoisedModel(commitLog);
+  if (model !== undefined) return model.valueAt(key, end);
+  return valueByScan(commitLog, end, key);
+}
+
+/**
+ * {@link commitValueAt} on a log that is not frozen: refuse an unknown verb under the top-level key,
+ * then scan back from `end` to the last `set` ON the key, keeping the rows on and inside it — enough
+ * while nothing AROUND the key was written in between (and, for a nested key, no `delete` on it: a
+ * `delete` cannot replace a string container). Otherwise the model folds the top-level key.
+ */
+function valueByScan(commitLog: CommitBundle[], end: number, key: string): unknown {
+  const root = rootOf(key);
+  for (let c = 0; c <= end; c++) {
+    const trace = commitLog[c].trace;
+    for (let row = 0; row < trace.length; row++) {
+      const { path, verb } = trace[row];
+      if ((path === root || relation(path, root) === 'inside') && !isVerb(verb)) {
+        throw new UnknownVerbError(verb, { path, row, commit: c });
+      }
+    }
+  }
+  const nested = root !== key;
+  const rows: Touch[] = [];
+  let anchored = false;
+  for (let c = end; c >= 0 && !anchored; c--) {
+    const trace = commitLog[c].trace;
+    for (let row = trace.length - 1; row >= 0; row--) {
+      const { path, verb } = trace[row];
+      const r = relation(path, key);
+      if (r === undefined) continue;
+      if (r === 'around' || (nested && r === 'exact' && verb === 'delete')) {
+        return logModel(commitLog).valueAt(key, end);
+      }
+      rows.push({ verb: verb as Touch['verb'], bundle: commitLog[c], commitIdx: c, path, relation: r });
+      if (r === 'exact' && (verb === 'set' || verb === 'delete')) {
+        anchored = true;
+        break;
+      }
+    }
+  }
+  if (rows.length === 0) return undefined;
+  return foldKey(rows.reverse(), key.split(DELIM));
 }
 
 /**

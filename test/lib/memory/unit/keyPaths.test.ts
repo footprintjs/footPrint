@@ -3,7 +3,7 @@
  *
  *   unit      `relation` is a SEGMENT prefix on DELIM paths (exact / inside / around / disjoint, never a
  *             string prefix); `rootOf`; `ascendingUnion`
- *   boundary  `buildWriterIndex` — one position per commit per path, every path under its top-level key;
+ *   boundary  `buildWriterIndex` — a path trie: one position per commit per path, its totals, its subtree;
  *             `writerCandidates` splits the commits a key may have been written by into the ones its PATH
  *             decides and the ones the fold must decide (a row only AROUND the key)
  *
@@ -11,10 +11,16 @@
  * against `stateAt` in test/lib/memory/property/keyed-fold-differential.property.test.ts.
  */
 import {
+  ancestorNodes,
   ascendingUnion,
+  between,
   buildWriterIndex,
+  lastBefore,
+  nodeAt,
+  pathsWritten,
   relation,
   rootOf,
+  subtreePositions,
   writerCandidates,
 } from '../../../../src/lib/memory/keyPaths';
 import { DELIM } from '../../../../src/lib/memory/paths';
@@ -86,12 +92,25 @@ describe('buildWriterIndex / writerCandidates', () => {
   ];
   const index = buildWriterIndex(log);
 
-  it('records one position per commit per path, and every path under its top-level key', () => {
-    expect(index.byPath.get(at('cfg', 'b'))).toEqual([1]);
-    expect(index.byPath.get('cfg')).toEqual([0]);
-    expect(index.byRoot.get('cfg')).toEqual(['cfg', at('cfg', 'b'), at('cfg', 'a', 'x')]);
-    expect(index.byRoot.get('runs')).toEqual([at('runs', 'c0', 'x')]);
-    expect(index.byRoot.has('x')).toBe(false);
+  it('is a path trie: one position per commit per path, totals beside them, every path under its top-level key', () => {
+    expect(nodeAt(index, at('cfg', 'b'))?.positions).toEqual([1]);
+    expect(nodeAt(index, 'cfg')?.positions).toEqual([0]);
+    expect(nodeAt(index, 'cfg')?.totals).toEqual([0]); // the rows here are all `set`
+    expect(nodeAt(index, at('cfg', 'a'))?.positions).toEqual([]); // a prefix, never written itself
+    expect(subtreePositions(nodeAt(index, 'cfg')!)).toEqual([0, 1, 3]);
+    expect(pathsWritten(index).sort()).toEqual(
+      ['cfg', at('cfg', 'a', 'x'), at('cfg', 'b'), 'other', at('runs', 'c0', 'x')].sort(),
+    );
+    expect(index.roots.has('x')).toBe(false);
+    expect(ancestorNodes(index, at('cfg', 'a', 'x')).map((n) => n.path)).toEqual(['cfg', at('cfg', 'a')]);
+    expect(ancestorNodes(index, 'cfg')).toEqual([]);
+  });
+
+  it('lastBefore / between are binary searches over an ascending list', () => {
+    expect(lastBefore([1, 4, 9], 9)).toBe(4);
+    expect(lastBefore([1, 4, 9], 1)).toBe(-1);
+    expect(between([1, 4, 9, 12], 1, 12)).toEqual([4, 9]);
+    expect(between([1, 4, 9, 12], -1, Number.POSITIVE_INFINITY)).toEqual([1, 4, 9, 12]);
   });
 
   it('a top-level key: every commit with a row on it or inside it, and nothing around it', () => {

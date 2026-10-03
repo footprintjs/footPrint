@@ -15,6 +15,10 @@
  *    (the last writer, or the last writer before `before`).
  * 2. That value lives until the key's NEXT write (`nextWriteIdx`). Every
  *    stage that READ `key` inside that window saw THIS value — a `read`.
+ *    (9.33.0: a write that reached the key only through paths INSIDE it — a
+ *    subflow seed, an outputMapper merge-back — changed part of the value
+ *    and does NOT end its life: a reader after it still read the rest. Every
+ *    life such a write starts or crosses carries a `'nested-rows'` note.)
  * 3. A reading stage that also WROTE something carried the value onward —
  *    a `fed` edge to that write, which is itself the start of a new life.
  * 4. Descend into fed lives breadth-first (visited-set guarded, budgeted).
@@ -109,7 +113,9 @@ function makeNode(
   writeIdx: number | undefined,
   depth: number,
 ): ForwardNode {
-  const writes = index.writesOf(key);
+  // A life ends at the next write that replaces the value — never at one that only wrote a path INSIDE the
+  // key (a seed, a merge-back): a reader after that one still read the rest of this value.
+  const writes = index.closingWritesOf(key);
   if (writeIdx === undefined) {
     const firstWrite = writes?.[0];
     return {
@@ -262,9 +268,26 @@ export function forwardSliceForKey(
 
   // ── Honesty envelope, deterministic order ─────────────────────────────
   if (root.origin === 'pre-run') notes.push(preRunOriginNote(normalisedKey));
-  if (anchorIdx !== undefined && nestedOnlyWrites(commitLog, normalisedKey, [anchorIdx]).length > 0) {
-    notes.push(nestedRowsNote(normalisedKey, [anchorIdx]));
+  // Every life a write INSIDE its key starts or crosses — the anchor's, a pre-run life's, a child's — says so.
+  const partial = new Map<string, Set<number>>();
+  for (const node of nodes.values()) {
+    const start = node.commitIdx ?? -1;
+    const crossed = index
+      .writesOf(node.key)
+      .filter((c) => (c === start || c > start) && (node.nextWriteIdx === undefined || c < node.nextWriteIdx));
+    for (const c of nestedOnlyWrites(commitLog, node.key, crossed)) {
+      const set = partial.get(node.key) ?? new Set<number>();
+      set.add(c);
+      partial.set(node.key, set);
+    }
   }
+  for (const [key, commits] of partial)
+    notes.push(
+      nestedRowsNote(
+        key,
+        [...commits].sort((a, b) => a - b),
+      ),
+    );
   if (anyConservative) notes.push(conservativeEdgesNote(normalisedKey));
   if (truncatedByDepth || truncatedByNodes) {
     root.truncated = { byDepth: truncatedByDepth, byNodes: truncatedByNodes };
