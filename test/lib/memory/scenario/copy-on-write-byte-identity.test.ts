@@ -46,6 +46,13 @@
  * in their commitLog / executionTree / subflowResults / redactedSubflows
  * digests only; every other entry, and every ADMITTED index, is unchanged.
  *
+ * C-F5 — THE SEED COMMITS UNDER THE RUN POLICY. The baseline is also seen
+ * with every subflow seed row given `readKeys: []` under `writeProvenance:
+ * 'reads-prefix'` (fixture · `cf5Seeds`), and the corpus was regenerated once
+ * more from the 9.28.0 baseline through that view: 30 chart entries moved
+ * (a subflow with a non-empty seed, under reads-prefix), in their
+ * subflowResults / redactedSubflows digests only (39 digests); nothing else.
+ *
  * Regenerate ONLY from the 9.28.0 baseline, never from the new code:
  *   npx tsx -e "Promise.all([import('./test/lib/memory/scenario/copy-on-write-corpus.ts'),
  *     import('./test/lib/memory/property/copy-on-write-fixture.ts')])

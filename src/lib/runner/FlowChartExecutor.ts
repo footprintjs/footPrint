@@ -45,13 +45,9 @@ import {
   defaultLogger,
 } from '../engine/types.js';
 import { RedactionRule } from '../memory/redaction.js';
-import type {
-  CommitValuesMode,
-  ReadTrackingMode,
-  StageSnapshot,
-  WriteProvenanceMode,
-  WriteTrackingMode,
-} from '../memory/types.js';
+import type { RunDials } from '../memory/runPolicy.js';
+import { pickDials, runPolicy } from '../memory/runPolicy.js';
+import type { CommitValuesMode, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/types.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
 import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
@@ -119,12 +115,15 @@ function standInFor<TOut, TScope>(
  * `flowChartArgs` private field type and in the constructor's options-resolution
  * block (the `else if` branch that reads from `opts`). Missing any one of the
  * three causes silent omission — the option is accepted but never applied.
+ * The observability DIALS are the exception: they come from `RunDials`
+ * (memory/runPolicy.ts) and travel as one `dials` field, so a new dial is
+ * added there and nowhere here.
  *
  * **TScope inference note:** When using the options-object form with a custom scope,
  * TypeScript cannot infer `TScope` through the options object. Pass the type
  * explicitly: `new FlowChartExecutor<TOut, MyScope>(chart, { scopeFactory })`.
  */
-export interface FlowChartExecutorOptions<TScope = any> {
+export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   // ── Common options (most callers need only these) ────────────────────────
 
   /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
@@ -147,98 +146,10 @@ export interface FlowChartExecutorOptions<TScope = any> {
   readOnlyContext?: unknown;
 
   // ── Observability cost options ────────────────────────────────────────────
-
-  /**
-   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
-   * tracked read `structuredClone`s the value into the stage's read view
-   * (the historical behavior; what lens/agentfootprint snapshots show).
-   * `'summary'` records a cheap type/size/preview marker per read; `'off'`
-   * records nothing — zero per-read clone cost (reads of large values become
-   * ~free). Narrative and `ScopeRecorder.onRead` are identical in every mode.
-   * Caveat: under `'off'` a stage's snapshot is indistinguishable from one
-   * that read nothing — auditing consumers that need "did it read?" without
-   * the value cost should prefer `'summary'`.
-   * Equivalent to calling `executor.setReadTracking(mode)` before `run()`.
-   */
-  readTracking?: ReadTrackingMode;
-
-  /**
-   * Policy for `StageSnapshot.stageWrites` (#13c-A) — the sibling of
-   * {@link readTracking}; the two dials are independent. Default `'full'` —
-   * every tracked write `structuredClone`s the value into the stage's write
-   * view (the historical behavior). `'summary'` records a cheap
-   * `WriteSummaryMarker` (type/size/preview) per write; `'off'` records
-   * nothing — `stageWrites` is absent from the snapshot.
-   *
-   * Observable consequences — what the policy DOES govern:
-   * - `StageSnapshot.stageWrites` (markers under `'summary'`, absent under
-   *   `'off'`).
-   * - The commit observer payload: `ScopeRecorder.onCommit(mutations)`
-   *   receives the retained `_stageWrites` entries, so it carries the same
-   *   markers under `'summary'` and an empty mutations bag under `'off'` —
-   *   deferred/observer consumers see exactly what retention stored.
-   *
-   * What it does NOT govern:
-   * - The writes themselves: shared state, the transaction buffer, and the
-   *   COMMIT LOG are identical in every mode (commitLog values keep their
-   *   full payloads — the lossless linear-cost fix for those is the
-   *   {@link commitValues} dial, #13c-B).
-   * - Per-op `ScopeRecorder.onWrite` events — they fire with live values
-   *   regardless (delivery tier, RFC-001's concern), so narrative output is
-   *   identical in every mode.
-   * - Redaction: a policy/per-call-redacted write stores `'[REDACTED]'`
-   *   under `'full'` AND `'summary'` (redaction takes precedence over the
-   *   dial; a marker would leak size/preview), and nothing under `'off'`.
-   *
-   * Caveat: under `'off'` a stage's SNAPSHOT is indistinguishable from one
-   * that wrote nothing — but unlike `readTracking: 'off'`, the commit log
-   * still records every net change, so "did it write?" stays answerable.
-   * Equivalent to calling `executor.setWriteTracking(mode)` before `run()`.
-   */
-  writeTracking?: WriteTrackingMode;
-
-  /**
-   * Encoding policy for COMMIT LOG values (#13c-B) — the third dial of the
-   * family, and unlike its siblings it is **lossless in both modes** (it
-   * changes the log's encoding, never its information).
-   *
-   * - `'full'` (default) — every surviving `set` path stores the full final
-   *   value; byte-identical to the historical behavior.
-   * - `'delta'` — array net-changes that are "base plus a tail" commit as an
-   *   `append` trace verb storing ONLY the tail (the growing-history commit
-   *   log becomes linear instead of O(N²) retained); `deleteValue()` commits
-   *   as a real `delete` verb (replay removes the key instead of leaving
-   *   `key: undefined`); bundles carry exactly ONE trace entry per surviving
-   *   path. Replay (the one verb law — live state, `materialise()`, the
-   *   redacted mirror, `stateAt`) reconstructs every step's full state
-   *   exactly.
-   *
-   * Consumers that read `bundle.overwrite[key]` as "the full value written"
-   * must switch to `commitValueAt(commitLog, idx, key)` from
-   * `footprintjs/trace` — under `'delta'` that value is verb-qualified (an
-   * `append` bundle holds only the tail). Path-tier consumers
-   * (`findLastWriter`, `causalChain`, narrative, lens highlights) are
-   * unaffected. The active mode is surfaced as
-   * `getSnapshot().commitValues`.
-   *
-   * Honest cost note: append detection is new wall work — an O(|base array|)
-   * structural prefix compare per array-set path per commit. On a hit the
-   * commit gets cheaper in both wall and heap; on a miss (prefix diverges)
-   * it pays compare + full clone. `'full'` pays zero.
-   * Equivalent to calling `executor.setCommitValues(mode)` before `run()`.
-   */
-  commitValues?: CommitValuesMode;
-
-  /**
-   * Per-write read provenance (#P1) — the fourth dial of the family. Default
-   * `'off'`: zero cost, byte-identical commit logs. `'reads-prefix'`: every
-   * committed `TraceEntry` carries `readKeys` — the keys tracked-read BEFORE
-   * that write — enabling per-write causal attribution (`causalChain`'s
-   * `edgeAttribution: 'per-write'` and variable slices). Cost: one small
-   * array copy per write. Snapshot discriminant:
-   * `getSnapshot().writeProvenance`.
-   */
-  writeProvenance?: WriteProvenanceMode;
+  // The four dials — `readTracking`, `writeTracking`, `commitValues`,
+  // `writeProvenance` — are inherited from `RunDials` (memory/runPolicy.ts,
+  // where each is documented): the executor picks them off this object and
+  // builds the run's ONE policy from them (F5).
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -316,6 +227,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   // SYNC REQUIRED: every optional field here must mirror FlowChartExecutorOptions
   // AND be assigned in the constructor's options-resolution block (the `else if` branch).
   // Adding a field to only one of the three places causes silent omission.
+  // (The dials ride `dials` whole — `pickDials` reads every one RunDials declares.)
   private readonly flowChartArgs: {
     flowChart: FlowChart<TOut, TScope>;
     scopeFactory: ScopeFactory<TScope>;
@@ -325,10 +237,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     throttlingErrorChecker?: (error: unknown) => boolean;
     streamHandlers?: StreamHandlers;
     scopeProtectionMode?: ScopeProtectionMode;
-    readTracking?: ReadTrackingMode;
-    writeTracking?: WriteTrackingMode;
-    commitValues?: CommitValuesMode;
-    writeProvenance?: WriteProvenanceMode;
+    /** The dials as given (absent = default) — the run's policy is built from them per leg. */
+    dials: RunDials;
   };
 
   /**
@@ -359,10 +269,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     let throttlingErrorChecker: ((error: unknown) => boolean) | undefined;
     let streamHandlers: StreamHandlers | undefined;
     let scopeProtectionMode: ScopeProtectionMode | undefined;
-    let readTracking: ReadTrackingMode | undefined;
-    let writeTracking: WriteTrackingMode | undefined;
-    let commitValues: CommitValuesMode | undefined;
-    let writeProvenance: WriteProvenanceMode | undefined;
+    let dials: RunDials = {};
 
     if (typeof factoryOrOptions === 'function') {
       // 2-param form: new FlowChartExecutor(chart, scopeFactory)
@@ -377,10 +284,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker = opts.throttlingErrorChecker;
       streamHandlers = opts.streamHandlers;
       scopeProtectionMode = opts.scopeProtectionMode;
-      readTracking = opts.readTracking;
-      writeTracking = opts.writeTracking;
-      commitValues = opts.commitValues;
-      writeProvenance = opts.writeProvenance;
+      dials = pickDials(opts);
     }
     this.flowChartArgs = {
       flowChart,
@@ -391,10 +295,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       throttlingErrorChecker,
       streamHandlers,
       scopeProtectionMode,
-      readTracking,
-      writeTracking,
-      commitValues,
-      writeProvenance,
+      dials,
     };
     this.traverser = this.createTraverser();
   }
@@ -505,6 +406,18 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const effectiveRoot = overrides?.resume?.start ?? fc.root;
     const effectiveInitialContext = overrides?.initialContext ?? args.initialContext;
 
+    // The run's policy (F5): the four dials, the redaction rule and the
+    // mirror flag as ONE frozen object, built once per leg — run AND resume
+    // (a resume brings a fresh rule, as per-call marks reset per leg). The
+    // runtime installs it on its root; every frame of the run, a subflow's
+    // included, holds the same reference. The rule is installed even without
+    // a policy: a per-call `setValue(key, value, true)` marks the key on it,
+    // and the paths that bypass the facade (subflow seed, outputMapper
+    // merge-back, resume re-seed) honour that mark through it. The mirror —
+    // a parallel redacted heap, so `getSnapshot({ redact: true })` is served
+    // at zero post-pass cost — is kept only under a policy.
+    const policy = runPolicy(args.dials, this.redactionRule, this.redactionPolicy !== undefined);
+
     let runtime: ExecutionRuntime;
     if (overrides?.existingRuntime) {
       // Resume mode: reuse existing runtime so execution tree continues from pause point.
@@ -515,67 +428,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       let leaf = runtime.rootStageContext;
       while (leaf.next) leaf = leaf.next;
       runtime.rootStageContext = leaf.createNext('', effectiveRoot.name, effectiveRoot.id);
+      runtime.usePolicy(policy);
     } else {
       runtime = new ExecutionRuntime(
         effectiveRoot.name,
         effectiveRoot.id,
         args.defaultValuesForContext,
         effectiveInitialContext,
+        policy,
       );
-    }
-
-    // The redaction rule (9.19.0): ONE owner of the verdict for the whole
-    // run, installed on the runtime's root context so every descendant and
-    // every subflow root retains under it — the same anchor and the same
-    // resume-path ordering as the mirror and the four dials. Installed even
-    // without a policy: a per-call `setValue(key, value, true)` marks the key
-    // on this rule, and the paths that bypass the facade (subflow seed,
-    // outputMapper merge-back, resume re-seed) honour that mark through it.
-    // ORDER MATTERS: before the mirror below — the mirror's SEED is scrubbed
-    // with this rule (a seeded, never re-written policy key is served).
-    runtime.useRedaction(this.redactionRule);
-
-    // When a redaction policy is configured, maintain a parallel redacted
-    // mirror of `globalStore` during traversal. Each commit applies the
-    // already-computed redacted patches — same ones fed to the event log —
-    // so `getSnapshot({ redact: true })` returns a scrubbed sharedState at
-    // zero post-pass cost. Skipped when no policy exists (zero allocation).
-    if (this.redactionPolicy) {
-      runtime.enableRedactedMirror();
-    }
-
-    // Read-tracking policy (#14): set on the runtime's root context so every
-    // descendant context (createNext/createChild) and subflow root inherits.
-    // Applied AFTER the resume-path root swap above so the continuation root
-    // carries the policy too. Skipped for the default 'full' — zero work.
-    const readTracking = args.readTracking;
-    if (readTracking !== undefined && readTracking !== 'full') {
-      runtime.useReadTracking(readTracking);
-    }
-
-    // Write-tracking policy (#13c-A): identical plumbing to readTracking —
-    // same root-context anchor, same inheritance, same resume-path ordering.
-    const writeTracking = args.writeTracking;
-    if (writeTracking !== undefined && writeTracking !== 'full') {
-      runtime.useWriteTracking(writeTracking);
-    }
-
-    // Commit-values encoding (#13c-B): identical plumbing to the two dials
-    // above — root-context anchor, createNext/createChild inheritance,
-    // SubflowExecutor duck-push, resume-path re-application. Skipped for the
-    // default 'full' — zero work, byte-identical commit log.
-    const commitValues = args.commitValues;
-    if (commitValues !== undefined && commitValues !== 'full') {
-      runtime.useCommitValues(commitValues);
-    }
-
-    // Per-write read provenance (#P1): identical plumbing to the three dials
-    // above — root-context anchor, createNext/createChild inheritance,
-    // SubflowExecutor duck-push, resume-path re-application. Skipped for the
-    // default 'off' — zero work, byte-identical commit log.
-    const writeProvenance = args.writeProvenance;
-    if (writeProvenance !== undefined && writeProvenance !== 'off') {
-      runtime.useWriteProvenance(writeProvenance);
     }
 
     return new FlowchartTraverser<TOut, TScope>({
@@ -629,7 +490,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * for the mode semantics ('full' default / 'summary' / 'off').
    */
   setReadTracking(mode: ReadTrackingMode): void {
-    this.flowChartArgs.readTracking = mode;
+    this.flowChartArgs.dials = { ...this.flowChartArgs.dials, readTracking: mode };
   }
 
   /**
@@ -640,7 +501,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * onCommit-payload consequence, and the redaction-precedence rule.
    */
   setWriteTracking(mode: WriteTrackingMode): void {
-    this.flowChartArgs.writeTracking = mode;
+    this.flowChartArgs.dials = { ...this.flowChartArgs.dials, writeTracking: mode };
   }
 
   /**
@@ -651,7 +512,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * `overwrite` consequence, and the `commitValueAt` migration helper.
    */
   setCommitValues(mode: CommitValuesMode): void {
-    this.flowChartArgs.commitValues = mode;
+    this.flowChartArgs.dials = { ...this.flowChartArgs.dials, commitValues: mode };
   }
 
   /**

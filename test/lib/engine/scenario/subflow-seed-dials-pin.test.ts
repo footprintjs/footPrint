@@ -1,19 +1,20 @@
 /**
- * A subflow's SEED commit (`history[0]`) under each of the four dials — pinned as of 9.30.0.
+ * A subflow's SEED commit (`history[0]`) under each of the four dials — pinned as of 9.30.0,
+ * re-pinned by the run-policy packet (F5, C-F5).
  *
  * Why this file exists. `SubflowExecutor.executeSubflow` seeds the nested runtime
- * (`seedSubflowGlobalStore` → one root-context commit, the subflow's `history[0]`) and only
- * THEN pushes the parent's dials into the final nested root (`useReadTracking` /
- * `useWriteTracking` / `useCommitValues` / `useWriteProvenance`). So today the seed bundle is
- * the same bytes under every dial, while the dials do govern every LATER commit of the
- * subflow. The same holds on a resumed leg, where the seed is the pause-time capture.
+ * (`seedSubflowGlobalStore` → one root-context commit, the subflow's `history[0]`). Through
+ * 9.34.0 it pushed the parent's dials into the nested root only AFTER that seed, so the seed
+ * bundle was the same bytes under every dial while the dials governed every LATER commit.
  *
- * The run-policy packet (one policy object, installed before the seed) will change this ON
- * PURPOSE: under `writeProvenance: 'reads-prefix'` the seed rows gain `readKeys: []` (the one
- * named change); under the other three dials the seed is expected to stay equal. This pin makes
- * that visible — when it lands, the `SEED_*` literals below are re-pinned with every moved leaf
- * named, never silently. They are the bytes the published package (`footprintjs-baseline`, the
- * differential tests' control) commits too.
+ * Since F5 the nested runtime is CONSTRUCTED with the run's policy (`memory/runPolicy.ts`), so
+ * the seed commits under the parent's dials like every other commit. The bytes move in exactly
+ * ONE leaf, named here: under `writeProvenance: 'reads-prefix'` every seed row gains
+ * `readKeys: []` (the seed frame read nothing before it wrote). Under the other three dials the
+ * seed is byte-equal to before — `commitValues: 'delta'` included (a fresh heap: every seed row
+ * is a `set`, as in 'full'). The same holds on a resumed leg, where the seed is the pause-time
+ * capture. The published package (`footprintjs-baseline`, the differential tests' control) still
+ * commits the pre-F5 bytes; the last block below pins that difference to the one leaf.
  *
  * Test types: Scenario (a run, and a pause + resume on a fresh executor — per dial) ·
  * Regression (the pinned bytes) · Integration (the dial IS in force on the commit after the
@@ -91,17 +92,19 @@ function outerChart(pausing: boolean, lib: Lib) {
 
 // ── the dials ────────────────────────────────────────────────────────────────
 
-const DIALS: Array<[string, FlowChartExecutorOptions]> = [
-  ['defaults', {}],
-  ['readTracking: summary', { readTracking: 'summary' }],
-  ['readTracking: off', { readTracking: 'off' }],
-  ['writeTracking: summary', { writeTracking: 'summary' }],
-  ['writeTracking: off', { writeTracking: 'off' }],
-  ['commitValues: delta', { commitValues: 'delta' }],
-  ['writeProvenance: reads-prefix', { writeProvenance: 'reads-prefix' }],
+/** Each dial set, and whether its seed rows carry `readKeys` (C-F5: only under 'reads-prefix'). */
+const DIALS: Array<[string, FlowChartExecutorOptions, boolean]> = [
+  ['defaults', {}, false],
+  ['readTracking: summary', { readTracking: 'summary' }, false],
+  ['readTracking: off', { readTracking: 'off' }, false],
+  ['writeTracking: summary', { writeTracking: 'summary' }, false],
+  ['writeTracking: off', { writeTracking: 'off' }, false],
+  ['commitValues: delta', { commitValues: 'delta' }, false],
+  ['writeProvenance: reads-prefix', { writeProvenance: 'reads-prefix' }, true],
   [
     'all four at once',
     { readTracking: 'summary', writeTracking: 'summary', commitValues: 'delta', writeProvenance: 'reads-prefix' },
+    true,
   ],
 ];
 
@@ -197,16 +200,30 @@ function namedByMount(published: string, runtimeStageId: string): string {
 const SEED_FIRST_ENTRY = namedByMount(SEED_FIRST_ENTRY_PUBLISHED, 'sf#1');
 const SEED_RESUMED = namedByMount(SEED_RESUMED_PUBLISHED, 'sf#4'); // the mount's execution on the resumed leg
 
-describe('subflow seed (history[0]) — the bytes are the same under every dial, as of 9.30.0', () => {
-  describe.each(DIALS)('%s', (_name, options) => {
+/**
+ * C-F5 — THE one moved leaf: the seed commits under the run's policy, so under
+ * `writeProvenance: 'reads-prefix'` every seed row carries `readKeys: []` (no read precedes a
+ * seed write). Nothing else in the bundle moves.
+ */
+function withSeedReadKeys(pinned: string): string {
+  const bundle = JSON.parse(pinned);
+  return JSON.stringify({
+    ...bundle,
+    trace: bundle.trace.map((row: object) => ({ ...row, readKeys: [] })),
+  });
+}
+const pinFor = (pinned: string, readKeys: boolean) => (readKeys ? withSeedReadKeys(pinned) : pinned);
+
+describe('subflow seed (history[0]) — commits under the run policy: equal bytes under every dial but reads-prefix (C-F5)', () => {
+  describe.each(DIALS)('%s', (_name, options, readKeys) => {
     it('normal entry: the seed bundle is the pinned bytes', async () => {
       const history = await firstEntry(options);
-      expect(bytes(history[0])).toBe(SEED_FIRST_ENTRY);
+      expect(bytes(history[0])).toBe(pinFor(SEED_FIRST_ENTRY, readKeys));
     });
 
     it('resumed leg: the seed bundle is the pinned bytes', async () => {
       const history = await resumedLeg(options);
-      expect(bytes(history[0])).toBe(SEED_RESUMED);
+      expect(bytes(history[0])).toBe(pinFor(SEED_RESUMED, readKeys));
     });
   });
 
@@ -217,7 +234,7 @@ describe('subflow seed (history[0]) — the bytes are the same under every dial,
     });
     await executor.run();
     await executor.resume(JSON.parse(JSON.stringify(executor.getCheckpoint())), { a: 'yes' });
-    expect(bytes(historyOf(executor)[0])).toBe(SEED_RESUMED);
+    expect(bytes(historyOf(executor)[0])).toBe(withSeedReadKeys(SEED_RESUMED));
   });
 
   it('the PUBLISHED package commits the same seed bytes, but for the names R13 moved — the pin is not an accident of this build', async () => {
@@ -225,11 +242,20 @@ describe('subflow seed (history[0]) — the bytes are the same under every dial,
     expect(bytes((await resumedLeg({}, PUBLISHED))[0])).toBe(SEED_RESUMED_PUBLISHED);
   });
 
-  it('the named leaf the run-policy packet will change: no seed row carries `readKeys` today, even under reads-prefix', async () => {
-    const [seed] = await firstEntry({ writeProvenance: 'reads-prefix' });
-    expect((seed as any).trace.some((row: any) => row.readKeys !== undefined)).toBe(false);
-    const [resumedSeed] = await resumedLeg({ writeProvenance: 'reads-prefix' });
-    expect((resumedSeed as any).trace.some((row: any) => row.readKeys !== undefined)).toBe(false);
+  it('C-F5, the one named leaf: under reads-prefix every seed row carries `readKeys: []` — the published package stamps none', async () => {
+    for (const leg of [firstEntry, resumedLeg]) {
+      const [seed] = await leg({ writeProvenance: 'reads-prefix' });
+      expect((seed as any).trace.every((row: any) => Array.isArray(row.readKeys) && row.readKeys.length === 0)).toBe(
+        true,
+      );
+      const [published] = await leg({ writeProvenance: 'reads-prefix' }, PUBLISHED);
+      expect((published as any).trace.some((row: any) => row.readKeys !== undefined)).toBe(false);
+      // Strip the leaf (and R13's names) and the two are the same bytes.
+      const stripped = { ...(seed as any), trace: (seed as any).trace.map(({ readKeys: _r, ...row }: any) => row) };
+      const { stage: _s, stageId: _i, runtimeStageId: _t, ...rest } = stripped;
+      const { stage: _ps, stageId: _pi, runtimeStageId: _pt, ...publishedRest } = published as any;
+      expect(JSON.stringify(rest)).toBe(JSON.stringify(publishedRest));
+    }
   });
 });
 

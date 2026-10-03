@@ -40,6 +40,7 @@ import * as baselineTrace from 'footprintjs-baseline/trace';
 
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
+import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import * as trace from '../../../../src/trace.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
@@ -404,6 +405,31 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
   return b.build();
 }
 
+/**
+ * Put a bare frame on `commitValues: 'delta'` — through the run policy on this build (F5),
+ * through the per-dial setter the baseline engine still has.
+ */
+function deltaFrame(ctx: any): void {
+  if (typeof ctx.usePolicy === 'function') ctx.usePolicy(runPolicy({ commitValues: 'delta' }));
+  else ctx.useCommitValues('delta');
+}
+
+/**
+ * C-F5 (the run-policy packet): a subflow's seed (`history[0]`) commits under the run's policy,
+ * so under `writeProvenance: 'reads-prefix'` its rows carry `readKeys: []` — the baseline, which
+ * pushed the dials only after the seed, is seen with that one leaf added (every row, both keys
+ * of every mount). Under every other dial the seed bytes are the baseline's.
+ */
+export function cf5Seeds(results: Record<string, any> | null | undefined, readsPrefix: boolean): any {
+  if (!results || !readsPrefix) return results ?? null;
+  const out = structuredClone(results);
+  for (const key of Object.keys(out)) {
+    const seed = out[key]?.treeContext?.history?.[0];
+    for (const row of seed?.trace ?? []) if (row.readKeys === undefined) row.readKeys = [];
+  }
+  return out;
+}
+
 // ── R13: the mount names its own acts — the one named change since the baseline ──
 //
 // A subflow mount's merge-back is committed by the mount's frame and its bundle carries the
@@ -498,6 +524,11 @@ export function withoutMovedTracking(tree: any, mountIds: ReadonlySet<string>): 
   return out;
 }
 
+/** The baseline's subflow results seen through both named changes since it: R13, then C-F5. */
+function baselineSeeds(results: Record<string, any> | null | undefined, topLog: any[], p: ChartProgram): any {
+  return cf5Seeds(r13Seeds(results, topLog), p.cfg.writeProvenance === 'reads-prefix');
+}
+
 export type ChartRun = {
   /** Field → bytes; compared across engines. */
   out: Record<string, string>;
@@ -541,12 +572,14 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
     executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
-    subflowResults: bytes(old ? r13Seeds(snap.subflowResults, snap.commitLog) : snap.subflowResults ?? null),
+    subflowResults: bytes(old ? baselineSeeds(snap.subflowResults, snap.commitLog, p) : snap.subflowResults ?? null),
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
     out.redactedState = bytes(red.sharedState);
-    out.redactedSubflows = bytes(old ? r13Seeds(red.subflowResults, snap.commitLog) : red.subflowResults ?? null);
+    out.redactedSubflows = bytes(
+      old ? baselineSeeds(red.subflowResults, snap.commitLog, p) : red.subflowResults ?? null,
+    );
   }
   const folds: string[] = [];
   for (let i = 0; i < snap.commitLog.length; i++) folds.push(bytes(engine.stateAt(snap, i).state));
@@ -830,7 +863,7 @@ export function runNested(
   const generations: Array<{ ref: unknown; copy: string }> = [];
   p.stages.forEach((st, i) => {
     const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
-    if (p.commitValues === 'delta') ctx.useCommitValues('delta');
+    if (p.commitValues === 'delta') deltaFrame(ctx);
     let wrote = false;
     for (const o of st.ops) {
       try {
@@ -1041,7 +1074,7 @@ export function runWriteBack(
   const generations: Array<{ ref: unknown; copy: string }> = [];
   p.stages.forEach((st, i) => {
     const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
-    if (p.commitValues === 'delta') ctx.useCommitValues('delta');
+    if (p.commitValues === 'delta') deltaFrame(ctx);
     let wrote = false;
     for (const o of st.ops) {
       try {

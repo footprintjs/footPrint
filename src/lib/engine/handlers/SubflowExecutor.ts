@@ -13,7 +13,7 @@
  * and abort signals all work inside subflows automatically.
  */
 
-import type { RedactionRule } from '../../memory/redaction.js';
+import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -149,20 +149,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
     }
 
-    // The run's redaction rule (9.19.0), read off the parent-mount context
-    // the way the dials are (duck-typed: this section constructs its runtime
-    // dynamically to avoid the circular import). The seed narrated below and
-    // the seed COMMITTED below both retain under it; the subflow's stages
-    // still compute on the real `mappedInput` (their frozen args).
-    const redactionRule = parentContext.getRedactionRule?.();
-    // The run's redacted mirror (9.20.0): the parent-mount context carries it
-    // exactly when the root enabled one (`ExecutionRuntime.enableRedactedMirror`
-    // under a policy, inherited by createNext/createChild) — read the way the
-    // dials are. When it does, the nested runtime keeps a mirror of its own,
-    // so the subflow's SERVED state is a mirror too — the fold of its own
-    // scrubbed log — and never a second scrub. No policy: no mirror, no
-    // allocation, and the served state is the raw heap it always was.
-    const keepsMirror = parentContext.getRedactedSharedMemory?.() !== undefined;
+    // The run's policy (F5) — the four dials, the redaction rule, the mirror
+    // flag — read off the parent-mount frame, which holds it by reference.
+    // The nested runtime is constructed WITH it, so the seed commit below
+    // (`history[0]`) and every later commit of the subflow run under the same
+    // object, and the nested runtime keeps a mirror of its own exactly when
+    // the run does (its SERVED state is then the fold of its own scrubbed
+    // log, never a second scrub).
+    const policy = parentContext.getPolicy();
+    const redactionRule = policy.redaction;
     // Narrative receives the RETAINED form of the mapped input — an
     // inputMapper may inject values from anywhere, so the seed is scrubbed
     // under the policy before any recorder sees it. Same object when nothing
@@ -199,10 +194,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const ExecutionRuntimeClass = this.deps.executionRuntime.constructor as new (
       name: string,
       id: string,
+      defaultValues: undefined,
+      initialState: undefined,
+      policy: RunPolicy,
     ) => IExecutionRuntime;
     const firstNode = resumeHop?.entry ?? node;
-    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id);
-    let nestedRootContext = nestedRuntime.rootStageContext;
+    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id, undefined, undefined, policy);
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause
@@ -212,10 +209,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const seedValues: Record<string, unknown> = isResumeForThisSubflow ? resumeCapture! : mappedInput;
     if (Object.keys(seedValues).length > 0) {
       // The seed is committed as the subflow's `history[0]` by its root
-      // context, not by a facade — install the rule (and the mirror) on THAT
-      // context first so the seed commit retains under the policy like every
-      // other write, and lands in the mirror as the placeholder.
-      this.inheritRedaction(nestedRuntime, nestedRootContext, redactionRule, keepsMirror);
+      // context, not by a facade — that frame already holds the run's policy
+      // (the runtime was constructed with it), so the seed retains under the
+      // rule, lands in the mirror as the placeholder, and commits under the
+      // run's dials like every other write (C-F5: under `writeProvenance:
+      // 'reads-prefix'` its rows carry `readKeys: []`).
       // The seed is the mount's act too: its bundle — `history[0]` of the
       // subflow's own log — carries the mount's stage, stageId and
       // runtimeStageId (R13; through 9.33.0 it carried runtimeStageId '' and
@@ -223,63 +221,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
       // Refresh rootStageContext so WriteBuffer sees committed data. Named
       // after the first node again — the seed context now carries the mount's
-      // names (R13), which belong to the seed bundle only.
-      const StageContextClass = nestedRootContext.constructor as new (...args: any[]) => StageContext;
-      nestedRootContext = new StageContextClass(
-        '',
-        firstNode.name,
-        firstNode.id,
-        nestedRuntime.globalStore,
-        '',
-        nestedRuntime.executionHistory,
-      );
-      nestedRuntime.rootStageContext = nestedRootContext;
-    }
-
-    // Read-tracking policy (#14): subflows get an ISOLATED runtime, so the
-    // executor-level policy doesn't reach them via the root context chain.
-    // Inherit it from the parent-mount context (which inherited it from ITS
-    // root via createNext/createChild) — applied to the FINAL nested root,
-    // after the seeding block above may have replaced it. Nested subflows
-    // chain the same way, one hop per mount. Optional-chained because this
-    // section is duck-typed by design (dynamic construction to avoid the
-    // circular import) — and skipped at the default 'full', where the fresh
-    // nested context is already correct, so the default path does zero work.
-    const parentReadTracking = parentContext.getReadTracking?.();
-    if (parentReadTracking !== undefined && parentReadTracking !== 'full') {
-      nestedRootContext.useReadTracking(parentReadTracking);
-    }
-
-    // Redaction rule (9.19.0) and mirror (9.20.0): same hop as the dials,
-    // applied to the FINAL nested root (the seeding block above may have
-    // replaced it) so every stage context the subflow creates inherits both.
-    this.inheritRedaction(nestedRuntime, nestedRootContext, redactionRule, keepsMirror);
-
-    // Write-tracking policy (#13c-A): same inheritance hop as readTracking
-    // above — subflow runtimes are isolated, so the parent-mount context's
-    // mode is pushed into the FINAL nested root with the same duck-type
-    // guard and the same skip-at-default fast path.
-    const parentWriteTracking = parentContext.getWriteTracking?.();
-    if (parentWriteTracking !== undefined && parentWriteTracking !== 'full') {
-      nestedRootContext.useWriteTracking(parentWriteTracking);
-    }
-
-    // Commit-values encoding (#13c-B): same inheritance hop as the two
-    // tracking dials above — subflow runtimes are isolated, so the
-    // parent-mount context's mode is pushed into the FINAL nested root with
-    // the same duck-type guard and the same skip-at-default fast path, so
-    // nested charts commit in the same encoding as the parent.
-    const parentCommitValues = parentContext.getCommitValues?.();
-    if (parentCommitValues !== undefined && parentCommitValues !== 'full') {
-      nestedRootContext.useCommitValues(parentCommitValues);
-    }
-
-    // Per-write read provenance (#P1): fourth dial, same inheritance hop —
-    // duck-type guard, skip-at-default ('off') fast path, so nested charts
-    // stamp TraceEntry.readKeys exactly when the parent does.
-    const parentWriteProvenance = parentContext.getWriteProvenance?.();
-    if (parentWriteProvenance !== undefined && parentWriteProvenance !== 'off') {
-      nestedRootContext.useWriteProvenance(parentWriteProvenance);
+      // names (R13), which belong to the seed bundle only. `newRoot` gives it
+      // the same policy and mirror.
+      nestedRuntime.rootStageContext = nestedRuntime.newRoot(firstNode.name, firstNode.id);
     }
 
     // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
@@ -496,28 +440,5 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     }
 
     return subflowOutput;
-  }
-
-  /**
-   * Push the run's redaction into a nested root the way the dials are pushed
-   * — the triplicated propagation (root install · createNext/createChild ·
-   * this hop). Called TWICE on purpose: on the runtime's first root, so the
-   * SEED commit (`history[0]`) retains and mirrors under the policy, and on
-   * the FINAL root after the seeding block replaces it. Rule before mirror,
-   * as the executor orders them (the mirror's seed is scrubbed with the rule;
-   * for a nested runtime that seed is empty — its input arrives as a commit).
-   * `enableRedactedMirror` is idempotent, so the second call only re-installs
-   * the ONE mirror on the fresh root.
-   */
-  private inheritRedaction(
-    runtime: IExecutionRuntime,
-    root: StageContext,
-    rule: RedactionRule | undefined,
-    keepsMirror: boolean,
-  ): void {
-    if (rule) root.useRedactionRule(rule);
-    if (!keepsMirror) return;
-    runtime.enableRedactedMirror?.();
-    if (runtime.redactedStore) root.useRedactedMirror(runtime.redactedStore);
   }
 }

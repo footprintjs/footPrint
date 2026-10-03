@@ -17,16 +17,16 @@ import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { RedactionVerdict } from './redaction.js';
 import { CLEAR, RedactionRule, scrubPatch } from './redaction.js';
+import type { RunPolicy } from './runPolicy.js';
+import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
-  CommitValuesMode,
   FlowControlType,
   FlowMessage,
   ReadTrackingMode,
   StageSnapshot,
   UntrackedSource,
-  WriteProvenanceMode,
   WriteTrackingMode,
 } from './types.js';
 
@@ -52,8 +52,15 @@ export class StageContext {
    * through `sharedState`.
    */
   private redactedSharedMemory?: SharedMemory;
-  /** The run's redaction rule — see {@link useRedactionRule}. */
-  private redactionRule?: RedactionRule;
+  /**
+   * The run's policy — the four dials, the redaction rule, the mirror flag
+   * (`runPolicy.ts`, F5). Held BY REFERENCE: one frozen object per run (and
+   * per resume), shared by every frame of the run, a subflow's included —
+   * {@link createNext}/{@link createChild} pass the reference
+   * ({@link inheritRun}), the runtime installs it on its root
+   * ({@link usePolicy}). Never edited; a change is a new object.
+   */
+  private policy: RunPolicy = DEFAULT_RUN_POLICY;
   private buffer?: TransactionBuffer;
   /**
    * Committed-state view captured at this stage's FIRST touch (first read OR
@@ -153,58 +160,6 @@ export class StageContext {
    */
   private _committed = false;
 
-  /**
-   * How tracked reads are recorded into `_stageReads` (#14). Default `'full'`
-   * preserves the historical per-read `structuredClone`. Inherited by every
-   * context created via {@link createNext} / {@link createChild} (same
-   * propagation pattern as the redacted mirror), and pushed into subflow
-   * root contexts by `SubflowExecutor`. Affects ONLY the snapshot's
-   * `stageReads` payload — `ScopeRecorder.onRead` (and therefore narrative)
-   * is dispatched at the scope tier and never cloned, so it is identical in
-   * every mode.
-   */
-  private readTracking: ReadTrackingMode = 'full';
-
-  /**
-   * How tracked writes are recorded into `_stageWrites` (#13c-A) — the
-   * sibling of {@link readTracking}, with the same propagation pattern
-   * (inherited via {@link createNext}/{@link createChild}, pushed into
-   * subflow root contexts by `SubflowExecutor`). Governs the retained form
-   * {@link materialiseWrites} takes at commit for the writes of
-   * {@link setObject}/{@link updateObject} (a clone under `'full'`, taken
-   * once per key — 9.23.0). Affects the
-   * snapshot's `stageWrites` payload AND the commit observer's mutations
-   * payload (which is a spread of `_stageWrites`) — but NOT the write
-   * itself: the transaction buffer, the commit log, and shared state are
-   * identical in every mode, and `ScopeRecorder.onWrite` always fires with
-   * the live value.
-   */
-  private writeTracking: WriteTrackingMode = 'full';
-
-  /**
-   * How commit-bundle values are encoded into the commit log (#13c-B) — the
-   * third dial of the family, with the same propagation pattern as
-   * {@link readTracking}/{@link writeTracking} (inherited via
-   * {@link createNext}/{@link createChild}, pushed into subflow root
-   * contexts by `SubflowExecutor`, re-applied on the resume path). Passed
-   * into each {@link TransactionBuffer} at construction; `'full'` (default)
-   * is byte-identical to history, `'delta'` enables append/delete verbs +
-   * one-trace-entry-per-path dedup. Lossless in both modes.
-   */
-  private commitValues: CommitValuesMode = 'full';
-
-  /**
-   * Per-write read-provenance policy (#P1) — the fourth dial of the family,
-   * same propagation pattern as {@link readTracking}/{@link writeTracking}/
-   * {@link commitValues}. Under `'reads-prefix'` this context keeps a
-   * lightweight ordered set of the keys tracked-read so far, and the
-   * transaction buffer stamps that prefix onto every staged write
-   * ({@link TraceEntry.readKeys}). INDEPENDENT of readTracking: provenance
-   * needs only the key STRINGS, so it works even under readTracking 'off'
-   * (and costs nothing when it is itself 'off' — the default).
-   */
-  private writeProvenance: WriteProvenanceMode = 'off';
-
   /** Lazily-allocated ordered registry of keys tracked-read in THIS stage —
    *  the source of the per-write prefix. Only allocated under the
    *  `'reads-prefix'` dial; insertion-ordered (a Set) and monotonic, which
@@ -257,7 +212,7 @@ export class StageContext {
    * to the raw `sharedMemory` + `eventLog`. Child / next contexts inherit
    * the mirror via `createNext` / `createChild`.
    *
-   * Called once at the root context by `ExecutionRuntime.enableRedactedMirror()`.
+   * Called on a runtime's root frame by `ExecutionRuntime` when the run's policy keeps a mirror.
    */
   useRedactedMirror(mirror: SharedMemory): void {
     this.redactedSharedMemory = mirror;
@@ -269,90 +224,50 @@ export class StageContext {
   }
 
   /**
-   * Install the run's redaction rule — the ONE owner of "what does the policy
-   * say about this path" (`memory/redaction.ts`). Same plumbing as the mirror
-   * and the four dials: set once at the root by `ExecutionRuntime.useRedaction`
-   * (from `FlowChartExecutor`, every run and resume), inherited via
-   * {@link createNext}/{@link createChild}, pushed into subflow root contexts
-   * by `SubflowExecutor`. Every staged write and every tracked read asks it,
-   * so a write that never passes a `ScopeFacade` — a subflow seed, an
-   * `outputMapper` merge-back, a resume re-seed — is retained under the same
-   * verdict as a facade write. Absent (bare contexts in unit tests): every
+   * Install the run's policy (`runPolicy.ts`) on this frame — called on a
+   * runtime's root by `ExecutionRuntime` (at construction, and by
+   * `ExecutionRuntime.usePolicy` on a same-executor resume). Descendants get
+   * the same reference through {@link createNext}/{@link createChild}; a
+   * subflow's runtime is constructed with it, so its seed frame and every
+   * frame after commit under the run's dials too.
+   */
+  usePolicy(policy: RunPolicy): void {
+    this.policy = policy;
+  }
+
+  /** The run's policy this frame retains, encodes and scrubs under. */
+  getPolicy(): RunPolicy {
+    return this.policy;
+  }
+
+  /**
+   * Install a redaction rule — the ONE owner of "what does the policy say
+   * about this path" (`memory/redaction.ts`) — as a NEW policy for this frame
+   * (the shared one is never edited). Under an executor the rule arrives
+   * with the run's policy; this door is for a `ScopeFacade` on a bare frame
+   * (unit tests, hand-built scopes), which brings its own rule. Every staged
+   * write and every tracked read asks it, so a write that never passes a
+   * facade — a subflow seed, an `outputMapper` merge-back, a resume re-seed —
+   * is retained under the same verdict as a facade write. Absent: every
    * verdict is `'clear'` unless the caller passed an explicit flag.
    */
   useRedactionRule(rule: RedactionRule): void {
-    this.redactionRule = rule;
+    if (this.policy.redaction !== rule) this.policy = withRedaction(this.policy, rule);
   }
 
-  /** The installed redaction rule, if any (facade lookup, subflow propagation). */
+  /** The installed redaction rule, if any (the facade's lookup). */
   getRedactionRule(): RedactionRule | undefined {
-    return this.redactionRule;
+    return this.policy.redaction;
   }
 
   /**
-   * Set the read-tracking policy for this context (#14). Called at the root
-   * by `ExecutionRuntime.useReadTracking()` (plumbed from
-   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
-   * and `SubflowExecutor` pushes the parent context's mode into each subflow
-   * root so nested charts inherit too.
+   * Take the run from `from`: the policy (by reference) and the run's mirror
+   * store. The ONE inheritance step — {@link createNext} and
+   * {@link createChild} both call it, and it names no dial.
    */
-  useReadTracking(mode: ReadTrackingMode): void {
-    this.readTracking = mode;
-  }
-
-  /** Returns the active read-tracking policy (used for subflow propagation). */
-  getReadTracking(): ReadTrackingMode {
-    return this.readTracking;
-  }
-
-  /**
-   * Set the write-tracking policy for this context (#13c-A). Same plumbing
-   * as {@link useReadTracking}: called at the root by
-   * `ExecutionRuntime.useWriteTracking()` (plumbed from `FlowChartExecutor`);
-   * descendants inherit via `createNext`/`createChild`, and `SubflowExecutor`
-   * pushes the parent context's mode into each subflow root.
-   */
-  useWriteTracking(mode: WriteTrackingMode): void {
-    this.writeTracking = mode;
-  }
-
-  /** Returns the active write-tracking policy (used for subflow propagation). */
-  getWriteTracking(): WriteTrackingMode {
-    return this.writeTracking;
-  }
-
-  /**
-   * Set the commit-values encoding policy for this context (#13c-B). Same
-   * plumbing as {@link useReadTracking}/{@link useWriteTracking}: called at
-   * the root by `ExecutionRuntime.useCommitValues()` (plumbed from
-   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
-   * and `SubflowExecutor` pushes the parent context's mode into each subflow
-   * root.
-   */
-  useCommitValues(mode: CommitValuesMode): void {
-    this.commitValues = mode;
-  }
-
-  /** Returns the active commit-values policy (used for subflow propagation). */
-  getCommitValues(): CommitValuesMode {
-    return this.commitValues;
-  }
-
-  /**
-   * Set the per-write read-provenance policy (#P1). Same plumbing as the
-   * other three dials: called at the root by
-   * `ExecutionRuntime.useWriteProvenance()` (plumbed from
-   * `FlowChartExecutor`); descendants inherit via `createNext`/`createChild`,
-   * and `SubflowExecutor` pushes the parent context's mode into each subflow
-   * root so nested charts inherit too.
-   */
-  useWriteProvenance(mode: WriteProvenanceMode): void {
-    this.writeProvenance = mode;
-  }
-
-  /** Returns the active write-provenance policy (used for subflow propagation). */
-  getWriteProvenance(): WriteProvenanceMode {
-    return this.writeProvenance;
+  private inheritRun(from: StageContext): void {
+    this.policy = from.policy;
+    this.redactedSharedMemory = from.redactedSharedMemory;
   }
 
   /**
@@ -378,7 +293,7 @@ export class StageContext {
     verdict: RedactionVerdict,
     operation: 'set' | 'update' | 'delete',
   ) {
-    if (this.writeTracking === 'off') return;
+    if (this.policy.writeTracking === 'off') return;
     (this._pendingWrites ??= new Map()).set(userKey, { value, verdict, operation });
   }
 
@@ -393,7 +308,7 @@ export class StageContext {
     const out = { ...this._stageWrites };
     for (const [key, w] of this._pendingWrites) {
       out[key] = {
-        value: this.retainedForm(w.verdict, w.value, this.writeTracking, summarizeWriteValue),
+        value: this.retainedForm(w.verdict, w.value, this.policy.writeTracking, summarizeWriteValue),
         operation: w.operation,
       };
     }
@@ -445,7 +360,7 @@ export class StageContext {
    * allocation. The default run is byte-identical AND cost-identical.
    */
   private activeRule(): RedactionRule | undefined {
-    const rule = this.redactionRule;
+    const rule = this.policy.redaction;
     return rule !== undefined && !rule.isInert() ? rule : undefined;
   }
 
@@ -486,7 +401,7 @@ export class StageContext {
     } else if (whole) {
       // The REAL rule, not the active one: an explicit mark on an inert rule
       // is exactly what makes it active for the rest of the run.
-      this.redactionRule?.mark(verdict.key);
+      this.policy.redaction?.mark(verdict.key);
     }
     return verdict;
   }
@@ -556,12 +471,12 @@ export class StageContext {
       // stage's read prefix — evaluated AT EACH WRITE, so each staged op
       // captures exactly the reads that preceded it (temporal prefix).
       const readKeysProvider =
-        this.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
+        this.policy.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
       // The stage's address — where `withNamespace` puts its writes (9.30.0:
       // the admitted record reads the containers there as where the stage
       // writes, never as a value it read).
       const address = this.namespaceId ? ['runs', this.namespaceId] : [];
-      this.buffer = new TransactionBuffer(this.firstTouchState(), this.commitValues, readKeysProvider, address);
+      this.buffer = new TransactionBuffer(this.firstTouchState(), this.policy.commitValues, readKeysProvider, address);
     }
     return this.buffer;
   }
@@ -726,17 +641,17 @@ export class StageContext {
     const value = this.readState(path, key);
     // Per-write provenance registry (#P1) — key strings only, independent of
     // the readTracking retention dial (which governs VALUE retention below).
-    if (key !== undefined && this.writeProvenance === 'reads-prefix') {
+    if (key !== undefined && this.policy.writeProvenance === 'reads-prefix') {
       (this._provenanceReads ??= new Set()).add(path.length > 0 ? [...path, key].join('.') : key);
     }
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
     // placeholder, a field-level key as a scrubbed clone, never the secret.
     // No policy and no marks → no verdict call, no allocation (activeRule).
-    if (key !== undefined && this.readTracking !== 'off') {
+    if (key !== undefined && this.policy.readTracking !== 'off') {
       const rule = this.activeRule();
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
-      else if (this.readTracking === 'full' && isDevMode()) {
+      else if (this.policy.readTracking === 'full' && isDevMode()) {
         if (this.buffer) this._viewReads?.delete(key);
         else (this._viewReads ??= new Set()).add(key);
       }
@@ -746,7 +661,7 @@ export class StageContext {
           : this.retainedForm(
               rule !== undefined ? rule.verdictAt(path, key) : CLEAR,
               value,
-              this.readTracking,
+              this.policy.readTracking,
               summarizeReadValue,
             );
     }
@@ -861,7 +776,7 @@ export class StageContext {
    * Costs nothing outside `enableDevMode()`.
    */
   private warnOnBorrowedMutation(): void {
-    if (!isDevMode() || this.readTracking !== 'full' || this._committed) return;
+    if (!isDevMode() || this.policy.readTracking !== 'full' || this._committed) return;
     const rule = this.activeRule();
     for (const key of Object.keys(this._stageReads)) {
       const retained = this._stageReads[key];
@@ -1078,14 +993,7 @@ export class StageContext {
     if (!this.next) {
       this.next = new StageContext(path, stageName, stageId, this.sharedMemory, '', this.eventLog, isDecider);
       this.next.parent = this;
-      // Propagate the redacted mirror down the context tree so every commit
-      // in the run writes to both views.
-      if (this.redactedSharedMemory) this.next.redactedSharedMemory = this.redactedSharedMemory;
-      this.next.redactionRule = this.redactionRule;
-      this.next.readTracking = this.readTracking;
-      this.next.writeTracking = this.writeTracking;
-      this.next.commitValues = this.commitValues;
-      this.next.writeProvenance = this.writeProvenance;
+      this.next.inheritRun(this);
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -1103,12 +1011,7 @@ export class StageContext {
     }
     const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
     child.parent = this;
-    if (this.redactedSharedMemory) child.redactedSharedMemory = this.redactedSharedMemory;
-    child.redactionRule = this.redactionRule;
-    child.readTracking = this.readTracking;
-    child.writeTracking = this.writeTracking;
-    child.commitValues = this.commitValues;
-    child.writeProvenance = this.writeProvenance;
+    child.inheritRun(this);
     this.children.push(child);
     return child;
   }

@@ -128,6 +128,9 @@ export type {
 
 export type { RuntimeSnapshot } from './lib/runner/index.js';
 export { ExecutionRuntime } from './lib/runner/index.js';
+/** The run's policy an `ExecutionRuntime` is constructed with (F5). */
+export type { RunPolicy } from './lib/memory/index.js';
+export { DEFAULT_RUN_POLICY, runPolicy } from './lib/memory/index.js';
 
 // ============================================================================
 // Reactive — TypedScope internals (for custom proxy implementations)
