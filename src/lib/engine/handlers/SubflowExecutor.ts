@@ -427,6 +427,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
         outputContext.commit();
       } catch (error: any) {
+        // A merge-back that failed to commit (an uncloneable value) leaves its
+        // writes staged on the mount's frame; the mount's exit commit below
+        // would throw them again, outside this catch. Through 9.33.0 they
+        // were staged on the parent's frame, which was not committed again,
+        // so the run went on — drop them, as it did. A linear mount's frame
+        // is left as it always was.
+        if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
         parentContext.addError('outputMapperError', error.toString());
         this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
       }
