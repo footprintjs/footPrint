@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A fork right after a subflow mount now runs after the mount, not inside it.** `addSubFlowChartNext(...)` followed by `addListOfFunction(...)` (or `addSubFlowChart` / `addLazySubFlowChart`) hung the fork's children ON the mount node. The engine reads a mount that carries children as the mounted chart's own content, so the subflow's real chart never ran, the fork and everything after it ran INSIDE the subflow and then again after it, and a pause after the fork was checkpointed under a subflow path the chart does not have (`['sf-out', 'sf-p']`) — which resume refused. Present since at least 9.36.0.
+  - **The chart shape changes, for this pattern only.** The fork now hangs on its own function-less fork node, `<mountId>-fork`, which becomes the mount's `next` (the shape `addFunction(...).addListOfFunction(...)` already builds). In `toSpec()` the mount keeps `type: 'stage'` and no `children`; its `next` is `{ id: '<mountId>-fork', type: 'fork', children }`. Structure recorders see one more stage and a `next` edge from the mount to it; the fork's edges leave the fork node. Runs of such charts change accordingly (the subflow's own stages run, each later stage runs once, a pause there checkpoints `subflowPath: ['sf-p']` and resumes). If `<mountId>-fork` is already a stage id the builder refuses, naming the conflict.
+  - **Every other chart is byte-identical to 9.37.0** — `toSpec()`, snapshots, commit logs, narrative and checkpoints of the resume fixtures, 120 sampled plans of the resume property and hand-picked fan-out charts (fork and subflow children after a stage, mount then decider/selector/mount/lazy/parallelForEach) compared byte for byte, wall-clock fields aside.
+  - Pinned: test/lib/pause/resume-fork-after-mount.test.ts (the exact chart, resumed on the same and on a fresh executor through JSON, equals the never-paused run) and a new `afterFork` placement in test/lib/pause/resume-real-chart.property.test.ts (it finds this bug on 9.37.0).
+
 ## [9.37.0] - 2026-10-03
 
 ### Changed — ids and stamps (F7)

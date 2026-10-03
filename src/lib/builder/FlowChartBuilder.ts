@@ -1611,8 +1611,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Parallel (Fork) ──
 
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[], options?: { failFast?: boolean }): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
     const forkId = cur.id;
 
     curSpec.type = 'fork';
@@ -1769,8 +1768,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Subflow Mounting ──
 
   addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1835,8 +1833,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
-    const curSpec = this._needCursorSpec();
+    const { cur, curSpec } = this._needForkParent();
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -2292,6 +2289,48 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   private _needCursorSpec(): SerializedPipelineStructure {
     return this._cursorSpec ?? fail('cursor undefined; call start() first');
+  }
+
+  /**
+   * The node a fan-out (`addListOfFunction`, `addSubFlowChart`,
+   * `addLazySubFlowChart`) hangs its children on — the cursor, unless the
+   * cursor is a subflow MOUNT.
+   *
+   * A mount's `children` are not the parent's: the engine reads a mount that
+   * carries children as the mounted chart's OWN content (`NodeResolver ·
+   * resolveSubflowReference`), so a fork hung there ran INSIDE the subflow —
+   * the subflow's real chart never ran, everything after the fork ran twice,
+   * and a pause after it was checkpointed under the wrong subflow path (and
+   * refused on resume). Through 9.37.0 the builder did exactly that.
+   *
+   * So after a mount the fork continues AFTER it: a function-less fork node
+   * `<mountId>-fork` becomes the mount's `next` and the new cursor — the shape
+   * `addFunction(...).addListOfFunction(...)` already builds, which every
+   * reader (engine, resume, structure, spec) handles. A second fan-out call
+   * reuses that node, as it would any cursor.
+   */
+  private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
+    const mount = this._needCursor();
+    const mountSpec = this._needCursorSpec();
+    if (!mount.isSubflowRoot) return { cur: mount, curSpec: mountSpec };
+
+    const id = `${mount.id}-fork`;
+    if (this._knownStageIds.has(id)) {
+      fail(
+        `cannot fan out after the subflow mount '${mount.name}': the fork node it needs, '${id}', ` +
+          'is already a stage id. Add a stage after the mount and fan out from it.',
+      );
+    }
+    const node: StageNode<TOut, TScope> = { name: id, id };
+    const spec: SerializedPipelineStructure = { name: id, id, type: 'fork' };
+    mount.next = node;
+    mountSpec.next = spec;
+    this._cursor = node;
+    this._advanceCursorSpec(spec);
+    this._knownStageIds.add(id);
+    this._fireStageAdded(spec);
+    this._fireNextEdgeFromParent(mountSpec, id);
+    return { cur: node, curSpec: spec };
   }
 
   /**
