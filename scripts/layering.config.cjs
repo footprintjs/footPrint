@@ -53,6 +53,9 @@ const LAYERS = [
       'src/lib/memory/honesty.ts',
       // The two redaction placeholders (F4a): import nothing; written from L1 (redactPatch) up.
       'src/lib/memory/placeholders.ts',
+      // Which rows touch a key — the path half of the writer rule and the writer index (F3).
+      // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
+      'src/lib/memory/keyPaths.ts',
       // The id grammar: pure leaves (they import nothing). time-travel/ (L3) reads them,
       // so they cannot sit above it.
       'src/lib/engine/runtimeStageId.ts',

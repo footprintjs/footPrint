@@ -65,6 +65,7 @@
 
 import { type Family, type Lossy, type Member, type Rows, addressDepthOf, lossyFamilies } from './admission.js';
 import { type OpVerb, type Survivor, emitInFamilyOrder, groupIntoFamilies, pushValueRow } from './deltaEncoding.js';
+import { relation } from './keyPaths.js';
 import {
   adopt,
   isContainer,
@@ -528,7 +529,8 @@ export class TransactionBuffer {
   wasStaged(path: (string | number)[]): boolean {
     const target = normalisePath(path);
     for (const op of this.opTrace) {
-      if (op.path === target || op.path.startsWith(target + DELIM) || target.startsWith(op.path + DELIM)) return true;
+      // On the path, below it or above it — the one path relation every key query asks.
+      if (relation(op.path, target) !== undefined) return true;
     }
     return false;
   }
