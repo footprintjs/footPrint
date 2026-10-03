@@ -62,6 +62,7 @@
  * would have held), exactly as 9.27.0 did.
  */
 
+import { decodePendingPauses } from '../../pause/record.js';
 import type { PendingPause } from '../../pause/types.js';
 import { isPausedExecution, PauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -494,13 +495,15 @@ function queueSiblingPauses<TOut, TScope>(
 ): Array<LevelQueue<TOut, TScope> | undefined> {
   const queues: Array<LevelQueue<TOut, TScope> | undefined> = [];
   if (pending === undefined) return queues;
+  // The codec's check (`pause/record.ts`) — `plan` is a public door too, so it
+  // never takes a sibling record unchecked, however it was handed one.
+  const decoded = decodePendingPauses(pending);
   const { chart, subflows, root, path, graphs, mounts, paused } = at;
   const seen = new Set<string>();
 
-  // Each record's FIELDS were checked by the one checkpoint decoder
-  // (`pause/record.ts · decodeCheckpoint`) before the plan; here it is asked
-  // whether the record fits THIS chart.
-  pending.forEach((pause, n) => {
+  // Each record's FIELDS are checked above; here it is asked whether the
+  // record fits THIS chart.
+  decoded.forEach((pause, n) => {
     // One record per paused sibling: a repeat would ask the same question twice.
     const key = JSON.stringify([pause.subflowPath, pause.pausedStageId]);
     if (seen.has(key)) {

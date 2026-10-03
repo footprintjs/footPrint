@@ -819,10 +819,13 @@ export class StageContext {
    * Flush staged writes to shared memory and RELEASE the per-stage staging
    * state (#13b).
    *
-   * `phase` (9.39.0) is the writer's statement of WHICH commit of this
-   * execution this is — `'exit'` from a subflow mount's exit, `'repeat'` from
-   * a fork fan-out's settle — stamped on the bundle as `CommitBundle.phase`;
-   * omitted for the stage's ordinary commit, whose bundle carries no `phase`.
+   * `phase` (9.39.0) is the caller's statement of what a CONTINUATION commit
+   * is — `'exit'` from a subflow mount's exit, `'repeat'` from a fork
+   * fan-out's settle. It is stamped on the bundle (`CommitBundle.phase`) only
+   * when this frame has ALREADY committed: the FIRST bundle of an execution
+   * is the stage's own and never carries a `phase` — so a mount without an
+   * `outputMapper` (a lazy mount, every `parallelForEach` branch), whose exit
+   * is its only bundle, records that bundle as its own, tags and all.
    *
    * Commit is the stage's lifecycle end: `buffer` (its working copy and
    * whatever private copies its reads took) and `stateView` (a reference that
@@ -858,6 +861,8 @@ export class StageContext {
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(phase?: CommitPhase): void {
+    // A continuation only AFTER the execution's own bundle (see above).
+    const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
     if (!this.buffer) {
@@ -876,7 +881,7 @@ export class StageContext {
         runtimeStageId: this.runtimeStageId,
         ...this.untrackedSourcesFragment(),
         ...this.tagsFragment(),
-        ...(phase && { phase }),
+        ...(continuation && { phase: continuation }),
       });
       if (this._commitObserver) {
         this._commitObserver({ ...this._stageWrites });
@@ -900,7 +905,7 @@ export class StageContext {
       runtimeStageId: this.runtimeStageId,
       ...this.untrackedSourcesFragment(),
       ...this.tagsFragment(),
-      ...(phase && { phase }),
+      ...(continuation && { phase: continuation }),
     };
 
     this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);

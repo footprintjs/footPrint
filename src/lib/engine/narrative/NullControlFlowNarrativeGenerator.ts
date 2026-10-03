@@ -22,7 +22,6 @@ export class NullControlFlowNarrativeGenerator implements IControlFlowNarrative 
   onBreak(): void {}
   onError(): void {}
   onStageRetry(): void {}
-  onThrottled(): void {}
   onPause(): void {}
   onResume(): void {}
   onRunStart(): void {}

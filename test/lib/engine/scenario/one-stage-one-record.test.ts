@@ -24,9 +24,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { FlowRecorder, FlowThrottledEvent } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { inferLegacyPhases, recordsPhases } from '../../../../src/lib/memory/commitLogUtils.js';
 import type { CommitBundle } from '../../../../src/lib/memory/types.js';
-import { buildCommitIndex, commitStops, timeTravel } from '../../../../src/trace.js';
+import type { CommitPhase } from '../../../../src/trace.js';
+import { buildCommitIndex, commitStops, inferLegacyPhases, recordsPhases, timeTravel } from '../../../../src/trace.js';
 
 type L = Record<string, unknown>;
 
@@ -70,20 +70,57 @@ describe('the writer names every continuation', () => {
     expect(log.filter((b) => b.phase === undefined).map((b) => b.stageId)).toEqual(['seed', 'c1', 'c2', 'join']);
   });
 
-  it('a mount: merge-back (own), then the exit (phase: exit) — and a mount with no outputMapper is its exit alone', async () => {
+  it('a mount: merge-back (own), then the exit (phase: exit); a mount with no merge-back has ONE bundle, its own — no phase, tags on it', async () => {
     const inner = flowChart<L>('In', async (s: any) => s.$setValue('r', 1), 'in').build();
     const chart = flowChart<L>('Outer', async (s: any) => s.$setValue('o', 1), 'outer')
       .addSubFlowChartNext('sf-a', inner, 'A', { outputMapper: (o: L) => ({ r: o.r }) })
-      .addSubFlowChartNext('sf-b', inner, 'B')
+      .addSubFlowChartNext('m', inner, 'M', { tags: ['T'] })
+      .addLazySubFlowChartNext('lazy', () => inner, 'Lazy')
+      .build();
+    const ex = new FlowChartExecutor(chart);
+    await ex.run();
+    const snap = ex.getSnapshot();
+    const rows = (id: string) =>
+      snap.commitLog.filter((b) => b.stageId === id).map((b) => [b.runtimeStageId, b.phase, b.tags]);
+    expect(rows('sf-a').map((r) => r[1])).toEqual([undefined, 'exit']);
+    // THE LAW: the first bundle per runtimeStageId is the stage's own — no phase — and carries its tags.
+    expect(rows('m')).toEqual([[expect.stringMatching(/^m#/), undefined, ['T']]]);
+    expect(rows('lazy').map((r) => r[1])).toEqual([undefined]);
+    // The tree names every mount; the tree-less axis names the one with a recorded exit.
+    expect(
+      commitStops(snap.commitLog, snap.executionTree)
+        .filter((x) => x.kind === 'mount')
+        .map((x) => x.stageId),
+    ).toEqual(['sf-a', 'm', 'lazy']);
+    expect(
+      commitStops(snap.commitLog)
+        .filter((x) => x.kind === 'mount')
+        .map((x) => x.stageId),
+    ).toEqual(['sf-a']);
+  });
+
+  it('every parallelForEach branch is a mapper-less mount: its one bundle is its own (no phase)', async () => {
+    const leaf = (n: unknown) => flowChart<L>('Leaf', async (s: any) => s.$setValue('n', n), 'leaf').build();
+    const chart = flowChart<L>('Seed', async (s: any) => s.$setValue('items', [1, 2]), 'seed')
+      .addParallelForEach('Each', 'each', { items: (s: any) => s.items, branch: leaf, into: 'out', maxBranches: 4 })
       .build();
     const ex = new FlowChartExecutor(chart);
     await ex.run();
     const log = ex.getSnapshot().commitLog;
-    expect(log.filter((b) => b.stageId === 'sf-a').map((b) => b.phase)).toEqual([undefined, 'exit']);
-    expect(log.filter((b) => b.stageId === 'sf-b').map((b) => b.phase)).toEqual(['exit']);
-    // The log names both mounts on its own — no tree needed any more.
-    const stops = commitStops(log);
-    expect(stops.filter((s) => s.kind === 'mount').map((s) => s.stageId)).toEqual(['sf-a', 'sf-b']);
+    const firsts = new Set<string>();
+    for (const b of log) {
+      // Every first bundle per runtimeStageId — branches included — carries no phase.
+      if (!firsts.has(b.runtimeStageId)) expect(b.phase).toBeUndefined();
+      firsts.add(b.runtimeStageId);
+    }
+    const branches = log.filter((b) => b.runtimeStageId.includes('~'));
+    expect(branches.length).toBeGreaterThan(0);
+    // Each branch: its own bundle (the mount's exit — its ONLY own bundle — so no phase), then the
+    // fan-out's settle commit (repeat). Until this fix the first was stamped 'exit'.
+    for (const id of new Set(branches.map((b) => b.runtimeStageId))) {
+      const phases: (CommitPhase | undefined)[] = branches.filter((b) => b.runtimeStageId === id).map((b) => b.phase);
+      expect(phases).toEqual([undefined, 'repeat']);
+    }
   });
 
   it('a fork child that is a mount: merge-back, exit, repeat — one stop, a mount', async () => {

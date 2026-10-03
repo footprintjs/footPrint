@@ -56,15 +56,15 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  */
 export function upcastCheckpoint(stored: Record<string, unknown>): Record<string, unknown> {
   const version = stored.checkpointVersion;
-  if (version === CHECKPOINT_VERSION) return { ...stored };
-  if (version !== undefined) {
+  if (version !== undefined && version !== CHECKPOINT_VERSION) {
     refuse(
       `checkpointVersion ${JSON.stringify(version) ?? String(version)} is not one this release reads ` +
         `(${CHECKPOINT_VERSION}, or none for a checkpoint written before 9.39.0)`,
     );
   }
+  // The legacy field never survives, whatever version claims to carry it.
   const { continuationStageId: _legacy, ...current } = stored as Record<string, unknown> & LegacyCheckpointFields;
-  return { checkpointVersion: CHECKPOINT_VERSION, ...current };
+  return version === undefined ? { checkpointVersion: CHECKPOINT_VERSION, ...current } : current;
 }
 
 /**
@@ -86,6 +86,10 @@ export function decodePauseRecord(raw: unknown, at = ''): PendingPause {
   }
   const states = raw.subflowStates;
   if (states !== undefined && !isPlainRecord(states)) refuse(`${field('subflowStates')} must be an object`);
+  // Each capture seeds a subflow's runtime — a plain object, like `sharedState`.
+  for (const [subflowId, capture] of Object.entries(states ?? {})) {
+    if (!isPlainRecord(capture)) refuse(`${field('subflowStates')}[${JSON.stringify(subflowId)}] must be an object`);
+  }
   if (raw.pausedBy !== undefined && raw.pausedBy !== 'interrupt') {
     refuse(`${field('pausedBy')} must be 'interrupt' when present`);
   }
@@ -115,10 +119,34 @@ export function decodeCheckpoint(stored: unknown): FlowchartCheckpoint {
   const checkpoint = upcastCheckpoint(stored);
   if (!isPlainRecord(checkpoint.sharedState)) refuse('sharedState must be a plain object');
   decodePauseRecord(checkpoint);
-  const pending = checkpoint.pendingPauses;
-  if (pending !== undefined) {
-    if (!Array.isArray(pending)) refuse('pendingPauses must be an array');
-    checkpoint.pendingPauses = pending.map((raw: unknown, n) => decodePauseRecord(raw, `pendingPauses[${n}]`));
+  // A record, never a plan input — the SAME rule as a sibling's: a malformed
+  // link is dropped (the resume runs without it), never trusted.
+  if (checkpoint.pausedExecution !== undefined && !isPausedExecution(checkpoint.pausedExecution)) {
+    delete checkpoint.pausedExecution;
   }
+  // The counters seed the resumed run's ids and loop budget: absent is an old
+  // checkpoint (the counter restarts), present must be well-formed.
+  if (checkpoint.executionCount !== undefined && !isCount(checkpoint.executionCount)) {
+    refuse('executionCount must be a non-negative integer');
+  }
+  const visits = checkpoint.visitCounts;
+  if (visits !== undefined && (!isPlainRecord(visits) || !Object.values(visits).every(isCount))) {
+    refuse('visitCounts must map stage ids to non-negative integers');
+  }
+  if (checkpoint.pendingPauses !== undefined) checkpoint.pendingPauses = decodePendingPauses(checkpoint.pendingPauses);
   return checkpoint as unknown as FlowchartCheckpoint;
+}
+
+/**
+ * `pendingPauses` (stored, untrusted) as decoded records — the one check
+ * `decodeCheckpoint` runs, and the one `ResumeEntry.plan` runs on what it is
+ * handed directly, so neither door takes an unchecked sibling.
+ */
+export function decodePendingPauses(pending: unknown): PendingPause[] {
+  if (!Array.isArray(pending)) refuse('pendingPauses must be an array');
+  return pending.map((raw: unknown, n) => decodePauseRecord(raw, `pendingPauses[${n}]`));
+}
+
+function isCount(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }

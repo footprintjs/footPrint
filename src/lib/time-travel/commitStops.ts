@@ -17,9 +17,10 @@ import type { Stop, TimeTravelStrategy } from './types.js';
 /**
  * Every `runtimeStageId` in the execution tree that the engine marked as a
  * subflow mount. Authoritative, as is a bundle's recorded `phase: 'exit'`
- * (9.39.0) — the log itself names every mount it holds. Only a log written
- * before 9.39.0 AND handed over without its tree falls back to the legacy
- * inference (`inferLegacyPhases`).
+ * (9.39.0) — a mount with a merge-back records its exit as a continuation. A
+ * mount without one has a single bundle, its own (no `phase`), so only the
+ * tree names it. Only a log written before 9.39.0 AND handed over without its
+ * tree falls back to the legacy inference (`inferLegacyPhases`).
  */
 function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
   const ids = new Set<string>();
@@ -44,8 +45,9 @@ function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
  * continuation on its bundle (`phase: 'exit' | 'repeat'`, 9.39.0), so the
  * grouping is read, never inferred: the axis shows the stage ONCE, at its
  * first commit ({@link buildCommitIndex}), which keeps `runtimeStageId → stop`
- * one-to-one — the property `jumpTo` and marks depend on — and a stage whose
- * bundles include an `'exit'` is a `'mount'`. A continuation is normally empty
+ * one-to-one — the property `jumpTo` and marks depend on. The FIRST bundle per
+ * `runtimeStageId` is the stage's own and never carries a `phase`; a stage
+ * whose bundles include an `'exit'` is a `'mount'`. A continuation is normally empty
  * (the first commit released the staging buffer); one that carries a write is
  * folded where it sits in the log, which is when it happened.
  *

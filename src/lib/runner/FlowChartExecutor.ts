@@ -785,7 +785,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // seeding when absent, preserving the previous behavior. Same-executor
     // resume is idempotent: at pause the instance values already equal the
     // checkpoint's, so re-seeding them changes nothing.
-    if (typeof checkpoint.executionCount === 'number') {
+    if (checkpoint.executionCount !== undefined) {
       this._executionCounter.value = checkpoint.executionCount;
     }
     if (checkpoint.visitCounts) {

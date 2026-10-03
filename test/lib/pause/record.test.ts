@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FlowchartCheckpoint } from '../../../src/index.js';
 import { FlowChartExecutor } from '../../../src/index.js';
+import { ResumeEntry } from '../../../src/lib/engine/handlers/ResumeEntry.js';
 import { CHECKPOINT_VERSION, decodeCheckpoint, upcastCheckpoint } from '../../../src/lib/pause/record.js';
 import { type ResumeChartName, HEALTHY, RESUME_CHARTS } from './resume-real-chart-fixture.js';
 
@@ -122,6 +123,8 @@ const MALFORMED: ReadonlyArray<readonly [string, (r: Record<string, unknown>) =>
   ['a path of numbers', (r) => (r.subflowPath = [1]), 'subflowPath must be an array of strings'],
   ['captures as an array', (r) => (r.subflowStates = []), 'subflowStates must be an object'],
   ['captures as null', (r) => (r.subflowStates = null), 'subflowStates must be an object'],
+  ['a capture that is not an object', (r) => (r.subflowStates = { sf: 3 }), 'subflowStates["sf"] must be an object'],
+  ['a capture that is an array', (r) => (r.subflowStates = { sf: [] }), 'subflowStates["sf"] must be an object'],
   ['an unknown pausedBy', (r) => (r.pausedBy = 'magic'), "pausedBy must be 'interrupt' when present"],
 ];
 
@@ -186,6 +189,26 @@ describe('one validator, one message set — the table hits both former entry po
       (c: Record<string, unknown>) => ({ ...c, pendingPauses: ['x'] }),
       'pendingPauses[0] must be an object',
     ],
+    [
+      'a string executionCount',
+      (c: Record<string, unknown>) => ({ ...c, executionCount: '7' }),
+      'executionCount must be a non-negative integer',
+    ],
+    [
+      'a negative executionCount',
+      (c: Record<string, unknown>) => ({ ...c, executionCount: -1 }),
+      'executionCount must be a non-negative integer',
+    ],
+    [
+      'a fractional executionCount',
+      (c: Record<string, unknown>) => ({ ...c, executionCount: 1.5 }),
+      'executionCount must be a non-negative integer',
+    ],
+    [
+      'visitCounts with a non-count',
+      (c: Record<string, unknown>) => ({ ...c, visitCounts: { a: 'x' } }),
+      'visitCounts must map stage ids to non-negative integers',
+    ],
   ] as const)('%s — refused before anything is touched', async (_, shape, what) => {
     const checkpoint = shape(await freshCheckpoint());
     const executor = new FlowChartExecutor(RESUME_CHARTS.askLoopTopLevel());
@@ -193,5 +216,42 @@ describe('one validator, one message set — the table hits both former entry po
       new RegExp(`^Invalid checkpoint: ${escape(what)}\\.$`),
     );
     expect(executor.getCheckpoint()).toBeUndefined();
+  });
+});
+
+describe('the codec’s other rules', () => {
+  it('a v1 checkpoint never keeps continuationStageId', () => {
+    const up = upcastCheckpoint({ checkpointVersion: 1, pausedStageId: 'a', continuationStageId: 'after' });
+    expect(up).toEqual({ checkpointVersion: 1, pausedStageId: 'a' });
+  });
+
+  it('a malformed top-level pausedExecution is DROPPED, as a sibling’s is — never trusted, never fatal', async () => {
+    const checkpoint = await freshCheckpoint();
+    const decoded = decodeCheckpoint({ ...checkpoint, pausedExecution: { runId: 7 } });
+    expect(Object.prototype.hasOwnProperty.call(decoded, 'pausedExecution')).toBe(false);
+    const sibling = decodeCheckpoint({
+      ...checkpoint,
+      pendingPauses: [{ pausedStageId: 'x', subflowPath: [], pausedExecution: { runId: 7 } }],
+    }).pendingPauses![0];
+    expect(Object.prototype.hasOwnProperty.call(sibling, 'pausedExecution')).toBe(false);
+    // …and a well-formed one is kept on both.
+    expect(decodeCheckpoint(checkpoint).pausedExecution).toEqual(checkpoint.pausedExecution);
+  });
+
+  it.each([
+    ['not an array', {}, 'pendingPauses must be an array'],
+    ['a record with no stage', [{ subflowPath: [] }], 'pendingPauses[0].pausedStageId must be a non-empty string'],
+  ] as const)('ResumeEntry.plan, called directly, checks its pendingPauses with the codec (%s)', (_, pending, what) => {
+    const standIn = { name: 'S', id: 's' };
+    expect(() =>
+      ResumeEntry.plan({
+        root: standIn,
+        subflows: {},
+        path: [],
+        captures: {},
+        standIn,
+        pendingPauses: pending as never,
+      }),
+    ).toThrow(new RegExp(`^Invalid checkpoint: ${escape(what)}\\.$`));
   });
 });

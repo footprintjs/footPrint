@@ -200,27 +200,31 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
   subflow mount commits its output-mapping bundle and then its EXIT; a fork
   child is committed by the stage funnel and again by the fan-out (its REPEAT),
   and siblings interleave. Since 9.39.0 the WRITER names each continuation on
-  its bundle — `phase: 'exit'` / `'repeat'`, absent on the stage's own bundle —
-  so the grouping is read, never inferred: the axis shows the stage once, at its
-  first bundle (`buildCommitIndex`), which keeps `runtimeStageId → stop`
-  one-to-one — what `jumpTo` and marks depend on — and a stage with an `'exit'`
-  bundle is a `'mount'`, with or without the execution tree. A continuation is
+  its bundle — `phase: 'exit'` / `'repeat'` — and THE LAW is: the FIRST bundle
+  per `runtimeStageId` is the stage's own and carries no `phase`. So the
+  grouping is read, never inferred: the axis shows the stage once, at its own
+  bundle (`buildCommitIndex`), which keeps `runtimeStageId → stop` one-to-one —
+  what `jumpTo` and marks depend on. A stage with an `'exit'` bundle is a
+  `'mount'` even without the tree; a mount with no merge-back (no
+  `outputMapper`, a lazy mount, a `parallelForEach` branch) has ONE bundle, its
+  own, so only the execution tree names it a mount. A continuation is
   normally empty (the first commit released the staging buffer); one that
   carries a write folds where it sits in the log, which is when it happened.
 - **A log older than 9.39.0** carries no `phase` anywhere. With its execution
   tree, the tree names the mounts and nothing is inferred; without it,
-  `commitStops` asks the ONE legacy reader (`inferLegacyPhases`, in
-  `memory/commitLogUtils.ts`), which applies 9.38.0's rule — a stage's bundle
+  `commitStops` asks the ONE legacy reader (`inferLegacyPhases`, exported from
+  `footprintjs/trace`), which applies 9.38.0's rule — a stage's bundle
   right after its first is a mount's exit — so a stored recording keeps the
   axis it always had, known miss included (a one-child fork of a leaf child
   reads as a mount). A log that records any phase is never inferred.
 
   ```ts
-  import { commitStops } from 'footprintjs/trace';
+  import { commitStops, recordsPhases } from 'footprintjs/trace';
 
-  const log = executor.getSnapshot().commitLog;      // 9.39.0+: phases recorded
-  commitStops(log).filter((s) => s.kind === 'mount'); // every mount — no tree needed
-  log.filter((b) => b.phase === 'repeat');            // every fork child's settle commit
+  const { commitLog: log, executionTree: tree } = executor.getSnapshot(); // 9.39.0+: phases recorded
+  commitStops(log, tree).filter((s) => s.kind === 'mount'); // every mount (the tree names mapper-less ones)
+  log.filter((b) => b.phase === 'repeat');                  // every fork child's settle commit
+  recordsPhases(log);                                       // false ⇒ no continuation, or a pre-9.39 log
   ```
 - **Stops partition the log.** `commitIdx` is the stop's own first commit;
   `lastCommitIdx` runs to just before the next stop begins. Every bundle belongs

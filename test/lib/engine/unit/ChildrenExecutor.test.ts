@@ -197,8 +197,9 @@ describe('ChildrenExecutor', () => {
 
     it('a throttling error is named by an onThrottled flow event, never a state write (R9)', async () => {
       const throttlingErrorChecker = vi.fn().mockReturnValue(true);
-      const narrativeGenerator = new NullControlFlowNarrativeGenerator();
-      const onThrottled = vi.spyOn(narrativeGenerator, 'onThrottled');
+      // `onThrottled` is OPTIONAL on the narrative interface: a generator that implements it hears it.
+      const onThrottled = vi.fn();
+      const narrativeGenerator = Object.assign(new NullControlFlowNarrativeGenerator(), { onThrottled });
       const deps = makeDeps({ throttlingErrorChecker, narrativeGenerator });
       const error = new Error('rate limited');
       const executeNode = vi.fn().mockRejectedValue(error);
@@ -220,8 +221,9 @@ describe('ChildrenExecutor', () => {
 
     it('does not fire onThrottled when throttlingErrorChecker returns false', async () => {
       const throttlingErrorChecker = vi.fn().mockReturnValue(false);
-      const narrativeGenerator = new NullControlFlowNarrativeGenerator();
-      const onThrottled = vi.spyOn(narrativeGenerator, 'onThrottled');
+      // `onThrottled` is OPTIONAL on the narrative interface: a generator that implements it hears it.
+      const onThrottled = vi.fn();
+      const narrativeGenerator = Object.assign(new NullControlFlowNarrativeGenerator(), { onThrottled });
       const deps = makeDeps({ throttlingErrorChecker, narrativeGenerator });
       const executeNode = vi.fn().mockRejectedValue(new Error('not throttled'));
       const executor = new ChildrenExecutor(deps, executeNode);

@@ -96,7 +96,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           // 9.39.0 this wrote `monitor.isThrottled` AFTER the child's last
           // commit, so it landed nowhere.
           if (this.deps.throttlingErrorChecker && this.deps.throttlingErrorChecker(error)) {
-            this.deps.narrativeGenerator.onThrottled(child.name, child.id as string, error, traversalContext);
+            this.deps.narrativeGenerator.onThrottled?.(child.name, child.id as string, error, traversalContext);
           }
           return { id: child.id!, result: error, isError: true };
         });

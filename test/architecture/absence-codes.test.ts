@@ -58,6 +58,8 @@ const NOT_KEY_READERS: Record<string, string> = {
   UnknownVerbError: 'an error class',
   buildBranchSegment: 'id grammar',
   buildCommitIndex: 'runtimeStageId → commit index, no state key',
+  inferLegacyPhases: 'a pre-9.39.0 log → the phase of each bundle (F8), no state key',
+  recordsPhases: 'does a log record continuation phases (F8) — a boolean, no state key',
   buildRuntimeStageId: 'id grammar',
   commitIndexOf: 'runtimeStageId → commit index (-1 = not in this log, its documented indexOf answer)',
   commitStops: 'the time-travel axis, no state key',
