@@ -248,7 +248,12 @@ interface ContinuationHop<TOut = any, TScope = any> {
 interface DriverFrame {
   readonly depth: number;
   readonly ran: readonly ReadonlySet<string | undefined>[];
+  /** The `next`-chain ids of every decider whose branch frame encloses this driver. */
+  readonly tails: readonly ReadonlySet<string | undefined>[];
 }
+
+/** What a branch frame inherits: the enclosing ran-sets, and the tails it may jump to. */
+type EnclosingFrames = Pick<DriverFrame, 'ran' | 'tails'>;
 
 /** Pause-invoker context recorded by the driver for flat decider dispatches. */
 interface InvokerStamp {
@@ -383,6 +388,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * composition.
    */
   private readonly _frameOf = new WeakMap<StageContext, DriverFrame>();
+
+  /** `next`-chain ids per decider continuation head (`tailIds`). */
+  private readonly _tailIds = new WeakMap<StageNode<TOut, TScope>, ReadonlySet<string | undefined>>();
 
   /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
@@ -995,7 +1003,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     context: StageContext,
     breakFlag: BreakFlag,
     branchPath?: string,
-    enclosingRan?: readonly ReadonlySet<string | undefined>[],
+    enclosing?: EnclosingFrames,
   ): Promise<any> {
     // ─── Tree-depth guard ───
     // Depth is the CALL PATH's nesting, read off the context this driver was
@@ -1015,14 +1023,21 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // get their own windows, matching the old frame-on-stack stamping scope.
     let pendingInvokers: InvokerStamp[] | undefined;
     // Every driver remembers the nodes it ran. A decider's BRANCH FRAME
-    // (decider with its own `next`; `enclosingRan` = the ran-sets of the
-    // drivers it is nested in) LEAVES on a loop edge back to a node an
-    // ENCLOSING driver already ran and this frame did not — the hop is handed
-    // back to the decider, which follows it flat at its own level instead of
-    // stacking one frame per pass. Any other jump (sideways to a sibling
-    // branch, forward past the decider) stays in the frame, as through 9.39.0.
+    // (decider with its own `next`; `enclosing` = the ran-sets of the drivers
+    // it is nested in + the `next` chains of the deciders whose frames hold
+    // it) LEAVES on a jump by id (a `loop` hop) to a node this frame did not
+    // run that is either one an ENCLOSING driver already ran (a loop back) or
+    // one on an enclosing decider's `next` chain (a forward jump into the
+    // tail) — the hop is handed back to the decider, which follows it flat
+    // at its own level and skips its `next`, so neither a loop stacks one
+    // frame per pass nor a tail runs twice. Any other jump (sideways to a
+    // sibling branch) stays in the frame, as through 9.39.0.
     const ranHere = new Set<string | undefined>();
-    const frame: DriverFrame = { depth, ran: enclosingRan ? [...enclosingRan, ranHere] : [ranHere] };
+    const frame: DriverFrame = {
+      depth,
+      ran: enclosing ? [...enclosing.ran, ranHere] : [ranHere],
+      tails: enclosing?.tails ?? [],
+    };
     try {
       let current: ContinuationHop<TOut, TScope> = { [CONTINUE_HOP]: true, node, context, branchPath };
       for (;;) {
@@ -1032,9 +1047,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         if (!isContinuationHop<TOut, TScope>(result)) {
           return result;
         }
-        if (enclosingRan !== undefined && result.loop === true && !ranHere.has(result.node.id)) {
+        if (enclosing !== undefined && result.loop === true && !ranHere.has(result.node.id)) {
           const id = result.node.id;
-          if (enclosingRan.some((ran) => ran.has(id))) return result; // the loop leaves this frame
+          const has = (ids: ReadonlySet<string | undefined>) => ids.has(id);
+          if (enclosing.ran.some(has) || enclosing.tails.some(has)) return result; // the jump leaves this frame
         }
         if (result.invokerStamp) (pendingInvokers ??= []).push(result.invokerStamp);
         current = result;
@@ -1062,6 +1078,32 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private nestingDepthOf(context: StageContext): number {
     const parent = context.parent;
     return (parent === undefined ? 0 : this._frameOf.get(parent)?.depth ?? 0) + 1;
+  }
+
+  /**
+   * What a decider's branch frame inherits: the ran-sets of the drivers it is
+   * nested in, and every enclosing decider's `next` chain plus this one's.
+   */
+  private branchFrameFor(context: StageContext, next: StageNode<TOut, TScope>): EnclosingFrames {
+    const outer = this._frameOf.get(context);
+    return { ran: outer?.ran ?? [], tails: [...(outer?.tails ?? []), this.tailIds(next)] };
+  }
+
+  /**
+   * The ids on a decider's `next` chain — `next`, its `next`, … — up to a
+   * loop-ref stub (a back-edge, not the tail). Cached per chain head.
+   */
+  private tailIds(next: StageNode<TOut, TScope>): ReadonlySet<string | undefined> {
+    let ids = this._tailIds.get(next);
+    if (ids === undefined) {
+      const chain = new Set<string | undefined>();
+      for (let n: StageNode<TOut, TScope> | undefined = next; n && !n.isLoopRef && !chain.has(n.id); n = n.next) {
+        chain.add(n.id);
+      }
+      ids = chain;
+      this._tailIds.set(next, ids);
+    }
+    return ids;
   }
 
   /** Build a flat continuation hop for the driver loop. */
@@ -1381,7 +1423,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             dispatch.branchContext,
             breakFlag,
             branchPath,
-            this._frameOf.get(context)?.ran ?? [],
+            this.branchFrameFor(context, originalNext!),
           );
         } catch (error: unknown) {
           if (isPauseSignal(error)) {
