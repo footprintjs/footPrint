@@ -469,19 +469,20 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
 export interface IExecutionRuntime {
   globalStore: { getState(): Record<string, unknown> };
   /**
-   * The redacted mirror of `globalStore` — present once
-   * {@link enableRedactedMirror} ran (a run with a policy), else absent.
+   * The redacted mirror of `globalStore` — present when the run's policy
+   * keeps one (`RunPolicy.mirror`: a run with a redaction policy), else absent.
    * `SubflowExecutor` reads it to serve a subflow's state (9.20.0).
    */
   redactedStore?: SharedMemory;
   rootStageContext: StageContext;
   executionHistory: { list(): unknown[] };
   /**
-   * Opt in to the redacted mirror — `ExecutionRuntime.enableRedactedMirror`.
-   * Optional on the duck type so bare runtimes (tests) need not implement it;
-   * `SubflowExecutor` calls it on a nested runtime exactly when the
-   * parent-mount context carries the run's mirror.
+   * A fresh root frame on this runtime — its store, its log, the run's policy
+   * and mirror (`ExecutionRuntime.newRoot`). `SubflowExecutor` swaps a
+   * subflow's seed frame for the frame its first stage runs on with it.
    */
+  newRoot?(name: string, id: string): StageContext;
+  /** @deprecated since 9.35.0 — the mirror follows `RunPolicy.mirror`; `ExecutionRuntime.enableRedactedMirror`. */
   enableRedactedMirror?(): void;
   getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;

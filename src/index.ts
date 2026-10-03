@@ -85,6 +85,12 @@ export type { RunResult } from './lib/runner/index.js';
 /** @category Run */
 export type { FlowChartExecutorOptions } from './lib/runner/index.js';
 
+/**
+ * The four observability dials `FlowChartExecutorOptions` inherits.
+ * @category Run
+ */
+export type { RunDials } from './lib/memory/index.js';
+
 /** @category Run */
 export { FlowChartExecutor } from './lib/runner/index.js';
 

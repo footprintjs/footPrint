@@ -14,6 +14,8 @@ import { deepFreeze } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RedactionRule } from '../memory/redaction.js';
+import type { RunPolicy } from '../memory/runPolicy.js';
+import { DEFAULT_RUN_POLICY, derivePolicy } from '../memory/runPolicy.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
 import type {
@@ -140,9 +142,9 @@ export class ExecutionRuntime {
   /**
    * Parallel redacted mirror of `globalStore`. Populated during traversal via
    * `StageContext.commit()` using the already-computed redacted patches.
-   * Only exists when `enableRedactedMirror()` has been called — typically by
-   * `FlowChartExecutor` when a `RedactionPolicy` is configured. Otherwise
-   * undefined and zero cost.
+   * Only exists when the run's policy keeps a mirror (`RunPolicy.mirror` —
+   * `FlowChartExecutor` sets it when a `RedactionPolicy` is configured).
+   * Otherwise undefined and zero cost.
    *
    * Read via `getSnapshot({ redact: true })`.
    */
@@ -153,17 +155,27 @@ export class ExecutionRuntime {
   private _snapshotRoot?: StageContext;
   private _initialState: unknown;
   private _defaultValues: unknown;
-  /** Active commit-values encoding (#13c-B) — surfaced as the snapshot
-   *  discriminant {@link RuntimeSnapshot.commitValues}. */
-  private commitValues: CommitValuesMode = 'full';
-
-  /** Mirror of the writeProvenance dial for the snapshot discriminant (#P1). */
-  private writeProvenance: WriteProvenanceMode = 'off';
+  /** The run's policy (`memory/runPolicy.ts`) — installed on the root frame;
+   *  its `commitValues` and `writeProvenance` are the snapshot discriminants. */
+  private policy: RunPolicy;
 
   /** Memoized frozen fold base — see {@link RuntimeSnapshot.initialState}. */
   private _foldBase?: Record<string, unknown>;
 
-  constructor(rootName: string, rootId: string, defaultValues?: unknown, initialState?: unknown) {
+  /**
+   * @param policy The run's policy (`runPolicy.ts`, F5) — the four dials, the
+   *   redaction rule, the mirror flag. Installed on the root frame here, so
+   *   the FIRST commit (a subflow's seed, `history[0]`) already runs under it;
+   *   every frame after inherits the same reference. Default: every dial at
+   *   its default, no rule, no mirror.
+   */
+  constructor(
+    rootName: string,
+    rootId: string,
+    defaultValues?: unknown,
+    initialState?: unknown,
+    policy: RunPolicy = DEFAULT_RUN_POLICY,
+  ) {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
     this.globalStore = new SharedMemory(defaultValues, initialState);
@@ -174,103 +186,96 @@ export class ExecutionRuntime {
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
     this.executionHistory = new EventLog(this.globalStore.getState());
-    this.rootStageContext = new StageContext('', rootName, rootId, this.globalStore, '', this.executionHistory);
+    this.policy = policy;
+    this.rootStageContext = this.newRoot(rootName, rootId);
   }
 
   /**
-   * Opt in to maintaining a parallel redacted mirror of `globalStore`. After
-   * this call, every `StageContext.commit()` in the run writes the redacted
-   * patches (the same ones fed to the event log) into `redactedStore` in
-   * addition to the raw ones written to `globalStore`.
-   *
-   * The mirror is created lazily and propagated into all child / next
-   * contexts, so it correctly reflects subflow-scope writes. When no
-   * `RedactionPolicy` is configured, callers should skip this — unused
-   * allocation, no functional difference in the snapshot.
+   * A fresh root frame for this runtime — `globalStore`, `executionHistory`,
+   * the run's policy and (when kept) the mirror. Also how `SubflowExecutor`
+   * replaces a subflow's seed frame with the frame its first stage runs on.
+   */
+  newRoot(name: string, id: string): StageContext {
+    const root = new StageContext('', name, id, this.globalStore, '', this.executionHistory);
+    this.installPolicy(root);
+    return root;
+  }
+
+  /**
+   * Install the run's policy on the CURRENT root frame — a same-executor
+   * resume, whose continuation root (`leaf.createNext`) is advanced before
+   * the executor builds this leg's policy (a fresh rule per leg). Every
+   * descendant takes the reference from there.
+   */
+  usePolicy(policy: RunPolicy): void {
+    this.policy = policy;
+    this.installPolicy(this.rootStageContext);
+  }
+
+  // ── Deprecated setters (9.35.0) — forwarders over the run policy ──────────
+  // Each derives a new frozen policy from the ROOT frame's (what the old
+  // setters wrote to) and installs it with `usePolicy`.
+
+  private derive(patch: Partial<RunPolicy>): void {
+    this.usePolicy(derivePolicy(this.rootStageContext.getPolicy(), patch));
+  }
+
+  /** @deprecated since 9.35.0 — construct with `runPolicy({ readTracking })`, or `usePolicy`. */
+  useReadTracking(mode: ReadTrackingMode): void {
+    this.derive({ readTracking: mode });
+  }
+
+  /** @deprecated since 9.35.0 — construct with `runPolicy({ writeTracking })`, or `usePolicy`. */
+  useWriteTracking(mode: WriteTrackingMode): void {
+    this.derive({ writeTracking: mode });
+  }
+
+  /** @deprecated since 9.35.0 — construct with `runPolicy({ commitValues })`, or `usePolicy`. */
+  useCommitValues(mode: CommitValuesMode): void {
+    this.derive({ commitValues: mode });
+  }
+
+  /** @deprecated since 9.35.0 — construct with `runPolicy({ writeProvenance })`, or `usePolicy`. */
+  useWriteProvenance(mode: WriteProvenanceMode): void {
+    this.derive({ writeProvenance: mode });
+  }
+
+  /** @deprecated since 9.35.0 — construct with `runPolicy(dials, rule)`, or `usePolicy`. */
+  useRedaction(rule: RedactionRule): void {
+    this.derive({ redaction: rule });
+  }
+
+  /**
+   * @deprecated since 9.35.0 — construct with `runPolicy(dials, rule, true)`.
+   * Idempotent, as before: a runtime that already keeps a mirror is untouched.
    */
   enableRedactedMirror(): void {
-    if (this.redactedStore) return; // idempotent
-    // The mirror is a SERVED surface, so its seed must already be the
-    // policy's view of the starting state: a policy key that arrives by
-    // `initialContext` / `defaultValuesForContext` (or, on a cross-executor
-    // resume, by the checkpoint's `sharedState`) and is never re-written
-    // would otherwise sit in `getSnapshot({ redact: true })` in plaintext.
-    // The rule must therefore be installed BEFORE this call — the executor
-    // orders `useRedaction` first — and the seed is scrubbed with the LOG's
-    // placeholder, the same string the redacted patches carry. Without a
-    // rule (never the executor's case) the seed is the raw one.
-    const rule = this.rootStageContext.getRedactionRule();
-    this.redactedStore = new SharedMemory(
-      rule ? rule.retainState(this._defaultValues, LOG_PLACEHOLDER) : this._defaultValues,
-      rule ? rule.retainState(this._initialState, LOG_PLACEHOLDER) : this._initialState,
-    );
-    this.rootStageContext.useRedactedMirror(this.redactedStore);
+    if (this.redactedStore) return;
+    this.derive({ mirror: true });
   }
 
   /**
-   * Install the run's redaction rule (the ONE owner of the verdict —
-   * `memory/redaction.ts`) on the root stage context. Descendants inherit
-   * via `createNext`/`createChild`; subflow roots inherit from their
-   * parent-mount context via `SubflowExecutor`. Called by
-   * `FlowChartExecutor.createTraverser()` on every run AND resume — after the
-   * resume-path root swap, like the dials — so every staged write and tracked
-   * read of the run, facade or not, is retained under the same policy.
+   * The policy on `root`, and the mirror store when the policy keeps one.
+   * The mirror is a SERVED surface, so its seed must already be the policy's
+   * view of the starting state: a policy key that arrives by `initialContext`
+   * / `defaultValuesForContext` (or, on a cross-executor resume, by the
+   * checkpoint's `sharedState`) and is never re-written would otherwise sit
+   * in `getSnapshot({ redact: true })` in plaintext — so the seed is scrubbed
+   * with the LOG's placeholder, the same string the redacted patches carry.
+   * Created once per runtime (a subflow's runtime keeps its own; its seed is
+   * empty — the input arrives as a commit).
    */
-  useRedaction(rule: RedactionRule): void {
-    this.rootStageContext.useRedactionRule(rule);
-  }
-
-  /**
-   * Set the read-tracking policy (#14) on the root stage context. Descendant
-   * contexts inherit via `createNext`/`createChild`; subflow root contexts
-   * inherit from their parent-mount context via `SubflowExecutor`. Called by
-   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
-   * the default `'full'` — including the resume path, where it is applied to
-   * the freshly-created continuation root.
-   */
-  useReadTracking(mode: ReadTrackingMode): void {
-    this.rootStageContext.useReadTracking(mode);
-  }
-
-  /**
-   * Set the write-tracking policy (#13c-A) on the root stage context — the
-   * sibling of {@link useReadTracking}, with identical plumbing: descendant
-   * contexts inherit via `createNext`/`createChild`; subflow root contexts
-   * inherit from their parent-mount context via `SubflowExecutor`. Called by
-   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
-   * the default `'full'` — including the resume path, where it is applied to
-   * the freshly-created continuation root.
-   */
-  useWriteTracking(mode: WriteTrackingMode): void {
-    this.rootStageContext.useWriteTracking(mode);
-  }
-
-  /**
-   * Set the commit-values encoding policy (#13c-B) on the root stage context
-   * — the third dial of the {@link useReadTracking}/{@link useWriteTracking}
-   * family, with identical plumbing: descendant contexts inherit via
-   * `createNext`/`createChild`; subflow root contexts inherit from their
-   * parent-mount context via `SubflowExecutor`. Called by
-   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
-   * the default `'full'` — including the resume path, where it is applied to
-   * the freshly-created continuation root.
-   */
-  useCommitValues(mode: CommitValuesMode): void {
-    this.commitValues = mode;
-    this.rootStageContext.useCommitValues(mode);
-  }
-
-  /**
-   * Set the per-write read-provenance policy (#P1) on the root stage context
-   * — the fourth dial of the family, identical plumbing: descendant contexts
-   * inherit via `createNext`/`createChild`; subflow root contexts inherit
-   * from their parent-mount context via `SubflowExecutor`. Called by
-   * `FlowChartExecutor.createTraverser()` when the executor's policy is not
-   * the default `'off'` — including the resume path.
-   */
-  useWriteProvenance(mode: WriteProvenanceMode): void {
-    this.writeProvenance = mode;
-    this.rootStageContext.useWriteProvenance(mode);
+  private installPolicy(root: StageContext): void {
+    root.usePolicy(this.policy);
+    if (!this.policy.mirror) return;
+    if (!this.redactedStore) {
+      const rule = this.policy.redaction;
+      this.redactedStore = new SharedMemory(
+        rule ? rule.retainState(this._defaultValues, LOG_PLACEHOLDER) : this._defaultValues,
+        rule ? rule.retainState(this._initialState, LOG_PLACEHOLDER) : this._initialState,
+      );
+    }
+    root.useRedactedMirror(this.redactedStore);
   }
 
   /** Preserve the current rootStageContext for snapshots before changing it for resume. */
@@ -354,8 +359,8 @@ export class ExecutionRuntime {
       // bundles in it are the log's own, frozen at `EventLog · record` (F3).
       // The copy stays: it is what keeps a holder's array from growing.
       commitLog: Object.freeze(this.executionHistory.list().slice()) as CommitBundle[],
-      commitValues: this.commitValues,
-      writeProvenance: this.writeProvenance,
+      commitValues: this.policy.commitValues,
+      writeProvenance: this.policy.writeProvenance,
     };
   }
 }

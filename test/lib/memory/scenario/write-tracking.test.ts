@@ -51,6 +51,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CommitEvent, WriteSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
+import { derivePolicy, runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 import type { StageSnapshot } from '../../../../src/lib/memory/types';
@@ -205,7 +206,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
   describe("'summary' mode", () => {
     it('records type/size/preview markers per value kind — with ZERO tracking clones', () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('summary');
+      ctx.usePolicy(runPolicy({ writeTracking: 'summary' }));
       const cfg = { retries: 3 };
       const tags = ['a', 'b', 'c'];
       cloneCalls = [];
@@ -230,7 +231,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
     it('Map/Set report their real entry count, not Object.keys (always 0)', () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('summary');
+      ctx.usePolicy(runPolicy({ writeTracking: 'summary' }));
 
       ctx.setObject(
         [],
@@ -251,7 +252,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
     it('string previews are capped at 80 characters', () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('summary');
+      ctx.usePolicy(runPolicy({ writeTracking: 'summary' }));
 
       ctx.setObject([], 'long', 'x'.repeat(500));
 
@@ -262,7 +263,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
     it("updateObject under 'summary': ZERO identity clones; marker keeps operation 'update' for onCommit", () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('summary');
+      ctx.usePolicy(runPolicy({ writeTracking: 'summary' }));
       const observed: Record<string, { value: unknown; operation: string }>[] = [];
       ctx.setCommitObserver((mutations) => observed.push(mutations));
       const delta = { nested: { added: true } };
@@ -305,7 +306,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
   describe("'off' mode", () => {
     it('zero tracking clones; stageWrites absent; commit + sharedState UNAFFECTED', () => {
       const { mem, log, ctx } = freshCtx();
-      ctx.useWriteTracking('off');
+      ctx.usePolicy(runPolicy({ writeTracking: 'off' }));
       const cfg = { retries: 5 };
       cloneCalls = [];
 
@@ -433,13 +434,13 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
   describe('policy plumbing', () => {
     it('createNext / createChild inherit the mode', () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('off');
+      ctx.usePolicy(runPolicy({ writeTracking: 'off' }));
 
       const next = ctx.createNext('p1', 'next-stage', 'next-stage');
       const child = ctx.createChild('p1', 'branch-1', 'child-stage', 'child-stage');
 
-      expect(next.getWriteTracking()).toBe('off');
-      expect(child.getWriteTracking()).toBe('off');
+      expect(next.getPolicy().writeTracking).toBe('off');
+      expect(child.getPolicy().writeTracking).toBe('off');
       // And it is live, not just stored: writes on the child track nothing.
       child.setObject([], 'fromChild', 1);
       expect(child.getSnapshot().stageWrites).toBeUndefined();
@@ -587,7 +588,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       "%s: a redacted write stores '[REDACTED]', never a value or marker",
       (mode) => {
         const { ctx } = freshCtx();
-        ctx.useWriteTracking(mode);
+        ctx.usePolicy(runPolicy({ writeTracking: mode }));
 
         ctx.setObject([], 'ssn', '123-45-6789', true);
 
@@ -600,7 +601,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
     it("'off': a redacted write stores nothing at all (nothing to leak)", () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('off');
+      ctx.usePolicy(runPolicy({ writeTracking: 'off' }));
 
       ctx.setObject([], 'ssn', '123-45-6789', true);
 
@@ -634,12 +635,12 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
   // ── (f) the two dials are independent ────────────────────────────────────
   describe('read and write dials are independent', () => {
-    it("unit: useWriteTracking doesn't move readTracking, and vice versa", () => {
+    it("unit: setting writeTracking doesn't move readTracking, and vice versa", () => {
       const { ctx } = freshCtx();
-      ctx.useWriteTracking('off');
-      expect(ctx.getReadTracking()).toBe('full');
-      ctx.useReadTracking('summary');
-      expect(ctx.getWriteTracking()).toBe('off');
+      ctx.usePolicy(runPolicy({ writeTracking: 'off' }));
+      expect(ctx.getPolicy().readTracking).toBe('full');
+      ctx.usePolicy(derivePolicy(ctx.getPolicy(), { readTracking: 'summary' }));
+      expect(ctx.getPolicy().writeTracking).toBe('off');
     });
 
     it("e2e: writeTracking 'off' leaves stageReads at full fidelity", async () => {

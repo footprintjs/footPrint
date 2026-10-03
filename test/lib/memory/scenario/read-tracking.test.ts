@@ -29,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReadSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
+import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 import type { StageSnapshot } from '../../../../src/lib/memory/types';
@@ -142,7 +143,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
   describe("'off' mode", () => {
     it('reads return values with ZERO structuredClones; stageReads absent from snapshot', () => {
       const { ctx } = seededCtx();
-      ctx.useReadTracking('off');
+      ctx.usePolicy(runPolicy({ readTracking: 'off' }));
       cloneCalls = [];
 
       expect(ctx.getValue([], 'greeting')).toBe('hello');
@@ -280,7 +281,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
   describe("'summary' mode", () => {
     it('records type/size/preview markers per value kind — with ZERO value clones', () => {
       const { ctx } = seededCtx();
-      ctx.useReadTracking('summary');
+      ctx.usePolicy(runPolicy({ readTracking: 'summary' }));
       cloneCalls = [];
 
       ctx.getValue([], 'greeting'); // string
@@ -316,7 +317,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       seed.commit();
 
       const ctx = new StageContext('p1', 'stage2', 'stage2', mem, '', log);
-      ctx.useReadTracking('summary');
+      ctx.usePolicy(runPolicy({ readTracking: 'summary' }));
       ctx.getValue([], 'lookup');
       ctx.getValue([], 'seen');
 
@@ -329,7 +330,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
     it('string previews are capped at 80 characters', () => {
       const { ctx } = seededCtx();
       ctx.setObject([], 'long', 'x'.repeat(500));
-      ctx.useReadTracking('summary');
+      ctx.usePolicy(runPolicy({ readTracking: 'summary' }));
 
       ctx.getValue([], 'long');
 
@@ -367,13 +368,13 @@ describe('Scenario: read-tracking policy (#14)', () => {
   describe('policy plumbing', () => {
     it('createNext / createChild inherit the mode', () => {
       const { ctx } = seededCtx();
-      ctx.useReadTracking('off');
+      ctx.usePolicy(runPolicy({ readTracking: 'off' }));
 
       const next = ctx.createNext('p1', 'next-stage', 'next-stage');
       const child = ctx.createChild('p1', 'branch-1', 'child-stage', 'child-stage');
 
-      expect(next.getReadTracking()).toBe('off');
-      expect(child.getReadTracking()).toBe('off');
+      expect(next.getPolicy().readTracking).toBe('off');
+      expect(child.getPolicy().readTracking).toBe('off');
       // And it is live, not just stored: reads on the child track nothing.
       child.getValue([], 'greeting');
       expect(child.getSnapshot().stageReads).toBeUndefined();
@@ -497,7 +498,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
   describe('read-your-writes and commit semantics are policy-independent', () => {
     it.each(['off', 'summary'] as const)('%s: write-then-read sees the new value; commit diff intact', (mode) => {
       const { mem, log, ctx } = seededCtx();
-      ctx.useReadTracking(mode);
+      ctx.usePolicy(runPolicy({ readTracking: mode }));
 
       ctx.setObject([], 'greeting', 'updated');
       expect(ctx.getValue([], 'greeting')).toBe('updated'); // buffered read

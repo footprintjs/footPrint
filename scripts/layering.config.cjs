@@ -109,6 +109,8 @@ const LAYERS = [
     name: 'the frame and run policy',
     files: [
       'src/lib/memory/StageContext.ts',
+      // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
+      'src/lib/memory/runPolicy.ts',
       'src/lib/memory/DiagnosticCollector.ts',
       'src/lib/memory/borrowedMutation.ts',
       'src/lib/memory/index.ts',

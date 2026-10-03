@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — one run policy: a subflow's seed commits under the run's dials (C-F5)
+
+- **Why.** The four observability dials, the redaction rule and the redacted mirror were copied field
+  by field down three paths — `ExecutionRuntime.use*` on the root, six assignments in each of
+  `StageContext.createNext`/`createChild`, and a duck-typed push per dial in
+  `SubflowExecutor · executeSubflow` — so a new dial was six edits, a missed one ran a subflow on the
+  default silently, and the subflow push happened AFTER the seed: a subflow's `history[0]` was the only
+  commit of a run that ignored the dials.
+- **Now.** `memory/runPolicy.ts` holds them as ONE frozen `RunPolicy`, built once per leg (run and
+  resume) by the executor, given to `ExecutionRuntime` at construction, and held BY REFERENCE by every
+  frame — a subflow's runtime is constructed with it, so its seed frame is too. The one byte change:
+  under `writeProvenance: 'reads-prefix'` every row of a subflow's seed bundle carries `readKeys: []`
+  (the seed read nothing before it wrote). Under the other three dials the seed is byte-identical, and
+  every other byte of every run is unchanged.
+
+  ```text
+  new FlowChartExecutor(chart, { writeProvenance: 'reads-prefix' })   // chart mounts a subflow with an inputMapper
+  getSubtreeSnapshot(snapshot, 'sf').history[0].trace
+    before: [{ path: 'n', verb: 'set' }, { path: 'flag', verb: 'set' }]
+    after:  [{ path: 'n', verb: 'set', readKeys: [] }, { path: 'flag', verb: 'set', readKeys: [] }]
+  ```
+
+- `FlowChartExecutorOptions` now extends the new `RunDials` type (same four optional fields). New on
+  `footprintjs/advanced`: `RunPolicy`, `runPolicy`, `DEFAULT_RUN_POLICY`; `StageContext.usePolicy` /
+  `getPolicy`; `ExecutionRuntime.usePolicy` / `newRoot` and a 5th constructor argument (the policy).
+
+### Deprecated
+
+- `StageContext.useReadTracking` / `useWriteTracking` / `useCommitValues` / `useWriteProvenance` and
+  their `get*` twins → `ctx.usePolicy(runPolicy({ readTracking: 'off' }))`, `ctx.getPolicy().readTracking`.
+- `ExecutionRuntime.useReadTracking` / `useWriteTracking` / `useCommitValues` / `useWriteProvenance` /
+  `useRedaction` / `enableRedactedMirror` → `new ExecutionRuntime(name, id, defaults, initial,
+  runPolicy(dials, rule, mirror))`, or `runtime.usePolicy(policy)`.
+- Each still works as on 9.34.0: it swaps in a derived frozen policy (`derivePolicy`) — no mutable dial
+  field returns. Pinned by `test/lib/memory/deprecated-dial-forwarders.test.ts` against the
+  differential control package, `footprintjs-baseline` (9.28.0 — the members behaved the same through
+  9.34.0).
+- **Compatibility, kept:** a hand-built frame or runtime of the 9.34.0 shape still drives a subflow —
+  `IExecutionRuntime.newRoot` is optional (without it the nested root is built as before, then given the
+  policy), a frame without `getPolicy` falls back to the runtime root's policy, else `DEFAULT_RUN_POLICY`,
+  and `ScopeFacade` still tolerates a context without `useRedactionRule` / `getRedactionRule`. Pinned:
+  `test/lib/engine/unit/SubflowExecutor.test.ts` passes with its 9.34.0 mock shape, unedited.
+
 ## [9.34.0] - 2026-10-03
 
 ### Changed — a subflow's merge-back and seed are recorded under the MOUNT (ruling R13)
