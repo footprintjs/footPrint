@@ -54,6 +54,8 @@ import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
+import { fire, operationFor, warnInDevMode } from '../recorder/hooks.js';
+import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
@@ -100,6 +102,9 @@ function standInFor<TOut, TScope>(
   }
   return standIn;
 }
+
+/** The flow channel's isolation for the executor-made `onResume` (dev-mode warning, then skip). */
+const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
 
 /**
  * Options object for `FlowChartExecutor` — preferred over positional params.
@@ -866,8 +871,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       },
       channel: 'flow' as const,
     };
-    if (this.combinedRecorder) this.combinedRecorder.onResume(flowResumeEvent);
-    for (const r of this.flowRecorders) r.onResume?.(flowResumeEvent);
+    // Executor-made (`HOOKS.onResume.executorMade`): fired through the same `fire` loop as every
+    // engine event, so a throwing recorder is isolated instead of rejecting `resume()` (R10).
+    const flowListeners = this.combinedRecorder ? [this.combinedRecorder, ...this.flowRecorders] : this.flowRecorders;
+    fire(flowListeners, 'onResume', flowResumeEvent, RESUME_FLOW_FAILURE);
 
     const scopeResumeEvent = {
       stageName: pausedNode.name,
@@ -878,7 +885,20 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       timestamp: Date.now(),
       channel: 'scope' as const,
     };
-    for (const r of this.scopeRecorders) r.onResume?.(scopeResumeEvent);
+    fire(this.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
+      // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
+      // becomes an `onError` on every scope recorder, whose own throw is dropped.
+      fire(this.scopeRecorders, 'onError', {
+        stageName: scopeResumeEvent.stageName,
+        stageId: scopeResumeEvent.stageId,
+        runtimeStageId: scopeResumeEvent.runtimeStageId,
+        pipelineId: scopeResumeEvent.pipelineId,
+        timestamp: Date.now(),
+        error: error as Error,
+        operation: operationFor(hook),
+        channel: 'scope' as const,
+      }),
+    );
 
     // Deferred tier (RFC-001): these executor-synthesized onResume events
     // bypass the per-stage dispatch sites, so capture them directly.
@@ -1590,14 +1610,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * for an id wins. A recorder with no `toSnapshot` never claims an id, so it
    * cannot shadow a same-id recorder that does have one.
    *
-   * The row is REBUILT field by field rather than spread, so that a recorder
-   * cannot smuggle an `id` of its own choosing into the snapshot (the id is
-   * the executor's, and consumers index by it). The cost of that is real:
-   * anything the recorder returns and this list forgets is dropped in
-   * silence. `meta` is on the list for exactly that reason — a recorder that
-   * ships more than one bundle shape needs one field an offline reader can
-   * branch on, and until it was copied here the only place to say which
-   * shape you were holding was the prose in `description`.
+   * The row is REBUILT field by field by the one copier (`recorder/snapshot.ts
+   * · copyBundle`, shared with `CompositeRecorder`) rather than spread, so a
+   * recorder cannot smuggle an `id` of its own choosing into the snapshot (the
+   * id is the executor's, and consumers index by it).
    */
   private collectRecorderSnapshots(): RecorderSnapshot[] {
     const out: RecorderSnapshot[] = [];
@@ -1605,15 +1621,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const collect = (r: ScopeRecorder | FlowRecorder): void => {
       if (!r.toSnapshot || seen.has(r.id)) return;
       seen.add(r.id);
-      const snap = r.toSnapshot();
-      out.push({
-        id: r.id,
-        name: snap.name,
-        description: snap.description,
-        preferredOperation: snap.preferredOperation,
-        data: snap.data,
-        meta: snap.meta,
-      });
+      out.push(copyBundle(r.id, r.toSnapshot()));
     };
     for (const r of this.scopeRecorders) collect(r);
     for (const r of this.flowRecorders) collect(r);
