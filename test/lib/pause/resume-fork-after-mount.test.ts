@@ -135,3 +135,124 @@ describe('a fork right after a subflow mount', () => {
     ).toThrow(/fork node it needs, 'sf-out-fork', is already a stage id/);
   });
 });
+
+// ── The same root bug after a decider, a selector, a parallelForEach ────────
+//
+// Their `children` already mean something else (branches; run-time items), so
+// through 9.37.0 a fork hung on them was silently dropped: after a decider it
+// became a branch nobody picks, after a parallelForEach it never ran. The fork
+// now continues AFTER them, on `<id>-fork`, as after a mount.
+
+type Owner = 'decider' | 'selector' | 'parallelForEach';
+const OWNERS: Owner[] = ['decider', 'selector', 'parallelForEach'];
+
+function ownerChart(owner: Owner, mode: Mode): FlowChart {
+  const ask = flowChart(
+    'Ask',
+    (s: S) => {
+      const answer = mode === 'direct' ? ANSWER : interrupt<string>(s, { q: 'go?' });
+      s.trace = [...(s.prior as string[]), `ask=${answer}`];
+    },
+    'ask',
+  ).build();
+  let b: any = flowChart(
+    'Init',
+    (s: S) => {
+      s.trace = ['init'];
+    },
+    'init',
+  );
+  if (owner === 'decider') {
+    b = b
+      .addDeciderFunction('D', () => 'a', 'd')
+      .addFunctionBranch('a', 'A', mark('a'))
+      .addFunctionBranch('b', 'B', mark('b'))
+      .end();
+  } else if (owner === 'selector') {
+    b = b
+      .addSelectorFunction('Sel', () => ['a'], 'sel')
+      .addFunctionBranch('a', 'A', mark('a'))
+      .addFunctionBranch('b', 'B', mark('b'))
+      .end();
+  } else {
+    const leaf = flowChart('Leaf', () => undefined, 'leaf').build();
+    b = b.addParallelForEach('Each', 'each', { items: () => ['x'], branch: () => leaf, maxBranches: 2, into: 'r' });
+  }
+  return b
+    .addListOfFunction([
+      {
+        id: 'fa',
+        name: 'FA',
+        fn: (s: S) => {
+          s.fa = 1;
+        },
+      },
+    ])
+    .addSubFlowChartNext('sf-p', ask, 'P', traceThrough)
+    .addFunction('End', mark('end'), 'end')
+    .build();
+}
+
+const forkOf: Record<Owner, string> = { decider: 'd-fork', selector: 'sel-fork', parallelForEach: 'each-fork' };
+
+describe.each(OWNERS)('a fork right after a %s', (owner) => {
+  it('runs AFTER it, once, and the chart continues past it', async () => {
+    const executor = new FlowChartExecutor(ownerChart(owner, 'direct'));
+    await executor.run();
+    const snapshot = executor.getSnapshot();
+    const stages = snapshot.commitLog.map((b) => b.stageId);
+    expect(stages.filter((id) => id === 'fa')).not.toHaveLength(0);
+    expect(new Set(snapshot.commitLog.filter((b) => b.stageId === 'fa').map((b) => b.runtimeStageId)).size).toBe(1);
+    expect(stages.indexOf('fa')).toBeLessThan(stages.indexOf('sf-p'));
+    const trace = (snapshot.sharedState as Record<string, unknown>).trace;
+    // A decider branch writes the parent's state; a selector branch runs as a
+    // parallel child (its own namespace); a parallelForEach branch is a subflow.
+    const own = owner === 'decider' ? ['a'] : [];
+    expect(trace).toEqual(['init', ...own, `ask=${ANSWER}`, 'end']);
+    if (owner !== 'parallelForEach') expect(stages.indexOf('a')).toBeLessThan(stages.indexOf('fa'));
+  });
+
+  it.each<ResumeMode>(['same', 'cross'])('%s-executor resume equals the never-paused run', async (mode) => {
+    const executor = new FlowChartExecutor(ownerChart(owner, 'direct'));
+    await executor.run();
+    const direct = executor.getSnapshot().sharedState as Record<string, unknown>;
+    const paused = await drive(ownerChart(owner, 'pause'), mode, { answer: () => ANSWER });
+    expect(paused.pauses).toBe(1);
+    expect(paused.checkpoints[0].subflowPath).toEqual(['sf-p']);
+    expect(paused.trace).toEqual(direct.trace);
+    expect(paused.state).toEqual(direct);
+  });
+
+  it('the chart: the node keeps its own children; the fork is its next', () => {
+    const spec = (ownerChart(owner, 'direct') as any).buildTimeStructure;
+    const node = spec.next;
+    expect(node.children?.some((c: { id: string }) => c.id === 'fa') ?? false).toBe(false);
+    expect(node.next).toMatchObject({ id: forkOf[owner], type: 'fork' });
+    expect(node.next.children.map((c: { id: string }) => c.id)).toEqual(['fa']);
+  });
+});
+
+describe('the fork node id is reserved both ways', () => {
+  const mounted = () =>
+    flowChart('Init', () => undefined, 'init')
+      .addSubFlowChartNext('m', flowChart('M0', () => undefined, 'm0').build(), 'M')
+      .addListOfFunction([{ id: 'fa', name: 'FA', fn: () => undefined }]);
+
+  it('a stage added later may not take it', () => {
+    expect(() => mounted().addFunction('X', () => undefined, 'm-fork')).toThrow(/id 'm-fork' is taken/);
+  });
+
+  it('a mount added later may not take it', () => {
+    expect(() => mounted().addSubFlowChartNext('m-fork', flowChart('L', () => undefined, 'l').build(), 'L')).toThrow(
+      /id 'm-fork' is taken/,
+    );
+  });
+
+  it('a fan-out may not generate it when a stage already has it', () => {
+    expect(() =>
+      flowChart('Init', () => undefined, 'm-fork')
+        .addSubFlowChartNext('m', flowChart('M0', () => undefined, 'm0').build(), 'M')
+        .addListOfFunction([{ id: 'fa', name: 'FA', fn: () => undefined }]),
+    ).toThrow(/fork node it needs, 'm-fork', is already a stage id/);
+  });
+});

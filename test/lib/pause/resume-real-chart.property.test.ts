@@ -26,7 +26,9 @@
  *   - `afterFork` — on the spine, AFTER a fork that follows another mount
  *                  (`⟨pre⟩ → [fa, fb] → ⟨·⟩`): the fork must continue after
  *                  `⟨pre⟩`, never inside it (through 9.37.0 it landed ON the
- *                  mount, ran inside it, and the pause was refused on resume).
+ *                  mount, ran inside it, and the pause was refused on resume);
+ *   - `afterDecider` — the same after a decider (`route ─┬─ … → [fa] → ⟨·⟩`):
+ *                  through 9.37.0 the fork became a branch nobody picks.
  *
  * (At the deepest level a `selector`/`fork` placement wraps d-ask in its own
  * one-stage subflow: a parallel branch that is a plain STAGE resumes in its
@@ -58,8 +60,8 @@ import type { FlowChart, SubflowMountOptions } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
 import { type ResumeMode, type S, drive } from './resume-real-chart-fixture.js';
 
-type Place = 'linear' | 'decider' | 'selector' | 'fork' | 'afterFork';
-const PLACES: Place[] = ['linear', 'decider', 'selector', 'fork', 'afterFork'];
+type Place = 'linear' | 'decider' | 'selector' | 'fork' | 'afterFork' | 'afterDecider';
+const PLACES: Place[] = ['linear', 'decider', 'selector', 'fork', 'afterFork', 'afterDecider'];
 
 interface Plan {
   /** Loop iterations at the top level (1–4). */
@@ -162,6 +164,22 @@ function placeMount(
           {
             id: `fb-${id}`,
             name: `FB-${id}`,
+            fn: (s: S) => {
+              s.hit = true;
+            },
+          },
+        ])
+        .addSubFlowChartNext(id, sub, id, options);
+    case 'afterDecider':
+      return b
+        .addDeciderFunction(`Pre-${id}`, () => `pa-${id}`, `pre-${id}`)
+        .addFunctionBranch(`pa-${id}`, `PA-${id}`, () => undefined)
+        .addFunctionBranch(`pb-${id}`, `PB-${id}`, () => undefined)
+        .end()
+        .addListOfFunction([
+          {
+            id: `fa-${id}`,
+            name: `FA-${id}`,
             fn: (s: S) => {
               s.hit = true;
             },

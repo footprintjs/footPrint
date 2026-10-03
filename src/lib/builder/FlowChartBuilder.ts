@@ -2294,43 +2294,64 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /**
    * The node a fan-out (`addListOfFunction`, `addSubFlowChart`,
    * `addLazySubFlowChart`) hangs its children on — the cursor, unless the
-   * cursor is a subflow MOUNT.
+   * cursor's `children` already MEAN something else:
    *
-   * A mount's `children` are not the parent's: the engine reads a mount that
-   * carries children as the mounted chart's OWN content (`NodeResolver ·
-   * resolveSubflowReference`), so a fork hung there ran INSIDE the subflow —
-   * the subflow's real chart never ran, everything after the fork ran twice,
-   * and a pause after it was checkpointed under the wrong subflow path (and
-   * refused on resume). Through 9.37.0 the builder did exactly that.
+   * - a subflow MOUNT — the engine reads a mount that carries children as the
+   *   mounted chart's OWN content (`NodeResolver · resolveSubflowReference`),
+   *   so a fork hung there ran INSIDE the subflow: the subflow's real chart
+   *   never ran, everything after the fork ran twice, and a pause after it was
+   *   checkpointed under the wrong subflow path (and refused on resume);
+   * - a DECIDER or a SELECTOR (the cursor after `.end()`) — its children are
+   *   its branches, so a fork child became a branch nobody picks;
+   * - a `parallelForEach` — its branches come from `items` at run time and
+   *   built children are never dispatched, so the fork never ran.
    *
-   * So after a mount the fork continues AFTER it: a function-less fork node
-   * `<mountId>-fork` becomes the mount's `next` and the new cursor — the shape
+   * Through 9.37.0 the builder hung the fork there anyway. So after such a
+   * node the fork continues AFTER it: a function-less fork node
+   * `<nodeId>-fork` becomes the node's `next` and the new cursor — the shape
    * `addFunction(...).addListOfFunction(...)` already builds, which every
    * reader (engine, resume, structure, spec) handles. A second fan-out call
-   * reuses that node, as it would any cursor.
+   * reuses that node, as it would any cursor. The id is reserved both ways:
+   * refused here when a stage already has it, and by `_addToMap` /
+   * `_registerSubflowDef` when a later stage or mount asks for it.
    */
   private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
-    const mount = this._needCursor();
-    const mountSpec = this._needCursorSpec();
-    if (!mount.isSubflowRoot) return { cur: mount, curSpec: mountSpec };
+    const owner = this._needCursor();
+    const ownerSpec = this._needCursorSpec();
+    const childrenMeanSomethingElse =
+      owner.isSubflowRoot || owner.isDynamicParallel || owner.deciderFn || owner.selectorFn;
+    if (!childrenMeanSomethingElse) return { cur: owner, curSpec: ownerSpec };
 
-    const id = `${mount.id}-fork`;
+    const id = `${owner.id}-fork`;
     if (this._knownStageIds.has(id)) {
       fail(
-        `cannot fan out after the subflow mount '${mount.name}': the fork node it needs, '${id}', ` +
-          'is already a stage id. Add a stage after the mount and fan out from it.',
+        `cannot fan out after '${owner.name}': the fork node it needs, '${id}', ` +
+          `is already a stage id. Add a stage after '${owner.name}' and fan out from it.`,
       );
     }
     const node: StageNode<TOut, TScope> = { name: id, id };
     const spec: SerializedPipelineStructure = { name: id, id, type: 'fork' };
-    mount.next = node;
-    mountSpec.next = spec;
+    owner.next = node;
+    ownerSpec.next = spec;
     this._cursor = node;
     this._advanceCursorSpec(spec);
     this._knownStageIds.add(id);
+    this._forkNodeIds.add(id);
     this._fireStageAdded(spec);
-    this._fireNextEdgeFromParent(mountSpec, id);
+    this._fireNextEdgeFromParent(ownerSpec, id);
     return { cur: node, curSpec: spec };
+  }
+
+  /** Ids `_needForkParent` generated — no later stage or mount may take one. */
+  private _forkNodeIds = new Set<string>();
+
+  private _refuseForkNodeId(id: string): void {
+    if (!this._forkNodeIds.has(id)) return;
+    fail(
+      `id '${id}' is taken: it is the fork node the builder placed after '${id.slice(0, -'-fork'.length)}' ` +
+        '(a fan-out right after a subflow mount, decider, selector or parallelForEach continues on it). ' +
+        'Rename the stage.',
+    );
   }
 
   /**
@@ -2371,6 +2392,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * here, at build time, where the id can still be changed.
    */
   _registerSubflowDef(id: string, root: StageNode<TOut, TScope>): void {
+    this._refuseForkNodeId(id);
     if (!this._subflowDefs.has(id)) {
       this._subflowDefs.set(id, { root });
       return;
@@ -2386,6 +2408,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   _addToMap(id: string, fn: StageFunction<TOut, TScope>) {
+    this._refuseForkNodeId(id);
     if (this._stageMap.has(id)) {
       const existing = this._stageMap.get(id);
       if (existing !== fn) fail(`stageMap collision for id '${id}'`);
