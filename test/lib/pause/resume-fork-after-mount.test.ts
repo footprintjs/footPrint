@@ -256,3 +256,92 @@ describe('the fork node id is reserved both ways', () => {
     ).toThrow(/fork node it needs, 'm-fork', is already a stage id/);
   });
 });
+
+describe('the fork node id may not be taken EARLIER either', () => {
+  const mountThenFork = (b: any) =>
+    b
+      .addSubFlowChartNext('m', flowChart('M0', () => undefined, 'm0').build(), 'M')
+      .addListOfFunction([{ id: 'fa', name: 'FA', fn: () => undefined }]);
+
+  it('by an earlier fork child', () => {
+    const b = flowChart('Init', () => undefined, 'init').addListOfFunction([
+      { id: 'm-fork', name: 'X', fn: () => undefined },
+    ]);
+    expect(() => mountThenFork(b.addFunction('Join', () => undefined, 'join'))).toThrow(
+      /'m-fork', is already a stage id/,
+    );
+  });
+
+  it('by an earlier decider branch', () => {
+    const b = flowChart('Init', () => undefined, 'init')
+      .addDeciderFunction('D', () => 'm-fork', 'd')
+      .addFunctionBranch('m-fork', 'X', () => undefined)
+      .addFunctionBranch('other', 'Y', () => undefined)
+      .end()
+      .addFunction('Join', () => undefined, 'join');
+    expect(() => mountThenFork(b)).toThrow(/'m-fork', is already a stage id/);
+  });
+
+  it('nor LATER by a lazy mount or a parallelForEach', () => {
+    const fresh = () => mountThenFork(flowChart('Init', () => undefined, 'init'));
+    const leaf = flowChart('L', () => undefined, 'l').build();
+    expect(() => fresh().addLazySubFlowChartNext('m-fork', () => leaf, 'L')).toThrow(/id 'm-fork' is already used/);
+    expect(() =>
+      fresh().addParallelForEach('Each', 'm-fork', { items: () => [], branch: () => leaf, maxBranches: 1, into: 'r' }),
+    ).toThrow(/id 'm-fork' is already used/);
+  });
+});
+
+// ── The lazy-mount and parallelForEach doors refuse a duplicate id ──────────
+//
+// Through 9.37.0 they registered their id nowhere, so they accepted one that
+// another stage or mount already had, and a later stage could take theirs.
+
+describe('the lazy-mount and parallelForEach doors refuse a duplicate id', () => {
+  const leaf = flowChart('L', () => undefined, 'l').build();
+  const start = () => flowChart('Init', () => undefined, 'init').addFunction('A', () => undefined, 'dup');
+
+  it.each([
+    ['addLazySubFlowChartNext', (b: any) => b.addLazySubFlowChartNext('dup', () => leaf, 'L')],
+    ['addLazySubFlowChart', (b: any) => b.addLazySubFlowChart('dup', () => leaf, 'L')],
+    [
+      'addLazySubFlowChartBranch',
+      (b: any) =>
+        b
+          .addDeciderFunction('D', () => 'dup', 'd')
+          .addLazySubFlowChartBranch('dup', () => leaf, 'L')
+          .addFunctionBranch('other', 'O', () => undefined),
+    ],
+    [
+      'addParallelForEach',
+      (b: any) =>
+        b.addParallelForEach('Each', 'dup', { items: () => [], branch: () => leaf, maxBranches: 1, into: 'r' }),
+    ],
+  ])('%s', (_door, add) => {
+    expect(() => add(start())).toThrow(/id 'dup' is already used by another stage or mount/);
+  });
+
+  it('and a later stage may not take a parallelForEach id', () => {
+    const b = flowChart('Init', () => undefined, 'init').addParallelForEach('Each', 'each', {
+      items: () => [],
+      branch: () => leaf,
+      maxBranches: 1,
+      into: 'r',
+    });
+    expect(() => b.addFunction('X', () => undefined, 'each')).toThrow(
+      /already used by a lazy subflow mount or a parallelForEach/,
+    );
+  });
+
+  it('a loop back to an earlier stage stays allowed (the one deliberate duplicate)', () => {
+    expect(() =>
+      flowChart('Init', () => undefined, 'init')
+        .addFunction('Head', () => undefined, 'head')
+        .addDeciderFunction('D', () => 'done', 'd')
+        .addFunctionBranch('again', 'Again', () => undefined, undefined, { loopTo: 'head' })
+        .addFunctionBranch('done', 'Done', () => undefined)
+        .end()
+        .build(),
+    ).not.toThrow();
+  });
+});

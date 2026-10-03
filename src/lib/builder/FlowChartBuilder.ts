@@ -341,6 +341,7 @@ class BranchCursor<TOut, TScope> {
     options: SubflowMountOptions | undefined,
   ): void {
     this.admit(id, 'segment');
+    this.b._claimFreshId(id, `addLazySubFlowChartBranch('${id}')`);
 
     const subflowName = mountName || id;
 
@@ -1716,6 +1717,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // back-compat cost — kills the ambiguity class outright and keeps
     // `parseBranchSegment` a split at the last marker instead of a heuristic.
     admitId('parallelForEach stage id', id, 'segment');
+    this._claimFreshId(id, `addParallelForEach('${id}')`);
     if (!config || typeof config.items !== 'function' || typeof config.branch !== 'function') {
       fail(`addParallelForEach('${id}') requires items(scope) and branch(item, index) functions.`);
     }
@@ -1839,6 +1841,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
     }
     assertSubflowIdAllowed(id);
+    this._claimFreshId(id, `addLazySubFlowChart('${id}')`);
 
     const subflowName = mountName || id;
     const forkId = cur.id;
@@ -1900,6 +1903,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       fail(`cannot add subflow as next when next is already defined at '${cur.name}'`);
     }
     assertSubflowIdAllowed(id);
+    this._claimFreshId(id, `addLazySubFlowChartNext('${id}')`);
 
     const subflowName = mountName || id;
 
@@ -2323,7 +2327,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (!childrenMeanSomethingElse) return { cur: owner, curSpec: ownerSpec };
 
     const id = `${owner.id}-fork`;
-    if (this._knownStageIds.has(id)) {
+    if (this._idTaken(id)) {
       fail(
         `cannot fan out after '${owner.name}': the fork node it needs, '${id}', ` +
           `is already a stage id. Add a stage after '${owner.name}' and fan out from it.`,
@@ -2345,13 +2349,45 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /** Ids `_needForkParent` generated — no later stage or mount may take one. */
   private _forkNodeIds = new Set<string>();
 
+  /** Asked by `_addToMap` / `_registerSubflowDef`: an id a generated fork node or a claiming door holds is refused. */
   private _refuseForkNodeId(id: string): void {
+    if (this._claimedIds.has(id)) {
+      fail(`id '${id}' is already used by a lazy subflow mount or a parallelForEach in this chart. Rename the stage.`);
+    }
     if (!this._forkNodeIds.has(id)) return;
     fail(
       `id '${id}' is taken: it is the fork node the builder placed after '${id.slice(0, -'-fork'.length)}' ` +
         '(a fan-out right after a subflow mount, decider, selector or parallelForEach continues on it). ' +
         'Rename the stage.',
     );
+  }
+
+  /** Ids the lazy-mount and parallelForEach doors claimed (they register in no map). */
+  private _claimedIds = new Set<string>();
+
+  /** True when an earlier stage, branch, fork child, mount or generated fork node holds `id`. */
+  private _idTaken(id: string): boolean {
+    return (
+      this._knownStageIds.has(id) ||
+      this._stageMap.has(id) ||
+      this._subflowDefs.has(id) ||
+      this._claimedIds.has(id) ||
+      this._forkNodeIds.has(id)
+    );
+  }
+
+  /**
+   * @internal The lazy-mount doors and `addParallelForEach` register their id
+   * in no map, so through 9.37.0 they accepted an id another stage or mount
+   * already had (and a later stage could take theirs). They claim it here:
+   * refused when taken, recorded when fresh. Loop-ref stubs never pass
+   * through a door, so they stay the one deliberate duplicate.
+   */
+  _claimFreshId(id: string, door: string): void {
+    if (this._idTaken(id)) {
+      fail(`${door}: id '${id}' is already used by another stage or mount in this chart. Give it its own id.`);
+    }
+    this._claimedIds.add(id);
   }
 
   /**
