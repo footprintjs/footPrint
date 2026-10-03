@@ -103,8 +103,9 @@ export class StageRunner<TOut = any, TScope = any> {
         if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
           (rawScope as any).notifyPause(error.payload);
         }
-        throw new PauseSignal(error.payload, node.id, 'interrupt');
+        throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context);
       }
+      if (error instanceof PauseSignal) stampedPause(error, context);
       throw error;
     }
 
@@ -128,11 +129,21 @@ export class StageRunner<TOut = any, TScope = any> {
       if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
         (rawScope as any).notifyPause(pauseData);
       }
-      throw new PauseSignal(pauseData, node.id);
+      throw stampedPause(new PauseSignal(pauseData, node.id), context);
     }
 
     return result;
   }
+}
+
+/**
+ * Record WHICH execution paused on the signal (first stamp wins) — the stage
+ * boundary is the one place that knows it; the checkpoint carries it so a
+ * resume can link to the paused execution (`TraversalContext.resumedFrom`).
+ */
+function stampedPause(signal: PauseSignal, context: StageContext): PauseSignal {
+  signal.stampExecution(context.runtimeStageId);
+  return signal;
 }
 
 /** Race a promise against an AbortSignal. Rejects with the signal's reason on abort. */

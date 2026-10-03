@@ -90,6 +90,9 @@ export class PauseSignal extends Error {
    */
   private _pendingPauses: MutablePendingPause[] = [];
 
+  /** The paused stage's runtimeStageId — stamped once, at the stage boundary (`StageRunner`). */
+  private _runtimeStageId?: string;
+
   constructor(data: unknown, stageId: string, pausedBy?: 'interrupt') {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -103,6 +106,20 @@ export class PauseSignal extends Error {
 
   get subflowPath(): readonly string[] {
     return this._subflowPath;
+  }
+
+  /** The paused stage's execution (`[path/]stageId#N`), once the stage boundary stamped it. */
+  get runtimeStageId(): string | undefined {
+    return this._runtimeStageId;
+  }
+
+  /**
+   * Record which EXECUTION paused — called at the stage boundary, where the
+   * stage's runtimeStageId is known. First stamp wins: the signal bubbles
+   * through outer boundaries that must not overwrite it.
+   */
+  stampExecution(runtimeStageId: string): void {
+    if (this._runtimeStageId === undefined && runtimeStageId) this._runtimeStageId = runtimeStageId;
   }
 
   /**

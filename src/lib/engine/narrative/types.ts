@@ -242,6 +242,24 @@ export interface TraversalContext {
   readonly loopIteration?: number;
   /** Fork branch ID when inside a parallel or decider branch. */
   readonly forkBranch?: string;
+  /**
+   * On the `onResume` event only (9.37.0): the PAUSED execution this resumed
+   * run continues — a link in the OpenTelemetry sense, not a parent. A resume
+   * is a new `runId`, so the paused `(runId, runtimeStageId)` cannot be a
+   * parent of anything in it; it is named here instead. Absent when the
+   * checkpoint predates 9.37.0 (it did not record the paused execution).
+   */
+  readonly resumedFrom?: ResumeLink;
+}
+
+/**
+ * The paused execution a resume continues — `TraversalContext.resumedFrom`.
+ * Both ids are the PAUSED run's: `runId` is that run's, `runtimeStageId` the
+ * execution of the stage that paused (as its `onPause` event stamped it).
+ */
+export interface ResumeLink {
+  readonly runId: string;
+  readonly runtimeStageId: string;
 }
 
 // ============================================================================

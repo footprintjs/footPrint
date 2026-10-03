@@ -46,6 +46,7 @@ import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
 import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
+import { rootTraversalContext, traversalContextFor } from '../traversalContext.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
@@ -615,13 +616,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // root-stage defaults (stageId='__root__', runtimeStageId='__root__#0',
     // depth 0) so the runId is reliably available on run events without
     // forcing recorders to handle `traversalContext === undefined`.
-    const rootContext: TraversalContext = {
-      runId: this.runId,
-      stageId: '__root__',
-      runtimeStageId: '__root__#0',
-      stageName: '__root__',
-      depth: 0,
-    };
+    const rootContext = rootTraversalContext(this.runId);
     if (isTopLevel) {
       // `readOnlyContext` is the engine's view of `run({input})` — passed
       // through from `FlowChartExecutor.run()` as the validated input.
@@ -1051,18 +1046,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const loopIteration = visitCount > 1 ? visitCount - 1 : undefined;
 
     // Build traversal context for recorder events — created once per stage, shared by all events
-    const traversalContext: TraversalContext = {
+    const traversalContext = traversalContextFor({
       runId: this.runId,
       stageId: contextStageId,
       runtimeStageId: context.runtimeStageId,
       stageName: node.name,
       parentStageId: context.parent?.stageId,
-      ...(parentRuntimeStageId && { parentRuntimeStageId }),
-      ...(loopIteration !== undefined && { loopIteration }),
+      parentRuntimeStageId,
+      loopIteration,
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
       depth: this.computeContextDepth(context),
-    };
+    });
 
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
     // Guard uses the per-traverser resolvedLazySubflows set (not the shared node) so

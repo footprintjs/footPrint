@@ -68,6 +68,8 @@ export interface PauseEvent extends RecorderContext {
 
 export interface ResumeEvent extends RecorderContext {
   hasInput: boolean;
+  /** The paused execution this resume continues (9.37.0) — see `TraversalContext.resumedFrom`. */
+  resumedFrom?: import('../engine/narrative/types.js').ResumeLink;
   /** Explicit channel discriminant — see {@link ErrorEvent.channel}. */
   channel?: 'scope';
 }

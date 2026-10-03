@@ -48,6 +48,7 @@ export type {
   FlowStageRetryEvent,
   FlowSubflowEvent,
   FlowSubflowRegisteredEvent,
+  ResumeLink,
   TraversalContext,
 } from './narrative/types.js';
 
