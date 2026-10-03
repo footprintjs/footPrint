@@ -71,7 +71,7 @@ export type HookPayload<K extends HookName, C extends ChannelsOf<K> = ChannelsOf
  *
  * - `on` — every channel the hook is declared on, each mapped to the NAME of its payload type
  *   (prose for readers; the type itself is `HookPayload<K, C>`, read off the interface).
- * - `executorMade` — `true` when the executor synthesizes the event itself instead of a
+ * - `executorMade` — a LABEL (read by tests and docs, not by routing): `true` when the executor synthesizes the event itself instead of a
  *   dispatch site in the engine (today only `onResume`, fired by `FlowChartExecutor · resume`).
  *   Such an event goes through `fire` like every other, so a throwing recorder never aborts
  *   the executor call that made it.

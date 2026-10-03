@@ -330,7 +330,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 **Why.** Hook names used to be kept in about ten hand lists (three routing lists, two deferred taps, the composite's methods, the snapshot copier's fields…). A list that missed a hook failed silently: the composite never forwarded `onRunStart`, and a deferred recorder never sees an event its tap list forgot. Now each hook is declared ONCE and every broadcaster derives from the declaration.
 
 - `HOOKS` — one entry per hook: the channel(s) that declare it (each with its payload type's name) and whether the executor makes it (`onResume`). It `satisfies` a type built from `ScopeRecorder` / `FlowRecorder` / `EmitRecorder`, so **a hook added to an interface and not to `HOOKS` does not compile** (pinned by `test/architecture/hook-registry-compile.test.ts`).
-- `hooksOn(channel)` — the channel's hooks in registry order. Channel routing (`has*RecorderMethods`), the deferred tier's taps and `CompositeRecorder`'s generated fan-out read it.
+- `hooksOn(channel)` — the channel's hooks in registry order. Channel routing (`has*RecorderMethods`), and the deferred tier's taps read it; `CompositeRecorder`'s generated fan-out reads `HOOK_NAMES`.
 - `fire(recorders, hook, event, onFailure)` — the one per-recorder loop. A throw goes to the channel's policy (scope: `onError` on the recorders; flow: a dev-mode warning) and the loop goes on; nothing a recorder throws — not even a null-prototype object — reaches the run. Executor-made events (`resume`'s `onResume`) go through it too.
 - `copyBundle(id, bundle)` (`snapshot.ts`) — the one copier from `toSnapshot()` to a snapshot row; the executor and the composite both call it, so a child row keeps `description` / `preferredOperation` / `meta`.
 
