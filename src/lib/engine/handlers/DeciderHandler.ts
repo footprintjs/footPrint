@@ -23,6 +23,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
+import { commitStage } from './commitStage.js';
 import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
 export type { ExecuteNodeFn, RunStageFn };
@@ -122,7 +123,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
       throw error;
     }
 
-    context.commit();
+    commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
 
     if (breakFlag.shouldBreak) {
       return { kind: 'break', branchId };

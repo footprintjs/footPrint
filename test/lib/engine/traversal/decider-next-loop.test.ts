@@ -273,3 +273,28 @@ describe('decider with its own next — a pause inside the loop resumes flat', (
     expect(state.final).toBe(true);
   });
 });
+
+describe('decider with its own next — a jump that is not a loop back stays in the branch (as 9.39.0)', () => {
+  async function jumpTo(target: string) {
+    const chart = flowChart<any>('Seed', async () => {}, 'seed')
+      .addDeciderFunction('D', async () => 'x', 'd')
+      .addFunctionBranch('x', 'X1', async () => ({ name: 'jump', next: target } as any))
+      .addFunctionBranch('y', 'Y', async () => {})
+      .end()
+      .addFunction('After', async () => {}, 'after')
+      .build();
+    const ex = new FlowChartExecutor(chart);
+    const seen: string[] = [];
+    ex.attachFlowRecorder({ id: 'order', onStageExecuted: (e) => seen.push(e.stageName) });
+    await ex.run();
+    return seen;
+  }
+
+  it('a sideways jump to a sibling branch runs it, then the decider next', async () => {
+    expect(await jumpTo('y')).toEqual(['Seed', 'D', 'X1', 'Y', 'After']);
+  });
+
+  it('a forward jump past the decider runs in the branch, then the decider next runs too', async () => {
+    expect(await jumpTo('after')).toEqual(['Seed', 'D', 'X1', 'After', 'After']);
+  });
+});

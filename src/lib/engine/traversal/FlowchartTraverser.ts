@@ -31,6 +31,7 @@ import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
+import { commitStage } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -237,6 +238,18 @@ interface ContinuationHop<TOut = any, TScope = any> {
   readonly loop?: true;
 }
 
+/**
+ * What a driver records for each stage context it runs: its NESTING depth
+ * (see `FlowchartTraverser · nestingDepthOf`) and the node ids each driver
+ * on its BRANCH-FRAME chain has run — its own last. A decider with its own
+ * `next` hands that chain to its branch frame, so the frame can tell a loop
+ * back into an enclosing driver (leave) from any other jump (stay).
+ */
+interface DriverFrame {
+  readonly depth: number;
+  readonly ran: readonly ReadonlySet<string | undefined>[];
+}
+
 /** Pause-invoker context recorded by the driver for flat decider dispatches. */
 interface InvokerStamp {
   readonly invokerStageId: string;
@@ -354,7 +367,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private patchCount = 0;
 
   /**
-   * The NESTING depth of the driver that ran each stage context — depth is a
+   * The frame (NESTING depth + branch-frame ran-sets) of the driver that ran each stage context — depth is a
    * property of the call PATH, so it travels with the contexts, not in one
    * per-traverser counter. A nested driver (fork/selector child, a decider's
    * branch frame) sits one level below the driver that ran the context its
@@ -369,7 +382,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * dynamic recursion. Prevents call-stack overflow on runaway recursive
    * composition.
    */
-  private readonly _depthOf = new WeakMap<StageContext, number>();
+  private readonly _frameOf = new WeakMap<StageContext, DriverFrame>();
 
   /**
    * Shared mutable execution counter — monotonic, incremented per stage execution.
@@ -982,11 +995,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     context: StageContext,
     breakFlag: BreakFlag,
     branchPath?: string,
-    branchFrame?: true,
+    enclosingRan?: readonly ReadonlySet<string | undefined>[],
   ): Promise<any> {
     // ─── Tree-depth guard ───
     // Depth is the CALL PATH's nesting, read off the context this driver was
-    // handed (see `_depthOf`) — siblings never consume it. A reached cap is a
+    // handed (see `_frameOf`) — siblings never consume it. A reached cap is a
     // RUN failure: `onError` fires here (no stage ran for this node, so no
     // stage catch would) and `ChildrenExecutor` rethrows it whatever the
     // fan-out's error mode.
@@ -1001,22 +1014,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // local so nested drivers (fork children, with-next decider branches)
     // get their own windows, matching the old frame-on-stack stamping scope.
     let pendingInvokers: InvokerStamp[] | undefined;
-    // A decider's BRANCH FRAME (decider with its own `next`) remembers the
-    // nodes it ran: a loop edge to any other node leaves the frame — the hop
-    // is handed back to the decider, which follows it flat at its own level
-    // instead of stacking one frame per pass (see `followsLoopOut`).
-    const ranHere = branchFrame ? new Set<string | undefined>() : undefined;
+    // Every driver remembers the nodes it ran. A decider's BRANCH FRAME
+    // (decider with its own `next`; `enclosingRan` = the ran-sets of the
+    // drivers it is nested in) LEAVES on a loop edge back to a node an
+    // ENCLOSING driver already ran and this frame did not — the hop is handed
+    // back to the decider, which follows it flat at its own level instead of
+    // stacking one frame per pass. Any other jump (sideways to a sibling
+    // branch, forward past the decider) stays in the frame, as through 9.39.0.
+    const ranHere = new Set<string | undefined>();
+    const frame: DriverFrame = { depth, ran: enclosingRan ? [...enclosingRan, ranHere] : [ranHere] };
     try {
       let current: ContinuationHop<TOut, TScope> = { [CONTINUE_HOP]: true, node, context, branchPath };
       for (;;) {
-        this._depthOf.set(current.context, depth);
-        ranHere?.add(current.node.id);
+        this._frameOf.set(current.context, frame);
+        ranHere.add(current.node.id);
         const result = await this.executeNodeStep(current.node, current.context, breakFlag, current.branchPath);
         if (!isContinuationHop<TOut, TScope>(result)) {
           return result;
         }
-        if (ranHere !== undefined && result.loop === true && !ranHere.has(result.node.id)) {
-          return result; // the loop leaves this branch frame — its invoker follows it
+        if (enclosingRan !== undefined && result.loop === true && !ranHere.has(result.node.id)) {
+          const id = result.node.id;
+          if (enclosingRan.some((ran) => ran.has(id))) return result; // the loop leaves this frame
         }
         if (result.invokerStamp) (pendingInvokers ??= []).push(result.invokerStamp);
         current = result;
@@ -1043,7 +1061,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    */
   private nestingDepthOf(context: StageContext): number {
     const parent = context.parent;
-    return (parent === undefined ? 0 : this._depthOf.get(parent) ?? 0) + 1;
+    return (parent === undefined ? 0 : this._frameOf.get(parent)?.depth ?? 0) + 1;
   }
 
   /** Build a flat continuation hop for the driver loop. */
@@ -1358,7 +1376,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         deciderResult = dispatch.branchId;
       } else {
         try {
-          deciderResult = await this.executeNode(dispatch.chosen, dispatch.branchContext, breakFlag, branchPath, true);
+          deciderResult = await this.executeNode(
+            dispatch.chosen,
+            dispatch.branchContext,
+            breakFlag,
+            branchPath,
+            this._frameOf.get(context)?.ran ?? [],
+          );
         } catch (error: unknown) {
           if (isPauseSignal(error)) {
             error.setInvoker(node.id!);
@@ -1419,7 +1443,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         context.addError('stageExecutionError', thrownText(error));
         throw error;
       }
-      context.commit();
+      commitStage(context, this.narrativeGenerator, node.name, traversalContext);
       this.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'linear');
 
       if (breakFlag.shouldBreak) {

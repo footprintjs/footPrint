@@ -130,3 +130,39 @@ describe('extractErrorInfo never throws', () => {
     expect(typeof info.message).toBe('string');
   });
 });
+
+describe('a write nothing can clone fails at the commit — with onError', () => {
+  async function run(chart: any) {
+    const ex = new FlowChartExecutor(chart);
+    const errors: FlowErrorEvent[] = [];
+    ex.attachFlowRecorder({ id: 'errors', onError: (e) => errors.push(e) });
+    let rejected: unknown;
+    await ex.run().catch((e) => {
+      rejected = e;
+    });
+    return { errors, rejected };
+  }
+
+  it('a fork child: onError fires for the child and run() rejects (9.39.0 dropped it)', async () => {
+    const { errors, rejected } = await run(
+      flowChart<any>('Seed', async () => {}, 'seed')
+        .addListOfFunction([
+          { id: 'f1', name: 'F1', fn: async (s: any) => s.$setValue('f', () => 1) },
+          { id: 'f2', name: 'F2', fn: async () => {} },
+        ])
+        .build(),
+    );
+    expect((rejected as Error).name).toBe('DataCloneError');
+    expect(errors.map((e) => e.stageName)).toEqual(['F1']);
+  });
+
+  it('a linear stage: onError fires and run() rejects', async () => {
+    const { errors, rejected } = await run(
+      flowChart<any>('Seed', async () => {}, 'seed')
+        .addFunction('L', async (s: any) => s.$setValue('f', () => 1), 'l')
+        .build(),
+    );
+    expect((rejected as Error).name).toBe('DataCloneError');
+    expect(errors.map((e) => e.stageName)).toEqual(['L']);
+  });
+});
