@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CompositeSnapshot.data.children` is now `RecorderSnapshot[]` (it was `{ id, name, data }[]`). **Migration:** none for readers. Rows gain the optional `description` / `preferredOperation` / `meta`.
 - `EmitRecorder.toSnapshot()` returns `RecorderBundle`, the same type as the other channels, which adds an optional `meta`. **Migration:** none.
 
+### Removed — F5's compatibility layer (owner ruling: no external consumers yet)
+
+- `StageContext.useReadTracking/getReadTracking`, `useWriteTracking/getWriteTracking`, `useCommitValues/getCommitValues`, `useWriteProvenance/getWriteProvenance`. **Migration:** `ctx.usePolicy(runPolicy({ … }))` to set, `ctx.getPolicy().<dial>` to read.
+- `ExecutionRuntime.useReadTracking/useWriteTracking/useCommitValues/useWriteProvenance/useRedaction` and `enableRedactedMirror`. **Migration:** construct with `runPolicy(dials, rule, mirror)` or call `runtime.usePolicy(policy)`.
+- `IExecutionRuntime.enableRedactedMirror?` is gone, and `IExecutionRuntime.newRoot` is now required. **Migration:** a custom runtime class implements `newRoot(name, id)` and honours the constructor's `policy` argument.
+- `SubflowExecutor` no longer falls back for a frame without `getPolicy()` or a runtime without `newRoot` (the 9.34.0 shape). **Migration:** as above. A hand-built frame provides `getPolicy()`.
+- `ScopeFacade` calls `useRedactionRule` / `getRedactionRule` without `?.`. **Migration:** a hand-built context passed to a facade implements both. `StageContext` already does.
+- None of these changes alters engine output: the canonical-JSON fixture diff against 9.35.0 is empty with the layer removed.
+
 ## [9.35.0] - 2026-10-03
 
 ### Changed — one run policy: a subflow's seed commits under the run's dials (C-F5)

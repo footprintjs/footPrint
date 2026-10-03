@@ -18,17 +18,15 @@ import { SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { RedactionVerdict } from './redaction.js';
 import { CLEAR, RedactionRule, scrubPatch } from './redaction.js';
 import type { RunPolicy } from './runPolicy.js';
-import { DEFAULT_RUN_POLICY, derivePolicy, withRedaction } from './runPolicy.js';
+import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import { SharedMemory } from './SharedMemory.js';
 import { TransactionBuffer } from './TransactionBuffer.js';
 import type {
-  CommitValuesMode,
   FlowControlType,
   FlowMessage,
   ReadTrackingMode,
   StageSnapshot,
   UntrackedSource,
-  WriteProvenanceMode,
   WriteTrackingMode,
 } from './types.js';
 
@@ -240,50 +238,6 @@ export class StageContext {
   /** The run's policy this frame retains, encodes and scrubs under. */
   getPolicy(): RunPolicy {
     return this.policy;
-  }
-
-  // ── Deprecated per-dial accessors (9.35.0) — forwarders over the run policy ──
-  // Each swaps in a derived frozen policy (`derivePolicy`) for THIS frame;
-  // frames created after inherit it, as they inherited the old field.
-
-  /** @deprecated since 9.35.0 — use `usePolicy(runPolicy({ readTracking }))`. */
-  useReadTracking(mode: ReadTrackingMode): void {
-    this.policy = derivePolicy(this.policy, { readTracking: mode });
-  }
-
-  /** @deprecated since 9.35.0 — use `getPolicy().readTracking`. */
-  getReadTracking(): ReadTrackingMode {
-    return this.policy.readTracking;
-  }
-
-  /** @deprecated since 9.35.0 — use `usePolicy(runPolicy({ writeTracking }))`. */
-  useWriteTracking(mode: WriteTrackingMode): void {
-    this.policy = derivePolicy(this.policy, { writeTracking: mode });
-  }
-
-  /** @deprecated since 9.35.0 — use `getPolicy().writeTracking`. */
-  getWriteTracking(): WriteTrackingMode {
-    return this.policy.writeTracking;
-  }
-
-  /** @deprecated since 9.35.0 — use `usePolicy(runPolicy({ commitValues }))`. */
-  useCommitValues(mode: CommitValuesMode): void {
-    this.policy = derivePolicy(this.policy, { commitValues: mode });
-  }
-
-  /** @deprecated since 9.35.0 — use `getPolicy().commitValues`. */
-  getCommitValues(): CommitValuesMode {
-    return this.policy.commitValues;
-  }
-
-  /** @deprecated since 9.35.0 — use `usePolicy(runPolicy({ writeProvenance }))`. */
-  useWriteProvenance(mode: WriteProvenanceMode): void {
-    this.policy = derivePolicy(this.policy, { writeProvenance: mode });
-  }
-
-  /** @deprecated since 9.35.0 — use `getPolicy().writeProvenance`. */
-  getWriteProvenance(): WriteProvenanceMode {
-    return this.policy.writeProvenance;
   }
 
   /**

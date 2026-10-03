@@ -9,7 +9,7 @@
  * refold every subflow's state from its scrubbed history to serve it.
  *
  * Closed at the root, one owner: `SubflowExecutor` enables the mirror on the
- * nested runtime the way the root does (`ExecutionRuntime.enableRedactedMirror`,
+ * nested runtime the way the root does (`RunPolicy.mirror`,
  * inherited like the dials), remembers it beside the raw result, and
  * `FlowChartExecutor.getSnapshot({ redact: true })` serves it — the plain
  * snapshot, the checkpoint and the live heap are untouched. Each `describe`
