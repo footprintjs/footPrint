@@ -17,6 +17,10 @@ export { TransactionBuffer } from './TransactionBuffer.js';
 export type { RedactionVerdict } from './redaction.js';
 export { RedactionRule, redactPatch } from './redaction.js';
 
+// The run's policy — the four dials, the rule, the mirror flag as ONE object (F5)
+export type { RunDials, RunPolicy } from './runPolicy.js';
+export { DEFAULT_RUN_POLICY, runPolicy } from './runPolicy.js';
+
 // Honesty — the ONE vocabulary for what a reader cannot see (F4a): code → the one sentence
 export type { HonestyCode } from './honesty.js';
 export { HONESTY_CODES } from './honesty.js';
