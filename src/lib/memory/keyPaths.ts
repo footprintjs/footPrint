@@ -234,3 +234,18 @@ export function ascendingUnion(lists: readonly (readonly number[])[]): number[] 
   for (const list of lists) for (const i of list) all.add(i);
   return [...all].sort((a, b) => a - b);
 }
+
+/**
+ * Did this commit reach `key` ONLY through rows inside it — at least one row `'inside'` the key, and no
+ * row on it or around it? Such a write changed part of the key's value, not the whole: the one test
+ * behind every `'nested-rows'` code (a slice note, a causal edge's `basis`, `findLastWriterWithBasis`).
+ */
+export function writesOnlyInside(bundle: CommitBundle, key: string): boolean {
+  let inside = false;
+  for (const t of bundle.trace) {
+    const r = relation(t.path, key);
+    if (r === 'exact' || r === 'around') return false;
+    if (r === 'inside') inside = true;
+  }
+  return inside;
+}

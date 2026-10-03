@@ -5,11 +5,13 @@
  * These helpers provide type-safe queries without (b: any) casts.
  */
 
-import { relation, rootOf } from './keyPaths.js';
+import type { RegisteredCode } from './honesty.js';
+import { relation, rootOf, writesOnlyInside } from './keyPaths.js';
 import { leavesStringAbove, logModel, memoisedModel } from './logModel.js';
+import { nativeGet } from './pathOps.js';
 import { DELIM } from './paths.js';
 import type { CommitBundle } from './types.js';
-import { type Touch, foldKey, isVerb, UnknownVerbError } from './verbs.js';
+import { type Touch, foldKey, isTotal, isVerb, UnknownVerbError } from './verbs.js';
 
 // Every key query here follows the writer rule and the value rule of `keyPaths.ts` (F3, 9.33.0):
 // a key is written by a row ON it, INSIDE it, or AROUND it when that changed it — never by an
@@ -137,12 +139,155 @@ export function rowsUnderRoot(commitLog: readonly CommitBundle[], key: string, e
  *   carries a verb other than `set | merge | append | delete` — a foreign or
  *   corrupted log is refused, not folded as a `merge`. Engine-written logs
  *   never carry one.
+ * @see commitValueAtWithBasis — the same answer, with the codes that say WHY it is
+ *   `undefined` or partial (and the `initialState` base this function never receives).
  */
 export function commitValueAt(commitLog: CommitBundle[], idx: number, key: string): unknown {
   const end = Math.min(idx, commitLog.length - 1);
   const model = memoisedModel(commitLog);
   if (model !== undefined) return model.valueAt(key, end);
   return valueByScan(commitLog, end, key);
+}
+
+// ── The basis twins (F4b, 9.33.0): the same answer, and the codes that say why ──────────────────────
+
+/**
+ * Why {@link commitValueAtWithBasis} answered what it did. Each code is registered, with the one
+ * sentence that says what it means, in `memory/honesty.ts · HONESTY_CODES` (served on
+ * `footprintjs/trace`); the union declares its members through `RegisteredCode`.
+ *
+ * - `'never-written'`      — no commit in range wrote the key (the writer rule — the answer
+ *                            `findLastWriter` and the slice layer give), unless a `delete` on or around
+ *                            it removed a value the passed `initialState` held (then `'deleted'`).
+ * - `'deleted'`            — the answer is `undefined` and the key WAS written: its last write left it
+ *                            absent.
+ * - `'nested-rows'`        — the value rests on rows INSIDE the key (a subflow seed, an outputMapper
+ *                            merge-back, a fork child's namespace) with no `set`/`delete` of the key or
+ *                            of a container around it in range.
+ * - `'from-initial-state'` — no `set`/`delete` of the key or around it in range, so the value rests on
+ *                            the pre-run base: folded from `options.initialState` when it holds the
+ *                            key's top-level key, partial when no `initialState` was passed.
+ * - `'redacted'`           — a path at, inside or around the key is in the `redactedPaths` of a commit
+ *                            the value rests on (from its last `set`/`delete` on, or the whole range).
+ */
+export type ValueBasis = RegisteredCode<
+  'never-written' | 'deleted' | 'nested-rows' | 'from-initial-state' | 'redacted'
+>;
+
+/** What {@link commitValueAtWithBasis} is asked besides the log, the index and the key. */
+export interface ValueBasisOptions {
+  /**
+   * The state before the run — `RuntimeSnapshot.initialState` (or a subflow's
+   * `treeContext.initialState`). When given, a key with no `set`/`delete` in range folds from it, as
+   * `stateAt` does; when absent, such an answer is the log-only fold and carries `'from-initial-state'`.
+   */
+  readonly initialState?: Readonly<Record<string, unknown>>;
+}
+
+/** A key's value read off the log, and the codes that say what it rests on — absent codes = an exact answer. */
+export interface ValueWithBasis {
+  readonly value: unknown;
+  /** In the order of {@link ValueBasis}'s list; EMPTY when a `set`/`delete` of the key or around it anchors the value and no redaction touched it. */
+  readonly basis: ValueBasis[];
+}
+
+const VALUE_BASIS_ORDER: readonly ValueBasis[] = [
+  'never-written',
+  'deleted',
+  'nested-rows',
+  'from-initial-state',
+  'redacted',
+];
+
+/**
+ * {@link commitValueAt}, with the codes that say what the answer rests on. Without `options.initialState`
+ * the value IS `commitValueAt(commitLog, idx, key)` (pinned by a property); with it, a key that has no
+ * `set`/`delete` of itself or of a container around it in range folds from that base — the value
+ * `stateAt(snapshot, idx)` gives at the key. Refuses an unknown verb exactly as `commitValueAt` does.
+ *
+ * @example
+ * ```typescript
+ * const { value, basis } = commitValueAtWithBasis(snap.commitLog, i, 'cfg', { initialState: snap.initialState });
+ * for (const code of basis) console.log(code, HONESTY_CODES[code]);
+ * ```
+ */
+export function commitValueAtWithBasis(
+  commitLog: CommitBundle[],
+  idx: number,
+  key: string,
+  options: ValueBasisOptions = {},
+): ValueWithBasis {
+  const end = Math.min(idx, commitLog.length - 1);
+  const model = logModel(commitLog);
+  const rows = model.rowsUnderRoot(key, end);
+  // The last `set`/`delete` ON the key or AROUND it decides the value alone; rows inside after it refine it.
+  let anchor = -1;
+  let inside = false;
+  let lastRelated: Touch | undefined;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].relation;
+    if (r === undefined) continue;
+    lastRelated = rows[i];
+    if (r === 'inside') inside = true;
+    else if (isTotal(rows[i].verb)) {
+      anchor = i;
+      inside = false;
+    }
+  }
+  const root = rootOf(key);
+  const base = options.initialState;
+  const baseHoldsRoot = base !== undefined && Object.prototype.hasOwnProperty.call(base, root);
+  const value =
+    anchor === -1 && baseHoldsRoot
+      ? foldKey(rows, key.split(DELIM), { anchored: true, start: structuredClone(base[root]) })
+      : model.valueAt(key, end);
+
+  const codes = new Set<ValueBasis>();
+  // The writer rule decides 'never-written' (as it does for `findLastWriter` and the slice layer). One
+  // exception: a `delete` on or around the key that removed a value only the passed base held.
+  const deletedByRow = lastRelated !== undefined && lastRelated.relation !== 'inside' && lastRelated.verb === 'delete';
+  const deletedFromBase = deletedByRow && base !== undefined && nativeGet(base, key.split(DELIM)) !== undefined;
+  const written = (end >= 0 && model.lastWriterBefore(key, end + 1) !== -1) || deletedFromBase;
+  const redacted = redactedInRange(commitLog, key, anchor === -1 ? 0 : rows[anchor].commitIdx, end);
+  if (!written) codes.add('never-written');
+  else if (value === undefined && (deletedByRow || !redacted)) codes.add('deleted');
+  if (anchor === -1 && inside) codes.add('nested-rows');
+  if (anchor === -1 && (base === undefined || baseHoldsRoot)) codes.add('from-initial-state');
+  if (redacted) codes.add('redacted');
+  return { value, basis: VALUE_BASIS_ORDER.filter((c) => codes.has(c)) };
+}
+
+/** Does a commit in `[from, end]` list a redacted path at, inside or around `key`? */
+function redactedInRange(commitLog: readonly CommitBundle[], key: string, from: number, end: number): boolean {
+  for (let c = from; c <= end; c++) {
+    for (const p of commitLog[c].redactedPaths ?? []) if (relation(p, key) !== undefined) return true;
+  }
+  return false;
+}
+
+/**
+ * Why {@link findLastWriterWithBasis} answered what it did — registered in `HONESTY_CODES`:
+ * `'never-written'` (no writer before the bound), `'nested-rows'` (the writer reached the key only
+ * through rows inside it, so it wrote part of the value).
+ */
+export type WriterBasis = RegisteredCode<'never-written' | 'nested-rows'>;
+
+/** The last writer of a key, and the codes that say what kind of write it was — absent codes = a write on or around the key. */
+export interface WriterWithBasis {
+  /** Absent exactly when `basis` holds `'never-written'`. */
+  readonly writer?: CommitBundle;
+  readonly basis: WriterBasis[];
+}
+
+/**
+ * {@link findLastWriter}, with the code that says why: `writer` is `findLastWriter(commitLog, key, beforeIdx)`;
+ * `basis` is `['never-written']` when there is none and `['nested-rows']` when that commit wrote the key
+ * only through rows inside it.
+ */
+export function findLastWriterWithBasis(commitLog: CommitBundle[], key: string, beforeIdx?: number): WriterWithBasis {
+  const writer = findLastWriter(commitLog, key, beforeIdx);
+  if (writer === undefined) return { basis: ['never-written'] };
+  return { writer, basis: writesOnlyInside(writer, key) ? ['nested-rows'] : [] };
 }
 
 /**

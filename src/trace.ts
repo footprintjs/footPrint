@@ -76,13 +76,22 @@ export { UnknownVerbError } from './lib/memory/index.js';
 // commitValueAt reconstructs the FULL value of a key at a commit index —
 // required under `commitValues: 'delta'` (#13c-B), where an `append`
 // bundle's `overwrite[key]` holds only the tail.
+export type {
+  ValueBasis,
+  ValueBasisOptions,
+  ValueWithBasis,
+  WriterBasis,
+  WriterWithBasis,
+} from './lib/memory/commitLogUtils.js';
 export {
   buildCommitIndex,
   commitIndexOf,
   commitValueAt,
+  commitValueAtWithBasis,
   findCommit,
   findCommits,
   findLastWriter,
+  findLastWriterWithBasis,
 } from './lib/memory/commitLogUtils.js';
 
 // ── time-travel/ — the READER'S cursor over a finished trace ──────────────
