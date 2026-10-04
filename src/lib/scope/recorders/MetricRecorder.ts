@@ -25,7 +25,15 @@
 
 import { KeyedStore } from '../../recorder/KeyedStore.js';
 import type { RecorderOperation } from '../../recorder/RecorderOperation.js';
-import type { CommitEvent, PauseEvent, ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../types.js';
+import type {
+  CommitEvent,
+  PauseEvent,
+  ReadEvent,
+  RecorderContext,
+  ScopeRecorder,
+  StageEvent,
+  WriteEvent,
+} from '../types.js';
 
 /** Per-invocation metrics for a single execution step. */
 export interface StepMetrics {
@@ -83,7 +91,6 @@ export class MetricRecorder implements ScopeRecorder {
   /** 1:1 per-step storage (Convention 1 — composed, not inherited). */
   private readonly store = new KeyedStore<StepMetrics>();
   private stageStartTimes = new Map<string, number>();
-  private currentRuntimeStageId = '';
   private stageFilter?: (stageName: string) => boolean;
 
   constructor(idOrOptions?: string | MetricRecorderOptions) {
@@ -101,12 +108,12 @@ export class MetricRecorder implements ScopeRecorder {
     return !this.stageFilter || this.stageFilter(stageName);
   }
 
-  /** Get or create the StepMetrics for the current stage. */
-  private current(): StepMetrics {
-    const key = this.currentRuntimeStageId;
+  /** Each event owns its attribution; another stage may have started meanwhile. */
+  private forEvent(event: RecorderContext): StepMetrics {
+    const key = event.runtimeStageId;
     let m = this.store.get(key);
     if (!m) {
-      m = { stageName: '', readCount: 0, writeCount: 0, commitCount: 0, pauseCount: 0, duration: 0 };
+      m = { stageName: event.stageName, readCount: 0, writeCount: 0, commitCount: 0, pauseCount: 0, duration: 0 };
       this.store.set(key, m);
     }
     return m;
@@ -146,35 +153,34 @@ export class MetricRecorder implements ScopeRecorder {
 
   onStageStart(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.currentRuntimeStageId = event.runtimeStageId;
     this.stageStartTimes.set(event.runtimeStageId, event.timestamp);
-    const m = this.current();
+    const m = this.forEvent(event);
     m.stageName = event.stageName;
   }
 
   onRead(event: ReadEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.current().readCount++;
+    this.forEvent(event).readCount++;
   }
 
   onWrite(event: WriteEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.current().writeCount++;
+    this.forEvent(event).writeCount++;
   }
 
   onCommit(event: CommitEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.current().commitCount++;
+    this.forEvent(event).commitCount++;
   }
 
   onPause(event: PauseEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.current().pauseCount++;
+    this.forEvent(event).pauseCount++;
   }
 
   onStageEnd(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    const m = this.current();
+    const m = this.forEvent(event);
     if (event.duration !== undefined) {
       m.duration = event.duration;
     } else {
@@ -255,7 +261,6 @@ export class MetricRecorder implements ScopeRecorder {
   clear(): void {
     this.store.clear();
     this.stageStartTimes.clear();
-    this.currentRuntimeStageId = '';
   }
 
   /** Alias for clear() (backward compat). */
