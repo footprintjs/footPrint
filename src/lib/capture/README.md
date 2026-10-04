@@ -11,7 +11,7 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `envelope.ts` | The deferred-observer capture tier: `capture()` snapshots an event into a frozen `CaptureEnvelope` under `'summary' \| 'clone' \| 'ref'`; `summarizePayload` is the bounded summary (depth 3, 16 entries, 128 nodes). `observer-queue/` imports it directly — it is not in the barrel |
 | `circular.ts` | `hasCircularReference` — the dev-mode cycle probe |
 | `invokeHook.ts` | `invokeRecorderHook` — look up a hook, bind `this`, call it. The one primitive the inline and the deferred delivery tiers both use, so they cannot drift |
-| `freeze.ts` | `deepFreeze` — the one deep-freeze walk: run args, the served fold base, the dev-mode snapshot, every state `stateAt` hands out, and every commit bundle (`EventLog · record`, F3). It stops at an already-frozen object (9.32.0's contract: a caller's frozen argument may hold live parts), skips typed arrays (a non-empty one cannot be frozen), and walks arrays by index for the record (`'indices'`: an object on an array expando is the named hole) |
+| `freeze.ts` | `deepFreeze` — the in-place deep-freeze walk: the served fold base, the dev-mode snapshot, every state `stateAt` hands out, and every commit bundle (`EventLog · record`, F3). It stops at an already-frozen object, skips typed arrays (a non-empty one cannot be frozen), and walks arrays by index for the record (`'indices'`: an object on an array expando is the named hole). Args instead use `scope/protection/readonlyInput.ts` to copy owned containers without freezing borrowed caller objects |
 
 ```typescript
 import { summarizeWriteValue } from './summarize.js';

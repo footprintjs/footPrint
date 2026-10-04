@@ -1,12 +1,13 @@
 /**
  * freeze.ts — the ONE deep-freeze walk (moved here from `scope/protection/readonlyInput.ts` in F3).
  *
- * WHY HERE. Five places freeze a tree, all through this walk: run args (`readonlyInput ·
- * createFrozenArgs`), the fold base served as `initialState` (`ExecutionRuntime · getFoldBase`), the
+ * WHY HERE. Saved trees freeze through this walk: the fold base served as
+ * `initialState` (`ExecutionRuntime · getFoldBase`), the
  * dev-mode snapshot (`runner/snapshot.ts · servedSnapshot`), every state `stateAt` hands out
  * (`time-travel/stateAt.ts`) and, since F3, every commit bundle (`EventLog · record`). `memory/` must
  * not import `scope/` (that edge closed the memory ⇄ scope ⇄ recorder module cycle F0 removed), so the
- * walk lives in this leaf, which imports nothing.
+ * walk lives in this leaf, which imports nothing. Args use an ownership snapshot instead
+ * (`scope/protection/readonlyInput.ts · createFrozenArgs`): never freeze borrowed caller values.
  *
  * @example
  * ```typescript
@@ -22,8 +23,7 @@
  * How {@link deepFreeze} walks an ARRAY.
  *
  * - `'every-key'` (the default) — every own property, as for any other object: the index elements
- *   AND any expando (`arr.note = { … }`). The contract args protection and the dev-mode snapshot
- *   rely on.
+ *   AND any expando (`arr.note = { … }`). The dev-mode snapshot relies on this contract.
  * - `'indices'` — the index elements only, so no key string is allocated per element; this is what
  *   keeps freezing a 10,000-element commit inside its budget (`bench/element-writes.ts`). An object
  *   hung on an array EXPANDO is then left unfrozen — the commit log's named hole

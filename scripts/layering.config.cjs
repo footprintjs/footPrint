@@ -65,8 +65,8 @@ const LAYERS = [
       // recorder/ (L5) read them, so they cannot sit above L0 — and they left engine/ in F7 because
       // a scope → engine edge closes the engine ⇄ scope ⇄ recorder module cycle.
       'src/lib/ids/**',
-      // `assertNotReadonly` / `createFrozenArgs`: a leaf under scope/protection (it imports
-      // capture/ only). The freeze walk itself moved to `capture/freeze.ts` in F3, so that
+      // `assertNotReadonly` / `createFrozenArgs`: an input-ownership leaf with no imports.
+      // The in-place record freezer moved to `capture/freeze.ts` in F3, so that
       // `EventLog · record` (memory/) can freeze without a memory → scope edge.
       'src/lib/scope/protection/readonlyInput.ts',
     ],
