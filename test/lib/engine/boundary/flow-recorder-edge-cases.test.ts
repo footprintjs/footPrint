@@ -238,7 +238,7 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
       expect(sentences[0]).toContain('B');
     });
 
-    it('all event types produce output', () => {
+    it('completion and specialized hooks produce sentences while edges stay silent', () => {
       const recorder = new NarrativeFlowRecorder();
       recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
       recorder.onNext({ from: 'Init', to: 'Process' });
@@ -250,7 +250,17 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
       recorder.onLoop({ target: 'Retry', iteration: 1 });
       recorder.onBreak({ stageName: 'Stop' });
       recorder.onError({ stageName: 'Fail', message: 'boom', structuredError: extractErrorInfo(new Error('boom')) });
-      expect(recorder.getSentences()).toHaveLength(10);
+      expect(recorder.getSentences()).toEqual([
+        'Next, it moved on to Init.',
+        'A decision was made, and the path taken was Yes.',
+        'Forking into 2 parallel paths: A, B.',
+        '1 of 3 paths were selected: X.',
+        'Entering the Sub subflow.',
+        'Exiting the Sub subflow.',
+        'On pass 1 through Retry.',
+        'Execution stopped at Stop.',
+        'An error occurred at Fail: boom.',
+      ]);
     });
   });
 

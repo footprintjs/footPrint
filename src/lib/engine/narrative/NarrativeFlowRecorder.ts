@@ -50,13 +50,10 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     this.stageNames.push(event.stageName);
   }
 
-  onNext(event: FlowNextEvent): void {
-    if (event.description) {
-      this.sentences.push(`Next step: ${event.description}.`);
-    } else {
-      this.sentences.push(`Next, it moved on to ${event.to}.`);
-    }
-    this.stageNames.push(event.to);
+  onNext(_event: FlowNextEvent): void {
+    // An edge announces a destination, not its completion. Linear stage
+    // sentences belong to onStageExecuted; other kinds have dedicated hooks.
+    // Keep this event silent, as CombinedNarrativeRecorder · onNext does.
   }
 
   onDecision(event: FlowDecisionEvent): void {
