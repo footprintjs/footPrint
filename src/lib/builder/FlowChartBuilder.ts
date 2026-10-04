@@ -242,8 +242,8 @@ class BranchCursor<TOut, TScope> {
     if (description) node.description = description;
     if (fn) {
       node.fn = fn;
-      this.b._addToMap(id, fn);
     }
+    this.b._registerStage(id, fn);
 
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
@@ -1631,8 +1631,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       const node: StageNode<TOut, TScope> = { name: name ?? id, id };
       if (fn) {
         node.fn = fn;
-        this._addToMap(id, fn);
       }
+      this._registerStage(id, fn);
 
       const spec: SerializedPipelineStructure = {
         name: name ?? id,
@@ -2309,7 +2309,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * `addFunction(...).addListOfFunction(...)` already builds, which every
    * reader (engine, resume, structure, spec) handles. A second fan-out call
    * reuses that node, as it would any cursor. The id is reserved both ways:
-   * refused here when a stage already has it, and by `_addToMap` /
+   * refused here when a stage already has it, and by stage admission /
    * `_registerSubflowDef` when a later stage or mount asks for it.
    */
   private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
@@ -2342,7 +2342,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /** Ids `_needForkParent` generated — no later stage or mount may take one. */
   private _forkNodeIds = new Set<string>();
 
-  /** Asked by `_addToMap` / `_registerSubflowDef`: an id a generated fork node or a claiming door holds is refused. */
+  /** Shared by stage admission and subflow registration: reserved structural ids cannot be reused. */
   private _refuseForkNodeId(id: string): void {
     if (this._claimedIds.has(id)) {
       fail(`id '${id}' is already used by a lazy subflow mount or a parallelForEach in this chart. Rename the stage.`);
@@ -2358,11 +2358,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /** Ids the lazy-mount and parallelForEach doors claimed (they register in no map). */
   private _claimedIds = new Set<string>();
 
+  /** Structural declarations without an embedded function; not function entries or loop targets. */
+  private _functionlessStageIds = new Set<string>();
+
   /** True when an earlier stage, branch, fork child, mount or generated fork node holds `id`. */
   private _idTaken(id: string): boolean {
     return (
       this._knownStageIds.has(id) ||
       this._stageMap.has(id) ||
+      this._functionlessStageIds.has(id) ||
       this._subflowDefs.has(id) ||
       this._claimedIds.has(id) ||
       this._forkNodeIds.has(id)
@@ -2373,8 +2377,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * @internal The lazy-mount doors and `addParallelForEach` register their id
    * in no map, so through 9.37.0 they accepted an id another stage or mount
    * already had (and a later stage could take theirs). They claim it here:
-   * refused when taken, recorded when fresh. Loop-ref stubs never pass
-   * through a door, so they stay the one deliberate duplicate.
+   * refused when taken, recorded when fresh. Loop-ref stubs reference an
+   * existing stage rather than claiming a new id. Reusable function stages
+   * retain their separate `_addToMap` rule.
    */
   _claimFreshId(id: string, door: string): void {
     if (this._idTaken(id)) {
@@ -2434,6 +2439,21 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
           'paused. Give each mount its own id.',
       );
     }
+  }
+
+  /**
+   * @internal One admission path for optional-function children and branches.
+   * A missing function does not erase the graph identity: check reservations
+   * and record it for future fresh-id claims, without adding a function or a
+   * loop target. Existing function references by id/name remain legal.
+   */
+  _registerStage(id: string, fn: StageFunction<TOut, TScope> | undefined): void {
+    if (fn) {
+      this._addToMap(id, fn);
+      return;
+    }
+    this._refuseForkNodeId(id);
+    this._functionlessStageIds.add(id);
   }
 
   _addToMap(id: string, fn: StageFunction<TOut, TScope>) {
