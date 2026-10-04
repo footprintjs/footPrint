@@ -627,7 +627,9 @@ export class ScopeFacade {
 
   /**
    * Returns the readonly input values passed to this pipeline, cast to `T`.
-   * The returned object is deeply frozen — any attempt to mutate it throws.
+   * Ordinary mutable records/arrays are copied and frozen, not frozen in place.
+   * Opaque capabilities and explicitly frozen wrappers remain borrowed/live;
+   * see `protection/readonlyInput.ts · createFrozenArgs` for the ownership rule.
    * Cached at construction time for zero-allocation repeated access.
    *
    * ```typescript

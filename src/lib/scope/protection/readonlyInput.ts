@@ -3,15 +3,13 @@
  *
  * Provides:
  * - assertNotReadonly(): throws if a key belongs to the readonly input
- * - createFrozenArgs(): creates a cached, deeply frozen copy of input values
+ * - createFrozenArgs(): snapshots owned input containers without freezing the caller
  *
  * Used by both ScopeFacade (class-based scopes) and attachScopeMethods
- * (non-class scopes) to enforce input immutability from a single source.
- * The freeze itself is `capture/freeze.ts · deepFreeze` — the one walk args,
- * the fold base, the dev-mode snapshot and the commit log all use.
+ * (non-class scopes). This is an ownership boundary, not an in-place freezer:
+ * live capabilities and explicitly frozen wrappers are borrowed, never walked.
+ * Saved records still use `capture/freeze.ts · deepFreeze` unchanged.
  */
-
-import { deepFreeze } from '../../capture/freeze.js';
 
 /**
  * Throws if `key` is an own property of `readOnlyValues`.
@@ -31,12 +29,53 @@ export function assertNotReadonly(readOnlyValues: unknown, key: string, operatio
 }
 
 /**
- * Creates a deeply frozen shallow copy of readonly input values.
- * Returns a cached copy — call once at construction, reuse on every getArgs().
+ * Creates a frozen argument view, copying mutable ordinary records and arrays.
+ * Functions, opaque objects and already-frozen nested values remain borrowed.
+ * Call once per scope at construction; reuse on every getArgs(). No cross-scope
+ * cache: the caller may edit the input before a later scope or a new run.
  */
 export function createFrozenArgs(readOnlyValues: unknown): Record<string, unknown> {
   if (!readOnlyValues || typeof readOnlyValues !== 'object') {
     return Object.freeze({});
   }
-  return deepFreeze({ ...(readOnlyValues as Record<string, unknown>) });
+  const args = { ...(readOnlyValues as Record<string, unknown>) };
+  // Root spread semantics: a plain record of own enumerable string/symbol keys,
+  // even for array input. Seed before walking so root cycles close on the copy.
+  const copies = new WeakMap<object, object>([[readOnlyValues, args]]);
+  copyProperties(args, args, copies);
+  return Object.freeze(args);
+}
+
+/** One memoized traversal: copy each owned container once, then freeze only it. */
+function snapshotValue(value: unknown, copies: WeakMap<object, object>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  const existing = copies.get(value);
+  if (existing) return existing;
+  if (Object.isFrozen(value)) return value;
+
+  const prototype = Object.getPrototypeOf(value);
+  const isArray = Array.isArray(value);
+  if (prototype !== null && prototype !== (isArray ? Array.prototype : Object.prototype)) return value;
+
+  const copy: object = isArray ? Object.setPrototypeOf(new Array(value.length), prototype) : Object.create(prototype);
+  copies.set(value, copy);
+  copyProperties(value, copy, copies);
+  return Object.freeze(copy);
+}
+
+/** Materialize accessors once; define data keys safely, including __proto__. */
+function copyProperties(source: object, target: object, copies: WeakMap<object, object>): void {
+  for (const key of Reflect.ownKeys(source)) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, key);
+    if (!descriptor) continue;
+    // An array already owns its non-configurable length; holes remain holes.
+    if (Array.isArray(target) && key === 'length') continue;
+    const value = snapshotValue(Reflect.get(source, key), copies);
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: descriptor.enumerable,
+      configurable: true,
+      writable: true,
+    });
+  }
 }
