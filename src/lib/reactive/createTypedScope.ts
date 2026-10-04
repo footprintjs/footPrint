@@ -15,6 +15,7 @@
  */
 
 import { nativeGet as lodashGet } from '../memory/pathOps.js';
+import { registerScopeRuntime } from '../scope/runtime.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { arrayProxyAt } from './arrayTraps.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
@@ -308,7 +309,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
   // Bind the silent read once — the nested/array proxies resolve their live view through it.
   const readSilent = (target.getValueSilent ?? target.getValue).bind(target);
 
-  return new Proxy(target as unknown as TypedScope<T>, {
+  const proxy = new Proxy(target as unknown as TypedScope<T>, {
     get(_proxyTarget, prop) {
       const answered = internalRead(target, state, prop);
       if (answered !== STATE_KEY) return answered;
@@ -334,6 +335,13 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       if (typeof prop !== 'string' || SCOPE_METHOD_NAMES.has(prop)) return undefined; // $-methods are non-enumerable
       if (!knownKey(target, prop)) return undefined;
       return { configurable: true, enumerable: true, writable: true }; // the value is fetched via the get trap
+    },
+  });
+  return registerScopeRuntime(proxy, {
+    target,
+    handlesAssignments: true,
+    setBreak: (fn) => {
+      state.breakFn = fn;
     },
   });
 }

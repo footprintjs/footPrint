@@ -30,10 +30,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 function createTraverser(
@@ -171,3 +171,4 @@ describe('Boundary: Structured error edge cases', () => {
     expect(capturedEvents[0].structuredError.message.length).toBe(10_000);
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

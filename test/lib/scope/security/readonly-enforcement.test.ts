@@ -1,9 +1,12 @@
+import { describe, expect, it } from 'vitest';
+
+import { flowChart, FlowChartExecutor } from '../../../../src/index';
 import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
 import { attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {
-  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog());
+  return new StageContext(runId, stageName, stageName, new SharedMemory(), '', new EventLog({}));
 }
 
 describe('Security: readonly enforcement', () => {
@@ -86,7 +89,7 @@ describe('Security: readonly enforcement', () => {
   it('different stages with same readOnlyContext all enforce readonly', () => {
     const readOnly = { sharedInput: 'protected' };
     const mem = new SharedMemory();
-    const log = new EventLog();
+    const log = new EventLog({});
 
     const ctx1 = new StageContext('p1', 's1', 's1', mem, '', log);
     const ctx2 = new StageContext('p1', 's2', 's2', mem, '', log);
@@ -135,6 +138,43 @@ describe('Security: readonly enforcement', () => {
     const target = attachScopeMethods({}, ctx, 'test');
 
     expect(target.getArgs()).toEqual({});
+  });
+
+  it('attached helpers preserve readonly enforcement and emit no blocked writes under the executor', async () => {
+    const input = { protected: { value: 1 } };
+    const writes: unknown[] = [];
+    const commits: unknown[] = [];
+    const chart = flowChart<any>(
+      'Protected helper',
+      (scope) => {
+        expect(() => scope.setValue('protected', { value: 2 })).toThrow('readonly input key "protected"');
+        expect(() => scope.updateValue('protected', { value: 2 })).toThrow('readonly input key "protected"');
+        const args = scope.getArgs();
+        expect(Object.isFrozen(args.protected)).toBe(true);
+        expect(() => {
+          args.protected.value = 2;
+        }).toThrow(TypeError);
+        scope.setValue('allowed', 3);
+      },
+      'protected-helper',
+    ).build();
+    const executor = new FlowChartExecutor(chart, {
+      scopeFactory: (ctx, name, args, env) => attachScopeMethods({}, ctx, name, args, env),
+    });
+    executor.attachScopeRecorder({
+      id: 'helper-guard',
+      onWrite: (event) => {
+        writes.push(event.key);
+      },
+      onCommit: (event) => {
+        commits.push(event.mutations);
+      },
+    });
+    await executor.run({ input });
+    expect(writes).toEqual(['allowed']);
+    expect(commits).toEqual([[{ key: 'allowed', value: 3, operation: 'set' }]]);
+    expect(input).toEqual({ protected: { value: 1 } });
+    expect(Object.isFrozen(input.protected)).toBe(false);
   });
 
   // ── Prototype pollution protection ───────────────────────────────────

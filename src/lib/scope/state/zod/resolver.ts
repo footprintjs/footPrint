@@ -2,31 +2,17 @@
  * ZodScopeResolver — ProviderResolver for Zod-branded scope schemas
  */
 
-import { z } from 'zod';
-
-import { attachScopeMethods } from '../../providers/baseStateCompatible.js';
-import type { ProviderResolver, ScopeProvider, StageContextLike, StrictMode } from '../../providers/types.js';
+import type { ProviderResolver, ScopeProvider } from '../../providers/types.js';
+import { type DefineScopeOptions, defineScopeFromZod } from './defineScopeFromZod.js';
 import { isScopeSchema } from './schema/builder.js';
-import { createScopeProxyFromZod } from './scopeFactory.js';
-
-function makeZodProvider(schema: z.ZodObject<any>, strict: StrictMode = 'warn'): ScopeProvider<any> {
-  return {
-    kind: 'zod',
-    create: (ctx: StageContextLike, stageName: string, ro?: unknown) => {
-      const proxy = createScopeProxyFromZod(ctx, schema, strict, ro);
-      return attachScopeMethods(proxy, ctx, stageName, ro);
-    },
-  };
-}
+import type { ZodSchema } from './utils/validateHelper.js';
 
 export const ZodScopeResolver: ProviderResolver = {
   name: 'zod',
   canHandle(input: unknown): boolean {
     return isScopeSchema(input);
   },
-  makeProvider(input: unknown, options?: { zod?: { strict?: StrictMode } }): ScopeProvider<any> {
-    const schema = input as unknown as z.ZodObject<any>;
-    const strict = options?.zod?.strict ?? 'warn';
-    return makeZodProvider(schema, strict);
+  makeProvider(input: unknown, options?: { zod?: DefineScopeOptions }): ScopeProvider<any> {
+    return { kind: 'zod', create: defineScopeFromZod(input as ZodSchema, options?.zod) };
   },
 };

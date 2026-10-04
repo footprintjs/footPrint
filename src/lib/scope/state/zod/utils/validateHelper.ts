@@ -4,90 +4,97 @@
  * Detection delegated to schema/detect.ts (single source of truth).
  */
 
-import { type ZodRecord, type ZodTypeAny, z } from 'zod';
+import { type ZodTypeAny, z } from 'zod';
 
 import { detectSchema } from '../../../../schema/detect.js';
 
+/** The classic Zod 3/4 surface, without coupling to either constructor family. */
+export interface ZodSchema {
+  readonly _def: object;
+  parse(value: unknown): unknown;
+  safeParse(value: unknown): { success: true; data: unknown } | { success: false; error: unknown };
+}
+
 /** Check if the value is a Zod schema node. */
-export function isZodNode(x: unknown): x is ZodTypeAny {
+export function isZodNode(x: unknown): x is ZodSchema {
   return detectSchema(x) !== 'none';
 }
 
-/** Peel wrappers; returns the underlying base Zod node (or null).
- *
- *  Wrapper-aware: only descends through fields that are KNOWN to hold
- *  the inner schema for wrapper Zod types (Optional, Default, Nullable,
- *  Effects/Pipeline). Notably, `_def.type` is treated as the inner
- *  schema ONLY for v3 Effects/Pipeline — it is NOT the inner schema
- *  for ZodArray (where `_def.type` holds the ELEMENT schema, which is
- *  a separate concern from wrapper unwrapping).
- *
- *  Without this gate, `unwrap(z.array(z.string()))` would incorrectly
- *  follow `_def.type` and return `ZodString`, breaking array detection
- *  in `scopeFactory.analyze()`.
- */
-export function unwrap(schema: ZodTypeAny | null | undefined): ZodTypeAny | null {
-  let s: unknown = schema ?? null;
-  while (isZodNode(s)) {
-    const def = ((s as any)._def ?? {}) as Record<string, unknown>;
-    const tn = def.typeName as string | undefined;
-    // Only known wrapper typeNames descend. ZodArray / ZodObject /
-    // ZodRecord / ZodUnion etc. break out so the caller can branch
-    // on the base instance check.
-    const isWrapper =
-      tn === 'ZodOptional' ||
-      tn === 'ZodDefault' ||
-      tn === 'ZodNullable' ||
-      tn === 'ZodReadonly' ||
-      tn === 'ZodBranded' ||
-      tn === 'ZodCatch' ||
-      tn === 'ZodEffects' ||
-      tn === 'ZodPipeline' ||
-      tn === 'ZodLazy';
-    if (!isWrapper) break;
-    if (isZodNode(def.innerType)) {
-      s = def.innerType;
-      continue;
-    }
-    if (isZodNode(def.schema)) {
-      s = def.schema;
-      continue;
-    }
-    // Pipeline (`in` / `out`) — descend into `in` (input side).
-    if (isZodNode(def.in)) {
-      s = def.in;
-      continue;
-    }
-    // Lazy holds a getter under `getter`. Last-resort fallback.
-    if (typeof def.getter === 'function') {
-      try {
-        const inner = (def.getter as () => unknown)();
-        if (isZodNode(inner)) {
-          s = inner;
-          continue;
-        }
-      } catch {
-        /* fall through */
-      }
-    }
-    break;
-  }
-  return isZodNode(s) ? (s as ZodTypeAny) : null;
+/** Both classic Zod versions expose their definition at `_def`. */
+function definition(schema: ZodSchema): Record<string, unknown> {
+  return (schema._def as Record<string, unknown>) ?? {};
 }
 
-/** Version-tolerant access to ZodRecord value schema. */
-export function getRecordValueType(rec: ZodRecord<any, any>): ZodTypeAny | null {
-  const r: any = rec as any;
-  const def = r._def ?? {};
-  return (
-    r.valueSchema ??
-    r.valueType ??
-    def.valueType ??
-    def.value ??
-    (def.schema && (def.schema.valueType ?? def.schema.value)) ??
-    (def.innerType && (def.innerType.valueType ?? def.innerType.value)) ??
-    null
-  );
+/** Structural kind, independent of the installed copy's constructors. */
+export function getZodKind(schema: ZodSchema): string | undefined {
+  const def = definition(schema);
+  if (typeof def.typeName === 'string') {
+    const kind = def.typeName.slice(3).toLowerCase();
+    return kind === 'pipeline' ? 'pipe' : kind;
+  }
+  return typeof def.type === 'string' ? def.type : undefined;
+}
+
+/** The actual object fields: a getter in Zod 3, an object in Zod 4. */
+export function getObjectShape(schema: ZodSchema): Record<string, ZodSchema> {
+  const def = definition(schema);
+  const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
+  if (!shape || typeof shape !== 'object') throw new TypeError('Zod object has no valid shape.');
+  return shape as Record<string, ZodSchema>;
+}
+
+/** Array element metadata is not a wrapper edge. */
+export function getArrayElementType(schema: ZodSchema): ZodSchema | null {
+  const def = definition(schema);
+  const element = def.typeName === 'ZodArray' ? def.type : def.element;
+  return isZodNode(element) ? element : null;
+}
+
+/**
+ * Peel only known wrappers for structural classification. The caller must
+ * retain the original schema for write validation: unwrapping is not parsing.
+ * Arrays stop here; a pipeline follows its input, since scope writes are inputs.
+ */
+export function unwrap(schema: ZodSchema | null | undefined): ZodSchema | null {
+  let s: unknown = schema ?? null;
+  while (isZodNode(s)) {
+    const def = definition(s);
+    let inner: unknown;
+    switch (getZodKind(s)) {
+      case 'optional':
+      case 'nullable':
+      case 'default':
+      case 'readonly':
+      case 'catch':
+      case 'prefault':
+      case 'nonoptional':
+        inner = def.innerType;
+        break;
+      case 'effects':
+        inner = def.schema;
+        break;
+      case 'branded':
+        inner = def.type;
+        break;
+      case 'pipe':
+        inner = def.in;
+        break;
+      case 'lazy':
+        inner = typeof def.getter === 'function' ? def.getter() : undefined;
+        break;
+      default:
+        return s;
+    }
+    if (!isZodNode(inner)) throw new TypeError('Zod wrapper has no valid inner schema.');
+    s = inner;
+  }
+  return null;
+}
+
+/** Both Zod versions store the record's value schema at `valueType`. */
+export function getRecordValueType(schema: ZodSchema): ZodSchema | null {
+  const value = definition(schema).valueType;
+  return isZodNode(value) ? value : null;
 }
 
 function looksLikeBindingError(err: unknown): boolean {
@@ -95,9 +102,9 @@ function looksLikeBindingError(err: unknown): boolean {
   return msg.includes('_zod') || msg.includes('inst._zod') || msg.includes('Cannot read properties of undefined');
 }
 
-const WRAPPER_CACHE = new WeakMap<ZodTypeAny, ZodTypeAny>();
+const WRAPPER_CACHE = new WeakMap<ZodSchema, ZodTypeAny>();
 
-export function parseWithThis(schema: ZodTypeAny, value: unknown): unknown {
+export function parseWithThis(schema: ZodSchema, value: unknown): unknown {
   const anySchema = schema as any;
 
   if (typeof anySchema.safeParse === 'function') {

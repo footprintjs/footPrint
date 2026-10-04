@@ -26,10 +26,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 describe('Scenario: Traverser Coverage', () => {
@@ -584,3 +584,4 @@ describe('Scenario: Traverser Coverage', () => {
     expect(order).toContain('sub');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

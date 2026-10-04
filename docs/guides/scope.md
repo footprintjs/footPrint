@@ -39,7 +39,7 @@ const assessRisk = async (scope: LoanScope) => {
 
 ### 2. Raw Scope (Low-level)
 
-Use `ScopeFacade` directly with string keys. When you pass no scope factory to `FlowChartExecutor`, this is what you get by default:
+Use `ScopeFacade` directly with string keys by supplying a custom scope factory. The executor default is TypedScope over a facade, not a raw facade:
 
 ```typescript
 import { ScopeFacade } from 'footprintjs/advanced';
@@ -68,7 +68,24 @@ const scopeFactory = defineScopeFromZod(schema);
 // Proxy-based: validates writes against the schema at runtime
 ```
 
-Schema-driven scopes give you compile-time type safety AND runtime validation. If a stage writes `{ retries: "three" }` to a `z.number()` field, validation catches it immediately — not three stages later when something reads the bad value.
+Field handles provide runtime validation (`scope.creditScore.set(700)`, `scope.creditScore.get()`). They are not plain typed state properties. Use `{ strict: 'deny' }` to throw on an invalid write; the default warns and drops it. Generic `setValue` is an unvalidated escape hatch. Classic Zod 3/4 wrappers retain their field operations; original-schema validation is preserved, but parsed defaults/transforms are not stored and nested writes do not revalidate parent-object cross-field rules.
+
+### Custom scope runtime capabilities
+
+Built-in scopes register their infrastructure capabilities automatically. Custom factory objects and strict proxies must register separately from their data fields. The executor and `decide`/`select` use this registration for recorders, redaction, lifecycle and filter reads; they no longer look for method names on the user object.
+
+```typescript
+import { registerScopeRuntime, ScopeFacade, type ScopeFactory } from 'footprintjs/advanced';
+
+const customFactory: ScopeFactory<{ read(key: string): unknown; write(key: string, value: unknown): void }> =
+  (ctx, name, input, env) => {
+    const facade = new ScopeFacade(ctx, name, input, env);
+    const view = { read: facade.getValue.bind(facade), write: facade.setValue.bind(facade) };
+    return registerScopeRuntime(view, { target: facade, handlesAssignments: false });
+  };
+```
+
+Use `handlesAssignments: true` only when your proxy already routes assignments into managed state. An optional `setBreak` callback receives the current stage's stop function. A deliberately data-only scope may register `target: {}` but offers no scope-level events or filter reads. An unregistered scope fails with migration guidance. `attachScopeMethods(target, ctx, name, input, env)` is the simpler route when standard facade method names fit: it registers and binds one facade for you. Both forms require a real `StageContext`; only low-level state adapters accept `StageContextLike`.
 
 ---
 

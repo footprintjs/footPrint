@@ -51,7 +51,7 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
   it('record.merge() merges values into existing record', () => {
     const schema = z.object({
-      metadata: z.record(z.string()),
+      metadata: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
@@ -91,7 +91,7 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
   it('record.exists() returns true when record is set', () => {
     const schema = z.object({
-      tags: z.record(z.string()),
+      tags: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
@@ -103,7 +103,7 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
   it('record.keys() returns keys of the record', () => {
     const schema = z.object({
-      tags: z.record(z.string()),
+      tags: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
@@ -170,15 +170,19 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
     const readOnlyData = { apiKey: 'secret' };
     const proxy = createScopeProxyFromZod(ctx, schema, 'warn', readOnlyData);
 
-    expect(proxy.ro).toBe(readOnlyData);
+    expect(proxy.ro).toEqual(readOnlyData);
+    expect(proxy.ro).not.toBe(readOnlyData);
+    expect(Object.isFrozen(proxy.ro)).toBe(true);
+    expect(Object.isFrozen(readOnlyData)).toBe(false);
   });
 
-  it('ro property is undefined when readOnly is not provided', () => {
+  it('ro property is an empty frozen view when readOnly is not provided', () => {
     const schema = z.object({ name: z.string() });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema);
 
-    expect(proxy.ro).toBeUndefined();
+    expect(proxy.ro).toEqual({});
+    expect(Object.isFrozen(proxy.ro)).toBe(true);
   });
 
   // ── object.get() and object.toJSON() ──────────────────────────────────

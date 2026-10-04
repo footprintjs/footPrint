@@ -26,10 +26,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 function buildSelectorTree(
@@ -335,3 +335,4 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     expect(result).toBe('final');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

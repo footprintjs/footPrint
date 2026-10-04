@@ -14,12 +14,13 @@ import { describe, expect, it } from 'vitest';
 
 import { decide } from '../../../../src/lib/decide/decide';
 import type { DecideRule, DecisionEvidence } from '../../../../src/lib/decide/types';
+import { registerTestScope } from '../../../helpers/registerScope';
 
 // -- Mock scope (same shape as decide.test.ts) -------------------------------
 
 function mockScope(state: Record<string, unknown>) {
   const recorders: any[] = [];
-  return {
+  return registerTestScope({
     ...state,
     getValue(key: string) {
       const value = state[key];
@@ -57,7 +58,7 @@ function mockScope(state: Record<string, unknown>) {
     $toRaw() {
       return this;
     },
-  };
+  });
 }
 
 /** Rule sets that exercise every evidence shape decide() can emit. */

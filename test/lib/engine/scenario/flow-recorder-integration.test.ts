@@ -29,10 +29,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 describe('Scenario: FlowRecorder Integration', () => {
@@ -265,3 +265,4 @@ describe('Scenario: FlowRecorder Integration', () => {
     expect(sentences.some((s) => s.includes('Init'))).toBe(true);
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

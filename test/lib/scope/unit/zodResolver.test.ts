@@ -1,25 +1,12 @@
-import { vi } from 'vitest';
 import { z } from 'zod';
 
-import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
-// We need to import the resolver and the registration mechanism
-// The ZodScopeResolver is exported from the resolver module
-import { ZodScopeResolver } from '../../../../src/lib/scope/state/zod/resolver';
-import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder';
+import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
+import { StageContext } from '../../../../src/lib/memory/StageContext.js';
+import { ZodScopeResolver } from '../../../../src/lib/scope/state/zod/resolver.js';
+import { defineScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder.js';
 
-function makeCtx(overrides: Partial<StageContextLike> = {}): StageContextLike {
-  return {
-    getValue: vi.fn().mockReturnValue(undefined),
-    setObject: vi.fn(),
-    updateObject: vi.fn(),
-    addLog: vi.fn(),
-    addError: vi.fn(),
-    getGlobal: vi.fn(),
-    setRoot: vi.fn(),
-    pipelineId: 'pipe-1',
-    runId: 'run-1',
-    ...overrides,
-  };
+function makeCtx(): StageContext {
+  return new StageContext('zod-resolver', 'testStage', 'test-stage', new SharedMemory());
 }
 
 describe('ZodScopeResolver', () => {
@@ -57,9 +44,12 @@ describe('ZodScopeResolver', () => {
 
       // The scope should have proxy fields from the schema
       expect(scope).toBeDefined();
-      // It should also have compat methods from attachScopeMethods
+      // Convenience methods share the facade used by schema-backed fields.
       expect(typeof scope.addDebugInfo).toBe('function');
       expect(typeof scope.getPipelineId).toBe('function');
+      scope.count.set(3);
+      expect(scope.count.get()).toBe(3);
+      expect(ctx.getValue([], 'count')).toBe(3);
     });
 
     it('passes strict mode from options', () => {
@@ -67,7 +57,9 @@ describe('ZodScopeResolver', () => {
       const ctx = makeCtx();
       const scope = provider.create(ctx, 'testStage');
       // Setting an invalid value should throw in deny mode
-      expect(() => scope.name.set(123)).toThrow();
+      scope.name.set('Alice');
+      expect(() => scope.name.set(123)).toThrow(z.ZodError);
+      expect(ctx.getValue([], 'name')).toBe('Alice');
     });
 
     it('defaults strict mode to warn', () => {
@@ -75,11 +67,13 @@ describe('ZodScopeResolver', () => {
       const ctx = makeCtx();
       const scope = provider.create(ctx, 'testStage');
       // Setting an invalid value in warn mode should not throw
+      scope.name.set('Alice');
       scope.name.set(123);
-      expect(ctx.addError).toHaveBeenCalled();
+      expect(ctx.debug.errorContext.schema).toBeDefined();
+      expect(ctx.getValue([], 'name')).toBe('Alice');
     });
 
-    it('passes readOnly to compat layer', () => {
+    it('passes readOnly through the facade', () => {
       const provider = ZodScopeResolver.makeProvider(schema);
       const ctx = makeCtx();
       const readOnly = { frozen: true };

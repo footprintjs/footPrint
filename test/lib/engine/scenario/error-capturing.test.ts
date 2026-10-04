@@ -33,10 +33,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 // ─────────────────────── Helpers ───────────────────────
@@ -430,3 +430,4 @@ describe('Error narrative: trace tells the story', () => {
     expect(narrative.some((s) => s.includes('parallel'))).toBe(true);
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

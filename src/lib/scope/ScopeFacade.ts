@@ -29,6 +29,7 @@ import { StageContext } from '../memory/StageContext.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
+import { registerScopeRuntime } from './runtime.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
 export class ScopeFacade {
@@ -108,6 +109,7 @@ export class ScopeFacade {
     this._stageContext.setCommitObserver((mutations) => {
       this._onCommitFired(mutations);
     });
+    registerScopeRuntime(this, { target: this, handlesAssignments: false });
   }
 
   /**
@@ -485,17 +487,27 @@ export class ScopeFacade {
    * treat event values as read-only too.
    */
   getValue(key?: string) {
-    const value = this._stageContext.getValue([], key);
+    return this.getValueAt([], key);
+  }
+
+  /** Path-aware adapter access. Segments remain separate from literal dotted keys. */
+  getValueAt(path: string[], key?: string) {
+    const value = this._stageContext.getValue(path, key);
 
     // RFC-003 D2: remember tracked keys so later SILENT reads of the same
     // key count as shadowed (edge already captured) instead of untracked.
-    if (key !== undefined) this._trackedReadKeys.add(key);
+    // Only a whole top-level value shadows a later silent read of that value.
+    // Reading one nested field must not claim to have observed its siblings.
+    if (path.length === 0 && key !== undefined) this._trackedReadKeys.add(key);
+    else if (path.length === 1 && key === undefined) this._trackedReadKeys.add(path[0]!);
 
     if (this._recorders.length > 0) {
       // A whole-state read (no key) is served with every redacted key inside
       // it scrubbed; a keyed read is served under the key's verdict.
-      const verdict = key === undefined ? CLEAR : this.rule.verdict([key]);
-      const recorderValue = key === undefined ? this.rule.retainRecord(value) : RedactionRule.apply(verdict, value);
+      const wholeState = path.length === 0 && key === undefined;
+      const verdict = wholeState ? CLEAR : key === undefined ? this.rule.verdict(path) : this.rule.verdictAt(path, key);
+      const recorderValue = wholeState ? this.rule.retainRecord(value) : RedactionRule.apply(verdict, value);
+      const eventKey = path.length === 0 ? key : (key === undefined ? path : [...path, key]).join('.');
 
       this._invokeHook('onRead', {
         stageName: this._stageName,
@@ -503,7 +515,7 @@ export class ScopeFacade {
         runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
-        key,
+        key: eventKey,
         value: recorderValue,
         redacted: verdict.kind !== 'clear' || undefined,
       });
@@ -513,8 +525,14 @@ export class ScopeFacade {
   }
 
   setValue(key: string, value: unknown, shouldRedact?: boolean, description?: string) {
-    assertNotReadonly(this._readOnlyValues, key, 'write');
-    this.assertLive(key);
+    return this.setValueAt([], key, value, shouldRedact, description);
+  }
+
+  /** Path-aware writes share recording, redaction and lifetime policy with flat writes. */
+  setValueAt(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+    const eventKey = path.length === 0 ? key : [...path, key].join('.');
+    assertNotReadonly(this._readOnlyValues, path[0] ?? key, 'write');
+    this.assertLive(eventKey);
 
     // Dev-mode: warn if the value contains circular references.
     // Check AFTER assertNotReadonly — don't warn for writes that will be blocked.
@@ -524,7 +542,7 @@ export class ScopeFacade {
       if (hasCircularReference(value)) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[footprint] Circular reference detected in setValue('${key}'). ` +
+          `[footprint] Circular reference detected in setValue('${eventKey}'). ` +
             'Writes past the cycle depth will use terminal proxy tracking. ' +
             'Consider flattening the data structure.',
         );
@@ -535,7 +553,7 @@ export class ScopeFacade {
     // policy key/pattern, per-run mark, or field-level scrub), stages the
     // write with the paths the log will scrub, and hands the verdict back so
     // recorders see the same decision the retained record holds.
-    const verdict = this._stageContext.setObject([], key, value, shouldRedact, description);
+    const verdict = this._stageContext.setObject(path, key, value, shouldRedact, description);
 
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
@@ -544,7 +562,7 @@ export class ScopeFacade {
         runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
-        key,
+        key: eventKey,
         value: RedactionRule.apply(verdict, value),
         operation: 'set',
         redacted: verdict.kind !== 'clear' || undefined,
@@ -553,21 +571,27 @@ export class ScopeFacade {
   }
 
   updateValue(key: string, value: unknown, description?: string) {
-    assertNotReadonly(this._readOnlyValues, key, 'write');
-    this.assertLive(key);
+    return this.updateValueAt([], key, value, description);
+  }
+
+  /** Path-aware merges use the same write funnel as replacements. */
+  updateValueAt(path: string[], key: string, value: unknown, description?: string) {
+    const eventKey = path.length === 0 ? key : [...path, key].join('.');
+    assertNotReadonly(this._readOnlyValues, path[0] ?? key, 'write');
+    this.assertLive(eventKey);
 
     // Dev-mode: same circular check as setValue (merge targets can be circular too)
     if (isDevMode() && value !== null && typeof value === 'object') {
       if (hasCircularReference(value)) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[footprint] Circular reference detected in updateValue('${key}'). ` +
+          `[footprint] Circular reference detected in updateValue('${eventKey}'). ` +
             'Consider flattening the data structure.',
         );
       }
     }
 
-    const verdict = this._stageContext.updateObject([], key, value, description);
+    const verdict = this._stageContext.updateObject(path, key, value, description);
 
     if (this._recorders.length > 0) {
       this._invokeHook('onWrite', {
@@ -576,7 +600,7 @@ export class ScopeFacade {
         runtimeStageId: this._stageContext.runtimeStageId,
         pipelineId: this._stageContext.runId,
         timestamp: Date.now(),
-        key,
+        key: eventKey,
         value: RedactionRule.apply(verdict, value),
         operation: 'update',
         redacted: verdict.kind !== 'clear' || undefined,

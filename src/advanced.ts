@@ -104,6 +104,8 @@ export {
   resolveScopeProvider,
   toScopeFactory,
 } from './lib/scope/index.js';
+export type { ScopeRuntime, ScopeRuntimeTarget } from './lib/scope/runtime.js';
+export { registerScopeRuntime } from './lib/scope/runtime.js';
 
 // ScopeRecorder config/option types
 export type {

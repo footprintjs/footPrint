@@ -10,6 +10,7 @@
  */
 
 import { isDevMode } from '../devMode.js';
+import { requireScopeRuntime } from '../scope/runtime.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';
@@ -30,40 +31,15 @@ import { DECISION_RESULT } from './types.js';
 
 // -- Scope accessor helpers --------------------------------------------------
 
-function getAttachFn(scope: unknown): ((r: ScopeRecorder) => void) | undefined {
-  const s = scope as Record<string, unknown>;
-  if (typeof s.$attachScopeRecorder === 'function') return s.$attachScopeRecorder.bind(s);
-  if (typeof s.attachScopeRecorder === 'function') return s.attachScopeRecorder.bind(s);
-  return undefined;
-}
-
-function getDetachFn(scope: unknown): ((id: string) => void) | undefined {
-  const s = scope as Record<string, unknown>;
-  if (typeof s.$detachScopeRecorder === 'function') return s.$detachScopeRecorder.bind(s);
-  if (typeof s.detachScopeRecorder === 'function') return s.detachScopeRecorder.bind(s);
-  return undefined;
-}
-
-function getValueFn(scope: unknown): (key: string) => unknown {
-  const s = scope as Record<string, unknown>;
-  // Check $getValue first: on TypedScope, accessing .getValue triggers a spurious
-  // onRead for key "getValue" via the Proxy get trap. $getValue routes through
-  // SCOPE_METHOD_NAMES and avoids the state-read path.
-  if (typeof s.$getValue === 'function') return s.$getValue.bind(s);
-  if (typeof s.getValue === 'function') return s.getValue.bind(s);
-  return () => undefined;
-}
-
-function getRedactedFn(scope: unknown): (key: string) => boolean {
-  const s = scope as Record<string, unknown>;
-  // Try $toRaw() first (TypedScope), then direct
-  const raw = typeof s.$toRaw === 'function' ? s.$toRaw() : s;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.getRedactedKeys === 'function') {
-    const keys = r.getRedactedKeys() as Set<string>;
-    return (key: string) => keys.has(key);
-  }
-  return () => false;
+function scopeAccessors(scope: unknown) {
+  const { target } = requireScopeRuntime(scope);
+  const keys = target.getRedactedKeys?.();
+  return {
+    attachFn: target.attachScopeRecorder?.bind(target),
+    detachFn: target.detachScopeRecorder?.bind(target),
+    valueFn: target.getValue?.bind(target) ?? (() => undefined),
+    redactedFn: (key: string) => keys?.has(key) ?? false,
+  };
 }
 
 // -- evaluate a single rule --------------------------------------------------
@@ -197,10 +173,7 @@ export function decide<S extends object>(
   rules: DecideRule<S>[],
   defaultBranch: DefaultBranch,
 ): DecisionResult {
-  const attachFn = getAttachFn(scope);
-  const detachFn = getDetachFn(scope);
-  const valueFn = getValueFn(scope);
-  const redactedFn = getRedactedFn(scope);
+  const { attachFn, detachFn, valueFn, redactedFn } = scopeAccessors(scope);
 
   const { branch: defaultBranchId, label: defaultLabel } = normalizeDefaultBranch(defaultBranch);
   // Declared once, spread into BOTH exits below — deliberately. A default's
@@ -256,10 +229,7 @@ export function decide<S extends object>(
  * Unknown filter operators also never match (dev mode warns).
  */
 export function select<S extends object>(scope: S, rules: DecideRule<S>[]): SelectionResult {
-  const attachFn = getAttachFn(scope);
-  const detachFn = getDetachFn(scope);
-  const valueFn = getValueFn(scope);
-  const redactedFn = getRedactedFn(scope);
+  const { attachFn, detachFn, valueFn, redactedFn } = scopeAccessors(scope);
 
   const evaluatedRules: RuleEvidence[] = [];
   const selectedBranches: string[] = [];

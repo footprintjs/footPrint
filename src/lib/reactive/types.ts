@@ -295,23 +295,22 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
 export const BREAK_SETTER = Symbol('footprint:reactive:setBreak');
 
 // -- Internal: Symbol for TypedScope detection -------------------------------
-// Used by StageRunner to skip createProtectedScope for TypedScope instances.
-// Private Symbol prevents string-tag spoofing.
+// Retained for consumers inspecting TypedScope. Engine assignment handling is
+// declared through scope/runtime, not discovered through a user proxy.
 
 export const IS_TYPED_SCOPE = Symbol('footprint:reactive:isTypedScope');
 
 // -- Internal: executor method allowlist -------------------------------------
-// ScopeFacade methods called by FlowChartExecutor wrapping code and StageRunner
-// THROUGH a TypedScope proxy. Only add methods with confirmed call sites.
-// Shared between createTypedScope.ts and StageRunner.ts to prevent drift.
+// Historical direct TypedScope pass-throughs, retained for consumers. Engine
+// callers use the registered runtime port; this is NOT the engine protocol.
 
 export const EXECUTOR_INTERNAL_METHODS = new Set([
-  'notifyStageStart', // StageRunner.run() line 59
-  'notifyStageEnd', // StageRunner.run() line 79
-  'notifyPause', // StageRunner.run() — pause detection
-  'attachScopeRecorder', // runner/attach.ts · RunObservers · composeScopeFactory — narrative + user recorders
-  'detachScopeRecorder', // FlowChartExecutor.detachScopeRecorder()
-  'getScopeRecorders', // FlowChartExecutor.getScopeRecorders()
-  'useSharedRedactedKeys', // runner/attach.ts · RunObservers · composeScopeFactory — redaction wrapping
-  'useRedactionPolicy', // runner/attach.ts · RunObservers · composeScopeFactory — redaction wrapping
+  'notifyStageStart',
+  'notifyStageEnd',
+  'notifyPause',
+  'attachScopeRecorder',
+  'detachScopeRecorder',
+  'getScopeRecorders',
+  'useSharedRedactedKeys',
+  'useRedactionPolicy',
 ]);

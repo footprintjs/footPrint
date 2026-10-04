@@ -5,6 +5,9 @@
  * StageContextLike is the minimal surface from StageContext to avoid tight coupling.
  */
 
+import type { StageContext } from '../../memory/StageContext.js';
+import type { ScopeFacade } from '../ScopeFacade.js';
+
 /** Minimal surface from StageContext (patch-based) */
 export interface StageContextLike {
   getValue(path: string[], key?: string): unknown;
@@ -23,12 +26,17 @@ export interface StageContextLike {
 }
 
 /** Factory type the pipeline expects */
-export type ScopeFactory<TScope> = (ctx: StageContextLike, stageName: string, readOnly?: unknown) => TScope;
+export type ScopeFactory<TScope> = (
+  ctx: StageContext,
+  stageName: string,
+  readOnly?: unknown,
+  executionEnv?: ConstructorParameters<typeof ScopeFacade>[3],
+) => TScope;
 
 /** Strategy object that creates a scope */
 export interface ScopeProvider<TScope> {
   readonly kind: string;
-  create(ctx: StageContextLike, stageName: string, readOnly?: unknown): TScope;
+  create(...args: Parameters<ScopeFactory<TScope>>): TScope;
 }
 
 /** Resolver that can turn an arbitrary input into a ScopeProvider */

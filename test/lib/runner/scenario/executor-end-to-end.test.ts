@@ -9,10 +9,11 @@ import { flowChart, FlowChartBuilder } from '../../../../src/lib/builder';
 import type { StageContext } from '../../../../src/lib/memory';
 import { ExecutionRuntime, FlowChartExecutor } from '../../../../src/lib/runner';
 import { ScopeFacade, toScopeFactory } from '../../../../src/lib/scope';
+import { registerTestScope } from '../../../helpers/registerScope';
 
 // ─── Helpers ───
 
-const noopScope = (ctx: StageContext) => ({ ctx });
+const noopScope = (ctx: StageContext) => registerTestScope({ ctx });
 const log: string[] = [];
 
 function clearLog() {
@@ -20,12 +21,13 @@ function clearLog() {
 }
 
 function makeScopeFactory() {
-  return (ctx: StageContext, stageName: string) => ({
-    ctx,
-    stageName,
-    setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
-    getValue: (key: string) => ctx.getGlobal(key),
-  });
+  return (ctx: StageContext, stageName: string) =>
+    registerTestScope({
+      ctx,
+      stageName,
+      setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
+      getValue: (key: string) => ctx.getGlobal(key),
+    });
 }
 
 // ─── Tests ───

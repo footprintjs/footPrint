@@ -1,6 +1,14 @@
 # scope/
 
-The data layer library. Depends on `memory/` (Phase 1). Zero dependencies on any other footprint library.
+The stage access layer. `ScopeFacade` owns state operations, argument ownership and recorder dispatch; adapters build on it. Dependencies follow layer L5 in `scripts/layering.config.cjs`.
+
+## Scope runtime registration
+
+`runtime.ts` is the single connection between a user-facing scope and the engine. Its WeakMap maps an object to `{ target, handlesAssignments, setBreak? }`; registration never reads or enumerates the user object's fields. `target` is the explicit infrastructure port for recording, redaction, lifecycle and state access. The descriptor is copied and frozen; its target remains live. TypedScope, ScopeFacade, Zod factories and `attachScopeMethods` register automatically.
+
+The executor, parallel-for-each and `decide`/`select` require this registration. Custom providers use `registerScopeRuntime` from `footprintjs/advanced`, normally with a backing `ScopeFacade`. Set `handlesAssignments: true` only when the user scope already routes direct assignments into managed state. A data-only scope can explicitly register `target: {}`, but then offers no scope-level recorder hooks or decision filter reads. Missing registration throws; there is no property-probing fallback. Scope protection copies registration without changing the scope identity used by interrupt/resume.
+
+`ScopeFacade.getValueAt` / `setValueAt` / `updateValueAt` are the path-aware counterparts of the flat methods. Flat calls delegate to them. Paths stay as segments in memory; only event labels are dotted. They share the existing write checks, redaction rule, recorders and commit observer. A nested write checks the input's root key, and a committed facade refuses every write through a retained adapter handle.
 
 > **For new code, use TypedScope<T> (from `reactive/`) instead of ScopeFacade directly.**
 > TypedScope wraps ScopeFacade in a Proxy for typed property access: `scope.creditTier`
@@ -20,7 +28,7 @@ This positioning is deliberate. Because all data flows through one trunk, we get
 2. **Protection** — catch the #1 footPrint bug (direct property assignment) at runtime
 3. **Validation** — Zod-driven schemas that reject bad writes immediately, not three stages later
 
-The data layer design also connects to builder/ (Phase 2). Builder descriptions are **static decoration** — they tell the LLM what a tool *does*, defined at build time. Recorders are **runtime decoration** — they tell the LLM what actually *happened* during execution. Together: full decoration. The LLM gets both the manual and the play-by-play.
+The data layer design also connects to builder/ (Phase 2). Builder descriptions are **static decoration** — they tell the LLM what a tool _does_, defined at build time. Recorders are **runtime decoration** — they tell the LLM what actually _happened_ during execution. Together: full decoration. The LLM gets both the manual and the play-by-play.
 
 ---
 
@@ -31,13 +39,18 @@ The data layer design also connects to builder/ (Phase 2). Builder descriptions 
 Base class that library consumers extend to create custom scope classes. Wraps `StageContext` from the memory library. This is where reads and writes enter the data layer.
 
 **Why a class, not a plain object?** Two reasons:
+
 1. **Extensibility** — consumers add domain-specific getters/setters as class properties
 2. **Brand detection** — the static `BRAND` symbol lets the provider system detect ScopeFacade subclasses reliably at runtime
 
 ```typescript
 class UserScope extends ScopeFacade {
-  get name(): string { return this.getValue('name') as string; }
-  set name(v: string) { this.setValue('name', v); }
+  get name(): string {
+    return this.getValue('name') as string;
+  }
+  set name(v: string) {
+    this.setValue('name', v);
+  }
 }
 
 const factory = toScopeFactory(UserScope);
@@ -51,17 +64,17 @@ scope.name = 'Alice'; // writes to shared memory
 
 Because all state flows through the data layer, we can observe every change. That's what recorders are — hooks at the interception point that capture reads, writes, commits, errors, and stage lifecycle events.
 
-Recorders don't exist *on top of* the data layer. They exist *because of* it. The trunk design is what makes universal observation possible without per-stage instrumentation.
+Recorders don't exist _on top of_ the data layer. They exist _because of_ it. The trunk design is what makes universal observation possible without per-stage instrumentation.
 
 **Three built-in recorders:**
 
-| ScopeRecorder | Captures | Audience |
-|---|---|---|
-| `MetricRecorder` | Timing + read/write/commit counts per stage | Ops / monitoring |
-| `DebugRecorder` | Errors (always) + mutations + reads (verbose mode) | Developer |
-| `narrative()` | Per-stage data sentences + control flow for trace enrichment | **The LLM** |
+| ScopeRecorder    | Captures                                                     | Audience         |
+| ---------------- | ------------------------------------------------------------ | ---------------- |
+| `MetricRecorder` | Timing + read/write/commit counts per stage                  | Ops / monitoring |
+| `DebugRecorder`  | Errors (always) + mutations + reads (verbose mode)           | Developer        |
+| `narrative()`    | Per-stage data sentences + control flow for trace enrichment | **The LLM**      |
 
-**`narrative()` is the unique one.** It produces runtime decoration — per-stage sentences like *"Stage 'fetchUser' read 'userId' and wrote 'userName', 'userEmail'"*. This is the runtime counterpart to builder's static tool descriptions. Builder tells the LLM what the tool does. `narrative()` tells it what data flowed, what changed, what conditions were hit, and why a stage backtracked. Together they give the LLM full context without re-running the pipeline.
+**`narrative()` is the unique one.** It produces runtime decoration — per-stage sentences like _"Stage 'fetchUser' read 'userId' and wrote 'userName', 'userEmail'"_. This is the runtime counterpart to builder's static tool descriptions. Builder tells the LLM what the tool does. `narrative()` tells it what data flowed, what changed, what conditions were hit, and why a stage backtracked. Together they give the LLM full context without re-running the pipeline.
 
 **Build your own recorder.** The ScopeRecorder interface is all-optional — implement only the hooks you need. An error tracker only needs `onError`. A timing recorder only needs `onStageStart`/`onStageEnd`. Because the data layer captures everything, any recorder you attach automatically sees all state changes. No instrumentation needed.
 
@@ -73,7 +86,7 @@ import { narrative } from 'footprintjs/recorders';
 const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(metrics);
-executor.attachCombinedRecorder(narrative());   // combined flow + data narrative
+executor.attachCombinedRecorder(narrative()); // combined flow + data narrative
 
 await executor.run();
 
@@ -102,6 +115,7 @@ Two mechanisms feed the rule:
 **Manual:** `setValue(key, value, true)` marks a key as redacted for the rest of the run. All recorders see `[REDACTED]` for that key's reads and writes; the log and mirror record `REDACTED`. Runtime always gets the real value.
 
 **Policy-based:** `RedactionPolicy` is a declarative config object with three dimensions:
+
 - `keys: string[]` — exact key names to always redact
 - `patterns: RegExp[]` — any key matching a pattern is auto-redacted
 - `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`) — honoured by the log and the mirror too, not only by recorder events (9.19.0)
@@ -120,12 +134,12 @@ The #1 footPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setVal
 
 ```typescript
 const protected = createProtectedScope(scope, {
-  mode: 'error',        // 'error' | 'warn' | 'off'
+  mode: 'error', // 'error' | 'warn' | 'off'
   stageName: 'myStage',
 });
 
-protected.config = {};  // Throws: "Direct property assignment detected"
-protected.setValue('config', {});  // Works correctly — goes through the data layer
+protected.config = {}; // Throws: "Direct property assignment detected"
+protected.setValue('config', {}); // Works correctly — goes through the data layer
 ```
 
 ---
@@ -143,7 +157,7 @@ Consumers bring different scope definitions — some use classes, some use facto
 const factory1 = toScopeFactory(UserScope);
 
 // Factory-based
-const factory2 = toScopeFactory((ctx, name) => ({ name }));
+const factory2 = toScopeFactory((ctx, name, input, env) => attachScopeMethods({}, ctx, name, input, env));
 
 // Zod-based (requires ZodScopeResolver to be registered)
 const factory3 = toScopeFactory(defineScopeSchema({ name: z.string() }));
@@ -155,23 +169,23 @@ const factory3 = toScopeFactory(defineScopeSchema({ name: z.string() }));
 
 Creates lazy, copy-on-write proxies driven by Zod object schemas. Validates writes at runtime.
 
-Schema-driven scopes give you compile-time type safety AND runtime validation. If a stage writes `{ retries: "three" }` to a `z.number()` field, the validation catches it immediately — not three stages later when something reads the bad value.
+Schema field handles provide runtime validation: `scope.retries.set('three')` is refused by a number schema in deny mode. They are not plain state values; use `.get()` and `.set()`. Generic facade conveniences such as `setValue` remain unvalidated escape hatches.
 
 ```typescript
 const schema = defineScopeSchema({
   name: z.string(),
   config: z.object({
     retries: z.number(),
-    metadata: z.record(z.string()),
+    metadata: z.record(z.string(), z.string()),
   }),
 });
 
 const factory = defineScopeFromZod(schema, { strict: 'warn' });
 const scope = factory(ctx, 'myStage');
 
-scope.name.set('Alice');        // validated
-scope.config.retries.set(3);    // validated
-scope.config.retries.set('x');  // warns: invalid value
+scope.name.set('Alice'); // validated
+scope.config.retries.set(3); // validated
+scope.config.retries.set('x'); // warns: invalid value
 ```
 
 ---
@@ -218,19 +232,19 @@ Static decoration                    Runtime decoration
 
 ## Design Decisions
 
-| Decision | Why | How it serves the data layer |
-|---|---|---|
-| ScopeFacade wraps StageContext | Consumers get clean API, internals stay hidden | Single trunk — all state flows through one place |
-| ScopeRecorder interface is all-optional | Partial implementations are the common case | Easy to build custom recorders (error-only, timing-only, audit) |
-| ScopeRecorder errors caught + forwarded to onError | Observers must never break the observed system | Production safety — bad recorder can't crash pipeline |
-| `narrative()` summarizes values | Raw values can be huge (LLM responses, arrays) | Runtime decoration stays concise for LLM context windows |
-| Protection uses Proxy, not linting | Runtime catch is more reliable than build-time | Catches bypasses even in JS (non-TypeScript) consumers |
-| Three protection modes (error/warn/off) | Different needs for dev vs prod vs testing | Strict in dev, lenient where needed |
-| Provider system with pluggable resolvers | New scope types (Zod) don't require engine changes | Plugin architecture — extend without modifying core |
-| Guards use heuristics (stringify, prototype) | Must work with transpiled code, not just native classes | Reliable detection across CJS/ESM/bundlers |
-| Zod proxy uses copy-on-write | Only clone when writing, reads are lazy | Performance — no upfront cost for unused fields |
-| Zod validation is configurable (off/warn/deny) | Some contexts need performance, others need safety | Consumer chooses the right tradeoff |
-| ScopeFacade uses BRAND symbol | Prototype chain checking alone fails with some bundlers | Reliable detection even with module duplication |
+| Decision                                           | Why                                                     | How it serves the data layer                                    |
+| -------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| ScopeFacade wraps StageContext                     | Consumers get clean API, internals stay hidden          | Single trunk — all state flows through one place                |
+| ScopeRecorder interface is all-optional            | Partial implementations are the common case             | Easy to build custom recorders (error-only, timing-only, audit) |
+| ScopeRecorder errors caught + forwarded to onError | Observers must never break the observed system          | Production safety — bad recorder can't crash pipeline           |
+| `narrative()` summarizes values                    | Raw values can be huge (LLM responses, arrays)          | Runtime decoration stays concise for LLM context windows        |
+| Protection uses Proxy, not linting                 | Runtime catch is more reliable than build-time          | Catches bypasses even in JS (non-TypeScript) consumers          |
+| Three protection modes (error/warn/off)            | Different needs for dev vs prod vs testing              | Strict in dev, lenient where needed                             |
+| Provider system with pluggable resolvers           | New scope types (Zod) don't require engine changes      | Plugin architecture — extend without modifying core             |
+| Guards use heuristics (stringify, prototype)       | Must work with transpiled code, not just native classes | Reliable detection across CJS/ESM/bundlers                      |
+| Zod proxy uses copy-on-write                       | Only clone when writing, reads are lazy                 | Performance — no upfront cost for unused fields                 |
+| Zod validation is configurable (off/warn/deny)     | Some contexts need performance, others need safety      | Consumer chooses the right tradeoff                             |
+| ScopeFacade uses BRAND symbol                      | Prototype chain checking alone fails with some bundlers | Reliable detection even with module duplication                 |
 
 ---
 
@@ -258,20 +272,20 @@ External dependencies: `zod` (peer dependency, only for state/zod/).
 
 Four test tiers, 113 tests across 14 suites:
 
-| Tier | What it proves | Example |
-|---|---|---|
-| **unit/** | Individual class/function correctness | ScopeFacade.getValue reads from StageContext |
-| **scenario/** | Multi-step workflow correctness | recorder observes real writes → class vs factory scope → Zod validated scope |
-| **property/** | Invariants hold for random inputs (fast-check) | throwing recorders never break execution, Zod rejects invalid writes |
-| **boundary/** | Edge cases and extremes | 50 recorders, deeply nested Zod schema, error conditions |
+| Tier          | What it proves                                 | Example                                                                      |
+| ------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| **unit/**     | Individual class/function correctness          | ScopeFacade.getValue reads from StageContext                                 |
+| **scenario/** | Multi-step workflow correctness                | recorder observes real writes → class vs factory scope → Zod validated scope |
+| **property/** | Invariants hold for random inputs (fast-check) | throwing recorders never break execution, Zod rejects invalid writes         |
+| **boundary/** | Edge cases and extremes                        | 50 recorders, deeply nested Zod schema, error conditions                     |
 
 ### Tested Capacity (Boundary Results)
 
-| What | Tested at | Detail |
-|---|---|---|
-| Concurrent recorders | **100** | 100 MetricRecorders all track independently |
-| Mixed throwing recorders | **50** | 25 throwing + 25 normal, execution continues |
-| Zod schema depth | **5 levels** | 5-level nested object with set/get at leaf |
-| Zod object fields | **20** | 20 fields in single schema, all accessible |
-| Zod record keys | **50** | 50 dynamic keys in z.record |
-| Zod array elements | **100** | 100-element array set/get |
+| What                     | Tested at    | Detail                                       |
+| ------------------------ | ------------ | -------------------------------------------- |
+| Concurrent recorders     | **100**      | 100 MetricRecorders all track independently  |
+| Mixed throwing recorders | **50**       | 25 throwing + 25 normal, execution continues |
+| Zod schema depth         | **5 levels** | 5-level nested object with set/get at leaf   |
+| Zod object fields        | **20**       | 20 fields in single schema, all accessible   |
+| Zod record keys          | **50**       | 50 dynamic keys in z.record                  |
+| Zod array elements       | **100**      | 100-element array set/get                    |
