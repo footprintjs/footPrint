@@ -1,8 +1,7 @@
 /**
  * detach/types.ts — Type definitions for the fire-and-forget primitive.
  *
- * Pattern:  Strategy + Bridge (GoF). Same shape as cache strategies in
- *           agentfootprint v2.6 — ONE interface, N concrete drivers,
+ * Pattern:  One strategy interface, concrete scheduling drivers,
  *           consumer picks via explicit import.
  * Role:     Foundation. Every other detach file imports from here.
  *           This is the lockable contract; downstream files implement it.
@@ -17,20 +16,19 @@
  *
  *   2. `DetachHandle` — the consumer-facing handle returned by
  *      `detachAndJoinLater`. Exposes status as PROPERTIES (sync read)
- *      and `wait()` (Promise — opt-in async join). Style 2 from the
- *      panel review: properties for sync, single method for async.
+ *      and `wait()` (Promise — opt-in async join).
  *
  * Naming policy (locked from naming review):
  *   - Public API uses simple verbs / properties (product-engineer friendly)
  *   - Internal class names CAN use CS terms (Scheduler, Continuation, etc.)
  *   - Drivers are algorithm-named (semantic at the algorithm level)
  *
- * Locked design decisions (panel review captured in
- * `docs/inspiration/detach-primitive.md`):
- *   - Sync hot path; async only at flush boundaries
- *   - Errors → commitLog + typed event, NEVER thrown to parent
- *   - Scope isolation between parent and detached child
- *   - Lifecycle tied to executor disposal
+ * Current lifecycle contract:
+ *   - Return a handle synchronously; the selected driver owns dispatch
+ *   - Scheduling/child errors → failed handle, never thrown to parent
+ *   - `runChild.ts · defaultRunChild` uses an isolated child executor
+ *   - `registry.ts` tracks in-flight handles for `flushAllDetached`
+ *   - No automatic commit-log event or executor-disposal integration
  *   - Type-level rejection of `outputMapper` on detach options
  */
 
@@ -78,7 +76,8 @@ export interface DetachWaitResult {
  *   failed  → terminal: error available
  *
  * `done` and `failed` are TERMINAL — once reached, status never
- * changes again.
+ * changes again. A scheduling refusal can go straight from `queued`
+ * to `failed`, without starting the child.
  */
 export interface DetachHandle {
   /** Stable id assigned at detach time. Used as the lookup key in
@@ -164,8 +163,9 @@ export interface DriverCapabilities {
  *     never waits for the driver's deferred work to complete
  *
  * Drivers MAY:
- *   - Implement `validate()` for one-time configuration checks at
- *     registration / use time (e.g., assert `navigator.sendBeacon` exists)
+ *   - Implement `validate()` for explicit caller-controlled preflight
+ *     checks (e.g., assert `navigator.sendBeacon` exists). Scheduling
+ *     must still contain failures when preflight was not requested.
  *   - Build their internal pipeline as a footprintjs flowChart for
  *     observability — driver implementation detail, not consumer-facing
  *
@@ -201,17 +201,14 @@ export interface DetachDriver {
   schedule(child: FlowChart, input: unknown, refId: string): DetachHandle;
 
   /**
-   * Optional one-time validation hook. Called at first use (or
-   * registration time, depending on driver) — drivers throw if their
-   * configuration is invalid (missing peer dep, unreachable endpoint,
-   * wrong API key shape, etc.).
+   * Optional preflight hook, invoked explicitly by the caller, never
+   * automatically by the detach entry points. It may throw if the
+   * configuration is invalid. `schedule()` must independently report
+   * scheduling failures through its handle, even without preflight.
    *
    * Example: `sendBeaconDriver.validate()` checks
    * `typeof navigator?.sendBeacon === 'function'` and throws with a
    * helpful message if absent (e.g., in Node).
-   *
-   * Per the New Relic panel review: early-fail-with-useful-message
-   * beats silent zero-emission.
    */
   validate?(): void;
 }

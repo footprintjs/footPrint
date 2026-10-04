@@ -20,17 +20,9 @@
  *     significantly. Don't rely on precise timing.
  */
 
-import type { FlowChart } from '../../builder/types.js';
-import { asImpl, createHandle } from '../handle.js';
-import { register, unregister } from '../registry.js';
 import { type ChildRunner, defaultRunChild } from '../runChild.js';
-import type { DetachDriver, DetachHandle } from '../types.js';
-
-interface WorkItem {
-  readonly child: FlowChart;
-  readonly input: unknown;
-  readonly handle: DetachHandle;
-}
+import type { DetachDriver } from '../types.js';
+import { createBatchSchedule } from './batch.js';
 
 export interface SetTimeoutDriverOptions {
   /** Milliseconds to wait before flushing the batch. Default 0
@@ -43,44 +35,11 @@ export interface SetTimeoutDriverOptions {
 export function createSetTimeoutDriver(opts: SetTimeoutDriverOptions = {}): DetachDriver {
   const delayMs = opts.delayMs ?? 0;
   const runChild = opts.runChild ?? defaultRunChild;
-  const queue: WorkItem[] = [];
-  let scheduled = false;
-
-  function flush(): void {
-    scheduled = false;
-    const items = queue.splice(0);
-    for (const item of items) {
-      executeOne(item, runChild).then(undefined, undefined);
-    }
-  }
-
   return {
     name: delayMs === 0 ? 'set-timeout' : `set-timeout-${delayMs}ms`,
     capabilities: { browserSafe: true, nodeSafe: true, edgeSafe: true },
-    schedule(child: FlowChart, input: unknown, refId: string): DetachHandle {
-      const handle = createHandle(refId);
-      register(handle);
-      queue.push({ child, input, handle });
-      if (!scheduled) {
-        scheduled = true;
-        setTimeout(flush, delayMs);
-      }
-      return handle;
-    },
+    schedule: createBatchSchedule((flush) => setTimeout(flush, delayMs), runChild),
   };
-}
-
-async function executeOne(item: WorkItem, runChild: ChildRunner): Promise<void> {
-  const impl = asImpl(item.handle);
-  impl._markRunning();
-  try {
-    const result = await runChild(item.child, item.input);
-    impl._markDone(result);
-  } catch (err) {
-    impl._markFailed(err instanceof Error ? err : new Error(String(err)));
-  } finally {
-    unregister(impl.id);
-  }
 }
 
 /** Default singleton — zero-delay (next macrotask). For configurable

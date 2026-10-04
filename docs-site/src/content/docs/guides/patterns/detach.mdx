@@ -50,8 +50,8 @@ import {
 
 | Driver / factory             | When                                                    | Capabilities                                  |
 |------------------------------|---------------------------------------------------------|-----------------------------------------------|
-| `microtaskBatchDriver`       | Default. Coalesces N detaches into one microtask flush. | browser + node + edge                         |
-| `immediateDriver`            | Sync execution inside `schedule()` — for tests.         | browser + node + edge                         |
+| `microtaskBatchDriver`       | Coalesces N detaches into one microtask flush.           | browser + node + edge                         |
+| `immediateDriver`            | Marks `running` synchronously; starts each child on a microtask, without batching. | browser + node + edge |
 | `setImmediateDriver`         | Node-only. Yields to I/O before running.                | node                                          |
 | `setTimeoutDriver`           | Cross-runtime. Configurable delay.                      | browser + node + edge                         |
 | `createSendBeaconDriver()`   | Browser-only. Survives page-unload via `navigator.sendBeacon`. | browser, survivesUnload               |
@@ -72,7 +72,7 @@ Parent does its work, fires telemetry, returns. The handle is discarded.
 Fire N children in parallel, gather their results in a downstream stage. Combine many handles via `Promise.all`.
 
 <Aside type="caution" title="Don't store handles in shared state">
-`StageContext.setValue` calls `structuredClone`, which drops the handle's class prototype (and with it, the `.wait()` method). Keep handles in **closure-local variables**, not on the typed scope.
+Handles are live objects, not durable shared-state data. The recording boundary uses `structuredClone`, which does not preserve the handle's class methods and can reject its live promise state. Keep handles in **closure-local variables**, not on the typed scope.
 </Aside>
 
 <Code code={joinLaterFanout} lang="ts" title="examples/runtime-features/detach/02-join-later-fanout.ts" />
@@ -97,6 +97,10 @@ Status sequence telescopes — consumers polling `.status` synchronously see `ru
 
 A child that throws does **not** propagate to the parent. The driver catches it and routes to `handle.error`. Sibling detaches in the same batch are not poisoned.
 
+The three batching drivers also contain scheduling failures. If `setImmediate`, `queueMicrotask`, or `setTimeout` is unavailable or throws, `schedule()` returns a handle already marked `failed`; that batch never starts and its handles are removed from the in-flight registry. Later calls can run once the scheduler works again. Failed work is not retried, and the driver never switches to another scheduler.
+
+Use `detachAndJoinLater` to inspect `handle.error` or catch `handle.wait()` rejecting. `detachAndForget` deliberately discards the handle, so choose it only when you do not need to observe failure. An optional `driver.validate?.()` is a separate, explicit configuration check that may throw; detach calls never invoke it automatically.
+
 <Code code={errorHandling} lang="ts" title="examples/runtime-features/detach/05-error-handling.ts" />
 
 ## 6 · Status polling without `await`
@@ -108,6 +112,8 @@ The handle is intentionally **not** Promise-shaped — no `.then()`. Reading `.s
 ## 7 · Graceful shutdown — `flushAllDetached`
 
 Drain all in-flight detached children before the process exits. Returns `{ done, failed, pending }`. `pending === 0` means the drain ran to completion. Useful in SIGTERM handlers and test cleanup.
+
+This is not a history of all detached work: handles that have already settled and unregistered, including immediate scheduling failures, are not counted. Keep their handles if you need their outcomes.
 
 <Code code={gracefulShutdown} lang="ts" title="examples/runtime-features/detach/07-graceful-shutdown.ts" />
 

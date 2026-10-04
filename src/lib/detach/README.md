@@ -5,8 +5,8 @@ A stage that must not wait for its side work (telemetry, an audit write) hands a
 **The laws.**
 
 - *Drivers are passed explicitly* — no default driver and no driver registry, so the engine never imports one (`spawn.ts`).
-- *A driver returns a handle synchronously and reports failure through it*: a scheduling or child failure lands on the handle (`status: 'failed'`, `error`), not on the parent stage (`types.ts · DetachDriver`). One driver bends this — see the known gap in [`drivers/`](./drivers/README.md).
-- *A handle only moves forward* — `queued → running → done | failed` — and `wait()` hands back one cached promise (`handle.ts · HandleImpl`, `test/lib/detach/handle.test.ts`).
+- *A driver returns a handle synchronously and reports failure through it*: a scheduling or child failure lands on the handle (`status: 'failed'`, `error`), not on the parent stage (`types.ts · DetachDriver`). The three batching drivers share `drivers/batch.ts · createBatchSchedule`; entry points do not catch errors or choose fallback drivers.
+- *A handle only moves forward* — `queued → running → done | failed`, or directly `queued → failed` if scheduling fails — and `wait()` hands back one cached promise (`handle.ts · HandleImpl`, `test/lib/detach/handle.test.ts`).
 - *The registry is process-wide because the drivers' queues are.* `flushAllDetached` loops until it is empty, so a detach made by a child is drained too, and settles with `Promise.allSettled` under a deadline (`test/lib/detach/flush.test.ts`).
 - *The executor is reached lazily* — `runChild.ts · defaultRunChild` does a dynamic `import()` — so the runner is not in a driver's static import graph and cannot close a load-time cycle. A bundler without code splitting still inlines it (a plain esbuild bundle of `microtaskBatchDriver` alone contains the executor); with splitting it becomes a lazy chunk.
 
