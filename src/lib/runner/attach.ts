@@ -153,16 +153,14 @@ export class RunObservers {
   /**
    * Open a leg: a fresh narrative recorder when the narrative is on, none when
    * it is off — or, on a resume (`preserve`), the existing one, so the
-   * narrative accumulates across the pause. Returns the leg's narrative flag.
+   * narrative accumulates across the pause. A fresh executor has no recorder
+   * to preserve and starts one for the resumed leg only.
+   * Returns the leg's narrative flag.
    */
   startLeg(chartNarrative: boolean, preserve: boolean): boolean {
     const narrativeFlag = this.narrativeEnabled || chartNarrative;
-    if (preserve) {
-      // Resume mode: keep existing combinedRecorder so narrative accumulates
-    } else if (narrativeFlag) {
-      this.combinedRecorder = new CombinedNarrativeRecorder(this.narrativeOptions);
-    } else {
-      this.combinedRecorder = undefined;
+    if (!preserve || !this.combinedRecorder) {
+      this.combinedRecorder = narrativeFlag ? new CombinedNarrativeRecorder(this.narrativeOptions) : undefined;
     }
     return narrativeFlag;
   }

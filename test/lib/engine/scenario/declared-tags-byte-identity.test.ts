@@ -8,8 +8,8 @@
  * `runUntaggedFixture` produced on the 9.20.0 tree (01685c3) on 2026-09-10,
  * BEFORE any 9.21.0 source edit, run twice per encoding and checked to agree.
  * The same fixture, run on the current code, must reproduce them byte for
- * byte apart from the named R13/F8 changes and the duplicate transition
- * sentence removed by reference() below. Volatile fields (timestamps, run
+ * byte apart from the named R13/F8 changes and the C2 fresh-resume narrative
+ * correction pinned by reference() below. Volatile fields (timestamps, run
  * ids, `pausedAt`) are dropped on both sides.
  *
  * To regenerate after an INTENDED untagged change, run the fixture on the
@@ -33,14 +33,84 @@ function reference(encoding: 'full' | 'delta'): string {
       bothKeys(['paused'], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#9' }),
     ),
   );
-  // C1: this fresh resume uses the standalone narrator. Only the middle
-  // entry came from onNext; keep both completed stages and all other bytes.
+  // C2: the original fresh resume had only standalone stage sentences (and
+  // C1 removed its duplicate transition). It now starts the enabled combined
+  // narrator. Pin the whole corrected resumed leg; all other bytes stay intact.
   expect(parsed.resumed.narrative).toEqual([
     { type: 'stage', text: 'Next, it moved on to Gate.', depth: 0 },
     { type: 'stage', text: 'Next, it moved on to Finish.', depth: 0 },
     { type: 'stage', text: 'Next, it moved on to Finish.', depth: 0 },
   ]);
-  parsed.resumed.narrative.splice(1, 1);
+  parsed.resumed.narrative = [
+    {
+      type: 'resume',
+      text: 'Execution resumed at Gate with input.',
+      depth: 0,
+      stageName: 'Gate',
+      stageId: 'gate',
+      runtimeStageId: 'gate#13',
+    },
+    {
+      type: 'stage',
+      text: 'Stage 1: The process began with Gate.',
+      depth: 0,
+      stageName: 'Gate',
+      stageId: 'gate',
+      runtimeStageId: 'gate#13',
+    },
+    {
+      type: 'step',
+      text: 'Step 1: Write approved = true',
+      depth: 1,
+      stageName: 'Gate',
+      stageId: 'gate',
+      runtimeStageId: 'gate#13',
+      stepNumber: 1,
+      key: 'approved',
+      rawValue: true,
+    },
+    {
+      type: 'stage',
+      text: 'Stage 2: Next, it moved on to Finish.',
+      depth: 0,
+      stageName: 'Finish',
+      stageId: 'finish',
+      runtimeStageId: 'finish#14',
+    },
+    {
+      type: 'step',
+      text: 'Step 1: Read approved = true',
+      depth: 1,
+      stageName: 'Finish',
+      stageId: 'finish',
+      runtimeStageId: 'finish#14',
+      stepNumber: 1,
+      key: 'approved',
+      rawValue: true,
+    },
+    {
+      type: 'step',
+      text: 'Step 2: Read summary = "NaN:3"',
+      depth: 1,
+      stageName: 'Finish',
+      stageId: 'finish',
+      runtimeStageId: 'finish#14',
+      stepNumber: 2,
+      key: 'summary',
+      rawValue: 'NaN:3',
+    },
+    {
+      type: 'step',
+      text: 'Step 3: Write done = true',
+      depth: 1,
+      stageName: 'Finish',
+      stageId: 'finish',
+      runtimeStageId: 'finish#14',
+      stepNumber: 3,
+      key: 'done',
+      rawValue: true,
+    },
+  ];
   return JSON.stringify(parsed, null, 2);
 }
 

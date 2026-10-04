@@ -540,8 +540,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Structured narrative entries (type, text, depth) — the one public narrative
-   * API; `.map(e => e.text)` for a flat `string[]`.
+   * The executor-owned narrative view; `.map(e => e.text)` for flat strings.
+   * `enableNarrative(options)` configures this view. Attaching a flow recorder
+   * also enables it, but that recorder's options and entries remain independent
+   * (read an attached `narrative()` instance with `recorder.getEntries()`).
+   * Same-executor resume retains history; a fresh executor records its resumed
+   * leg only. The internal narrator is not an attached snapshot recorder row.
    */
   getNarrativeEntries(): CombinedNarrativeEntry[] {
     if (this.observers.combinedRecorder) {

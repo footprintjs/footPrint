@@ -84,11 +84,13 @@ executor.getSubflowResults();    // per-subflow results
 
 4. Consumer queries results
    → executor.getSnapshot()     → traverser.getSnapshot()     → runtime.getSnapshot()
-   → executor.getNarrativeEntries() → traverser.getNarrative() → narrative.getSentences()
+   → executor.getNarrativeEntries() → executor-owned combined recorder (standalone flow fallback if absent)
    → executor.getRuntimeRoot()  → traverser.getRuntimeRoot()  → root StageNode
 ```
 
 The executor is a thin delegation layer. Every introspection method forwards to the traverser, which forwards to the appropriate internal component. No logic lives here — just wiring and forwarding.
+
+The narrative view is owned by `RunObservers`: `enableNarrative(options)` configures it, and attaching any flow recorder also enables it. An attached `narrative(options)` has a separate default identity and formatting policy; read that view through `recorder.getEntries()`. Default narrators no longer displace the executor's narrator; custom recorder IDs must avoid the generated `combined-narrative-N` namespace. A fresh `run()` resets both views, a same-executor `resume()` retains their history, and a fresh-executor `resume()` records only the resumed leg. Only explicitly attached recorders appear in `getSnapshot().recorders`.
 
 ### The executor's modules (F9)
 

@@ -89,7 +89,7 @@ describe('CombinedNarrativeRecorder — unit', () => {
     // CombinedRecorder. Compilation of this file is the proof — the
     // assignment would fail at build time if the contract broke.
     const rec: CombinedRecorder = new CombinedNarrativeRecorder();
-    expect(rec.id).toBe('combined-narrative');
+    expect(typeof rec.id).toBe('string');
   });
 
   it('carries an `id` and supports a custom id via options', () => {
