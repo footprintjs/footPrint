@@ -309,6 +309,8 @@ A commit row carries one of four verbs — `set | merge | append | delete` — a
 
 `paths.ts`, `equality.ts` and `merge.ts` import nothing; `verbs.ts` imports only them and `pathOps.ts` (layer table: `scripts/layering.config.cjs`).
 
+**Merged keys are data, not prototype instructions.** `merge.ts · deepSmartMerge` recursively merges own enumerable string keys and reads only own destination values. A nested payload's own `__proto__`, `constructor` or `prototype` key stays data on an ordinary object; it neither supplies an inherited merge base nor invokes an inherited setter. This is separate from `pathOps` refusing those names as traversal segments. Source cycles and array reference unions keep their existing rules. Before this correction, an own `__proto__` could be lost and change the result's prototype; replaying a retained payload now preserves that key. Fields already lost from a recording cannot be reconstructed.
+
 ```typescript
 import { applySmartMerge } from 'footprintjs/advanced';
 
