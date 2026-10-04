@@ -636,7 +636,7 @@ console.log(JSON.stringify(executor.getSnapshot({ redact: true }).sharedState));
 // {"ssn":"REDACTED","password":"REDACTED","applicant":{"name":"Bob","ssn":"REDACTED","address":{"zip":"REDACTED","city":"LA"}}}
 ```
 
-The policy covers everything retained or served (commit log, narrative, recorder events, `getSnapshot({ redact: true })`); it never touches the live state the run computes on.
+The policy protects named state values in the commit log, mirror, tracked reads/writes and corresponding recorder/narrative payloads. Root run input/output events are masked before dispatch using their top-level keys and explicit nested `fields` paths; scalars/root arrays pass through unchanged, and fork child-ID envelopes need explicit paths (for example `fields: { branchA: ['result.secret'] }`). Execution inputs, returned results, live state and checkpoints stay real. This is not a content scanner or whole-snapshot safe export: diagnostic bags/text, pause payloads and custom recorder data/metadata require separate review. See `docs/guides/scope.md` → "The one law" for the bounded contract. Capture once at the runtime boundary; recorders and readers must not reconstruct or re-scrub a run afterward.
 
 ---
 

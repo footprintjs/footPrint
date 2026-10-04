@@ -36,8 +36,11 @@
  * Redaction:
  *   Payload redaction is the engine's responsibility (`RedactionPolicy`).
  *   By the time payloads reach this recorder via `FlowSubflowEvent` or
- *   `FlowRunEvent`, redactable values are already scrubbed. The recorder
- *   does not (and should not) re-redact.
+ *   `FlowRunEvent`, named values have passed the run's rule. Root run
+ *   payloads address their own top-level keys / explicit nested fields;
+ *   scalars and root arrays pass through, and fork child-ID envelopes need
+ *   explicit result paths. This is not content scanning. The recorder
+ *   does not (and should not) re-redact or reconstruct the run.
  *
  * @example
  * ```typescript

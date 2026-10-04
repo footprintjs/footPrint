@@ -150,14 +150,15 @@ export interface IControlFlowNarrative {
 
   /**
    * Called once per top-level `executor.run()`, BEFORE the first stage executes.
-   * `input` is the value passed via `run({input})` (after schema validation).
+   * `input` is the retained form of `run({input})` after schema validation;
+   * the run's key/path redaction applies before dispatch. See {@link FlowRunEvent}.
    * Subflow-traversers do NOT fire this event — they fire `onSubflowEntry`.
    */
   onRunStart(input: unknown, traversalContext?: TraversalContext): void;
 
   /**
    * Called once per top-level `executor.run()`, AFTER the last stage commits.
-   * `output` is the value the chart returned. NOT fired on pause (the run
+   * `output` is the retained form of the chart's return. NOT fired on pause (the run
    * didn't end; it suspended) or on uncaught error. Subflow-traversers do
    * NOT fire this event — they fire `onSubflowExit`.
    */
@@ -495,10 +496,16 @@ export interface FlowResumeEvent {
  *
  *   - `onRunStart` payload → the input passed to `run({input})`
  *   - `onRunEnd`   payload → the chart's return value
+ *
+ * Both are retained at runtime before dispatch/deferred capture using the
+ * run's RedactionRule: own top-level string keys and explicit nested fields.
+ * Scalars/root arrays pass through; fork child-ID envelopes need explicit
+ * paths such as fields: { childId: ['result.secret'] }. This is not recursive
+ * content scanning. Live execution inputs and return values stay unchanged.
  */
 export interface FlowRunEvent {
-  /** On `onRunStart`: the input from `run({input})` after schema validation.
-   *  On `onRunEnd`: the value returned by the chart. Undefined if neither. */
+  /** Retained input after validation (`onRunStart`) or retained chart return
+   *  (`onRunEnd`), under the key/path contract above. Undefined if neither. */
   payload?: unknown;
   traversalContext?: TraversalContext;
 }

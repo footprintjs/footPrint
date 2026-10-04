@@ -108,7 +108,9 @@ executor.attachScopeRecorder(auditRecorder);
 
 ### 2b. Redaction — "The PII Shield"
 
-**The one law (9.19.0):** a redaction policy covers EVERYTHING RETAINED OR SERVED — the commit log (both encodings), the redacted mirror, `stageReads`/`stageWrites` retention, recorder events and the narrative, a subflow's seed and merge-back — and NEVER the live heap the run computes on nor the resume checkpoint. ONE owner keeps it: the run's `RedactionRule` (`memory/redaction.ts`), installed on the root `StageContext` and inherited by every context and subflow root. `StageContext`'s write funnel and tracked-read retention ask it, so a write that bypasses the facade (subflow `inputMapper` seed, `outputMapper` merge-back, resume re-seed) is retained under the same verdict; the facade asks the same rule for the values it hands to recorders. Worked example: `docs/guides/scope.md` → "The one law".
+**One owner (9.19.0):** the run's `RedactionRule` (`memory/redaction.ts`) protects named values in the commit log (both encodings), redacted mirror, `stageReads`/`stageWrites`, their read/write recorder events and narrative, and subflow seed/merge-back. It never changes live execution or operational checkpoints. `StageContext`'s write funnel and tracked-read retention ask the same rule as the facade. Root and subflow boundary producers also apply it before dispatch to any recorder; recorders do not re-scrub or reconstruct the run.
+
+Root input/output masking addresses the returned record's top-level keys and explicit nested `fields` paths. Scalars and root arrays pass through unchanged; a terminal fork's child-ID envelope requires an explicit path such as `fields: { branchA: ['result.secret'] }`. This is not a general content scanner: diagnostic text/bags, pause payloads and custom recorder data/metadata need their own sharing policy. `getSnapshot({ redact: true })` is not a whole-snapshot safe-export guarantee. See [the scope guide](../../../docs/guides/scope.md#the-one-law--what-a-policy-covers) for the full contract and examples.
 
 Two mechanisms feed the rule:
 
