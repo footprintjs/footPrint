@@ -63,9 +63,10 @@ const chart = flowChart<State>(
     (scope) => {
       scope.response = 'Sunny, 72°F.';
 
-      // Three emits from the same stage — arrive at recorders in call order.
+      // Four emits from the same stage — arrive at recorders in call order.
       scope.$emit('myapp.llm.tokens', { input: 142, output: 38 });
       scope.$emit('myapp.billing.spend', { cost: 0.0003, currency: 'USD' });
+      scope.$emit('myapp.billing.spend', { cost: 0.0002, currency: 'USD' });
 
       // Legacy $metric: also lands on the emit channel as 'metric.latency'.
       scope.$metric('latency', 234);
@@ -84,7 +85,7 @@ const chart = flowChart<State>(
   // Redaction example: any event whose name matches these patterns has its
   // payload replaced with '[REDACTED]' before dispatch.
   executor.setRedactionPolicy({
-    emitPatterns: [/\.billing\./], // hide billing.* events
+    emitPatterns: [/\.billing\./g], // every match is hidden, including repeated names
   });
 
   await executor.run();
@@ -99,20 +100,19 @@ const chart = flowChart<State>(
 
   // ── Regression guards — fail the example if invariants break ──
 
-  // We emit 4 events total: 1 in CallLLM + 3 in HandleResponse (2 custom + 1 metric).
-  if (recorder.events.length !== 4) {
+  // We emit 5 events total: 1 in CallLLM + 4 in HandleResponse (3 custom + 1 metric).
+  if (recorder.events.length !== 5) {
     console.error(
-      `REGRESSION: expected 4 emit events, got ${recorder.events.length}.`,
+      `REGRESSION: expected 5 emit events, got ${recorder.events.length}.`,
     );
     process.exit(1);
   }
 
-  // Redaction: billing event should have '[REDACTED]' payload.
-  const billing = recorder.events.find((e) => e.name === 'myapp.billing.spend');
-  if (!billing || billing.payload !== '[REDACTED]') {
+  // Redaction: BOTH billing events must be masked despite the global flag.
+  const billing = recorder.events.filter((e) => e.name === 'myapp.billing.spend');
+  if (billing.length !== 2 || billing.some((e) => e.payload !== '[REDACTED]')) {
     console.error(
-      'REGRESSION: billing event payload was not redacted.',
-      billing?.payload,
+      'REGRESSION: a repeated billing event payload was not redacted.',
     );
     process.exit(1);
   }

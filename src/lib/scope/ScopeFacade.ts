@@ -23,7 +23,6 @@ import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { subflowSegmentsOf } from '../ids/runtimeStageId.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
-import { SCOPE_PLACEHOLDER } from '../memory/placeholders.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
@@ -343,16 +342,7 @@ export class ScopeFacade {
     // Redaction: if the event name matches any emitPattern, replace payload
     // with '[REDACTED]' BEFORE constructing the event (no leak through
     // copy-on-write, no way for recorders to see the raw value).
-    let finalPayload: unknown = payload;
-    const patterns = this.rule.getPolicy()?.emitPatterns;
-    if (patterns && patterns.length > 0) {
-      for (const pattern of patterns) {
-        if (pattern.test(name)) {
-          finalPayload = SCOPE_PLACEHOLDER;
-          break;
-        }
-      }
-    }
+    const finalPayload = this.rule.retainEmit(name, payload);
 
     // Build the enriched event once; pass the same reference to all
     // recorders. Since EmitEvent is `readonly`, sharing is safe.

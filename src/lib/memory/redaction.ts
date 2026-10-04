@@ -56,6 +56,8 @@ export interface RedactionPolicy {
    * Regex patterns matched against `EmitEvent.name` for `scope.$emit(...)`
    * calls. Any emit event whose name matches has its payload replaced with
    * the string `'[REDACTED]'` before dispatch to recorders.
+   * Global/sticky patterns start at index zero on every test; their flags
+   * retain their usual meaning. This does not scrub diagnostic side bags.
    *
    * Example:
    * ```ts
@@ -102,6 +104,18 @@ export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const)
  * realistic scope-state key name.
  */
 const MAX_PATTERN_KEY_LEN = 256;
+
+/** Policy patterns are predicates, not cursors over successive keys/events. */
+function matchesPattern(value: string, patterns: readonly RegExp[] | undefined): boolean {
+  if (!patterns) return false;
+  for (const pattern of patterns) {
+    // Only these flags consume lastIndex. Ordinary (including frozen)
+    // regexes need no writable cursor to match. Keep all original flags.
+    if (pattern.global || pattern.sticky) pattern.lastIndex = 0;
+    if (pattern.test(value)) return true;
+  }
+  return false;
+}
 
 export class RedactionRule {
   private policy: RedactionPolicy | undefined;
@@ -181,11 +195,16 @@ export class RedactionRule {
       }
       return false;
     }
-    for (const p of patterns) {
-      p.lastIndex = 0; // Reset stateful global/sticky regexes
-      if (p.test(key)) return true;
-    }
-    return false;
+    return matchesPattern(key, patterns);
+  }
+
+  /**
+   * Retain an emitted payload BEFORE dispatch/capture. Emit names are not
+   * state paths: no key-length cap, marks or field scrub applies here.
+   * A clear payload keeps its identity; diagnostic bags are untouched.
+   */
+  retainEmit(name: string, payload: unknown): unknown {
+    return matchesPattern(name, this.policy?.emitPatterns) ? SCOPE_PLACEHOLDER : payload;
   }
 
   /**
