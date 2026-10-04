@@ -12,7 +12,8 @@
  *   Rationale: writing `scope.tags = []` means "clear tags", not "append nothing".
  *   Without this rule, an empty-array write silently becomes a no-op which is
  *   impossible to distinguish from a bug.
- * - Objects: recursive merge
+ * - Objects: recursive merge of own enumerable string keys, including special keys;
+ *   inherited destination values and setters never participate.
  * - Primitives: source wins
  *
  * Terminates on a CYCLIC `src` (9.18.1, same law as {@link deepEqual}: a
@@ -40,9 +41,18 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
 
   const out: any = { ...(dst && typeof dst === 'object' ? dst : {}) };
   (inFlight ??= new WeakMap()).set(src, out);
-  // Object.keys() is own-enumerable-only by spec — no DENIED check needed here.
   for (const k of Object.keys(src)) {
-    out[k] = mergeGuarded(out[k], src[k], inFlight);
+    const owns = Object.prototype.hasOwnProperty.call(out, k);
+    const value = mergeGuarded(owns ? out[k] : undefined, src[k], inFlight);
+    // Spread made own slots writable data properties. Missing slots can be
+    // assigned too, unless an inherited key (notably __proto__) intercepts
+    // the write. Keep that key as DATA, rather than dropping it or invoking
+    // a setter; Reflect.has tests existence without reading an inherited getter.
+    if (!owns && Reflect.has(out, k)) {
+      Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true });
+    } else {
+      out[k] = value;
+    }
   }
   inFlight.delete(src);
   return out;
