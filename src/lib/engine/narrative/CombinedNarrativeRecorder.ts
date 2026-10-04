@@ -99,6 +99,7 @@ export interface CombinedNarrativeRecorderOptions {
  * narrative only surfaces control-flow lifecycle events.
  */
 export class CombinedNarrativeRecorder implements CombinedRecorder {
+  private static _counter = 0;
   readonly id: string;
   /** Dual-indexed ordered storage (Convention 1 — composed, not inherited). */
   private readonly store = new SequenceStore<CombinedNarrativeEntry>();
@@ -124,7 +125,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   private renderer?: NarrativeRenderer;
 
   constructor(options?: CombinedNarrativeRecorderOptions & { id?: string }) {
-    this.id = options?.id ?? 'combined-narrative';
+    this.id = options?.id ?? `combined-narrative-${++CombinedNarrativeRecorder._counter}`;
     this.includeStepNumbers = options?.includeStepNumbers ?? true;
     this.includeValues = options?.includeValues ?? true;
     this.maxValueLength = options?.maxValueLength ?? 80;

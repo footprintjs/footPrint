@@ -438,7 +438,7 @@ for (const item of walkSubflowSpec(mounted!.subflowSpec!, mounted!.subflowPath ?
 // stage
 ```
 
-**CombinedNarrativeRecorder** implements the Scope + Flow + Emit interfaces. `executor.enableNarrative()` installs it (read it with `executor.getNarrativeEntries()`); `chart.recorder(narrative())` attaches a `narrative()` instance for a one-shot run, and `executor.attachCombinedRecorder(narrative())` works too — read either back from the instance (`recorder.getEntries()`); the executor's own `getNarrativeEntries()` belongs to `enableNarrative()`. It is not exported as a class.
+**CombinedNarrativeRecorder** implements the Scope + Flow + Emit interfaces. `executor.enableNarrative(options)` configures the executor-owned view (read it with `executor.getNarrativeEntries()`). Attaching any flow recorder also enables that view. `chart.recorder(narrative())` attaches a separate instance for a one-shot run, and `executor.attachCombinedRecorder(narrative())` works too — read its configured view from `recorder.getEntries()`, not the executor getter. Each default instance has a distinct generated ID; detach using `recorder.id`. Same-executor resume preserves narrative history; a fresh executor records only its resumed leg. The class is not exported from the public doors.
 
 ## Event Ordering
 

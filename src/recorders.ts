@@ -60,6 +60,8 @@ import { MetricRecorder } from './lib/scope/recorders/MetricRecorder.js';
  * The returned recorder is a `CombinedNarrativeRecorder` — attach it to a
  * chart/executor, then read structured entries via `.getEntries()` after
  * the run. For flat strings, call `.getEntries().map(e => e.text)` locally.
+ * Each instance has its own generated ID; detach using `recorder.id`.
+ * Its formatting options affect this instance, not the executor's own view.
  */
 export type NarrativeInstance = CombinedNarrativeRecorder;
 

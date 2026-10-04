@@ -178,9 +178,11 @@ off.
 
 ## When to stay inline
 
-- The built-in `CombinedNarrativeRecorder` (`enableNarrative()` /
-  `chart.recorder(narrative())`) stays inline by design — it is cheap and
-  its output feeds `getNarrativeEntries()` consumers synchronously.
+- The executor-owned combined narrator (`enableNarrative()`) stays inline
+  and feeds `getNarrativeEntries()` synchronously. An attached `narrative()`
+  is an independent view, read through `recorder.getEntries()`; it can use
+  either delivery tier without displacing the executor's narrator or changing
+  that view's formatting options.
 - Recorders whose results you read MID-run with zero lag (e.g. a live UI
   polling between stages) — deferred data is one beat behind until the next
   checkpoint.
