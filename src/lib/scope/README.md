@@ -116,11 +116,12 @@ Two mechanisms feed the rule:
 
 **Manual:** `setValue(key, value, true)` marks a key as redacted for the rest of the run. All recorders see `[REDACTED]` for that key's reads and writes; the log and mirror record `REDACTED`. Runtime always gets the real value.
 
-**Policy-based:** `RedactionPolicy` is a declarative config object with three dimensions:
+**Policy-based:** `RedactionPolicy` has three dimensions for named state values and a separate emitted-event selector:
 
 - `keys: string[]` — exact key names to always redact
 - `patterns: RegExp[]` — any key matching a pattern is auto-redacted
 - `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`) — honoured by the log and the mirror too, not only by recorder events (9.19.0)
+- `emitPatterns: RegExp[]` — matches event names and replaces the whole emitted payload with `[REDACTED]`. The facade asks `RedactionRule.retainEmit` once before constructing the event, so inline/deferred observers and narrative receive the same retained value. Global/sticky patterns start at index zero on every test; flags keep their usual semantics. This does not sanitize the corresponding diagnostic bags.
 
 The policy is set at the executor level via `executor.setRedactionPolicy(policy)` (the rule is built per run and installed on the runtime root); `useRedactionPolicy()` / `useSharedRedactedKeys()` on a ScopeFacade remain as the `@internal` protocol for hand-built scopes and set the same rule.
 
