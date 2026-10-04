@@ -15,9 +15,10 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
+import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage } from './commitStage.js';
-import type { ExecuteNodeFn, RunStageFn } from './types.js';
+import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
   constructor(
@@ -34,13 +35,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
-    breakFlag: { shouldBreak: boolean },
+    breakFlag: BreakFlag,
     branchPath: string | undefined,
     runStage: RunStageFn<TOut, TScope>,
     executeNode: ExecuteNodeFn<TOut, TScope>,
     traversalContext?: TraversalContext,
-  ): Promise<Record<string, NodeResultType>> {
-    const breakFn = () => (breakFlag.shouldBreak = true);
+  ): Promise<Record<string, NodeResultType> | undefined> {
+    const breakFn = createBreakHandler(breakFlag);
 
     let selectedIds: string[];
     let selectionEvidence: SelectionEvidence | undefined;
@@ -74,7 +75,12 @@ export class SelectorHandler<TOut = any, TScope = any> {
     commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
 
     if (breakFlag.shouldBreak) {
-      return {};
+      // The selector completed, but it did not select or dispatch branches.
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
+      this.deps.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
+      // No branches ran: do not manufacture a result map. In a subflow,
+      // undefined lets SubflowExecutor use the stage's committed state.
+      return undefined;
     }
 
     context.addLog('selectedChildIds', selectedIds);

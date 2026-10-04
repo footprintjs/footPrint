@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A selector-body `$break(reason?)` stops before its continuation.** The selector's writes still commit once, but its selected children, ordinary `next` chain and `loopTo` target do not run. Previously the next stage (or loop target) ran before noticing the stop. The selector now emits `onStageExecuted` (`stageType: 'selector'`) and one `onBreak` with its own runtime id and first explicit reason; it does not claim a selection happened. Breaks inside selected children remain branch-local, and commit failures still fail the run.
+  - **Breaks:** affected charts no longer execute or record that extra stage/loop event; the stop event names the selector rather than the next stage, and a terminal selector now emits its completion and stop events. *Migration:* move any intentionally required work into the selector before it returns, or remove `$break` when continuation is intended.
+  - **Breaks:** a stopped selector returns `undefined`, not an empty branch-result map (`SelectorHandler.handleScopeBased` on `/advanced` includes `undefined` in its return type). This lets a subflow's `outputMapper` receive the committed partial state instead of `{}`, whether or not `propagateBreak` is enabled. A completed selection of zero children still returns `{}`. *Migration:* handle `undefined` when consuming a stopped selector's result; read saved values from the snapshot or the subflow mapper's state.
+
 ## [9.41.0] - 2026-10-03
 
 ### Changed — the executor split (F9) and one bundle constructor, one mount helper (F10)
