@@ -45,18 +45,10 @@ describe('NarrativeFlowRecorder', () => {
 
   // ── onNext ─────────────────────────────────────────────────────────────
 
-  it('onNext with description', () => {
-    recorder.onNext({ from: 'A', to: 'B', description: 'Fetches external data' });
-    const s = recorder.getSentences();
-    expect(s).toHaveLength(1);
-    expect(s[0]).toContain('Fetches external data');
-  });
-
-  it('onNext without description uses target stage name', () => {
+  it('onNext does not claim the destination completed', () => {
     recorder.onNext({ from: 'A', to: 'B' });
-    const s = recorder.getSentences();
-    expect(s).toHaveLength(1);
-    expect(s[0]).toContain('B');
+    recorder.onNext({ from: 'B', to: 'C', description: 'Fetches external data' });
+    expect(recorder.getSentences()).toEqual([]);
   });
 
   // ── onDecision ─────────────────────────────────────────────────────────
@@ -175,8 +167,12 @@ describe('NarrativeFlowRecorder', () => {
     recorder.onDecision({ decider: 'Process', chosen: 'Approve' });
     recorder.onLoop({ target: 'Init', iteration: 2 });
     recorder.onBreak({ stageName: 'Final' });
-    // onStageExecuted(Init) + onNext + onDecision + onLoop + onBreak = 5
-    expect(recorder.getSentences()).toHaveLength(5);
+    expect(recorder.getSentences()).toEqual([
+      'Next, it moved on to Init.',
+      'A decision was made, and the path taken was Approve.',
+      'On pass 2 through Init.',
+      'Execution stopped at Final.',
+    ]);
   });
 
   // ── Clear ──────────────────────────────────────────────────────────────

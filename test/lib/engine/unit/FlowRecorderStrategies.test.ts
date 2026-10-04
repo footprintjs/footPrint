@@ -326,10 +326,11 @@ describe('SeparateNarrativeFlowRecorder', () => {
     recorder.onStageExecuted({ stageName: 'Init', stageType: 'linear' });
     emitLoops(recorder, 20);
     recorder.onNext({ from: 'Init', to: 'Done' });
+    recorder.onStageExecuted({ stageName: 'Done', stageType: 'linear' });
 
     const mainSentences = recorder.getSentences();
     expect(mainSentences.some((s) => s.includes('pass'))).toBe(false);
-    expect(mainSentences).toHaveLength(2); // stage + next
+    expect(mainSentences).toEqual(['Next, it moved on to Init.', 'Next, it moved on to Done.']);
   });
 
   it('captures full loop detail in separate channel', () => {

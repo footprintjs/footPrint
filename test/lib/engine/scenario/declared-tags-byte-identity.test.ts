@@ -8,8 +8,9 @@
  * `runUntaggedFixture` produced on the 9.20.0 tree (01685c3) on 2026-09-10,
  * BEFORE any 9.21.0 source edit, run twice per encoding and checked to agree.
  * The same fixture, run on the current code, must reproduce them byte for
- * byte. Volatile fields (timestamps, run ids, `pausedAt`) are dropped on both
- * sides.
+ * byte apart from the named R13/F8 changes and the duplicate transition
+ * sentence removed by reference() below. Volatile fields (timestamps, run
+ * ids, `pausedAt`) are dropped on both sides.
  *
  * To regenerate after an INTENDED untagged change, run the fixture on the
  * old tag and replace the files — never on the new code.
@@ -24,14 +25,26 @@ import { withoutRecordedPhases } from './f8-recorded-phases.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** The 9.20.0 bytes, with the one named R13 change: the subflow's seed names its mount. */
-const reference = (encoding: 'full' | 'delta') =>
-  withSeedsNamedByMount(
-    readFileSync(join(here, 'reference', `untagged-9.20.0.${encoding}.json`), 'utf8'),
-    bothKeys(['paused'], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#9' }),
+/** The original bytes with only the named seed attribution and narrative corrections. */
+function reference(encoding: 'full' | 'delta'): string {
+  const parsed = JSON.parse(
+    withSeedsNamedByMount(
+      readFileSync(join(here, 'reference', `untagged-9.20.0.${encoding}.json`), 'utf8'),
+      bothKeys(['paused'], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#9' }),
+    ),
   );
+  // C1: this fresh resume uses the standalone narrator. Only the middle
+  // entry came from onNext; keep both completed stages and all other bytes.
+  expect(parsed.resumed.narrative).toEqual([
+    { type: 'stage', text: 'Next, it moved on to Gate.', depth: 0 },
+    { type: 'stage', text: 'Next, it moved on to Finish.', depth: 0 },
+    { type: 'stage', text: 'Next, it moved on to Finish.', depth: 0 },
+  ]);
+  parsed.resumed.narrative.splice(1, 1);
+  return JSON.stringify(parsed, null, 2);
+}
 
-describe('declared tags — an untagged chart is byte-identical to 9.20.0', () => {
+describe('declared tags — 9.20.0 bytes except named record and narrative corrections', () => {
   it('commitValues: full', async () => {
     expect(withoutRecordedPhases(await runUntaggedFixture('full'))).toBe(reference('full'));
   });
