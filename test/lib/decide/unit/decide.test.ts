@@ -8,12 +8,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { decide, select } from '../../../../src/lib/decide/decide';
 import type { DecideRule } from '../../../../src/lib/decide/types';
 import { DECISION_RESULT } from '../../../../src/lib/decide/types';
+import { registerTestScope } from '../../../helpers/registerScope';
 
 // -- Mock scope with recorder support ----------------------------------------
 
 function mockScope(state: Record<string, unknown>, redactedKeys: Set<string> = new Set()) {
   const recorders: any[] = [];
-  return {
+  return registerTestScope({
     ...state,
     getValue(key: string) {
       const value = state[key];
@@ -52,7 +53,7 @@ function mockScope(state: Record<string, unknown>, redactedKeys: Set<string> = n
     $toRaw() {
       return this;
     },
-  };
+  });
 }
 
 // -- Unit: decide() with function rules --------------------------------------

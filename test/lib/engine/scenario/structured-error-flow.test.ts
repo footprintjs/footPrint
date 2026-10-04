@@ -31,10 +31,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 function createTraverser(
@@ -223,3 +223,4 @@ describe('Structured error flow: Narrative disabled', () => {
     expect(treeStr).toContain('stageExecutionError');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

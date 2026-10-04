@@ -16,8 +16,9 @@ import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
 import { FlowChartExecutor, getSubtreeSnapshot } from '../../../../src/lib/runner';
+import { registerTestScope } from '../../../helpers/registerScope';
 
-const noopScope = () => ({});
+const noopScope = () => registerTestScope({});
 
 describe('Scenario: Subflow internal narrative events', () => {
   it('subflow stages produce onStageExecuted entries in getNarrativeEntries()', async () => {

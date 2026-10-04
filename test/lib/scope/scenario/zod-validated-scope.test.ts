@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
-import type { StageContextLike } from '../../../../src/lib/scope/providers/types';
-import { defineScopeFromZod } from '../../../../src/lib/scope/state/zod/defineScopeFromZod';
-import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder';
-import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory';
+import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
+import { StageContext } from '../../../../src/lib/memory/StageContext.js';
+import type { StageContextLike } from '../../../../src/lib/scope/providers/types.js';
+import { defineScopeFromZod } from '../../../../src/lib/scope/state/zod/defineScopeFromZod.js';
+import { defineScopeSchema, isScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder.js';
+import { createScopeProxyFromZod } from '../../../../src/lib/scope/state/zod/scopeFactory.js';
 
 function makeCtxLike(): StageContextLike {
   const store: Record<string, unknown> = {};
@@ -82,12 +83,15 @@ describe('Scenario: Zod-validated scope', () => {
       name: z.string(),
     });
     const factory = defineScopeFromZod(schema);
-    const ctx = makeCtxLike();
+    const ctx = new StageContext('zod-factory', 'test', 'test', new SharedMemory());
     const scope = factory(ctx, 'test');
 
-    // Has BaseState-compatible methods
+    // The canonical factory binds fields and convenience methods to one facade.
     expect(typeof scope.addDebugInfo).toBe('function');
     expect(typeof scope.getArgs).toBe('function');
+    scope.name.set('Alice');
+    expect(scope.name.get()).toBe('Alice');
+    expect(ctx.getValue([], 'name')).toBe('Alice');
   });
 
   it('proxy handles nested objects', () => {
@@ -120,7 +124,7 @@ describe('Scenario: Zod-validated scope', () => {
 
   it('proxy handles records', () => {
     const schema = z.object({
-      metadata: z.record(z.string()),
+      metadata: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');

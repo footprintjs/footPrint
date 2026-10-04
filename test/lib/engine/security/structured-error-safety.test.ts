@@ -32,10 +32,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 // ─────────────────────── Data Leakage ───────────────────────
@@ -238,3 +238,4 @@ describe('Security: Adversarial error objects', () => {
     expect(info.name).toBe('ProxyError');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

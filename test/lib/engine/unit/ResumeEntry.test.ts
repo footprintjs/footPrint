@@ -19,6 +19,7 @@ import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/Flowcha
 import type { ScopeFactory } from '../../../../src/lib/engine/types';
 import { PauseSignal } from '../../../../src/lib/pause/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
+import { registerScopeRuntime } from '../../../../src/lib/scope/runtime';
 import { loopPastMountChart } from '../../pause/resume-real-chart-fixture';
 
 const fn = () => undefined;
@@ -513,7 +514,8 @@ describe('FlowchartTraverser — the entry is ONE-SHOT', () => {
       root,
       entry: last,
       stageMap: new Map(),
-      scopeFactory: ((ctx: unknown) => ctx) as unknown as ScopeFactory,
+      scopeFactory: ((ctx: object) =>
+        registerScopeRuntime(ctx, { target: {}, handlesAssignments: false })) as ScopeFactory,
       executionRuntime: new ExecutionRuntime(root.name, root.id),
       logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
       runId: 'one-shot',
@@ -539,7 +541,8 @@ describe('FlowchartTraverser — the entry is ONE-SHOT', () => {
         },
       ],
       stageMap: new Map(),
-      scopeFactory: ((ctx: unknown) => ctx) as unknown as ScopeFactory,
+      scopeFactory: ((ctx: object) =>
+        registerScopeRuntime(ctx, { target: {}, handlesAssignments: false })) as ScopeFactory,
       executionRuntime: new ExecutionRuntime(root.name, root.id),
       logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
       runId: 'one-shot',

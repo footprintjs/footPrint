@@ -8,7 +8,7 @@ import type { ResolveOptions, ScopeFactory, ScopeProvider } from './types.js';
 /** Normalize a factory/class/schema-like input into a ScopeFactory the pipeline expects */
 export function toScopeFactory<TScope>(input: unknown, options?: ResolveOptions): ScopeFactory<TScope> {
   const provider: ScopeProvider<TScope> = resolveScopeProvider<TScope>(input, options);
-  return (ctx, stageName, ro) => provider.create(ctx, stageName, ro);
+  return (ctx, stageName, ro, env) => provider.create(ctx, stageName, ro, env);
 }
 
 export { registerScopeResolver } from './registry.js';

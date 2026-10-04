@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { flowChart } from '../../../../src/lib/builder';
 import type { StageContext } from '../../../../src/lib/memory';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
+import { registerTestScope } from '../../../helpers/registerScope';
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -28,11 +29,12 @@ const noop = () => {};
 
 /** Scope factory that gives stages getValue/setValue on shared state. */
 function makeScopeFactory() {
-  return (ctx: StageContext) => ({
-    ctx,
-    setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
-    getValue: (key: string) => ctx.getGlobal(key),
-  });
+  return (ctx: StageContext) =>
+    registerTestScope({
+      ctx,
+      setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
+      getValue: (key: string) => ctx.getGlobal(key),
+    });
 }
 
 // ── Unit Tests ──────────────────────────────────────────────

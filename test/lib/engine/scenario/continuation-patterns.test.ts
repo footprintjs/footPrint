@@ -23,10 +23,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 describe('Scenario: Continuation Patterns', () => {
@@ -246,3 +246,4 @@ describe('Scenario: Continuation Patterns', () => {
     // The dynamic next should be followed after children
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

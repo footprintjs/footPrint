@@ -220,6 +220,8 @@ await facadeRun.run({ input: { requestId: 'req-9' }, env: { traceId: 'trace-9' }
 
 ### Executor
 
+Custom factory objects (including standalone scopes passed to `decide`/`select`) must register their infrastructure port with `registerScopeRuntime(scope, { target, handlesAssignments, setBreak? })` from `footprintjs/advanced`. `ScopeFacade`, TypedScope, `attachScopeMethods` and canonical Zod factories register automatically. The engine asks that port, never probes a strict user proxy for lifecycle names. Prefer one backing `ScopeFacade` as `target`; it owns recording, redaction, input protection and commit sealing. A deliberately data-only `{}` port has none of those scope-level hooks. See `docs/guides/scope.md` for the migration example; do not restore property-name guessing.
+
 ```typescript
 import { flowChart, FlowChartExecutor, MetricRecorder, NarrativeFlowRecorder } from 'footprintjs';
 

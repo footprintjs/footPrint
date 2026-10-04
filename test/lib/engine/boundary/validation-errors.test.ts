@@ -22,7 +22,7 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory() {
-  return { get: () => undefined, set: () => {} };
+  return registerTestScope({ get: () => undefined, set: () => {} });
 }
 
 function makeTraverser(root: StageNode) {
@@ -96,3 +96,4 @@ describe('Boundary: Validation Errors', () => {
     expect(result).toBe('leaf-output');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

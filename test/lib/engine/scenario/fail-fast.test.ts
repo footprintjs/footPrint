@@ -20,10 +20,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any, stageName: string) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 describe('Scenario: failFast on fork', () => {
@@ -121,3 +121,4 @@ describe('Scenario: failFast on fork', () => {
     expect(result.childB.result).toBe('resultB');
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

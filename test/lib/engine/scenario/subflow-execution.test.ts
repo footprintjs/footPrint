@@ -8,16 +8,18 @@
 import { flowChart } from '../../../../src/lib/builder';
 import type { StageContext } from '../../../../src/lib/memory';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
+import { registerTestScope } from '../../../helpers/registerScope';
 
-const noopScope = (ctx: StageContext) => ({ ctx });
+const noopScope = (ctx: StageContext) => registerTestScope({ ctx });
 
 function makeScopeFactory() {
-  return (ctx: StageContext, stageName: string) => ({
-    ctx,
-    stageName,
-    setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
-    getValue: (key: string) => ctx.getGlobal(key),
-  });
+  return (ctx: StageContext, stageName: string) =>
+    registerTestScope({
+      ctx,
+      stageName,
+      setValue: (key: string, value: unknown) => ctx.setGlobal(key, value),
+      getValue: (key: string) => ctx.getGlobal(key),
+    });
 }
 
 describe('Scenario: Subflow Execution', () => {

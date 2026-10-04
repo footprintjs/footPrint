@@ -61,7 +61,7 @@ describe('Boundary: deeply nested Zod schema', () => {
 
   it('record with many dynamic keys', () => {
     const schema = z.object({
-      data: z.record(z.number()),
+      data: z.record(z.string(), z.number()),
     });
     const ctx = makeCtxLike();
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
@@ -92,7 +92,7 @@ describe('Boundary: deeply nested Zod schema', () => {
       users: z.array(z.string()),
       config: z.object({
         retries: z.number(),
-        metadata: z.record(z.string()),
+        metadata: z.record(z.string(), z.string()),
       }),
     });
     const ctx = makeCtxLike();

@@ -36,10 +36,10 @@ const silentLogger: ILogger = {
 };
 
 function simpleScopeFactory(context: any) {
-  return {
+  return registerTestScope({
     get: (key: string) => context.getValue([], key),
     set: (key: string, value: unknown) => context.setObject([], key, value),
-  };
+  });
 }
 
 function createTraverser(root: StageNode, stageMap: Map<string, StageFunction>, flowRecorders: FlowRecorder[]) {
@@ -191,3 +191,4 @@ describe('onRunFailed — dispatcher fans out to all recorders', () => {
     expect(good.failed).toHaveLength(1);
   });
 });
+import { registerTestScope } from '../../../helpers/registerScope';

@@ -23,11 +23,13 @@ import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { ScopeFactory } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
+import type { ScopeRuntimeTarget } from '../scope/runtime.js';
+import { requireScopeRuntime } from '../scope/runtime.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { type AttachRecorderOptions, DeferredObserverTier } from './DeferredObserverTier.js';
 
 /** A step applied to every stage scope right after the base factory makes it. */
-type ScopeModifier = (scope: any) => void;
+type ScopeModifier = (target: ScopeRuntimeTarget) => void;
 
 export class RunObservers {
   narrativeEnabled = false;
@@ -183,18 +185,16 @@ export class RunObservers {
     // 1. Narrative recorder (if enabled)
     if (this.combinedRecorder) {
       const recorder = this.combinedRecorder;
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(recorder);
+      modifiers.push((target) => {
+        target.attachScopeRecorder?.(recorder);
       });
     }
 
     // 2. User-provided scope recorders
     if (this.scopeRecorders.length > 0) {
       const recorders = this.scopeRecorders;
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') {
-          for (const r of recorders) scope.attachScopeRecorder(r);
-        }
+      modifiers.push((target) => {
+        for (const r of recorders) target.attachScopeRecorder?.(r);
       });
     }
 
@@ -205,33 +205,30 @@ export class RunObservers {
     // Absent (zero work, identical list) when nobody opted into deferral.
     const scopeTap = this.deferredTier?.buildScopeTap();
     if (scopeTap) {
-      modifiers.push((scope) => {
-        if (typeof scope.attachScopeRecorder === 'function') scope.attachScopeRecorder(scopeTap);
+      modifiers.push((target) => {
+        target.attachScopeRecorder?.(scopeTap);
       });
     }
 
     // 3. Redaction policy (conditional — only when policy is set). A
     // `ScopeFacade` already reads the run's rule through its context (the
-    // rule is installed on the runtime root); this call is the legacy
-    // protocol for custom scopes that are not facades, and on a facade it
+    // rule is installed on the runtime root); this call supplies it to
+    // explicitly registered custom ports, and on a facade it
     // re-states the executor's policy on the shared rule (a no-op).
     if (redactionPolicy) {
       const policy = redactionPolicy;
-      modifiers.push((scope) => {
-        if (typeof scope.useRedactionPolicy === 'function') {
-          scope.useRedactionPolicy(policy);
-        }
+      modifiers.push((target) => {
+        target.useRedactionPolicy?.(policy);
       });
     }
 
     return ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);
+      const { target } = requireScopeRuntime(scope);
       // Always wire shared redaction state
-      if (typeof (scope as any).useSharedRedactedKeys === 'function') {
-        (scope as any).useSharedRedactedKeys(sharedRedactedKeys);
-      }
+      target.useSharedRedactedKeys?.(sharedRedactedKeys);
       // Apply optional modifiers
-      for (const mod of modifiers) mod(scope);
+      for (const mod of modifiers) mod(target);
       return scope;
     }) as ScopeFactory<TScope>;
   }

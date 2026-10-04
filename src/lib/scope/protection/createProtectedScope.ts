@@ -5,6 +5,7 @@
  * clear error messages guiding developers to use setValue() instead.
  */
 
+import { registerScopeRuntime, scopeRuntimeFor } from '../runtime.js';
 import type { ScopeProtectionOptions } from './types.js';
 
 export function createErrorMessage(propertyName: string, stageName: string): string {
@@ -47,7 +48,7 @@ export function createProtectedScope<T extends object>(scope: T, options: ScopeP
 
   const allowedInternals = new Set<string | symbol>(allowedInternalProperties);
 
-  return new Proxy(scope, {
+  const proxy = new Proxy(scope, {
     get(target, prop, receiver) {
       return Reflect.get(target, prop, receiver);
     },
@@ -70,4 +71,6 @@ export function createProtectedScope<T extends object>(scope: T, options: ScopeP
       return Reflect.set(target, prop, value, receiver);
     },
   });
+  const runtime = scopeRuntimeFor(scope);
+  return runtime ? registerScopeRuntime(proxy, runtime) : proxy;
 }

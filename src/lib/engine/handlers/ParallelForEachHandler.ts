@@ -54,8 +54,9 @@
 import { buildBranchSegment } from '../../ids/branchSegment.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
-import { IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
+import type { ScopeRuntimeTarget } from '../../scope/runtime.js';
+import { requireScopeRuntime } from '../../scope/runtime.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';
@@ -101,14 +102,14 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     // are tracked and a stray assignment inside it is caught by the same
     // protection every other stage gets. (TypedScope brings its own proxy.)
     const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
-    const isTypedScope = rawScope && (rawScope as any)[IS_TYPED_SCOPE] === true;
-    const scope = isTypedScope
+    const runtime = requireScopeRuntime(rawScope);
+    const scope = runtime.handlesAssignments
       ? rawScope
       : (createProtectedScope(rawScope as object, {
           mode: this.deps.scopeProtectionMode,
           stageName: node.name,
         }) as TScope);
-    notify(rawScope, 'notifyStageStart');
+    runtime.target.notifyStageStart?.();
 
     const items = this.resolveItems(config, scope, node);
     const total = items.length;
@@ -160,8 +161,8 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       results = this.collectOrdered(node, branchCount, childResults);
     }
 
-    this.writeResults(rawScope, context, config.into, results);
-    notify(rawScope, 'notifyStageEnd');
+    this.writeResults(runtime.target, context, config.into, results);
+    runtime.target.notifyStageEnd?.();
     context.commit();
 
     return results;
@@ -270,27 +271,15 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
   /**
    * Write the ordered array as ONE value on the parent scope.
    *
-   * `$setValue` deliberately, where available: the TypedScope set trap
-   * JSON-round-trips every object write (Date→string, Map→{}), and branch
-   * results are exactly the kind of payload that would silently degrade.
+   * Use the provider's explicit state-write port, never a user proxy probe.
+   * A declared data-only port has no setter; its results go to the frame.
    */
-  private writeResults(rawScope: TScope, context: StageContext, into: string, results: unknown[]): void {
-    const s = rawScope as unknown as Record<string, unknown>;
-    if (typeof s?.$setValue === 'function') {
-      (s.$setValue as (key: string, value: unknown) => void)(into, results);
-      return;
-    }
-    if (typeof s?.setValue === 'function') {
-      (s.setValue as (key: string, value: unknown) => void)(into, results);
+  private writeResults(target: ScopeRuntimeTarget, context: StageContext, into: string, results: unknown[]): void {
+    if (target.setValue) {
+      target.setValue(into, results);
       return;
     }
     // No facade (hand-rolled scope factory) — write straight to the frame.
     context.setGlobal(into, results);
   }
-}
-
-/** Fire a scope lifecycle notification if the scope supports it. */
-function notify(scope: unknown, method: 'notifyStageStart' | 'notifyStageEnd'): void {
-  const s = scope as Record<string, unknown> | undefined;
-  if (s && typeof s[method] === 'function') (s[method] as () => void)();
 }

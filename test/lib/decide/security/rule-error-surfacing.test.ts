@@ -14,10 +14,11 @@
 
 import { decide, select } from '../../../../src/lib/decide';
 import type { DecideRule } from '../../../../src/lib/decide/types';
+import { registerTestScope } from '../../../helpers/registerScope';
 
-// Minimal scope-like object — decide/select only needs to be a plain object
+// Explicit data-only scope: these rules read the plain object's fields directly.
 function makeScope(values: Record<string, unknown> = {}): Record<string, unknown> {
-  return values;
+  return registerTestScope(values);
 }
 
 // ---------------------------------------------------------------------------

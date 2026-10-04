@@ -1,6 +1,7 @@
 # decide/ -- Decision Reasoning Capture
 
 Auto-captures evidence from decider/selector functions. Two `when` formats:
+
 - **Function**: `(s) => s.creditScore > 700` — auto-captures which keys were read via temp recorder
 - **Filter**: `{ creditScore: { gt: 700 } }` — captures keys + operators + thresholds (Prisma syntax)
 
@@ -10,10 +11,14 @@ Auto-captures evidence from decider/selector functions. Two `when` formats:
 import { decide, select } from 'footprintjs';
 
 // Decider (first-match)
-return decide(scope, [
-  { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
-  { when: (s) => complexLogic(s), then: 'manual-review', label: 'Complex case' },
-], 'rejected');
+return decide(
+  scope,
+  [
+    { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
+    { when: (s) => complexLogic(s), then: 'manual-review', label: 'Complex case' },
+  ],
+  'rejected',
+);
 
 // Selector (all-match)
 return select(scope, [
@@ -34,10 +39,14 @@ hole exactly where the run's own outcome sits.
 Pass the default as an object to close it:
 
 ```typescript
-decide(scope, [
-  { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
-  { when: { riskScore: { gt: 50 } }, then: 'flagged',     label: 'Risk above the review line' },
-], { branch: 'protected', label: 'No rule fired — asset stays protected' });
+decide(
+  scope,
+  [
+    { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
+    { when: { riskScore: { gt: 50 } }, then: 'flagged', label: 'Risk above the review line' },
+  ],
+  { branch: 'protected', label: 'No rule fired — asset stays protected' },
+);
 //  ↑ was: 'protected'
 ```
 
@@ -45,7 +54,7 @@ The label lands on `DecisionEvidence.defaultLabel`:
 
 ```typescript
 evidence.defaultLabel; // 'No rule fired — asset stays protected'
-evidence.default;      // 'protected'
+evidence.default; // 'protected'
 ```
 
 - **The bare string still works, byte for byte.** `'protected'` produces exactly
@@ -88,13 +97,12 @@ and `ReadEvent.redacted` (for PII protection). No raw object references are held
 
 ### 2. Scope Accessor Adaptation
 
-`decide()` must work with both ScopeFacade (direct methods) and TypedScope ($-prefixed
-methods routed through Proxy). Four accessor factories duck-type both without importing either:
-
-- `getAttachFn(scope)` -- tries `attachScopeRecorder`, then `$attachScopeRecorder`
-- `getDetachFn(scope)` -- tries `detachScopeRecorder`, then `$detachScopeRecorder`
-- `getValueFn(scope)` -- tries `getValue`, then `$getValue`
-- `getRedactedFn(scope)` -- uses `$toRaw()` to escape Proxy, then `getRedactedKeys()`
+`decide()` and `select()` get their infrastructure port from `scope/runtime.ts`,
+the same registration used by the executor. They bind recorder attachment,
+tracked reads and redacted-key lookup to that port without probing data fields
+on TypedScope or a strict Zod proxy. Built-ins register automatically. Standalone
+custom scope objects must call `registerScopeRuntime` from `footprintjs/advanced`
+too; a data-only port has no tracked reads/filter values to offer.
 
 ### 3. Symbol Branding (DECISION_RESULT)
 
@@ -104,16 +112,16 @@ SelectorHandler check `Reflect.has(stageOutput, DECISION_RESULT)` before extract
 
 ## Filter Operators (Prisma naming, 8 ops)
 
-| Operator | Meaning | Example |
-|---|---|---|
-| `eq` | === | `{ plan: { eq: 'premium' } }` |
-| `ne` | !== | `{ status: { ne: 'banned' } }` |
-| `gt` | > | `{ score: { gt: 700 } }` |
-| `gte` | >= | `{ score: { gte: 700 } }` |
-| `lt` | < | `{ dti: { lt: 0.43 } }` |
-| `lte` | <= | `{ age: { lte: 65 } }` |
-| `in` | includes | `{ region: { in: ['US', 'EU'] } }` |
-| `notIn` | not includes | `{ region: { notIn: ['CN'] } }` |
+| Operator | Meaning      | Example                            |
+| -------- | ------------ | ---------------------------------- |
+| `eq`     | ===          | `{ plan: { eq: 'premium' } }`      |
+| `ne`     | !==          | `{ status: { ne: 'banned' } }`     |
+| `gt`     | >            | `{ score: { gt: 700 } }`           |
+| `gte`    | >=           | `{ score: { gte: 700 } }`          |
+| `lt`     | <            | `{ dti: { lt: 0.43 } }`            |
+| `lte`    | <=           | `{ age: { lte: 65 } }`             |
+| `in`     | includes     | `{ region: { in: ['US', 'EU'] } }` |
+| `notIn`  | not includes | `{ region: { notIn: ['CN'] } }`    |
 
 Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` = range check.
 
@@ -136,16 +144,19 @@ Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` 
 ## Narrative Output
 
 Filter evidence:
+
 ```
 [Condition]: It evaluated Rule 0 "Good credit": creditScore 750 gt 700 check, dti 0.38 lt 0.43 check, and chose approved.
 ```
 
 Function evidence:
+
 ```
 [Condition]: It examined "Complex case": creditScore=750, dti=0.38, and chose manual-review.
 ```
 
 Default branch (labelled, and the unchanged unlabelled line beneath it):
+
 ```
 [Condition]: No rules matched, fell back to default "No rule fired — asset stays protected": Protect.
 [Condition]: No rules matched, fell back to default: Protect.

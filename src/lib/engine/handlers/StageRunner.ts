@@ -11,8 +11,8 @@
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseResult, isPauseSignal, PauseSignal } from '../../pause/types.js';
-import { BREAK_SETTER, IS_TYPED_SCOPE } from '../../reactive/types.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
+import { requireScopeRuntime } from '../../scope/runtime.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps, StageFunction, StreamCallback } from '../types.js';
 
@@ -27,12 +27,11 @@ export class StageRunner<TOut = any, TScope = any> {
   ): Promise<TOut> {
     // Create scope via ScopeFactory — each stage gets its own scope instance
     const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
+    const runtime = requireScopeRuntime(rawScope);
 
     // Wrap scope with protection to intercept direct property assignments.
-    // Skip for TypedScope — it already has its own Proxy with proper set traps
-    // that delegate to setValue().
-    const isTypedScope = rawScope && (rawScope as any)[IS_TYPED_SCOPE] === true;
-    const scope = isTypedScope
+    // Providers declare whether their own assignment traps already manage writes.
+    const scope = runtime.handlesAssignments
       ? rawScope
       : (createProtectedScope(rawScope as object, {
           mode: this.deps.scopeProtectionMode,
@@ -52,15 +51,10 @@ export class StageRunner<TOut = any, TScope = any> {
       this.deps.streamHandlers?.onStart?.(streamId);
     }
 
-    // Inject breakPipeline into TypedScope via BREAK_SETTER (if the scope supports it)
-    if (rawScope && typeof (rawScope as any)[BREAK_SETTER] === 'function') {
-      (rawScope as any)[BREAK_SETTER](breakFn);
-    }
+    runtime.setBreak?.(breakFn);
 
     // Notify recorders of stage start (if scope supports it)
-    if (rawScope && typeof (rawScope as any).notifyStageStart === 'function') {
-      (rawScope as any).notifyStageStart();
-    }
+    runtime.target.notifyStageStart?.();
 
     // ── Execute the stage function ──
     //
@@ -100,9 +94,7 @@ export class StageRunner<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       if (isInterruptSignal(error)) {
-        if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
-          (rawScope as any).notifyPause(error.payload);
-        }
+        runtime.target.notifyPause?.(error.payload);
         throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context);
       }
       if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context);
@@ -110,9 +102,7 @@ export class StageRunner<TOut = any, TScope = any> {
     }
 
     // Notify recorders of stage end (if scope supports it)
-    if (rawScope && typeof (rawScope as any).notifyStageEnd === 'function') {
-      (rawScope as any).notifyStageEnd();
-    }
+    runtime.target.notifyStageEnd?.();
 
     // Call onEnd lifecycle hook for streaming stages
     if (node.isStreaming) {
@@ -126,9 +116,7 @@ export class StageRunner<TOut = any, TScope = any> {
     if (node.isPausable && result !== undefined) {
       const pauseData = isPauseResult(result) ? (result as any).data : result;
       // Notify scope recorders before throwing
-      if (rawScope && typeof (rawScope as any).notifyPause === 'function') {
-        (rawScope as any).notifyPause(pauseData);
-      }
+      runtime.target.notifyPause?.(pauseData);
       throw stampedPause(new PauseSignal(pauseData, node.id), context);
     }
 
