@@ -208,6 +208,10 @@ runtime.rootStageContext.createNext('', 'next', 'next').getPolicy() === policy; 
 
 Per-stage metadata: logs, errors, metrics, evaluation scores, flow control messages.
 
+**Retention owner:** every add/set asks the current run's `RedactionRule.retainDiagnostic` before merging/storing. The optional `RedactionPolicy.diagnostics` has its own keys/patterns/fields, rooted at `logs`, `errors`, `metrics`, `evals` and flow-message text. It shares the state path algorithm, not state marks. The internal `add` → `StageContext.addDiagnostic` bridge returns the retained incoming value so the facade emits it without a second verdict; legacy writers stay void. Flow-message metadata stays intact; only description/rationale are selectable. An inert diagnostic rule never reads a flow-message payload. No-policy identity and merge/replace semantics remain unchanged. Existing entries are not rescrubbed when policy changes, and retries keep their diagnostics. Checkpoints copy these retained bags but preserve operational state. See [explicit diagnostic redaction](../../../docs/guides/scope.md#explicit-diagnostic-redaction) for limits and examples.
+
+Dynamic-return classification is an engine-local per-visit fact, never read back from `logs.isDynamic`. Decision explanations intentionally reuse retained `logs.deciderRationale`; no hidden raw diagnostic copy is kept.
+
 **Why it connects to the main goal:** The EventLog tells you *what data changed*. The DiagnosticCollector tells you *why* — the human-readable narrative. When a decider stage writes *"Risk tier: high. DTI at 60% exceeds the 43% maximum"* to the log, that message becomes a sentence in the narrative that the LLM reads to answer the user's question. EventLog is the data trace. DiagnosticCollector is the story trace. Together they produce the full causal explanation.
 
 **Why separate from execution state?** Diagnostics are observational — they never affect execution logic. The flowchart doesn't branch based on how many errors a previous stage logged. Keeping them separate means:

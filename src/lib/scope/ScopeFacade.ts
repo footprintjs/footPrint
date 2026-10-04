@@ -291,28 +291,28 @@ export class ScopeFacade {
   // long-standing gap where `$debug`/`$metric` went to unobserved bags.
 
   addDebugInfo(key: string, value: unknown) {
-    this._stageContext.addLog(key, value);
-    this.emitEvent(`log.debug.${key}`, { key, value, level: 'debug' });
+    const kept = this._stageContext.addDiagnostic('logs', key, value);
+    this.emitEvent(`log.debug.${key}`, { key, value: kept, level: 'debug' });
   }
 
   addDebugMessage(value: unknown) {
-    this._stageContext.addLog('messages', [value]);
-    this.emitEvent('log.debug.messages', { value, level: 'debug' });
+    const kept = this._stageContext.addDiagnostic('logs', 'messages', [value]);
+    this.emitEvent('log.debug.messages', { value: Array.isArray(kept) ? kept[0] : kept, level: 'debug' });
   }
 
   addErrorInfo(key: string, value: unknown) {
-    this._stageContext.addError(key, value);
-    this.emitEvent(`log.error.${key}`, { key, value, level: 'error' });
+    const kept = this._stageContext.addDiagnostic('errors', key, value);
+    this.emitEvent(`log.error.${key}`, { key, value: kept, level: 'error' });
   }
 
   addMetric(metricName: string, value: unknown) {
-    this._stageContext.addMetric(metricName, value);
-    this.emitEvent(`metric.${metricName}`, { name: metricName, value });
+    const kept = this._stageContext.addDiagnostic('metrics', metricName, value);
+    this.emitEvent(`metric.${metricName}`, { name: metricName, value: kept });
   }
 
   addEval(metricName: string, value: unknown) {
-    this._stageContext.addEval(metricName, value);
-    this.emitEvent(`eval.${metricName}`, { name: metricName, value });
+    const kept = this._stageContext.addDiagnostic('evals', metricName, value);
+    this.emitEvent(`eval.${metricName}`, { name: metricName, value: kept });
   }
 
   // ── Emit — Phase 3 primary primitive ─────────────────────────────────────

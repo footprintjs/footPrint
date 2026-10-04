@@ -640,6 +640,8 @@ The policy protects named state values in the commit log, mirror, tracked reads/
 
 ---
 
+Explicit diagnostic masking is separate: `RedactionPolicy.diagnostics: { keys, patterns, fields }` addresses `logs`, `errors`, `metrics`, `evals` and flow-message text. The collector retains at each writer; an internal bridge supplies the same retained value to legacy facade emits while existing writer methods stay void. Preserve entry keys and flow metadata. Checkpoints copy retained diagnostics but keep operational state; independent error hooks/logger/custom events are not covered. Do not add a post-run sweep or let masked logs drive engine control. See the scope guide's diagnostic contract.
+
 ## Contracts & OpenAPI
 
 ```typescript

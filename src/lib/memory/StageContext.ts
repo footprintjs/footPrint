@@ -11,7 +11,7 @@
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
-import { DiagnosticCollector } from './DiagnosticCollector.js';
+import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
@@ -107,7 +107,7 @@ export class StageContext {
   public next?: StageContext;
   public children?: StageContext[];
 
-  public debug: DiagnosticCollector = new DiagnosticCollector();
+  public debug: DiagnosticCollector = new DiagnosticCollector(() => this.policy.redaction);
 
   /** Tracks user-level writes (pre-namespace) for the memory view and onCommit
    *  — in their RETAINED form (cloned / summarised / redacted). Filled from
@@ -1040,6 +1040,11 @@ export class StageContext {
   }
 
   // ── Diagnostics delegation ─────────────────────────────────────────────
+
+  /** @internal Retained incoming value for the facade's legacy emit channel. */
+  addDiagnostic(channel: DiagnosticChannel, key: string, value: unknown, path?: string[]): unknown {
+    return this.debug.add(channel, key, value, path);
+  }
 
   addLog(key: string, value: unknown, path?: string[]) {
     this.debug.addLog(key, value, path);
