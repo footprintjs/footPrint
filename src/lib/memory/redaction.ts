@@ -4,8 +4,9 @@
  * THE CONTRACT. Named values in the commit log, mirror, tracked reads/writes,
  * their recorder/narrative views and root/subflow boundary records share one
  * rule. Live inputs/results/state and operational checkpoints stay real.
- * This is not content scanning or whole-snapshot sanitization: diagnostics,
- * pause payloads and arbitrary recorder data/metadata are outside this rule.
+ * Diagnostic writers opt in separately through `policy.diagnostics`.
+ * This is not content scanning or whole-snapshot sanitization: pause payloads
+ * and arbitrary recorder data/metadata are outside this rule.
  *
  * HOW ONE OWNER KEEPS IT. Every staged write and every tracked read passes
  * through `StageContext`, so `StageContext` asks THIS rule — not the caller —
@@ -53,6 +54,14 @@ export interface RedactionPolicy {
    *  Supports dot-notation for nested paths (e.g. 'address.zip'). */
   fields?: Record<string, string[]>;
   /**
+   * Explicit selectors for diagnostic writes, separate from state selectors.
+   * Paths start with logs/errors/metrics/evals, e.g. `logs.profile.token`.
+   * Only flowMessages.description and flowMessages.rationale are payloads;
+   * flow topology/timing metadata stays intact. Applied before retention,
+   * not retroactively to existing bags or operational checkpoints.
+   */
+  diagnostics?: Pick<RedactionPolicy, 'keys' | 'patterns' | 'fields'>;
+  /**
    * Regex patterns matched against `EmitEvent.name` for `scope.$emit(...)`
    * calls. Any emit event whose name matches has its payload replaced with
    * the string `'[REDACTED]'` before dispatch to recorders.
@@ -69,7 +78,8 @@ export interface RedactionPolicy {
 }
 
 /**
- * Compliance-friendly report of what was redacted. Never includes values.
+ * State redaction report. Never includes values; emit and diagnostic
+ * selectors/activity are not represented here.
  */
 export interface RedactionReport {
   /** Keys fully redacted (exact match or pattern match). */
@@ -119,6 +129,7 @@ function matchesPattern(value: string, patterns: readonly RegExp[] | undefined):
 
 export class RedactionRule {
   private policy: RedactionPolicy | undefined;
+  private diagnosticRule: RedactionRule | undefined;
   /** Whether `policy` names anything a state verdict can act on — computed
    *  once per `setPolicy` so {@link isInert} is a two-field check. */
   private policyActive = false;
@@ -141,6 +152,10 @@ export class RedactionRule {
 
   setPolicy(policy: RedactionPolicy | undefined): void {
     this.policy = policy;
+    const diagnostics = policy?.diagnostics;
+    this.diagnosticRule = diagnostics
+      ? new RedactionRule({ keys: diagnostics.keys, patterns: diagnostics.patterns, fields: diagnostics.fields })
+      : undefined;
     this.policyActive =
       policy !== undefined &&
       ((policy.keys?.length ?? 0) > 0 ||
@@ -205,6 +220,17 @@ export class RedactionRule {
    */
   retainEmit(name: string, payload: unknown): unknown {
     return matchesPattern(name, this.policy?.emitPatterns) ? SCOPE_PLACEHOLDER : payload;
+  }
+
+  /** Retain a namespaced diagnostic write using the same path semantics,
+   * but without state marks/selectors. Clear values keep their identity. */
+  retainDiagnostic(path: readonly string[], value: unknown): unknown {
+    return this.diagnosticRule ? this.diagnosticRule.retain(path, value) : value;
+  }
+
+  /** Keep no-diagnostic-policy collectors inert, including borrowed getters. */
+  isDiagnosticInert(): boolean {
+    return !this.diagnosticRule || this.diagnosticRule.isInert();
   }
 
   /**

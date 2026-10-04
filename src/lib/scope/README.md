@@ -122,10 +122,11 @@ Two mechanisms feed the rule:
 - `patterns: RegExp[]` — any key matching a pattern is auto-redacted
 - `fields: Record<string, string[]>` — field-level scrubbing within objects (supports dot-notation for nested paths, e.g. `'address.zip'`) — honoured by the log and the mirror too, not only by recorder events (9.19.0)
 - `emitPatterns: RegExp[]` — matches event names and replaces the whole emitted payload with `[REDACTED]`. The facade asks `RedactionRule.retainEmit` once before constructing the event, so inline/deferred observers and narrative receive the same retained value. Global/sticky patterns start at index zero on every test; flags keep their usual semantics. This does not sanitize the corresponding diagnostic bags.
+- `diagnostics: { keys, patterns, fields }` — explicitly selects values written to diagnostic bags. `DiagnosticCollector` retains before storage and returns that same incoming value for the facade's legacy emit wrappers. Flow-message text is selectable; structural metadata stays intact. No snapshot sweep. See [the diagnostic contract](../../../docs/guides/scope.md#explicit-diagnostic-redaction).
 
 The policy is set at the executor level via `executor.setRedactionPolicy(policy)` (the rule is built per run and installed on the runtime root); `useRedactionPolicy()` / `useSharedRedactedKeys()` on a ScopeFacade remain as the `@internal` protocol for hand-built scopes and set the same rule.
 
-`getRedactionReport()` returns a compliance-friendly audit trail: which keys were redacted, which fields were scrubbed, which patterns were active. Never includes actual values.
+`getRedactionReport()` returns the existing state-key report: marked keys and configured fields/patterns, never values. It does not report diagnostic or emit activity.
 
 ---
 

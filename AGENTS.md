@@ -1037,6 +1037,8 @@ $log(value)           → emits 'log.debug.messages'
 
 So `$metric` / `$debug` are observable by recorders in real time; the side bags still populate for consumers that inspect snapshots directly.
 
+`RedactionPolicy.diagnostics` explicitly selects retained bag values (`logs`, `errors`, `metrics`, `evals` and flow-message text). The collector decides before storage; the facade emits the same retained incoming value, then applies any `emitPatterns` whole-wrapper mask. Do not re-scrub at recorders or snapshot export. Entries and flow metadata remain; independent error hooks/logger output and operational checkpoint state are not covered. State selectors/marks and the state-only redaction report stay separate. See `docs/guides/scope.md` → "Explicit diagnostic redaction".
+
 ### Customizing narrative rendering
 `NarrativeFormatter.renderEmit?(ctx)` hook (passed as `enableNarrative({ renderer })`) renders an emit event into a narrative line. Return `string` to use, `null` to exclude, `undefined` to fall back to the default `[emit] name: payloadSummary` (above: the first line is the custom one, the rest are defaults).
 

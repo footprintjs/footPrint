@@ -1464,6 +1464,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // ─── Phase 3: EXECUTE — run stage function ───
     let stageOutput: TOut | undefined;
     let dynamicNext: StageNode<TOut, TScope> | undefined;
+    let returnedDynamicNode = false;
 
     if (stageFunc) {
       try {
@@ -1498,6 +1499,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // ─── Phase 4: DYNAMIC — StageNode return detection ───
       if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
         const dynamicNode = stageOutput as StageNode<TOut, TScope>;
+        returnedDynamicNode = true;
         context.addLog('isDynamic', true);
         context.addLog('dynamicPattern', 'StageNodeReturn');
 
@@ -1629,8 +1631,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
 
       // Capture dynamic children as synthetic subflow result for UI
-      const isDynamic = context.debug?.logContext?.isDynamic;
-      if (isDynamic && childrenAfterStage && childrenAfterStage.length > 0) {
+      // Runtime structure is the source of truth; diagnostic text may be
+      // masked (or user-written) and must never decide capture behavior.
+      if (returnedDynamicNode && childrenAfterStage && childrenAfterStage.length > 0) {
         this.captureDynamicChildrenResult(node, childrenAfterStage, context);
       }
     }
