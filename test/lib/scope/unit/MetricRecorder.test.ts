@@ -185,4 +185,157 @@ describe('MetricRecorder', () => {
     expect(step.pauseCount).toBe(1);
     expect(rec.getMetrics().totalPauses).toBe(1);
   });
+
+  it('attributes overlapping reads, writes, commits, pauses and durations by event identity', () => {
+    const rec = new MetricRecorder('overlap');
+    rec.onStageStart(ev('A', 'a#1', 100));
+    rec.onStageStart(ev('B', 'b#2', 110));
+    rec.onRead({ ...ev('A', 'a#1'), key: 'seed', value: 1 });
+    rec.onWrite({ ...ev('A', 'a#1'), key: 'x', value: 2, operation: 'set' });
+    rec.onWrite({ ...ev('B', 'b#2'), key: 'y', value: 3, operation: 'set' });
+    rec.onWrite({ ...ev('A', 'a#1'), key: 'z', value: 4, operation: 'set' });
+    rec.onRead({ ...ev('B', 'b#2'), key: 'seed', value: 1 });
+    rec.onCommit({ ...ev('A', 'a#1'), mutations: [] });
+    rec.onPause(ev('A', 'a#1'));
+    rec.onStageEnd({ ...ev('B', 'b#2', 150), duration: 7 });
+    rec.onStageEnd(ev('A', 'a#1', 160));
+    // Settle commits still belong to their own invocation, even after end.
+    rec.onCommit({ ...ev('B', 'b#2'), mutations: [] });
+    rec.onCommit({ ...ev('A', 'a#1'), mutations: [] });
+
+    expect(rec.getByKey('a#1')).toEqual({
+      stageName: 'A',
+      readCount: 1,
+      writeCount: 2,
+      commitCount: 2,
+      pauseCount: 1,
+      duration: 60,
+    });
+    expect(rec.getByKey('b#2')).toEqual({
+      stageName: 'B',
+      readCount: 1,
+      writeCount: 1,
+      commitCount: 1,
+      pauseCount: 0,
+      duration: 7,
+    });
+    expect(rec.getMetrics()).toMatchObject({
+      totalReads: 2,
+      totalWrites: 3,
+      totalCommits: 3,
+      totalPauses: 1,
+      totalDuration: 67,
+    });
+    expect(rec.toSnapshot().data.steps['a#1']).toEqual(rec.getByKey('a#1'));
+  });
+
+  it('keeps distinct runtime IDs separate even when display names match', () => {
+    const rec = new MetricRecorder('names');
+    rec.onStageStart(ev('Worker', 'outer/worker#1', 10));
+    rec.onStageStart(ev('Worker', 'other/worker#2', 20));
+    rec.onWrite({ ...ev('Worker', 'outer/worker#1'), key: 'x', value: 1, operation: 'set' });
+    rec.onStageEnd(ev('Worker', 'outer/worker#1', 40));
+    rec.onStageEnd(ev('Worker', 'other/worker#2', 60));
+
+    expect(rec.getByKey('outer/worker#1')).toMatchObject({ writeCount: 1, duration: 30 });
+    expect(rec.getByKey('other/worker#2')).toMatchObject({ writeCount: 0, duration: 40 });
+    expect(rec.getStageMetrics('Worker')).toMatchObject({ writeCount: 1, totalDuration: 70, invocationCount: 2 });
+  });
+
+  it('names and counts events without a start under their own ID, never the empty or last-started key', () => {
+    const rec = new MetricRecorder('partial');
+    rec.onStageStart(ev('Child', 'child#1', 10));
+    rec.onCommit({ ...ev('Mount', 'mount#0'), mutations: [] });
+    rec.onWrite({ ...ev('Other', 'other#2'), key: 'x', value: 1, operation: 'set' });
+    rec.onRead({ ...ev('Other', 'other#2'), key: 'x', value: 1 });
+    rec.onPause(ev('Other', 'other#2'));
+    rec.onStageEnd(ev('Other', 'other#2', 50));
+    rec.onStageEnd({ ...ev('Explicit', 'explicit#3', 70), duration: 0 });
+
+    expect(rec.getByKey('')).toBeUndefined();
+    expect(rec.getByKey('child#1')).toMatchObject({ commitCount: 0, writeCount: 0 });
+    expect(rec.getByKey('mount#0')).toEqual({
+      stageName: 'Mount',
+      readCount: 0,
+      writeCount: 0,
+      commitCount: 1,
+      pauseCount: 0,
+      duration: 0,
+    });
+    expect(rec.getByKey('other#2')).toEqual({
+      stageName: 'Other',
+      readCount: 1,
+      writeCount: 1,
+      commitCount: 0,
+      pauseCount: 1,
+      duration: 0,
+    });
+    expect(rec.getByKey('explicit#3')).toMatchObject({ stageName: 'Explicit', duration: 0 });
+    expect(rec.size).toBe(4);
+  });
+
+  it('filters each event before creating rows or changing another accepted invocation', () => {
+    const rec = new MetricRecorder({ stageFilter: (name) => name !== 'Skip' });
+    rec.onStageStart(ev('A', 'a#1', 10));
+    rec.onStageStart(ev('B', 'b#2', 20));
+    rec.onStageStart(ev('Skip', 'skip#3', 30));
+    rec.onRead({ ...ev('Skip', 'skip#3'), key: 'x', value: 1 });
+    rec.onWrite({ ...ev('Skip', 'skip#3'), key: 'x', value: 2, operation: 'set' });
+    rec.onCommit({ ...ev('Skip', 'skip#3'), mutations: [] });
+    rec.onPause(ev('Skip', 'skip#3'));
+    rec.onStageEnd(ev('Skip', 'skip#3', 100));
+    rec.onWrite({ ...ev('A', 'a#1'), key: 'x', value: 3, operation: 'set' });
+    rec.onStageEnd(ev('A', 'a#1', 50));
+    rec.onStageEnd(ev('B', 'b#2', 80));
+
+    expect(rec.size).toBe(2);
+    expect(rec.getByKey('skip#3')).toBeUndefined();
+    expect(rec.getByKey('a#1')).toMatchObject({ writeCount: 1, duration: 40 });
+    expect(rec.getByKey('b#2')).toMatchObject({ writeCount: 0, duration: 60 });
+    expect(rec.getMetrics()).toMatchObject({ totalReads: 0, totalWrites: 1, totalCommits: 0, totalPauses: 0 });
+  });
+
+  it('preserves retry counting and latest-start timing without stealing another active step', () => {
+    const rec = new MetricRecorder('retry');
+    rec.onStageStart(ev('Retry', 'retry#1', 10));
+    rec.onWrite({ ...ev('Retry', 'retry#1'), key: 'x', value: 1, operation: 'set' });
+    rec.onStageStart(ev('Sibling', 'sibling#2', 20));
+    rec.onStageStart(ev('Retry', 'retry#1', 30));
+    rec.onWrite({ ...ev('Retry', 'retry#1'), key: 'x', value: 2, operation: 'set' });
+    rec.onStageEnd(ev('Sibling', 'sibling#2', 40));
+    rec.onStageEnd(ev('Retry', 'retry#1', 50));
+
+    expect(rec.getByKey('retry#1')).toMatchObject({ writeCount: 2, duration: 20 });
+    expect(rec.getByKey('sibling#2')).toMatchObject({ writeCount: 0, duration: 20 });
+    expect(rec.getStageMetrics('Retry')).toMatchObject({ invocationCount: 1 });
+    rec.clear();
+    rec.onStageEnd(ev('Retry', 'retry#1', 70));
+    expect(rec.getByKey('retry#1')).toMatchObject({ stageName: 'Retry', writeCount: 0, duration: 0 });
+  });
+
+  it('retains counts when start arrives late and clears unfinished start timestamps on reset', () => {
+    const rec = new MetricRecorder('late-start');
+    rec.onRead({ ...ev('Late', 'late#1', 5), key: 'x', value: 1 });
+    rec.onStageEnd(ev('Late', 'late#1', 10));
+    rec.onStageStart(ev('Late', 'late#1', 20));
+    expect(rec.getByKey('late#1')).toMatchObject({ stageName: 'Late', readCount: 1, duration: 0 });
+    rec.onStageEnd({ ...ev('Late', 'late#1', 40), duration: 0 });
+    expect(rec.getByKey('late#1')).toMatchObject({ readCount: 1, duration: 0 });
+    rec.onStageStart(ev('Unfinished', 'unfinished#2', 50));
+
+    rec.reset();
+
+    expect(rec.size).toBe(0);
+    rec.onStageEnd(ev('Unfinished', 'unfinished#2', 100));
+    expect(rec.getByKey('unfinished#2')).toEqual({
+      stageName: 'Unfinished',
+      readCount: 0,
+      writeCount: 0,
+      commitCount: 0,
+      pauseCount: 0,
+      duration: 0,
+    });
+    expect(rec.size).toBe(1);
+    expect(rec.getByKey('late#1')).toBeUndefined();
+  });
 });
