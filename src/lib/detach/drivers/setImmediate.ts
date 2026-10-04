@@ -27,74 +27,36 @@
  *     `setTimeoutDriver` for cross-runtime alternative)
  */
 
-import type { FlowChart } from '../../builder/types.js';
-import { asImpl, createHandle } from '../handle.js';
-import { register, unregister } from '../registry.js';
 import { type ChildRunner, defaultRunChild } from '../runChild.js';
-import type { DetachDriver, DetachHandle } from '../types.js';
+import type { DetachDriver } from '../types.js';
+import { createBatchSchedule } from './batch.js';
 
 // Node-only global. We don't ship @types/node, so declare the minimal
-// shape here. `setImmediateDriver` advertises `nodeSafe: true` and
-// `validate()` throws helpfully if `setImmediate` is undefined at use
-// time (e.g., browser bundle).
+// shape here. `setImmediateDriver` advertises `nodeSafe: true`.
+// Both explicit preflight and scheduling check availability lazily,
+// so importing this module does not require the Node-only global.
 declare const setImmediate: ((cb: () => void) => unknown) | undefined;
 
-interface WorkItem {
-  readonly child: FlowChart;
-  readonly input: unknown;
-  readonly handle: DetachHandle;
-}
-
 export function createSetImmediateDriver(runChild: ChildRunner = defaultRunChild): DetachDriver {
-  const queue: WorkItem[] = [];
-  let scheduled = false;
-
-  function flush(): void {
-    scheduled = false;
-    const items = queue.splice(0);
-    for (const item of items) {
-      executeOne(item, runChild).then(undefined, undefined);
-    }
-  }
-
   return {
     name: 'set-immediate',
     capabilities: { nodeSafe: true },
     validate(): void {
-      if (typeof setImmediate !== 'function') {
-        throw new Error(
-          '[detach] setImmediateDriver requires Node.js — global `setImmediate` is not defined ' +
-            'in this runtime. Use `microtaskBatchDriver` for cross-runtime use, or `setTimeoutDriver` ' +
-            'for browser/edge environments.',
-        );
-      }
+      scheduler();
     },
-    schedule(child: FlowChart, input: unknown, refId: string): DetachHandle {
-      const handle = createHandle(refId);
-      register(handle);
-      queue.push({ child, input, handle });
-      if (!scheduled) {
-        scheduled = true;
-        // `setImmediate` is non-undefined here in Node; runtime guard
-        // is in `validate()`. The `!` is a deliberate assertion.
-        setImmediate!(flush);
-      }
-      return handle;
-    },
+    schedule: createBatchSchedule((flush) => scheduler()(flush), runChild),
   };
 }
 
-async function executeOne(item: WorkItem, runChild: ChildRunner): Promise<void> {
-  const impl = asImpl(item.handle);
-  impl._markRunning();
-  try {
-    const result = await runChild(item.child, item.input);
-    impl._markDone(result);
-  } catch (err) {
-    impl._markFailed(err instanceof Error ? err : new Error(String(err)));
-  } finally {
-    unregister(impl.id);
+function scheduler(): (cb: () => void) => unknown {
+  if (typeof setImmediate !== 'function') {
+    throw new Error(
+      '[detach] setImmediateDriver requires Node.js — global `setImmediate` is not defined ' +
+        'in this runtime. Use `microtaskBatchDriver` for cross-runtime use, or `setTimeoutDriver` ' +
+        'for browser/edge environments.',
+    );
   }
+  return setImmediate;
 }
 
 export const setImmediateDriver: DetachDriver = createSetImmediateDriver();
