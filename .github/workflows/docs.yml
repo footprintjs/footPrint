@@ -7,6 +7,9 @@ on:
       - 'docs-site/**'
       - 'src/**'
       - 'typedoc.json'
+      - 'package.json'
+      - '.nvmrc'
+      - '.github/workflows/docs.yml'
   release:
     types: [published]
   workflow_dispatch:
@@ -28,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # Pin the resolver. With no committed lockfile every job resolves fresh, so a
       # dependency published upstream can break resolution without this repo changing:
@@ -48,7 +51,7 @@ jobs:
       - name: Install docs-site dependencies
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: docs-site/package-lock.json
       - run: npm ci

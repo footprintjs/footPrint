@@ -4,12 +4,20 @@ Thank you for your interest in contributing to FootPrint!
 
 ## Development Setup
 
+Use **Node.js 24 LTS** for development; `.nvmrc` selects the 24.x line. The library supports Node 22 and newer, with CI running the full suite on Node 22 and 24. Node 20 is no longer supported. Keep npm on the 11.x line to match the CI resolver and publishing tooling.
+
 ```bash
 git clone https://github.com/footprintjs/footPrint.git
 cd footPrint
+nvm install
+nvm use
+npm install -g npm@11
 npm install
+npm run build
 npm test
 ```
+
+If you do not use nvm, install Node 24 LTS with your preferred version manager before running the npm commands. Selecting this project's Node version does not require changing your global default or other projects.
 
 ## Project Structure
 

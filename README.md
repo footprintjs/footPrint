@@ -32,6 +32,8 @@
 npm install footprintjs
 ```
 
+Requires **Node.js 22 or newer**. CI tests Node 22 and 24; Node 24 LTS is the default for development, documentation builds and publishing. See [Contributing](CONTRIBUTING.md#development-setup) for setup instructions.
+
 ---
 
 ## The Problem

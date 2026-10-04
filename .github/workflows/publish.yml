@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # Pin the resolver. With no committed lockfile every job resolves fresh, so a
       # dependency published upstream can break resolution without this repo changing:
@@ -65,7 +65,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       # Pinned to the 11.x line: npm 12.0.0 went `latest` on 2026-07-08 with a broken

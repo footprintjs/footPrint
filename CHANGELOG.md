@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Node.js support now starts at 22** (`engines.node: ">=22"`, previously `">=20"`). Node 24 LTS is the contributor default in `.nvmrc` and the runtime for lint, documentation builds and publishing; compatibility CI runs on Node 22 and 24. No library runtime code or package exports changed.
+  - **Breaks:** Node 20 and 21 are no longer supported. *Migration:* upgrade application runtimes to Node 22 or newer (Node 24 LTS recommended); contributors can run `nvm install && nvm use` from the repository and use npm 11.x. This minimum-version increase must be included in a breaking release.
+
 ### Fixed
 
 - **Standalone narrative describes completed linear steps once.** `NarrativeFlowRecorder` and its seven loop strategies no longer repeat a destination sentence from `onNext` before `onStageExecuted` describes that step. Failed or paused destinations retain their error/pause sentences without a premature completion line. Specialized events and loop policies are unchanged; all observers still receive the engine's original transition events.
