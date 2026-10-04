@@ -324,9 +324,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *  traverser. Fallback `parentRuntimeStageId` for stages whose context has
    *  no parent (the subflow root). Undefined at the top level. */
   private readonly parentMountRuntimeStageId?: string;
-  /** Frozen value passed via `run({input})`. Surfaced on `onRunStart` at the
-   *  top-level traversal so consumers (e.g. `InOutRecorder`) can bracket
-   *  the run with the same payload shape that subflows already have. */
+  /** Validated value passed via `run({input})`. Root boundary observers
+   *  receive its retained form; stage arguments keep the original data. */
   private readonly readOnlyContext?: unknown;
   /** Per-`executor.run()` identifier. Stamped onto every TraversalContext.
    *  Inherited by subflow traversers so all events of one run share one runId. */
@@ -644,10 +643,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // depth 0) so the runId is reliably available on run events without
     // forcing recorders to handle `traversalContext === undefined`.
     const rootContext = rootTraversalContext(this.runId);
+    const redactionRule = context.getRedactionRule();
     if (isTopLevel) {
-      // `readOnlyContext` is the engine's view of `run({input})` — passed
-      // through from `FlowChartExecutor.run()` as the validated input.
-      this.narrativeGenerator.onRunStart(this.readOnlyContext, rootContext);
+      // Retain at the boundary, before dispatch or deferred capture — the
+      // same owner as subflow entry, not a recorder-local scrub or later walk.
+      const input = redactionRule ? redactionRule.retainRecord(this.readOnlyContext) : this.readOnlyContext;
+      this.narrativeGenerator.onRunStart(input, rootContext);
     }
 
     // Top-level runs close their boundary SYMMETRICALLY: every onRunStart
@@ -664,15 +665,19 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       return walk();
     }
     let result: TraversalResult;
+    let retainedResult: TraversalResult;
     try {
       result = await walk();
+      // Read the shared rule now so marks made during execution apply to
+      // this event. A scrub failure closes the run as failed, never raw.
+      retainedResult = redactionRule ? redactionRule.retainRecord(result) : result;
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
         this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
       }
       throw error;
     }
-    this.narrativeGenerator.onRunEnd(result, rootContext);
+    this.narrativeGenerator.onRunEnd(retainedResult, rootContext);
     return result;
   }
 

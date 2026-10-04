@@ -1,11 +1,11 @@
 /**
  * redaction.ts — The ONE owner of what a redaction policy says about a value.
  *
- * THE LAW (9.19.0). A redaction policy covers EVERYTHING RETAINED OR SERVED —
- * the commit log (both encodings), the redacted mirror, stage reads/writes
- * retention, the narrative, a subflow's seed and merge-back — and NEVER the
- * live heap the run computes on nor the resume checkpoint (resumption must
- * replay real values; the checkpoint is handed to the runner, never served).
+ * THE CONTRACT. Named values in the commit log, mirror, tracked reads/writes,
+ * their recorder/narrative views and root/subflow boundary records share one
+ * rule. Live inputs/results/state and operational checkpoints stay real.
+ * This is not content scanning or whole-snapshot sanitization: diagnostics,
+ * pause payloads and arbitrary recorder data/metadata are outside this rule.
  *
  * HOW ONE OWNER KEEPS IT. Every staged write and every tracked read passes
  * through `StageContext`, so `StageContext` asks THIS rule — not the caller —
@@ -13,7 +13,8 @@
  * write, a subflow `inputMapper` seed, an `outputMapper` merge-back and a
  * resume re-seed are then all the same case: the funnel decides, the caller
  * cannot forget to. The facade uses the same rule for the values it hands to
- * recorders; `SubflowExecutor` uses it for the narrated seed. Before 9.19.0
+ * recorders; `SubflowExecutor` uses it for the narrated seed and
+ * `FlowchartTraverser.execute` for root input/output before dispatch. Before 9.19.0
  * the facade held the verdict alone, and every path that wrote or read past
  * the facade — five of them — retained plaintext under a policy.
  *
@@ -32,7 +33,7 @@ import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { MemoryPatch } from './types.js';
 
 /**
- * Declarative redaction configuration — define once, applied everywhere.
+ * Declarative key/path redaction for recorded state and boundary records.
  *
  * Configure at the scope class level (static property) or pass to
  * FlowChartExecutor to apply across all stages.
@@ -248,12 +249,15 @@ export class RedactionRule {
   }
 
   /**
-   * The retained form of a whole record (a subflow seed, a whole-state read):
-   * each top-level key through {@link retain}. Returns the SAME object when
-   * nothing in it is redacted, so the no-policy path allocates nothing.
+   * The retained form of a record (root boundary, subflow seed, state read):
+   * each own enumerable string key through {@link retain}. Fields are paths
+   * inside that keyed value, not a recursive key/content search. Scalars and
+   * root arrays pass through; fork result envelopes need explicit child paths.
+   * Returns the SAME object when unchanged. An inert rule does not enumerate
+   * the value, so even an accessor is untouched on the no-policy fast path.
    */
   retainRecord<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
-    if (record === null || typeof record !== 'object' || Array.isArray(record)) return record;
+    if (this.isInert() || record === null || typeof record !== 'object' || Array.isArray(record)) return record;
     let out: Record<string, unknown> | undefined;
     for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
       const kept = this.retain([key], value, placeholder);
