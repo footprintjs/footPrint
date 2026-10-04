@@ -35,7 +35,7 @@
     "footprint"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
