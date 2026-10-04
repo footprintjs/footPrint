@@ -30,6 +30,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
+import { createBreakHandler } from '../handlers/breakFlag.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { commitStage } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
@@ -1352,17 +1353,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       else if (hasChildren) context.setAsFork();
     }
 
-    // Break handler wired to the scope. Captures the optional reason
-    // passed via `scope.$break(reason)` and parks it on the breakFlag so
-    // downstream code (FlowRecorder.onBreak, subflow propagation) can
-    // surface it. A second $break call in the same stage keeps the FIRST
-    // reason — first-break-wins — matching the "execution stopped" story.
-    const breakFn = (reason?: string) => {
-      breakFlag.shouldBreak = true;
-      if (reason !== undefined && breakFlag.reason === undefined) {
-        breakFlag.reason = reason;
-      }
-    };
+    const breakFn = createBreakHandler(breakFlag);
 
     // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
     if (isScopeBasedSelector) {
@@ -1376,6 +1367,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.executeNode.bind(this),
         traversalContext,
       );
+
+      // The handler committed and recorded the stop. Do not create a next
+      // frame or resolve a loop edge for a selector that stopped here.
+      if (breakFlag.shouldBreak) return selectorResult;
 
       if (hasNext) {
         // A selector's own `loopTo` is a loop edge like any other: resolved
