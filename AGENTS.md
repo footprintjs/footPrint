@@ -1119,7 +1119,7 @@ npm test                # full suite (vitest)
 npm run test:examples   # type-check examples/, build, then run the fork example guard
 npm run lint
 npm run check:layering  # the layering rule, from scripts/layering.config.cjs
-npm run check:doc-snippets
+npm run check:doc-snippets # strict, isolated import-bearing TS fences; see scripts/doc-snippets/README.md
 ```
 
 Dual output: CommonJS (`dist/`) + ESM (`dist/esm/`) + types (`dist/types/`)

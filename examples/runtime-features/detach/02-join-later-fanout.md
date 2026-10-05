@@ -37,22 +37,41 @@ WaitStage ─► await Promise.all([A.wait(), B.wait(), C.wait()])
 ## The pattern
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { microtaskBatchDriver } from 'footprintjs/detach';
 import type { DetachHandle } from 'footprintjs/detach';
 
-let handles: DetachHandle[] = [];
+// Deterministic local evaluator; replace with your model or vendor call.
+const variantChart = flowChart('Evaluate', (scope) => {
+  return scope.$getArgs<{ variant: string }>().variant.length;
+}, 'evaluate').build();
+interface State { variants: string[]; bestVariant: string }
+const handles: DetachHandle[] = [];
 
-.addFunction('Fanout', async (scope) => {
+const chart = flowChart<State>('Seed', (scope) => {
+  scope.variants = ['brief', 'detailed', 'structured'];
+}, 'seed')
+.addFunction('Fanout', (scope) => {
   for (const variant of scope.variants) {
-    handles.push(scope.$detachAndJoinLater(microtaskBatchDriver, variantChart, variant));
+    handles.push(scope.$detachAndJoinLater(microtaskBatchDriver, variantChart, { variant }));
   }
-})
+}, 'fanout')
 .addFunction('Join', async (scope) => {
   const results = await Promise.all(handles.map((h) => h.wait()));
-  scope.bestVariant = pickBest(results);
-})
+  const scores = results.map(({ result }) => {
+    if (typeof result !== 'number') throw new Error('Expected a numeric variant score');
+    return result;
+  });
+  scope.bestVariant = scope.variants[scores.indexOf(Math.max(...scores))];
+}, 'join')
+.build();
+
+await new FlowChartExecutor(chart).run();
 ```
 
 > ⚠️  Keep handles in a closure-local variable, **not** in scope state.
 > `executor.getSnapshot()` JSON-serializes shared state and would strip
 > the handle's `wait()` method.
+
+This is a single-run fixture. For concurrent requests, construct the chart and
+its `handles` array inside a per-run factory.

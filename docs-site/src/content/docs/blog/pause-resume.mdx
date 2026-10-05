@@ -59,7 +59,13 @@ const approvalGate: PausableHandler<RefundState> = {
       riskLevel: scope.riskLevel,
     };
   },
-  resume: async (scope, input: { approved: boolean; approver: string }) => {
+  resume: async (scope, input) => {
+    // Resume data crosses an application boundary; validate it before use.
+    if (input === null || typeof input !== 'object'
+      || !('approved' in input) || typeof input.approved !== 'boolean'
+      || !('approver' in input) || typeof input.approver !== 'string') {
+      throw new Error('Expected an approval decision and approver name');
+    }
     scope.approved = input.approved;
     scope.approver = input.approver;
   },

@@ -61,7 +61,13 @@ executor.getNarrativeEntries().map((e) => e.text).forEach((line) => console.log(
 `MetricRecorder` tracks per-stage read/write counts and latency:
 
 ```ts
-import { FlowChartExecutor, MetricRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, MetricRecorder } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Count', (scope) => {
+  scope.count = 1;
+}, 'count')
+  .addFunction('Double', (scope) => { scope.count *= 2; }, 'double')
+  .build();
 
 const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);
@@ -80,7 +86,11 @@ console.log(`Total: ${result.totalDuration}ms`);
 `DebugRecorder` captures a structured log of all ops for debugging:
 
 ```ts
-import { FlowChartExecutor, DebugRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, DebugRecorder } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Count', (scope) => {
+  scope.count = 1;
+}, 'count').build();
 
 const debug = new DebugRecorder({ verbosity: 'verbose' });
 const executor = new FlowChartExecutor(chart);
@@ -120,6 +130,9 @@ class AuditRecorder implements ScopeRecorder {
 }
 
 const auditRecorder = new AuditRecorder();
+const chart = flowChart<{ count: number }>('Count', (scope) => {
+  scope.count = 1;
+}, 'count').build();
 const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(auditRecorder);
 await executor.run();
@@ -143,7 +156,18 @@ auditRecorder.getLog().forEach((line) => console.log(line));
 Implement `FlowRecorder` to observe control-flow events — decisions, loops, forks. All hooks are optional:
 
 ```ts
-import { FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Init', (scope) => {
+  scope.count = 0;
+}, 'init')
+  .addFunction('Tick', (scope) => {
+    scope.count += 1;
+    if (scope.count >= 3) scope.$break();
+  }, 'tick')
+  .loopTo('tick')
+  .build();
+const executor = new FlowChartExecutor(chart);
 
 const metrics: FlowRecorder = {
   id: 'metrics',
@@ -163,6 +187,7 @@ const metrics: FlowRecorder = {
 };
 
 executor.attachFlowRecorder(metrics);
+await executor.run();
 ```
 
 ### FlowRecorder hooks
@@ -186,12 +211,25 @@ When a pipeline loops many times, the default narrative can grow large. footprin
 
 ```ts
 import {
+  flowChart,
+  FlowChartExecutor,
   NarrativeFlowRecorder,
   WindowedNarrativeFlowRecorder,
   SilentNarrativeFlowRecorder,
   AdaptiveNarrativeFlowRecorder,
   SeparateNarrativeFlowRecorder,
 } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Init', (scope) => {
+  scope.count = 0;
+}, 'init')
+  .addFunction('Tick', (scope) => {
+    scope.count += 1;
+    if (scope.count >= 8) scope.$break();
+  }, 'tick')
+  .loopTo('tick')
+  .build();
+const executor = new FlowChartExecutor(chart);
 
 // WindowedNarrativeFlowRecorder(first, last) — keeps first 3 + last 2 iterations
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));

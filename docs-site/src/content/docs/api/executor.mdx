@@ -14,8 +14,11 @@ new FlowChartExecutor(chart: FlowChart, options?: FlowChartExecutorOptions)
 Takes a compiled `FlowChart` (the return value of `.build()`). The optional second argument is a `FlowChartExecutorOptions` bag (e.g. `{ scopeFactory }`). The executor is stateful — call `.run()` and then read the results.
 
 ```ts
-import { FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart<{ total: number }>('ProcessOrder', (scope) => {
+  scope.total = scope.$getArgs<{ amount: number }>().amount;
+}, 'process-order').build();
 const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { orderId: 'ORD-001', amount: 49.99 } });
 ```
@@ -56,9 +59,12 @@ await executor.run({
 For a one-shot run without a persistent executor, chain recorders directly on the compiled chart:
 
 ```ts
-import { narrative } from 'footprintjs';
+import { flowChart, narrative } from 'footprintjs';
 import { metrics } from 'footprintjs/recorders';
 
+const chart = flowChart<{ total: number }>('ProcessOrder', (scope) => {
+  scope.total = scope.$getArgs<{ amount: number }>().amount;
+}, 'process-order').build();
 const narr = narrative();
 const metr = metrics();
 
@@ -86,10 +92,13 @@ executor.attachScopeRecorder(recorder: ScopeRecorder): void
 ```
 
 ```ts
-import { MetricRecorder, DebugRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, MetricRecorder, DebugRecorder } from 'footprintjs';
 
+const chart = flowChart<{ count: number }>('Count', (scope) => { scope.count = 1; }, 'count').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(new MetricRecorder());
 executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
+await executor.run();
 ```
 
 ### .attachFlowRecorder()
@@ -101,8 +110,13 @@ executor.attachFlowRecorder(recorder: FlowRecorder): void
 ```
 
 ```ts
-import { ManifestFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, ManifestFlowRecorder } from 'footprintjs';
 
+const payment = flowChart('ChargeCard', () => {}, 'charge-card').build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .build();
+const executor = new FlowChartExecutor(chart);
 const manifest = new ManifestFlowRecorder();
 executor.attachFlowRecorder(manifest);
 await executor.run();
@@ -118,9 +132,12 @@ executor.attachCombinedRecorder(recorder: CombinedRecorder): void
 ```
 
 ```ts
-import { isFlowEvent } from 'footprintjs';
+import { flowChart, FlowChartExecutor, isFlowEvent } from 'footprintjs';
 import type { CombinedRecorder } from 'footprintjs';
 
+const log = (...parts: unknown[]) => console.log(...parts);
+const chart = flowChart<{ count: number }>('Count', (scope) => { scope.count = 1; }, 'count').build();
+const executor = new FlowChartExecutor(chart);
 const audit: CombinedRecorder = {
   id: 'audit',
   onWrite: (e) => log('scope write', e.key),
@@ -128,6 +145,7 @@ const audit: CombinedRecorder = {
   onError: (e) => (isFlowEvent(e) ? log('flow error', e.stageName) : log('scope error', e.operation)),
 };
 executor.attachCombinedRecorder(audit);
+await executor.run();
 ```
 
 ### .attachEmitRecorder()

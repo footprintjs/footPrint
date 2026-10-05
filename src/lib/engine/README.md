@@ -127,21 +127,32 @@ CombinedNarrativeRecorder            = MERGE both        → the full story (inl
 **Quick start:**
 
 ```typescript
-import { FlowChartExecutor, NarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Seed', (s) => { s.count = 0; }, 'seed')
+  .addFunction('Tick', (s) => { s.count += 1; }, 'tick')
+  .addDeciderFunction('Check', (s) => s.count < 2 ? 'again' : 'done', 'check')
+  .addFunctionBranch('again', 'Again', () => {})
+  .loopTo('tick')
+  .addFunctionBranch('done', 'Done', () => {})
+  .end()
+  .build();
 
 // Default narrative (auto-attached when narrative enabled)
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
-await executor.run();
-executor.getNarrativeEntries().map((e) => e.text); // plain-English sentences
 
-// Custom FlowRecorder
-const metricsRecorder = {
+// Custom FlowRecorder — attach before running so it observes the events.
+const loops: Array<{ target: string; iteration: number }> = [];
+const decisions: Array<{ decider: string; chosen: string }> = [];
+const metricsRecorder: FlowRecorder = {
   id: 'metrics',
-  onLoop: (event) => metrics.trackLoop(event.target, event.iteration),
-  onDecision: (event) => metrics.trackDecision(event.decider, event.chosen),
+  onLoop: (event) => { loops.push({ target: event.target, iteration: event.iteration }); },
+  onDecision: (event) => { decisions.push({ decider: event.decider, chosen: event.chosen }); },
 };
 executor.attachFlowRecorder(metricsRecorder);
+await executor.run();
+executor.getNarrativeEntries().map((e) => e.text); // plain-English sentences
 ```
 
 **Built-in strategies for loop compression:**

@@ -184,43 +184,58 @@ One flowchart, two output formats — MCP for AI agents, OpenAPI for humans and 
 
 ## With agentfootprint: full agent integration
 
-If you're using agentfootprint (the agent framework), the integration is even tighter:
+The adapter below is a complete, local example: the chart provides the tool metadata and the executor provides its implementation. It does not call a model or require API credentials.
 
 ```typescript
-import { Agent, defineTool } from 'agentfootprint';
-import { anthropic } from 'agentfootprint/llm-providers';
-import { FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
-// Turn the flowchart into an agent tool
-const creditTool = defineTool({
-  name: tool.name,
-  description: tool.description,
-  inputSchema: tool.inputSchema,
-  execute: async (input) => {
+interface CreditInput {
+  creditScore: number;
+  dtiRatio: number;
+  employmentYears: number;
+}
+
+const chart = flowChart<{ decision: string }>('AssessCredit', (scope) => {
+  const input = scope.$getArgs<CreditInput>();
+  scope.decision = input.creditScore >= 620 && input.dtiRatio <= 0.43 && input.employmentYears >= 1
+    ? 'APPROVED' : 'REJECTED';
+}, 'assess-credit-risk', {
+  description: 'Assess credit score, debt-to-income ratio, and employment history. Return a decision and its trace.',
+})
+  .contract({
+    input: {
+      type: 'object',
+      properties: {
+        creditScore: { type: 'number' },
+        dtiRatio: { type: 'number' },
+        employmentYears: { type: 'number' },
+      },
+      required: ['creditScore', 'dtiRatio', 'employmentYears'],
+    },
+  })
+  .build();
+
+export const creditTool = {
+  ...chart.toMCPTool(),
+  // Tool-call input is untrusted; the chart's contract validates it before execution.
+  async execute(input: unknown): Promise<{ decision: string; trace: string[] }> {
     const executor = new FlowChartExecutor(chart);
+    executor.enableNarrative();
     await executor.run({ input });
-    const state = executor.getSnapshot().sharedState as CreditState;
-    // execute() returns anything JSON-serializable; it's forwarded to the LLM
+    const decision = executor.getSnapshot().sharedState.decision;
+    if (typeof decision !== 'string') throw new Error('The chart did not produce a decision');
     return {
-      decision: state.decision,
+      decision,
       trace: executor.getNarrativeEntries().map((e) => e.text),
     };
   },
-});
+};
 
-// Build an agent that uses it
-const agent = Agent.create({
-  provider: anthropic({ defaultModel: 'claude-sonnet-4-5-20250929' }),
-})
-  .system('You are a loan officer assistant. Use the credit assessment tool to evaluate applications and explain decisions clearly.')
-  .tool(creditTool)
-  .build();
-
-const response = await agent.run({
-  message: 'Evaluate this application: credit score 580, DTI 60%, 1 year employment',
-});
-// Agent calls the tool, gets the trace, explains the decision
+console.log(await creditTool.execute({ creditScore: 580, dtiRatio: 0.6, employmentYears: 1 }));
+// { decision: 'REJECTED', trace: [...] }
 ```
+
+In an AgentFootprint application, pass this descriptor and its `execute` function to `defineTool`, then register the resulting tool with the agent builder's `.tool(...)` method. Provider configuration, credentials, and `agent.run(...)` belong to that application. When the agent invokes the tool, it receives the JSON-serializable decision and narrative returned here.
 
 ## Why this matters
 

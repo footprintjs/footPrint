@@ -132,17 +132,31 @@ announceResume(plan, input, { runId, executionCount, observers });
 An interface for runners that expose their internal flowChart for subflow mounting. Any runner implementing `ComposableRunner` can be mounted in a parent flowChart via `addSubFlowChart()`, enabling full UI drill-down into nested execution.
 
 ```typescript
-import { flowChart, type ComposableRunner } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type ComposableRunner } from 'footprintjs';
+
+interface AgentResult { answer: string }
 
 class MyAgent implements ComposableRunner<string, AgentResult> {
-  private chart = flowChart('agent-seed', async () => {}, 'agent-seed').build();
+  // Local response for this composition example; no model service is called.
+  private chart = flowChart<AgentResult>('Respond', (scope) => {
+    scope.answer = scope.$getArgs<{ prompt: string }>().prompt.toUpperCase();
+  }, 'respond').build();
   toFlowChart() { return this.chart; }
-  async run(input: string) { /* ... */ }
+  async run(input: string): Promise<AgentResult> {
+    const executor = new FlowChartExecutor(this.chart);
+    await executor.run({ input: { prompt: input } });
+    const answer = executor.getSnapshot().sharedState.answer;
+    if (typeof answer !== 'string') throw new Error('The response stage did not produce an answer');
+    return { answer };
+  }
 }
 
 // Mount in a parent chart — UI can drill into MyAgent's internal stages
-flowChart('Seed', seedFn, 'seed')
-  .addSubFlowChart('sf-agent', agent.toFlowChart(), 'Agent')
+const agent = new MyAgent();
+flowChart('Seed', () => {}, 'seed')
+  .addSubFlowChart('sf-agent', agent.toFlowChart(), 'Agent', {
+    inputMapper: () => ({ prompt: 'Hello' }),
+  })
   .build();
 ```
 
@@ -151,17 +165,16 @@ flowChart('Seed', seedFn, 'seed')
 Navigate the execution snapshot tree by subflow path. Useful for LLM drill-down: instead of dumping the full trace, fetch only the relevant subtree.
 
 ```typescript
-import { getSubtreeSnapshot } from 'footprintjs';
+import { getSubtreeSnapshot, type RuntimeSnapshot } from 'footprintjs';
 
-const snapshot = executor.getSnapshot();
-
-// Drill into a specific subflow
-const payment = getSubtreeSnapshot(snapshot, 'sf-payment');
-// payment.executionTree → the payment subflow's execution tree
-// payment.sharedState   → the payment subflow's scope state
-
-// Nested drill-down (payment → validation)
-const validation = getSubtreeSnapshot(snapshot, 'sf-payment/sf-validation');
+// Application boundary: pass a completed executor.getSnapshot() result.
+function paymentDetails(snapshot: RuntimeSnapshot) {
+  const payment = getSubtreeSnapshot(snapshot, 'sf-payment');
+  // payment?.executionTree → the payment subflow's execution tree, if present
+  // payment?.sharedState   → the payment subflow's scope state, if present
+  const validation = getSubtreeSnapshot(snapshot, 'sf-payment/sf-validation');
+  return { payment, validation };
+}
 ```
 
 Subflow paths use slash-separated subflow IDs, matching how footprintjs stores nested subflow results internally. Returns `undefined` if the path is not found.

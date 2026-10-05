@@ -198,6 +198,7 @@
     "footprintjs-baseline": "npm:footprintjs@9.28.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
+    "markdown-it": "^14.3.1",
     "prettier": "^2.8.1",
     "publint": "^0.3.0",
     "typedoc": "^0.28.17",

@@ -21,8 +21,12 @@ Two tools for understanding your flow — one for runtime, one for build time.
 ## The pattern
 
 ```typescript
-import { DebugRecorder, FlowChartExecutor } from 'footprintjs';
+import { flowChart, DebugRecorder, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart<{ count: number }>('Seed', (scope) => { scope.count = 1; }, 'seed')
+  .addFunction('Increment', (scope) => { scope.count += 1; }, 'increment')
+  .build();
+const executor = new FlowChartExecutor(chart);
 const debug = new DebugRecorder({ verbosity: 'verbose' });
 executor.attachScopeRecorder(debug);
 

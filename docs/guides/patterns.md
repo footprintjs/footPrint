@@ -11,6 +11,9 @@ Stages execute in sequence. The simplest pattern.
 ```typescript
 import { flowChart } from 'footprintjs';
 
+const fnA = () => { console.log('A'); };
+const fnB = () => { console.log('B'); };
+const fnC = () => { console.log('C'); };
 flowChart('A', fnA, 'a')
   .addFunction('B', fnB, 'b')
   .addFunction('C', fnC, 'c')

@@ -92,7 +92,13 @@ Add a branching stage. The handler returns a branch ID (plain string) or a `Deci
 Inside the returned `DeciderBuilder`, call `.addFunctionBranch()`, `.setDefault()`, then `.end()` to return to the parent builder.
 
 ```ts
-import { decide } from 'footprintjs';
+import { flowChart, decide } from 'footprintjs';
+
+interface LoanState {
+  creditScore: number;
+  dti: number;
+  decision?: string;
+}
 
 const chart = flowChart<LoanState>('Load', async (scope) => {
   scope.creditScore = 720;
@@ -188,15 +194,22 @@ The stage emits tokens by calling the injected `streamCallback`. The lifecycle h
 ```
 
 ```ts
-import type { StreamHandlers } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type StreamHandlers } from 'footprintjs';
+
+const chart = flowChart('Prepare', () => {}, 'prepare')
+  .addStreamingFunction('GenerateResponse', async (_scope, _break, emit) => {
+    for (const token of ['Hello', ' world']) emit?.(token);
+  }, 'generate-response', 'llm-stream')
+  .build();
 
 const handlers: StreamHandlers = {
   onStart: (id) => console.log(`[${id}] started`),
-  onToken: (id, token) => process.stdout.write(token),
+  onToken: (id, token) => console.log(`[${id}] token: ${token}`),
   onEnd: (id, full) => console.log(`[${id}] done: "${full}"`),
 };
 
 const executor = new FlowChartExecutor(chart, { streamHandlers: handlers });
+await executor.run();
 ```
 
 ### .loopTo()

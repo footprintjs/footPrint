@@ -51,6 +51,13 @@ That's FootPrint. Your business logic is a **graph of typed functions with trans
 ```typescript
 import { flowChart, decide, narrative } from 'footprintjs';
 
+interface State {
+  creditScore: number;
+  dti: number;
+  riskTier?: string;
+  decision?: string;
+}
+
 const chart = flowChart<State>('ReceiveApplication', async (scope) => {
     scope.creditScore = 580;
     scope.dti = 0.6;

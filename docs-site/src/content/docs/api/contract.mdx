@@ -159,14 +159,21 @@ const anthropicTool = {
 Extract the execution tree for a specific subflow from a `RuntimeSnapshot`. Returns `SubtreeSnapshot | undefined`.
 
 ```ts
-import { getSubtreeSnapshot } from 'footprintjs';
+import { flowChart, FlowChartExecutor, getSubtreeSnapshot } from 'footprintjs';
+
+const payment = flowChart('ValidateCard', () => {}, 'validate-card').build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
 
 const snapshot = executor.getSnapshot();
 const paymentTree = getSubtreeSnapshot(snapshot, 'sf-payment');
 
 if (paymentTree) {
   console.log(paymentTree.subflowId);           // 'sf-payment'
-  console.log(paymentTree.executionTree.name);   // 'ValidateCard'
+  console.log(paymentTree.executionTree.name);   // 'sf-payment/ValidateCard'
 }
 ```
 
@@ -186,11 +193,21 @@ Traverses the full execution tree recursively — works at any nesting depth.
 Return all mounted subflow IDs at any depth in the execution tree. Nested subflows use slash-separated paths.
 
 ```ts
-import { listSubflowPaths } from 'footprintjs';
+import { flowChart, FlowChartExecutor, listSubflowPaths } from 'footprintjs';
+
+const payment = flowChart('ChargeCard', () => {}, 'charge-card').build();
+const inventory = flowChart('ReserveStock', () => {}, 'reserve-stock').build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .addSubFlowChartNext('sf-inventory', inventory, 'Inventory')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const snapshot = executor.getSnapshot();
 
 const paths = listSubflowPaths(snapshot);
 // ['sf-payment', 'sf-inventory']
-// Nested: ['sf-outer/sf-inner']
+// A nested mount would have a path such as 'sf-outer/sf-inner'.
 ```
 
 ```ts

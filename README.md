@@ -246,13 +246,15 @@ import { flowChart } from 'footprintjs';
 
 ## Dev Mode
 
-footprintjs ships with developer-only diagnostics that are OFF in production (zero overhead). Turn them on during development to catch mistakes early:
+footprintjs ships with developer-only diagnostics that are OFF by default. Turn them on during development to catch mistakes early. Pass your application's environment setting to this helper (for example, `process.env.NODE_ENV` in Node.js):
 
 ```ts
 import { enableDevMode } from 'footprintjs';
 
-if (process.env.NODE_ENV !== 'production') {
-  enableDevMode();
+function configureDiagnostics(environment: string | undefined) {
+  if (environment !== 'production') {
+    enableDevMode();
+  }
 }
 ```
 

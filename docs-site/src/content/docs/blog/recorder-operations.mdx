@@ -39,10 +39,31 @@ Per-step raw value. O(1) lookup by `runtimeStageId`.
 
 ```typescript
 import { QualityRecorder } from 'footprintjs/trace';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
-// What was the quality score at step call-llm#5?
-const entry = quality.getByKey('call-llm#5');
-// → { score: 0.3, factors: ['response hallucinated'], keysRead: ['systemPrompt'] }
+const chart = flowChart<{ systemPrompt: string; response: string }>(
+  'Seed', (scope) => { scope.systemPrompt = 'Answer using the supplied facts'; }, 'seed',
+)
+  .addFunction('CallLLM', (scope) => {
+    // A local response fixture; replace with your model call in an application.
+    scope.response = `${scope.systemPrompt}: unsupported claim`;
+  }, 'call-llm')
+  .build();
+const quality = new QualityRecorder((_id, context) =>
+  context.keysWritten.includes('response')
+    ? { score: 0.3, factors: ['demo quality check failed'] }
+    : { score: 1 },
+);
+const executor = new FlowChartExecutor(chart);
+executor.attachScopeRecorder(quality);
+await executor.run();
+
+// What was the quality score at the response-writing step?
+const lowest = quality.getLowest();
+if (lowest) {
+  const entry = quality.getByKey(lowest.runtimeStageId);
+  console.log(entry?.score); // 0.3
+}
 ```
 
 **Use case:** Time-travel debugger. Click a stage in the UI → see its data. The explainable-ui slider calls `getByKey()` at each position.
@@ -107,12 +128,19 @@ The `KeyedStore<T>` composition primitive provides all three operations. Own one
 
 ```typescript
 import { KeyedStore } from 'footprintjs/trace';
+import type { EmitEvent, EmitRecorder } from 'footprintjs';
 
 // A single-purpose recorder that owns a KeyedStore for storage:
-class TokenRecorder {
+class TokenRecorder implements EmitRecorder {
   readonly id = 'tokens';
   private readonly store = new KeyedStore<{ input: number; output: number }>();
-  onEmit(e) { this.store.set(e.runtimeStageId, e.payload); }
+  onEmit(e: EmitEvent) {
+    const usage = e.payload;
+    if (e.name !== 'tokens' || typeof usage !== 'object' || usage === null) return;
+    if (!('input' in usage) || typeof usage.input !== 'number') return;
+    if (!('output' in usage) || typeof usage.output !== 'number') return;
+    this.store.set(e.runtimeStageId, { input: usage.input, output: usage.output });
+  }
 
   // All three operations on auto-collected data:
   getForStep(id: string) { return this.store.get(id); }                                   // Translate

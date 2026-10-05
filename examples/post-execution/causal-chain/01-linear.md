@@ -42,19 +42,29 @@ footprintjs captures this for free because every scope read is recorded during t
 ## The API
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { causalChain, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
 
+interface State { input: number; processed: number; output: string }
+const chart = flowChart<State>('Seed', (scope) => { scope.input = 21; }, 'seed')
+  .addFunction('Process', (scope) => { scope.processed = scope.input * 2; }, 'process')
+  .addFunction('Format', (scope) => { scope.output = `Result: ${scope.processed}`; }, 'format')
+  .build();
+const executor = new FlowChartExecutor(chart);
 const quality = new QualityRecorder(() => ({ score: 1.0 }));
 executor.attachScopeRecorder(quality);
 await executor.run();
 
 const { commitLog } = executor.getSnapshot();
+const targetRuntimeStageId = commitLog.find((commit) => commit.stageId === 'format')?.runtimeStageId;
+if (!targetRuntimeStageId) throw new Error('Format stage not found in commit log');
 const dag = causalChain(
   commitLog,
   targetRuntimeStageId,
   (id) => quality.getByKey(id)?.keysRead ?? [],
 );
 
+if (!dag) throw new Error('Causal chain unavailable for the selected stage');
 console.log(formatCausalChain(dag));
 ```
 

@@ -149,19 +149,34 @@ Grep for the refId in your logs to find every event tied to a specific detached 
 
 Drivers are plain objects that satisfy the `DetachDriver` interface. The `createXxxDriver(runChild)` factories take a custom `ChildRunner` if you just want to wrap the executor (e.g., for tracing context).
 
+This factory accepts an application-supplied extension buffer. Its host must keep queued work alive after the request ends; an ordinary in-process array cannot provide the `survivesUnload` guarantee.
+
 ```ts
 import type { DetachDriver } from 'footprintjs/detach';
 import { createHandle, asImpl } from 'footprintjs/detach';
 
-const myDriver: DetachDriver = {
-  name: 'lambda-extension',
-  capabilities: { nodeSafe: true, survivesUnload: true },
-  schedule(child, input, refId) {
-    const handle = createHandle(refId);
-    sharedBuffer.push({ refId, child, input, handle });
-    return handle;
-  },
-};
+interface BufferedWork {
+  refId: string;
+  child: Parameters<DetachDriver['schedule']>[0];
+  input: unknown;
+  handle: ReturnType<DetachDriver['schedule']>;
+}
+
+export function createExtensionDriver(sharedBuffer: { push(work: BufferedWork): void }): DetachDriver {
+  return {
+    name: 'lambda-extension',
+    capabilities: { nodeSafe: true, survivesUnload: true },
+    schedule(child, input, refId) {
+      const handle = createHandle(refId);
+      try {
+        sharedBuffer.push({ refId, child, input, handle });
+      } catch (error) {
+        asImpl(handle)._markFailed(error instanceof Error ? error : new Error('Could not enqueue work'));
+      }
+      return handle;
+    },
+  };
+}
 ```
 
 When your buffer flushes, call `asImpl(handle)._markRunning()` / `_markDone(result)` / `_markFailed(error)` to advance the lifecycle.

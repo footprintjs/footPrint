@@ -86,7 +86,14 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
 After execution, `getSubtreeSnapshot(snapshot, subflowId)` extracts the full execution tree for any subflow:
 
 ```ts
-import { FlowChartExecutor, getSubtreeSnapshot } from 'footprintjs';
+import { flowChart, FlowChartExecutor, getSubtreeSnapshot } from 'footprintjs';
+
+const payment = flowChart('ValidateCard', () => {}, 'validate-card')
+  .addFunction('ChargeCard', () => {}, 'charge-card')
+  .build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .build();
 
 const executor = new FlowChartExecutor(chart);
 await executor.run();
@@ -103,11 +110,21 @@ if (paymentSubtree) {
 `listSubflowPaths(snapshot)` returns all mounted subflow IDs at any nesting depth:
 
 ```ts
-import { listSubflowPaths } from 'footprintjs';
+import { flowChart, FlowChartExecutor, listSubflowPaths } from 'footprintjs';
+
+const payment = flowChart('ChargeCard', () => {}, 'charge-card').build();
+const inventory = flowChart('ReserveStock', () => {}, 'reserve-stock').build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .addSubFlowChartNext('sf-inventory', inventory, 'Inventory')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const snapshot = executor.getSnapshot();
 
 const paths = listSubflowPaths(snapshot);
 // ['sf-payment', 'sf-inventory']
-// Nested subflows: ['sf-outer/sf-inner']
+// A nested mount would have a path such as 'sf-outer/sf-inner'.
 ```
 
 ## ManifestFlowRecorder
@@ -115,7 +132,14 @@ const paths = listSubflowPaths(snapshot);
 `ManifestFlowRecorder` builds a lightweight tree catalog of all subflows as a side effect of traversal — no post-processing. An LLM receiving a snapshot can read the manifest to understand structure, then pull full specs on demand.
 
 ```ts
-import { FlowChartExecutor, ManifestFlowRecorder, type ManifestEntry } from 'footprintjs';
+import { flowChart, FlowChartExecutor, ManifestFlowRecorder, type ManifestEntry } from 'footprintjs';
+
+const payment = flowChart('ChargeCard', () => {}, 'charge-card').build();
+const inventory = flowChart('ReserveStock', () => {}, 'reserve-stock').build();
+const chart = flowChart('ReceiveOrder', () => {}, 'receive-order')
+  .addSubFlowChartNext('sf-payment', payment, 'Payment')
+  .addSubFlowChartNext('sf-inventory', inventory, 'Inventory')
+  .build();
 
 const executor = new FlowChartExecutor(chart);
 const manifest = new ManifestFlowRecorder();
@@ -133,8 +157,7 @@ function printManifest(entries: ManifestEntry[], indent = 0) {
 }
 
 printManifest(manifest.getManifest());
-// [sf-payment] Payment -- Process payment
-// [sf-inventory] Inventory -- Reserve stock
+// Prints each mounted subflow's id, name, and any description.
 ```
 
 ## ComposableRunner pattern
@@ -183,29 +206,27 @@ class PaymentProcessor implements ComposableRunner<{ amount: number }, { txnId: 
 }
 ```
 
-Mount it in a parent flowchart using `toFlowChart()`:
+Mount it in a parent flowchart using `toFlowChart()`. This helper accepts an application-supplied payment runner, such as `new PaymentProcessor()` from the example above:
 
 ```ts
-import { flowChart } from 'footprintjs';
+import { flowChart, FlowChartExecutor, getSubtreeSnapshot, type ComposableRunner } from 'footprintjs';
 
-const payment = new PaymentProcessor();
+export async function runOrder(payment: ComposableRunner<{ amount: number }, { txnId: string }>) {
+  const orderChart = flowChart<{ orderId: string; amount: number }>('ReceiveOrder', (scope) => {
+    scope.orderId = 'ORD-42';
+    scope.amount = 149.99;
+  }, 'receive-order')
+    .addSubFlowChartNext('sf-payment', payment.toFlowChart(), 'Payment', {
+      inputMapper: (s: { orderId: string; amount: number }) => ({ amount: s.amount }),
+    })
+    .build();
 
-const orderChart = flowChart<{ orderId: string; amount: number }>('ReceiveOrder', (scope) => {
-  scope.orderId = 'ORD-42';
-  scope.amount = 149.99;
-}, 'receive-order')
-  .addSubFlowChartNext('sf-payment', payment.toFlowChart(), 'Payment', {
-    inputMapper: (s: any) => ({ amount: s.amount }),
-  })
-  .build();
+  const executor = new FlowChartExecutor(orderChart);
+  await executor.run();
 
-const executor = new FlowChartExecutor(orderChart);
-await executor.run();
-
-// Drill into the payment subtree
-const snapshot = executor.getSnapshot();
-const paymentSubtree = getSubtreeSnapshot(snapshot, 'sf-payment');
-// paymentSubtree.executionTree has ValidateCard + ChargeCard stages
+  // The supplied runner's stages are available in this subtree.
+  return getSubtreeSnapshot(executor.getSnapshot(), 'sf-payment');
+}
 ```
 
 <Aside>

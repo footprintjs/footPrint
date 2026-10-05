@@ -30,12 +30,24 @@ batching, no scheduling lag.
 ## The pattern
 
 ```typescript
+import { expect, it } from 'vitest';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { immediateDriver } from 'footprintjs/detach';
 
-it('records the metric immediately', () => {
-  const handle = scope.$detachAndJoinLater(immediateDriver, recordMetric, payload);
-  expect(handle.status).toBe('running'); // not 'queued'
-  await handle.wait();
-  expect(handle.status).toBe('done');
+it('records the metric immediately', async () => {
+  const metrics: unknown[] = [];
+  const payload = { name: 'order.processed', value: 1 };
+  const recordMetric = flowChart('RecordMetric', (scope) => {
+    metrics.push(scope.$getArgs());
+  }, 'record-metric').build();
+  const chart = flowChart('Process', async (scope) => {
+    const handle = scope.$detachAndJoinLater(immediateDriver, recordMetric, payload);
+    expect(handle.status).toBe('running'); // not 'queued'
+    await handle.wait();
+    expect(handle.status).toBe('done');
+  }, 'process').build();
+
+  await new FlowChartExecutor(chart).run();
+  expect(metrics).toEqual([payload]);
 });
 ```

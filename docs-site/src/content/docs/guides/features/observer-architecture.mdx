@@ -52,7 +52,7 @@ Fires synchronously during `flowChart(...).addFunction(...).build()`. **Not at r
 | `onSubflowMounted` | every subflow mount (with `subflowSpec`) |
 
 ```ts
-import { type StructureRecorder } from 'footprintjs';
+import { flowChart, type StructureRecorder } from 'footprintjs';
 
 const structureRec: StructureRecorder = {
   id: 'topology',
@@ -60,8 +60,8 @@ const structureRec: StructureRecorder = {
   onEdgeAdded(e)  { /* every edge */ },
 };
 
-flowChart('seed', fn, 'seed', { structureRecorders: [structureRec] })
-  .addFunction('a', fnA, 'a')
+flowChart('seed', () => {}, 'seed', { structureRecorders: [structureRec] })
+  .addFunction('a', () => {}, 'a')
   .build();
 ```
 

@@ -54,6 +54,8 @@ The decider function can return a plain string **or** a `DecisionResult` from `d
 ```ts
 import { flowChart, decide } from 'footprintjs';
 
+interface OrderState { amount: number; status?: string }
+
 const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
   scope.amount = 149.99;
 }, 'receive-order')
@@ -135,15 +137,17 @@ By default a fan-out is best-effort (`Promise.allSettled`) — a branch that thr
 `.addSubFlowChartNext(id, chart, name, options?)` mounts another flowchart as a subflow that runs in sequence.
 
 ```ts
-import { FlowChartBuilder } from 'footprintjs';
+import { flowChart } from 'footprintjs';
+
+interface PaymentState { amount: number; cardLast4: string; cardValid?: boolean; txnId?: string }
+interface OrderState { orderId: string; amount: number; status?: string }
 
 // Build the subflow separately
-const paymentSubflow = new FlowChartBuilder()
-  .start('ValidateCard', async (scope) => {
-    (scope as any).cardValid = (scope as any).cardLast4?.length === 4;
+const paymentSubflow = flowChart<PaymentState>('ValidateCard', async (scope) => {
+    scope.cardValid = scope.cardLast4.length === 4;
   }, 'validate-card')
   .addFunction('ChargeCard', async (scope) => {
-    (scope as any).txnId = 'TXN-' + Date.now();
+    scope.txnId = 'TXN-' + Date.now();
   }, 'charge-card')
   .build();
 
@@ -153,7 +157,7 @@ const chart = flowChart<OrderState>('ReceiveOrder', async (scope) => {
   scope.amount = 249.99;
 }, 'receive-order')
   .addSubFlowChartNext('sf-payment', paymentSubflow, 'Payment', {
-    inputMapper: (s: any) => ({ amount: s.amount, cardLast4: '1234' }),
+    inputMapper: (s: OrderState) => ({ amount: s.amount, cardLast4: '1234' }),
   })
   .addFunction('ShipOrder', async (scope) => {
     scope.status = 'shipped';

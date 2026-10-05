@@ -38,7 +38,18 @@ Every event carries a `TraversalContext` with `runtimeStageId`, `subflowPath`, a
 ## The pattern
 
 ```typescript
-import { FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+
+// Console-backed fixture for an application's structured logger.
+const log = {
+  info: (fields: Record<string, unknown>, message: string) => console.info(message, fields),
+  warn: (fields: Record<string, unknown>, message: string) => console.warn(message, fields),
+};
+const chart = flowChart('Start', () => undefined, 'start')
+  .addDeciderFunction('Choose', () => 'stop', 'choose')
+  .addFunctionBranch('stop', 'Stop', (scope) => { scope.$break(); })
+  .end().build();
+const executor = new FlowChartExecutor(chart);
 
 const auditRecorder: FlowRecorder = {
   id: 'audit',
