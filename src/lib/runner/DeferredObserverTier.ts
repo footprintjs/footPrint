@@ -30,9 +30,10 @@
  * Delivery: a deferred recorder's hooks are invoked through the SAME
  * `invokeRecorderHook` helper the inline tier uses (RFC-001 §9 mitigation) —
  * one beat behind, with `envelope.payload` materialized per the capture
- * policy (`'summary'` default — bounded, reference-free; `'clone'` — full
- * structural copy, event-shape compatible with inline; `'ref'` — the live
- * event object, dev-warned).
+ * policy (`'clone'` default at this attach tier — full structural copy,
+ * event-shape compatible with inline; explicit `'summary'` — bounded,
+ * reference-free; `'ref'` — the live event object, dev-warned). The standalone
+ * queue retains its `'summary'` default (`observer-queue/mergedQueue.ts · MergedQueue`).
  *
  * Channel filter: a registration remembers which channels would have
  * reached the recorder inline (scope-list recorders see `scope` + `emit`

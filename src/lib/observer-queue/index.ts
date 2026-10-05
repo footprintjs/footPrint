@@ -9,10 +9,13 @@
  *   (Block 4, armed-once microtask checkpoints, flushBudgetMs) ─►
  *   DeferredDispatcher (Block 5, isolated listeners + inflight + stats)
  *
- * INTERNAL MODULE — deliberately NOT exported from the public footprintjs
- * barrels yet. The engine wiring + public surface land with Blocks 6–10
- * (see docs/design/rfc-001-deferred-observers.md). Zero engine imports:
- * this directory may import only `../capture/` and its own files.
+ * INTERNAL MODULE — queue implementations stay behind this barrel. Engine
+ * integration lives in `runner/DeferredObserverTier.ts · DeferredObserverTier`;
+ * `runner/attach.ts · RunObservers` creates the tier on the first deferred
+ * attach. Public use is through the executor's attach options, with delivery
+ * types re-exported by `src/index.ts` (see docs/guides/observers-deferred.md).
+ * Zero engine imports: this directory may import only `../capture/` and its
+ * own files; the runner imports the pipeline, never the reverse.
  */
 
 export type {
