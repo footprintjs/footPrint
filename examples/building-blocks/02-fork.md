@@ -26,7 +26,7 @@ LoadOrder ───┤                     ├── FinalizeOrder
 |---|---|---|---|
 | Branches run | **All** | Some (filter-picked) | **One** |
 | Inputs | Read parent state | Read parent state | Read parent state |
-| Outputs | Plain child writes under `runs/<childId>` | Plain child writes under `runs/<childId>` | One chosen branch |
+| Outputs | Results from all children | Results from selected children | One chosen branch |
 | Waits for | All to finish | All matched to finish | The chosen one |
 
 Think of it as the parallelism spectrum: Fork (always all) → Selector (picks many) → Decider (picks one).
@@ -48,7 +48,7 @@ The narrative distinguishes which writes came from which branch — no guessing 
 
 ## Reading branch results
 
-Plain fork children can read the parent's values, but each child's writes land under its own `runs/<childId>` namespace. After the join, `scope.inStock` does not read the inventory branch's result. Read the branch path explicitly:
+In this top-level fork, the children can read the parent's values, but each child's writes land under its own `runs/<childId>` namespace. After the join, `scope.inStock` does not read the inventory branch's result. Read the branch path explicitly:
 
 ```typescript
 const inStock = scope.$read('runs.CheckInventory.inStock');
@@ -56,7 +56,7 @@ const fraudCleared = scope.$read('runs.RunFraudCheck.fraudCleared');
 const status = inStock === true && fraudCleared === true ? 'confirmed' : 'held-for-review';
 ```
 
-Sibling typed writes to the same field name stay in separate branch namespaces. Do not mutate borrowed parent objects in place. For isolated child charts with explicit parent outputs, use subflows with `outputMapper`; avoid having their mappers overwrite the same parent key.
+Here, sibling typed writes to the same field name stay in separate branch namespaces. Nested forks can retain an enclosing branch namespace, so do not assume this separation for every nesting arrangement. Do not mutate borrowed parent objects in place. For isolated child charts with explicit parent outputs, use subflows with `outputMapper`; avoid having their mappers overwrite the same parent key.
 
 The runnable example checks that `ORD-001` is `confirmed` and throws if that result changes. `npm run test:examples` type-checks the examples, builds the package, and runs this fork example as a runtime regression check. Other examples are not automatically executed by that command.
 
