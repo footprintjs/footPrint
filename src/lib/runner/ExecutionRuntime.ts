@@ -12,6 +12,7 @@
 
 import { deepFreeze } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
+import type { LogAddress } from '../memory/eventPosition.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -90,6 +91,8 @@ export type RuntimeSnapshot = {
    * The bundles inside are the engine's own objects, immutable after record.
    */
   commitLog: CommitBundle[];
+  /** Identity of this log, stable across same-executor resume. Absent before binding or in older sources. */
+  readonly logAddress?: LogAddress;
   /**
    * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
    * bundle stores the full final value (historical); `'delta'` — bundles may
@@ -309,6 +312,7 @@ export class ExecutionRuntime {
       // bundles in it are the log's own, frozen at `EventLog · record` (F3).
       // The copy stays: it is what keeps a holder's array from growing.
       commitLog: Object.freeze(this.executionHistory.list().slice()) as CommitBundle[],
+      ...(this.executionHistory.address === undefined ? {} : { logAddress: this.executionHistory.address }),
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
     };

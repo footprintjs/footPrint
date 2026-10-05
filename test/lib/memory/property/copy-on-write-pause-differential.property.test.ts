@@ -49,6 +49,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
   type Engine,
@@ -284,7 +285,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
-    const results = (r: any) => (E === BASELINE ? r13Seeds(r, snap.commitLog) : r ?? null);
+    const results = (r: any) => withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : r ?? null);
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
@@ -300,7 +301,11 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   while (result?.paused === true && pauses < 20) {
     pauses += 1;
     const raw = ex.getCheckpoint();
-    out[`cp${pauses}`] = bytes(raw);
+    out[`cp${pauses}`] = bytes(
+      raw.subflowResults === undefined
+        ? raw
+        : { ...raw, subflowResults: withoutSubflowLogAddresses(raw.subflowResults) },
+    );
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     const resumed = await inLeg(() => ex.resume(cp, answerFor((raw.pauseData as { key: string }).key)));

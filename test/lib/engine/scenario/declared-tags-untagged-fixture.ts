@@ -20,6 +20,7 @@
 import type { CommitValuesMode, PausableHandler, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
+import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 
 interface InnerState {
   n: number;
@@ -160,7 +161,7 @@ function project(executor: FlowChartExecutor<any, any>) {
     commitLog: snapshot.commitLog,
     commitValues: snapshot.commitValues,
     executionTree: snapshot.executionTree,
-    subflowResults: snapshot.subflowResults,
+    subflowResults: withoutSubflowLogAddresses(snapshot.subflowResults),
     narrative: executor.getNarrativeEntries(),
   };
 }
@@ -186,5 +187,12 @@ export async function runUntaggedFixture(commitValues: CommitValuesMode): Promis
   second.enableNarrative();
   await second.resume(first.getCheckpoint()!, { approved: true });
 
-  return stableJSON({ paused: project(first), checkpoint, resumed: project(second) });
+  return stableJSON({
+    paused: project(first),
+    checkpoint:
+      checkpoint.subflowResults === undefined
+        ? checkpoint
+        : { ...checkpoint, subflowResults: withoutSubflowLogAddresses(checkpoint.subflowResults) },
+    resumed: project(second),
+  });
 }

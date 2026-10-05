@@ -48,6 +48,7 @@ const LAYERS = [
       'src/lib/errors/**',
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
+      'src/lib/memory/eventPosition.ts',
       // The path codec, structural equality and the union merge: leaves that import nothing
       // (split out of utils.ts in F2). The verb law (verbs.ts) reads them from L1.
       'src/lib/memory/paths.ts',

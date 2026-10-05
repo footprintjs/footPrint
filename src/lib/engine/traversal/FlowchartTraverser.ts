@@ -138,6 +138,8 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * (RFC-003 D1).
    */
   parentMountRuntimeStageId?: string;
+  /** @internal Actual runtime mount ancestry for the owning log, not static subflowPath. */
+  emitDrillPath?: readonly string[];
   /** Shared execution counter from parent traverser. Subflows continue the parent's numbering. */
   executionCounter?: { value: number };
   /**
@@ -324,6 +326,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *  traverser. Fallback `parentRuntimeStageId` for stages whose context has
    *  no parent (the subflow root). Undefined at the top level. */
   private readonly parentMountRuntimeStageId?: string;
+  private readonly emitDrillPath: readonly string[] | undefined;
   /** Validated value passed via `run({input})`. Root boundary observers
    *  receive its retained form; stage arguments keep the original data. */
   private readonly readOnlyContext?: unknown;
@@ -472,6 +475,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.signal = opts.signal;
     this.parentSubflowId = opts.parentSubflowId;
     this.parentMountRuntimeStageId = opts.parentMountRuntimeStageId;
+    // Missing ancestry in a hand-built nested traverser is unknown, never
+    // guessed as root. The normal subflow factory supplies the full path.
+    const emitDrillPath =
+      opts.emitDrillPath ?? (opts.parentSubflowId || opts.parentMountRuntimeStageId ? undefined : []);
+    this.emitDrillPath = emitDrillPath === undefined ? undefined : Object.freeze([...emitDrillPath]);
     this.readOnlyContext = opts.readOnlyContext;
     this.runId = opts.runId;
 
@@ -573,6 +581,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // RFC-003 D1: the mount stage's runtimeStageId — parent fallback for
         // the subflow's root stage so ancestor chains cross the boundary.
         parentMountRuntimeStageId: subflowOpts.parentMountRuntimeStageId,
+        emitDrillPath:
+          this.emitDrillPath !== undefined && subflowOpts.parentMountRuntimeStageId
+            ? [...this.emitDrillPath, subflowOpts.parentMountRuntimeStageId]
+            : undefined,
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
         visitCounts: this._visitCounts, // Share visit counts — loopIteration stays monotonic across subflow re-mounts
         runId: this.runId, // Subflow inherits parent's runId — same logical run
@@ -1181,6 +1193,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // use the same value. Must happen before executeStage AND before traversalContext.
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    context.bindEmitOrigin(this.runId, this.emitDrillPath);
     // Declared tags (9.21.0) ride the same stamp: per-node identity, set
     // UNCONDITIONALLY so a re-used context (a loop's next-context, a resumed
     // leg) never keeps a previous node's names. `StageContext.commit` records

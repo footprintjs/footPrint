@@ -262,14 +262,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 
   /**
-   * Number of commits in the run's commit log. O(1) — direct length
-   * read, no snapshot materialization. Use this to stamp commit
-   * indices on observer events (e.g., `BoundaryRecorder` storing
-   * `commitIdxBefore` / `commitIdxAfter` per domain event for
-   * `CommitRangeIndex` queries — see `footprintjs/trace`).
+   * Number of commits in the ROOT log now. O(1), no snapshot materialization.
+   * Not an emitted event's source position: a deferred callback runs later
+   * and a subflow owns another log. Use EmitEvent.sourcePosition for that.
    *
-   * Returns 0 before any run; after, returns the cumulative commit
-   * count across the executor's lifetime (including resumes).
+   * Returns 0 before any run. A fresh run resets the log; a same-executor
+   * resume continues it. A fresh-executor resume starts a new local log.
    * Always equals `getSnapshot().commitLog.length` (the log is the
    * `EventLog`'s `executionHistory`; the snapshot serves a frozen copy).
    */

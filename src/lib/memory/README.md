@@ -108,6 +108,18 @@ o.x = 2;                 // after the stage ends: changes NOTHING retained — t
 
 Stores commit bundles from every stage in chronological order. Reconstructs state at any point via replay.
 
+**Source positions for emitted events.** `eventPosition.ts` declares the small
+coordinate contract; `EventLog` owns the address and captures the current prefix
+directly from its array length. `StageContext.bindEmitOrigin` binds the frame's
+execution leg and the runtime mount ancestry before scope construction;
+`captureEmitPosition` delegates to that frame's log. There is no observer counter
+or replay pass. The frozen log address survives a same-executor root resume,
+while the frame's leg identifies the emitter. `clear()` permanently retires that
+log's addressability so a reset cannot reuse old coordinates; a fresh `EventLog`
+is needed for known positions. See the
+[emit source contract](../recorder/README.md#source-positions-in-emitted-events)
+for the distinction between committed history and a stage's working state.
+
 **Why it connects to the main goal:** This is the execution history that powers time-travel debugging and the "what happened at step N?" question. When a user asks *"Why was my loan rejected?"*, the answer lives here — you can replay commits up to the rejection decision and see exactly what data the decider saw when it chose to reject. No log parsing. No guesswork. Exact state reconstruction.
 
 **Why diffs, not full snapshots?** Memory. A run might have 200 stages. Storing full state at each step costs O(n * state_size). Storing just the diffs (commit bundles) costs O(n * diff_size) — typically orders of magnitude smaller. `materialise(stepIdx)` replays diffs from the beginning to reconstruct state. Same approach git uses.
