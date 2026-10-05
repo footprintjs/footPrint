@@ -44,7 +44,7 @@ export interface DriveResult {
   pauses: number;
   /** Final shared state (the last executor's snapshot). */
   state: Record<string, unknown>;
-  /** One snapshot per leg — the run, then every resume — taken when the leg ended. */
+  /** One snapshot per leg, or [] when collectLegs is false. */
   legs: RuntimeSnapshot[];
   /** The checkpoint of every pause, in order (JSON round-tripped in `cross` mode). */
   checkpoints: FlowchartCheckpoint[];
@@ -69,12 +69,19 @@ export async function drive(
     answer?: (pauseNumber: number, checkpoint: FlowchartCheckpoint) => unknown;
     maxPauses?: number;
     newExecutor?: (chart: FlowChart) => FlowChartExecutor;
+    /** Capture intermediate leg snapshots for history assertions. Final-state properties opt out. */
+    collectLegs?: boolean;
   } = {},
 ): Promise<DriveResult> {
-  const { answer = (n: number) => ({ n }), maxPauses = 12, newExecutor = (c) => new FlowChartExecutor(c) } = options;
+  const {
+    answer = (n: number) => ({ n }),
+    maxPauses = 12,
+    newExecutor = (c) => new FlowChartExecutor(c),
+    collectLegs = true,
+  } = options;
   let executor = newExecutor(chart);
   let result: unknown = await executor.run();
-  const legs: RuntimeSnapshot[] = [executor.getSnapshot()];
+  const legs: RuntimeSnapshot[] = collectLegs ? [executor.getSnapshot()] : [];
   const checkpoints: FlowchartCheckpoint[] = [];
   let pauses = 0;
   while (isPaused(result) && pauses < maxPauses) {
@@ -84,9 +91,9 @@ export async function drive(
     checkpoints.push(checkpoint);
     if (mode === 'cross') executor = newExecutor(chart);
     result = await executor.resume(checkpoint, answer(pauses, checkpoint));
-    legs.push(executor.getSnapshot());
+    if (collectLegs) legs.push(executor.getSnapshot());
   }
-  const state = executor.getSnapshot().sharedState as Record<string, unknown>;
+  const state = (legs.at(-1) ?? executor.getSnapshot()).sharedState as Record<string, unknown>;
   return { trace: (state.trace as string[]) ?? [], pauses, state, legs, checkpoints, executor };
 }
 

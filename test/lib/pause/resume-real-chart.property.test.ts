@@ -58,6 +58,7 @@ import { describe, expect, it } from 'vitest';
 import { ArrayMergeMode } from '../../../src/advanced.js';
 import type { FlowChart, SubflowMountOptions } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
+import { resumePropertyParameters } from './resume-property-config.js';
 import { type ResumeMode, type S, drive } from './resume-real-chart-fixture.js';
 
 type Place = 'linear' | 'decider' | 'selector' | 'fork' | 'afterFork' | 'afterDecider';
@@ -421,13 +422,20 @@ async function pausedRun(plan: Plan, mode: ResumeMode) {
   return drive(buildChart(plan, 'pause'), mode, {
     answer: (_n, checkpoint) => answerFor(keyOf(checkpoint.pauseData)),
     maxPauses: 96,
+    collectLegs: false,
   });
 }
 
 const LINEAR: Pick<Plan, 'place' | 'side'> = { place: ['linear', 'linear', 'linear'], side: [[], [], []] };
 
+// Name the seed before any async work, so even an outer test timeout is reproducible.
+const propertyRuns = (['same', 'cross'] as const).map((mode) => {
+  const parameters = resumePropertyParameters(mode, process.env);
+  return { mode, parameters, name: `${mode}-executor resume (seed ${parameters.seed})` };
+});
+
 describe('property: a paused-and-resumed run equals the run that never paused', () => {
-  it.each<ResumeMode>(['same', 'cross'])('%s-executor resume', async (mode) => {
+  it.each(propertyRuns)('$name', async ({ mode, parameters }) => {
     await fc.assert(
       fc.asyncProperty(planArb, async (plan) => {
         const direct = await directRun(plan);
@@ -437,7 +445,7 @@ describe('property: a paused-and-resumed run equals the run that never paused', 
         expect(paused.trace).toEqual(direct.trace);
         expect(paused.state).toEqual(direct);
       }),
-      { numRuns: 160 },
+      parameters,
     );
   });
 
