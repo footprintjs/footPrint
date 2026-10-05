@@ -14,8 +14,8 @@ src/lib/
 ├── pause/     Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── detach/    Fire-and-forget child flowcharts (drivers, handles)
 ├── engine/    DFS traversal, handlers, narrative generators
-├── runner/    Execution convenience (FlowChartExecutor, ExecutionRuntime)
-└── contract/  I/O schemas, Zod→JSON Schema, OpenAPI 3.1 generation
+├── runner/    Execution convenience + chart OpenAPI/MCP generation
+└── contract/  I/O schema normalization, Zod→JSON Schema
 ```
 
 ## Library READMEs
@@ -28,15 +28,15 @@ Each README follows a consistent pattern: *Why This Exists → The N Primitives 
 | **builder/** | FlowChartBuilder, DeciderList, SelectorFnList | [src/lib/builder/README.md](../../src/lib/builder/README.md) |
 | **scope/** | ScopeFacade, Recorders, Protection, Providers, Zod Integration | [src/lib/scope/README.md](../../src/lib/scope/README.md) |
 | **engine/** | FlowchartTraverser, Handlers (the specialists), FlowRecorder System | [src/lib/engine/README.md](../../src/lib/engine/README.md) |
-| **runner/** | FlowChartExecutor | [src/lib/runner/README.md](../../src/lib/runner/README.md) |
-| **contract/** | .contract(), schema normalization, OpenAPI generation | [src/lib/contract/](../../src/lib/contract/) |
+| **runner/** | FlowChartExecutor, RunnableChart (chart OpenAPI/MCP generation) | [src/lib/runner/README.md](../../src/lib/runner/README.md) |
+| **contract/** | normalizeSchema, zodToJsonSchema | [src/lib/contract/](../../src/lib/contract/) |
 
 ## Dependency Graph
 
 ```
 schema/   (standalone — validation abstraction)
      |
-contract/ → builder/ + schema/
+contract/ → schema/ (legacy declarations reference builder/ types only)
      |
 builder/  → engine/ (types only)
      |

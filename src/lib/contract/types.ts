@@ -1,9 +1,9 @@
 /**
  * contract/types.ts — Types for the FlowChart contract layer.
  *
- * Defines the I/O boundary for a flowchart: input schema, output schema,
- * and output mapper. Uses the same pattern as SubflowMountOptions
- * (inputMapper/outputMapper) but at the top-level flowchart boundary.
+ * JsonSchema and SchemaInput describe the active normalization boundary.
+ * The other declarations retain their existing public shapes for consumers;
+ * they describe the legacy contract API, not RunnableChart.toOpenAPI output.
  */
 
 import type { FlowChart } from '../builder/types.js';

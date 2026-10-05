@@ -73,9 +73,8 @@ export interface SerializedPipelineStructure {
   /**
    * Nested pipeline structure for a subflow node.
    * WARNING: Any future walker that traverses this field recursively must apply its own
-   * depth guard (see MAX_WALK_DEPTH in contract/openapi.ts). The current `buildDescription`
-   * walk in openapi.ts does NOT traverse subflowStructure — if it ever does, the depth
-   * guard must cover both the `next` chain and this nested structure.
+   * depth and cycle guards across both the `next` chain and this nested structure.
+   * Chart OpenAPI generation reads the builder-prepared description, not this graph.
    */
   subflowStructure?: SerializedPipelineStructure;
   iterationCount?: number;

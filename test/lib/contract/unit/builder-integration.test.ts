@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { flowChart } from '../../../../src/lib/builder/FlowChartBuilder';
-import { defineContract } from '../../../../src/lib/contract';
 
 describe('Builder schema integration', () => {
   it('stores inputSchema and outputSchema on FlowChart', () => {
@@ -32,30 +31,5 @@ describe('Builder schema integration', () => {
     expect(chart.inputSchema).toBeUndefined();
     expect(chart.outputSchema).toBeUndefined();
     expect(chart.outputMapper).toBeUndefined();
-  });
-
-  it('works with defineContract using chart schemas', () => {
-    // defineContract imported at top level
-
-    const chart = flowChart('Process', () => {}, 'process')
-      .contract({
-        input: z.object({ x: z.number() }),
-        output: z.object({ y: z.number() }),
-        mapper: (scope) => ({ y: scope.x }),
-      })
-      .build();
-
-    // Can create contract using the schemas stored on the chart
-    const contract = defineContract(chart, {
-      inputSchema: chart.inputSchema,
-      outputSchema: chart.outputSchema,
-      outputMapper: chart.outputMapper,
-    });
-
-    expect(contract.inputSchema).toEqual({
-      type: 'object',
-      properties: { x: { type: 'number' } },
-      required: ['x'],
-    });
   });
 });

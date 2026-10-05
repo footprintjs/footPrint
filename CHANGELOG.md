@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One OpenAPI generator: `RunnableChart · makeRunnable` owns `chart.toOpenAPI()`.** Deleted the unused internal `contract/defineContract` factory and `contract/openapi · generateOpenAPI` implementation. The public chart output, options and caching are unchanged; schema normalization remains in `contract/`. Existing public type-only exports are retained unchanged (the legacy `OpenAPISpec` is not the return type of `chart.toOpenAPI`). Removed tests specific to the old generator; description/deep-structure checks now exercise the public chart method.
+  - **Internal source-path removal:** consumers bypassing package exports to import the deleted files must migrate to `flowChart(...).contract({ input, output, mapper }).build().toOpenAPI({ title, version, description, path })`. This is not a byte-compatible replacement for the deleted private generator: the public route uses inline schemas, POST and an explicit full `path`, not its `components`, `method` or `basePath` options. No supported package export is removed.
+
 - **Node.js support now starts at 22** (`engines.node: ">=22"`, previously `">=20"`). Node 24 LTS is the contributor default in `.nvmrc` and the runtime for lint, documentation builds and publishing; compatibility CI runs on Node 22 and 24. No library runtime code or package exports changed.
   - **Breaks:** Node 20 and 21 are no longer supported. *Migration:* upgrade application runtimes to Node 22 or newer (Node 24 LTS recommended); contributors can run `nvm install && nvm use` from the repository and use npm 11.x. This minimum-version increase must be included in a breaking release.
 
