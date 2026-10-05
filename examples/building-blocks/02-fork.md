@@ -25,8 +25,8 @@ LoadOrder ───┤                     ├── FinalizeOrder
 | | Fork | Selector | Decider |
 |---|---|---|---|
 | Branches run | **All** | Some (filter-picked) | **One** |
-| Inputs | Same scope | Same scope | Same scope |
-| Outputs | Merge back | Merge back | Single winner |
+| Inputs | Read parent state | Read parent state | Read parent state |
+| Outputs | Results from all children | Results from selected children | One chosen branch |
 | Waits for | All to finish | All matched to finish | The chosen one |
 
 Think of it as the parallelism spectrum: Fork (always all) → Selector (picks many) → Decider (picks one).
@@ -46,14 +46,19 @@ Stage 3: FinalizeOrder
 
 The narrative distinguishes which writes came from which branch — no guessing who wrote what.
 
-## Gotcha: shared scope, race conditions
+## Reading branch results
 
-Parallel stages **share the same scope**. If two branches write to the same key, the last one wins — and that's non-deterministic. Solution:
+In this top-level fork, the children can read the parent's values, but each child's writes land under its own `runs/<childId>` namespace. After the join, `scope.inStock` does not read the inventory branch's result. Read the branch path explicitly:
 
-- Use **distinct keys** per branch (`inStock`, `fraudCleared`) — not overlapping ones.
-- Or use **separate subflows** with `outputMapper` if you need full isolation.
+```typescript
+const inStock = scope.$read('runs.CheckInventory.inStock');
+const fraudCleared = scope.$read('runs.RunFraudCheck.fraudCleared');
+const status = inStock === true && fraudCleared === true ? 'confirmed' : 'held-for-review';
+```
 
-footprintjs captures all writes in the commit log, so you can audit after the fact — but avoiding the race upfront is cleaner.
+Here, sibling typed writes to the same field name stay in separate branch namespaces. Nested forks can retain an enclosing branch namespace, so do not assume this separation for every nesting arrangement. Do not mutate borrowed parent objects in place. For isolated child charts with explicit parent outputs, use subflows with `outputMapper`; avoid having their mappers overwrite the same parent key.
+
+The runnable example checks that `ORD-001` is `confirmed` and throws if that result changes. `npm run test:examples` type-checks the examples, builds the package, and runs this fork example as a runtime regression check. Other examples are not automatically executed by that command.
 
 ## Key API
 
