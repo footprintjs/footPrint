@@ -14,6 +14,7 @@
  * ```
  */
 
+import { loopSentence } from '../formatting/sentences.js';
 import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
 import type { FlowLoopEvent } from '../types.js';
 
@@ -67,11 +68,9 @@ export class RLENarrativeFlowRecorder extends NarrativeFlowRecorder {
       const count = run.endIteration - run.startIteration + 1;
       if (count === 1) {
         // Single iteration — emit normal sentence
-        if (run.description) {
-          summaries.push(`On pass ${run.startIteration}: ${run.description} again.`);
-        } else {
-          summaries.push(`On pass ${run.startIteration} through ${run.target}.`);
-        }
+        summaries.push(
+          loopSentence({ target: run.target, iteration: run.startIteration, description: run.description }),
+        );
       } else {
         summaries.push(
           `Looped through ${run.target} ${count} times (passes ${run.startIteration}–${run.endIteration}).`,

@@ -18,6 +18,7 @@
  * ```
  */
 
+import { loopSentence } from '../formatting/sentences.js';
 import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
 import type { FlowLoopEvent } from '../types.js';
 
@@ -37,11 +38,7 @@ export class SeparateNarrativeFlowRecorder extends NarrativeFlowRecorder {
     this.loopCounts.set(event.target, count);
 
     // Store in separate channel
-    if (event.description) {
-      this.loopSentences.push(`On pass ${event.iteration}: ${event.description} again.`);
-    } else {
-      this.loopSentences.push(`On pass ${event.iteration} through ${event.target}.`);
-    }
+    this.loopSentences.push(loopSentence(event));
   }
 
   /** Returns all loop iteration sentences (the separate channel). */

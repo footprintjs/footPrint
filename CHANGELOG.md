@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Narrative views share their common English sentence bodies.** The combined recorder, flow-only recorder and loop strategies call one internal stateless formatting module for ordinary loops, next stages, fallback decisions, forks, validation details/errors and lifecycle text. Recorder-specific prefixes and variants remain local. Capture timing, buffers, counters, indexes, snapshots, loop grouping and public exports are unchanged; no post-run tree walk or performance improvement is claimed.
+
 - **Architecture comments name the current detach and observer owners.** The layer-table explanation now names `$detachAndJoinLater` / `$detachAndForget`; the observer-queue headers point to the existing deferred tier and public attach options instead of planned wiring. Public and tier comments identify the attach options' `clone` default, distinct from the standalone queue's `summary` default. Documentation only: dependency rules, runtime behavior and public APIs are unchanged.
 
 - **One OpenAPI generator: `RunnableChart · makeRunnable` owns `chart.toOpenAPI()`.** Deleted the unused internal `contract/defineContract` factory and `contract/openapi · generateOpenAPI` implementation. The public chart output, options and caching are unchanged; schema normalization remains in `contract/`. Existing public type-only exports are retained unchanged (the legacy `OpenAPISpec` is not the return type of `chart.toOpenAPI`). Removed tests specific to the old generator; description/deep-structure checks now exercise the public chart method.

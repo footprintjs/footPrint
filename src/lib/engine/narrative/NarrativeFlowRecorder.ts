@@ -9,6 +9,18 @@
  * summarization, etc.) can replace this with a different FlowRecorder.
  */
 
+import {
+  breakSentence,
+  decisionSentence,
+  errorSentence,
+  forkSentence,
+  loopSentence,
+  nextStageSentence,
+  pauseSentence,
+  resumeSentence,
+  validationDetails,
+  validationSentence,
+} from './formatting/sentences.js';
 import type {
   FlowBreakEvent,
   FlowDecisionEvent,
@@ -42,11 +54,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     // onSelected / onSubflowEntry — emitting from here too would
     // double up the narrative.
     if (event.stageType !== 'linear') return;
-    if (event.description) {
-      this.sentences.push(`Next step: ${event.description}.`);
-    } else {
-      this.sentences.push(`Next, it moved on to ${event.stageName}.`);
-    }
+    this.sentences.push(nextStageSentence(event));
     this.stageNames.push(event.stageName);
   }
 
@@ -57,22 +65,12 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onDecision(event: FlowDecisionEvent): void {
-    const branchName = event.chosen;
-    if (event.description && event.rationale) {
-      this.sentences.push(`It ${event.description}: ${event.rationale}, so it chose ${branchName}.`);
-    } else if (event.description) {
-      this.sentences.push(`It ${event.description} and chose ${branchName}.`);
-    } else if (event.rationale) {
-      this.sentences.push(`A decision was made: ${event.rationale}, so the path taken was ${branchName}.`);
-    } else {
-      this.sentences.push(`A decision was made, and the path taken was ${branchName}.`);
-    }
+    this.sentences.push(decisionSentence(event));
     this.stageNames.push(event.decider);
   }
 
   onFork(event: FlowForkEvent): void {
-    const names = event.children.join(', ');
-    this.sentences.push(`Forking into ${event.children.length} parallel paths: ${names}.`);
+    this.sentences.push(forkSentence(event));
     this.stageNames.push(undefined);
   }
 
@@ -97,31 +95,21 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onLoop(event: FlowLoopEvent): void {
-    if (event.description) {
-      this.sentences.push(`On pass ${event.iteration}: ${event.description} again.`);
-    } else {
-      this.sentences.push(`On pass ${event.iteration} through ${event.target}.`);
-    }
+    this.sentences.push(loopSentence(event));
     this.stageNames.push(event.target);
   }
 
   onBreak(event: FlowBreakEvent): void {
-    this.sentences.push(`Execution stopped at ${event.stageName}.`);
+    this.sentences.push(breakSentence(event));
     this.stageNames.push(event.stageName);
   }
 
   onError(event: FlowErrorEvent): void {
-    let sentence = `An error occurred at ${event.stageName}: ${event.message}.`;
+    let sentence = errorSentence(event);
 
     // Enrich with field-level issues when available
     if (event.structuredError.issues && event.structuredError.issues.length > 0) {
-      const issueDetails = event.structuredError.issues
-        .map((issue) => {
-          const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-          return `${path}: ${issue.message}`;
-        })
-        .join('; ');
-      sentence += ` Validation issues: ${issueDetails}.`;
+      sentence += validationSentence(validationDetails(event.structuredError.issues));
     }
 
     this.sentences.push(sentence);
@@ -138,13 +126,12 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onPause(event: FlowPauseEvent): void {
-    this.sentences.push(`Execution paused at ${event.stageName}.`);
+    this.sentences.push(pauseSentence(event));
     this.stageNames.push(event.stageName);
   }
 
   onResume(event: FlowResumeEvent): void {
-    const suffix = event.hasInput ? ' with input.' : '.';
-    this.sentences.push(`Execution resumed at ${event.stageName}${suffix}`);
+    this.sentences.push(resumeSentence(event));
     this.stageNames.push(event.stageName);
   }
 
