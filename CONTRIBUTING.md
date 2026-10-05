@@ -33,7 +33,7 @@ src/lib/
 ├── pause/     Pause/Resume (checkpoints, PausableHandler)
 ├── engine/    DFS traversal engine, narrative generators
 ├── runner/    Execution convenience layer
-├── contract/  I/O schema + OpenAPI generation
+├── contract/  I/O schema normalization (chart OpenAPI generation lives in runner/)
 └── detach/    Fire-and-forget child flowcharts
 ```
 

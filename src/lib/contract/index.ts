@@ -1,23 +1,16 @@
 /* istanbul ignore file */
 /**
- * contract/ — FlowChart I/O contract and OpenAPI generation layer.
+ * contract/ — Schema normalization for self-describing charts.
  *
- * Standalone library: wraps a compiled FlowChart with input/output schemas
- * and generates OpenAPI 3.1 specs. Uses the same inputMapper/outputMapper
- * pattern as subflow mounting.
+ * FlowChartBuilder.contract owns schema attachment. RunnableChart.makeRunnable
+ * owns chart.toOpenAPI and chart.toMCPTool; both normalize schemas here.
  *
  * Zero runtime deps on Zod — Zod schemas detected via duck-typing and
- * converted to JSON Schema at contract creation time.
+ * converted to JSON Schema when a chart is described.
  */
-
-// Factory
-export { defineContract } from './defineContract.js';
 
 // Schema utilities
 export { normalizeSchema, zodToJsonSchema } from './schema.js';
-
-// OpenAPI generator
-export { generateOpenAPI } from './openapi.js';
 
 // Types
 export type {

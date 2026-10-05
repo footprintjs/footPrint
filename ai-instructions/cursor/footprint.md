@@ -18,7 +18,7 @@ src/lib/
 ├── decide/    → decide()/select() decision evidence capture
 ├── engine/    → DFS traversal + narrative + handlers
 ├── runner/    → FlowChartExecutor
-└── contract/  → I/O schema + OpenAPI
+└── contract/  → I/O schema normalization (OpenAPI generation: runner/RunnableChart)
 ```
 
 Entry points (six doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
