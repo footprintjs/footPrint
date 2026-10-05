@@ -21,6 +21,7 @@ import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
 import { SequenceStore } from '../../recorder/SequenceStore.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
+import { resolveText } from './formatting/resolveText.js';
 import type {
   BreakRenderContext,
   CombinedNarrativeEntry,
@@ -339,26 +340,10 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
           stepNumber: ++stepNumber,
         };
 
-        // If the consumer supplied `renderer.renderOp`, use its return value:
-        //   - string → use as the narrative line
-        //   - null   → deliberately exclude this entry (same semantics as
-        //              `flushOps` above at line ~540)
-        //   - undefined → renderer does not handle this op → fall through
-        //                 to the hardcoded template
-        // If no renderer at all, use the hardcoded template.
-        let text: string | null;
-        if (this.renderer?.renderOp) {
-          const customText = this.renderer.renderOp(opCtx);
-          if (customText === null) continue; // excluded on purpose
-          text =
-            customText !== undefined
-              ? customText
-              : this.includeValues
-              ? `Input: ${key} = ${valueSummary}`
-              : `Input: ${key}`;
-        } else {
-          text = this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`;
-        }
+        const text = resolveText(this.renderer?.renderOp?.(opCtx), () =>
+          this.includeValues ? `Input: ${key} = ${valueSummary}` : `Input: ${key}`,
+        );
+        if (text === null) continue;
 
         this.store.push({
           type: 'step',
@@ -706,14 +691,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
           timestamp: e.timestamp,
           payloadSummary,
         };
-        let emitText: string;
-        if (this.renderer?.renderEmit) {
-          const custom = this.renderer.renderEmit(emitCtx);
-          if (custom === null) continue; // deliberately excluded
-          emitText = custom !== undefined ? custom : this.defaultRenderEmit(emitCtx);
-        } else {
-          emitText = this.defaultRenderEmit(emitCtx);
-        }
+        const emitText = resolveText(this.renderer?.renderEmit?.(emitCtx), () => this.defaultRenderEmit(emitCtx));
+        if (emitText === null) continue;
         this.store.push({
           type: 'emit',
           text: emitText,
@@ -760,9 +739,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         stepNumber: op.stepNumber,
       };
 
-      const text = this.renderer?.renderOp ? this.renderer.renderOp(opCtx) : this.defaultRenderOp(opCtx);
-
-      if (text == null) continue;
+      const text = resolveText(this.renderer?.renderOp?.(opCtx), () => this.defaultRenderOp(opCtx));
+      if (text === null) continue;
 
       this.store.push({
         type: 'step',
