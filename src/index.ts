@@ -148,7 +148,7 @@ export type {
  * @category Observe — Delivery tier (RFC-001 deferred observers)
  *
  * `CapturePolicy` — how a deferred event's payload is materialized at
- * capture time (`'summary'` default / `'clone'` / `'ref'`). `OverflowPolicy`
+ * capture time (`'clone'` by default for attach options / `'summary'` / `'ref'`). `OverflowPolicy`
  * — what a saturated queue does (`'drop-oldest'` default / `'sample'` /
  * `'block'`). `DispatcherStats` / `ListenerStats` — the accounting shapes
  * embedded in `ObserverStats`. Types only — the observer-queue module

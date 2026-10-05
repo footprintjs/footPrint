@@ -198,8 +198,9 @@ const EXCEPTIONS = [
     from: 'src/lib/scope/ScopeFacade.ts',
     to: 'src/lib/detach/spawn.ts',
     reason:
-      'scope → detach/spawn.ts: `$spawn` delegates to the one detach primitive the executor also uses. spawn.ts never imports ' +
-      'scope/, and the executor is only reached lazily (detach/runChild.ts).',
+      'scope → detach/spawn.ts: `$detachAndJoinLater` / `$detachAndForget` route through ScopeFacade to the shared ' +
+      '`spawn.ts · detachAndJoinLater` / `detachAndForget` primitives the executor also uses. spawn.ts never imports ' +
+      'scope/, and the executor is only reached lazily (`detach/runChild.ts · defaultRunChild`).',
   },
 ];
 

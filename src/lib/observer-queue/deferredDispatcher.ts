@@ -5,8 +5,8 @@
  *           error isolation. Composes the whole pure pipeline: MergedQueue
  *           (Block 3, which captures via Block 1) + FlushDriver (Block 4) +
  *           a listener registry with timing/inflight accounting.
- * Role:     The object the engine wiring (Block 6) will hold. Producers call
- *           `capture()` (cheap, never throws, never blocks); listeners
+ * Role:     The pipeline held by `runner/DeferredObserverTier.ts · DeferredObserverTier`.
+ *           Producers call `capture()`; listeners
  *           receive envelopes at the next checkpoint, "one beat behind".
  *           Pure module — zero engine imports.
  *
