@@ -343,9 +343,11 @@ export class ScopeFacade {
     // with '[REDACTED]' BEFORE constructing the event (no leak through
     // copy-on-write, no way for recorders to see the raw value).
     const finalPayload = this.rule.retainEmit(name, payload);
+    const sourcePosition = this._stageContext.captureEmitPosition();
 
     // Build the enriched event once; pass the same reference to all
-    // recorders. Since EmitEvent is `readonly`, sharing is safe.
+    // recorders under their read-only contract. Source coordinates are
+    // captured before any inline hook or deferred tap observes the event.
     const event = {
       name,
       payload: finalPayload,
@@ -354,6 +356,7 @@ export class ScopeFacade {
       subflowPath: this._getSubflowPath(),
       pipelineId: this._stageContext.runId,
       timestamp: Date.now(),
+      ...(sourcePosition === undefined ? {} : { sourcePosition }),
     } as const;
 
     // Dispatch with error isolation — the same `fire` loop and the same failure routing as

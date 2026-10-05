@@ -223,6 +223,46 @@ splitStageId('sf-tools/call-llm');     // bare prefixed id (no #N)
 > [!NOTE]
 > Loops re-execute the same `stageId` with bumping `executionIndex` — `call-llm#5` and `call-llm#9` are the same stage, two iterations apart. The execution-index ordering is your time axis for time-travel scrubbing.
 
+### Source positions in emitted events
+
+`EmitEvent.sourcePosition` identifies the committed log prefix at the moment
+`scope.$emit()` runs. The engine captures it before recorder dispatch, so a
+deferred observer does not need to guess the position from its delivery time.
+`EmitSourcePosition` and `LogAddress` are exported from `footprintjs/recorders`.
+
+| Source position field | Meaning |
+|---|---|
+| `runId` | The execution leg bound to the emitting frame. A resume starts a new leg. |
+| `logRunId` | The first execution leg that owned this log. Same-executor resume preserves the reused root log's identity; fresh-executor resume owns a new log. |
+| `drillPath` | The actual runtime mount-ID chain identifying the nested log, or `[]` for the root log. Unlike static `subflowPath`, this distinguishes repeated mounts. |
+| `committedThroughIdx` | The inclusive last committed index in that log at emission: `EventLog.length - 1`, or `-1` before any commit. |
+
+The root snapshot and each nested `treeContext` snapshot expose the matching
+optional `logAddress: { logRunId, drillPath }`. Before folding a position with
+`stateAt`, match both address fields against the chosen log and verify that
+`committedThroughIdx` is an integer from `-1` through `log.length - 1`. Use that
+log's initial state; do not silently clamp an unavailable index or substitute a
+different log. A paused subflow's log may not be present in the stored snapshot,
+even when its emitted event has a source position.
+Lean checkpoints can retain a nested `logAddress` while omitting its history;
+the address alone is never proof that the log is available.
+The run identifiers follow the engine's existing process-local identity rule;
+retain recording/session context when comparing records from different processes.
+
+This position is **not** the emitting stage's own commit index, its working/read
+view, or an event-order counter. It excludes staged writes, and a sibling can
+commit between two emits from the same stage. Several events can share one
+position. Selecting the stage's eventual completed stop would show later state,
+not the captured prefix. This metadata does not add Lens navigation support.
+
+Bare or otherwise unaddressable emitters omit `sourcePosition`; snapshots without
+an addressed log omit `logAddress`. Treat missing metadata as unknown, including
+older recordings. Source metadata is copied and frozen for inline delivery.
+Successful deferred `clone` capture preserves its values, not its frozen status;
+`ref` retains the original metadata, while `summary` capture can lose these
+fields. See [deferred observers](../../../docs/guides/observers-deferred.md#source-time-positions)
+for the delivery boundary.
+
 ---
 
 ## 5. Live vs Offline — the consumer's choice

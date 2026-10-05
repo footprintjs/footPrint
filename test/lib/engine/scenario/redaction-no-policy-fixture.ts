@@ -13,6 +13,7 @@
 
 import type { CommitValuesMode, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 
 interface InnerState {
   profile: { name: string; auth: { token: string } };
@@ -92,7 +93,7 @@ export async function runNoPolicyFixture(commitValues: CommitValuesMode): Promis
     commitLog: snapshot.commitLog,
     commitValues: snapshot.commitValues,
     executionTree: snapshot.executionTree,
-    subflowResults: snapshot.subflowResults,
+    subflowResults: withoutSubflowLogAddresses(snapshot.subflowResults),
     narrative: executor.getNarrativeEntries(),
     report: executor.getRedactionReport(),
   });
@@ -116,6 +117,6 @@ export async function runNoPolicyRedactViewFixture(commitValues: CommitValuesMod
     commitLog: served.commitLog,
     commitValues: served.commitValues,
     executionTree: served.executionTree,
-    subflowResults: served.subflowResults,
+    subflowResults: withoutSubflowLogAddresses(served.subflowResults),
   });
 }

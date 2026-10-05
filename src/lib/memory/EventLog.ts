@@ -21,6 +21,7 @@
  */
 
 import { deepFreeze } from '../capture/freeze.js';
+import type { EmitSourcePosition, LogAddress } from './eventPosition.js';
 import type { CommitBundle, MemoryPatch } from './types.js';
 import { applySmartMergeInto } from './utils.js';
 
@@ -29,6 +30,8 @@ export class EventLog {
   private base: any;
   /** Ordered list of commit bundles. */
   private steps: CommitBundle[] = [];
+  private sourceAddress?: LogAddress;
+  private sourceAddressRetired = false;
 
   constructor(initialMemory: any) {
     // Normalised to an object: the base is a STATE, and every fold over it
@@ -107,8 +110,30 @@ export class EventLog {
     return this.steps.length;
   }
 
+  /** Immutable identity of this log, absent until the engine binds it. */
+  get address(): LogAddress | undefined {
+    return this.sourceAddress;
+  }
+
+  /** @internal Bind once; resuming the same log must not rename its earlier positions. */
+  bindAddress(logRunId: string, drillPath: readonly string[]): void {
+    if (this.sourceAddressRetired) return;
+    this.sourceAddress ??= Object.freeze({ logRunId, drillPath: Object.freeze([...drillPath]) });
+  }
+
+  /** O(1) source-time capture. No counter, observer bookkeeping, or future commit prediction. */
+  capturePosition(runId: string): EmitSourcePosition | undefined {
+    if (!this.sourceAddress) return undefined;
+    return Object.freeze({ runId, ...this.sourceAddress, committedThroughIdx: this.steps.length - 1 });
+  }
+
   /** Wipes history (useful for test resets). */
   clear(): void {
     this.steps = [];
+    // A reset prefix cannot reuse old coordinates, even if another stage of
+    // the SAME leg binds it again. Keep clear's data behavior, but retire
+    // addressing for this log; known coordinates require a fresh EventLog.
+    this.sourceAddress = undefined;
+    this.sourceAddressRetired = true;
   }
 }

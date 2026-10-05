@@ -13,6 +13,7 @@ import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import { EventLog } from './EventLog.js';
+import type { EmitSourcePosition } from './eventPosition.js';
 import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
 import type { RedactionVerdict } from './redaction.js';
@@ -71,6 +72,8 @@ export class StageContext {
    */
   private stateView?: Record<string, unknown>;
   private eventLog?: EventLog;
+  /** The emitting frame's logical leg, never the mutable executor's current leg. */
+  private emitRunId?: string;
 
   public stageName = '';
   /** Unique stage identifier from the builder (matches spec node id). */
@@ -205,6 +208,17 @@ export class StageContext {
   /** Returns the SharedMemory instance (needed by scope layer). */
   getSharedMemory(): SharedMemory {
     return this.sharedMemory;
+  }
+
+  /** @internal Stamped beside runtimeStageId, before scope construction. */
+  bindEmitOrigin(runId: string, drillPath: readonly string[] | undefined): void {
+    this.emitRunId = drillPath === undefined ? undefined : runId;
+    if (drillPath !== undefined) this.eventLog?.bindAddress(runId, drillPath);
+  }
+
+  /** Capture from this frame's OWN log. A manual/unaddressable frame stays unknown. */
+  captureEmitPosition(): EmitSourcePosition | undefined {
+    return this.emitRunId === undefined ? undefined : this.eventLog?.capturePosition(this.emitRunId);
   }
 
   /**

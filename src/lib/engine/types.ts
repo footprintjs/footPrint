@@ -5,6 +5,7 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
+import type { LogAddress } from '../memory/eventPosition.js';
 import type { SharedMemory } from '../memory/SharedMemory.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { FlowControlType, FlowMessage } from '../memory/types.js';
@@ -373,6 +374,8 @@ export interface SubflowResult {
     globalContext: Record<string, unknown>;
     stageContexts: Record<string, unknown>;
     history: unknown[];
+    /** Identity of the local history, not its parent's log. */
+    readonly logAddress?: LogAddress;
     /**
      * The subflow's OWN fold base — the state its isolated runtime started
      * from, before its first commit. The sibling of
@@ -488,6 +491,7 @@ export interface IExecutionRuntime {
     /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */
     initialState?: Record<string, unknown>;
     commitLog: unknown[];
+    readonly logAddress?: LogAddress;
     /** Dual-keyed by subflow path (last iteration) AND per-execution mount runtimeStageId
      *  (each iteration) — see RuntimeSnapshot.subflowResults / subflow-commit-visibility. */
     subflowResults?: Record<string, unknown>;

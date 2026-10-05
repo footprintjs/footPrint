@@ -59,6 +59,7 @@
  * ```
  */
 
+import type { EmitSourcePosition } from '../memory/eventPosition.js';
 import type { RecorderBundle } from './snapshot.js';
 
 /**
@@ -108,6 +109,15 @@ export interface EmitEvent {
 
   /** Emission timestamp in milliseconds since epoch (`Date.now()`). */
   readonly timestamp: number;
+
+  /**
+   * Source-time committed prefix in this stage's own log, captured before
+   * observer dispatch. Not this stage's future commit or uncommitted state.
+   * Match logRunId + drillPath against the source's logAddress before folding;
+   * a named nested history can be unavailable (e.g. a paused subflow).
+   * Absent on old/manual events and scopes without a bound engine log.
+   */
+  readonly sourcePosition?: EmitSourcePosition;
 }
 
 /**

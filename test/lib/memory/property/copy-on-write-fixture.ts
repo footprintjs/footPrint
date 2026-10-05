@@ -42,6 +42,7 @@ import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import * as trace from '../../../../src/trace.js';
+import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
 
@@ -581,13 +582,19 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
     executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
-    subflowResults: bytes(old ? baselineSeeds(snap.subflowResults, snap.commitLog, p) : snap.subflowResults ?? null),
+    subflowResults: bytes(
+      withoutSubflowLogAddresses(
+        old ? baselineSeeds(snap.subflowResults, snap.commitLog, p) : snap.subflowResults ?? null,
+      ),
+    ),
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
     out.redactedState = bytes(red.sharedState);
     out.redactedSubflows = bytes(
-      old ? baselineSeeds(red.subflowResults, snap.commitLog, p) : red.subflowResults ?? null,
+      withoutSubflowLogAddresses(
+        old ? baselineSeeds(red.subflowResults, snap.commitLog, p) : red.subflowResults ?? null,
+      ),
     );
   }
   const folds: string[] = [];

@@ -52,6 +52,8 @@ import { DebugRecorder } from './lib/scope/recorders/DebugRecorder.js';
 import type { AggregatedMetrics, MetricRecorderOptions, StageMetrics } from './lib/scope/recorders/MetricRecorder.js';
 import { MetricRecorder } from './lib/scope/recorders/MetricRecorder.js';
 
+export type { EmitSourcePosition, LogAddress } from './lib/memory/eventPosition.js';
+
 // ---- Narrative ----
 
 /**

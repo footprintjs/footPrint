@@ -77,6 +77,23 @@ Redaction always wins: capture happens strictly **after** the redaction
 decision at each dispatch site, so a deferred envelope can never contain a
 pre-redaction value — under any policy, including `'ref'`.
 
+## Source time positions
+
+When present, `EmitEvent.sourcePosition` records the emitting frame's `runId`,
+the owning log's `logRunId` and runtime mount-ID `drillPath`, and the inclusive
+`committedThroughIdx` **when `$emit()` ran**, not when the observer receives it.
+Successful `clone` capture preserves those values but does not preserve freezing;
+`ref` retains the original frozen source metadata. `summary` capture, including a
+clone fallback, can lose these fields. Missing position means unknown; do not
+replace it with a commit count sampled at delivery.
+
+The position names a committed prefix, not the emitting stage's own commit, its
+working/read view or an order among events. Match the snapshot's `logAddress`
+and check the index bounds before folding with `stateAt`; the addressed log may
+be unavailable, especially for a paused subflow. See the
+[source position contract](../../src/lib/recorder/README.md#source-positions-in-emitted-events)
+for resume identity and nested-log handling.
+
 ## Backpressure — honest, never silent
 
 When a single stage bursts more events than `maxQueue` between two
