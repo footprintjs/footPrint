@@ -10,7 +10,7 @@
  * Try it: https://footprintjs.github.io/footprint-playground/samples/fork
  */
 
-import { flowChart,  FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
 interface Order {
   customerId: string;
@@ -90,7 +90,10 @@ const chart = flowChart<ForkState>('LoadOrder', async (scope) => {
     },
   ])
   .addFunction('FinalizeOrder', async (scope) => {
-    const status = scope.inStock && scope.fraudCleared ? 'confirmed' : 'held-for-review';
+    // Fork children write under runs/<childId>, not at the parent's root.
+    const inStock = scope.$read('runs.CheckInventory.inStock');
+    const fraudCleared = scope.$read('runs.RunFraudCheck.fraudCleared');
+    const status = inStock === true && fraudCleared === true ? 'confirmed' : 'held-for-review';
     scope.orderStatus = status;
     console.log(`  Order ${scope.orderId}: ${status}`);
   }, 'finalize-order')
@@ -102,6 +105,11 @@ const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
 
+const { orderStatus } = executor.getSnapshot().sharedState;
+if (orderStatus !== 'confirmed') {
+  throw new Error(`Expected ORD-001 to be confirmed, received ${String(orderStatus)}`);
+}
+
 console.log('=== Fork (Parallel Branches) ===\n');
 executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
-})().catch(console.error);
+})();

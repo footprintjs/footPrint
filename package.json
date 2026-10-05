@@ -44,7 +44,7 @@
     "watch": "tsc -w",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "test:examples": "tsc -p examples/tsconfig.json",
+    "test:examples": "tsc -p examples/tsconfig.json && npm run build && vitest run test/lib/engine/scenario/fork-example.test.ts",
     "example": "npx tsx",
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
