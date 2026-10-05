@@ -38,14 +38,22 @@ If you need to surface child errors, attach an EmitRecorder or use
 ## The pattern
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { microtaskBatchDriver } from 'footprintjs/detach';
 
-.addFunction('ProcessOrder', async (scope) => {
-  scope.orderId = await db.create(...);
+const telemetryEvents: unknown[] = [];
+const telemetryChart = flowChart('ShipTelemetry', (scope) => {
+  telemetryEvents.push(scope.$getArgs());
+}, 'ship-telemetry').build();
+
+const chart = flowChart<{ orderId: string }>('ProcessOrder', (scope) => {
+  scope.orderId = 'order-42'; // Local fixture for a newly persisted order.
   // Fire telemetry without blocking.
   scope.$detachAndForget(microtaskBatchDriver, telemetryChart, {
     event: 'order.processed',
     orderId: scope.orderId,
   });
-})
+}, 'process-order').build();
+
+await new FlowChartExecutor(chart).run();
 ```

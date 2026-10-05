@@ -61,6 +61,14 @@ You can also throw `InputValidationError` from any stage for custom validation:
 
 ```ts
 import type { FlowRecorder, FlowErrorEvent } from 'footprintjs';
+import { flowChart, FlowChartExecutor, InputValidationError } from 'footprintjs';
+
+const chart = flowChart('ValidateOrder', () => {
+  throw new InputValidationError('Order validation failed', [
+    { path: ['total'], message: 'Must be positive', code: 'too_small' },
+  ]);
+}, 'validate-order').build();
+const executor = new FlowChartExecutor(chart);
 
 const errorObserver: FlowRecorder = {
   id: 'error-observer',
@@ -78,6 +86,12 @@ const errorObserver: FlowRecorder = {
 };
 
 executor.attachFlowRecorder(errorObserver);
+// The observer reports the error; the caller still handles the rejected run.
+try {
+  await executor.run();
+} catch (error) {
+  if (!(error instanceof InputValidationError)) throw error;
+}
 ```
 
 ## Error utilities
@@ -85,7 +99,12 @@ executor.attachFlowRecorder(errorObserver);
 `extractErrorInfo` and `formatErrorInfo` normalize any thrown value into a consistent structure:
 
 ```ts
-import { extractErrorInfo, formatErrorInfo } from 'footprintjs';
+import { extractErrorInfo, formatErrorInfo, InputValidationError } from 'footprintjs';
+
+const error = new InputValidationError('Order validation failed', [
+  { path: ['total'], message: 'Must be positive', code: 'too_small' },
+  { path: ['email'], message: 'Required', code: 'required' },
+]);
 
 const info = extractErrorInfo(error);
 // { name: 'InputValidationError', code: 'INPUT_VALIDATION_ERROR', message: '...', issues: [...], raw: error }

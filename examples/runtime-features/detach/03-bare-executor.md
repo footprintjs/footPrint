@@ -37,8 +37,11 @@ no source stage to point back to.
 ## The pattern
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { microtaskBatchDriver } from 'footprintjs/detach';
 
+const mainChart = flowChart('Main', () => 'main complete', 'main').build();
+const healthCheckChart = flowChart('HealthCheck', () => ({ healthy: true }), 'health-check').build();
 const exec = new FlowChartExecutor(mainChart);
 const handle = exec.detachAndJoinLater(microtaskBatchDriver, healthCheckChart, undefined);
 await exec.run();

@@ -28,8 +28,9 @@ The FlowRecorder system mirrors the scope-level Recorder pattern:
 ### Default Narrative
 
 ```typescript
-import { FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart('Validate', () => true, 'validate').build();
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative(); // auto-attaches the CombinedNarrativeRecorder
 await executor.run();
@@ -37,13 +38,18 @@ await executor.run();
 // getNarrativeEntries() is the single public narrative API — structured
 // entries with { type, text, depth }. Map to text for a flat string[].
 console.log(executor.getNarrativeEntries().map((e) => e.text));
-// ["The process began with Validate.", "A decision was made...", ...]
+// Includes: "The process began with Validate."
 ```
 
 ### Custom Observer
 
 ```typescript
-import { FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type FlowRecorder } from 'footprintjs';
+
+const chart = flowChart('Start', () => undefined, 'start')
+  .addDeciderFunction('Choose', () => 'done', 'choose')
+  .addFunctionBranch('done', 'Done', () => undefined)
+  .end().build();
 
 const metrics: FlowRecorder = {
   id: 'metrics',
@@ -64,10 +70,14 @@ await executor.run();
 
 ```typescript
 import {
+  flowChart,
   FlowChartExecutor,
   WindowedNarrativeFlowRecorder,
 } from 'footprintjs';
 
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
 const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
 await executor.run();
@@ -215,8 +225,14 @@ Loops can generate hundreds of narrative sentences. These strategies compress lo
 Full detail — every event generates a sentence. Best for short loops or debugging.
 
 ```typescript
-import { NarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, NarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new NarrativeFlowRecorder());
+await executor.run();
 // "On pass 1 through Retry."
 // "On pass 2 through Retry."
 // ... every iteration
@@ -227,8 +243,14 @@ executor.attachFlowRecorder(new NarrativeFlowRecorder());
 Shows first N and last M iterations, skips the middle. Best for moderate loops (10–200) where you want to see start and end.
 
 ```typescript
-import { WindowedNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, WindowedNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
+await executor.run();
 // "On pass 1 through Retry."
 // "On pass 2 through Retry."
 // "On pass 3 through Retry."
@@ -244,8 +266,14 @@ executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
 Suppresses all per-iteration sentences, emits a single summary. Best when iteration details are irrelevant.
 
 ```typescript
-import { SilentNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, SilentNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
+await executor.run();
 // "Looped 50 times through Retry."
 ```
 
@@ -256,8 +284,14 @@ Access counts programmatically: `recorder.getLoopCounts()` → `Map<target, coun
 Full detail until a threshold, then samples every Nth iteration. Best for unknown loop counts where short loops should be fully detailed.
 
 ```typescript
-import { AdaptiveNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, AdaptiveNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(5, 10));
+await executor.run();
 // Iterations 1–5: full detail
 // After 5: every 10th (15, 25, 35, ...)
 ```
@@ -269,9 +303,15 @@ executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(5, 10));
 Emits at exponentially increasing intervals: 1, 2, 4, 8, 16, 32... Best for convergence-style loops where early iterations are most informative.
 
 ```typescript
-import { ProgressiveNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, ProgressiveNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new ProgressiveNarrativeFlowRecorder(2));
-// Emits: pass 1, 2, 4, 8, 16, 32, 64...
+await executor.run();
+// Emits: pass 1, 2, 4, 8, 16, 32 (and 64 if the loop continues that far)
 ```
 
 **Parameters:** `new ProgressiveNarrativeFlowRecorder(base = 2, id?)`
@@ -281,8 +321,14 @@ executor.attachFlowRecorder(new ProgressiveNarrativeFlowRecorder(2));
 Emits every Nth iteration for regular progress markers.
 
 ```typescript
-import { MilestoneNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, MilestoneNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new MilestoneNarrativeFlowRecorder(10));
+await executor.run();
 // Emits: pass 1, 10, 20, 30, 40, 50
 ```
 
@@ -293,8 +339,14 @@ executor.attachFlowRecorder(new MilestoneNarrativeFlowRecorder(10));
 Run-Length Encoding — collapses consecutive same-target loops into a single summary. Best for simple retry loops.
 
 ```typescript
-import { RLENarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, RLENarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(new RLENarrativeFlowRecorder());
+await executor.run();
 // "Looped through Retry 50 times (passes 1–50)."
 ```
 
@@ -303,13 +355,18 @@ executor.attachFlowRecorder(new RLENarrativeFlowRecorder());
 Two-channel design: main narrative stays clean (no loop sentences), full loop detail available via `getLoopSentences()`. Best for UIs with collapsible sections or LLM pipelines where loop context should be available but not in the main prompt.
 
 ```typescript
-import { SeparateNarrativeFlowRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, SeparateNarrativeFlowRecorder } from 'footprintjs';
+
+const chart = flowChart<{ pass: number }>('Start', (scope) => { scope.pass = 0; }, 'start')
+  .addFunction('Retry', (scope) => { if (++scope.pass > 50) scope.$break(); }, 'retry')
+  .loopTo('retry').build();
+const executor = new FlowChartExecutor(chart);
 
 const recorder = new SeparateNarrativeFlowRecorder();
 executor.attachFlowRecorder(recorder);
 await executor.run();
 
-const mainNarrative = executor.getNarrativeEntries().map((e) => e.text); // clean — no loops
+const mainNarrative = recorder.getSentences();      // this recorder's clean channel — no loops
 const loopDetail = recorder.getLoopSentences();     // full loop detail
 const loopCounts = recorder.getLoopCounts();         // Map<target, count>
 ```
@@ -398,16 +455,37 @@ library now surfaces both:
    backtracker:
 
    ```typescript
-   import { causalChain, controlDepRecorder, formatCausalChain } from 'footprintjs/trace';
+   import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
+   import { causalChain, controlDepRecorder, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
+
+   interface LoanState { creditScore: number; status: string }
+   const chart = flowChart<LoanState>('PullBureau', (scope) => {
+     scope.creditScore = 750; // Local credit-service fixture.
+   }, 'pull-bureau')
+     .addDeciderFunction('ClassifyRisk', (scope) => decide(scope, [
+       { when: { creditScore: { gt: 700 } }, then: 'approved', label: 'Good credit' },
+     ], 'rejected'), 'classify-risk')
+     .addFunctionBranch('approved', 'Approve', (scope) => { scope.status = 'approved'; })
+     .addFunctionBranch('rejected', 'Reject', (scope) => { scope.status = 'rejected'; })
+     .end().build();
+   const executor = new FlowChartExecutor(chart);
+   const quality = new QualityRecorder(() => ({ score: 1 }));
+   executor.attachScopeRecorder(quality);
 
    const ctrl = controlDepRecorder();
    executor.attachFlowRecorder(ctrl);
-   await executor.run({ input });
+   await executor.run();
 
-   const dag = causalChain(commitLog, statusStepId, keysRead, {
+   const { commitLog } = executor.getSnapshot();
+   const statusCommit = commitLog.find((commit) => commit.trace.some((write) => write.path === 'status'));
+   if (!statusCommit) throw new Error('No stage wrote status');
+   const keysRead = (id: string) => quality.getByKey(id)?.keysRead ?? [];
+
+   const dag = causalChain(commitLog, statusCommit.runtimeStageId, keysRead, {
      controlDeps: ctrl.asLookup(),
    });
-   console.log(formatCausalChain(dag!));
+   if (!dag) throw new Error('Status stage not found in commit log');
+   console.log(formatCausalChain(dag));
    // Approve (approved#2) [wrote: status]
    //   ClassifyRisk (classify-risk#1) ← [control: Good credit]
    //     PullBureau (pull-bureau#0) ← via creditScore [wrote: creditScore]

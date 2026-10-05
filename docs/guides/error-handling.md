@@ -58,13 +58,28 @@ The narrative shows one stage. The commit log shows one entry. The two failed ca
 Declare the policy instead, and every attempt becomes part of the record:
 
 ```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface QuoteState { currency: string; amount: number; rate: number; quote: number }
+const readFn = (scope: TypedScope<QuoteState>) => { scope.currency = 'EUR'; scope.amount = 100; };
+let calls = 0;
+// Local rate-service fixture: two failures followed by a successful response.
+const fetchRateFn = async (scope: TypedScope<QuoteState>) => {
+  if (scope.currency !== 'EUR') throw new Error('Unsupported fixture currency');
+  if (++calls < 3) throw new Error('rate service unavailable');
+  scope.rate = 1.09;
+};
+const buildQuoteFn = (scope: TypedScope<QuoteState>) => { scope.quote = scope.amount * scope.rate; };
 
 const chart = flowChart<QuoteState>('Read request', readFn, 'read-request')
   .addFunction('Fetch rate', fetchRateFn, 'fetch-rate')
   .retry({ attempts: 3, backoffMs: (attempt) => 100 * attempt })
   .addFunction('Build quote', buildQuoteFn, 'build-quote')
   .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative();
+await executor.run();
 ```
 
 `attempts` counts **total runs including the first** — `attempts: 3` is one run plus up to two retries. `attempts: 1` is a declared-but-off policy, so you can dial one down without deleting it.
@@ -191,6 +206,7 @@ When a stage throws, the engine:
 
 ```typescript
 import {
+  flowChart,
   FlowChartExecutor,
   type FlowRecorder,
   type FlowErrorEvent,
@@ -213,8 +229,12 @@ const errorObserver: FlowRecorder = {
   },
 };
 
+const chart = flowChart('Validate', () => {
+  throw new InputValidationError('Validation failed', [{ path: ['age'], message: 'Must be positive' }]);
+}, 'validate').build();
 const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder(errorObserver);
+await executor.run().catch(() => undefined);
 ```
 
 ### StructuredErrorInfo
@@ -253,22 +273,32 @@ This is tested with up to 50 concurrent recorders (25 throwing + 25 normal) — 
 
 ## Debug Recorder
 
-The `DebugRecorder` captures errors automatically and optionally captures mutations and reads:
+The `DebugRecorder` observes the scope channel: scope-operation errors, plus
+mutations, reads, and lifecycle events in verbose mode. A stage function's thrown
+error belongs to the flow channel; use the structured flow-error observer above
+to capture it. The debug entries can still show the writes that preceded it:
 
 ```typescript
-import { DebugRecorder, FlowChartExecutor } from 'footprintjs';
+import { flowChart, DebugRecorder, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart<{ age: number }>('Validate', (scope) => {
+  scope.age = -5;
+  throw new Error('age must be positive');
+}, 'validate').build();
 const debug = new DebugRecorder({ verbosity: 'verbose' });
 const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(debug);
+await executor.run().catch(() => undefined);
 
 // After execution:
 const entries = debug.getEntries();
+console.log(entries.map(({ type, stageName }) => ({ type, stageName })));
 // [
-//   { type: 'write', stageName: 'Validate', timestamp, data: { key: 'rawPayload', value: {...} } },
-//   { type: 'error', stageName: 'Validate', timestamp, data: { error: Error(...) } },
-//   ...
+//   { type: 'stageStart', stageName: 'Validate' },
+//   { type: 'write', stageName: 'Validate' },
 // ]
+// The write entry's data includes { key: 'age', value: -5 }.
+// No debug 'error' entry is emitted for this thrown stage error.
 ```
 
 ### Mermaid Diagrams

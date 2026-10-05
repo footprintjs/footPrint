@@ -42,15 +42,23 @@ Builder-native makes it a labeled stop.
 ## addDetachAndForget — fire-and-forget as a stage
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { microtaskBatchDriver } from 'footprintjs/detach';
 
-flowChart<S>('process', processFn, 'process')
+interface State { orderId: string; processed: boolean }
+const telemetryEvents: unknown[] = [];
+const telemetryChart = flowChart('ShipTelemetry', (scope) => {
+  telemetryEvents.push(scope.$getArgs());
+}, 'ship-telemetry').build();
+const chart = flowChart<State>('process', (scope) => { scope.orderId = 'order-42'; }, 'process')
   .addDetachAndForget('telemetry', telemetryChart, {
     driver: microtaskBatchDriver,
     inputMapper: (scope) => ({ event: 'processed', orderId: scope.orderId }),
   })
-  .addFunction('next', nextFn, 'next')
+  .addFunction('next', (scope) => { scope.processed = true; }, 'next')
   .build();
+
+await new FlowChartExecutor(chart).run();
 ```
 
 ## addDetachAndJoinLater — handle delivered to onHandle callback

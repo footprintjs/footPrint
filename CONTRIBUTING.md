@@ -51,9 +51,12 @@ npm run test:coverage # tests + coverage report
 npm run build         # TypeScript compilation (CJS + ESM)
 npm run lint          # ESLint
 npm run format        # Prettier check (format:fix to apply)
+npm run check:doc-snippets # strict TypeScript checks for FootPrint-importing documentation fences
 ```
 
 4. **Submit a pull request** with a clear description of the change.
+
+Documentation examples that import FootPrint are checked as separate TypeScript modules. Include their setup or an explicitly typed application input; declarations in a different fence are not shared. Do not suppress compiler errors or relabel code to avoid checking. See [the checker guide](scripts/doc-snippets/README.md) for coverage and exclusions. Passing this check proves type correctness, not runtime output.
 
 ## Code Style
 

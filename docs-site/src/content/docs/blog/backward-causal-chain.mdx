@@ -90,6 +90,19 @@ This is where the [recorder operations](/footPrint/blog/recorder-operations/) be
 ```typescript
 import { causalChain, flattenCausalDAG, formatCausalChain } from 'footprintjs/trace';
 import { QualityRecorder, qualityTrace, formatQualityTrace } from 'footprintjs/trace';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const chart = flowChart<{ creditScore: number; riskTier: string; decision: string }>(
+  'ReceiveApplication', (scope) => { scope.creditScore = 580; }, 'receive',
+)
+  .addFunction('ClassifyRisk', (scope) => {
+    scope.riskTier = scope.creditScore < 620 ? 'high' : 'low';
+  }, 'classify')
+  .addFunction('Decide', (scope) => {
+    scope.decision = scope.riskTier === 'high' ? 'REJECTED' : 'APPROVED';
+  }, 'decide')
+  .build();
+const executor = new FlowChartExecutor(chart);
 
 // 1. Collect quality scores during traversal (Translate pattern)
 const quality = new QualityRecorder((id, ctx) => {
@@ -103,6 +116,7 @@ await executor.run();
 
 // 2. Find the lowest-scoring step (Aggregate pattern)
 const lowest = quality.getLowest();
+if (!lowest) throw new Error('No quality scores were recorded');
 
 // 3. Backtrack through the causal chain
 const trace = qualityTrace(

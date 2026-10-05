@@ -26,14 +26,21 @@ Stage: ValidateCard
 ## The pattern
 
 ```typescript
-import { MetricRecorder, FlowChartExecutor } from 'footprintjs';
+import { flowChart, MetricRecorder, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart<{ card: string; valid: boolean }>('Seed', (scope) => {
+  scope.card = 'test-card';
+}, 'seed')
+  .addFunction('ValidateCard', (scope) => { scope.valid = scope.card.length > 0; }, 'validate-card')
+  .build();
+const executor = new FlowChartExecutor(chart);
 const metrics = new MetricRecorder();
 executor.attachScopeRecorder(metrics);
 
 await executor.run();
 
 const report = metrics.getMetrics();
+// Illustrative shape (counts and timings depend on the flow):
 // {
 //   totalDuration: 234.5,
 //   totalReads: 47,

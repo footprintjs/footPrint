@@ -110,14 +110,16 @@ base; past the end clamps, and `throughCommitIdx` reports where the fold
 actually stopped.
 
 ```ts
+import { getSubtreeSnapshot, type RuntimeSnapshot } from 'footprintjs';
 import { stateAt } from 'footprintjs/trace';
 
-const snapshot = executor.getSnapshot();
+// Application-supplied snapshot from a completed executor.getSnapshot().
+declare const snapshot: RuntimeSnapshot;
 stateAt(snapshot, -1).state;   // before the run's first commit
 stateAt(snapshot, 3).state;    // after the 4th commit
 
-const inner = getSubtreeSnapshot(snapshot, 'sf-payment')!;
-stateAt(inner, 0).state;       // the subflow's own log, its own base
+const inner = getSubtreeSnapshot(snapshot, 'sf-payment');
+if (inner) stateAt(inner, 0).state; // the subflow's own log, its own base
 ```
 
 ### The key queries agree with this fold (9.33.0)
@@ -156,8 +158,11 @@ asks where a stage *starts*. `commitIndexOf` returns `-1` on a miss (the
 `indexOf` contract its name promises); build the map once when resolving many.
 
 ```ts
+import type { RuntimeSnapshot } from 'footprintjs';
 import { buildCommitIndex, commitIndexOf, stateAt } from 'footprintjs/trace';
 
+// Application-supplied snapshot from a completed executor.getSnapshot().
+declare const snapshot: RuntimeSnapshot;
 const idx = commitIndexOf(snapshot.commitLog, 'score-risk#7');
 // `-1` is the miss sentinel; `idx === 0` is the run's FIRST stage, and
 // `stateAt(snapshot, -1)` is exactly the state it read — the fold base.
@@ -171,9 +176,12 @@ const index = buildCommitIndex(snapshot.commitLog);  // for many lookups
 The cursor.
 
 ```ts
-import { timeTravel } from 'footprintjs/trace';
+import { timeTravel, type TimeTravelSource } from 'footprintjs/trace';
 
-const cursor = timeTravel(executor.getSnapshot());
+// Application-supplied live snapshot or stored recording.
+declare const snapshot: TimeTravelSource;
+const cursor = timeTravel(snapshot);
+const earlier = cursor.at();
 
 cursor.stops;                    // the axis, in execution order
 cursor.at();                     // where the reader is (starts at stop 0)
@@ -183,7 +191,7 @@ cursor.jumpTo(4);                // by step
 cursor.jumpTo('score-risk#7');   // by runtimeStageId
 cursor.stateAt();                // fold at the current stop — detached
 cursor.changedSince();           // keys this stop wrote (no fold at all)
-cursor.changedSince(earlier);    // keys written since a named stop
+if (earlier) cursor.changedSince(earlier); // keys written since a named stop, if the log was non-empty
 cursor.drill('sf-payment#7');    // a separate cursor over the subflow's log
 ```
 
@@ -221,9 +229,12 @@ One stop per executed stage, plus `'start'` / `'end'` bookends.
   reads as a mount). A log that records any phase is never inferred.
 
   ```ts
+  import type { RuntimeSnapshot } from 'footprintjs';
   import { commitStops, recordsPhases } from 'footprintjs/trace';
 
-  const { commitLog: log, executionTree: tree } = executor.getSnapshot(); // 9.39.0+: phases recorded
+  // Application-supplied snapshot; 9.39.0+ records continuation phases.
+  declare const snapshot: RuntimeSnapshot;
+  const { commitLog: log, executionTree: tree } = snapshot;
   commitStops(log, tree).filter((s) => s.kind === 'mount'); // every mount (the tree names mapper-less ones)
   log.filter((b) => b.phase === 'repeat');                  // every fork child's settle commit
   recordsPhases(log);                                       // false ⇒ no continuation, or a pre-9.39 log
@@ -255,14 +266,16 @@ it.
 
 ```ts
 import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
-import type { TimeTravelStrategy } from 'footprintjs/trace';
+import type { TimeTravelSource, TimeTravelStrategy } from 'footprintjs/trace';
 
 const milestonesOnly: TimeTravelStrategy = {
   stopsFor: (log, tree) =>
     filterStops(commitStops(log, tree), (stop) => stop.stageId.startsWith('milestone-')),
 };
 
-timeTravel(executor.getSnapshot(), { strategy: milestonesOnly });
+// Application-supplied live snapshot or stored recording.
+declare const snapshot: TimeTravelSource;
+timeTravel(snapshot, { strategy: milestonesOnly });
 ```
 
 A strategy is inherited by `drill()`, so a subflow's axis follows the same
@@ -301,11 +314,18 @@ stop and drops that meta — only the decision's own `meta` rides on a
 `Stop<TMeta>`.
 
 ```ts
-import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { commitStops, filterStops, parseRuntimeStageId, timeTravel } from 'footprintjs/trace';
 import type { TimeTravelStrategy } from 'footprintjs/trace';
 
 interface Beat { kind: 'turn' | 'tool'; title: string }
-declare function beatFor(runtimeStageId: string): Beat | null;
+const knownBeats = new Map<string, Beat>([
+  ['ask', { kind: 'turn', title: 'The question' }],
+  ['lookup', { kind: 'tool', title: 'The lookup' }],
+]);
+function beatFor(runtimeStageId: string): Beat | null {
+  return knownBeats.get(parseRuntimeStageId(runtimeStageId).stageId) ?? null;
+}
 
 const beatStops: TimeTravelStrategy<Beat> = {
   stopsFor: (log, tree) =>
@@ -315,7 +335,14 @@ const beatStops: TimeTravelStrategy<Beat> = {
     }),
 };
 
+const chart = flowChart<{ question?: string; found?: string }>('Seed', () => {}, 'seed')
+  .addFunction('Ask', (s) => { s.question = 'Where?'; }, 'ask')
+  .addFunction('Lookup', (s) => { s.found = 'Here'; }, 'lookup')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
 const beatCursor = timeTravel(executor.getSnapshot(), { strategy: beatStops });
+beatCursor.jumpTo('ask#1'); // the initial start bookend has no beat metadata
 beatCursor.at()?.meta?.kind;   // 'turn' — the strategy's answer, not a second derivation
 ```
 
@@ -340,14 +367,28 @@ strategy that absorbs stages into its start should too. A reader that means
 "before anything ran" checks `kind === 'start' && !stop.prologue`.
 
 ```ts
-import { stateAt, timeTravel } from 'footprintjs/trace';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { commitStops, filterStops, stateAt, timeTravel, type TimeTravelStrategy } from 'footprintjs/trace';
 
+const chart = flowChart<{ tenant: string; needle: number; prepared?: boolean; question?: string }>('Seed', (s) => {
+  s.tenant = 'acme';
+  s.needle = 7;
+}, 'seed')
+  .addFunction('Prepare', (s) => { s.prepared = true; }, 'prepare')
+  .addFunction('Ask', (s) => { s.question = 'Where?'; }, 'ask')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const beatStops: TimeTravelStrategy = {
+  stopsFor: (log, tree) => filterStops(commitStops(log, tree), (stop) => stop.stageId === 'ask'),
+};
 const snapshot = executor.getSnapshot();
 const beats = timeTravel(snapshot, { strategy: beatStops });
 const start = beats.stops[0];
 start.prologue;                                  // true — seed + prepare folded in here
 start.lastCommitIdx;                             // 1
-beats.stateAt(start).state;                      // === stateAt(snapshot, 1).state — what the first beat READ
+beats.stateAt(start).state;                      // { tenant: 'acme', needle: 7, prepared: true }
+stateAt(snapshot, 1).state;                      // same values, a separate frozen clone — what the first beat READ
 timeTravel(snapshot).stops[0].prologue;          // undefined — the shipped axis's start is the raw base
 ```
 
@@ -372,9 +413,11 @@ nothing; `'not-bookended'` means a strategy broke the contract. `filterStops`
 calls it, so most composers never see it.
 
 ```ts
+import type { RuntimeSnapshot } from 'footprintjs';
 import { commitStops, splitAxis } from 'footprintjs/trace';
 
-const snapshot = executor.getSnapshot();
+// Application-supplied snapshot from a completed executor.getSnapshot().
+declare const snapshot: RuntimeSnapshot;
 const axis = splitAxis(commitStops(snapshot.commitLog, snapshot.executionTree));
 if (axis.ok === false) {
   axis.reason;                 // 'empty' | 'not-bookended' — two different facts
@@ -433,9 +476,15 @@ then CONTINUES across the seam (the leg rule), which is the right state for a
 real resume, and every fold's `basis` still says what it stood on.
 
 ```ts
+import type { RuntimeSnapshot } from 'footprintjs';
 import { timeTravel } from 'footprintjs/trace';
 
-// paused = executor A's snapshot at the pause; resumed = executor B's after resume(checkpoint)
+// Application-supplied snapshots from the runnable example linked below:
+// paused = executor A at the pause; resumed = executor B after resume(checkpoint).
+declare const paused: RuntimeSnapshot;
+declare const resumed: RuntimeSnapshot;
+// A different lineage whose resume happens to use higher execution indices.
+declare const someOtherChartsResumedLeg: RuntimeSnapshot;
 const cursor = timeTravel([paused, resumed]);
 cursor.sourceCount;                               // 2
 cursor.stops.map((s) => [s.step, s.sourceIdx, s.commitIdx]);
@@ -443,8 +492,14 @@ cursor.stops.map((s) => [s.step, s.sourceIdx, s.commitIdx]);
 cursor.jumpTo('finish#4');                        // found in the second leg
 cursor.stateAt().sourceIdx;                       // 1
 
-timeTravel([resumed, paused]);                    // throws: "source 1 starts at execution index 0, which is not past source 0's last (4)"
-timeTravel([paused, someOtherChartsResumedLeg]);  // throws: "source 1's initialState is not the state source 0 folds to. …"
+for (const invalid of [[resumed, paused], [paused, someOtherChartsResumedLeg]]) {
+  try {
+    timeTravel(invalid);
+  } catch (error) {
+    if (error instanceof Error) console.log(error.message);
+    // backwards indices, or: "source 1's initialState is not the state source 0 folds to. …"
+  }
+}
 ```
 
 Run `examples/post-execution/time-travel/04-chain-a-pause-and-resume.ts` for
@@ -534,7 +589,7 @@ fresh executor is two tagged stops on a chained axis — it ran twice.
 **Example 1 — declared, scrubbed by `tagStops`.**
 
 ```ts
-import { flowChart } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { tagStops, timeTravel } from 'footprintjs/trace';
 
 interface State { messages?: string[]; answer?: string; route?: string; [key: string]: unknown }
@@ -549,7 +604,9 @@ const chart = flowChart<State>('Seed', (s) => { s.messages = ['hi']; }, 'seed')
 
 chart.buildTimeStructure.next?.tags;   // ['milestone:llm-turn'] — the Map, before any run
 
-// …run it on an executor, keep the snapshot; later, anywhere:
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+// Keep the snapshot for a reader to inspect later, anywhere:
 const cursor = timeTravel(executor.getSnapshot(), { strategy: tagStops(['milestone:llm-turn', 'audit']) });
 cursor.stops.map((s) => s.label);   // ['Run start', 'Call model', 'Route', 'Run end']
 cursor.stops[1].meta;               // ['milestone:llm-turn']  — the bundle's whole array
@@ -563,8 +620,20 @@ stored. This is what "the current skill changed here" looks like — and it is
 the fallback for a recording made before its chart declared tags.
 
 ```ts
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { commitStops, filterStops, timeTravel } from 'footprintjs/trace';
 import type { TimeTravelStrategy } from 'footprintjs/trace';
+
+// The same writes as the declared-tag example, but no tags are needed here.
+const chart = flowChart<{ messages: string[]; answer?: string; route?: string }>('Seed', (s) => {
+  s.messages = ['hi'];
+}, 'seed')
+  .addFunction('Call model', (s) => { s.answer = ' draft '; }, 'call-llm')
+  .addFunction('Trim', (s) => { s.answer = s.answer?.trim(); }, 'trim')
+  .addFunction('Route', (s) => { s.route = 'done'; }, 'route')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
 
 /** A stop wherever `answer` or `route` was written — derived from the write set. */
 const changedAnswerOrRoute: TimeTravelStrategy<readonly string[]> = {

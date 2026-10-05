@@ -54,7 +54,7 @@ For event streams where **order matters** and you want **per-step lookup AND ord
 
 ```ts
 import { SequenceStore } from 'footprintjs/trace';
-import type { CombinedRecorder } from 'footprintjs';
+import type { CombinedRecorder, WriteEvent, FlowDecisionEvent } from 'footprintjs';
 
 interface AuditEntry {
   readonly runtimeStageId?: string;
@@ -66,8 +66,8 @@ class AuditRecorder implements CombinedRecorder {
   readonly id = 'audit';
   private readonly store = new SequenceStore<AuditEntry>();
 
-  onWrite(e) { this.store.push({ runtimeStageId: e.runtimeStageId, type: 'write', detail: e.key }); }
-  onDecision(e) {
+  onWrite(e: WriteEvent) { this.store.push({ runtimeStageId: e.runtimeStageId, type: 'write', detail: e.key }); }
+  onDecision(e: FlowDecisionEvent) {
     this.store.push({
       runtimeStageId: e.traversalContext?.runtimeStageId,
       type: 'decision',
@@ -130,6 +130,7 @@ For live transient state that exists ONLY during a matched `[start, stop]` event
 
 ```ts
 import { BoundaryStateStore } from 'footprintjs/trace';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import type { EmitEvent, EmitRecorder } from 'footprintjs';
 
 interface LLMLiveState {
@@ -145,7 +146,10 @@ class LiveLLMTracker implements EmitRecorder {
     if (e.name === 'demo.llm.start') {
       this.store.start(e.runtimeStageId, { partial: '', tokens: 0 });
     } else if (e.name === 'demo.llm.token') {
-      const chunk = (e.payload as { content: string }).content;
+      const payload = e.payload;
+      if (typeof payload !== 'object' || payload === null ||
+          !('content' in payload) || typeof payload.content !== 'string') return;
+      const chunk = payload.content;
       this.store.update(e.runtimeStageId, (s) => ({
         partial: s.partial + chunk,
         tokens: s.tokens + 1,
@@ -160,17 +164,29 @@ class LiveLLMTracker implements EmitRecorder {
   getPartial(stageId: string): string {
     return this.store.get(stageId)?.partial ?? '';
   }
+  getActiveIds(): string[] { return [...this.store.getAll().keys()]; }
 
   clear() { this.store.clear(); }
 }
 
 const tracker = new LiveLLMTracker();
+const chart = flowChart('StreamResponse', (scope) => {
+  scope.$emit('demo.llm.start', {});
+  scope.$emit('demo.llm.token', { content: 'I will help you with that' });
+
+  // Read while the bracket is open; a UI can make these same queries.
+  console.log(tracker.isInFlight()); // true
+  for (const id of tracker.getActiveIds()) {
+    console.log(tracker.getPartial(id)); // 'I will help you with that'
+  }
+
+  scope.$emit('demo.llm.end', {});
+}, 'stream-response').build();
+const executor = new FlowChartExecutor(chart);
 executor.attachEmitRecorder(tracker);
 await executor.run();
 
-// Read live state DURING the run from another async context:
-tracker.isInFlight();           // true while llm.start↔llm.end is open
-tracker.getPartial(rid);        // 'I will help you with that'
+console.log(tracker.isInFlight()); // false: the end event cleared the live state
 ```
 
 ### Algorithmic framing

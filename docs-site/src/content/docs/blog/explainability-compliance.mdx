@@ -207,8 +207,15 @@ npm install footprintjs
 import { flowChart, decide, narrative } from 'footprintjs';
 
 // Define your decision logic as a flowchart
-const chart = flowChart<YourState>('FirstStage', handler, 'id')
-  // ... add stages, decisions, branches
+const chart = flowChart<{ creditScore: number; decision?: string }>('LoadScore', (scope) => {
+  scope.creditScore = 580;
+}, 'load-score')
+  .addDeciderFunction('Assess', (scope) => decide(scope, [
+    { when: { creditScore: { lt: 620 } }, then: 'review', label: 'Credit score below 620' },
+  ], 'approve'), 'assess')
+    .addFunctionBranch('review', 'ManualReview', (scope) => { scope.decision = 'review'; })
+    .addFunctionBranch('approve', 'Approve', (scope) => { scope.decision = 'approved'; })
+    .end()
   .build();
 
 // Run with narrative recording — keep a reference to read the trace afterward

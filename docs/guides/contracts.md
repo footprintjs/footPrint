@@ -10,11 +10,19 @@ Define I/O schemas on your flowchart and auto-generate OpenAPI 3.1 specs. Schema
 import { flowChart } from 'footprintjs';
 import { z } from 'zod';
 
-const chart = flowChart('ProcessLoan', receiveFn, 'receive')
-  .addFunction('Assess', assessFn, 'assess')
-  .addDeciderFunction('Decide', deciderFn, 'decide')
-    .addFunctionBranch('approved', 'Approve', approveFn)
-    .addFunctionBranch('rejected', 'Reject', rejectFn)
+interface LoanState { evaluatedScore: number; eligible: boolean; decision: 'approved' | 'rejected'; reason: string }
+const chart = flowChart<LoanState>('ProcessLoan', (scope) => {
+    // Input keys are readonly; keep derived state under a separate key.
+    scope.evaluatedScore = scope.$getArgs<{ applicantName: string; creditScore: number }>().creditScore;
+  }, 'receive')
+  .addFunction('Assess', (scope) => { scope.eligible = scope.evaluatedScore >= 700; }, 'assess')
+  .addDeciderFunction('Decide', (scope) => scope.eligible ? 'approved' : 'rejected', 'decide')
+    .addFunctionBranch('approved', 'Approve', (scope) => {
+      scope.decision = 'approved'; scope.reason = 'Credit score meets the example threshold';
+    })
+    .addFunctionBranch('rejected', 'Reject', (scope) => {
+      scope.decision = 'rejected'; scope.reason = 'Credit score is below the example threshold';
+    })
     .end()
   .contract({
     input: z.object({
@@ -26,8 +34,8 @@ const chart = flowChart('ProcessLoan', receiveFn, 'receive')
       reason: z.string(),
     }),
     mapper: (scope) => ({
-      decision: scope.decision as string,
-      reason: scope.reason as string,
+      decision: scope.decision,
+      reason: scope.reason,
     }),
   })
   .build();

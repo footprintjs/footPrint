@@ -19,14 +19,26 @@ In v5, build a recorder by COMPOSING one or more stores as class fields, NOT by 
 
 ```typescript
 import { SequenceStore } from 'footprintjs/trace';
-import type { ScopeRecorder } from 'footprintjs';
+import type { ScopeRecorder, WriteEvent } from 'footprintjs';
+
+interface MyEntry {
+  runtimeStageId: string;
+  key: string;
+  value: unknown;
+}
 
 class MyRecorder implements ScopeRecorder {
   readonly id = 'my-recorder';
   private readonly store = new SequenceStore<MyEntry>();
 
   // Event hooks — pure handler logic, delegate storage to the store.
-  onWrite(event) { this.store.push({...}); }
+  onWrite(event: WriteEvent) {
+    this.store.push({
+      runtimeStageId: event.runtimeStageId,
+      key: event.key,
+      value: event.value,
+    });
+  }
 
   // Public read API — delegate to the store.
   getEntries() { return this.store.getAll(); }

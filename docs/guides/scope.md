@@ -124,11 +124,15 @@ It is **not rollback**: when a stage throws, the engine still commits everything
 Recorders observe scope operations without modifying them. Attach multiple for different concerns:
 
 ```typescript
-import { FlowChartExecutor, DebugRecorder, MetricRecorder } from 'footprintjs';
+import { flowChart, FlowChartExecutor, DebugRecorder, MetricRecorder } from 'footprintjs';
 
+const chart = flowChart<{ count: number }>('Count', (scope) => {
+  scope.count = 1;
+}, 'count').build();
 const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
 executor.attachScopeRecorder(new MetricRecorder());
+await executor.run();
 ```
 
 **ID-based idempotency:** `attachScopeRecorder` replaces any existing recorder with the same ID. Each `new MetricRecorder()` gets a unique auto-increment ID (`metrics-1`, `metrics-2`, ...), so multiple instances with different configs coexist. To override a framework-attached recorder, pass the same ID: `new MetricRecorder('metrics')`.
@@ -235,15 +239,24 @@ The #1 FootPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setVal
 Protection catches this at runtime:
 
 ```typescript
-import { createProtectedScope } from 'footprintjs/advanced';
+import { createProtectedScope, ScopeFacade, StageContext, SharedMemory } from 'footprintjs/advanced';
 
-const protected = createProtectedScope(scope, {
+class ConfigScope extends ScopeFacade {
+  declare config: Record<string, unknown>;
+}
+const context = new StageContext('scope-example', 'myStage', 'my-stage', new SharedMemory());
+const scope = new ConfigScope(context, 'myStage');
+const protectedScope = createProtectedScope(scope, {
   mode: 'error',        // 'error' | 'warn' | 'off'
   stageName: 'myStage',
 });
 
-protected.config = {};  // Throws: "Direct property assignment detected"
-protected.setValue('config', {});  // Works correctly
+try {
+  protectedScope.config = {};  // Throws: "Direct property assignment detected"
+} catch (error) {
+  console.log(String(error));
+}
+protectedScope.setValue('config', {});  // Works correctly
 ```
 
 Three protection modes:
@@ -335,7 +348,13 @@ Once redacted, the key stays redacted for all subsequent reads and across stages
 Define once, applied everywhere — no per-call flags needed:
 
 ```typescript
-import { FlowChartExecutor, type RedactionPolicy } from 'footprintjs';
+import { flowChart, FlowChartExecutor, type RedactionPolicy } from 'footprintjs';
+
+// Synthetic values only: no real patient or credential data.
+const chart = flowChart<{ ssn: string; dbPassword: string }>('Load', (scope) => {
+  scope.ssn = 'example-ssn';
+  scope.dbPassword = 'example-password';
+}, 'load').build();
 
 const policy: RedactionPolicy = {
   keys: ['ssn', 'creditCard'],               // exact key names
@@ -392,16 +411,24 @@ Then apply it in the scope factory or via `executor.setRedactionPolicy(PatientSc
 The provider system normalizes different scope definitions to a single `ScopeFactory` interface. `toScopeFactory` and `registerScopeResolver` are engine-level helpers from `footprintjs/advanced`; the Zod helper `defineScopeSchema` lives in the opt-in `footprintjs/zod` entry:
 
 ```typescript
-import { toScopeFactory, ScopeFacade } from 'footprintjs/advanced';
-import { defineScopeSchema } from 'footprintjs/zod';
+import { toScopeFactory, registerScopeResolver, ScopeFacade, type ScopeFactory } from 'footprintjs/advanced';
+import { defineScopeSchema, ZodScopeResolver } from 'footprintjs/zod';
+import { z } from 'zod';
+
+class UserScope extends ScopeFacade {
+  get name(): string { return this.getValue('name') as string; }
+}
 
 // Class-based
 const factory1 = toScopeFactory(UserScope);
 
 // Factory-based
-const factory2 = toScopeFactory((ctx, name) => new ScopeFacade(ctx, name));
+const customFactory: ScopeFactory<ScopeFacade> = (ctx, name, input, env) =>
+  new ScopeFacade(ctx, name, input, env);
+const factory2 = toScopeFactory(customFactory);
 
 // Zod-based
+registerScopeResolver(ZodScopeResolver); // Once during application setup.
 const factory3 = toScopeFactory(defineScopeSchema({ name: z.string() }));
 ```
 

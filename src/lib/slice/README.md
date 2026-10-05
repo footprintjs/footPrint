@@ -74,11 +74,22 @@ it); each `causalChain` data edge to such a writer carries `basis: 'nested-rows'
 an optional `basis` — the codes of `commitValueAtWithBasis` at `atIdx`, less what `missing` already says.
 
 ```typescript
-import { arrayProvenance, sliceForKey } from 'footprintjs/trace';
+import type { RuntimeSnapshot } from 'footprintjs';
+import { arrayProvenance, keysReadFromExecutionTree, sliceForKey } from 'footprintjs/trace';
 
-sliceForKey(log, 'cfg', reads).notes;   // [{ code: 'nested-rows', detail: "'cfg' was written only through paths inside it at commit 3 — …" }]
-sliceForKey(log, 'score', reads).notes; // undefined — the anchor wrote 'score' itself
-arrayProvenance(log, 'gone');           // { key: 'gone', missing: 'not-an-array', basis: ['deleted'] }
+// Application boundary: inspect an actual completed run, not an invented log.
+function inspectChanges(snapshot: RuntimeSnapshot) {
+  const log = snapshot.commitLog;
+  const reads = keysReadFromExecutionTree(snapshot.executionTree);
+  return {
+    cfg: sliceForKey(log, 'cfg', reads),
+    score: sliceForKey(log, 'score', reads),
+    gone: arrayProvenance(log, 'gone'),
+  };
+}
+// If cfg's last writer wrote only a nested row, cfg.notes includes 'nested-rows'.
+// An exact write of score needs no such note. A deleted gone array reports
+// missing: 'not-an-array' with basis: ['deleted']; a never-written key differs.
 ```
 
 ```typescript

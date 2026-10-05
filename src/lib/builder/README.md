@@ -43,9 +43,17 @@ The main class. Provides a fluent API for constructing the execution graph node 
 3. **stageMap registration** — Every function is registered in a Map<name, fn> as it's added. The engine looks up functions by name at runtime. If you forgot to register one, execution would fail silently. The builder makes this automatic.
 
 ```typescript
-import { flowChart } from 'footprintjs';
+import { flowChart, type TypedStageFunction } from 'footprintjs';
 
-const chart = flowChart('validate', validateFn, 'validate')
+interface RequestState { amount: number; total?: number; response?: string }
+const validateFn: TypedStageFunction<RequestState> = (scope) => {
+  scope.amount = 25;
+  if (scope.amount < 0) throw new Error('Amount must be non-negative');
+};
+const processFn: TypedStageFunction<RequestState> = (scope) => { scope.total = scope.amount * 2; };
+const respondFn: TypedStageFunction<RequestState> = (scope) => { scope.response = `Total: ${scope.total}`; };
+
+const chart = flowChart<RequestState>('validate', validateFn, 'validate')
   .addFunction('process', processFn, 'process')
   .addFunction('respond', respondFn, 'respond')
   .build();
@@ -67,13 +75,17 @@ const chart = flowChart('validate', validateFn, 'validate')
 ```typescript
 import { flowChart } from 'footprintjs';
 
-const chart = flowChart('seed', seedFn, 'seed')
-  .addFunction('call-llm', callFn, 'call-llm')
+// Local stand-ins keep this tagging example independent of a model or tool service.
+interface State { answer?: string; route: 'tools' | 'review' | 'answer' }
+const reviewChart = flowChart<{ reviewed: boolean }>('Review', (s) => { s.reviewed = true; }, 'reviewed').build();
+const memoryChart = flowChart<{ saved: boolean }>('Remember', (s) => { s.saved = true; }, 'saved').build();
+const chart = flowChart<State>('seed', (s) => { s.route = 'answer'; }, 'seed')
+  .addFunction('call-llm', (s) => { s.answer = 'A local draft'; }, 'call-llm')
   .tag('milestone:llm-turn')
-  .addDeciderFunction('route', routeFn, 'route', undefined, { tags: ['milestone:decision'] })
-  .addFunctionBranch('tools', 'tools', toolsFn, undefined, { tags: ['milestone:tool-call'] })
+  .addDeciderFunction('route', (s) => s.route, 'route', undefined, { tags: ['milestone:decision'] })
+  .addFunctionBranch('tools', 'tools', (s) => { s.answer = 'A local tool result'; }, undefined, { tags: ['milestone:tool-call'] })
   .addSubFlowChartBranch('review', reviewChart, 'review', { tags: ['slot:review'] })
-  .addFunctionBranch('answer', 'answer', answerFn)
+  .addFunctionBranch('answer', 'answer', (s) => { s.answer = s.answer?.trim(); })
   .end()
   .addSubFlowChartNext('memory', memoryChart, 'memory', { tags: ['slot:memory'] })
   .build();

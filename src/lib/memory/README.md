@@ -355,12 +355,17 @@ const next = applySmartMerge(
 ```typescript
 import { commitValueAt, UnknownVerbError } from 'footprintjs/trace';
 
-try {
-  commitValueAt(commitLogFromAnotherTool, commitLogFromAnotherTool.length - 1, 'history');
-} catch (error) {
-  if (error instanceof UnknownVerbError) {
-    // error.verb === 'upsert', error.path === 'history', error.row === 0, error.commit === 3
-    console.error(error.message); // unknown verb "upsert" on trace row 0 (path "history", commit 3): a commit row is one of set | merge | append | delete — the log is refused, not replayed as a merge
+// Application boundary: the adapter supplies a typed log. This catch also
+// defends against a foreign producer violating that contract at runtime.
+function readHistory(commitLogFromAnotherTool: Parameters<typeof commitValueAt>[0]) {
+  try {
+    return commitValueAt(commitLogFromAnotherTool, commitLogFromAnotherTool.length - 1, 'history');
+  } catch (error) {
+    if (error instanceof UnknownVerbError) {
+      // For an invalid 'upsert' row, the error names its verb, path and position.
+      console.error(error.message);
+    }
+    throw error; // do not turn an unreadable history into a successful result
   }
 }
 ```
@@ -406,15 +411,28 @@ A write found through a row INSIDE the key changed only PART of its value; `keyT
 **Every absence names its basis (F4b, 9.33.0).** `commitValueAt` and `findLastWriter` keep their signatures; each has a twin that returns the same answer with the codes that say what it rests on — `commitValueAtWithBasis(log, idx, key, { initialState? }) → { value, basis }` and `findLastWriterWithBasis(log, key, before?) → { writer?, basis }`. A value's basis: `'never-written'` (no writer in range), `'deleted'` (written, and its last write left it absent), `'nested-rows'` (it rests on rows inside the key, with no `set`/`delete` of the key or around it in range), `'from-initial-state'` (no such `set`/`delete`: with `initialState` it folds from that base — `stateAt`'s value — and without it the answer is partial), `'redacted'` (a commit it rests on lists a path at, inside or around the key in `redactedPaths` — asked of the path list, never of the placeholder string). An exact answer has `basis: []`. `test/architecture/absence-codes.test.ts` lists every `/trace` reader that can answer `undefined` or empty for a key and where its code lives.
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { commitValueAtWithBasis, HONESTY_CODES } from 'footprintjs/trace';
 
+const inner = flowChart<{ token: string }>('Token', (s) => { s.token = 'example-secret'; }, 'token').build();
+const chart = flowChart<{ cfg: { a: number; b?: string } }>('Start', () => {}, 'start')
+  .addSubFlowChartNext('sub', inner, 'Sub', {
+    outputMapper: (out: { token: string }) => ({ cfg: { b: out.token } }),
+  })
+  .build();
+const executor = new FlowChartExecutor(chart, { initialContext: { cfg: { a: 1 } } });
+executor.setRedactionPolicy({ fields: { cfg: ['b'] } });
+await executor.run();
 const snap = executor.getSnapshot();
 const last = snap.commitLog.length - 1;
 commitValueAtWithBasis(snap.commitLog, last, 'cfg');
 // { value: { b: 'REDACTED' }, basis: ['nested-rows', 'from-initial-state', 'redacted'] } — a redacted merge-back
-commitValueAtWithBasis(snap.commitLog, last, 'cfg', { initialState: snap.initialState }).value; // the stateAt value
+commitValueAtWithBasis(snap.commitLog, last, 'cfg', { initialState: snap.initialState }).value;
+// { a: 1, b: 'REDACTED' } — the fold can now include the untouched base field
 HONESTY_CODES['from-initial-state']; // the one sentence to show
-``` Since R13 that bundle is the subflow MOUNT's own commit, so the writer it names is the mount — see slice/README.md.
+```
+
+Since R13 that bundle is the subflow MOUNT's own commit, so the writer it names is the mount — see slice/README.md. This example's raw base contains no secret; a redacted snapshot omits `initialState` and cannot reconstruct untouched base fields.
 
 ## Honesty — one vocabulary for what a reader cannot see
 
@@ -429,14 +447,24 @@ A recording cannot always answer what it is asked, and the library says so in se
 **Why two leaves, both L0.** Each imports nothing. `utils.ts` (L1) writes the log placeholder and `redaction.ts` (L2) the scope one, on every redacted run; `slice/` and `time-travel/` (L3) type their codes through the registry. Kept in one file, the write path pulled the registry's sentences into every app bundle that runs a chart (layer table: `scripts/layering.config.cjs`).
 
 ```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { forwardSliceForKey, HONESTY_CODES, keysReadFromExecutionTree, stateAt } from 'footprintjs/trace';
 
+const chart = flowChart<{ creditTier: string; approved?: boolean }>('Seed', (s) => {
+  s.creditTier = 'A';
+}, 'seed')
+  .addFunction('Decide', (s) => { s.approved = s.creditTier === 'A'; }, 'decide')
+  .build();
+const executor = new FlowChartExecutor(chart, { readTracking: 'off' });
+await executor.run();
+const snapshot = executor.getSnapshot();
 // One lookup explains any honesty signal — no table of your own to keep in step.
 const { notes } = forwardSliceForKey(snapshot.commitLog, 'creditTier', keysReadFromExecutionTree(snapshot.executionTree));
 for (const { code } of notes) console.log(code, '→', HONESTY_CODES[code]);
 // reads-not-recorded → This log carries no recorded read at all (the readTracking: 'off' signature), so …
 
-const { basis } = stateAt(snapshot, 3);
+// A stored export containing only the log has no base; the live snapshot does.
+const { basis } = stateAt({ commitLog: snapshot.commitLog }, snapshot.commitLog.length - 1);
 console.log(HONESTY_CODES[basis]); // 'log-only' → No initialState travelled with this log (…), so the fold started from an empty object …
 ```
 

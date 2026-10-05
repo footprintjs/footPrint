@@ -81,8 +81,12 @@ Recorders don't exist _on top of_ the data layer. They exist _because of_ it. Th
 **Error isolation:** If a recorder throws, the error is caught and forwarded to `onError` hooks of other recorders. Scope operations continue normally. Recorders can never break execution.
 
 ```typescript
+import { flowChart, FlowChartExecutor, MetricRecorder } from 'footprintjs';
 import { narrative } from 'footprintjs/recorders';
 
+const chart = flowChart<{ count: number }>('Seed', (s) => { s.count = 1; }, 'seed')
+  .addFunction('Increment', (s) => { s.count += 1; }, 'increment')
+  .build();
 const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);
 executor.attachScopeRecorder(metrics);

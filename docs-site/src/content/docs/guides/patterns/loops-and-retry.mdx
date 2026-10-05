@@ -93,10 +93,23 @@ When loops run many iterations, the narrative grows. Use loop-aware strategies t
 
 ```ts
 import {
+  flowChart,
+  FlowChartExecutor,
   WindowedNarrativeFlowRecorder,
   AdaptiveNarrativeFlowRecorder,
   SilentNarrativeFlowRecorder,
 } from 'footprintjs';
+
+const chart = flowChart<{ count: number }>('Init', (scope) => {
+  scope.count = 0;
+}, 'init')
+  .addFunction('Tick', (scope) => {
+    scope.count += 1;
+    if (scope.count >= 8) scope.$break();
+  }, 'tick')
+  .loopTo('tick')
+  .build();
+const executor = new FlowChartExecutor(chart);
 
 // Keep first 3 + last 2 iterations
 executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
@@ -104,8 +117,9 @@ executor.attachFlowRecorder(new WindowedNarrativeFlowRecorder(3, 2));
 // Full for first 3, then every 5th
 executor.attachFlowRecorder(new AdaptiveNarrativeFlowRecorder(3, 5));
 
-// Summary only — "Looped 50 times"
+// Summary only — no per-iteration sentences
 executor.attachFlowRecorder(new SilentNarrativeFlowRecorder());
+await executor.run();
 ```
 
 <Aside>

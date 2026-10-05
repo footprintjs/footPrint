@@ -8,23 +8,36 @@ Auto-captures evidence from decider/selector functions. Two `when` formats:
 ## Usage
 
 ```typescript
-import { decide, select } from 'footprintjs';
+import { flowChart, decide, select } from 'footprintjs';
 
-// Decider (first-match)
-return decide(
-  scope,
-  [
+// Decider (first-match): the helper runs inside a registered stage scope.
+const lending = flowChart<{ creditScore: number; dti: number }>('Intake', (scope) => {
+  scope.creditScore = 750;
+  scope.dti = 0.35;
+}, 'intake')
+  .addDeciderFunction('Risk', (scope) => decide(scope, [
     { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
-    { when: (s) => complexLogic(s), then: 'manual-review', label: 'Complex case' },
-  ],
-  'rejected',
-);
+    { when: (s) => s.creditScore > 600, then: 'manual-review', label: 'Marginal credit' },
+  ], 'rejected'), 'risk')
+  .addFunctionBranch('approved', 'Approve', () => {})
+  .addFunctionBranch('manual-review', 'Review', () => {})
+  .addFunctionBranch('rejected', 'Reject', () => {})
+  .end()
+  .build();
 
 // Selector (all-match)
-return select(scope, [
-  { when: (s) => s.glucose > 100, then: 'diabetes', label: 'Elevated glucose' },
-  { when: { bmi: { gt: 30 } }, then: 'obesity', label: 'High BMI' },
-]);
+const screening = flowChart<{ glucose: number; bmi: number }>('Intake', (scope) => {
+  scope.glucose = 120;
+  scope.bmi = 31;
+}, 'intake')
+  .addSelectorFunction('Screen', (scope) => select(scope, [
+    { when: (s) => s.glucose > 100, then: 'diabetes', label: 'Elevated glucose' },
+    { when: { bmi: { gt: 30 } }, then: 'obesity', label: 'High BMI' },
+  ]), 'screen')
+  .addFunctionBranch('diabetes', 'Diabetes screening', () => {})
+  .addFunctionBranch('obesity', 'BMI assessment', () => {})
+  .end()
+  .build();
 ```
 
 ## Naming the default branch

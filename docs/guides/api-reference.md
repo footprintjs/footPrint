@@ -9,6 +9,8 @@ The `FlowChartBuilder` uses a fluent (D3-style) chaining API. Start with `flowCh
 ```typescript
 import { flowChart } from 'footprintjs';
 
+const startFn = () => { console.log('Start'); };
+const nextFn = () => { console.log('Next'); };
 const chart = flowChart('Start', startFn, 'start-id')
   .addFunction('Next', nextFn, 'next-id')
   .build();
@@ -48,8 +50,11 @@ After `.addDeciderFunction()` or `.addSelectorFunction()`:
 ## Executor API
 
 ```typescript
-import { FlowChartExecutor } from 'footprintjs';
+import { flowChart, FlowChartExecutor } from 'footprintjs';
 
+const chart = flowChart<{ greeting: string }>('Greet', (scope) => {
+  scope.greeting = `Hi ${scope.$getArgs<{ name: string }>().name}`;
+}, 'greet').build();
 const executor = new FlowChartExecutor(chart);
 await executor.run({ input: { name: 'Alice' } });
 ```
@@ -107,11 +112,15 @@ type StageFn = (
 
 ```typescript
 import { flowChart } from 'footprintjs';
+import { z } from 'zod';
 
-const chart = flowChart('Greet', greetFn, 'greet')
+const chart = flowChart<{ result: string }>('Greet', (scope) => {
+    scope.result = `Hi ${scope.$getArgs<{ name: string }>().name}`;
+  }, 'greet')
   .contract({
     input: z.object({ name: z.string() }),
     output: z.object({ result: z.string() }),
+    mapper: (scope) => ({ result: scope.result }),
   })
   .build();
 
