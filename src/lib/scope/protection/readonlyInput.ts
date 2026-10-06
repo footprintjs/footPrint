@@ -89,9 +89,13 @@ function copyProperties(source: object, target: object, copies: WeakMap<object, 
  */
 export function snapshotRunInput(input: unknown): unknown {
   if (input === null || typeof input !== 'object') return input;
-  // An owned root keeps ALL its own keys (non-enumerable ones included), so the
-  // readonly-key check over the snapshot refuses exactly what it refused over
-  // the input. A borrowed root (opaque or caller-frozen) falls back to the args view.
+  // The snapshot root keeps ALL the input's own keys (non-enumerable ones
+  // included), so the readonly-key check over it refuses exactly what it
+  // refused over the input. A borrowed root (opaque or caller-frozen) is not
+  // copied by the walk, so its keys are copied onto a plain frozen record here.
   const owned = snapshotValue(input, new WeakMap());
-  return owned !== input ? owned : createFrozenArgs(input);
+  if (owned !== input) return owned;
+  const root = {};
+  copyProperties(input, root, new WeakMap<object, object>([[input, root]]));
+  return Object.freeze(root);
 }

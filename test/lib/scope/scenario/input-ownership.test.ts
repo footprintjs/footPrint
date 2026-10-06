@@ -334,3 +334,43 @@ describe('run input ownership — work count', () => {
     expect(await readsFor(40)).toBe(one);
   });
 });
+
+describe('run input ownership — readonly keys of a borrowed root', () => {
+  class Opaque {
+    visible = 1;
+  }
+  const roots = {
+    'caller-frozen': () => Object.freeze(Object.defineProperty({ visible: 1 }, 'hidden', { value: 2 })),
+    opaque: () => Object.defineProperty(new Opaque(), 'hidden', { value: 2 }),
+  };
+
+  it.each(Object.keys(roots) as (keyof typeof roots)[])(
+    'a %s input keeps refusing writes to its non-enumerable own keys',
+    async (kind) => {
+      const outcomes: string[] = [];
+      const chart = flowChart<Record<string, number>>(
+        'Write',
+        (scope) => {
+          for (const key of ['hidden', 'visible']) {
+            try {
+              scope[key] = 9;
+              outcomes.push(`${key}: written`);
+            } catch (error) {
+              outcomes.push(`${key}: ${(error as Error).message}`);
+            }
+          }
+          outcomes.push(`args: ${JSON.stringify(scope.$getArgs())}`);
+        },
+        'write',
+      ).build();
+
+      await new FlowChartExecutor(chart).run({ input: roots[kind]() });
+
+      expect(outcomes).toEqual([
+        'hidden: Cannot write to readonly input key "hidden" — use getArgs() to read input values',
+        'visible: Cannot write to readonly input key "visible" — use getArgs() to read input values',
+        'args: {"visible":1}',
+      ]);
+    },
+  );
+});
