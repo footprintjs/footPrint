@@ -27,6 +27,7 @@ import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
+import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
@@ -614,7 +615,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throttlingErrorChecker: opts.throttlingErrorChecker,
       streamHandlers: opts.streamHandlers,
       scopeProtectionMode: opts.scopeProtectionMode ?? 'error',
-      readOnlyContext: opts.readOnlyContext,
+      // ONE owned frozen snapshot per traverser (= per run/resume leg, per subflow mount):
+      // every scope of the leg gets it, so each pays O(root keys), not O(input).
+      readOnlyContext: snapshotRunInput(opts.readOnlyContext),
       executionEnv: opts.executionEnv,
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
