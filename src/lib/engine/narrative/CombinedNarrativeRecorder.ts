@@ -22,6 +22,18 @@ import type { EmitEvent } from '../../recorder/EmitRecorder.js';
 import { SequenceStore } from '../../recorder/SequenceStore.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import { resolveText } from './formatting/resolveText.js';
+import {
+  breakSentence,
+  decisionSentence,
+  errorSentence,
+  forkSentence,
+  loopSentence,
+  nextStageSentence,
+  pauseSentence,
+  resumeSentence,
+  validationDetails,
+  validationSentence,
+} from './formatting/sentences.js';
 import type {
   BreakRenderContext,
   CombinedNarrativeEntry,
@@ -454,7 +466,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     // channel's PauseEvent is ignored to avoid duplicate entries.
     if (!isFlowEvent(event)) return;
     if (!event.stageName || !event.stageId) return;
-    const text = `Execution paused at ${event.stageName}.`;
+    const text = pauseSentence(event);
     this.store.push({
       type: 'pause',
       text,
@@ -470,8 +482,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     // Same isFlowEvent discriminant as onPause — ignore scope ResumeEvent.
     if (!isFlowEvent(event)) return;
     if (!event.stageName || !event.stageId) return;
-    const suffix = event.hasInput ? ' with input.' : '.';
-    const text = `Execution resumed at ${event.stageName}${suffix}`;
+    const text = resumeSentence(event);
     this.store.push({
       type: 'resume',
       text,
@@ -491,12 +502,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
 
     let validationIssues: string | undefined;
     if (event.structuredError?.issues?.length) {
-      validationIssues = event.structuredError.issues
-        .map((issue) => {
-          const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-          return `${path}: ${issue.message}`;
-        })
-        .join('; ');
+      validationIssues = validationDetails(event.structuredError.issues);
     }
 
     const ctx: ErrorRenderContext = {
@@ -770,7 +776,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         ? `Looped back: ${ctx.description} (pass ${ctx.loopIteration}).`
         : `Looped back to ${ctx.stageName} (pass ${ctx.loopIteration}).`;
     } else {
-      inner = ctx.description ? `Next step: ${ctx.description}.` : `Next, it moved on to ${ctx.stageName}.`;
+      inner = nextStageSentence(ctx);
     }
     return `Stage ${ctx.stageNumber}: ${inner}`;
   }
@@ -824,21 +830,14 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         const defaultLabel = evidence.defaultLabel ? ` "${evidence.defaultLabel}"` : '';
         conditionText = `No rules matched${errorNote}, fell back to default${defaultLabel}: ${branchName}.`;
       }
-    } else if (ctx.description && ctx.rationale) {
-      conditionText = `It ${ctx.description}: ${ctx.rationale}, so it chose ${branchName}.`;
-    } else if (ctx.description) {
-      conditionText = `It ${ctx.description} and chose ${branchName}.`;
-    } else if (ctx.rationale) {
-      conditionText = `A decision was made: ${ctx.rationale}, so the path taken was ${branchName}.`;
     } else {
-      conditionText = `A decision was made, and the path taken was ${branchName}.`;
+      conditionText = decisionSentence(ctx);
     }
     return `[Condition]: ${conditionText}`;
   }
 
   private defaultRenderFork(ctx: ForkRenderContext): string {
-    const names = ctx.children.join(', ');
-    return `[Parallel]: Forking into ${ctx.children.length} parallel paths: ${names}.`;
+    return `[Parallel]: ${forkSentence(ctx)}`;
   }
 
   private defaultRenderSelected(ctx: SelectedRenderContext): string {
@@ -874,13 +873,11 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   }
 
   private defaultRenderLoop(ctx: LoopRenderContext): string {
-    return ctx.description
-      ? `On pass ${ctx.iteration}: ${ctx.description} again.`
-      : `On pass ${ctx.iteration} through ${ctx.target}.`;
+    return loopSentence(ctx);
   }
 
   private defaultRenderBreak(ctx: BreakRenderContext): string {
-    return `Execution stopped at ${ctx.stageName}.`;
+    return breakSentence(ctx);
   }
 
   private defaultRenderRetry(ctx: RetryRenderContext): string {
@@ -889,10 +886,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   }
 
   private defaultRenderError(ctx: ErrorRenderContext): string {
-    let text = `An error occurred at ${ctx.stageName}: ${ctx.message}.`;
-    if (ctx.validationIssues) {
-      text += ` Validation issues: ${ctx.validationIssues}.`;
-    }
+    let text = errorSentence(ctx);
+    if (ctx.validationIssues) text += validationSentence(ctx.validationIssues);
     return `[Error]: ${text}`;
   }
 }

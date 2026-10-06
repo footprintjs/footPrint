@@ -39,4 +39,4 @@ console.log(windowed.getSentences().filter((s) => s.startsWith('On pass') || s.s
 // ['On pass 1 through Work.', 'On pass 2 through Work.', '... (36 iterations omitted)', 'On pass 39 through Work.']
 ```
 
-Layer L5 (`scripts/layering.config.cjs`): imports `../NarrativeFlowRecorder` (value) and `../types` (type) only. Each is its own file so only what you import ships; all are on `footprintjs`, and `adaptive()`, `milestone()`, `windowed()` and `manifest()` are the `footprintjs/recorders` factories. See also [`../README.md`](../README.md).
+Layer L5 (`scripts/layering.config.cjs`): imports `../NarrativeFlowRecorder`, the stateless ordinary-loop wording in [`../formatting/`](../formatting/README.md), and event types from `../types`. Formatting happens at each strategy's existing capture or export boundary; the helper does not own grouping or retention. Each recorder is its own file so only what you import ships; all are on `footprintjs`, and `adaptive()`, `milestone()`, `windowed()` and `manifest()` are the `footprintjs/recorders` factories. See also [`../README.md`](../README.md).

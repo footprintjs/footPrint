@@ -14,6 +14,7 @@
  * ```
  */
 
+import { loopSentence } from '../formatting/sentences.js';
 import { NarrativeFlowRecorder } from '../NarrativeFlowRecorder.js';
 import type { FlowLoopEvent } from '../types.js';
 
@@ -52,17 +53,17 @@ export class WindowedNarrativeFlowRecorder extends NarrativeFlowRecorder {
       if (total <= this.head + this.tail) {
         // Small loop — emit all iterations
         for (const ev of events) {
-          result.push(this.formatLoopSentence(ev));
+          result.push(loopSentence(ev));
         }
       } else {
         // Large loop — head + skip summary + tail
         for (let i = 0; i < this.head; i++) {
-          result.push(this.formatLoopSentence(events[i]));
+          result.push(loopSentence(events[i]));
         }
         const skipped = total - this.head - this.tail;
         result.push(`... (${skipped} iterations omitted)`);
         for (let i = total - this.tail; i < total; i++) {
-          result.push(this.formatLoopSentence(events[i]));
+          result.push(loopSentence(events[i]));
         }
       }
     }
@@ -84,12 +85,5 @@ export class WindowedNarrativeFlowRecorder extends NarrativeFlowRecorder {
   override clear(): void {
     super.clear();
     this.loopEvents.clear();
-  }
-
-  private formatLoopSentence(event: FlowLoopEvent): string {
-    if (event.description) {
-      return `On pass ${event.iteration}: ${event.description} again.`;
-    }
-    return `On pass ${event.iteration} through ${event.target}.`;
   }
 }
