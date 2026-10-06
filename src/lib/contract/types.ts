@@ -1,12 +1,9 @@
 /**
- * contract/types.ts — Types for the FlowChart contract layer.
+ * contract/types.ts — Schema types for the FlowChart contract layer.
  *
- * JsonSchema and SchemaInput describe the active normalization boundary.
- * The other declarations retain their existing public shapes for consumers;
- * they describe the legacy contract API, not RunnableChart.toOpenAPI output.
+ * JsonSchema and SchemaInput describe the normalization boundary. The chart's
+ * own OpenAPI options are `ChartOpenAPIOptions` (runner/RunnableChart.ts).
  */
-
-import type { FlowChart } from '../builder/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JSON Schema (subset of JSON Schema Draft 2020-12 / OpenAPI 3.1)
@@ -35,91 +32,3 @@ export type JsonSchema = {
 
 /** Anything with a `def` (Zod v4) or `_def` (Zod v3) property is treated as a Zod schema. */
 export type SchemaInput = JsonSchema | { def: unknown; [key: string]: unknown };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FlowChart Contract — I/O boundary definition
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface FlowChartContractOptions<_TInput = unknown, TOutput = unknown> {
-  /** Schema describing the input (readOnlyContext) shape. Zod or JSON Schema. */
-  inputSchema?: SchemaInput;
-  /** Schema describing the output shape. Zod or JSON Schema. */
-  outputSchema?: SchemaInput;
-  /** Maps the final scope state into the response shape. */
-  outputMapper?: (finalScope: Record<string, unknown>) => TOutput;
-}
-
-export interface FlowChartContract<_TInput = unknown, TOutput = unknown> {
-  /**
-   * Prototype-linked view of the original compiled FlowChart.
-   *
-   * Own properties (inputSchema, outputSchema, outputMapper) are shadowed here
-   * so that the contract's values take precedence over builder-set values.
-   * All other fields (root, stageMap, methods) are inherited via the prototype
-   * chain with zero copying. The original chart is never mutated.
-   *
-   * ⚠️ Do NOT use Object.keys(), spread ({...chart}), or JSON.stringify() on
-   * this object — it will only see own (shadowed) properties. Use named
-   * property access or chart.toSpec() instead.
-   */
-  chart: FlowChart;
-  /** JSON Schema for the input (normalized from Zod or raw). */
-  inputSchema?: JsonSchema;
-  /** JSON Schema for the output (normalized from Zod or raw). */
-  outputSchema?: JsonSchema;
-  /** Maps the final scope state into the response shape. */
-  outputMapper?: (finalScope: Record<string, unknown>) => TOutput;
-  /** Auto-generated OpenAPI spec. Description is read from `chart.description` (pre-built at build time). */
-  toOpenAPI(options?: OpenAPIOptions): OpenAPISpec;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OpenAPI Types (minimal subset of OpenAPI 3.1)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface OpenAPIOptions {
-  /** API version string (default: "1.0.0"). */
-  version?: string;
-  /** Base path prefix (default: "/"). */
-  basePath?: string;
-  /** HTTP method for the execute endpoint (default: "post"). */
-  method?: string;
-}
-
-export interface OpenAPISpec {
-  openapi: '3.1.0';
-  info: {
-    title: string;
-    description: string;
-    version: string;
-  };
-  paths: Record<string, Record<string, OpenAPIOperation>>;
-  components?: {
-    schemas?: Record<string, JsonSchema>;
-  };
-}
-
-export interface OpenAPIOperation {
-  operationId: string;
-  summary: string;
-  description: string;
-  requestBody?: {
-    required: boolean;
-    content: {
-      'application/json': {
-        schema: JsonSchema | { $ref: string };
-      };
-    };
-  };
-  responses: Record<
-    string,
-    {
-      description: string;
-      content?: {
-        'application/json': {
-          schema: JsonSchema | { $ref: string };
-        };
-      };
-    }
-  >;
-}
