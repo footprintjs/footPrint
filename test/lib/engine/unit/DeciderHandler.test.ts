@@ -24,6 +24,8 @@ function makeContext(overrides: Record<string, any> = {}): any {
     stageName: 'testStage',
     commit: vi.fn(),
     addError: vi.fn(),
+    addDiagnostic: vi.fn((_channel: string, _key: string, value: unknown) => value),
+    getRedactionRule: vi.fn(() => undefined),
     addFlowDebugMessage: vi.fn(),
     createNext: vi.fn().mockReturnValue({ stageName: 'next' }),
     createChild: vi.fn().mockReturnValue({ stageName: 'branch' }),
@@ -169,14 +171,18 @@ describe('DeciderHandler', () => {
       // Should commit even on error
       expect(context.commit).toHaveBeenCalled();
       // Should log error to context
-      expect(context.addError).toHaveBeenCalledWith('stageExecutionError', expect.stringContaining('Stage exploded'));
+      expect(context.addDiagnostic).toHaveBeenCalledWith(
+        'errors',
+        'stageExecutionError',
+        expect.stringContaining('Stage exploded'),
+      );
       // Should log to deps.logger
       expect(deps.logger.error).toHaveBeenCalled();
       // Should call narrative generator onError
       expect(narrativeGenerator.onError).toHaveBeenCalledWith(
         'deciderStage',
         expect.stringContaining('Stage exploded'),
-        expect.any(Error),
+        expect.objectContaining({ message: 'Stage exploded', raw: expect.any(Error) }),
         undefined,
       );
     });

@@ -28,6 +28,8 @@
  */
 
 import { isDevMode } from '../devMode.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import { nativeGet, nativeHas, nativeSet, ownedRootOf, ownSpine } from './pathOps.js';
 import { DELIM } from './paths.js';
 import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
@@ -140,6 +142,8 @@ export class RedactionRule {
    * the rule once per run and installs it on the runtime root).
    */
   private marked: Set<string>;
+  /** This run's failed-stage errors whose text the diagnostic policy masked → their served form. */
+  private maskedErrors: Map<unknown, StructuredErrorInfo> | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
@@ -228,6 +232,57 @@ export class RedactionRule {
     return this.diagnosticRule ? this.diagnosticRule.retain(path, value) : value;
   }
 
+  /**
+   * The served form of a failed stage's error, decided ONCE at its error site from the
+   * text the diagnostic collector retained for `errors.stageExecutionError` (`kept`).
+   * Unmasked: today's structured info. Masked: the placeholder as the message, the
+   * error's `name`/`code` kept, no `issues` (they quote the input) and no `raw` error
+   * (its message and stack hold the text) — remembered so `onRunFailed` serves the
+   * same form ({@link servedError}). The thrown value itself stays real.
+   */
+  retainStageError(
+    error: unknown,
+    text: string,
+    kept: unknown,
+  ): { message: string; structuredError: StructuredErrorInfo } {
+    const info = extractErrorInfo(error);
+    if (kept === text) return { message: text, structuredError: info };
+    const message = String(kept);
+    const masked: StructuredErrorInfo = {
+      message,
+      ...(info.name !== undefined && { name: info.name }),
+      ...(info.code !== undefined && { code: info.code }),
+      raw: undefined,
+    };
+    (this.maskedErrors ??= new Map()).set(error, masked);
+    return { message, structuredError: masked };
+  }
+
+  /**
+   * What any observer is served for a thrown value — retry, throttle, run
+   * failure, a fork envelope, the logger: its remembered stage form, else the
+   * same decision made now (and remembered), else its structured info.
+   */
+  servedError(error: unknown): StructuredErrorInfo {
+    const masked = this.maskedError(error);
+    // Each event gets its own object, as extractErrorInfo gives it one.
+    return masked ? { ...masked } : extractErrorInfo(error);
+  }
+
+  /** What the logger is handed: the thrown value itself unless the policy masked its text. */
+  loggableError(error: unknown): unknown {
+    const masked = this.maskedError(error);
+    return masked ? { ...masked } : error;
+  }
+
+  private maskedError(error: unknown): StructuredErrorInfo | undefined {
+    const known = this.maskedErrors?.get(error);
+    if (known || this.isDiagnosticInert()) return known;
+    const text = thrownText(error);
+    this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
+    return this.maskedErrors?.get(error);
+  }
+
   /** Keep no-diagnostic-policy collectors inert, including borrowed getters. */
   isDiagnosticInert(): boolean {
     return !this.diagnosticRule || this.diagnosticRule.isInert();
@@ -294,10 +349,10 @@ export class RedactionRule {
   }
 
   /**
-   * The retained form of a record (root boundary, subflow seed, state read):
-   * each own enumerable string key through {@link retain}. Fields are paths
-   * inside that keyed value, not a recursive key/content search. Scalars and
-   * root arrays pass through; fork result envelopes need explicit child paths.
+   * The retained form of a STATE record (state read, mirror seed): each own
+   * enumerable string key through {@link retain}. Fields are paths inside that
+   * keyed value. Scalars and root arrays pass through. Boundary records add
+   * the nested-key walk: {@link retainBoundary}.
    * Returns the SAME object when unchanged. An inert rule does not enumerate
    * the value, so even an accessor is untouched on the no-policy fast path.
    */
@@ -311,6 +366,94 @@ export class RedactionRule {
       out[key] = kept;
     }
     return (out ?? record) as T;
+  }
+
+  /**
+   * The retained form of a BOUNDARY record — root input/output and a subflow's
+   * mapped seed, before any observer sees it. {@link retainRecord} decides each
+   * top key; then every NESTED own key is a key too: secret when its own name
+   * or its dotted path is redacted at key level (`keys: ['secret']` covers
+   * `{ wrapper: { secret } }`; a root array's elements are walked the same
+   * way). Only a value that holds such a key is cloned — once, so cycles and
+   * aliases survive — and scrubbed in the clone; the live value is never
+   * touched. Returns the SAME object when nothing nested is secret, and an
+   * inert rule enumerates nothing. State keeps its own path verdicts
+   * ({@link verdict}); this walk is for records handed out whole.
+   */
+  retainBoundary<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
+    // A masked stage error inside the record (a fork envelope's `result`) is
+    // served in its masked form: an Error's message is non-enumerable and a
+    // thrown string is a plain value, so no key walk sees either.
+    const served = this.maskedErrors?.size ? (this.withServedErrors(record, new Map()) as T) : record;
+    if (this.isInert() || served === null || typeof served !== 'object') return served;
+    const top = this.retainRecord(served, placeholder) as unknown as Record<string, unknown>;
+    let out: Record<string, unknown> | unknown[] | undefined;
+    for (const [key, value] of Object.entries(top)) {
+      if (value === null || typeof value !== 'object' || !this.holdsNestedKey(value, key, new WeakSet())) continue;
+      const owned = structuredClone(value) as object;
+      this.scrubNestedKeys(owned, key, placeholder, new WeakSet());
+      out ??= Array.isArray(top) ? [...top] : { ...top };
+      (out as Record<string, unknown>)[key] = owned;
+    }
+    return (out ?? top) as T;
+  }
+
+  /**
+   * Copy-on-write over plain containers: every remembered masked error becomes
+   * its served form — an object error its masked structured info, a thrown
+   * string/number its masked text (the value keeps being a scalar). A scalar is
+   * matched by VALUE, so an unrelated field that happens to equal a masked
+   * thrown string is masked too: over-masking is the safe direction.
+   * `undefined`/`null`/booleans are never swapped — they carry no text, and
+   * swapping them would rewrite ordinary data shapes.
+   */
+  private withServedErrors(value: unknown, done: Map<object, unknown>): unknown {
+    if (value === null || typeof value !== 'object') {
+      const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
+      const masked = swappable ? this.maskedErrors?.get(value) : undefined;
+      return masked ? masked.message : value;
+    }
+    const masked = this.maskedErrors?.get(value);
+    if (masked) return { ...masked };
+    if (done.has(value)) return done.get(value);
+    done.set(value, value);
+    let copy: Record<string, unknown> | unknown[] | undefined;
+    for (const [key, child] of Object.entries(value)) {
+      const kept = this.withServedErrors(child, done);
+      if (kept === child) continue;
+      copy ??= Array.isArray(value) ? [...value] : { ...(value as Record<string, unknown>) };
+      (copy as Record<string, unknown>)[key] = kept;
+    }
+    if (copy) done.set(value, copy);
+    return copy ?? value;
+  }
+
+  /** A nested own key whose name or dotted path is redacted at key level. */
+  private nestedKeyRedacted(name: string, dotted: string): boolean {
+    return this.isKeyRedacted(name) || this.isKeyRedacted(dotted);
+  }
+
+  private holdsNestedKey(node: object, dotted: string, seen: WeakSet<object>): boolean {
+    if (seen.has(node)) return false;
+    seen.add(node);
+    for (const [name, child] of Object.entries(node)) {
+      const path = `${dotted}.${name}`;
+      if (this.nestedKeyRedacted(name, path)) return true;
+      if (child !== null && typeof child === 'object' && this.holdsNestedKey(child, path, seen)) return true;
+    }
+    return false;
+  }
+
+  /** In place, on a clone this rule owns. */
+  private scrubNestedKeys(node: object, dotted: string, placeholder: string, seen: WeakSet<object>): void {
+    if (seen.has(node)) return;
+    seen.add(node);
+    const record = node as Record<string, unknown>;
+    for (const [name, child] of Object.entries(record)) {
+      const path = `${dotted}.${name}`;
+      if (this.nestedKeyRedacted(name, path)) record[name] = placeholder;
+      else if (child !== null && typeof child === 'object') this.scrubNestedKeys(child, path, placeholder, seen);
+    }
   }
 
   /**

@@ -72,6 +72,8 @@ export interface StageRenderContext {
   description?: string;
   /** Loop iteration number (1-based). Present when this stage is visited via loopTo(). */
   loopIteration?: number;
+  /** True for the stage a resume re-entered: its arrival was already told by the resume entry. */
+  resumed?: boolean;
 }
 
 /** Context passed to renderOp. Return null to exclude the entry. */

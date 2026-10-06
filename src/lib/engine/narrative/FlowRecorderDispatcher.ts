@@ -13,7 +13,6 @@
 
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
-import { extractErrorInfo } from '../../errors/errorInfo.js';
 import { fire, warnInDevMode } from '../../recorder/hooks.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
@@ -161,9 +160,13 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     fire(this.recorders, 'onBreak', event, FLOW_FAILURE);
   }
 
-  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void {
+  onError(
+    stageName: string,
+    errorMessage: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const structuredError = extractErrorInfo(error);
     const event = { stageName, message: errorMessage, structuredError, traversalContext, channel: 'flow' as const };
     fire(this.recorders, 'onError', event, FLOW_FAILURE);
   }
@@ -174,11 +177,10 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     attempt: number,
     maxAttempts: number,
     delayMs: number,
-    error: unknown,
+    structuredError: StructuredErrorInfo,
     traversalContext?: TraversalContext,
   ): void {
     if (this.recorders.length === 0) return;
-    const structuredError = extractErrorInfo(error);
     const event: FlowStageRetryEvent = {
       stageName,
       stageId,
@@ -193,9 +195,13 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     fire(this.recorders, 'onStageRetry', event, FLOW_FAILURE);
   }
 
-  onThrottled(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void {
+  onThrottled(
+    stageName: string,
+    stageId: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const structuredError = extractErrorInfo(error);
     const event: FlowThrottledEvent = {
       stageName,
       stageId,

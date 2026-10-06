@@ -140,7 +140,6 @@ export { DEFAULT_RUN_POLICY, runPolicy } from './lib/memory/index.js';
 
 export type { ReactiveOptions, ReactiveTarget } from './lib/reactive/index.js';
 export {
-  BREAK_SETTER,
   buildNestedPatch,
   createArrayProxy,
   isHandle,

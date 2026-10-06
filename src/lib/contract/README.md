@@ -25,6 +25,6 @@ chart.toOpenAPI({ title: 'Greeter', path: '/greet' }); // OpenAPI 3.1, schemas i
 chart.toMCPTool(); // { name: 'greet', description, inputSchema } — the shape an MCP client expects
 ```
 
-That `.contract()` + `chart.toOpenAPI()` pair is the public door. `footprintjs/advanced` exports `normalizeSchema` and `zodToJsonSchema`; `JsonSchema` is exported from `footprintjs`. Existing legacy type-only exports (`FlowChartContract`, `FlowChartContractOptions`, `OpenAPIOptions`, `OpenAPISpec`) remain unchanged for consumers, but do not describe the current chart API: use `ChartOpenAPIOptions` for its options. In particular, the legacy `OpenAPISpec` requires fields the public generator does not emit; do not cast the public result to it.
+That `.contract()` + `chart.toOpenAPI()` pair is the public door. `footprintjs/advanced` exports `normalizeSchema` and `zodToJsonSchema`; `JsonSchema` is exported from `footprintjs`. The chart's OpenAPI options type is `ChartOpenAPIOptions`.
 
 Layer L7 (`scripts/layering.config.cjs`): imports `schema/detect` (L0); the retained legacy declarations import `builder/types` as types only. `runner/` imports schema normalization. See also [`../README.md`](../README.md) and the [contracts guide](../../../docs/guides/contracts.md).

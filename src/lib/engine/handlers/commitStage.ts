@@ -9,7 +9,7 @@
  * stage before the error propagates.
  */
 
-import { thrownText } from '../../errors/errorInfo.js';
+import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import type { IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
 
@@ -22,7 +22,7 @@ export function commitStage(
   try {
     context.commit();
   } catch (error: unknown) {
-    narrative.onError(stageName, thrownText(error), error, traversalContext);
+    narrative.onError(stageName, thrownText(error), extractErrorInfo(error), traversalContext);
     throw error;
   }
 }

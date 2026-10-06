@@ -287,30 +287,3 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$detachAndForget',
   '$toRaw',
 ]);
-
-// -- Internal: Symbol for deferred break injection ---------------------------
-// StageRunner sets this after scope creation so $break() works.
-// Private Symbol (not Symbol.for) to prevent cross-module tampering.
-
-export const BREAK_SETTER = Symbol('footprint:reactive:setBreak');
-
-// -- Internal: Symbol for TypedScope detection -------------------------------
-// Retained for consumers inspecting TypedScope. Engine assignment handling is
-// declared through scope/runtime, not discovered through a user proxy.
-
-export const IS_TYPED_SCOPE = Symbol('footprint:reactive:isTypedScope');
-
-// -- Internal: executor method allowlist -------------------------------------
-// Historical direct TypedScope pass-throughs, retained for consumers. Engine
-// callers use the registered runtime port; this is NOT the engine protocol.
-
-export const EXECUTOR_INTERNAL_METHODS = new Set([
-  'notifyStageStart',
-  'notifyStageEnd',
-  'notifyPause',
-  'attachScopeRecorder',
-  'detachScopeRecorder',
-  'getScopeRecorders',
-  'useSharedRedactedKeys',
-  'useRedactionPolicy',
-]);

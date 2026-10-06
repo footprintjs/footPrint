@@ -197,7 +197,7 @@ is the defect this shape removes.
 
 | Orchestrator (file · symbol) | Holds | Decides itself |
 |---|---|---|
-| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `internalRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
+| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
 | `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
 | `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
 | `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |

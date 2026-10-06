@@ -79,6 +79,7 @@ function makeContext(): any {
     mergeObject: vi.fn(),
     useAddressOf: vi.fn(),
     getPolicy: () => DEFAULT_RUN_POLICY,
+    getRedactionRule: () => DEFAULT_RUN_POLICY.redaction,
   };
   ctx.createChild.mockImplementation((_runId: string, branchId: string, name: string) => {
     const child = makeContext();

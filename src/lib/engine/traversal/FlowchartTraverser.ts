@@ -27,6 +27,7 @@ import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
+import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
 import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
@@ -41,6 +42,7 @@ import type { QueuedPause } from '../handlers/ResumeEntry.js';
 import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
+import { loggableStageError, recordStageError, servedStageError } from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
@@ -613,7 +615,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throttlingErrorChecker: opts.throttlingErrorChecker,
       streamHandlers: opts.streamHandlers,
       scopeProtectionMode: opts.scopeProtectionMode ?? 'error',
-      readOnlyContext: opts.readOnlyContext,
+      // ONE owned frozen snapshot per traverser (= per run/resume leg, per subflow mount):
+      // every scope of the leg gets it, so each pays O(root keys), not O(input).
+      readOnlyContext: snapshotRunInput(opts.readOnlyContext),
       executionEnv: opts.executionEnv,
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
@@ -659,7 +663,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (isTopLevel) {
       // Retain at the boundary, before dispatch or deferred capture — the
       // same owner as subflow entry, not a recorder-local scrub or later walk.
-      const input = redactionRule ? redactionRule.retainRecord(this.readOnlyContext) : this.readOnlyContext;
+      const input = redactionRule ? redactionRule.retainBoundary(this.readOnlyContext) : this.readOnlyContext;
       this.narrativeGenerator.onRunStart(input, rootContext);
     }
 
@@ -682,10 +686,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       result = await walk();
       // Read the shared rule now so marks made during execution apply to
       // this event. A scrub failure closes the run as failed, never raw.
-      retainedResult = redactionRule ? redactionRule.retainRecord(result) : result;
+      retainedResult = redactionRule ? redactionRule.retainBoundary(result) : result;
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
-        this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
+        this.narrativeGenerator.onRunFailed(
+          redactionRule ? redactionRule.servedError(error) : extractErrorInfo(error),
+          rootContext,
+        );
       }
       throw error;
     }
@@ -916,7 +923,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // re-run a stage that asked to SUSPEND (and would break resume, which
         // re-enters this stage from its top). Covers both raise shapes:
         // `addPausableFunction` returning data, and `interrupt()`.
-        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error)) {
+        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error, context)) {
           throw error;
         }
         // A cancelled run must not sit through a backoff and then try again.
@@ -936,7 +943,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           attempt,
           maxAttempts,
           delayMs,
-          error,
+          servedStageError(context, error),
           traversalContext,
         );
         if (delayMs > 0) await sleep(delayMs, this.signal);
@@ -982,13 +989,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
    *  predicate must never turn a failing stage into an endless retry loop. */
-  private shouldRetry(policy: NonNullable<StageNode<TOut, TScope>['retry']>, error: unknown): boolean {
+  private shouldRetry(
+    policy: NonNullable<StageNode<TOut, TScope>['retry']>,
+    error: unknown,
+    context: StageContext,
+  ): boolean {
     if (!policy.retryOn) return true;
     try {
       return policy.retryOn(error) === true;
     } catch (predicateError) {
+      // A predicate may rethrow the stage's own error: the logger gets the served form.
       this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
-        error: predicateError,
+        error: loggableStageError(context, predicateError),
       });
       return false;
     }
@@ -1032,7 +1044,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const depth = this.nestingDepthOf(context);
     if (depth > this._maxDepth) {
       const error = new TraversalDepthError(this._maxDepth, node.name);
-      this.narrativeGenerator.onError(node.name, thrownText(error), error);
+      this.narrativeGenerator.onError(node.name, thrownText(error), extractErrorInfo(error));
       throw error;
     }
 
@@ -1494,9 +1506,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           throw error;
         }
         context.commit();
-        this.narrativeGenerator.onError(node.name, thrownText(error), error, traversalContext);
-        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
-        context.addError('stageExecutionError', thrownText(error));
+        const served = recordStageError(context, error);
+        this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
+        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
+          error: loggableStageError(context, error),
+        });
         throw error;
       }
       commitStage(context, this.narrativeGenerator, node.name, traversalContext);

@@ -11,7 +11,7 @@
 export type { ReactiveOptions, ReactiveTarget, ScopeMethods, TypedScope } from './types.js';
 
 // Runtime constants
-export { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
+export { SCOPE_METHOD_NAMES } from './types.js';
 
 // Core factory
 export { createTypedScope } from './createTypedScope.js';

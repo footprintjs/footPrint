@@ -37,6 +37,7 @@ function makeContext(): any {
     commit: vi.fn(),
     updateObject: vi.fn(),
     stageName: 'child-stage',
+    getRedactionRule: vi.fn(() => undefined),
     createChild: vi.fn(),
     createNext: vi.fn(),
   }));
@@ -212,7 +213,12 @@ describe('ChildrenExecutor', () => {
       await executor.executeNodeChildren(node, context);
 
       expect(throttlingErrorChecker).toHaveBeenCalledWith(error);
-      expect(onThrottled).toHaveBeenCalledWith('child', 'c1', error, undefined);
+      expect(onThrottled).toHaveBeenCalledWith(
+        'child',
+        'c1',
+        expect.objectContaining({ message: error.message, raw: error }),
+        undefined,
+      );
       const childCtx = context.createChild.mock.results[0].value;
       expect(childCtx.updateObject).not.toHaveBeenCalled();
       // The fan-out's settle commit names itself a continuation of the child's execution.

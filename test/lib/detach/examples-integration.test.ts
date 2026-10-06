@@ -10,11 +10,11 @@
  * If you add a new example file, this test picks it up automatically
  * via the `Detach examples` glob discovery — no test edit needed.
  *
- * **CI gotcha:** the examples `import { ... } from 'footprintjs'`,
- * which resolves to `dist/index.js` per `package.json#main`. CI runs
- * `npm test` BEFORE `npm run build`, so `dist/` doesn't exist yet
- * during this test. The `beforeAll` below builds dist/ if missing
- * (no-op locally where dist is already current).
+ * The examples `import { ... } from 'footprintjs'`, which resolves to
+ * `dist/index.js` per `package.json#main`, so this test runs only from
+ * `npm run test:examples` (vitest.examples.config.ts), which builds first.
+ * It never builds — a build here would delete `dist/` under every other
+ * test that reads it.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -34,18 +34,10 @@ const exampleFiles = readdirSync(examplesDir)
 
 describe('detach/examples — integration', () => {
   beforeAll(() => {
-    // Examples import from 'footprintjs' which resolves to dist/. In
-    // CI's `npm test` step, dist/ doesn't exist yet — build it once
-    // here so every example can resolve the package. Locally this is
-    // a no-op (dist is already current from prior builds).
     if (!existsSync(distMain)) {
-      execFileSync('npm', ['run', 'build'], {
-        cwd: projectRoot,
-        stdio: 'inherit',
-        timeout: 180_000,
-      });
+      throw new Error('dist/ is missing — run this through `npm run test:examples`, which builds first.');
     }
-  }, 200_000);
+  });
 
   it('discovers at least 8 examples (regression guard against accidental deletion)', () => {
     expect(exampleFiles.length).toBeGreaterThanOrEqual(8);

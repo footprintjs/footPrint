@@ -106,8 +106,16 @@ export interface IControlFlowNarrative {
     propagatedFromSubflow?: string,
   ): void;
 
-  /** Called when a stage throws an error. Raw error is extracted into structured details. */
-  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
+  /**
+   * Called when a stage throws an error, with its SERVED form: for a stage's own failure that is
+   * `RedactionRule.retainStageError` (the diagnostic policy applied once), elsewhere `extractErrorInfo`.
+   */
+  onError(
+    stageName: string,
+    errorMessage: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /**
    * Called when an attempt at a stage with a declared `retry` policy failed
@@ -125,7 +133,7 @@ export interface IControlFlowNarrative {
     attempt: number,
     maxAttempts: number,
     delayMs: number,
-    error: unknown,
+    structuredError: StructuredErrorInfo,
     traversalContext?: TraversalContext,
   ): void;
 
@@ -134,7 +142,12 @@ export interface IControlFlowNarrative {
    * classified its error as throttling (9.39.0). The child's failure takes
    * its ordinary path too; this only names it as throttling.
    */
-  onThrottled?(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void;
+  onThrottled?(
+    stageName: string,
+    stageId: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /** Called when a pausable stage pauses execution. */
   onPause(
@@ -498,10 +511,10 @@ export interface FlowResumeEvent {
  *   - `onRunEnd`   payload → the chart's return value
  *
  * Both are retained at runtime before dispatch/deferred capture using the
- * run's RedactionRule: own top-level string keys and explicit nested fields.
- * Scalars/root arrays pass through; fork child-ID envelopes need explicit
- * paths such as fields: { childId: ['result.secret'] }. This is not recursive
- * content scanning. Live execution inputs and return values stay unchanged.
+ * run's RedactionRule (`retainBoundary`): own string keys at every depth (by
+ * name or dotted path) and explicit nested fields. Scalars pass through; fork
+ * child-ID envelopes need explicit paths such as fields: { childId: ['result.secret'] }.
+ * Values are not scanned. Live execution inputs and return values stay unchanged.
  */
 export interface FlowRunEvent {
   /** Retained input after validation (`onRunStart`) or retained chart return

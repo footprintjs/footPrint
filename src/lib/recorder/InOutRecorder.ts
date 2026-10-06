@@ -37,9 +37,9 @@
  *   Payload redaction is the engine's responsibility (`RedactionPolicy`).
  *   By the time payloads reach this recorder via `FlowSubflowEvent` or
  *   `FlowRunEvent`, named values have passed the run's rule. Root run
- *   payloads address their own top-level keys / explicit nested fields;
- *   scalars and root arrays pass through, and fork child-ID envelopes need
- *   explicit result paths. This is not content scanning. The recorder
+ *   payloads are walked at every depth (a nested key by its own name or
+ *   dotted path) plus explicit nested fields; scalars pass through, and fork
+ *   child-ID envelopes need explicit result paths. This is not content scanning. The recorder
  *   does not (and should not) re-redact or reconstruct the run.
  *
  * @example

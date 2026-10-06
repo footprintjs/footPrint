@@ -56,7 +56,7 @@ describe('Narrative transition ownership', () => {
     });
   });
 
-  it('retains every real loop visit rather than deduplicating sentences', async () => {
+  it('retains every real loop visit, told once by its pass sentence', async () => {
     const chart = flowChart<{ count: number }>(
       'Start',
       (scope) => {
@@ -80,9 +80,7 @@ describe('Narrative transition ownership', () => {
       'Next, it moved on to Start.',
       'Next, it moved on to Work.',
       'On pass 1 through Work.',
-      'Next, it moved on to Work.',
       'On pass 2 through Work.',
-      'Next, it moved on to Work.',
       'Execution stopped at Work.',
     ]);
   });
@@ -121,7 +119,6 @@ describe('Narrative transition ownership', () => {
       'Next, it moved on to Start.',
       'Execution paused at Approve.',
       'Execution resumed at Approve with input.',
-      'Next, it moved on to Approve.',
       'Next, it moved on to End.',
     ]);
   });

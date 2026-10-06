@@ -10,7 +10,7 @@
  */
 
 import { isDevMode } from '../devMode.js';
-import { requireScopeRuntime } from '../scope/runtime.js';
+import { requireDecisionScopeRuntime } from '../scope/runtime.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';
@@ -32,7 +32,7 @@ import { DECISION_RESULT } from './types.js';
 // -- Scope accessor helpers --------------------------------------------------
 
 function scopeAccessors(scope: unknown) {
-  const { target } = requireScopeRuntime(scope);
+  const { target } = requireDecisionScopeRuntime(scope);
   const keys = target.getRedactedKeys?.();
   return {
     attachFn: target.attachScopeRecorder?.bind(target),

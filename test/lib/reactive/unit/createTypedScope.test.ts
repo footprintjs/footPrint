@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createTypedScope } from '../../../../src/lib/reactive/createTypedScope';
 import type { ReactiveTarget, TypedScope } from '../../../../src/lib/reactive/types';
-import { BREAK_SETTER } from '../../../../src/lib/reactive/types';
+import { requireScopeRuntime } from '../../../../src/lib/scope/runtime';
 
 // -- Mock ReactiveTarget -----------------------------------------------------
 
@@ -335,19 +335,30 @@ describe('createTypedScope -- unit: $-methods', () => {
   });
 });
 
-// -- Unit: BREAK_SETTER injection --------------------------------------------
+// -- Unit: break injection + lifecycle-named state keys -----------------------
 
-describe('createTypedScope -- unit: BREAK_SETTER', () => {
-  it('StageRunner can inject breakFn via BREAK_SETTER', () => {
+describe('createTypedScope -- unit: no executor pass-throughs on the proxy', () => {
+  it('StageRunner injects breakFn through the registered runtime port', () => {
     const target = mockTarget({});
-    const scope = createTypedScope(target) as any;
-
+    const scope = createTypedScope(target);
     const breakFn = vi.fn();
-    scope[BREAK_SETTER](breakFn);
+    requireScopeRuntime(scope).setBreak!(breakFn);
 
     scope.$break();
     expect(breakFn).toHaveBeenCalled();
   });
+
+  it.each(['notifyStageStart', 'notifyStageEnd', 'notifyPause', 'attachScopeRecorder', 'useRedactionPolicy'])(
+    'a state key named %s is state, not a facade method',
+    (key) => {
+      const target = Object.assign(mockTarget({ [key]: 'data' }), { [key]: vi.fn() });
+      const scope = createTypedScope<Record<string, unknown>>(target);
+      expect(scope[key]).toBe('data');
+      scope[key] = 'changed';
+      expect(scope[key]).toBe('changed');
+      expect(target[key]).not.toHaveBeenCalled();
+    },
+  );
 });
 
 // -- Unit: identity equality (cache) -----------------------------------------

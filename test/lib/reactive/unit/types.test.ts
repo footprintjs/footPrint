@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ReactiveTarget, ScopeMethods, TypedScope } from '../../../../src/lib/reactive/types';
-import { BREAK_SETTER, SCOPE_METHOD_NAMES } from '../../../../src/lib/reactive/types';
+import { SCOPE_METHOD_NAMES } from '../../../../src/lib/reactive/types';
 
 // -- Helpers for compile-time type checks ------------------------------------
 
@@ -179,21 +179,6 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
     for (const method of facadeMethods) {
       expect(SCOPE_METHOD_NAMES.has(method)).toBe(false);
     }
-  });
-});
-
-describe('reactive/types -- BREAK_SETTER symbol', () => {
-  it('is a Symbol', () => {
-    expect(typeof BREAK_SETTER).toBe('symbol');
-  });
-
-  it('has a descriptive key', () => {
-    expect(BREAK_SETTER.toString()).toContain('footprint:reactive:setBreak');
-  });
-
-  it('is a private Symbol (not globally registered)', () => {
-    // Private Symbol prevents cross-module tampering
-    expect(BREAK_SETTER).not.toBe(Symbol.for('footprint:reactive:setBreak'));
   });
 });
 

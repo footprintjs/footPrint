@@ -182,3 +182,36 @@ describe('RedactionRule — report and guards', () => {
     expect(r.isKeyRedacted('secret')).toBe(true);
   });
 });
+
+describe('RedactionRule.retainBoundary — nested keys', () => {
+  it('masks a nested key by name or dotted path, clones only that value, and survives cycles', () => {
+    const rule = new RedactionRule({ keys: ['secret', 'a.b.pin'] });
+    const wrapper: Record<string, unknown> = { secret: 's', keep: 1 };
+    wrapper.self = wrapper;
+    const plain = { visible: true };
+    const record = { wrapper, a: { b: { pin: 1234, ok: 2 } }, plain };
+
+    const kept = rule.retainBoundary(record) as any;
+
+    expect(kept.wrapper.secret).toBe('[REDACTED]');
+    expect(kept.wrapper.self).toBe(kept.wrapper);
+    expect(kept.a.b).toEqual({ pin: '[REDACTED]', ok: 2 });
+    expect(kept.plain).toBe(plain);
+    expect(wrapper.secret).toBe('s');
+    expect(record.a.b.pin).toBe(1234);
+  });
+
+  it('returns the same record when nothing nested is secret, and an inert rule never enumerates', () => {
+    const record = { wrapper: { visible: 1 } };
+    expect(new RedactionRule({ keys: ['secret'] }).retainBoundary(record)).toBe(record);
+    const trap = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('enumerated');
+        },
+      },
+    );
+    expect(new RedactionRule().retainBoundary(trap)).toBe(trap);
+  });
+});

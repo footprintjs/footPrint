@@ -5,13 +5,18 @@ interface ResumePropertyParameters {
   endOnFailure?: true;
 }
 
+/** A fresh signed 32-bit seed: every run explores a new batch; the test name prints it for replay. */
+function randomSeed(): number {
+  return Math.floor(Math.random() * 2 ** 32) - 2 ** 31;
+}
+
 /** Test-local configuration; no process reads or global fast-check settings. */
 export function resumePropertyParameters(
-  mode: 'same' | 'cross',
   env: Readonly<Record<string, string | undefined>>,
+  drawSeed: () => number = randomSeed,
 ): ResumePropertyParameters {
   const seedText = env.RESUME_PROPERTY_SEED;
-  const seed = seedText === undefined ? (mode === 'same' ? 20261005 : 20261006) : Number(seedText);
+  const seed = seedText === undefined ? drawSeed() : Number(seedText);
   if (
     seedText !== undefined &&
     (!/^-?\d+$/.test(seedText) || !Number.isInteger(seed) || seed < -2147483648 || seed > 2147483647)

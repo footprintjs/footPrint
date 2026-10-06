@@ -177,4 +177,4 @@ Captures ReadEvent key + summarized value + redacted flag. The canonical example
 
 Duck-typed accessor factories in `decide.ts` that bridge ScopeFacade and TypedScope without
 importing either. `getRedactedFn` uses `$toRaw()` to escape the Proxy since `getRedactedKeys()`
-is not in the $-method namespace or EXECUTOR_INTERNAL_METHODS.
+is not in the $-method namespace (the proxy forwards no facade methods by name).

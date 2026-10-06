@@ -4,6 +4,7 @@
  * Provides:
  * - assertNotReadonly(): throws if a key belongs to the readonly input
  * - createFrozenArgs(): snapshots owned input containers without freezing the caller
+ * - snapshotRunInput(): the ONE snapshot a run leg takes, handed to every scope of it
  *
  * Used by both ScopeFacade (class-based scopes) and attachScopeMethods
  * (non-class scopes). This is an ownership boundary, not an in-place freezer:
@@ -30,9 +31,9 @@ export function assertNotReadonly(readOnlyValues: unknown, key: string, operatio
 
 /**
  * Creates a frozen argument view, copying mutable ordinary records and arrays.
- * Functions, opaque objects and already-frozen nested values remain borrowed.
- * Call once per scope at construction; reuse on every getArgs(). No cross-scope
- * cache: the caller may edit the input before a later scope or a new run.
+ * Functions, opaque objects and already-frozen nested values remain borrowed —
+ * so over a {@link snapshotRunInput} snapshot (every container already frozen)
+ * a scope pays only O(root keys). Called once per scope at construction.
  */
 export function createFrozenArgs(readOnlyValues: unknown): Record<string, unknown> {
   if (!readOnlyValues || typeof readOnlyValues !== 'object') {
@@ -78,4 +79,23 @@ function copyProperties(source: object, target: object, copies: WeakMap<object, 
       writable: true,
     });
   }
+}
+
+/**
+ * The ONE owned, frozen input snapshot of a run leg — taken once per `run()` /
+ * `resume()` traverser (and per subflow mount, whose mapped input is its own)
+ * and handed to every scope factory of that leg. A caller edit to the input
+ * after the leg starts reaches no scope of it. Non-object input passes through.
+ */
+export function snapshotRunInput(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') return input;
+  // The snapshot root keeps ALL the input's own keys (non-enumerable ones
+  // included), so the readonly-key check over it refuses exactly what it
+  // refused over the input. A borrowed root (opaque or caller-frozen) is not
+  // copied by the walk, so its keys are copied onto a plain frozen record here.
+  const owned = snapshotValue(input, new WeakMap());
+  if (owned !== input) return owned;
+  const root = {};
+  copyProperties(input, root, new WeakMap<object, object>([[input, root]]));
+  return Object.freeze(root);
 }

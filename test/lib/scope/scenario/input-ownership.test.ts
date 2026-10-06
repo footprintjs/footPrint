@@ -1,8 +1,9 @@
 /**
  * Run input ownership (handoff F).
  *
- * Ordinary mutable records and arrays become frozen, scope-owned copies. Each new scope
- * snapshots the input anew; this is not a run-wide or cross-run cache. Opaque values and
+ * Ordinary mutable records and arrays become frozen, run-owned copies: ONE snapshot per
+ * run()/resume() (and per subflow mount, whose input is its own), shared by every scope of
+ * that leg; each scope pays only O(root keys). Not a cross-run cache. Opaque values and
  * explicitly frozen boundaries stay borrowed, and readonly-key checks keep their source.
  * These scenarios exercise TypedScope, the factory door, mounts and resume without changing
  * the separate rules for committed state or the resume handler's second argument.
@@ -65,7 +66,7 @@ describe('run input ownership', () => {
         args.order.lines[0].amount = 99;
       }).toThrow(TypeError);
     }
-    expect(seen[0].order).not.toBe(seen[1].order);
+    expect(seen[0].order).toBe(seen[1].order);
     expect(Object.isFrozen(input)).toBe(false);
     expect(Object.isFrozen(input.order)).toBe(false);
     expect(Object.isFrozen(input.order.lines)).toBe(false);
@@ -75,7 +76,7 @@ describe('run input ownership', () => {
     expect(seen.map((args) => args.order.lines)).toEqual([[{ amount: 4 }], [{ amount: 4 }]]);
   });
 
-  it('captures per scope: a caller edit between stages reaches the next scope, not the existing one', async () => {
+  it('snapshots once per run: a caller edit mid-run reaches no later scope', async () => {
     const input = inputWith(1);
     const seen: Input[] = [];
     const chart = flowChart(
@@ -94,7 +95,7 @@ describe('run input ownership', () => {
 
     await new FlowChartExecutor(chart).run({ input });
 
-    expect(seen.map((args) => args.order.lines[0].amount)).toEqual([1, 2]);
+    expect(seen.map((args) => args.order.lines[0].amount)).toEqual([1, 1]);
     expect(input.order.lines[0].amount).toBe(2);
   });
 
@@ -288,4 +289,88 @@ describe('run input ownership', () => {
     expect(Object.isFrozen(service)).toBe(false);
     expect(Object.isFrozen(live)).toBe(false);
   });
+});
+
+describe('run input ownership — work count', () => {
+  /** Counts element reads of a nested input array: each read is copy work. */
+  function countedInput(size: number) {
+    const reads = { count: 0 };
+    const rows = new Proxy(
+      Array.from({ length: size }, (_, id) => ({ id })),
+      {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) reads.count++;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    return { input: { rows }, reads };
+  }
+
+  async function readsFor(stages: number): Promise<number> {
+    const { input, reads } = countedInput(500);
+    let chart = flowChart<{ n: number }>(
+      'S0',
+      (scope) => {
+        scope.$getArgs();
+      },
+      's0',
+    );
+    for (let i = 1; i < stages; i++)
+      chart = chart.addFunction(
+        `S${i}`,
+        (scope) => {
+          scope.$getArgs();
+        },
+        `s${i}`,
+      );
+    await new FlowChartExecutor(chart.build()).run({ input });
+    return reads.count;
+  }
+
+  it('copies the input once per run, not once per stage', async () => {
+    const one = await readsFor(1);
+    expect(one).toBe(500);
+    expect(await readsFor(40)).toBe(one);
+  });
+});
+
+describe('run input ownership — readonly keys of a borrowed root', () => {
+  class Opaque {
+    visible = 1;
+  }
+  const roots = {
+    'caller-frozen': () => Object.freeze(Object.defineProperty({ visible: 1 }, 'hidden', { value: 2 })),
+    opaque: () => Object.defineProperty(new Opaque(), 'hidden', { value: 2 }),
+  };
+
+  it.each(Object.keys(roots) as (keyof typeof roots)[])(
+    'a %s input keeps refusing writes to its non-enumerable own keys',
+    async (kind) => {
+      const outcomes: string[] = [];
+      const chart = flowChart<Record<string, number>>(
+        'Write',
+        (scope) => {
+          for (const key of ['hidden', 'visible']) {
+            try {
+              scope[key] = 9;
+              outcomes.push(`${key}: written`);
+            } catch (error) {
+              outcomes.push(`${key}: ${(error as Error).message}`);
+            }
+          }
+          outcomes.push(`args: ${JSON.stringify(scope.$getArgs())}`);
+        },
+        'write',
+      ).build();
+
+      await new FlowChartExecutor(chart).run({ input: roots[kind]() });
+
+      expect(outcomes).toEqual([
+        'hidden: Cannot write to readonly input key "hidden" — use getArgs() to read input values',
+        'visible: Cannot write to readonly input key "visible" — use getArgs() to read input values',
+        'args: {"visible":1}',
+      ]);
+    },
+  );
 });

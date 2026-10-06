@@ -31,8 +31,10 @@ jobs:
       # Fresh resolution — no committed lockfile (vitest 4.x pulls rolldown's per-OS native
       # binding; a cross-OS lock breaks CI, npm #4828). This job has NO publish power.
       - run: npm install
-      - run: npm test
+      # Build before test: the built-package guards run from test:examples, which needs dist/.
       - run: npm run build
+      - run: npm test
+      - run: npm run test:examples
 
       # Packaging-correctness gate — block a publish that would ship broken/masquerading types.
       - run: npx publint

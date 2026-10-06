@@ -250,13 +250,7 @@ export { WindowedNarrativeFlowRecorder } from './lib/engine/index.js';
 // ============================================================================
 
 /** @category Self-Describing */
-export type {
-  FlowChartContract,
-  FlowChartContractOptions,
-  JsonSchema,
-  OpenAPIOptions,
-  OpenAPISpec,
-} from './lib/contract/index.js';
+export type { JsonSchema } from './lib/contract/index.js';
 
 // ============================================================================
 // Snapshot & Composition — Subflow navigation and ComposableRunner
