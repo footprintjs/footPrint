@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { decide, select } from '../../../../src/lib/decide/decide';
 import { createTypedScope } from '../../../../src/lib/reactive/createTypedScope';
 import type { ReactiveTarget } from '../../../../src/lib/reactive/types';
 import { createProtectedScope } from '../../../../src/lib/scope/protection/createProtectedScope';
@@ -26,6 +27,14 @@ describe('scope runtime identity and capability ownership', () => {
       },
     );
     expect(() => requireScopeRuntime(scope)).toThrow(/registerScopeRuntime/);
+  });
+
+  it('names decide()/select() — not custom scope factories — when a plain object reaches them', () => {
+    const plain = { score: 1 };
+    const rules = [{ when: { score: { gt: 0 } }, then: 'yes' }] as any;
+    expect(() => decide(plain, rules, 'no')).toThrow(/decide\(\)\/select\(\) needs the stage's scope/);
+    expect(() => select(plain, rules)).toThrow(/decide\(\)\/select\(\) needs the stage's scope/);
+    expect(() => decide(plain, rules, 'no')).not.toThrow(/Custom scope factories/);
   });
 
   it('copies the descriptor but retains the provider-owned target', () => {

@@ -73,12 +73,23 @@ export function scopeRuntimeFor(scope: unknown): Readonly<ScopeRuntime> | undefi
   return isObject(scope) ? runtimes.get(scope) : undefined;
 }
 
+const UNREGISTERED =
+  '[footprint] Unregistered scope. Custom scope factories must call registerScopeRuntime(scope, ' +
+  '{ target, handlesAssignments }) from footprintjs/advanced. ScopeFacade and built-in scope factories register automatically.';
+
+const UNREGISTERED_DECISION =
+  "[footprint] decide()/select() needs the stage's scope (the object your stage function receives), " +
+  'not a plain object. A hand-built scope must be registered with registerScopeRuntime(scope, ' +
+  '{ target, handlesAssignments }) from footprintjs/advanced.';
+
 /** @internal No method-name guessing: a missing registration is an explicit migration error. */
-export function requireScopeRuntime(scope: unknown): Readonly<ScopeRuntime> {
+export function requireScopeRuntime(scope: unknown, message: string = UNREGISTERED): Readonly<ScopeRuntime> {
   const runtime = scopeRuntimeFor(scope);
   if (runtime) return runtime;
-  throw new TypeError(
-    '[footprint] Unregistered scope. Custom scope factories must call registerScopeRuntime(scope, ' +
-      '{ target, handlesAssignments }) from footprintjs/advanced. ScopeFacade and built-in scope factories register automatically.',
-  );
+  throw new TypeError(message);
+}
+
+/** @internal decide()/select() asked outside a stage: name THEM, not the custom-factory migration. */
+export function requireDecisionScopeRuntime(scope: unknown): Readonly<ScopeRuntime> {
+  return requireScopeRuntime(scope, UNREGISTERED_DECISION);
 }
