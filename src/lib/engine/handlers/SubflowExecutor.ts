@@ -29,6 +29,7 @@ import type {
 } from '../types.js';
 import { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
+import { loggableStageError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
@@ -146,7 +147,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       } catch (error: any) {
         parentContext.addError('inputMapperError', thrownText(error));
-        this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, { error });
+        this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, {
+          error: loggableStageError(parentContext, error),
+        });
         throw error;
       }
     }
@@ -303,7 +306,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
       subflowError = { error };
       parentContext.addError('subflowError', thrownText(error));
-      this.deps.logger.error(`Error in subflow (${subflowId}):`, { error });
+      this.deps.logger.error(`Error in subflow (${subflowId}):`, { error: loggableStageError(parentContext, error) });
     }
 
     // Always merge nested subflow results (even on error — partial results aid debugging)
@@ -383,7 +386,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // is left as it always was.
         if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
         parentContext.addError('outputMapperError', thrownText(error));
-        this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, { error });
+        this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, {
+          error: loggableStageError(parentContext, error),
+        });
       }
     }
 

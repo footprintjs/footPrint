@@ -381,9 +381,9 @@ export class RedactionRule {
    * ({@link verdict}); this walk is for records handed out whole.
    */
   retainBoundary<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
-    if (record === null || typeof record !== 'object') return record;
     // A masked stage error inside the record (a fork envelope's `result`) is
-    // served in its masked form: its message is non-enumerable, so no key walk sees it.
+    // served in its masked form: an Error's message is non-enumerable and a
+    // thrown string is a plain value, so no key walk sees either.
     const served = this.maskedErrors?.size ? (this.withServedErrors(record, new Map()) as T) : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as Record<string, unknown>;
@@ -398,9 +398,21 @@ export class RedactionRule {
     return (out ?? top) as T;
   }
 
-  /** Copy-on-write over plain containers: every remembered masked error becomes its served form. */
+  /**
+   * Copy-on-write over plain containers: every remembered masked error becomes
+   * its served form — an object error its masked structured info, a thrown
+   * string/number its masked text (the value keeps being a scalar). A scalar is
+   * matched by VALUE, so an unrelated field that happens to equal a masked
+   * thrown string is masked too: over-masking is the safe direction.
+   * `undefined`/`null`/booleans are never swapped — they carry no text, and
+   * swapping them would rewrite ordinary data shapes.
+   */
   private withServedErrors(value: unknown, done: Map<object, unknown>): unknown {
-    if (value === null || typeof value !== 'object') return value;
+    if (value === null || typeof value !== 'object') {
+      const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
+      const masked = swappable ? this.maskedErrors?.get(value) : undefined;
+      return masked ? masked.message : value;
+    }
     const masked = this.maskedErrors?.get(value);
     if (masked) return { ...masked };
     if (done.has(value)) return done.get(value);

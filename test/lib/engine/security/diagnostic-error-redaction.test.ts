@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FlowChartExecutorOptions } from '../../../../src/index.js';
-import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { flowChart, FlowChartExecutor, NarrativeFlowRecorder } from '../../../../src/index.js';
 import { narrative } from '../../../../src/recorders.js';
 import { inOutRecorder } from '../../../../src/trace.js';
 
@@ -132,8 +132,6 @@ describe.each(['inline', 'deferred'] as const)(
 describe.each(['inline', 'deferred'] as const)(
   'every other served path of a masked stage error: %s delivery',
   (delivery) => {
-    const policy = { diagnostics: { keys: ['errors.stageExecutionError'] } };
-
     function capture(executor: FlowChartExecutor) {
       const events: unknown[] = [];
       executor.attachFlowRecorder(
@@ -149,7 +147,9 @@ describe.each(['inline', 'deferred'] as const)(
       );
       executor.attachCombinedRecorder(narrative(), { delivery });
       executor.attachCombinedRecorder(inOutRecorder({ id: 'io' }), { delivery });
-      return events;
+      const flowOnly = new NarrativeFlowRecorder('flow-only');
+      executor.attachFlowRecorder(flowOnly, { delivery });
+      return { events, flowOnly };
     }
 
     function loggerSink() {
@@ -163,52 +163,101 @@ describe.each(['inline', 'deferred'] as const)(
       return served.filter((text) => text.includes(SECRET));
     }
 
-    it('a retried attempt reaches onStageRetry, the narrative and the logger masked', async () => {
-      const { lines, logger } = loggerSink();
-      const chart = flowChart<object>(
-        'Charge',
-        () => {
-          throw new Error(`charge failed for ${SECRET}`);
-        },
-        'charge',
-      )
-        .retry({ attempts: 2, backoffMs: 0 })
-        .setLogger(logger)
-        .build();
-      const executor = new FlowChartExecutor(chart, { enableNarrative: true });
-      executor.setRedactionPolicy(policy);
-      const events = capture(executor);
+    type Thrown = 'Error' | 'string';
+    const thrown = (kind: Thrown): unknown =>
+      kind === 'Error' ? new Error(`charge failed for ${SECRET}`) : `charge failed for ${SECRET}`;
+    const failing = (kind: Thrown) => () => {
+      throw thrown(kind);
+    };
+    const forkOf = (kind: Thrown) =>
+      flowChart<object>('Fork', () => {}, 'fork').addListOfFunction([
+        { id: 'left', name: 'Left', fn: failing(kind) },
+        { id: 'right', name: 'Right', fn: () => ({ ok: true }) },
+      ]);
 
-      await expect(executor.run()).rejects.toThrow(SECRET);
-
-      expect(events.some((event) => (event as { attempt?: number }).attempt === 1)).toBe(true);
-      expect(leaks(executor, events, lines)).toEqual([]);
-    });
-
-    it('a throttled fork child, and the fork envelope it returns, reach every output masked', async () => {
-      const { lines, logger } = loggerSink();
-      const chart = flowChart<object>('Fork', () => {}, 'fork')
-        .addListOfFunction([
-          {
-            id: 'left',
-            name: 'Left',
-            fn: () => {
-              throw new Error(`charge failed for ${SECRET}`);
+    /** Every scenario that reports a stage failure somewhere other than the stage's own onError. */
+    const scenarios = {
+      retry: {
+        chart: (kind: Thrown) =>
+          flowChart<object>('Charge', failing(kind), 'charge').retry({ attempts: 2, backoffMs: 0 }),
+        options: {},
+        rejects: true,
+        reported: (event: Record<string, unknown>) => event.attempt === 1,
+      },
+      'retryOn rethrow': {
+        chart: (kind: Thrown) =>
+          flowChart<object>('Charge', failing(kind), 'charge').retry({
+            attempts: 2,
+            backoffMs: 0,
+            retryOn: (error) => {
+              throw error;
             },
-          },
-          { id: 'right', name: 'Right', fn: () => ({ ok: true }) },
-        ])
-        .setLogger(logger)
-        .build();
-      const executor = new FlowChartExecutor(chart, { enableNarrative: true, throttlingErrorChecker: () => true });
-      executor.setRedactionPolicy(policy);
-      const events = capture(executor);
+          }),
+        options: {},
+        rejects: true,
+        reported: (event: Record<string, unknown>) => event.structuredError !== undefined,
+      },
+      subflow: {
+        chart: (kind: Thrown) =>
+          flowChart<object>('Start', () => {}, 'start').addSubFlowChartNext(
+            'pay',
+            flowChart<object>('Charge', failing(kind), 'charge').build(),
+            'Pay',
+          ),
+        options: {},
+        rejects: true,
+        reported: (event: Record<string, unknown>) => event.structuredError !== undefined,
+      },
+      'fork as the last stage': {
+        chart: forkOf,
+        options: {},
+        rejects: false,
+        reported: (event: Record<string, unknown>) => event.payload !== undefined,
+      },
+      'throttled fork child': {
+        chart: forkOf,
+        options: { throttlingErrorChecker: () => true },
+        rejects: false,
+        reported: (event: Record<string, unknown>) => event.stageId === 'left',
+      },
+    };
 
-      const result = (await executor.run()) as Record<string, { result: unknown }>;
+    describe.each(['Error', 'string'] as const)('thrown %s', (kind) => {
+      it.each(Object.keys(scenarios) as (keyof typeof scenarios)[])(
+        '%s: events, narratives, InOut, redacted snapshot and logger never see the text',
+        async (name) => {
+          const scenario = scenarios[name];
+          const { lines, logger } = loggerSink();
+          const executor = new FlowChartExecutor(scenario.chart(kind).setLogger(logger).build(), {
+            enableNarrative: true,
+            ...scenario.options,
+          });
+          // A subflow mount records the inner text under its own key: select both.
+          executor.setRedactionPolicy({
+            diagnostics: { keys: ['errors.stageExecutionError', 'errors.subflowError'] },
+          });
+          const { events, flowOnly } = capture(executor);
 
-      expect(result.left.result).toBeInstanceOf(Error); // the live result stays real
-      expect(events.some((event) => (event as { stageId?: string }).stageId === 'left')).toBe(true);
-      expect(leaks(executor, events, lines)).toEqual([]);
+          const outcome = await executor.run().then(
+            (result) => ({ result }),
+            (reason: unknown) => ({ reason }),
+          );
+
+          // Live surfaces stay real: the rejection, or the fork's own result.
+          if (scenario.rejects) {
+            const reason = (outcome as { reason: unknown }).reason;
+            expect(reason instanceof Error ? reason.message : reason).toContain(SECRET);
+          } else {
+            const result = (outcome as { result: Record<string, { result: unknown }> }).result;
+            expect(
+              result.left.result instanceof Error ? (result.left.result as Error).message : result.left.result,
+            ).toContain(SECRET);
+          }
+          expect(events.some((event) => scenario.reported(event as Record<string, unknown>))).toBe(true);
+          expect(lines.length).toBeGreaterThan(0);
+          expect(leaks(executor, events, lines, flowOnly.getSentences())).toEqual([]);
+        },
+      );
     });
   },
 );

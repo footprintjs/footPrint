@@ -923,7 +923,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // re-run a stage that asked to SUSPEND (and would break resume, which
         // re-enters this stage from its top). Covers both raise shapes:
         // `addPausableFunction` returning data, and `interrupt()`.
-        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error)) {
+        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error, context)) {
           throw error;
         }
         // A cancelled run must not sit through a backoff and then try again.
@@ -989,13 +989,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
   /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
    *  predicate must never turn a failing stage into an endless retry loop. */
-  private shouldRetry(policy: NonNullable<StageNode<TOut, TScope>['retry']>, error: unknown): boolean {
+  private shouldRetry(
+    policy: NonNullable<StageNode<TOut, TScope>['retry']>,
+    error: unknown,
+    context: StageContext,
+  ): boolean {
     if (!policy.retryOn) return true;
     try {
       return policy.retryOn(error) === true;
     } catch (predicateError) {
+      // A predicate may rethrow the stage's own error: the logger gets the served form.
       this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
-        error: predicateError,
+        error: loggableStageError(context, predicateError),
       });
       return false;
     }
