@@ -430,7 +430,7 @@ const LINEAR: Pick<Plan, 'place' | 'side'> = { place: ['linear', 'linear', 'line
 
 // Name the seed before any async work, so even an outer test timeout is reproducible.
 const propertyRuns = (['same', 'cross'] as const).map((mode) => {
-  const parameters = resumePropertyParameters(mode, process.env);
+  const parameters = resumePropertyParameters(process.env);
   return { mode, parameters, name: `${mode}-executor resume (seed ${parameters.seed})` };
 });
 

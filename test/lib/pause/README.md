@@ -4,7 +4,7 @@ The real-chart property compares a paused/resumed run with a direct run of the s
 
 ## Reproduce a property run
 
-`resume-property-config · resumePropertyParameters` owns this property's configuration. Normal runs use seed `20261005` for the same-executor mode and `20261006` for the cross-executor mode. The effective seed is part of the test name before execution starts, so an outer Vitest timeout still identifies the batch. Fast-check's native failure report retains the seed, shrunk counterexample path and original error; no custom reporter replaces it.
+`resume-property-config · resumePropertyParameters` owns this property's configuration. Normal runs draw a fresh random seed for each mode, so every CI run checks a new batch. The effective seed is part of the test name before execution starts, so an outer Vitest timeout still identifies the batch. Fast-check's native failure report retains the seed, shrunk counterexample path and original error; no custom reporter replaces it.
 
 Run the normal gate:
 
@@ -24,7 +24,7 @@ For an assertion failure, copy the reported seed and path. This example replays 
 RESUME_PROPERTY_SEED=42 RESUME_PROPERTY_PATH=12 npm test -- test/lib/pause/resume-real-chart.property.test.ts -t 'same-executor resume'
 ```
 
-Explicit path replay runs only that case without further shrinking; it is a debugging command, not the full gate. Use the failing mode's name in the filter and the same source revision and fast-check version: a seed does not pin changes to the generator or its dependencies. A timeout before fast-check finishes may have no counterexample path; replay its entire named seed batch instead. Seed overrides must be signed 32-bit decimal integers. Paths must be colon-separated nonnegative safe integers and require an explicit seed. Invalid overrides fail rather than being silently coerced. Stable seeds do not exhaust the generator's input space; use additional seeds for exploration and retain discovered regressions as anchors.
+Explicit path replay runs only that case without further shrinking; it is a debugging command, not the full gate. Use the failing mode's name in the filter and the same source revision and fast-check version: a seed does not pin changes to the generator or its dependencies. A timeout before fast-check finishes may have no counterexample path; replay its entire named seed batch instead. Seed overrides must be signed 32-bit decimal integers. Paths must be colon-separated nonnegative safe integers and require an explicit seed. Invalid overrides fail rather than being silently coerced. Retain a discovered regression as a hand-picked anchor so it is checked on every run, not only when its seed comes up again.
 
 ## Observation ownership
 
@@ -34,4 +34,4 @@ Explicit path replay runs only that case without further shrinking; it is a debu
 
 ## Investigation limits
 
-The previously reported five-second timeout was not reproduced on the October 5 baseline. Isolated modes took about 0.5–0.6 seconds; a clean full-suite run took about 1.3–1.8 seconds per mode. With seed `20261005`, instrumentation counted 1,445 public snapshot reads per mode before this change and 320 afterward (including each direct run's final snapshot). Snapshot calls accounted for about 1–2% of the instrumented runtime; checkpoint cloning, execution and garbage collection remained larger costs. This proves removal of unused observation work, not a large speedup or immunity to overloaded machines. The test timeout, generator bounds and normal run counts are unchanged. No production resume behavior is changed.
+The previously reported five-second timeout was not reproduced on the October 5 baseline. Isolated modes took about 0.5–0.6 seconds; a clean full-suite run took about 1.3–1.8 seconds per mode. With the then-fixed seed `20261005`, instrumentation counted 1,445 public snapshot reads per mode before this change and 320 afterward (including each direct run's final snapshot). Snapshot calls accounted for about 1–2% of the instrumented runtime; checkpoint cloning, execution and garbage collection remained larger costs. This proves removal of unused observation work, not a large speedup or immunity to overloaded machines. The test timeout, generator bounds and normal run counts are unchanged. No production resume behavior is changed.
