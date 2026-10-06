@@ -40,7 +40,7 @@ export function breakSentence(ctx: BreakRenderContext): string {
   return `Execution stopped at ${ctx.stageName}.`;
 }
 
-export function pauseSentence(ctx: BreakRenderContext): string {
+export function pauseSentence(ctx: Pick<BreakRenderContext, 'stageName'>): string {
   return `Execution paused at ${ctx.stageName}.`;
 }
 
