@@ -21,7 +21,7 @@ import { arrayProxyAt } from './arrayTraps.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
 import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
-import { BREAK_SETTER, EXECUTOR_INTERNAL_METHODS, IS_TYPED_SCOPE, SCOPE_METHOD_NAMES } from './types.js';
+import { SCOPE_METHOD_NAMES } from './types.js';
 import { type WriteSink, rootKeySink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
 
 // -- $-method routing --------------------------------------------------------
@@ -201,15 +201,16 @@ function createNestedProxy(
 
 // -- Top-level leaves ---------------------------------------------------------
 
-/** `internalRead` answered nothing: the name is a state key and must be read (tracked) from the target. */
+/** `reservedRead` answered nothing: the name is a state key and must be read (tracked) from the target. */
 const STATE_KEY: unique symbol = Symbol('state-key');
 
 /**
- * WHY: the names the scope answers ITSELF — internal symbols, the guard
- * properties, Node's inspect hook, the `$`-methods, the executor's allowlisted
- * pass-throughs (`attachScopeRecorder`, `notifyStageStart`, …, called directly
- * on the scope) and the JSON probe — must never become tracked reads;
- * everything else is a state key and is left to the caller.
+ * WHY: the names the scope answers ITSELF — symbols, the guard properties,
+ * Node's inspect hook, the `$`-methods and the JSON probe — must never become
+ * tracked reads; everything else (a lifecycle-looking name such as
+ * `notifyStageStart` included) is a state key and is left to the caller. The
+ * engine reaches the facade through the registered runtime port, never through
+ * a name on this proxy.
  *
  * The probe: `JSON.stringify` asks EVERY value for a `toJSON` method. That
  * question comes from the runtime, not the stage author, so it must not enter
@@ -217,13 +218,7 @@ const STATE_KEY: unique symbol = Symbol('state-key');
  * this is a genuine read and stays tracked, and when the target cannot answer
  * silently, truth wins over noise — fall through.
  */
-function internalRead(target: ReactiveTarget, state: ReactiveState, prop: string | symbol): unknown {
-  if (prop === IS_TYPED_SCOPE) return true;
-  if (prop === BREAK_SETTER) {
-    return (fn: () => void) => {
-      state.breakFn = fn;
-    };
-  }
+function reservedRead(target: ReactiveTarget, state: ReactiveState, prop: string | symbol): unknown {
   if (typeof prop === 'symbol') {
     if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];
     if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => target.getValue();
@@ -231,9 +226,6 @@ function internalRead(target: ReactiveTarget, state: ReactiveState, prop: string
   }
   if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];
   if (SCOPE_METHOD_NAMES.has(prop)) return METHOD_ROUTES[prop]?.(target, state);
-  if (EXECUTOR_INTERNAL_METHODS.has(prop) && typeof (target as any)[prop] === 'function') {
-    return (target as any)[prop].bind(target);
-  }
   if (prop === 'toJSON' && silentlyKnownKey(target, prop) === false) return undefined;
   return STATE_KEY;
 }
@@ -311,7 +303,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
 
   const proxy = new Proxy(target as unknown as TypedScope<T>, {
     get(_proxyTarget, prop) {
-      const answered = internalRead(target, state, prop);
+      const answered = reservedRead(target, state, prop);
       if (answered !== STATE_KEY) return answered;
       // A state key: ONE tracked read (fires onRead once), then the wrapper.
       return wrapStateValue(target, readSilent, state, prop as string, target.getValue(prop as string));
