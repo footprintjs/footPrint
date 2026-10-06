@@ -17,7 +17,7 @@ import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage } from './commitStage.js';
-import { recordStageError } from './stageError.js';
+import { loggableStageError, recordStageError } from './stageError.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
@@ -66,8 +66,10 @@ export class SelectorHandler<TOut = any, TScope = any> {
         throw error;
       }
       context.commit();
-      this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
       const served = recordStageError(context, error);
+      this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
+        error: loggableStageError(context, error),
+      });
       this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
       throw error;
     }

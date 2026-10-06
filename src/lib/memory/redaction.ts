@@ -29,7 +29,7 @@
 
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
-import { extractErrorInfo } from '../errors/errorInfo.js';
+import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import { nativeGet, nativeHas, nativeSet, ownedRootOf, ownSpine } from './pathOps.js';
 import { DELIM } from './paths.js';
 import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
@@ -258,11 +258,29 @@ export class RedactionRule {
     return { message, structuredError: masked };
   }
 
-  /** What a run-level observer is served for a thrown value: its masked stage form, else its structured info. */
+  /**
+   * What any observer is served for a thrown value — retry, throttle, run
+   * failure, a fork envelope, the logger: its remembered stage form, else the
+   * same decision made now (and remembered), else its structured info.
+   */
   servedError(error: unknown): StructuredErrorInfo {
-    const masked = this.maskedErrors?.get(error);
+    const masked = this.maskedError(error);
     // Each event gets its own object, as extractErrorInfo gives it one.
     return masked ? { ...masked } : extractErrorInfo(error);
+  }
+
+  /** What the logger is handed: the thrown value itself unless the policy masked its text. */
+  loggableError(error: unknown): unknown {
+    const masked = this.maskedError(error);
+    return masked ? { ...masked } : error;
+  }
+
+  private maskedError(error: unknown): StructuredErrorInfo | undefined {
+    const known = this.maskedErrors?.get(error);
+    if (known || this.isDiagnosticInert()) return known;
+    const text = thrownText(error);
+    this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
+    return this.maskedErrors?.get(error);
   }
 
   /** Keep no-diagnostic-policy collectors inert, including borrowed getters. */
@@ -363,8 +381,12 @@ export class RedactionRule {
    * ({@link verdict}); this walk is for records handed out whole.
    */
   retainBoundary<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
-    if (this.isInert() || record === null || typeof record !== 'object') return record;
-    const top = this.retainRecord(record, placeholder) as unknown as Record<string, unknown>;
+    if (record === null || typeof record !== 'object') return record;
+    // A masked stage error inside the record (a fork envelope's `result`) is
+    // served in its masked form: its message is non-enumerable, so no key walk sees it.
+    const served = this.maskedErrors?.size ? (this.withServedErrors(record, new Map()) as T) : record;
+    if (this.isInert() || served === null || typeof served !== 'object') return served;
+    const top = this.retainRecord(served, placeholder) as unknown as Record<string, unknown>;
     let out: Record<string, unknown> | unknown[] | undefined;
     for (const [key, value] of Object.entries(top)) {
       if (value === null || typeof value !== 'object' || !this.holdsNestedKey(value, key, new WeakSet())) continue;
@@ -374,6 +396,24 @@ export class RedactionRule {
       (out as Record<string, unknown>)[key] = owned;
     }
     return (out ?? top) as T;
+  }
+
+  /** Copy-on-write over plain containers: every remembered masked error becomes its served form. */
+  private withServedErrors(value: unknown, done: Map<object, unknown>): unknown {
+    if (value === null || typeof value !== 'object') return value;
+    const masked = this.maskedErrors?.get(value);
+    if (masked) return { ...masked };
+    if (done.has(value)) return done.get(value);
+    done.set(value, value);
+    let copy: Record<string, unknown> | unknown[] | undefined;
+    for (const [key, child] of Object.entries(value)) {
+      const kept = this.withServedErrors(child, done);
+      if (kept === child) continue;
+      copy ??= Array.isArray(value) ? [...value] : { ...(value as Record<string, unknown>) };
+      (copy as Record<string, unknown>)[key] = kept;
+    }
+    if (copy) done.set(value, copy);
+    return copy ?? value;
   }
 
   /** A nested own key whose name or dotted path is redacted at key level. */

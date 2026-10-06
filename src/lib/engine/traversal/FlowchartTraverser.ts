@@ -42,7 +42,7 @@ import type { QueuedPause } from '../handlers/ResumeEntry.js';
 import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
-import { recordStageError } from '../handlers/stageError.js';
+import { loggableStageError, recordStageError, servedStageError } from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
@@ -943,7 +943,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           attempt,
           maxAttempts,
           delayMs,
-          error,
+          servedStageError(context, error),
           traversalContext,
         );
         if (delayMs > 0) await sleep(delayMs, this.signal);
@@ -1503,7 +1503,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         context.commit();
         const served = recordStageError(context, error);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
-        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
+        this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
+          error: loggableStageError(context, error),
+        });
         throw error;
       }
       commitStage(context, this.narrativeGenerator, node.name, traversalContext);

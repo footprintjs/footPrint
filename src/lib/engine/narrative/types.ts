@@ -133,7 +133,7 @@ export interface IControlFlowNarrative {
     attempt: number,
     maxAttempts: number,
     delayMs: number,
-    error: unknown,
+    structuredError: StructuredErrorInfo,
     traversalContext?: TraversalContext,
   ): void;
 
@@ -142,7 +142,12 @@ export interface IControlFlowNarrative {
    * classified its error as throttling (9.39.0). The child's failure takes
    * its ordinary path too; this only names it as throttling.
    */
-  onThrottled?(stageName: string, stageId: string, error: unknown, traversalContext?: TraversalContext): void;
+  onThrottled?(
+    stageName: string,
+    stageId: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /** Called when a pausable stage pauses execution. */
   onPause(

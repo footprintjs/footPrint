@@ -14,6 +14,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
+import { loggableStageError, servedStageError } from './stageError.js';
 import { isTraversalDepthError } from './TraversalDepthError.js';
 import type { ExecuteNodeFn } from './types.js';
 
@@ -94,12 +95,15 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           if (isPauseSignal(error) || isTraversalDepthError(error)) throw error;
           childContext.commit('repeat');
           updateParentBreakFlag();
-          this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, { error });
+          this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, {
+            error: loggableStageError(childContext, error),
+          });
           // Throttling is telemetry (R9): an event, not a state key. Before
           // 9.39.0 this wrote `monitor.isThrottled` AFTER the child's last
           // commit, so it landed nowhere.
           if (this.deps.throttlingErrorChecker && this.deps.throttlingErrorChecker(error)) {
-            this.deps.narrativeGenerator.onThrottled?.(child.name, child.id as string, error, traversalContext);
+            const served = servedStageError(childContext, error);
+            this.deps.narrativeGenerator.onThrottled?.(child.name, child.id as string, served, traversalContext);
           }
           return { id: child.id!, result: error, isError: true };
         });

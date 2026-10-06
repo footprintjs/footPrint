@@ -128,3 +128,87 @@ describe.each(['inline', 'deferred'] as const)(
     });
   },
 );
+
+describe.each(['inline', 'deferred'] as const)(
+  'every other served path of a masked stage error: %s delivery',
+  (delivery) => {
+    const policy = { diagnostics: { keys: ['errors.stageExecutionError'] } };
+
+    function capture(executor: FlowChartExecutor) {
+      const events: unknown[] = [];
+      executor.attachFlowRecorder(
+        {
+          id: 'all-failures',
+          onStageRetry: (event) => events.push(event),
+          onThrottled: (event) => events.push(event),
+          onError: (event) => events.push(event),
+          onRunFailed: (event) => events.push(event),
+          onRunEnd: (event) => events.push(event),
+        },
+        { delivery },
+      );
+      executor.attachCombinedRecorder(narrative(), { delivery });
+      executor.attachCombinedRecorder(inOutRecorder({ id: 'io' }), { delivery });
+      return events;
+    }
+
+    function loggerSink() {
+      const lines: unknown[] = [];
+      const log = (...args: unknown[]) => lines.push(args);
+      return { lines, logger: { info: log, log, debug: log, error: log, warn: log } };
+    }
+
+    function leaks(executor: FlowChartExecutor, ...more: unknown[]): string[] {
+      const served = servedStrings([...more, executor.getNarrativeEntries(), executor.getSnapshot({ redact: true })]);
+      return served.filter((text) => text.includes(SECRET));
+    }
+
+    it('a retried attempt reaches onStageRetry, the narrative and the logger masked', async () => {
+      const { lines, logger } = loggerSink();
+      const chart = flowChart<object>(
+        'Charge',
+        () => {
+          throw new Error(`charge failed for ${SECRET}`);
+        },
+        'charge',
+      )
+        .retry({ attempts: 2, backoffMs: 0 })
+        .setLogger(logger)
+        .build();
+      const executor = new FlowChartExecutor(chart, { enableNarrative: true });
+      executor.setRedactionPolicy(policy);
+      const events = capture(executor);
+
+      await expect(executor.run()).rejects.toThrow(SECRET);
+
+      expect(events.some((event) => (event as { attempt?: number }).attempt === 1)).toBe(true);
+      expect(leaks(executor, events, lines)).toEqual([]);
+    });
+
+    it('a throttled fork child, and the fork envelope it returns, reach every output masked', async () => {
+      const { lines, logger } = loggerSink();
+      const chart = flowChart<object>('Fork', () => {}, 'fork')
+        .addListOfFunction([
+          {
+            id: 'left',
+            name: 'Left',
+            fn: () => {
+              throw new Error(`charge failed for ${SECRET}`);
+            },
+          },
+          { id: 'right', name: 'Right', fn: () => ({ ok: true }) },
+        ])
+        .setLogger(logger)
+        .build();
+      const executor = new FlowChartExecutor(chart, { enableNarrative: true, throttlingErrorChecker: () => true });
+      executor.setRedactionPolicy(policy);
+      const events = capture(executor);
+
+      const result = (await executor.run()) as Record<string, { result: unknown }>;
+
+      expect(result.left.result).toBeInstanceOf(Error); // the live result stays real
+      expect(events.some((event) => (event as { stageId?: string }).stageId === 'left')).toBe(true);
+      expect(leaks(executor, events, lines)).toEqual([]);
+    });
+  },
+);
