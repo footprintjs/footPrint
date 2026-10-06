@@ -483,7 +483,11 @@ export class ScopeFacade {
     return this.getValueAt([], key);
   }
 
-  /** Path-aware adapter access. Segments remain separate from literal dotted keys. */
+  /**
+   * Path-aware adapter access. Segments stay separate from literal dotted keys in STATE;
+   * the recorder event's `key` is only a dot-joined display label, so `['user','ssn']` and
+   * a literal top-level `'user.ssn'` produce the same event key (same for the writes below).
+   */
   getValueAt(path: string[], key?: string) {
     const value = this._stageContext.getValue(path, key);
 
