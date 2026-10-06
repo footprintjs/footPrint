@@ -11,7 +11,7 @@ const example = 'examples/building-blocks/02-fork.ts';
 describe('fork example — public package integration', () => {
   it('confirms the in-stock, fraud-cleared order after both branches finish', () => {
     // Transpile only: keep the example's public package import, resolved from dist.
-    // CI and test:examples build that package before running this guard.
+    // Runs only from test:examples (vitest.examples.config.ts), which builds that package first.
     const { code } = transformSync(readFileSync(resolve(projectRoot, example), 'utf8'), {
       loader: 'ts',
       format: 'cjs',
