@@ -126,6 +126,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   private pendingOps = new Map<string, BufferedOp[]>();
   /** Per-subflow stage counters. Key '' = root flow. */
   private stageCounters = new Map<string, number>();
+  /** The stage `onResume` just narrated — its header must not announce the arrival again. */
+  private resumedStage: string | undefined;
   /** Per-subflow first-stage flags. Key '' = root flow. */
   private firstStageFlags = new Map<string, boolean>();
   /** Visit count per stageId — detects loop iterations (count > 1 = loop). */
@@ -191,6 +193,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       isFirst,
       description: event.description,
       loopIteration: visitCount > 1 ? visitCount - 1 : undefined,
+      ...(this.consumeResumed(event.stageName) && { resumed: true }),
     };
     const text = this.renderer?.renderStage?.(ctx) ?? this.defaultRenderStage(ctx);
 
@@ -226,6 +229,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       stageNumber: stageNum,
       isFirst,
       description: event.description,
+      ...(this.consumeResumed(event.decider) && { resumed: true }),
     };
     const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
 
@@ -483,6 +487,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     if (!isFlowEvent(event)) return;
     if (!event.stageName || !event.stageId) return;
     const text = resumeSentence(event);
+    this.resumedStage = event.stageName;
     this.store.push({
       type: 'resume',
       text,
@@ -641,6 +646,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     this.stageCounters.clear();
     this.firstStageFlags.clear();
     this.stageVisitCounts.clear();
+    this.resumedStage = undefined;
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
@@ -650,6 +656,13 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     const next = current + 1;
     this.stageCounters.set(subflowKey, next);
     return next;
+  }
+
+  /** The first stage header after a resume belongs to the resumed stage; told once, then cleared. */
+  private consumeResumed(stageName: string): boolean {
+    const resumed = this.resumedStage === stageName;
+    this.resumedStage = undefined;
+    return resumed;
   }
 
   private consumeFirstStageFlag(subflowKey: string): boolean {
@@ -769,7 +782,9 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
 
   private defaultRenderStage(ctx: StageRenderContext): string {
     let inner: string;
-    if (ctx.isFirst) {
+    if (ctx.resumed) {
+      inner = 'It continued from the pause.';
+    } else if (ctx.isFirst) {
       inner = ctx.description ? `The process began: ${ctx.description}.` : `The process began with ${ctx.stageName}.`;
     } else if (ctx.loopIteration && ctx.loopIteration > 0) {
       inner = ctx.description

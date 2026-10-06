@@ -42,18 +42,27 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   private sentences: string[] = [];
   /** Parallel array: the actual stage name that produced each sentence. */
   private stageNames: (string | undefined)[] = [];
+  /**
+   * The stage whose arrival `onLoop` / `onResume` just narrated. Its completion
+   * line would repeat that arrival ("Next, it moved on to X."), so the next
+   * `onStageExecuted` for that stage stays silent — an arrival is told ONCE.
+   */
+  private announcedArrival: string | undefined;
 
   constructor(id?: string) {
     this.id = id ?? 'narrative';
   }
 
   onStageExecuted(event: FlowStageEvent): void {
+    const announced = this.announcedArrival;
+    this.announcedArrival = undefined;
     // Only LINEAR stages produce a "moved on to X" narrative line.
     // Decider / fork / selector / subflow-mount stages have their
     // own dedicated narrative lines from onDecision / onFork /
     // onSelected / onSubflowEntry — emitting from here too would
     // double up the narrative.
     if (event.stageType !== 'linear') return;
+    if (announced === event.stageName) return;
     this.sentences.push(nextStageSentence(event));
     this.stageNames.push(event.stageName);
   }
@@ -97,6 +106,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   onLoop(event: FlowLoopEvent): void {
     this.sentences.push(loopSentence(event));
     this.stageNames.push(event.target);
+    this.announcedArrival = event.target;
   }
 
   onBreak(event: FlowBreakEvent): void {
@@ -133,6 +143,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   onResume(event: FlowResumeEvent): void {
     this.sentences.push(resumeSentence(event));
     this.stageNames.push(event.stageName);
+    this.announcedArrival = event.stageName;
   }
 
   /** Returns a defensive copy of accumulated sentences. */
@@ -144,5 +155,6 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   clear(): void {
     this.sentences = [];
     this.stageNames = [];
+    this.announcedArrival = undefined;
   }
 }

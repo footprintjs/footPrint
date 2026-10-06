@@ -36,6 +36,7 @@ function reference(encoding: 'full' | 'delta'): string {
   // C2: the original fresh resume had only standalone stage sentences (and
   // C1 removed its duplicate transition). It now starts the enabled combined
   // narrator. Pin the whole corrected resumed leg; all other bytes stay intact.
+  // D5: the resumed stage's header no longer re-announces its arrival.
   expect(parsed.resumed.narrative).toEqual([
     { type: 'stage', text: 'Next, it moved on to Gate.', depth: 0 },
     { type: 'stage', text: 'Next, it moved on to Finish.', depth: 0 },
@@ -52,7 +53,7 @@ function reference(encoding: 'full' | 'delta'): string {
     },
     {
       type: 'stage',
-      text: 'Stage 1: The process began with Gate.',
+      text: 'Stage 1: It continued from the pause.',
       depth: 0,
       stageName: 'Gate',
       stageId: 'gate',
