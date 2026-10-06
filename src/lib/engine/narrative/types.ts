@@ -498,10 +498,10 @@ export interface FlowResumeEvent {
  *   - `onRunEnd`   payload → the chart's return value
  *
  * Both are retained at runtime before dispatch/deferred capture using the
- * run's RedactionRule: own top-level string keys and explicit nested fields.
- * Scalars/root arrays pass through; fork child-ID envelopes need explicit
- * paths such as fields: { childId: ['result.secret'] }. This is not recursive
- * content scanning. Live execution inputs and return values stay unchanged.
+ * run's RedactionRule (`retainBoundary`): own string keys at every depth (by
+ * name or dotted path) and explicit nested fields. Scalars pass through; fork
+ * child-ID envelopes need explicit paths such as fields: { childId: ['result.secret'] }.
+ * Values are not scanned. Live execution inputs and return values stay unchanged.
  */
 export interface FlowRunEvent {
   /** Retained input after validation (`onRunStart`) or retained chart return

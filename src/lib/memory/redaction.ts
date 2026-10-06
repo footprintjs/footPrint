@@ -294,10 +294,10 @@ export class RedactionRule {
   }
 
   /**
-   * The retained form of a record (root boundary, subflow seed, state read):
-   * each own enumerable string key through {@link retain}. Fields are paths
-   * inside that keyed value, not a recursive key/content search. Scalars and
-   * root arrays pass through; fork result envelopes need explicit child paths.
+   * The retained form of a STATE record (state read, mirror seed): each own
+   * enumerable string key through {@link retain}. Fields are paths inside that
+   * keyed value. Scalars and root arrays pass through. Boundary records add
+   * the nested-key walk: {@link retainBoundary}.
    * Returns the SAME object when unchanged. An inert rule does not enumerate
    * the value, so even an accessor is untouched on the no-policy fast path.
    */
@@ -311,6 +311,60 @@ export class RedactionRule {
       out[key] = kept;
     }
     return (out ?? record) as T;
+  }
+
+  /**
+   * The retained form of a BOUNDARY record — root input/output and a subflow's
+   * mapped seed, before any observer sees it. {@link retainRecord} decides each
+   * top key; then every NESTED own key is a key too: secret when its own name
+   * or its dotted path is redacted at key level (`keys: ['secret']` covers
+   * `{ wrapper: { secret } }`; a root array's elements are walked the same
+   * way). Only a value that holds such a key is cloned — once, so cycles and
+   * aliases survive — and scrubbed in the clone; the live value is never
+   * touched. Returns the SAME object when nothing nested is secret, and an
+   * inert rule enumerates nothing. State keeps its own path verdicts
+   * ({@link verdict}); this walk is for records handed out whole.
+   */
+  retainBoundary<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
+    if (this.isInert() || record === null || typeof record !== 'object') return record;
+    const top = this.retainRecord(record, placeholder) as unknown as Record<string, unknown>;
+    let out: Record<string, unknown> | unknown[] | undefined;
+    for (const [key, value] of Object.entries(top)) {
+      if (value === null || typeof value !== 'object' || !this.holdsNestedKey(value, key, new WeakSet())) continue;
+      const owned = structuredClone(value) as object;
+      this.scrubNestedKeys(owned, key, placeholder, new WeakSet());
+      out ??= Array.isArray(top) ? [...top] : { ...top };
+      (out as Record<string, unknown>)[key] = owned;
+    }
+    return (out ?? top) as T;
+  }
+
+  /** A nested own key whose name or dotted path is redacted at key level. */
+  private nestedKeyRedacted(name: string, dotted: string): boolean {
+    return this.isKeyRedacted(name) || this.isKeyRedacted(dotted);
+  }
+
+  private holdsNestedKey(node: object, dotted: string, seen: WeakSet<object>): boolean {
+    if (seen.has(node)) return false;
+    seen.add(node);
+    for (const [name, child] of Object.entries(node)) {
+      const path = `${dotted}.${name}`;
+      if (this.nestedKeyRedacted(name, path)) return true;
+      if (child !== null && typeof child === 'object' && this.holdsNestedKey(child, path, seen)) return true;
+    }
+    return false;
+  }
+
+  /** In place, on a clone this rule owns. */
+  private scrubNestedKeys(node: object, dotted: string, placeholder: string, seen: WeakSet<object>): void {
+    if (seen.has(node)) return;
+    seen.add(node);
+    const record = node as Record<string, unknown>;
+    for (const [name, child] of Object.entries(record)) {
+      const path = `${dotted}.${name}`;
+      if (this.nestedKeyRedacted(name, path)) record[name] = placeholder;
+      else if (child !== null && typeof child === 'object') this.scrubNestedKeys(child, path, placeholder, seen);
+    }
   }
 
   /**

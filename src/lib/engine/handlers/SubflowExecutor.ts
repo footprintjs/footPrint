@@ -14,6 +14,7 @@
  */
 
 import { thrownText } from '../../errors/errorInfo.js';
+import { LOG_PLACEHOLDER } from '../../memory/placeholders.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -163,7 +164,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // inputMapper may inject values from anywhere, so the seed is scrubbed
     // under the policy before any recorder sees it. Same object when nothing
     // in it is redacted (the no-policy path allocates nothing).
-    const narrativeInput = redactionRule ? redactionRule.retainRecord(mappedInput) : mappedInput;
+    const narrativeInput = redactionRule ? redactionRule.retainBoundary(mappedInput) : mappedInput;
     // `FlowSubflowEvent.description` is semantically "what this subflow does" — sourced from
     // the subflow's own root stage, not the parent mount point. The mount node never carries
     // a description (builders don't copy it), so reading `node.description` here returns
@@ -416,7 +417,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const rawState = subflowResult.treeContext.globalContext;
     const mirrorState = nestedRuntime.redactedStore?.getState();
     if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
-    const exitState = mirrorState ?? (redactionRule ? redactionRule.retainRecord(rawState) : rawState);
+    // Handed out whole, so it is a boundary record: nested policy keys are scrubbed too
+    // (the mirror's own placeholder, so its top keys keep their bytes).
+    const exitState = !redactionRule
+      ? mirrorState ?? rawState
+      : mirrorState !== undefined
+      ? redactionRule.retainBoundary(mirrorState, LOG_PLACEHOLDER)
+      : redactionRule.retainBoundary(rawState);
 
     subflowResultsMap.set(subflowId, subflowResult);
     // Additive per-execution key (design: docs/design/subflow-commit-visibility.md). A LOOPING

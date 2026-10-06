@@ -659,7 +659,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (isTopLevel) {
       // Retain at the boundary, before dispatch or deferred capture — the
       // same owner as subflow entry, not a recorder-local scrub or later walk.
-      const input = redactionRule ? redactionRule.retainRecord(this.readOnlyContext) : this.readOnlyContext;
+      const input = redactionRule ? redactionRule.retainBoundary(this.readOnlyContext) : this.readOnlyContext;
       this.narrativeGenerator.onRunStart(input, rootContext);
     }
 
@@ -682,7 +682,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       result = await walk();
       // Read the shared rule now so marks made during execution apply to
       // this event. A scrub failure closes the run as failed, never raw.
-      retainedResult = redactionRule ? redactionRule.retainRecord(result) : result;
+      retainedResult = redactionRule ? redactionRule.retainBoundary(result) : result;
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
         this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);

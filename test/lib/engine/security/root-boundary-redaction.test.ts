@@ -233,7 +233,6 @@ describe('root boundary payload shape contract', () => {
     ['boolean', true],
     ['null', null],
     ['undefined', undefined],
-    ['array', [{ secret: 'array-secret' }]],
   ] as const)('does not infer record fields for a %s payload', async (_name, payload) => {
     const executor = new FlowChartExecutor(flowChart<unknown, object>('Return', () => payload, 'return').build());
     executor.setRedactionPolicy({ keys: ['secret'], patterns: [/secret/] });
@@ -370,4 +369,54 @@ describe('root boundary scrub failure containment', () => {
       expect(reads).toBe(0);
     },
   );
+});
+
+describe.each(['inline', 'deferred'] as const)('boundary records walk nested keys: %s delivery', (delivery) => {
+  it('never serves a nested policy key raw at root entry/exit, subflow entry or InOut', async () => {
+    const input = { wrapper: { secret: 'in-secret', visible: 'in-visible' }, list: [{ apiToken: 'in-token' }] };
+    const output = {
+      wrapper: { secret: 'out-secret', deeper: { secret: 'deep-secret' } },
+      items: [{ secret: 'item' }],
+    };
+    const inner = flowChart<object>('Inner', () => {}, 'inner').build();
+    const chart = flowChart<object>('Start', () => {}, 'start')
+      .addSubFlowChartNext('sub', inner, 'Sub', {
+        inputMapper: () => ({ seed: { secret: 'seed-secret', visible: 'seed-visible' } }),
+      })
+      .addFunction('Finish', () => output, 'finish')
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['secret'], patterns: [/token/i] });
+    const { boundaries, inout } = observe(executor, delivery);
+
+    expect(await executor.run({ input })).toBe(output);
+    // Live values stay real.
+    expect(output.wrapper.deeper.secret).toBe('deep-secret');
+    expect(input.list[0].apiToken).toBe('in-token');
+
+    expect(boundaries[0].payload).toEqual({
+      wrapper: { secret: '[REDACTED]', visible: 'in-visible' },
+      list: [{ apiToken: '[REDACTED]' }],
+    });
+    expect(boundaries[1].payload).toEqual({
+      wrapper: { secret: '[REDACTED]', deeper: { secret: '[REDACTED]' } },
+      items: [{ secret: '[REDACTED]' }],
+    });
+    const served = JSON.stringify([boundaries, inout.getBoundaries()]);
+    for (const raw of ['in-secret', 'in-token', 'out-secret', 'deep-secret', '"item"', 'seed-secret']) {
+      expect(served).not.toContain(raw);
+    }
+    expect(served).toContain('seed-visible');
+  });
+
+  it('walks a root array payload', async () => {
+    const payload = [{ secret: 'array-secret', visible: 1 }];
+    const executor = new FlowChartExecutor(flowChart<unknown, object>('Return', () => payload, 'return').build());
+    executor.setRedactionPolicy({ keys: ['secret'] });
+    const { boundaries } = observe(executor, delivery);
+
+    expect(await executor.run()).toBe(payload);
+    expect(boundaries[1].payload).toEqual([{ secret: '[REDACTED]', visible: 1 }]);
+    expect(payload[0].secret).toBe('array-secret');
+  });
 });
