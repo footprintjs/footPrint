@@ -106,8 +106,16 @@ export interface IControlFlowNarrative {
     propagatedFromSubflow?: string,
   ): void;
 
-  /** Called when a stage throws an error. Raw error is extracted into structured details. */
-  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void;
+  /**
+   * Called when a stage throws an error, with its SERVED form: for a stage's own failure that is
+   * `RedactionRule.retainStageError` (the diagnostic policy applied once), elsewhere `extractErrorInfo`.
+   */
+  onError(
+    stageName: string,
+    errorMessage: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void;
 
   /**
    * Called when an attempt at a stage with a declared `retry` policy failed

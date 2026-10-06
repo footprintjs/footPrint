@@ -28,6 +28,8 @@
  */
 
 import { isDevMode } from '../devMode.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import { extractErrorInfo } from '../errors/errorInfo.js';
 import { nativeGet, nativeHas, nativeSet, ownedRootOf, ownSpine } from './pathOps.js';
 import { DELIM } from './paths.js';
 import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
@@ -140,6 +142,8 @@ export class RedactionRule {
    * the rule once per run and installs it on the runtime root).
    */
   private marked: Set<string>;
+  /** This run's failed-stage errors whose text the diagnostic policy masked → their served form. */
+  private maskedErrors: Map<unknown, StructuredErrorInfo> | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
@@ -226,6 +230,39 @@ export class RedactionRule {
    * but without state marks/selectors. Clear values keep their identity. */
   retainDiagnostic(path: readonly string[], value: unknown): unknown {
     return this.diagnosticRule ? this.diagnosticRule.retain(path, value) : value;
+  }
+
+  /**
+   * The served form of a failed stage's error, decided ONCE at its error site from the
+   * text the diagnostic collector retained for `errors.stageExecutionError` (`kept`).
+   * Unmasked: today's structured info. Masked: the placeholder as the message, the
+   * error's `name`/`code` kept, no `issues` (they quote the input) and no `raw` error
+   * (its message and stack hold the text) — remembered so `onRunFailed` serves the
+   * same form ({@link servedError}). The thrown value itself stays real.
+   */
+  retainStageError(
+    error: unknown,
+    text: string,
+    kept: unknown,
+  ): { message: string; structuredError: StructuredErrorInfo } {
+    const info = extractErrorInfo(error);
+    if (kept === text) return { message: text, structuredError: info };
+    const message = String(kept);
+    const masked: StructuredErrorInfo = {
+      message,
+      ...(info.name !== undefined && { name: info.name }),
+      ...(info.code !== undefined && { code: info.code }),
+      raw: undefined,
+    };
+    (this.maskedErrors ??= new Map()).set(error, masked);
+    return { message, structuredError: masked };
+  }
+
+  /** What a run-level observer is served for a thrown value: its masked stage form, else its structured info. */
+  servedError(error: unknown): StructuredErrorInfo {
+    const masked = this.maskedErrors?.get(error);
+    // Each event gets its own object, as extractErrorInfo gives it one.
+    return masked ? { ...masked } : extractErrorInfo(error);
   }
 
   /** Keep no-diagnostic-policy collectors inert, including borrowed getters. */

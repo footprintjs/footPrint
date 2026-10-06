@@ -41,6 +41,7 @@ import type { QueuedPause } from '../handlers/ResumeEntry.js';
 import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
+import { recordStageError } from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
@@ -685,7 +686,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       retainedResult = redactionRule ? redactionRule.retainBoundary(result) : result;
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
-        this.narrativeGenerator.onRunFailed(extractErrorInfo(error), rootContext);
+        this.narrativeGenerator.onRunFailed(
+          redactionRule ? redactionRule.servedError(error) : extractErrorInfo(error),
+          rootContext,
+        );
       }
       throw error;
     }
@@ -1032,7 +1036,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const depth = this.nestingDepthOf(context);
     if (depth > this._maxDepth) {
       const error = new TraversalDepthError(this._maxDepth, node.name);
-      this.narrativeGenerator.onError(node.name, thrownText(error), error);
+      this.narrativeGenerator.onError(node.name, thrownText(error), extractErrorInfo(error));
       throw error;
     }
 
@@ -1494,9 +1498,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           throw error;
         }
         context.commit();
-        this.narrativeGenerator.onError(node.name, thrownText(error), error, traversalContext);
+        const served = recordStageError(context, error);
+        this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, { error });
-        context.addError('stageExecutionError', thrownText(error));
         throw error;
       }
       commitStage(context, this.narrativeGenerator, node.name, traversalContext);

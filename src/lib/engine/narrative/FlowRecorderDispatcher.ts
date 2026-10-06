@@ -161,9 +161,13 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     fire(this.recorders, 'onBreak', event, FLOW_FAILURE);
   }
 
-  onError(stageName: string, errorMessage: string, error: unknown, traversalContext?: TraversalContext): void {
+  onError(
+    stageName: string,
+    errorMessage: string,
+    structuredError: StructuredErrorInfo,
+    traversalContext?: TraversalContext,
+  ): void {
     if (this.recorders.length === 0) return;
-    const structuredError = extractErrorInfo(error);
     const event = { stageName, message: errorMessage, structuredError, traversalContext, channel: 'flow' as const };
     fire(this.recorders, 'onError', event, FLOW_FAILURE);
   }
