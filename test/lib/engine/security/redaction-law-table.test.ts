@@ -310,3 +310,58 @@ describe.each(ROWS)('the redaction law — policy by $label', (row) => {
     }
   });
 });
+
+/**
+ * More rows of the same table: a SHARED reference at two paths with one path
+ * protected (a path rule is decided per path — exact; review finding 1).
+ */
+const PIN = 'pin-shared-41c9';
+
+function withPathRule(row: Row): RedactionPolicy {
+  if (row.label === 'keys') return { keys: [...row.policy.keys!, 'shared.b.x.pin'] };
+  if (row.label === 'patterns') return { patterns: [...row.policy.patterns!, /^shared\.b\.x\.pin$/] };
+  return { fields: { ...row.policy.fields, shared: ['b.x.pin'] } };
+}
+
+describe.each(ROWS)('the redaction law — a shared reference at two paths, policy by $label', (row) => {
+  it('the protected path is masked in every served view; the other path stays visible; the checkpoint stays real', async () => {
+    const pinned = { pin: PIN, label: 'L' };
+    const shared = { a: { x: pinned }, b: { x: pinned } };
+    const chart = flowChart<any>(
+      'Seed',
+      (scope) => {
+        scope.started = true;
+      },
+      'seed',
+    )
+      .addPausableFunction('Ask', { execute: () => ({ shared }), resume: () => undefined }, 'ask')
+      .addFunction('Finish', () => ({ shared }), 'finish')
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy(withPathRule(row));
+    const inline: unknown[] = [];
+    const deferred: unknown[] = [];
+    executor.attachCombinedRecorder(everyHook('inline', inline));
+    executor.attachCombinedRecorder(everyHook('deferred', deferred), { delivery: 'deferred' });
+    await executor.run();
+    expect((executor.getCheckpoint()!.pauseData as any).shared.b.x.pin).toBe(PIN);
+    await executor.resume(executor.getCheckpoint()!, { ok: true });
+    await executor.drainObservers();
+
+    const served = (events: unknown[], hook: string) =>
+      (events as Array<[string, any]>).filter(([h]) => h === hook).map(([, event]) => event);
+    const payloads = [
+      ...served(inline, 'onPause').map((e) => e.pauseData),
+      ...served(deferred, 'onPause').map((e) => e.pauseData),
+      ...served(inline, 'onRunEnd').map((e) => e.payload),
+      ...served(deferred, 'onRunEnd').map((e) => e.payload),
+    ];
+    expect(payloads).toHaveLength(6); // scope + flow onPause, both tiers; the resumed leg's onRunEnd, both tiers
+    for (const payload of payloads) {
+      expect(payload.shared.b.x.pin).toBe(MASK);
+      expect(payload.shared.b.x.label).toBe('L');
+      expect(payload.shared.a.x.pin).toBe(PIN); // exact: the unprotected path is not masked
+    }
+    expect(pinned.pin).toBe(PIN); // never edited in place
+  });
+});

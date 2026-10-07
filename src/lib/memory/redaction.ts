@@ -289,12 +289,8 @@ export class RedactionRule {
       path.length > 1 && this.isKeyRedacted(name) ? { kind: 'whole', key: name } : this.verdict(path);
     if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
     const kept = RedactionRule.apply(verdict, value);
-    const dotted = path.join('.');
-    if (kept === null || typeof kept !== 'object' || !this.holdsNestedKey(kept, dotted, new WeakSet())) return kept;
-    // A field scrub already cloned; a clear value is cloned once before its nested keys are scrubbed.
-    const owned = kept === value ? (structuredClone(kept) as object) : kept;
-    this.scrubNestedKeys(owned, dotted, SCOPE_PLACEHOLDER, new WeakSet());
-    return owned;
+    if (kept === null || typeof kept !== 'object') return kept;
+    return servedByPath(kept, path.join('.'), [], this.namesWalk(false), SCOPE_PLACEHOLDER);
   }
 
   /**
@@ -336,10 +332,27 @@ export class RedactionRule {
   private carriesSelectedKey(value: unknown): boolean {
     if (this.isInert() || value === null || typeof value !== 'object') return false;
     try {
-      return this.holdsNestedKey(value, undefined, new WeakSet());
+      return selectsByPath(value, undefined, [], this.namesWalk(false), new Set(), 0);
     } catch {
       return true;
     }
+  }
+
+  /**
+   * The key-level rules as the path walk asks them ({@link servedByPath}): a
+   * nested key is selected by its own name or its dotted path, and a declared
+   * (or inherited) field below a key of its name is a target. `rootDecided`:
+   * the root's own keys were already decided by the caller (`retainRecord`).
+   */
+  private namesWalk(rootDecided: boolean): Walk {
+    return {
+      names: {
+        masks: (name, path) => this.isKeyRedacted(name) || (path !== name && this.isKeyRedacted(path)),
+        fields: (name) => this.fieldsOf(name),
+      },
+      rootDecided,
+      budget: WALK_BUDGET,
+    };
   }
 
   /**
@@ -499,12 +512,14 @@ export class RedactionRule {
    * or its dotted path is redacted at key level (`keys: ['secret']` covers
    * `{ wrapper: { secret } }`; a root array's elements are walked the same
    * way), and its declared `fields` scrubbed inside it (`fields: { profile:
-   * ['token'] }` covers `{ wrapper: { profile: { token } } }`). Only a value
-   * that holds such a key is cloned — once, so cycles and
-   * aliases survive — and scrubbed in the clone; the live value is never
-   * touched. Returns the SAME object when nothing nested is secret, and an
-   * inert rule enumerates nothing. State keeps its own path verdicts
-   * ({@link verdict}); this walk is for records handed out whole.
+   * ['token'] }` covers `{ wrapper: { profile: { token } } }`). Decided per
+   * PATH, copy-on-write per path ({@link servedByPath}): an object shared by
+   * two paths is masked at the one a path rule names and served as it is at
+   * the other; a cycle edge lands on the served copy, never on an unscrubbed
+   * original; the live value is never touched. Returns the SAME object when
+   * nothing nested is secret, and an inert rule enumerates nothing. State
+   * keeps its own path verdicts ({@link verdict}); this walk is for records
+   * handed out whole.
    */
   retainBoundary<T>(record: T, placeholder: string = SCOPE_PLACEHOLDER): T {
     // A masked stage error inside the record (a fork envelope's `result`) is
@@ -512,16 +527,10 @@ export class RedactionRule {
     // thrown string is a plain value, so no key walk sees either.
     const served = this.maskedErrors?.size ? (this.withServedErrors(record, new Map()) as T) : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
-    const top = this.retainRecord(served, placeholder) as unknown as Record<string, unknown>;
-    let out: Record<string, unknown> | unknown[] | undefined;
-    for (const [key, value] of Object.entries(top)) {
-      if (value === null || typeof value !== 'object' || !this.holdsNestedKey(value, key, new WeakSet())) continue;
-      const owned = structuredClone(value) as object;
-      this.scrubNestedKeys(owned, key, placeholder, new WeakSet());
-      out ??= Array.isArray(top) ? [...top] : { ...top };
-      (out as Record<string, unknown>)[key] = owned;
-    }
-    return (out ?? top) as T;
+    const top = this.retainRecord(served, placeholder) as unknown as object;
+    // Below the top keys, one decision per PATH (the whole record is the walk's root, so a cycle
+    // back to it lands on the served copy).
+    return servedByPath(top, undefined, [], this.namesWalk(true), placeholder) as T;
   }
 
   /**
@@ -554,45 +563,6 @@ export class RedactionRule {
     return copy ?? value;
   }
 
-  /** A nested own key whose name or dotted path is redacted at key level. */
-  private nestedKeyRedacted(name: string, dotted: string): boolean {
-    return this.isKeyRedacted(name) || this.isKeyRedacted(dotted);
-  }
-
-  /**
-   * Does `node` hold a nested own key the policy selects — its name or dotted
-   * path selected at key level, or a declared/inherited `fields` path inside a
-   * key of that name (a nested key is a key too)? `dotted` is `node`'s own
-   * path; `undefined` when `node` is the record itself (its keys are top keys).
-   */
-  private holdsNestedKey(node: object, dotted: string | undefined, seen: WeakSet<object>): boolean {
-    if (seen.has(node)) return false;
-    seen.add(node);
-    for (const [name, child] of Object.entries(node)) {
-      const path = dotted === undefined ? name : `${dotted}.${name}`;
-      if (this.nestedKeyRedacted(name, path)) return true;
-      if (child === null || typeof child !== 'object') continue;
-      if (RedactionRule.holdsPaths(child, this.fieldsOf(name)) || this.holdsNestedKey(child, path, seen)) return true;
-    }
-    return false;
-  }
-
-  /** In place, on a clone this rule owns. */
-  private scrubNestedKeys(node: object, dotted: string, placeholder: string, seen: WeakSet<object>): void {
-    if (seen.has(node)) return;
-    seen.add(node);
-    const record = node as Record<string, unknown>;
-    for (const [name, child] of Object.entries(record)) {
-      const path = `${dotted}.${name}`;
-      if (this.nestedKeyRedacted(name, path)) record[name] = placeholder;
-      else if (child !== null && typeof child === 'object') {
-        const fields = this.fieldsOf(name);
-        if (fields !== undefined) RedactionRule.scrubPaths(child as Record<string, unknown>, fields, placeholder);
-        this.scrubNestedKeys(child, path, placeholder, seen);
-      }
-    }
-  }
-
   /** Does `value` hold one of `paths` — an own key of that name, or a dotted path inside it? */
   static holdsPaths(value: object, paths: readonly string[] | undefined): boolean {
     if (paths === undefined) return false;
@@ -602,22 +572,6 @@ export class RedactionRule {
       }
     }
     return false;
-  }
-
-  /**
-   * In place, on a value this rule owns: each of `paths` that exists becomes
-   * the placeholder. A path that exists as a literal key (`'a.b'` as one
-   * property) is scrubbed as that key; otherwise it is walked as a nested
-   * path. Paths that do not exist are ignored — scrubbing never invents a field.
-   */
-  private static scrubPaths(copy: Record<string, unknown>, paths: readonly string[], placeholder: string): void {
-    for (const path of paths) {
-      if (Object.prototype.hasOwnProperty.call(copy, path)) {
-        copy[path] = placeholder;
-      } else if (path.includes('.') && nativeHas(copy, path)) {
-        nativeSet(copy, path, placeholder);
-      }
-    }
   }
 
   /**
@@ -653,10 +607,12 @@ export class RedactionRule {
   /**
    * A deep clone of `value` with the given dot-paths replaced by the
    * placeholder — `undefined` when `value` is not an object (there is nothing
-   * to scrub in a scalar; the caller keeps the value). A path that exists as
-   * a literal key (`'a.b'` as one property) is scrubbed as that key;
-   * otherwise it is walked as a nested path. Paths that do not exist are
-   * ignored — scrubbing never invents a field.
+   * to scrub in a scalar; the caller keeps the value). The clone refuses an
+   * uncloneable value. A path names a literal key (`'a.b'` as one property)
+   * and, when dotted, the nested path; each is scrubbed where it exists, per
+   * PATH — a node the clone shares between two paths is masked at the named
+   * one only ({@link servedByPath}). Paths that do not exist are ignored —
+   * scrubbing never invents a field.
    */
   static scrubFields(
     value: unknown,
@@ -664,9 +620,16 @@ export class RedactionRule {
     placeholder: string = SCOPE_PLACEHOLDER,
   ): Record<string, unknown> | undefined {
     if (value === null || typeof value !== 'object') return undefined;
-    const copy = structuredClone(value) as Record<string, unknown>;
-    RedactionRule.scrubPaths(copy, paths, placeholder);
-    return copy;
+    // The clone detaches the retained value (and refuses an uncloneable one); the scrub on it is
+    // decided per PATH, so a node the clone shares between two paths is masked at the named one only.
+    const copy = structuredClone(value) as object;
+    return servedByPath(
+      copy,
+      undefined,
+      targetsOf(paths),
+      { rootDecided: false, budget: WALK_BUDGET },
+      placeholder,
+    ) as Record<string, unknown>;
   }
 
   report(): RedactionReport {
@@ -683,6 +646,201 @@ export class RedactionRule {
       fieldRedactions,
       patterns: (this.policy?.patterns ?? []).map((p) => p.source),
     };
+  }
+}
+
+// ─── The path walk — one decision per PATH ─────────────────────────────────
+//
+// A rule that names a PATH (a dotted key, a pattern, a field) must be exact
+// even when one object is reachable at two paths: the decision is made per
+// path, never per object, and a copy is made per path (copy-on-write) — never
+// a scrub in place on a node another path still shows. The only memory of
+// what was visited is the ancestor stack of the CURRENT path, a cycle guard.
+// A key-NAME rule is the same at every path, so a shared node it masks is
+// masked everywhere — the safe side. Rules are decided along acyclic paths: a
+// cycle edge is not followed, it is pointed at the ancestor's served copy.
+
+/** A field still to reach below a node: the path segments left to walk. */
+type Target = readonly string[];
+
+/** How a walk decides an edge. */
+interface Walk {
+  /** Key-level rules at every nested key — absent for a bare field scrub (targets only). */
+  readonly names?: {
+    /** Selected whole at this nested key: by its own name or its dotted path. */
+    masks(name: string, path: string): boolean;
+    /** The declared fields below a key of this name. */
+    fields(name: string): readonly string[] | undefined;
+  };
+  /** The root's own keys were decided by the caller (`retainRecord`): walk below them only. */
+  readonly rootDecided: boolean;
+  /** Path visits left. A DAG's paths can outnumber its objects without bound. */
+  budget: number;
+}
+
+/**
+ * Path visits one walk may make before it gives up and serves its whole value
+ * as the placeholder (the safe side) — a bound on a pathological DAG, far above
+ * any tree a run holds (a tree's paths are its nodes).
+ */
+const WALK_BUDGET = 1_000_000;
+const BUDGET_SPENT: unique symbol = Symbol('redaction walk budget spent');
+
+/** Each field path as one literal key and, when dotted, as its segments. */
+function targetsOf(paths: readonly string[] | undefined): Target[] {
+  const out: Target[] = [];
+  for (const path of paths ?? []) {
+    out.push([path]);
+    if (path.includes('.')) out.push(path.split('.'));
+  }
+  return out;
+}
+
+/** One edge's decision: the value under `key` is masked here, or these targets continue below it. */
+function decideEdge(
+  key: string,
+  path: string,
+  targets: readonly Target[],
+  walk: Walk,
+  depth: number,
+): { masked: boolean; below: Target[] } {
+  const below: Target[] = [];
+  let masked = false;
+  for (const target of targets) {
+    if (target[0] !== key) continue;
+    if (target.length === 1) masked = true;
+    else below.push(target.slice(1));
+  }
+  const names = walk.rootDecided && depth === 0 ? undefined : walk.names;
+  if (names !== undefined && !masked) {
+    masked = names.masks(key, path);
+    below.push(...targetsOf(names.fields(key)));
+  }
+  return { masked, below };
+}
+
+/** Is anything selected on some PATH under `node`? Read-only; a cycle edge is not followed. */
+function selectsByPath(
+  node: object,
+  dotted: string | undefined,
+  targets: readonly Target[],
+  walk: Walk,
+  ancestors: Set<object>,
+  depth: number,
+): boolean {
+  if (--walk.budget < 0) throw BUDGET_SPENT;
+  if (walk.names === undefined && targets.length === 0) return false;
+  ancestors.add(node);
+  try {
+    for (const [key, child] of Object.entries(node)) {
+      const path = dotted === undefined ? key : `${dotted}.${key}`;
+      const edge = decideEdge(key, path, targets, walk, depth);
+      if (edge.masked) return true;
+      if (child === null || typeof child !== 'object' || ancestors.has(child)) continue;
+      if (selectsByPath(child, path, edge.below, walk, ancestors, depth + 1)) return true;
+    }
+    return false;
+  } finally {
+    ancestors.delete(node);
+  }
+}
+
+/**
+ * The served copy of `node`, copy-on-write PER PATH. Every container entered
+ * gets its copy BEFORE its children are walked, so a cycle edge is pointed at
+ * the ancestor's copy — never back at an unscrubbed original; a container is
+ * served as itself when nothing under it changed and no cycle passes through
+ * it. A pruned descent (a bare field scrub of an acyclic value) skips subtrees
+ * no target reaches. `back` is the shallowest ancestor a cycle edge below
+ * reached (`Infinity`: none).
+ */
+function copyByPath(
+  node: object,
+  dotted: string | undefined,
+  targets: readonly Target[],
+  walk: Walk,
+  placeholder: string,
+  ancestors: Map<object, { copy: Record<string, unknown>; depth: number }>,
+  depth: number,
+  prune: boolean,
+): { out: object; back: number } {
+  if (--walk.budget < 0) throw BUDGET_SPENT;
+  const frame = {
+    copy: (Array.isArray(node) ? node.slice() : { ...node }) as Record<string, unknown>,
+    depth,
+  };
+  ancestors.set(node, frame);
+  let changed = false;
+  let back = Infinity;
+  for (const [key, child] of Object.entries(node)) {
+    const path = dotted === undefined ? key : `${dotted}.${key}`;
+    const edge = decideEdge(key, path, targets, walk, depth);
+    if (edge.masked) {
+      frame.copy[key] = placeholder;
+      changed = true;
+      continue;
+    }
+    if (child === null || typeof child !== 'object') continue;
+    const ancestor = ancestors.get(child);
+    if (ancestor !== undefined) {
+      frame.copy[key] = ancestor.copy;
+      back = Math.min(back, ancestor.depth);
+      continue;
+    }
+    if (prune && edge.below.length === 0) continue;
+    const below = copyByPath(child, path, edge.below, walk, placeholder, ancestors, depth + 1, prune);
+    if (below.out !== child) {
+      frame.copy[key] = below.out;
+      changed = true;
+    }
+    back = Math.min(back, below.back);
+  }
+  ancestors.delete(node);
+  return { out: changed || back <= depth ? frame.copy : node, back: back < depth ? back : Infinity };
+}
+
+/** Does any path from `root` come back to an object on it? */
+function hasCycle(root: object): boolean {
+  const done = new WeakSet<object>();
+  const onPath = new Set<object>();
+  const visit = (node: object): boolean => {
+    if (onPath.has(node)) return true;
+    if (done.has(node)) return false;
+    onPath.add(node);
+    for (const child of Object.values(node)) {
+      if (child !== null && typeof child === 'object' && visit(child)) return true;
+    }
+    onPath.delete(node);
+    done.add(node);
+    return false;
+  };
+  return visit(root);
+}
+
+/**
+ * The served form of `root` under a walk: `root` itself when no path selects
+ * anything, else its copy-on-write copy; the placeholder when the walk spends
+ * its budget (never the raw value). Any other throw — an enumerable getter
+ * that throws — propagates: the caller refuses to serve.
+ */
+function servedByPath(
+  root: object,
+  dotted: string | undefined,
+  targets: readonly Target[],
+  walk: Walk,
+  placeholder: string,
+): unknown {
+  try {
+    if (!selectsByPath(root, dotted, targets, walk, new Set(), 0)) return root;
+    walk.budget = WALK_BUDGET;
+    // A bare field scrub of an acyclic value walks its targets only: no cycle can bring an
+    // unscrubbed original back. Every other walk visits every path (a cycle edge anywhere
+    // must land on a served copy).
+    const prune = walk.names === undefined && !hasCycle(root);
+    return copyByPath(root, dotted, targets, walk, placeholder, new Map(), 0, prune).out;
+  } catch (error) {
+    if (error === BUDGET_SPENT) return placeholder;
+    throw error;
   }
 }
 
