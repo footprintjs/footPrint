@@ -32,7 +32,8 @@ export class DiagnosticCollector {
   /** Read the current run policy, including policy swaps and resume. */
   constructor(private readonly readRule?: () => RedactionRule | undefined) {}
 
-  private retain(channel: string, path: string[], key: string, value: unknown): unknown {
+  /** A named entry: the run's rule maps its name to a state key, then adds the diagnostic selectors. */
+  private retain(channel: DiagnosticChannel, path: string[], key: string, value: unknown): unknown {
     const rule = this.readRule?.();
     return rule && !rule.isDiagnosticInert() ? rule.retainDiagnostic([channel, ...path, key], value) : value;
   }
@@ -80,17 +81,18 @@ export class DiagnosticCollector {
 
   addFlowMessage(flowMessage: FlowMessage) {
     const rule = this.readRule?.();
-    if (!rule || rule.isDiagnosticInert()) {
+    if (!rule || rule.isFlowTextInert()) {
       this.flowMessages.push(flowMessage);
       return;
     }
-    // Only payload text is selectable. Keep the evidence of what happened
+    // Only payload text is selectable — and it has no name of its own, so only
+    // the diagnostic selectors reach it. Keep the evidence of what happened
     // (type, targets, timing, counts) even when its explanation is masked.
-    const description = this.retain('flowMessages', [], 'description', flowMessage.description) as string;
+    const description = rule.retainFlowText(['flowMessages', 'description'], flowMessage.description);
     const rationale =
       flowMessage.rationale === undefined
         ? undefined
-        : (this.retain('flowMessages', [], 'rationale', flowMessage.rationale) as string);
+        : rule.retainFlowText(['flowMessages', 'rationale'], flowMessage.rationale);
     if (description === flowMessage.description && rationale === flowMessage.rationale) {
       this.flowMessages.push(flowMessage);
     } else {

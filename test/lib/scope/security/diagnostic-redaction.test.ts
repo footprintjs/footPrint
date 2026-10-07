@@ -151,12 +151,14 @@ describe('diagnostic namespace and admission', () => {
     executor.setRedactionPolicy(policy({ patterns: [pattern] }));
     const events = observe(executor);
     await executor.run();
+    // The restored law: a per-call mark selects its key by NAME everywhere it is served,
+    // so the diagnostic named `marked` is masked too (the pattern never matched it).
     expect
       .soft(events.map((event) => (event.payload as { value: unknown }).value))
-      .toEqual(['unmatched-diagnostic', MASK, MASK, 'public-value', MASK]);
+      .toEqual([MASK, MASK, MASK, 'public-value', MASK]);
     expect.soft(executor.getSnapshot().executionTree.logs.secret).toBe(MASK);
     expect(executor.getSnapshot().sharedState).toMatchObject({ secret: 'real-state', marked: 'real-marked-state' });
-    expect(executor.getSnapshot().executionTree.logs.marked).toBe('unmatched-diagnostic');
+    expect(executor.getSnapshot().executionTree.logs.marked).toBe(MASK);
   });
 
   it('keeps emitPatterns an additional whole-payload policy and ordinary emits independent', async () => {
@@ -430,7 +432,7 @@ describe('default diagnostic bytes remain unchanged', () => {
     ['absent', undefined],
     ['empty diagnostic policy', policy({})],
     ['nonmatching diagnostic policy', policy({ keys: ['logs.unrelated'] })],
-    ['state-only policy', { keys: ['secret'] }],
+    ['nonmatching state policy', { keys: ['unrelated'], fields: { other: ['secret'] } }],
     ['emit-only policy', { emitPatterns: [/^log\./] }],
   ];
   it.each(controls)('%s preserves bag aliasing and merge/clear laws', async (_label, protection) => {

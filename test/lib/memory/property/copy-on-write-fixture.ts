@@ -370,8 +370,22 @@ export function applyChartOp(s: any, o: ChartOp, errors: string[]): void {
   }
 }
 
+/**
+ * The parent state the HARNESS reads inside a mapper — the M6 guard (`keepOffDates`) and the
+ * seed's `n` — read from the LIVE heap (`live`), not through the mapper's argument. The
+ * restored redaction law (owner ruling (a)) selects a key a mapper writes after it READ a
+ * selected value (`memory/redaction.ts · MapperTaint` — conservative: anything it computes
+ * then); 9.28.0 has no such rule, so a harness read of the policy's `b` through the argument
+ * would make every later key of a policy program differ by design. These differentials judge
+ * commit mechanics; the law is pinned on its own (engine/security/redaction-law-table.test.ts).
+ * A read around the argument — a closure, as here — is invisible to the taint by definition:
+ * it judges what a mapper reads from the records it is HANDED. Without `live` (a caller that
+ * judges no differential) the harness reads through the argument.
+ */
+export type LiveParent = () => Record<string, unknown> | undefined;
+
 /** The chart a program describes, built on `engine`. `capture` runs at the top of every top-level stage. */
-function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?: () => void) {
+function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?: () => void, live?: LiveParent) {
   const stageFn = (ops: ChartOp[], top: boolean) => (s: any) => {
     if (top) capture?.();
     for (const o of ops) applyChartOp(s, o, errors);
@@ -395,7 +409,7 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
         // one) — the D1 path: the mount must not freeze the parent's object.
         inputMapper: (parent: any) =>
           sub.seedObj
-            ? { obj: { x: 1, n: parent.b ?? 0 }, list: [1, 2], a: parent.a ?? 'none' }
+            ? { obj: { x: 1, n: (live?.() ?? parent).b ?? 0 }, list: [1, 2], a: parent.a ?? 'none' }
             : { a: parent.a ?? 'none', list: [1] },
         // A plain-object merge-back writes NESTED rows (obj.y, obj.deep).
         // Into a `Date` it would hang expandos on it — named behaviour M6,
@@ -405,7 +419,7 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
             sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
               ? { obj: { y: out.a ?? null, deep: { q: 1 } }, list: [7], hist: out.list ?? [] }
               : { b: out.obj ?? null, list: [8] },
-            parent,
+            live?.() ?? parent,
           ),
         ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
       });
@@ -555,7 +569,7 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(engine, p, errors, capture);
+  const chart = buildChart(engine, p, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const ex = new engine.FlowChartExecutor(chart, {
     commitValues: p.cfg.commitValues,
     readTracking: p.cfg.readTracking,

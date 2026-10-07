@@ -42,6 +42,7 @@ import type { QueuedPause } from '../handlers/ResumeEntry.js';
 import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
+import { servedPause } from '../handlers/servedPause.js';
 import { loggableStageError, recordStageError, servedStageError } from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
@@ -721,7 +722,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throw error;
     }
     const { pause, stageName } = waiting[0];
-    this.narrativeGenerator.onPause(stageName, pause.pausedStageId, pause.pauseData, pause.subflowPath);
+    this.narrativeGenerator.onPause(
+      stageName,
+      pause.pausedStageId,
+      servedPause(context, pause.pauseData),
+      pause.subflowPath,
+    );
     throw raiseQueuedPause(waiting);
   }
 
@@ -1502,7 +1508,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
           context.commit();
-          this.narrativeGenerator.onPause(node.name, node.id, error.pauseData, error.subflowPath, traversalContext);
+          this.narrativeGenerator.onPause(
+            node.name,
+            node.id,
+            servedPause(context, error.pauseData),
+            error.subflowPath,
+            traversalContext,
+          );
           throw error;
         }
         context.commit();

@@ -1,12 +1,30 @@
 /**
  * redaction.ts — The ONE owner of what a redaction policy says about a value.
  *
- * THE CONTRACT. Named values in the commit log, mirror, tracked reads/writes,
- * their recorder/narrative views and root/subflow boundary records share one
- * rule. Live inputs/results/state and operational checkpoints stay real.
- * Diagnostic writers opt in separately through `policy.diagnostics`.
- * This is not content scanning or whole-snapshot sanitization: pause payloads
- * and arbitrary recorder data/metadata are outside this rule.
+ * THE LAW (owner ruling (a)). A redaction policy covers EVERYTHING the library
+ * retains or serves — the commit log (both encodings), the redacted mirror,
+ * tracked reads/writes, every recorder event (inline and deferred) and the
+ * recorder rows built from them, the narrative, snapshots, diagnostics, pause
+ * payloads, boundary records and log lines — and NEVER the live heap or the
+ * resume checkpoint. Two values are the caller's own and stay real: the
+ * `run()` rejection (the thrown value itself) and the live fork result.
+ *
+ * A policy selects by NAME — a key, a dotted path, a field — never by
+ * scanning content. What carries a name:
+ *   - state — its user-level path ({@link RedactionRule.verdict});
+ *   - a record handed out whole — root input/output, a subflow's mapped seed
+ *     and exit state, a pause payload, a thrown value — its keys at every
+ *     depth ({@link RedactionRule.retainBoundary});
+ *   - a diagnostic entry — `$debug`/`$error`/`$metric`/`$eval`/`$log` and the
+ *     engine's own — the record `{ [name]: value }`: its name IS a state key
+ *     ({@link RedactionRule.retainDiagnostic}). `policy.diagnostics` adds
+ *     diagnostic-only selectors on top; flow-message text has no name of its
+ *     own, so only they select it;
+ *   - a subflow mapper's copy — a key an `inputMapper`/`outputMapper` wrote
+ *     inherits the redaction of the selected value it copied ({@link MapperTaint}).
+ * A value with no name — a scalar root input/output or pause payload, free
+ * error text — is selected by nothing. `emitPatterns` is the one separate
+ * scrub: a `$emit` payload is selected by its event name.
  *
  * HOW ONE OWNER KEEPS IT. Every staged write and every tracked read passes
  * through `StageContext`, so `StageContext` asks THIS rule — not the caller —
@@ -56,11 +74,13 @@ export interface RedactionPolicy {
    *  Supports dot-notation for nested paths (e.g. 'address.zip'). */
   fields?: Record<string, string[]>;
   /**
-   * Explicit selectors for diagnostic writes, separate from state selectors.
-   * Paths start with logs/errors/metrics/evals, e.g. `logs.profile.token`.
-   * Only flowMessages.description and flowMessages.rationale are payloads;
-   * flow topology/timing metadata stays intact. Applied before retention,
-   * not retroactively to existing bags or operational checkpoints.
+   * Diagnostic-only selectors, IN ADDITION to the state selectors above (which
+   * already cover a diagnostic entry by its name: `keys: ['token']` masks
+   * `$debug('token', …)`). Use these for names you mask in diagnostics but
+   * not in state. Paths start with logs/errors/metrics/evals, e.g.
+   * `logs.profile.token`. Only flowMessages.description and
+   * flowMessages.rationale are payloads; flow topology/timing metadata stays
+   * intact. Applied before retention, not retroactively to existing bags.
    */
   diagnostics?: Pick<RedactionPolicy, 'keys' | 'patterns' | 'fields'>;
   /**
@@ -142,7 +162,14 @@ export class RedactionRule {
    * the rule once per run and installs it on the runtime root).
    */
   private marked: Set<string>;
-  /** This run's failed-stage errors whose text the diagnostic policy masked → their served form. */
+  /**
+   * Fields a subflow mapper handed to a NEW key along with the value they
+   * belong to — target key → the source key's field paths (an object copied
+   * by reference from a `fields`-selected key; {@link MapperTaint}).
+   * Run-wide, by name, like {@link marked}.
+   */
+  private inherited: Map<string, readonly string[]> | undefined;
+  /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
   private maskedErrors: Map<unknown, StructuredErrorInfo> | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
@@ -175,7 +202,7 @@ export class RedactionRule {
    * `setValue(key, value, true)` marks a key and ends it.
    */
   isInert(): boolean {
-    return this.marked.size === 0 && !this.policyActive;
+    return this.marked.size === 0 && !this.policyActive && this.inherited === undefined;
   }
 
   /** The shared marked-keys set — for the `@internal` sharing protocol and `decide()`. */
@@ -191,9 +218,10 @@ export class RedactionRule {
     this.marked.add(key);
   }
 
-  /** Deleting a key clears its per-call mark; a policy verdict survives it. */
+  /** Deleting a key clears its per-call mark and any fields a mapper gave it; a policy verdict survives it. */
   unmark(key: string): void {
     this.marked.delete(key);
+    if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
   }
 
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
@@ -226,19 +254,60 @@ export class RedactionRule {
     return matchesPattern(name, this.policy?.emitPatterns) ? SCOPE_PLACEHOLDER : payload;
   }
 
-  /** Retain a namespaced diagnostic write using the same path semantics,
-   * but without state marks/selectors. Clear values keep their identity. */
-  retainDiagnostic(path: readonly string[], value: unknown): unknown {
-    return this.diagnosticRule ? this.diagnosticRule.retain(path, value) : value;
+  /**
+   * Retain a NAMED diagnostic entry — `address` is `[channel, ...path, name]`
+   * (`$debug('token', v)` → `['logs', 'token']`; `$log(v)` → `['logs',
+   * 'messages']`). THE MAPPING: the entry is the record `{ [name]: value }`
+   * handed out whole, so it is retained as a boundary record holding the
+   * state key `name` would be — the state verdict at `[...path, name]` (keys,
+   * patterns and marks at every dotted prefix and at the name itself; the top
+   * key's `fields`), then every nested own key whose name or dotted path is
+   * selected ({@link retainBoundary}'s walk). The channel takes no part:
+   * `logs.token`, `errors.token` and `metrics.token` are all the state key
+   * `token`. `policy.diagnostics` (diagnostic-only selectors, rooted at the
+   * channel) applies on top. Clear values keep their identity.
+   */
+  retainDiagnostic(address: readonly string[], value: unknown): unknown {
+    const kept = this.isInert() ? value : this.retainNamed(address.slice(1), value);
+    return this.diagnosticRule ? this.diagnosticRule.retain(address, kept) : kept;
   }
 
   /**
-   * The served form of a failed stage's error, decided ONCE at its error site from the
-   * text the diagnostic collector retained for `errors.stageExecutionError` (`kept`).
-   * Unmasked: today's structured info. Masked: the placeholder as the message, the
-   * error's `name`/`code` kept, no `issues` (they quote the input) and no `raw` error
-   * (its message and stack hold the text) — remembered so `onRunFailed` serves the
-   * same form ({@link servedError}). The thrown value itself stays real.
+   * Retain flow-message text (`flowMessages.description` / `.rationale`): text
+   * the engine composes has no name of its own, so no state selector reaches
+   * it — only `policy.diagnostics` selects it.
+   */
+  retainFlowText(address: readonly string[], text: string): string {
+    return this.diagnosticRule ? (this.diagnosticRule.retain(address, text) as string) : text;
+  }
+
+  /** {@link retainDiagnostic}'s state half: the value named by `path` (its last segment), served whole. */
+  private retainNamed(path: readonly string[], value: unknown): unknown {
+    if (path.length === 0) return value;
+    const name = path[path.length - 1];
+    const verdict: RedactionVerdict =
+      path.length > 1 && this.isKeyRedacted(name) ? { kind: 'whole', key: name } : this.verdict(path);
+    if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
+    const kept = RedactionRule.apply(verdict, value);
+    const dotted = path.join('.');
+    if (kept === null || typeof kept !== 'object' || !this.holdsNestedKey(kept, dotted, new WeakSet())) return kept;
+    // A field scrub already cloned; a clear value is cloned once before its nested keys are scrubbed.
+    const owned = kept === value ? (structuredClone(kept) as object) : kept;
+    this.scrubNestedKeys(owned, dotted, SCOPE_PLACEHOLDER, new WeakSet());
+    return owned;
+  }
+
+  /**
+   * The served form of a thrown value, decided ONCE at its error site from the
+   * text the diagnostic collector retained for `errors.stageExecutionError`
+   * (`kept`) and from the value itself — a record handed out whole, masked
+   * when one of its own keys, at any depth, carries a selected name.
+   * Unmasked: today's structured info. Masked: the error's `name`/`code` kept,
+   * no `issues` (they quote the input) and no `raw` error (it holds the text
+   * and the keys); the message is the placeholder when the text was selected,
+   * the text itself when only a key was — remembered so `onRunFailed`, the
+   * logger and a fork envelope serve the same form ({@link servedError}). The
+   * thrown value itself stays real.
    */
   retainStageError(
     error: unknown,
@@ -246,16 +315,31 @@ export class RedactionRule {
     kept: unknown,
   ): { message: string; structuredError: StructuredErrorInfo } {
     const info = extractErrorInfo(error);
-    if (kept === text) return { message: text, structuredError: info };
-    const message = String(kept);
+    const textSelected = kept !== text;
+    if (!textSelected && !this.carriesSelectedKey(error)) return { message: text, structuredError: info };
+    const message = textSelected ? String(kept) : text;
     const masked: StructuredErrorInfo = {
-      message,
+      message: textSelected ? message : info.message,
       ...(info.name !== undefined && { name: info.name }),
       ...(info.code !== undefined && { code: info.code }),
       raw: undefined,
     };
     (this.maskedErrors ??= new Map()).set(error, masked);
     return { message, structuredError: masked };
+  }
+
+  /**
+   * Does a thrown value carry a selected name — an own key, at any depth, that
+   * the policy or a mark selects? Total: a value whose keys cannot be read is
+   * served masked (the safe side), never a second throw from an error path.
+   */
+  private carriesSelectedKey(value: unknown): boolean {
+    if (this.isInert() || value === null || typeof value !== 'object') return false;
+    try {
+      return this.holdsNestedKey(value, undefined, new WeakSet());
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -283,8 +367,17 @@ export class RedactionRule {
     return this.maskedErrors?.get(error);
   }
 
-  /** Keep no-diagnostic-policy collectors inert, including borrowed getters. */
+  /**
+   * Nothing can mask a diagnostic entry or a thrown value — no state selector,
+   * no mark, no diagnostic selector: the collectors' and the error paths' fast
+   * path (a no-policy run never reads a payload, including borrowed getters).
+   */
   isDiagnosticInert(): boolean {
+    return this.isInert() && this.isFlowTextInert();
+  }
+
+  /** Nothing can mask flow-message text — only `policy.diagnostics` selects it ({@link retainFlowText}). */
+  isFlowTextInert(): boolean {
     return !this.diagnosticRule || this.diagnosticRule.isInert();
   }
 
@@ -306,7 +399,7 @@ export class RedactionRule {
       dotted = i === 0 ? path[0] : `${dotted}.${path[i]}`;
       if (this.isKeyRedacted(dotted)) return { kind: 'whole', key: dotted };
     }
-    const fields = this.policy?.fields?.[path[0]];
+    const fields = this.fieldsOf(path[0]);
     if (!fields || fields.length === 0) return CLEAR;
     if (path.length === 1) return { kind: 'fields', key: path[0], paths: fields };
     const rel = path.slice(1).join('.');
@@ -330,11 +423,42 @@ export class RedactionRule {
     return path.length === 0 ? this.verdictOfKey(key) : this.verdict([...path, key]);
   }
 
-  /** The single-segment verdict: key-level hit → whole; declared fields → fields. */
+  /** The single-segment verdict: key-level hit → whole; declared or inherited fields → fields. */
   private verdictOfKey(key: string): RedactionVerdict {
     if (this.isKeyRedacted(key)) return { kind: 'whole', key };
-    const fields = this.policy?.fields?.[key];
+    const fields = this.fieldsOf(key);
     return fields !== undefined && fields.length > 0 ? { kind: 'fields', key, paths: fields } : CLEAR;
+  }
+
+  /** The secret fields of a top key: the policy's, plus any a mapper handed it ({@link MapperTaint}). */
+  private fieldsOf(key: string): readonly string[] | undefined {
+    const declared = this.policy?.fields?.[key];
+    const inherited = this.inherited?.get(key);
+    if (inherited === undefined) return declared;
+    return declared === undefined ? inherited : [...new Set([...declared, ...inherited])];
+  }
+
+  /**
+   * A subflow mapper's copy inherits the fields of the value it copied:
+   * `target` is a key the mapper wrote; `paths` the source key's field paths
+   * (declared or themselves inherited). Run-wide, by name, like a mark.
+   */
+  inheritFields(target: string, paths: readonly string[]): void {
+    const prior = this.inherited?.get(target) ?? [];
+    (this.inherited ??= new Map()).set(target, [...new Set([...prior, ...paths])]);
+  }
+
+  /** The verdict of a key a mapper read — `runs` (the run namespaces) is selected when any namespaced key is. */
+  verdictOfRead(key: string, value: unknown): RedactionVerdict {
+    const verdict = this.verdictOfKey(key);
+    if (verdict.kind !== 'clear' || key !== 'runs' || value === null || typeof value !== 'object') return verdict;
+    for (const space of Object.values(value)) {
+      if (space === null || typeof space !== 'object') continue;
+      for (const inner of Object.keys(space)) {
+        if (this.verdictOfKey(inner).kind !== 'clear') return { kind: 'whole', key };
+      }
+    }
+    return verdict;
   }
 
   /**
@@ -374,7 +498,9 @@ export class RedactionRule {
    * top key; then every NESTED own key is a key too: secret when its own name
    * or its dotted path is redacted at key level (`keys: ['secret']` covers
    * `{ wrapper: { secret } }`; a root array's elements are walked the same
-   * way). Only a value that holds such a key is cloned — once, so cycles and
+   * way), and its declared `fields` scrubbed inside it (`fields: { profile:
+   * ['token'] }` covers `{ wrapper: { profile: { token } } }`). Only a value
+   * that holds such a key is cloned — once, so cycles and
    * aliases survive — and scrubbed in the clone; the live value is never
    * touched. Returns the SAME object when nothing nested is secret, and an
    * inert rule enumerates nothing. State keeps its own path verdicts
@@ -433,13 +559,20 @@ export class RedactionRule {
     return this.isKeyRedacted(name) || this.isKeyRedacted(dotted);
   }
 
-  private holdsNestedKey(node: object, dotted: string, seen: WeakSet<object>): boolean {
+  /**
+   * Does `node` hold a nested own key the policy selects — its name or dotted
+   * path selected at key level, or a declared/inherited `fields` path inside a
+   * key of that name (a nested key is a key too)? `dotted` is `node`'s own
+   * path; `undefined` when `node` is the record itself (its keys are top keys).
+   */
+  private holdsNestedKey(node: object, dotted: string | undefined, seen: WeakSet<object>): boolean {
     if (seen.has(node)) return false;
     seen.add(node);
     for (const [name, child] of Object.entries(node)) {
-      const path = `${dotted}.${name}`;
+      const path = dotted === undefined ? name : `${dotted}.${name}`;
       if (this.nestedKeyRedacted(name, path)) return true;
-      if (child !== null && typeof child === 'object' && this.holdsNestedKey(child, path, seen)) return true;
+      if (child === null || typeof child !== 'object') continue;
+      if (RedactionRule.holdsPaths(child, this.fieldsOf(name)) || this.holdsNestedKey(child, path, seen)) return true;
     }
     return false;
   }
@@ -452,7 +585,38 @@ export class RedactionRule {
     for (const [name, child] of Object.entries(record)) {
       const path = `${dotted}.${name}`;
       if (this.nestedKeyRedacted(name, path)) record[name] = placeholder;
-      else if (child !== null && typeof child === 'object') this.scrubNestedKeys(child, path, placeholder, seen);
+      else if (child !== null && typeof child === 'object') {
+        const fields = this.fieldsOf(name);
+        if (fields !== undefined) RedactionRule.scrubPaths(child as Record<string, unknown>, fields, placeholder);
+        this.scrubNestedKeys(child, path, placeholder, seen);
+      }
+    }
+  }
+
+  /** Does `value` hold one of `paths` — an own key of that name, or a dotted path inside it? */
+  static holdsPaths(value: object, paths: readonly string[] | undefined): boolean {
+    if (paths === undefined) return false;
+    for (const path of paths) {
+      if (Object.prototype.hasOwnProperty.call(value, path) || (path.includes('.') && nativeHas(value, path))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * In place, on a value this rule owns: each of `paths` that exists becomes
+   * the placeholder. A path that exists as a literal key (`'a.b'` as one
+   * property) is scrubbed as that key; otherwise it is walked as a nested
+   * path. Paths that do not exist are ignored — scrubbing never invents a field.
+   */
+  private static scrubPaths(copy: Record<string, unknown>, paths: readonly string[], placeholder: string): void {
+    for (const path of paths) {
+      if (Object.prototype.hasOwnProperty.call(copy, path)) {
+        copy[path] = placeholder;
+      } else if (path.includes('.') && nativeHas(copy, path)) {
+        nativeSet(copy, path, placeholder);
+      }
     }
   }
 
@@ -501,13 +665,7 @@ export class RedactionRule {
   ): Record<string, unknown> | undefined {
     if (value === null || typeof value !== 'object') return undefined;
     const copy = structuredClone(value) as Record<string, unknown>;
-    for (const path of paths) {
-      if (Object.prototype.hasOwnProperty.call(copy, path)) {
-        copy[path] = placeholder;
-      } else if (path.includes('.') && nativeHas(copy, path)) {
-        nativeSet(copy, path, placeholder);
-      }
-    }
+    RedactionRule.scrubPaths(copy, paths, placeholder);
     return copy;
   }
 
@@ -516,11 +674,172 @@ export class RedactionRule {
     for (const [key, fields] of Object.entries(this.policy?.fields ?? {})) {
       fieldRedactions[key] = [...fields];
     }
+    // Fields a mapper handed to a new key are scrubbed under that key too.
+    for (const [key, fields] of this.inherited ?? []) {
+      fieldRedactions[key] = [...new Set([...(fieldRedactions[key] ?? []), ...fields])];
+    }
     return {
       redactedKeys: [...this.marked],
       fieldRedactions,
       patterns: (this.policy?.patterns ?? []).map((p) => p.source),
     };
+  }
+}
+
+/** A plain record — the only shape a mapper is handed as a recording view (a class instance keeps its prototype). */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** The stricter of two verdicts on the same value: whole over fields over clear; fields unite. */
+function stricter(a: RedactionVerdict | undefined, b: RedactionVerdict): RedactionVerdict {
+  if (a === undefined || a.kind === 'clear' || b.kind === 'whole') return b;
+  if (a.kind === 'whole' || b.kind === 'clear') return a;
+  return { kind: 'fields', key: a.key, paths: [...new Set([...a.paths, ...b.paths])] };
+}
+
+/**
+ * THE TAINT RULE at a subflow mapper boundary (an `inputMapper` seeding a
+ * subflow, an `outputMapper` merging it back): a key the mapper writes
+ * inherits the redaction of the SELECTED value it copied, for the rest of the
+ * run — a mark (or inherited fields), by name, like a per-call
+ * `setValue(key, value, true)` — so the subflow's seed, log, mirror, reads,
+ * narrative and results, and the parent's merge-back, retain the copy as they
+ * retain its source. Decided by which values the mapper READ:
+ *
+ *   - EXACT — an output OBJECT that IS (by reference) a value the mapper read
+ *     inherits that key's verdict: whole stays whole, `fields` hand their paths
+ *     to the new key, clear stays clear. (Values are never matched by EQUALITY:
+ *     an equal primitive would over-match unrelated keys.)
+ *   - CONSERVATIVE — any other output (a primitive, or an object the mapper
+ *     built) is selected WHOLE when the mapper read a selected value — a
+ *     whole-selected key, or a selected FIELD of a `fields`-selected record —
+ *     or when it embeds such a record by reference; the library cannot tell
+ *     what a computed value carries.
+ *
+ * A `fields`-selected record that holds a selected field is handed to the
+ * mapper as a view of its own, so reading the record (to pass it on, or to
+ * test its type) is not reading the field. Reading `runs` (the namespace root
+ * fork children write under) reads every namespaced key. Recording stops when
+ * the mapper returns; {@link inherit} hands back the output with every view it
+ * returned swapped for the record behind it.
+ */
+export class MapperTaint {
+  /** Each object the mapper read → the verdict of the key it read it under. */
+  private readonly sources = new Map<object, RedactionVerdict>();
+  /** Each `fields` view handed out → the record behind it and its verdict. */
+  private readonly views = new Map<object, { raw: object; verdict: RedactionVerdict }>();
+  private selectedRead = false;
+  private open = true;
+
+  private constructor(private readonly rule: RedactionRule) {}
+
+  /** `undefined` while the run's rule is inert — nothing a mapper reads can be selected. */
+  static of(rule: RedactionRule | undefined): MapperTaint | undefined {
+    return rule !== undefined && !rule.isInert() ? new MapperTaint(rule) : undefined;
+  }
+
+  /**
+   * The record a mapper is handed: the same own keys and values, each read
+   * recorded. An accessor per key, not a Proxy — a mapper may spread, clone or
+   * serialize what it is handed. An assignment lands on the view, never on the
+   * live record behind it. Anything but a plain record is handed over as it is.
+   */
+  watch<T>(record: T): T {
+    if (!isPlainRecord(record)) return record;
+    return this.viewOf(record, (key) => this.served(key, record[key])) as T;
+  }
+
+  /**
+   * The mapper returned `output`: every key it wrote inherits what it copied
+   * (see the class). Returns the output to use — the same object unless a
+   * `fields` view had to be swapped back for its record.
+   */
+  inherit<T>(output: T): T {
+    this.open = false;
+    if (output === null || typeof output !== 'object') return output;
+    let out: Record<string, unknown> | undefined;
+    for (const [target, value] of Object.entries(output)) {
+      const view = value !== null && typeof value === 'object' ? this.views.get(value) : undefined;
+      const copied = view ? view.verdict : this.copiedVerdict(value);
+      if (copied === undefined) {
+        if (this.selectedRead || this.embedsSelected(value, new WeakSet())) this.rule.mark(target);
+      } else if (copied.kind === 'whole') this.rule.mark(target);
+      else if (copied.kind === 'fields') this.rule.inheritFields(target, copied.paths);
+      if (view) {
+        out ??= (Array.isArray(output) ? [...output] : { ...output }) as Record<string, unknown>;
+        out[target] = view.raw;
+      }
+    }
+    return (out ?? output) as T;
+  }
+
+  /** What one recorded read hands the mapper (see the class). */
+  private served(key: string, value: unknown): unknown {
+    if (!this.open) return value;
+    const verdict = this.rule.verdictOfRead(key, value);
+    // An absent key carries no secret; neither does a value with no fields (a scalar) or none of
+    // its selected ones — state retains those as they are too.
+    if (value === undefined) return value;
+    if (verdict.kind === 'fields') {
+      if (value === null || typeof value !== 'object' || !RedactionRule.holdsPaths(value, verdict.paths)) {
+        return this.remember(value, verdict);
+      }
+      if (isPlainRecord(value)) return this.fieldsView(value, verdict);
+    }
+    if (verdict.kind !== 'clear') this.selectedRead = true;
+    return this.remember(value, verdict);
+  }
+
+  private remember(value: unknown, verdict: RedactionVerdict): unknown {
+    if (value !== null && typeof value === 'object')
+      this.sources.set(value, stricter(this.sources.get(value), verdict));
+    return value;
+  }
+
+  /** A `fields`-selected record: reading one of its selected fields (or a path's first segment) is a selected read. */
+  private fieldsView(record: Record<string, unknown>, verdict: RedactionVerdict & { kind: 'fields' }): object {
+    const selected = new Set<string>();
+    for (const path of verdict.paths) selected.add(path).add(path.split('.')[0]);
+    const view = this.viewOf(record, (key) => {
+      if (this.open && selected.has(key)) this.selectedRead = true;
+      return record[key];
+    });
+    this.views.set(view, { raw: record, verdict });
+    return view;
+  }
+
+  private viewOf(record: Record<string, unknown>, read: (key: string) => unknown): Record<string, unknown> {
+    const view: Record<string, unknown> = {};
+    for (const key of Object.keys(record)) {
+      Object.defineProperty(view, key, {
+        enumerable: true,
+        configurable: true,
+        get: () => read(key),
+        set: (value: unknown) => {
+          Object.defineProperty(view, key, { value, writable: true, enumerable: true, configurable: true });
+        },
+      });
+    }
+    return view;
+  }
+
+  /** The verdict an output value inherits by reference — `undefined` when it is no value the mapper read. */
+  private copiedVerdict(value: unknown): RedactionVerdict | undefined {
+    return value !== null && typeof value === 'object' ? this.sources.get(value) : undefined;
+  }
+
+  /** Does a value the mapper BUILT embed, by reference, a selected record it read? */
+  private embedsSelected(value: unknown, seen: WeakSet<object>): boolean {
+    if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    if (this.views.has(value)) return true;
+    const known = this.sources.get(value);
+    if (known !== undefined && known.kind !== 'clear') return true;
+    for (const child of Object.values(value)) if (this.embedsSelected(child, seen)) return true;
+    return false;
   }
 }
 

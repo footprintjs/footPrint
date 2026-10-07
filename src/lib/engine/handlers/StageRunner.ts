@@ -15,6 +15,7 @@ import { createProtectedScope } from '../../scope/protection/createProtectedScop
 import { requireScopeRuntime } from '../../scope/runtime.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps, StageFunction, StreamCallback } from '../types.js';
+import { servedPause } from './servedPause.js';
 
 export class StageRunner<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}
@@ -94,7 +95,7 @@ export class StageRunner<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       if (isInterruptSignal(error)) {
-        runtime.target.notifyPause?.(error.payload);
+        runtime.target.notifyPause?.(servedPause(context, error.payload));
         throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context);
       }
       if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context);
@@ -116,7 +117,7 @@ export class StageRunner<TOut = any, TScope = any> {
     if (node.isPausable && result !== undefined) {
       const pauseData = isPauseResult(result) ? (result as any).data : result;
       // Notify scope recorders before throwing
-      runtime.target.notifyPause?.(pauseData);
+      runtime.target.notifyPause?.(servedPause(context, pauseData));
       throw stampedPause(new PauseSignal(pauseData, node.id), context);
     }
 

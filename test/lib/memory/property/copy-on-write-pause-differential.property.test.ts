@@ -54,6 +54,7 @@ import {
   type ChartOp,
   type Engine,
   type LegTally,
+  type LiveParent,
   type Witnessed,
   applyChartOp,
   BASELINE,
@@ -121,7 +122,8 @@ const progArb: fc.Arbitrary<Prog> = fc.record({
 const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length }] });
 
 /** Head → [Sub] → Ask (interrupt) → P (pausable) → Route: loop to Head, or Final. */
-function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void) {
+/** `live`: the parent heap the harness's M6 guard reads — around the mapper's argument (fixture · `LiveParent`). */
+function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void, live: LiveParent) {
   const run = (s: any, ops: ChartOp[]) => {
     for (const o of ops) applyChartOp(s, o, errors);
   };
@@ -184,7 +186,7 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
           sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
             ? { obj: { y: out.a ?? null, deep: { q: out.ians ?? 1 } }, list: [7], hist: out.list ?? [] }
             : { b: out.obj ?? null, list: [8], ians: out.ians ?? null },
-          parent,
+          live() ?? parent,
         ),
       ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
     });
@@ -263,7 +265,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(E, p, pause, errors, capture);
+  const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
