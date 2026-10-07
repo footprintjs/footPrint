@@ -78,7 +78,8 @@ describe('2 — differential: the same answer as the regex scan it replaced', ()
     // Both scans treat every character other than `[`, `]` and `\` alike (the
     // regex's `[^\]\\]` and `[\s\S]` take any code unit), so four symbols
     // cover every string of each length — 349,525 strings, the empty one too.
-    const alphabet = ['[', ']', '\\', 'x'];
+    // The fourth symbol is a different letter at each position (`a` at 0, `b`
+    // at 1, …), so equal bodies also mean bodies taken from the same places.
     const mismatches: string[] = [];
     let checked = 0;
     let level = [''];
@@ -89,7 +90,8 @@ describe('2 — differential: the same answer as the regex scan it replaced', ()
         const want = controlBodies(source);
         if (got.length !== want.length || got.some((body, i) => body !== want[i])) mismatches.push(source);
       }
-      level = level.flatMap((prefix) => alphabet.map((char) => prefix + char));
+      const filler = String.fromCharCode(97 + length);
+      level = level.flatMap((prefix) => ['[', ']', '\\', filler].map((char) => prefix + char));
     }
     expect(checked).toBe(349_525);
     expect(mismatches).toEqual([]);
