@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { disableDevMode, enableDevMode } from '../../../../src/index.js';
-import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
+import { RedactionRule, useWalkLimit, WALK_LIMIT } from '../../../../src/lib/memory/redaction.js';
 
 const SECRET = 'sk-recheck52-SECRET';
 const MASK = '[REDACTED]';
@@ -96,9 +96,10 @@ describe('1 — a pattern over a linked agent history', () => {
 
   it('a PATH pattern past the walk limit masks the unvisited remainder, warns once in dev mode, never throws', () => {
     enableDevMode();
+    const restore = useWalkLimit(1_000); // the over-limit path in a thousand visits, not a million
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      const { record } = history(1500);
+      const { record } = history(100); // ~5,000 paths through the `prev` links
       const rule = new RedactionRule({ patterns: [/^history\.\d+\.userPassword$/] });
       const served = rule.retainBoundary(record) as any;
       expect(served.history[7].userPassword).toBe(MASK); // the rule's own path, reached in time
@@ -108,7 +109,12 @@ describe('1 — a pattern over a linked agent history', () => {
       expect(named).toHaveLength(1);
     } finally {
       warn.mockRestore();
+      restore();
     }
+  });
+
+  it('the production walk limit is 1,000,000 path visits', () => {
+    expect(WALK_LIMIT).toBe(1_000_000);
   });
 });
 

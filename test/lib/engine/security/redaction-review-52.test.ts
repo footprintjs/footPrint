@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FlowchartCheckpoint, RedactionPolicy } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
+import { RedactionRule, useWalkLimit } from '../../../../src/lib/memory/redaction.js';
 import { decodeCheckpoint } from '../../../../src/lib/pause/record.js';
 import { HOOK_NAMES } from '../../../../src/lib/recorder/hooks.js';
 
@@ -540,9 +540,14 @@ describe('7 — the path walk on a DAG: linear work, never masked whole', () => 
     const named = dag(21, { leaf: 'x' });
     expect(new RedactionRule({ patterns: [/nothing/] }).retainBoundary(named.root)).toBe(named.root);
     expect(named.counter.reads).toBeLessThanOrEqual(4 * 21);
-    const { root } = dag(21, { leaf: SECRET });
-    const served = new RedactionRule({ patterns: [/^tree(\.[lr])+\.leaf$/] }).retainBoundary(root) as any;
-    expect(served.tree.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.leaf).toBe(MASK); // visited: the rule's own path
-    expect(dump(served)).not.toContain(SECRET); // the unvisited remainder: the placeholder, never raw
+    const restore = useWalkLimit(1_000); // the over-limit path in a thousand visits
+    try {
+      const { root } = dag(12, { leaf: SECRET }); // 4,096 paths
+      const served = new RedactionRule({ patterns: [/^tree(\.[lr])+\.leaf$/] }).retainBoundary(root) as any;
+      expect(served.tree.l.l.l.l.l.l.l.l.l.l.l.l.leaf).toBe(MASK); // visited: the rule's own path
+      expect(dump(served)).not.toContain(SECRET); // the unvisited remainder: the placeholder, never raw
+    } finally {
+      restore();
+    }
   });
 });

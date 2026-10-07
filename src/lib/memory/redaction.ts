@@ -391,7 +391,7 @@ export class RedactionRule {
       },
       rootDecided,
       ...(byPath.length === 0 && { memo: new WeakMap<object, Map<string, unknown>>() }),
-      budget: WALK_LIMIT,
+      budget: walkLimit,
       onLimit: () => this.warnWalkLimit(byPath),
     };
   }
@@ -402,7 +402,7 @@ export class RedactionRule {
     this.walkLimitWarned = true;
     // eslint-disable-next-line no-console
     console.warn(
-      `[footprint] RedactionPolicy: a value with more than ${WALK_LIMIT} paths under the path pattern(s) ` +
+      `[footprint] RedactionPolicy: a value with more than ${walkLimit} paths under the path pattern(s) ` +
         `${patterns.map(String).join(', ')} — the paths past that were served as the placeholder. ` +
         'A pattern that names a KEY (no dot, no lookaround) is decided per object; prefer one, or keys/fields.',
     );
@@ -770,7 +770,7 @@ export class RedactionRule {
       copy,
       undefined,
       targetsOf(paths),
-      { rootDecided: false, memo: new WeakMap<object, Map<string, unknown>>(), budget: WALK_LIMIT },
+      { rootDecided: false, memo: new WeakMap<object, Map<string, unknown>>(), budget: walkLimit },
       placeholder,
     ) as Record<string, unknown>;
   }
@@ -843,7 +843,23 @@ interface Walk {
  * pattern over a value whose paths outnumber its objects (a linked history, a
  * DAG): every other walk shares its decisions per object and stays linear.
  */
-const WALK_LIMIT = 1_000_000;
+export const WALK_LIMIT = 1_000_000;
+
+/** The limit walks use: {@link WALK_LIMIT}, unless a test lowered it ({@link useWalkLimit}). */
+let walkLimit: number = WALK_LIMIT;
+
+/**
+ * @internal Tests only — not on any public door: walks use `limit` until the
+ * returned restore is called, so a test reaches the over-limit path in a
+ * thousand visits instead of a million.
+ */
+export function useWalkLimit(limit: number): () => void {
+  const prior = walkLimit;
+  walkLimit = limit;
+  return () => {
+    walkLimit = prior;
+  };
+}
 
 /**
  * Can `pattern` match a dotted PATH where it matches none of the path's
@@ -1069,7 +1085,7 @@ function servedByPath(
   placeholder: string,
 ): unknown {
   if (!selectsByPath(root, dotted, targets, walk, new Map(), 0).selected) return root;
-  walk.budget = WALK_LIMIT;
+  walk.budget = walkLimit;
   // A bare field scrub of an acyclic value walks its targets only: no cycle can bring an
   // unscrubbed original back. Every other walk visits every path (a cycle edge anywhere
   // must land on a served copy).
