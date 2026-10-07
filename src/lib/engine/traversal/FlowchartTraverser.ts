@@ -333,6 +333,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   /** Validated value passed via `run({input})`. Root boundary observers
    *  receive its retained form; stage arguments keep the original data. */
   private readonly readOnlyContext?: unknown;
+  /** The handlers' shared deps — its `readOnlyContext` is the leg's input snapshot, set by `execute`. */
+  private readonly deps: HandlerDeps<TOut, TScope>;
   /** Per-`executor.run()` identifier. Stamped onto every TraversalContext.
    *  Inherited by subflow traversers so all events of one run share one runId. */
   private readonly runId: string;
@@ -515,6 +517,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // Build shared deps bag
     const deps = this.createDeps(opts);
+    this.deps = deps;
 
     // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo()).
     // From `root`, never from `entry`: a resume's stand-in carries the paused
@@ -616,9 +619,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throttlingErrorChecker: opts.throttlingErrorChecker,
       streamHandlers: opts.streamHandlers,
       scopeProtectionMode: opts.scopeProtectionMode ?? 'error',
-      // ONE owned frozen snapshot per traverser (= per run/resume leg, per subflow mount):
-      // every scope of the leg gets it, so each pays O(root keys), not O(input).
-      readOnlyContext: snapshotRunInput(opts.readOnlyContext),
+      // The leg's ONE owned frozen input snapshot is taken when the leg STARTS
+      // (`execute`), never here: a getter on the input must not run at construction.
+      readOnlyContext: undefined,
       executionEnv: opts.executionEnv,
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
@@ -637,6 +640,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private _topBreakFlag: { shouldBreak: boolean; reason?: string } = { shouldBreak: false };
 
   async execute(branchPath?: string): Promise<TraversalResult> {
+    // ONE owned frozen input snapshot per leg (run, resume, subflow mount), taken as the
+    // leg starts — never at construction (an executor constructs a traverser it may never
+    // run): every scope of the leg gets it, so each pays O(root keys), not O(input).
+    this.deps.readOnlyContext = snapshotRunInput(this.readOnlyContext);
     const context = this.executionRuntime.rootStageContext;
     this._topBreakFlag = { shouldBreak: false };
     // The entry is one-shot: the first execute() starts there, never again —
