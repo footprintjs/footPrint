@@ -212,6 +212,16 @@ rule.retain(['tok'], 'sk-1');                                     // '[REDACTED]
 
 A value with no name — a scalar root input/output or pause payload, free error text — is selected by nothing; inside a stage function an OBJECT read under a selected name and written under another keeps its rule (`stageWrite`, by identity), while a primitive or a new object copied across names is selected by its own name only. A mark (per-call, policy-whole, taint) is a NAME, run-wide, until the key is deleted; a pause carries the marks and inherited fields — names only — to the resumed run (`marksForCheckpoint` → `FlowchartCheckpoint.redactionMarks` → `restoreMarks`). The walk shares decisions per (object, targets) unless a pattern is genuinely path-dependent (`needsPath`); such a walk past 1,000,000 path visits serves its unvisited remainder as the placeholder and warns once in dev mode — it never fails a run. See [the scope guide](../../../docs/guides/scope.md#the-one-law--what-a-policy-covers) for the contract.
 
+**Reading a pattern is linear in its source.** `needsPath` runs for every pattern each time a policy is set — once per stage's scope under an executor — so its own scans make one forward pass: `classBodies` takes a class body from a `[` to the first `]` that no `\` escapes, and a `[` that never closes ends the scan (every later `[` would read the same tail the same way). It replaced a regex that rescanned to the end from every later `[`, quadratic in the source (CodeQL `js/polynomial-redos`; same answers, pinned against that regex as the control in `test/lib/memory/security/needs-path-linear.security.test.ts`).
+
+```ts
+needsPath(/^user\.ssn$/); // true  — a `.` can match the separator between segments
+needsPath(/[+-/]/);       // true  — a class range that spans `.`
+needsPath(/password/i);   // false — decided by the key name
+needsPath(/\[a-z\]/);     // false — escaped brackets are text, not a class
+needsPath(new RegExp('\\['.repeat(20_000))); // false, in one pass (the regex took ~0.3 s)
+```
+
 Emitted payloads use `RedactionRule.retainEmit(name, payload)` before the facade constructs the event. Key and emit matching share one predicate: reset a global/sticky regex's `lastIndex` before each test, retaining its original flags and short-circuit order. Non-stateful regexes do not need a writable cursor. The state-key length cap does not apply to event names. No match preserves the original payload reference; a match replaces the whole payload with the scope placeholder. This does not scrub diagnostic bags or event metadata.
 
 Placeholders are historical: the log/mirror carry `'REDACTED'`; retained reads/writes and record-root boundary events carry `'[REDACTED]'`. `scrubPatch` copies only the spine of scrubbed paths, otherwise returning the commit-time payload unchanged; public `redactPatch` keeps its fresh-deep-copy contract. `placeholders.ts` owns both strings (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`, [below](#honesty--one-vocabulary-for-what-a-reader-cannot-see)).

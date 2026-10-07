@@ -870,16 +870,59 @@ export function useWalkLimit(limit: number): () => void {
  * inside one segment — and an ancestor whose NAME matches is masked whole
  * before the walk goes below it, so the name decides. Conservative: `true`
  * whenever in doubt.
+ *
+ * Linear in the length of `pattern.source`: every scan here is one forward
+ * pass ({@link classBodies}) or a regex that does constant work per position.
  */
 export function needsPath(pattern: RegExp): boolean {
   const source = pattern.source;
   if (/\.|\\[WSDBpPuxc0-9]|\[\^|\(\?[=!<]/.test(source)) return true;
-  for (const [, body] of source.matchAll(/\[((?:\\[\s\S]|[^\]\\])*)\]/g)) {
+  for (const body of classBodies(source)) {
     for (const [, low, high] of body.matchAll(/(\\?[\s\S])-(\\?[\s\S])/g)) {
       if (low.length > 1 || high.length > 1 || (low <= '.' && high >= '.')) return true;
     }
   }
   return false;
+}
+
+/**
+ * The body of each character class in `source`, left to right: the text
+ * between a `[` and the first `]` after it that no `\` escapes (a `\` takes
+ * the character after it along). ONE forward pass.
+ *
+ * It replaces `source.matchAll(/\[((?:\\[\s\S]|[^\]\\])*)\]/g)` and gives the
+ * same bodies for every string (pinned against that regex as the control,
+ * test/lib/memory/security/needs-path-linear.security.test.ts). The regex was
+ * quadratic: after a `[` that never closed it retried at every later `[`,
+ * each retry rescanning to the end — `\[` repeated 32,000 times took 0.7 s,
+ * and `setPolicy` runs once per stage's scope (CodeQL js/polynomial-redos).
+ * The pass stops at the first `[` that never closes instead: a later `[`
+ * starts its body where the failed scan was also between two tokens, so it
+ * reads the same tail the same way and closes nowhere either.
+ *
+ * @internal Exported for that test only — not on any public door.
+ */
+export function classBodies(source: string): string[] {
+  const bodies: string[] = [];
+  let open = source.indexOf('[');
+  while (open !== -1) {
+    const close = closingBracket(source, open + 1);
+    if (close === -1) break;
+    bodies.push(source.slice(open + 1, close));
+    open = source.indexOf('[', close + 1);
+  }
+  return bodies;
+}
+
+/** The index of the first `]` at or after `from` that no `\` escapes, else -1 (a trailing lone `\` escapes nothing and closes nothing). */
+function closingBracket(source: string, from: number): number {
+  let at = from;
+  while (at < source.length) {
+    const char = source[at];
+    if (char === ']') return at;
+    at += char === '\\' ? 2 : 1;
+  }
+  return -1;
 }
 
 /** `servedLeaf`'s answer for a value it leaves as it is. */
