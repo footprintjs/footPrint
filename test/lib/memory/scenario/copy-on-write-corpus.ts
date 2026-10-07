@@ -38,6 +38,18 @@ const digest = (bytes: string) => createHash('sha256').update(bytes).digest('hex
 
 /** Every field a program keeps on `engine`, digested. M8's `snapshots` are left out where it applies. */
 export async function digestsOf(engine: Engine, family: Family, program: any): Promise<Record<string, string>> {
+  return digestKept(await keptOf(engine, family, program));
+}
+
+/** The digest of every kept field — what the corpus stores. */
+export function digestKept(out: Record<string, string>): Record<string, string> {
+  const digests: Record<string, string> = {};
+  for (const field of Object.keys(out).sort()) digests[field] = digest(out[field]);
+  return digests;
+}
+
+/** Every field a program keeps on `engine`, as bytes — what {@link digestsOf} digests. */
+export async function keptOf(engine: Engine, family: Family, program: any): Promise<Record<string, string>> {
   const out =
     family === 'chart'
       ? (await runChart(engine, program)).out
@@ -48,9 +60,7 @@ export async function digestsOf(engine: Engine, family: Family, program: any): P
       : runWriteBack(engine, program);
   if (family === 'nested' && writesThroughStagedValue(program)) delete out.snapshots;
   if (family === 'writeback' && writesThroughWriteBackOrSet(program)) delete out.snapshots;
-  const digests: Record<string, string> = {};
-  for (const field of Object.keys(out).sort()) digests[field] = digest(out[field]);
-  return digests;
+  return out;
 }
 
 /**

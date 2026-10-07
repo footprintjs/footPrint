@@ -159,6 +159,9 @@ export class RedactionRule {
   /** Whether `policy` names anything a state verdict can act on — computed
    *  once per `setPolicy` so {@link isInert} is a two-field check. */
   private policyActive = false;
+  /** The policy's patterns that can depend on a whole dotted path ({@link needsPath}) — per `setPolicy`. */
+  private pathPatterns: readonly RegExp[] = [];
+  private walkLimitWarned = false;
   /**
    * Keys marked secret for the rest of the run — by a per-call
    * `setValue(key, value, true)`, or by any write the policy redacted whole.
@@ -191,6 +194,7 @@ export class RedactionRule {
     this.diagnosticRule = diagnostics
       ? new RedactionRule({ keys: diagnostics.keys, patterns: diagnostics.patterns, fields: diagnostics.fields })
       : undefined;
+    this.pathPatterns = (policy?.patterns ?? []).filter(needsPath);
     this.policyActive =
       policy !== undefined &&
       ((policy.keys?.length ?? 0) > 0 ||
@@ -376,20 +380,32 @@ export class RedactionRule {
    * `rootDecided`: the root's own keys were already decided (`retainRecord`).
    */
   private namesWalk(rootDecided: boolean): Walk {
-    const patterns = this.policy?.patterns;
-    const byPath = patterns !== undefined && patterns.length > 0;
+    const byPath = this.pathPatterns;
     return {
       names: {
         masks: (name) => this.isKeyRedacted(name),
-        ...(byPath && {
-          pathMasks: (path: string) => path.length <= MAX_PATTERN_KEY_LEN && matchesPattern(path, patterns),
+        ...(byPath.length > 0 && {
+          pathMasks: (path: string) => path.length <= MAX_PATTERN_KEY_LEN && matchesPattern(path, byPath),
         }),
         fields: (name) => this.fieldsOf(name),
       },
       rootDecided,
-      ...(!byPath && { memo: new WeakMap<object, Map<string, unknown>>() }),
+      ...(byPath.length === 0 && { memo: new WeakMap<object, Map<string, unknown>>() }),
       budget: WALK_LIMIT,
+      onLimit: () => this.warnWalkLimit(byPath),
     };
+  }
+
+  /** Once per rule, in dev mode: a path walk passed its limit and served its remainder as the placeholder. */
+  private warnWalkLimit(patterns: readonly RegExp[]): void {
+    if (this.walkLimitWarned || !isDevMode()) return;
+    this.walkLimitWarned = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[footprint] RedactionPolicy: a value with more than ${WALK_LIMIT} paths under the path pattern(s) ` +
+        `${patterns.map(String).join(', ')} — the paths past that were served as the placeholder. ` +
+        'A pattern that names a KEY (no dot, no lookaround) is decided per object; prefer one, or keys/fields.',
+    );
   }
 
   /**
@@ -787,13 +803,14 @@ export class RedactionRule {
 // served copy.
 //
 // LINEAR ON A DAG. Dotted keys and marks are walked as TARGETS (path-relative
-// state, like fields), so a decision depends only on the object and the
-// targets still live at it — memoized per (object, targets): an object shared
-// by many paths is decided once per target state, and its served copy is
-// shared too. Only a PATTERN can depend on the whole path (it is tested on the
-// dotted path), so a walk under patterns decides per path; past
-// {@link WALK_LIMIT} path visits it fails loudly ({@link RedactionWalkLimitError})
-// — never served raw, never masked whole.
+// state, like fields), and a pattern that can only match within a key NAME
+// ({@link needsPath} — the common case, `/password/i`) is decided by the name,
+// so a decision depends only on the object and the targets still live at it —
+// memoized per (object, targets): an object shared by many paths (an agent's
+// linked history) is decided once, and its served copy is shared too. Only a
+// genuinely PATH-dependent pattern (`/^a\.b$/`) walks paths; past
+// {@link WALK_LIMIT} path visits such a walk serves the unvisited remainder as
+// the placeholder (the safe side), warns once in dev mode, and never fails.
 
 /** A field still to reach below a node: the path segments left to walk. */
 type Target = readonly string[];
@@ -811,34 +828,42 @@ interface Walk {
   };
   /** The root's own keys were decided by the caller (`retainRecord`): walk below them only. */
   readonly rootDecided: boolean;
-  /** Decisions shared per (object, targets) — absent when a decision depends on the path (patterns). */
+  /** Decisions shared per (object, targets) — absent when a decision depends on the path. */
   readonly memo?: WeakMap<object, Map<string, unknown>>;
   /** Path visits left. */
   budget: number;
+  /** Told once when the walk passes its limit. */
+  readonly onLimit?: () => void;
+  /** The walk has passed its limit: what it has not visited is served as the placeholder. */
+  limited?: boolean;
 }
 
 /**
- * Path visits one walk may make — reachable only under a PATTERN rule over a
- * value whose paths outnumber its objects (a DAG): every other walk shares its
- * decisions per object and stays linear.
+ * Path visits one walk may make — reachable only under a PATH-dependent
+ * pattern over a value whose paths outnumber its objects (a linked history, a
+ * DAG): every other walk shares its decisions per object and stays linear.
  */
 const WALK_LIMIT = 1_000_000;
 
 /**
- * A redaction walk past {@link WALK_LIMIT} path visits: a value whose paths
- * outnumber its objects without bound (a DAG) under a PATTERN rule. The value
- * is refused — the run fails loudly at that boundary — never served raw and
- * never masked whole.
+ * Can `pattern` match a dotted PATH where it matches none of the path's
+ * segment NAMES? Only through a construct that can match or test the `.`
+ * between segments: `.` itself, an escape that can stand for it (`\W \S \D
+ * \B \p \P \u \x \c`, a digit escape), a negated class, a class range that
+ * spans `.`, a lookaround or a named group. Anything else matches a path only
+ * inside one segment — and an ancestor whose NAME matches is masked whole
+ * before the walk goes below it, so the name decides. Conservative: `true`
+ * whenever in doubt.
  */
-export class RedactionWalkLimitError extends Error {
-  constructor() {
-    super(
-      `[footprint] RedactionPolicy: a value with more than ${WALK_LIMIT} paths under a pattern rule — ` +
-        'a pattern is tested on every dotted path, so the walk cannot share decisions. ' +
-        'Use keys/fields for that value, or serve a smaller one.',
-    );
-    this.name = 'RedactionWalkLimitError';
+export function needsPath(pattern: RegExp): boolean {
+  const source = pattern.source;
+  if (/\.|\\[WSDBpPuxc0-9]|\[\^|\(\?[=!<]/.test(source)) return true;
+  for (const [, body] of source.matchAll(/\[((?:\\[\s\S]|[^\]\\])*)\]/g)) {
+    for (const [, low, high] of body.matchAll(/(\\?[\s\S])-(\\?[\s\S])/g)) {
+      if (low.length > 1 || high.length > 1 || (low <= '.' && high >= '.')) return true;
+    }
   }
+  return false;
 }
 
 /** `servedLeaf`'s answer for a value it leaves as it is. */
@@ -889,9 +914,14 @@ function decideEdge(
   return { masked, below };
 }
 
-/** One step down a walk's path: count the visit, refuse past the limit. */
-function visit(walk: Walk): void {
-  if (--walk.budget < 0) throw new RedactionWalkLimitError();
+/** One step down a walk's path: count the visit — `false` once the walk is past its limit. */
+function visit(walk: Walk): boolean {
+  if (--walk.budget >= 0) return true;
+  if (!walk.limited) {
+    walk.limited = true;
+    walk.onLimit?.();
+  }
+  return false;
 }
 
 /**
@@ -907,7 +937,8 @@ function selectsByPath(
   ancestors: Map<object, number>,
   depth: number,
 ): { selected: boolean; back: number } {
-  visit(walk);
+  // Past the limit: assume a selection — the copy serves the unvisited remainder as the placeholder.
+  if (!visit(walk)) return { selected: true, back: Infinity };
   if (walk.names === undefined && targets.length === 0) return { selected: false, back: Infinity };
   const sig = walk.memo ? signatureOf(targets) : '';
   const known = walk.memo?.get(node)?.get(`s${sig}`);
@@ -964,10 +995,11 @@ function copyByPath(
   ancestors: Map<object, { copy: Record<string, unknown>; depth: number }>,
   depth: number,
   prune: boolean,
-): { out: object; back: number } {
-  visit(walk);
+): { out: unknown; back: number } {
+  // Past the limit: the unvisited remainder is served as the placeholder — never raw.
+  if (!visit(walk)) return { out: placeholder, back: Infinity };
   const sig = walk.memo ? `c${signatureOf(targets)}` : '';
-  const known = walk.memo?.get(node)?.get(sig) as object | undefined;
+  const known = walk.memo?.get(node)?.get(sig);
   if (known !== undefined) return { out: known, back: Infinity };
   const frame = {
     copy: (Array.isArray(node) ? node.slice() : { ...node }) as Record<string, unknown>,
@@ -1025,9 +1057,9 @@ function hasCycle(root: object): boolean {
 
 /**
  * The served form of `root` under a walk: `root` itself when no path selects
- * anything, else its copy-on-write copy. Throws — the caller refuses to
- * serve — on an enumerable getter that throws, and with
- * {@link RedactionWalkLimitError} past the walk limit.
+ * anything, else its copy-on-write copy (past the walk limit, its unvisited
+ * remainder served as the placeholder). Throws — the caller refuses to serve
+ * — on an enumerable getter that throws.
  */
 function servedByPath(
   root: object,
@@ -1105,6 +1137,8 @@ export class MapperTaint {
   private readonly views = new Map<object, { raw: object; verdict: RedactionVerdict }>();
   /** Each record the mapper was handed → as a view (passed on whole, it hands on its selected keys). */
   private readonly records = new Map<object, Record<string, unknown>>();
+  /** The selected values the mapper read (whole keys, selected fields) — what it could plant by reference. */
+  private readonly secretReads: unknown[] = [];
   private selectedRead = false;
   private open = true;
 
@@ -1144,6 +1178,13 @@ export class MapperTaint {
       } else if (copied.kind === 'whole') this.rule.mark(target);
       else if (copied.kind === 'fields') this.rule.inheritFields(target, copied.paths);
       const raw = this.behind(value);
+      // An object passed on BY REFERENCE may carry what the mapper planted in it
+      // (`Object.assign(p.request, { auth: p.token })`, `p.list.push(p.token)`):
+      // each place it holds a selected value the mapper read is a field of the new key.
+      if (copied !== undefined && copied.kind !== 'whole' && raw !== null && typeof raw === 'object') {
+        const planted = this.plantedPaths(raw);
+        if (planted.length > 0) this.rule.inheritFields(target, planted);
+      }
       if (raw !== value) {
         out ??= (Array.isArray(output) ? [...output] : { ...output }) as Record<string, unknown>;
         out[target] = raw;
@@ -1168,7 +1209,10 @@ export class MapperTaint {
       }
       if (isPlainRecord(value)) return this.fieldsView(value, verdict);
     }
-    if (verdict.kind !== 'clear') this.selectedRead = true;
+    if (verdict.kind !== 'clear') {
+      this.selectedRead = true;
+      if (verdict.kind === 'whole') this.secretReads.push(value);
+    }
     return this.remember(value, verdict);
   }
 
@@ -1184,7 +1228,10 @@ export class MapperTaint {
     const selected = new Set<string>();
     for (const path of verdict.paths) selected.add(path).add(path.split('.')[0]);
     const view = this.viewOf(record, (key) => {
-      if (this.open && selected.has(key)) this.selectedRead = true;
+      if (this.open && selected.has(key)) {
+        this.selectedRead = true;
+        this.secretReads.push(record[key]);
+      }
       return record[key];
     });
     this.views.set(view, { raw: record, verdict });
@@ -1238,6 +1285,43 @@ export class MapperTaint {
       else if (verdict.kind === 'fields') for (const path of verdict.paths) paths.push(`${key}.${path}`);
     }
     return paths.length === 0 ? CLEAR : { kind: 'fields', key: '', paths };
+  }
+
+  /**
+   * Where `root` (an object the mapper passed on by reference) holds one of the
+   * selected PRIMITIVES it read — matched by value, only against what this
+   * mapper read and only inside what it passed on, so over-matching an equal
+   * value is the safe side. One relative path per place, a shared object at
+   * each of its paths; a cycle edge is not followed.
+   */
+  private plantedPaths(root: object): string[] {
+    const secrets = new Set<unknown>();
+    const collect = (value: unknown, seen: Set<object>): void => {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') secrets.add(value);
+      else if (value !== null && typeof value === 'object' && !seen.has(value)) {
+        seen.add(value);
+        for (const child of Object.values(value)) collect(child, seen);
+      }
+    };
+    for (const value of this.secretReads) collect(value, new Set());
+    if (secrets.size === 0) return [];
+    const memo = new Map<object, string[]>();
+    const onPath = new Set<object>();
+    const inside = (node: object): string[] => {
+      const known = memo.get(node);
+      if (known !== undefined) return known;
+      if (onPath.has(node)) return [];
+      onPath.add(node);
+      const found: string[] = [];
+      for (const [key, child] of Object.entries(node)) {
+        if (child !== null && typeof child === 'object') for (const sub of inside(child)) found.push(`${key}.${sub}`);
+        else if (secrets.has(child)) found.push(key);
+      }
+      onPath.delete(node);
+      memo.set(node, found);
+      return found;
+    };
+    return inside(root);
   }
 
   /** Does a value the mapper BUILT embed, by reference, a selected record it read or was handed? */

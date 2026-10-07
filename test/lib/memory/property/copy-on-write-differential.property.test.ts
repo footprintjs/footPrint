@@ -117,8 +117,10 @@ function compare(
   buildSeen: Witnessed[],
   seen: Tally,
 ): void {
-  const diff = firstDifference(base, build);
-  const broken = witnessClause(baseSeen, buildSeen, diff !== '');
+  // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
+  const redacted = (p as { cfg?: { policy?: boolean } } | undefined)?.cfg?.policy === true;
+  const diff = firstDifference(base, build, redacted);
+  const broken = witnessClause(baseSeen, buildSeen, diff !== '', redacted);
   if (broken) throw new Error(`${broken}${diff ? `\n${diff}` : ''}\nprogram: ${JSON.stringify(p)}`);
   seen.programs += 1;
   if (diff) seen.explained += 1;

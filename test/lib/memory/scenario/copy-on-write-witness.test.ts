@@ -139,7 +139,8 @@ describe('witnessLegs — a resumed leg is judged on its own when both engines s
 
 // ─── The real engines ────────────────────────────────────────────────────
 
-type Ran = { out: Record<string, string>; seen: Witnessed[] };
+/** `redacted`: the program runs under a policy, where the restored redaction law may serve more placeholders. */
+type Ran = { out: Record<string, string>; seen: Witnessed[]; redacted?: boolean };
 type Run = (engine: Engine) => Promise<Ran>;
 
 const cfg: ChartProgram['cfg'] = {
@@ -163,7 +164,7 @@ const chart =
   (p: ChartProgram): Run =>
   async (engine) => {
     const [r, seen] = await witnessing(engine, () => runChart(engine, p));
-    return { out: r.out, seen };
+    return { out: r.out, seen, redacted: p.cfg.policy };
   };
 
 const nested =
@@ -295,7 +296,9 @@ describe('the generative differentials, with the admission cut', () => {
   const verdict = async (run: Run): Promise<string> => {
     const a = await run(BASELINE);
     const b = await run(BUILD);
-    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out) !== '');
+    // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
+    const redacted = a.redacted === true;
+    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out, redacted) !== '', redacted);
   };
 
   const FAMILIES: Array<[string, fc.Arbitrary<{ run: Run; label: string }>]> = [

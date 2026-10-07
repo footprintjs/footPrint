@@ -536,10 +536,13 @@ describe('7 — the path walk on a DAG: linear work, never masked whole', () => 
     expect(counter.reads).toBeLessThanOrEqual(8 * 21);
   });
 
-  it('a pattern rule over a DAG past the walk limit fails loudly, by name — never a whole-value placeholder', () => {
-    const { root } = dag(21, { leaf: 'x' });
-    expect(() => new RedactionRule({ patterns: [/nothing/] }).retainBoundary(root)).toThrow(
-      expect.objectContaining({ name: 'RedactionWalkLimitError' }),
-    );
+  it('a NAME pattern is decided per object (linear); a PATH pattern past the limit masks the rest, never throws', () => {
+    const named = dag(21, { leaf: 'x' });
+    expect(new RedactionRule({ patterns: [/nothing/] }).retainBoundary(named.root)).toBe(named.root);
+    expect(named.counter.reads).toBeLessThanOrEqual(4 * 21);
+    const { root } = dag(21, { leaf: SECRET });
+    const served = new RedactionRule({ patterns: [/^tree(\.[lr])+\.leaf$/] }).retainBoundary(root) as any;
+    expect(served.tree.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.leaf).toBe(MASK); // visited: the rule's own path
+    expect(dump(served)).not.toContain(SECRET); // the unvisited remainder: the placeholder, never raw
   });
 });

@@ -171,6 +171,8 @@ export class StageContext {
   private _provenanceReads?: Set<string>;
   /** Tracked reads of a selected value ({@link selectedReads}). */
   private _selectedReads = 0;
+  /** Each object this frame read under a selected name → that read's verdict (`stageWrite` hands it on). */
+  private _selectedObjects?: WeakMap<object, RedactionVerdict>;
 
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
@@ -402,11 +404,29 @@ export class StageContext {
     verb: 'set' | 'merge' | 'delete',
   ): RedactionVerdict {
     const rule = this.activeRule();
-    const verdict: RedactionVerdict = explicit
+    let verdict: RedactionVerdict = explicit
       ? { kind: 'whole', key: userKeyOf(path, key) }
       : rule !== undefined
       ? rule.verdictAt(path, key)
       : CLEAR;
+    // A copy INSIDE the stage: the very object it read under a selected name, written under
+    // another (`s.person = s.profile`), keeps that rule — matched by IDENTITY. A new object
+    // or a primitive copied across names is selected by its own name only.
+    const read =
+      rule !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
+        ? this._selectedObjects?.get(value)
+        : undefined;
+    if (read !== undefined && rule !== undefined) {
+      if (read.kind === 'whole') rule.mark(userKeyOf(path, key));
+      else if (read.kind === 'fields') {
+        const at = [...path.slice(1), ...(path.length > 0 ? [key] : [])];
+        rule.inheritFields(
+          path[0] ?? key,
+          read.paths.map((field) => [...at, field].join('.')),
+        );
+      }
+      verdict = rule.verdictAt(path, key);
+    }
     const whole = verdict.kind === 'whole';
     const buffer = this.getTransactionBuffer();
     if (verb === 'merge') buffer.merge(nsPath, value, whole);
@@ -415,7 +435,7 @@ export class StageContext {
     if (verdict.kind === 'fields') buffer.markRedactedFields(nsPath, verdict.paths);
     if (verb === 'delete') {
       rule?.unmark(userKeyOf(path, key));
-    } else if (whole) {
+    } else if (verdict.kind === 'whole') {
       // The REAL rule, not the active one: an explicit mark on an inert rule
       // is exactly what makes it active for the rest of the run.
       this.policy.redaction?.mark(verdict.key);
@@ -666,7 +686,11 @@ export class StageContext {
     // allocation (activeRule).
     const rule = key !== undefined ? this.activeRule() : undefined;
     const verdict = rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
-    if (verdict.kind !== 'clear' && value !== undefined) this._selectedReads += 1;
+    if (verdict.kind !== 'clear' && value !== undefined) {
+      this._selectedReads += 1;
+      // An object read under a selected name, written back under another, keeps its rule (stageWrite).
+      if (value !== null && typeof value === 'object') (this._selectedObjects ??= new WeakMap()).set(value, verdict);
+    }
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
     // placeholder, a field-level key as a scrubbed clone, never the secret.
