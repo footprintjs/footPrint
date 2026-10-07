@@ -9,9 +9,9 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.38.2",
-    "astro": "^6.1.0",
-    "starlight-blog": "^0.26.1"
+    "@astrojs/starlight": "^0.42.5",
+    "astro": "^7.3.6",
+    "starlight-blog": "^0.30.0"
   },
   "devDependencies": {
     "esbuild": "^0.27.4",
