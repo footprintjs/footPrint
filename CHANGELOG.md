@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The ESLint fence comment names the real detach scope methods.** `.eslintrc.js` listed the scope → `detach/spawn.ts` edge as `ScopeFacade.$spawn`, a name that does not exist; it now says `$detachAndJoinLater` / `$detachAndForget`, matching `scripts/layering.config.cjs`. Documentation only: lint zones and runtime behavior are unchanged.
+
 ### Fixed
 
 - **The `BoundaryStateStore` 10k load test counts work instead of timing it.** Its 50 ms wall-clock bound read 50.6 ms once under full-suite load. The test now counts the store's operations on its backing Map (each lookup, write and iteration step) and requires an update to do the same work with 10,000 boundaries open as with 100, so a scan or copy per update still fails it. Test only: the store is unchanged.
