@@ -195,8 +195,8 @@ checkpoint). Format 1 also carried the execution tree and the finished
 subflows' results — the run's record, which no resume read: after 60 agent
 turns whose resumable state (root plus captures) is 0.13 MB the checkpoint
 was 19.3 MB, and is now 0.13 MB (`npx tsx bench/checkpoint-size.ts`). That
-record is the snapshot's: keep `executor.getSnapshot()` from the paused
-executor if you want it. A format 1 checkpoint still resumes — the codec's
+record is the snapshot's: keep `executor.getSnapshot()` from before
+`resume()` if you want it. A format 1 checkpoint still resumes — the codec's
 upcaster drops the two fields.
 
 **Not captured — by design:**

@@ -346,8 +346,8 @@ export interface PauseResult {
  * is `pausedStageId` + `subflowPath`; the state is `sharedState` plus the
  * captures of the subflows on that path (`subflowStates`). The run's history —
  * the execution tree, the finished subflows' results, the commit log — is not
- * here: read it from `executor.getSnapshot()` before the paused executor goes
- * (format 1 carried `executionTree` and `subflowResults`; no resume read them).
+ * here: read it from `executor.getSnapshot()` before `resume()` (format 1
+ * carried `executionTree` and `subflowResults`; no resume read them).
  *
  * JSON-safe: no functions, no class instances, no SDK clients.
  * Store anywhere: Redis, Postgres, localStorage, a file.

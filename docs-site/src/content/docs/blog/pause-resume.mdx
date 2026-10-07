@@ -111,7 +111,11 @@ The checkpoint contains:
 - **sharedState** — full scope at the pause point
 - **pausedStageId** — which stage paused
 - **pauseData** — the data you returned from `execute`
-- **executionTree** — the traversal path for visualization
+
+It does not hold the run's history: the execution tree and commit log come
+from `executor.getSnapshot()`. Take the snapshot before `resume()` if you want
+to keep it. (Checkpoints written before the lean format carried an
+`executionTree` that no resume ever read.)
 
 ### 4. Resume (hours later, any server)
 
