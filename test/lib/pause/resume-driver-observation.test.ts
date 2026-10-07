@@ -82,7 +82,7 @@ describe.each<ResumeMode>(['same', 'cross'])('resume driver observations — %s-
             expect(served).not.toBe(raw);
             expect(served).toEqual(JSON.parse(JSON.stringify(raw)));
             expect(served.sharedState).not.toBe(raw.sharedState);
-            expect(served.executionTree).not.toBe(raw.executionTree);
+            expect(served.subflowStates).not.toBe(raw.subflowStates);
           }
         }
       },

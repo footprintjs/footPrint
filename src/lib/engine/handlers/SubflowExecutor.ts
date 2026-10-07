@@ -284,26 +284,23 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // immediately. No error logging, no subflowResult recording —
       // the pause is control flow.
       //
-      // BEFORE re-throw, snapshot the nested runtime's `sharedState`
-      // onto the signal. This is the only chance — once we re-throw,
-      // the outer traverser unwinds and the nested runtime is GC'd. On
-      // resume, we'll re-seed a fresh nested runtime from this capture
-      // so resume handlers can read the pre-pause subflow scope.
+      // BEFORE re-throw, capture the nested runtime's state onto the
+      // signal. This is the only chance — once we re-throw, the outer
+      // traverser unwinds and the nested runtime is GC'd. On resume, we'll
+      // re-seed a fresh nested runtime from this capture so resume handlers
+      // can read the pre-pause subflow scope.
+      //
+      // The STATE only — the subflow's working memory at pause time (every
+      // committed write up to the pause), read straight off its store. No
+      // snapshot is built: a snapshot would also build the subflow's
+      // execution tree and copy its commit log — work proportional to how
+      // long the subflow ran — that the lean checkpoint never carries
+      // (`runner/checkpoint.ts`).
       //
       // Capture is keyed by the SAME path-prefixed `subflowId` used in
       // `subflowPath`, so resume can look up "scope for sf-foo" by id.
       if (isPauseSignal(error)) {
-        try {
-          const snap = nestedRuntime.getSnapshot();
-          // `sharedState` is the subflow's working memory at pause
-          // time (after every committed write up to the pause). Cast
-          // is safe — SharedMemory snapshot returns a plain object.
-          error.captureSubflowScope(subflowId, snap.sharedState as Record<string, unknown>);
-        } catch {
-          // Snapshot failure shouldn't mask the pause — let the pause
-          // bubble up; resume will fall back to checkpoint.sharedState
-          // (the parent scope) for this subflow's keys.
-        }
+        error.captureSubflowScope(subflowId, nestedRuntime.globalStore.getState());
         error.prependSubflow(subflowId);
         throw error;
       }

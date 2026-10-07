@@ -2,7 +2,8 @@
  * F8 (9.39.0) — the named record changes the byte-identity references
  * predate: the writer names a stage's continuation on its bundle
  * (`CommitBundle.phase`: a mount's `'exit'`, a fork child's `'repeat'`), and
- * a checkpoint carries its format (`checkpointVersion: 1`).
+ * a checkpoint carries its format (`checkpointVersion`: 1 from 9.39.0, 2 —
+ * the lean checkpoint — after 9.43.x).
  *
  * A reference written by an older release has no such key, and it must never
  * be regenerated (it exists to be old). So a byte pin compares the build's
@@ -24,7 +25,7 @@ export function stripRecordedPhases(value: unknown): void {
   const isBundle = Object.prototype.hasOwnProperty.call(record, 'runtimeStageId') && Array.isArray(record.trace);
   if (isBundle && PHASES.has(record.phase as string)) delete record.phase;
   const isCheckpoint = Object.prototype.hasOwnProperty.call(record, 'pausedStageId');
-  if (isCheckpoint && record.checkpointVersion === 1) delete record.checkpointVersion;
+  if (isCheckpoint && typeof record.checkpointVersion === 'number') delete record.checkpointVersion;
   for (const key of Object.keys(record)) stripRecordedPhases(record[key]);
 }
 

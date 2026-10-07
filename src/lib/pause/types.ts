@@ -5,11 +5,14 @@
  * The signal bubbles up through SubflowExecutor → FlowchartTraverser → FlowChartExecutor,
  * each level adding its subflow ID to the path.
  *
- * The checkpoint captures:
- *   - pausedStageId + subflowPath: the paused stage's id and its subflow path
- *   - sharedState: scope at the pause point
- *   - executionTree: completed stages for BTS/narrative
- *   - pauseData: question, reason, or metadata from $pause()
+ * The checkpoint captures what a resume reads, and the pause's own record —
+ * never the run's history (that is `getSnapshot()`'s):
+ *   - pausedStageId + subflowPath (+ pausedBy): the cursor
+ *   - sharedState + subflowStates: the state at the pause — the root's, and
+ *     each subflow's on the pause path
+ *   - executionCount + visitCounts: the counters the resumed run continues
+ *   - pendingPauses, redactionMarks: waiting siblings, redaction names
+ *   - pauseData, pausedExecution, invokerStageId, pausedAt: the record
  *
  * Resume rebuilds the flowchart, restores scope, navigates to the paused stage,
  * injects resumeInput, and continues traversal.
@@ -336,29 +339,15 @@ export interface PauseResult {
 // ── FlowchartCheckpoint ─────────────────────────────────────
 
 /**
- * Serializable checkpoint — everything needed to resume a paused flowchart.
+ * Serializable checkpoint — everything needed to resume a paused flowchart,
+ * and nothing a resume never reads.
  *
- * JSON-safe: no functions, no class instances, no SDK clients.
- * Store anywhere: Redis, Postgres, localStorage, a file.
- *
- * @example
- * ```typescript
- * // Save
- * const checkpoint = executor.getCheckpoint(); // after pause
- * await redis.set(`session:${id}`, JSON.stringify(checkpoint));
- *
- * // Resume (hours later, possibly different server)
- * const checkpoint = JSON.parse(await redis.get(`session:${id}`));
- * const executor = new FlowChartExecutor(chart);
- * await executor.resume(checkpoint, { approved: true });
- * ```
- */
-/**
- * Serializable checkpoint — everything needed to resume a paused flowchart.
- *
- * The execution tree IS the traversed path. The leaf node with status 'paused'
- * IS the cursor. No separate path array needed — the tree structure captures
- * the full nesting (including subflows).
+ * LEAN (format 2): its size is the STATE's, never the run's length. The cursor
+ * is `pausedStageId` + `subflowPath`; the state is `sharedState` plus the
+ * captures of the subflows on that path (`subflowStates`). The run's history —
+ * the execution tree, the finished subflows' results, the commit log — is not
+ * here: read it from `executor.getSnapshot()` before `resume()` (format 1
+ * carried `executionTree` and `subflowResults`; no resume read them).
  *
  * JSON-safe: no functions, no class instances, no SDK clients.
  * Store anywhere: Redis, Postgres, localStorage, a file.
@@ -376,20 +365,17 @@ export interface PauseResult {
  */
 export interface FlowchartCheckpoint {
   /**
-   * The checkpoint FORMAT (9.39.0): `1`. Absent on a checkpoint written
-   * before 9.39.0, which `resume()` reads through the one upcaster
-   * (`pause/record.ts · upcastCheckpoint`) — it drops the legacy
-   * `continuationStageId` (a record no resume has read since 9.28.0). A
-   * version this release does not know is refused.
+   * The checkpoint FORMAT: `2`, the lean checkpoint (`1` from 9.39.0; absent
+   * before). `resume()` reads every older one through the one upcaster
+   * (`pause/record.ts · upcastCheckpoint`), which drops what later formats
+   * dropped — format 1's `executionTree` and `subflowResults`, the legacy
+   * `continuationStageId` — none of which a resume ever read. A version this
+   * release does not know is refused.
    */
-  readonly checkpointVersion?: 1;
+  readonly checkpointVersion?: 2;
 
   /** Scope state at the pause point — all shared memory key/values. */
   readonly sharedState: Record<string, unknown>;
-
-  /** Execution tree — the traversed path. The leaf with status 'paused' is the cursor.
-   *  Contains subflow nesting. Used for BTS visualization and to find the resume point. */
-  readonly executionTree: unknown;
 
   /** ID of the stage that paused. Used by resume() to find the node in the graph. */
   readonly pausedStageId: string;
@@ -422,9 +408,6 @@ export interface FlowchartCheckpoint {
    * pausable stage runs its separate `resumeFn`.
    */
   readonly pausedBy?: 'interrupt';
-
-  /** Subflow results collected before the pause. */
-  readonly subflowResults?: Record<string, unknown>;
 
   /**
    * Subflow scope capture — one entry per subflow boundary on the path

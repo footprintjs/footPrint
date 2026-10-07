@@ -2,9 +2,10 @@
  * The checkpoint codec (F8, 9.39.0) — `pause/record.ts`: one version, one
  * upcaster, one validator, one message set.
  *
- * - UNIT: the upcaster (v0 → v1 drops the legacy `continuationStageId` and
- *   stamps the version; never edits its input; refuses a version it does not
- *   know).
+ * - UNIT: the upcaster (v0 → v1 drops the legacy `continuationStageId`;
+ *   v1 → v2, the lean checkpoint, drops `executionTree` and `subflowResults`;
+ *   it stamps the version, never edits its input, and refuses a version it
+ *   does not know).
  * - BACK-COMPAT: a checkpoint written by 9.20.0, 9.27.0, 9.28.0 and 9.37.0
  *   resumes through the upcaster into the healthy run (the 9.27.0 file is the
  *   pin `resume-real-chart-9.27.0-checkpoints.test.ts` has always read; the
@@ -44,8 +45,16 @@ const isPaused = (result: unknown) =>
   typeof result === 'object' && result !== null && (result as { paused?: unknown }).paused === true;
 
 describe('the upcaster', () => {
-  it('reads an unversioned (pre-9.39.0) checkpoint as version 0: drops continuationStageId, stamps the version', () => {
-    const stored = { sharedState: {}, pausedStageId: 'a', subflowPath: [], continuationStageId: 'after', x: 1 };
+  it('reads an unversioned (pre-9.39.0) checkpoint as version 0: drops every legacy field, stamps the version', () => {
+    const stored = {
+      sharedState: {},
+      executionTree: { id: 'a' },
+      pausedStageId: 'a',
+      subflowPath: [],
+      continuationStageId: 'after',
+      subflowResults: { sf: {} },
+      x: 1,
+    };
     const before = structuredClone(stored);
     const up = upcastCheckpoint(stored);
     expect(up).toEqual({
@@ -58,27 +67,58 @@ describe('the upcaster', () => {
     expect(stored).toEqual(before); // the caller's object is never edited
   });
 
+  it('reads a version 1 checkpoint (9.39.0–9.43.x) as the lean one: drops executionTree and subflowResults', () => {
+    const stored = {
+      checkpointVersion: 1,
+      sharedState: { k: 1 },
+      executionTree: { id: 'a', next: { id: 'b' } },
+      pausedStageId: 'b',
+      subflowPath: [],
+      subflowStates: {},
+      executionCount: 2,
+      subflowResults: { sf: { treeContext: { globalContext: {} } } },
+      pausedAt: 1,
+    };
+    const before = structuredClone(stored);
+    const up = upcastCheckpoint(stored);
+    expect(up).toEqual({
+      checkpointVersion: 2,
+      sharedState: { k: 1 },
+      pausedStageId: 'b',
+      subflowPath: [],
+      subflowStates: {},
+      executionCount: 2,
+      pausedAt: 1,
+    });
+    expect(Object.keys(up)[0]).toBe('checkpointVersion');
+    expect(stored).toEqual(before); // the caller's object is never edited
+  });
+
   it('passes the current version through as a copy', () => {
-    const stored = { checkpointVersion: 1, sharedState: {}, pausedStageId: 'a', subflowPath: [] };
+    const stored = { checkpointVersion: CHECKPOINT_VERSION, sharedState: {}, pausedStageId: 'a', subflowPath: [] };
     const up = upcastCheckpoint(stored);
     expect(up).toEqual(stored);
     expect(up).not.toBe(stored);
   });
 
-  it.each([2, 0, '1', null])('refuses a version it does not know (%j)', (version) => {
+  it.each([3, 0, '2', null])('refuses a version it does not know (%j)', (version) => {
     expect(() => upcastCheckpoint({ checkpointVersion: version })).toThrow(
       /^Invalid checkpoint: checkpointVersion .* is not one this release reads/,
     );
   });
 
-  it('a new checkpoint is written at the current version and never carries continuationStageId', async () => {
+  it('a new checkpoint is written at the current version and never carries a legacy field', async () => {
     const executor = new FlowChartExecutor(RESUME_CHARTS.askLoopTopLevel());
     await executor.run();
     const checkpoint = executor.getCheckpoint()!;
+    expect(CHECKPOINT_VERSION).toBe(2);
     expect(checkpoint.checkpointVersion).toBe(CHECKPOINT_VERSION);
     expect(Object.keys(checkpoint)[0]).toBe('checkpointVersion');
-    expect(Object.prototype.hasOwnProperty.call(checkpoint, 'continuationStageId')).toBe(false);
-    expect(decodeCheckpoint(JSON.parse(JSON.stringify(checkpoint))).checkpointVersion).toBe(1);
+    for (const legacy of ['continuationStageId', 'executionTree', 'subflowResults']) {
+      expect(Object.prototype.hasOwnProperty.call(checkpoint, legacy)).toBe(false);
+    }
+    // A current checkpoint decodes to itself.
+    expect(decodeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))).toEqual(JSON.parse(JSON.stringify(checkpoint)));
   });
 });
 
@@ -220,9 +260,17 @@ describe('one validator, one message set — the table hits both former entry po
 });
 
 describe('the codec’s other rules', () => {
-  it('a v1 checkpoint never keeps continuationStageId', () => {
-    const up = upcastCheckpoint({ checkpointVersion: 1, pausedStageId: 'a', continuationStageId: 'after' });
-    expect(up).toEqual({ checkpointVersion: 1, pausedStageId: 'a' });
+  it('no version keeps a dropped field, whatever it claims to carry', () => {
+    for (const checkpointVersion of [1, 2]) {
+      const up = upcastCheckpoint({
+        checkpointVersion,
+        pausedStageId: 'a',
+        continuationStageId: 'after',
+        executionTree: {},
+        subflowResults: {},
+      });
+      expect(up).toEqual({ checkpointVersion: 2, pausedStageId: 'a' });
+    }
   });
 
   it('a malformed top-level pausedExecution is DROPPED, as a sibling’s is — never trusted, never fatal', async () => {

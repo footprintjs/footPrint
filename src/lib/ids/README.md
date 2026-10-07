@@ -5,8 +5,8 @@ Every execution step has an address, `[subflowPath/]stageId#executionIndex`
 spelled: `runtimeStageId.ts` builds, reads and refuses ids; `branchSegment.ts`
 owns the one generated segment, `<stageId>~<index>` (a `parallelForEach`
 branch). No file outside this folder splits on `#` or `/` — recorders, the
-scope, the time-travel cursor, the checkpoint filter and the subtree lookup
-all ask the readers here.
+scope, the time-travel cursor and the subtree lookup all ask the readers
+here.
 
 **The laws.**
 

@@ -416,7 +416,7 @@ describe('interrupt() re-entry re-runs the stage from its top (unchanged)', () =
   });
 });
 
-describe("the checkpoint shape is 9.27.0's plus pausedExecution (9.37.0) and checkpointVersion (9.39.0)", () => {
+describe("the checkpoint shape is 9.27.0's plus pausedExecution and checkpointVersion, minus the run's record (format 2)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const reference = JSON.parse(readFileSync(join(here, 'reference', 'resume-real-chart-9.27.0.json'), 'utf8')) as {
     checkpoints: Record<string, Record<string, unknown>>;
@@ -436,8 +436,11 @@ describe("the checkpoint shape is 9.27.0's plus pausedExecution (9.37.0) and che
       );
     // The named changes since 9.27.0: `pausedExecution` (F7) — the paused
     // execution the resume event links to — and `checkpointVersion` (F8), the
-    // format the codec reads back. Every other key and kind is 9.27.0's.
-    expect(kinds(now)).toEqual({ ...kinds(then), pausedExecution: 'object', checkpointVersion: 'number' });
+    // format the codec reads back; and, in format 2 (the lean checkpoint),
+    // neither `executionTree` nor `subflowResults` — records no resume read.
+    // Every other key and kind is 9.27.0's.
+    const { executionTree: _tree, subflowResults: _results, ...kept } = kinds(then);
+    expect(kinds(now)).toEqual({ ...kept, pausedExecution: 'object', checkpointVersion: 'number' });
     // And the parts resume reads are the same values.
     for (const key of ['pausedStageId', 'subflowPath', 'pauseData', 'pausedBy', 'sharedState', 'subflowStates']) {
       expect(now[key]).toEqual(then[key]);

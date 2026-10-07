@@ -12,13 +12,21 @@
  * {@link decodePauseRecord}.
  *
  * VERSIONING. A checkpoint written by this release carries
- * `checkpointVersion: 1`. One written before carries none and is read as
- * version 0 by the ONE upcaster, {@link upcastCheckpoint}: every field
- * 9.14–9.37 added is optional and read as absent, so the only step is
- * dropping `continuationStageId` — a record no resume has read since 9.28.0
- * (what runs after a resume comes from the chart), no longer written, and
- * legacy-only from here on. A version this release does not know is refused,
- * never guessed at.
+ * `checkpointVersion: 2`. Every older one is read by the ONE upcaster,
+ * {@link upcastCheckpoint}, and every step so far only DROPS fields — what a
+ * later format added is optional and read as absent:
+ *
+ *   - version 0 (no `checkpointVersion`, before 9.39.0) → 1: drop
+ *     `continuationStageId`, a record no resume has read since 9.28.0 (what
+ *     runs after a resume comes from the chart);
+ *   - version 1 (9.39.0–9.43.x) → 2 (the LEAN checkpoint): drop
+ *     `executionTree` and `subflowResults` — the run's served record (the
+ *     whole execution tree, the finished subflows' results), which no resume
+ *     ever read and which grew with every finished iteration
+ *     (`runner/checkpoint.ts`).
+ *
+ * A dropped field never survives, whatever version claims to carry it. A
+ * version this release does not know is refused, never guessed at.
  *
  * Borrowed: LangGraph's checkpoint `v` field; io-ts's decode-at-the-boundary
  * (one decoder turns `unknown` into the type, or refuses with a path).
@@ -28,15 +36,22 @@ import type { FlowchartCheckpoint, PendingPause } from './types.js';
 import { isPausedExecution } from './types.js';
 
 /** The checkpoint format this release writes (`FlowchartCheckpoint.checkpointVersion`). */
-export const CHECKPOINT_VERSION = 1 as const;
+export const CHECKPOINT_VERSION = 2 as const;
+
+/** The formats this release reads: the current one and every one it upcasts (absent = version 0). */
+const READABLE_VERSIONS: readonly unknown[] = [1, CHECKPOINT_VERSION];
 
 /**
- * Fields only a checkpoint written BEFORE 9.39.0 can carry. The upcaster
- * reads them and the current shape never has them.
+ * Fields only an OLDER checkpoint can carry, each dropped by the format named
+ * beside it. The upcaster removes them and the current shape never has them.
  */
 export interface LegacyCheckpointFields {
-  /** The invoker's `.next` id — a record since 9.28.0, never read; dropped by the upcaster. */
+  /** Version 0 only: the invoker's `.next` id — a record since 9.28.0, never read. Dropped by version 1. */
   readonly continuationStageId?: string;
+  /** Versions 0–1: the run's execution tree at the pause — never read by a resume. Dropped by version 2. */
+  readonly executionTree?: unknown;
+  /** Versions 0–1: the subflows finished before the pause — never read by a resume. Dropped by version 2. */
+  readonly subflowResults?: Record<string, unknown>;
 }
 
 /** The one message shape: `Invalid checkpoint: <where> <what>.` */
@@ -50,21 +65,29 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Bring a stored checkpoint of ANY release to the current shape — the one
- * upcaster. Version 0 (no `checkpointVersion`): drop the legacy
- * `continuationStageId`, stamp the version. Version 1: as is. Anything else:
- * refused. Returns a new object; the caller's is never edited.
+ * upcaster. Versions 0 (no `checkpointVersion`) and 1: drop the fields their
+ * successors dropped ({@link LegacyCheckpointFields}), stamp the current
+ * version as the first key. The current version: as is, minus any dropped
+ * field it claims to carry. Anything else: refused. Returns a new object; the
+ * caller's is never edited.
  */
 export function upcastCheckpoint(stored: Record<string, unknown>): Record<string, unknown> {
   const version = stored.checkpointVersion;
-  if (version !== undefined && version !== CHECKPOINT_VERSION) {
+  if (version !== undefined && !READABLE_VERSIONS.includes(version)) {
     refuse(
       `checkpointVersion ${JSON.stringify(version) ?? String(version)} is not one this release reads ` +
-        `(${CHECKPOINT_VERSION}, or none for a checkpoint written before 9.39.0)`,
+        `(${READABLE_VERSIONS.join(' or ')}, or none for a checkpoint written before 9.39.0)`,
     );
   }
-  // The legacy field never survives, whatever version claims to carry it.
-  const { continuationStageId: _legacy, ...current } = stored as Record<string, unknown> & LegacyCheckpointFields;
-  return version === undefined ? { checkpointVersion: CHECKPOINT_VERSION, ...current } : current;
+  // A dropped field never survives, whatever version claims to carry it.
+  const {
+    checkpointVersion: _version,
+    continuationStageId: _invokerNext,
+    executionTree: _tree,
+    subflowResults: _finishedSubflows,
+    ...current
+  } = stored as Record<string, unknown> & LegacyCheckpointFields;
+  return { checkpointVersion: CHECKPOINT_VERSION, ...current };
 }
 
 /**

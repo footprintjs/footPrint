@@ -49,6 +49,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -304,11 +305,13 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   while (result?.paused === true && pauses < 20) {
     pauses += 1;
     const raw = ex.getCheckpoint();
-    out[`cp${pauses}`] = bytes(
-      raw.subflowResults === undefined
-        ? raw
-        : { ...raw, subflowResults: withoutSubflowLogAddresses(raw.subflowResults) },
-    );
+    // L1 — the lean checkpoint (format 2): a checkpoint is compared as the ONE
+    // codec reads it — `upcastCheckpoint` drops 9.28.0's `executionTree` and
+    // `subflowResults`, records no resume read. No byte leaves the
+    // differential: the tree they carried is the paused leg's own, compared
+    // here from its snapshot, and the subflow results are (`leg${i}.sub`).
+    out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
+    out[`cp${pauses}.tree`] = bytes(ex.getSnapshot().executionTree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     const resumed = await inLeg(() => ex.resume(cp, answerFor((raw.pauseData as { key: string }).key)));

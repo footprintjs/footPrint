@@ -405,7 +405,10 @@ describe('the other half — the live heap and the resume checkpoint are never s
     const checkpoint = executor.getCheckpoint()!;
     expect((checkpoint.sharedState as S).apiKey).toBe(SECRET);
     expect(bytes(executor.getSnapshot().commitLog)).not.toContain(SECRET);
-    expect(bytes(checkpoint.executionTree)).not.toContain(SECRET);
+    // The checkpoint carries no served record at all (format 2 — no execution
+    // tree, no subflow results): every value in it is a real one.
+    expect(Object.keys(checkpoint)).not.toContain('executionTree');
+    expect(bytes(executor.getSnapshot().executionTree)).not.toContain(SECRET);
 
     // Cross-executor resume from the serialized checkpoint: the resumed run
     // computes on the real value and its own log is scrubbed again.

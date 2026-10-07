@@ -357,7 +357,10 @@ describe('diagnostic lifecycle', () => {
       const first = make();
       await first.executor.run();
       const checkpoint = JSON.parse(JSON.stringify(first.executor.getCheckpoint()));
-      expect.soft(checkpoint.executionTree.logs.secret).toBe(MASK);
+      // The lean checkpoint (format 2) carries no diagnostic at all; the paused
+      // leg's tree is served by its snapshot, masked.
+      expect(Object.keys(checkpoint)).not.toContain('executionTree');
+      expect.soft(first.executor.getSnapshot().executionTree.logs.secret).toBe(MASK);
       const savedCheckpoint = JSON.stringify(checkpoint);
       const resumed = mode === 'same' ? first : make();
       await resumed.executor.resume(checkpoint, { approved: true });

@@ -8,9 +8,9 @@
  * `runUntaggedFixture` produced on the 9.20.0 tree (01685c3) on 2026-09-10,
  * BEFORE any 9.21.0 source edit, run twice per encoding and checked to agree.
  * The same fixture, run on the current code, must reproduce them byte for
- * byte apart from the named R13/F8 changes and the C2 fresh-resume narrative
- * correction pinned by reference() below. Volatile fields (timestamps, run
- * ids, `pausedAt`) are dropped on both sides.
+ * byte apart from the named R13/F8 changes, the L1 lean checkpoint and the C2
+ * fresh-resume narrative correction pinned by reference() below. Volatile
+ * fields (timestamps, run ids, `pausedAt`) are dropped on both sides.
  *
  * To regenerate after an INTENDED untagged change, run the fixture on the
  * old tag and replace the files — never on the new code.
@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
@@ -33,6 +34,12 @@ function reference(encoding: 'full' | 'delta'): string {
       bothKeys(['paused'], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#9' }),
     ),
   );
+  // L1 — the lean checkpoint (format 2): the stored checkpoint is what the ONE
+  // codec reads it as. `upcastCheckpoint` drops `executionTree` and
+  // `subflowResults` — records no resume read; every other byte stays 9.20.0's
+  // (the format key itself is taken out of the build's bytes, f8-recorded-phases).
+  const { checkpointVersion: _format, ...lean } = upcastCheckpoint(parsed.checkpoint);
+  parsed.checkpoint = lean;
   // C2: the original fresh resume had only standalone stage sentences (and
   // C1 removed its duplicate transition). It now starts the enabled combined
   // narrator. Pin the whole corrected resumed leg; all other bytes stay intact.

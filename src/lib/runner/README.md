@@ -104,7 +104,7 @@ that threads it. Each other job is one module it composes:
 | `options.ts` | `FlowChartExecutorOptions` + `resolveExecutorArgs` — either constructor form → the args every leg reads |
 | `attach.ts` | `RunObservers` — the narrative recorder, the inline scope/flow lists, the deferred tier; the `attach*Recorder` family delegates here, and each leg asks it for the composed scope factory and flow list |
 | `resume.ts` | `planResume` (decode → find the paused stage → stand-in → `ResumeEntry.plan`; every refusal before any state moves), `seedCounters`, `announceResume` (the executor-made `onResume`) |
-| `checkpoint.ts` | `buildPauseCheckpoint` — one detached `structuredClone`, stamped with the codec's version (`pause/record.ts`); sanitizes non-cloneable diagnostics and names a consumer-data violation |
+| `checkpoint.ts` | `buildPauseCheckpoint` — the LEAN checkpoint (format 2): what resume reads and the pause's record, read straight off the stores (no snapshot built), in one detached `structuredClone` stamped with the codec's version (`pause/record.ts`); names a consumer-data violation |
 | `snapshot.ts` | `servedSnapshot` + `collectRecorderSnapshots` — one recorder row per id across channels and tiers |
 
 ```typescript
@@ -113,6 +113,19 @@ const plan = planResume(chart, checkpoint, input);   // refuses here, nothing to
 seedCounters(plan.checkpoint, counter, visitCounts); // mutate, never replace (shared by reference)
 traverser = createTraverser({ resume: plan.entry });
 announceResume(plan, input, { runId, executionCount, observers });
+```
+
+**A pause leaves the state, not the story.** `buildPauseCheckpoint` reads the root store and the signal's
+captures and builds no snapshot — format 1 built the run's whole execution tree to carry it (97% of an
+agent run's checkpoint) and resume never read it (`bench/checkpoint-size.ts`). The story stays on the
+executor, served by `getSnapshot()`:
+
+```typescript
+await executor.run();
+if (executor.isPaused()) {
+  await sessions.put(id, JSON.stringify(executor.getCheckpoint())); // the state + a small record
+  await runs.put(id, JSON.stringify(executor.getSnapshot()));       // the run so far, if you keep runs
+}
 ```
 
 ---

@@ -183,11 +183,27 @@ tracked as #13c-B's delta verb).
 
 ## Pause / resume — what a checkpoint captures
 
-A checkpoint is JSON-safe and contains: `sharedState`, the execution tree,
-the paused stage id + subflow path, `pauseData`, and pre-pause subflow scopes
-(`subflowStates`).
+A checkpoint is JSON-safe and contains what `resume()` reads, plus the
+pause's own record: `sharedState`, the paused stage id + subflow path (and
+`pausedBy`), the pre-pause scope of each subflow on that path
+(`subflowStates`), the execution and visit counters, any parallel siblings
+still waiting (`pendingPauses`), the redaction marks (names only), and
+`pauseData` / `pausedExecution` / `invokerStageId` / `pausedAt`.
+
+Its size is the state's, never the run's length (format 2, the lean
+checkpoint). Format 1 also carried the execution tree and the finished
+subflows' results — the run's record, which no resume read: after 60 agent
+turns whose resumable state (root plus captures) is 0.13 MB the checkpoint
+was 19.3 MB, and is now 0.13 MB (`npx tsx bench/checkpoint-size.ts`). That
+record is the snapshot's: keep `executor.getSnapshot()` from before
+`resume()` if you want it. A format 1 checkpoint still resumes — the codec's
+upcaster drops the two fields.
 
 **Not captured — by design:**
+
+- **The run's history.** The execution tree, the commit log and the finished
+  subflows' results are served by `getSnapshot()`, not carried by the
+  checkpoint.
 
 - **Recorder state.** Checkpoints never capture recorder state. **Cross-
   executor resume** (a fresh executor/process restoring a stored checkpoint)
@@ -204,7 +220,7 @@ the paused stage id + subflow path, `pauseData`, and pre-pause subflow scopes
 
 One more honesty note — now resolved: the checkpoint **is deep-copied at
 creation** (one `structuredClone` of every field — `sharedState`,
-`executionTree`, `subflowStates`, `subflowResults`, `pauseData`). It shares
+`subflowStates`, `pendingPauses`, `pauseData`). It shares
 no structure with the engine: mutating a checkpoint you hold cannot corrupt
 engine state, and a later same-executor resume cannot mutate a checkpoint
 you already persisted. `resume()` is isolated in the other direction too —
@@ -216,11 +232,10 @@ each:**
 
 - **Diagnostic values** (`$debug`/`$error`/`$metric`/`$eval`) — these accept
   ANY value at write time without cloning, so a logged function/Promise/etc.
-  can legitimately be present when a run pauses. Observability never aborts
-  traversal: the pause **succeeds**, and the offending value is replaced in
-  the checkpoint's `executionTree` with a marker string such as
-  `'[non-serializable: function]'`. Only the checkpoint is sanitized — the
-  live engine diagnostics (and a same-executor resume) keep the raw value.
+  can legitimately be present when a run pauses. They never enter a
+  checkpoint (it carries no execution tree), so the pause **succeeds**; the
+  live engine diagnostics — `getSnapshot()`, a same-executor resume — keep
+  the raw value.
 - **`pauseData`** (returned by a pausable stage's `execute()`) — consumer-owned
   checkpoint data, so the JSON-safe contract applies. A non-cloneable value
   here fails the pause with a **descriptive contract error** naming the
@@ -281,4 +296,4 @@ has to either go dark or invent a shape; a good one goes dark and says so.
 | Dynamic-next chains | fn-bearing dynamic `next` hops bounded by the same `maxIterations` budget (run-total, default 1000) |
 | State size | a write costs what it writes (copy-on-write, 9.29.0); a value is cloned when a stage writes it, or reads it after its first write — never the rest of the state |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
-| Checkpoints | state + tree + pause data, **deep-copied at creation**; **not** recorders or detached children |
+| Checkpoints | what a resume reads — state, the pause path's subflow states, counters — plus the pause data, **deep-copied at creation**; size independent of the run's length (format 2: no execution tree); **not** recorders, detached children or the run's history |
