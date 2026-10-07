@@ -544,5 +544,5 @@ describe('7 — the path walk on a DAG: linear work, never masked whole', () => 
     const served = new RedactionRule({ patterns: [/^tree(\.[lr])+\.leaf$/] }).retainBoundary(root) as any;
     expect(served.tree.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.l.leaf).toBe(MASK); // visited: the rule's own path
     expect(dump(served)).not.toContain(SECRET); // the unvisited remainder: the placeholder, never raw
-  }, 60_000); // a path walk to its 1,000,000-visit limit: the cost the limit exists for — slow CI runners need room
+  });
 });

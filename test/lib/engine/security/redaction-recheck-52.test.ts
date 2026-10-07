@@ -109,7 +109,7 @@ describe('1 — a pattern over a linked agent history', () => {
     } finally {
       warn.mockRestore();
     }
-  }, 60_000); // a path walk to its 1,000,000-visit limit: the cost the limit exists for — slow CI runners need room
+  });
 });
 
 // ── 2 ────────────────────────────────────────────────────────────────────────
