@@ -42,7 +42,7 @@ module.exports = {
       // Three edges are deliberate and named (reasons in EXCEPTIONS there):
       //   builder  -> runner/RunnableChart.ts  (`makeRunnable`)
       //   engine   -> reactive/handles.ts      (the handle registry)
-      //   scope    -> detach/spawn.ts          (`ScopeFacade.$spawn`)
+      //   scope    -> detach/spawn.ts          (`$detachAndJoinLater` / `$detachAndForget`)
       // plus a short TYPE_ONLY_ALLOWANCES list: upward imports that tsc erases, which this
       // rule cannot tell from runtime ones.
       files: ['src/**/*.ts'],

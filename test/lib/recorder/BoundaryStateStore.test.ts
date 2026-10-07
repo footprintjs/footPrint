@@ -141,16 +141,66 @@ describe('BoundaryStateStore — performance', () => {
 
 // ─── 7. LOAD ────────────────────────────────────────────────────────
 
+type Active = Map<string, State>;
+type Visit = (this: Active, ...args: unknown[]) => unknown;
+
+/**
+ * Counts the work the store does on its backing Map: one per lookup or write,
+ * one per entry an iteration visits. COUNTED, never timed — a 50 ms wall-clock
+ * bound here once read 50.6 ms under full-suite load.
+ */
+function countWork(store: BoundaryStateStore<State>): { ops: number; active: Active } {
+  const active = (store as unknown as { active: Active }).active;
+  // Another backing structure must re-decide what to count; never count zero.
+  expect(active).toBeInstanceOf(Map);
+  const work = { ops: 0, active };
+  const own = (name: PropertyKey, value: Visit) => Object.defineProperty(active, name, { value });
+  for (const name of ['get', 'set', 'has', 'delete'] as const) {
+    const real = Map.prototype[name] as Visit;
+    own(name, (...args) => {
+      work.ops++;
+      return real.apply(active, args);
+    });
+  }
+  for (const name of ['keys', 'values', 'entries', Symbol.iterator] as const) {
+    const real = Map.prototype[name] as Visit;
+    own(name, () => {
+      const it = real.call(active) as Iterator<unknown>;
+      const counted: IterableIterator<unknown> = {
+        next: () => {
+          work.ops++;
+          return it.next();
+        },
+        [Symbol.iterator]: () => counted,
+      };
+      return counted;
+    });
+  }
+  own('forEach', (visit, thisArg) => {
+    for (const [key, value] of active) (visit as Visit).call(thisArg as Active, value, key, active);
+  });
+  return work;
+}
+
 describe('BoundaryStateStore — load', () => {
-  it('10k concurrent active boundaries — get / update remain fast', () => {
-    const s = new BoundaryStateStore<State>();
-    for (let i = 0; i < 10_000; i++) s.start(`k${i}`, { partial: '', tokens: 0 });
-    expect(s.activeCount).toBe(10_000);
-    const start = process.hrtime.bigint();
-    for (let i = 0; i < 10_000; i++) {
-      s.update(`k${i}`, (p) => ({ ...p, tokens: p.tokens + 1 }));
-    }
-    const ms = Number(process.hrtime.bigint() - start) / 1_000_000;
-    expect(ms).toBeLessThan(50);
+  // An update costs the same with 10k boundaries open as with 100. A scan per
+  // update would make the 10k run do ~10k times the work per update.
+  it('10k concurrent active boundaries — get / update work does not grow with the open count', () => {
+    const workPerKey = (n: number): number => {
+      const s = new BoundaryStateStore<State>();
+      for (let i = 0; i < n; i++) s.start(`k${i}`, { partial: '', tokens: 0 });
+      expect(s.activeCount).toBe(n);
+      const work = countWork(s);
+      for (let i = 0; i < n; i++) {
+        s.update(`k${i}`, (p) => ({ ...p, tokens: p.tokens + 1 }));
+        expect(s.get(`k${i}`)?.tokens).toBe(1);
+      }
+      // The store kept the Map being counted (a copy per update would escape it).
+      expect((s as unknown as { active: Active }).active).toBe(work.active);
+      return work.ops / n;
+    };
+    const atHundred = workPerKey(100);
+    expect(atHundred).toBeGreaterThan(0);
+    expect(workPerKey(10_000)).toBe(atHundred);
   });
 });
