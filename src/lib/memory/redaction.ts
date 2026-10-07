@@ -20,8 +20,11 @@
  *     ({@link RedactionRule.retainDiagnostic}). `policy.diagnostics` adds
  *     diagnostic-only selectors on top; flow-message text has no name of its
  *     own, so only they select it;
- *   - a subflow mapper's copy — a key an `inputMapper`/`outputMapper` wrote
- *     inherits the redaction of the selected value it copied ({@link MapperTaint}).
+ *   - a subflow mapper's copy — a key an `inputMapper`/`outputMapper` (or a
+ *     `parallelForEach` items selector) wrote inherits the redaction of the
+ *     selected value it copied ({@link MapperTaint}).
+ * A mark is a NAME, run-wide, until the key is deleted; a pause carries the
+ * marks — names only — to the resumed run ({@link RedactionRule.marksForCheckpoint}).
  * A value with no name — a scalar root input/output or pause payload, free
  * error text — is selected by nothing. `emitPatterns` is the one separate
  * scrub: a `$emit` payload is selected by its event name.
@@ -48,6 +51,7 @@
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
+import type { RedactionMarks } from '../pause/types.js';
 import { nativeGet, nativeHas, nativeSet, ownedRootOf, ownSpine } from './pathOps.js';
 import { DELIM } from './paths.js';
 import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
@@ -290,7 +294,8 @@ export class RedactionRule {
     if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
     const kept = RedactionRule.apply(verdict, value);
     if (kept === null || typeof kept !== 'object') return kept;
-    return servedByPath(kept, path.join('.'), [], this.namesWalk(false), SCOPE_PLACEHOLDER);
+    const base = path.join('.');
+    return servedByPath(kept, base, this.dottedTargets(base), this.namesWalk(false), SCOPE_PLACEHOLDER);
   }
 
   /**
@@ -332,27 +337,76 @@ export class RedactionRule {
   private carriesSelectedKey(value: unknown): boolean {
     if (this.isInert() || value === null || typeof value !== 'object') return false;
     try {
-      return selectsByPath(value, undefined, [], this.namesWalk(false), new Set(), 0);
+      return this.thrownCarries(value, new Set());
     } catch {
+      // Keys that cannot be read (a throwing getter, a revoked Proxy) or a walk past its
+      // limit: served in the masked form — its text kept, no `raw`.
       return true;
     }
   }
 
   /**
+   * One thrown value and what a logger or a serializer prints with it: its own
+   * keys at every depth, and its `cause` / an `AggregateError`'s `errors` — own
+   * NON-enumerable keys no key walk sees — each walked the same way (a cycle
+   * among them is followed once).
+   */
+  private thrownCarries(value: object, seen: Set<object>): boolean {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    if (selectsByPath(value, undefined, this.dottedTargets(undefined), this.namesWalk(false), new Map(), 0).selected) {
+      return true;
+    }
+    const own = (key: string): unknown =>
+      Object.prototype.hasOwnProperty.call(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+    const errors = own('errors');
+    for (const part of [own('cause'), ...(Array.isArray(errors) ? errors : [])]) {
+      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen)) return true;
+    }
+    return false;
+  }
+
+  /**
    * The key-level rules as the path walk asks them ({@link servedByPath}): a
-   * nested key is selected by its own name or its dotted path, and a declared
-   * (or inherited) field below a key of its name is a target. `rootDecided`:
-   * the root's own keys were already decided by the caller (`retainRecord`).
+   * nested key is selected by its own NAME (marks, keys, patterns), and — under
+   * patterns only — by its dotted path; a declared (or inherited) field below a
+   * key of its name is a target. Dotted keys and marks are TARGETS from the
+   * walk's root ({@link dottedTargets}), so without patterns no decision
+   * depends on the path and the walk shares them per object (linear on a DAG).
+   * `rootDecided`: the root's own keys were already decided (`retainRecord`).
    */
   private namesWalk(rootDecided: boolean): Walk {
+    const patterns = this.policy?.patterns;
+    const byPath = patterns !== undefined && patterns.length > 0;
     return {
       names: {
-        masks: (name, path) => this.isKeyRedacted(name) || (path !== name && this.isKeyRedacted(path)),
+        masks: (name) => this.isKeyRedacted(name),
+        ...(byPath && {
+          pathMasks: (path: string) => path.length <= MAX_PATTERN_KEY_LEN && matchesPattern(path, patterns),
+        }),
         fields: (name) => this.fieldsOf(name),
       },
       rootDecided,
-      budget: WALK_BUDGET,
+      ...(!byPath && { memo: new WeakMap<object, Map<string, unknown>>() }),
+      budget: WALK_LIMIT,
     };
+  }
+
+  /**
+   * The dotted keys and marks that name a path under `base` (the walk's root:
+   * `undefined` for a record's own keys, an entry's name for a diagnostic),
+   * as targets relative to it — a dotted rule is exact to its path.
+   */
+  private dottedTargets(base: string | undefined): Target[] {
+    const prefix = base === undefined ? '' : `${base}.`;
+    const out: Target[] = [];
+    const add = (name: string) => {
+      if (!name.includes('.') || !name.startsWith(prefix) || name.length === prefix.length) return;
+      out.push(name.slice(prefix.length).split('.'));
+    };
+    for (const name of this.marked) add(name);
+    for (const name of this.policy?.keys ?? []) add(name);
+    return out;
   }
 
   /**
@@ -452,6 +506,27 @@ export class RedactionRule {
   }
 
   /**
+   * The run's marks and the fields mappers handed to new keys, as NAMES — what
+   * a pause carries to the resumed run (`FlowchartCheckpoint.redactionMarks`).
+   * `undefined` when there are none (no policy, no per-call mark).
+   */
+  marksForCheckpoint(): RedactionMarks | undefined {
+    if (this.marked.size === 0 && this.inherited === undefined) return undefined;
+    return {
+      keys: [...this.marked],
+      ...(this.inherited !== undefined && {
+        fields: Object.fromEntries([...this.inherited].map(([key, paths]) => [key, [...paths]])),
+      }),
+    };
+  }
+
+  /** Seed a resumed run's rule with the marks its pause carried ({@link marksForCheckpoint}). */
+  restoreMarks(marks: RedactionMarks): void {
+    for (const key of marks.keys) this.marked.add(key);
+    for (const [key, paths] of Object.entries(marks.fields ?? {})) this.inheritFields(key, paths);
+  }
+
+  /**
    * A subflow mapper's copy inherits the fields of the value it copied:
    * `target` is a key the mapper wrote; `paths` the source key's field paths
    * (declared or themselves inherited). Run-wide, by name, like a mark.
@@ -530,7 +605,7 @@ export class RedactionRule {
     const top = this.retainRecord(served, placeholder) as unknown as object;
     // Below the top keys, one decision per PATH (the whole record is the walk's root, so a cycle
     // back to it lands on the served copy).
-    return servedByPath(top, undefined, [], this.namesWalk(true), placeholder) as T;
+    return servedByPath(top, undefined, this.dottedTargets(undefined), this.namesWalk(true), placeholder) as T;
   }
 
   /**
@@ -679,7 +754,7 @@ export class RedactionRule {
       copy,
       undefined,
       targetsOf(paths),
-      { rootDecided: false, budget: WALK_BUDGET },
+      { rootDecided: false, memo: new WeakMap<object, Map<string, unknown>>(), budget: WALK_LIMIT },
       placeholder,
     ) as Record<string, unknown>;
   }
@@ -706,11 +781,19 @@ export class RedactionRule {
 // A rule that names a PATH (a dotted key, a pattern, a field) must be exact
 // even when one object is reachable at two paths: the decision is made per
 // path, never per object, and a copy is made per path (copy-on-write) — never
-// a scrub in place on a node another path still shows. The only memory of
-// what was visited is the ancestor stack of the CURRENT path, a cycle guard.
-// A key-NAME rule is the same at every path, so a shared node it masks is
-// masked everywhere — the safe side. Rules are decided along acyclic paths: a
-// cycle edge is not followed, it is pointed at the ancestor's served copy.
+// a scrub in place on a node another path still shows. A key-NAME rule is the
+// same at every path, so a shared node it masks is masked everywhere — the
+// safe side. A cycle edge is not followed: it is pointed at the ancestor's
+// served copy.
+//
+// LINEAR ON A DAG. Dotted keys and marks are walked as TARGETS (path-relative
+// state, like fields), so a decision depends only on the object and the
+// targets still live at it — memoized per (object, targets): an object shared
+// by many paths is decided once per target state, and its served copy is
+// shared too. Only a PATTERN can depend on the whole path (it is tested on the
+// dotted path), so a walk under patterns decides per path; past
+// {@link WALK_LIMIT} path visits it fails loudly ({@link RedactionWalkLimitError})
+// — never served raw, never masked whole.
 
 /** A field still to reach below a node: the path segments left to walk. */
 type Target = readonly string[];
@@ -719,24 +802,44 @@ type Target = readonly string[];
 interface Walk {
   /** Key-level rules at every nested key — absent for a bare field scrub (targets only). */
   readonly names?: {
-    /** Selected whole at this nested key: by its own name or its dotted path. */
-    masks(name: string, path: string): boolean;
+    /** Selected whole at this nested key by its own NAME (marks, keys, patterns). */
+    masks(name: string): boolean;
+    /** Selected whole by the dotted PATH — present only under patterns (a pattern is tested on the path). */
+    pathMasks?(path: string): boolean;
     /** The declared fields below a key of this name. */
     fields(name: string): readonly string[] | undefined;
   };
   /** The root's own keys were decided by the caller (`retainRecord`): walk below them only. */
   readonly rootDecided: boolean;
-  /** Path visits left. A DAG's paths can outnumber its objects without bound. */
+  /** Decisions shared per (object, targets) — absent when a decision depends on the path (patterns). */
+  readonly memo?: WeakMap<object, Map<string, unknown>>;
+  /** Path visits left. */
   budget: number;
 }
 
 /**
- * Path visits one walk may make before it gives up and serves its whole value
- * as the placeholder (the safe side) — a bound on a pathological DAG, far above
- * any tree a run holds (a tree's paths are its nodes).
+ * Path visits one walk may make — reachable only under a PATTERN rule over a
+ * value whose paths outnumber its objects (a DAG): every other walk shares its
+ * decisions per object and stays linear.
  */
-const WALK_BUDGET = 1_000_000;
-const BUDGET_SPENT: unique symbol = Symbol('redaction walk budget spent');
+const WALK_LIMIT = 1_000_000;
+
+/**
+ * A redaction walk past {@link WALK_LIMIT} path visits: a value whose paths
+ * outnumber its objects without bound (a DAG) under a PATTERN rule. The value
+ * is refused — the run fails loudly at that boundary — never served raw and
+ * never masked whole.
+ */
+export class RedactionWalkLimitError extends Error {
+  constructor() {
+    super(
+      `[footprint] RedactionPolicy: a value with more than ${WALK_LIMIT} paths under a pattern rule — ` +
+        'a pattern is tested on every dotted path, so the walk cannot share decisions. ' +
+        'Use keys/fields for that value, or serve a smaller one.',
+    );
+    this.name = 'RedactionWalkLimitError';
+  }
+}
 
 /** `servedLeaf`'s answer for a value it leaves as it is. */
 const KEEP: unique symbol = Symbol('kept as it is');
@@ -751,10 +854,20 @@ function targetsOf(paths: readonly string[] | undefined): Target[] {
   return out;
 }
 
+/** The memo key of a target state — order-free. */
+function signatureOf(targets: readonly Target[]): string {
+  return targets.length === 0
+    ? ''
+    : targets
+        .map((t) => t.join('\u001f'))
+        .sort()
+        .join('\u001e');
+}
+
 /** One edge's decision: the value under `key` is masked here, or these targets continue below it. */
 function decideEdge(
   key: string,
-  path: string,
+  dotted: string | undefined,
   targets: readonly Target[],
   walk: Walk,
   depth: number,
@@ -768,36 +881,69 @@ function decideEdge(
   }
   const names = walk.rootDecided && depth === 0 ? undefined : walk.names;
   if (names !== undefined && !masked) {
-    masked = names.masks(key, path);
+    masked =
+      names.masks(key) ||
+      (names.pathMasks !== undefined && dotted !== undefined && names.pathMasks(`${dotted}.${key}`));
     below.push(...targetsOf(names.fields(key)));
   }
   return { masked, below };
 }
 
-/** Is anything selected on some PATH under `node`? Read-only; a cycle edge is not followed. */
+/** One step down a walk's path: count the visit, refuse past the limit. */
+function visit(walk: Walk): void {
+  if (--walk.budget < 0) throw new RedactionWalkLimitError();
+}
+
+/**
+ * Is anything selected on some PATH under `node`? Read-only; a cycle edge is
+ * not followed. `back` is the shallowest ancestor a skipped cycle edge below
+ * reached — a `false` that rests on one is not shared (memo).
+ */
 function selectsByPath(
   node: object,
   dotted: string | undefined,
   targets: readonly Target[],
   walk: Walk,
-  ancestors: Set<object>,
+  ancestors: Map<object, number>,
   depth: number,
-): boolean {
-  if (--walk.budget < 0) throw BUDGET_SPENT;
-  if (walk.names === undefined && targets.length === 0) return false;
-  ancestors.add(node);
-  try {
-    for (const [key, child] of Object.entries(node)) {
-      const path = dotted === undefined ? key : `${dotted}.${key}`;
-      const edge = decideEdge(key, path, targets, walk, depth);
-      if (edge.masked) return true;
-      if (child === null || typeof child !== 'object' || ancestors.has(child)) continue;
-      if (selectsByPath(child, path, edge.below, walk, ancestors, depth + 1)) return true;
+): { selected: boolean; back: number } {
+  visit(walk);
+  if (walk.names === undefined && targets.length === 0) return { selected: false, back: Infinity };
+  const sig = walk.memo ? signatureOf(targets) : '';
+  const known = walk.memo?.get(node)?.get(`s${sig}`);
+  if (known !== undefined) return { selected: known as boolean, back: Infinity };
+  ancestors.set(node, depth);
+  let back = Infinity;
+  let selected = false;
+  for (const [key, child] of Object.entries(node)) {
+    const edge = decideEdge(key, dotted, targets, walk, depth);
+    if (edge.masked) {
+      selected = true;
+      break;
     }
-    return false;
-  } finally {
-    ancestors.delete(node);
+    if (child === null || typeof child !== 'object') continue;
+    const at = ancestors.get(child);
+    if (at !== undefined) {
+      back = Math.min(back, at);
+      continue;
+    }
+    const childPath = walk.names?.pathMasks ? (dotted === undefined ? key : `${dotted}.${key}`) : undefined;
+    const below = selectsByPath(child, childPath ?? key, edge.below, walk, ancestors, depth + 1);
+    back = Math.min(back, below.back);
+    if (below.selected) {
+      selected = true;
+      break;
+    }
   }
+  ancestors.delete(node);
+  if (walk.memo && (selected || back >= depth)) remember(walk.memo, node, `s${sig}`, selected);
+  return { selected, back: back < depth ? back : Infinity };
+}
+
+function remember(memo: WeakMap<object, Map<string, unknown>>, node: object, key: string, value: unknown): void {
+  let entries = memo.get(node);
+  if (entries === undefined) memo.set(node, (entries = new Map()));
+  entries.set(key, value);
 }
 
 /**
@@ -807,7 +953,7 @@ function selectsByPath(
  * served as itself when nothing under it changed and no cycle passes through
  * it. A pruned descent (a bare field scrub of an acyclic value) skips subtrees
  * no target reaches. `back` is the shallowest ancestor a cycle edge below
- * reached (`Infinity`: none).
+ * reached (`Infinity`: none); a copy that rests on none is shared (memo).
  */
 function copyByPath(
   node: object,
@@ -819,7 +965,10 @@ function copyByPath(
   depth: number,
   prune: boolean,
 ): { out: object; back: number } {
-  if (--walk.budget < 0) throw BUDGET_SPENT;
+  visit(walk);
+  const sig = walk.memo ? `c${signatureOf(targets)}` : '';
+  const known = walk.memo?.get(node)?.get(sig) as object | undefined;
+  if (known !== undefined) return { out: known, back: Infinity };
   const frame = {
     copy: (Array.isArray(node) ? node.slice() : { ...node }) as Record<string, unknown>,
     depth,
@@ -828,8 +977,7 @@ function copyByPath(
   let changed = false;
   let back = Infinity;
   for (const [key, child] of Object.entries(node)) {
-    const path = dotted === undefined ? key : `${dotted}.${key}`;
-    const edge = decideEdge(key, path, targets, walk, depth);
+    const edge = decideEdge(key, dotted, targets, walk, depth);
     if (edge.masked) {
       frame.copy[key] = placeholder;
       changed = true;
@@ -843,7 +991,8 @@ function copyByPath(
       continue;
     }
     if (prune && edge.below.length === 0) continue;
-    const below = copyByPath(child, path, edge.below, walk, placeholder, ancestors, depth + 1, prune);
+    const childPath = walk.names?.pathMasks ? (dotted === undefined ? key : `${dotted}.${key}`) : key;
+    const below = copyByPath(child, childPath, edge.below, walk, placeholder, ancestors, depth + 1, prune);
     if (below.out !== child) {
       frame.copy[key] = below.out;
       changed = true;
@@ -851,32 +1000,34 @@ function copyByPath(
     back = Math.min(back, below.back);
   }
   ancestors.delete(node);
-  return { out: changed || back <= depth ? frame.copy : node, back: back < depth ? back : Infinity };
+  const out = changed || back <= depth ? frame.copy : node;
+  if (walk.memo && back >= depth) remember(walk.memo, node, sig, out);
+  return { out, back: back < depth ? back : Infinity };
 }
 
 /** Does any path from `root` come back to an object on it? */
 function hasCycle(root: object): boolean {
   const done = new WeakSet<object>();
   const onPath = new Set<object>();
-  const visit = (node: object): boolean => {
+  const visitNode = (node: object): boolean => {
     if (onPath.has(node)) return true;
     if (done.has(node)) return false;
     onPath.add(node);
     for (const child of Object.values(node)) {
-      if (child !== null && typeof child === 'object' && visit(child)) return true;
+      if (child !== null && typeof child === 'object' && visitNode(child)) return true;
     }
     onPath.delete(node);
     done.add(node);
     return false;
   };
-  return visit(root);
+  return visitNode(root);
 }
 
 /**
  * The served form of `root` under a walk: `root` itself when no path selects
- * anything, else its copy-on-write copy; the placeholder when the walk spends
- * its budget (never the raw value). Any other throw — an enumerable getter
- * that throws — propagates: the caller refuses to serve.
+ * anything, else its copy-on-write copy. Throws — the caller refuses to
+ * serve — on an enumerable getter that throws, and with
+ * {@link RedactionWalkLimitError} past the walk limit.
  */
 function servedByPath(
   root: object,
@@ -885,18 +1036,13 @@ function servedByPath(
   walk: Walk,
   placeholder: string,
 ): unknown {
-  try {
-    if (!selectsByPath(root, dotted, targets, walk, new Set(), 0)) return root;
-    walk.budget = WALK_BUDGET;
-    // A bare field scrub of an acyclic value walks its targets only: no cycle can bring an
-    // unscrubbed original back. Every other walk visits every path (a cycle edge anywhere
-    // must land on a served copy).
-    const prune = walk.names === undefined && !hasCycle(root);
-    return copyByPath(root, dotted, targets, walk, placeholder, new Map(), 0, prune).out;
-  } catch (error) {
-    if (error === BUDGET_SPENT) return placeholder;
-    throw error;
-  }
+  if (!selectsByPath(root, dotted, targets, walk, new Map(), 0).selected) return root;
+  walk.budget = WALK_LIMIT;
+  // A bare field scrub of an acyclic value walks its targets only: no cycle can bring an
+  // unscrubbed original back. Every other walk visits every path (a cycle edge anywhere
+  // must land on a served copy).
+  const prune = walk.names === undefined && !hasCycle(root);
+  return copyByPath(root, dotted, targets, walk, placeholder, new Map(), 0, prune).out;
 }
 
 /** A plain record — the only shape a mapper is handed as a recording view (a class instance keeps its prototype). */
@@ -916,21 +1062,32 @@ function stricter(a: RedactionVerdict | undefined, b: RedactionVerdict): Redacti
 /**
  * THE TAINT RULE at a subflow mapper boundary (an `inputMapper` seeding a
  * subflow, an `outputMapper` merging it back): a key the mapper writes
- * inherits the redaction of the SELECTED value it copied, for the rest of the
- * run — a mark (or inherited fields), by name, like a per-call
- * `setValue(key, value, true)` — so the subflow's seed, log, mirror, reads,
- * narrative and results, and the parent's merge-back, retain the copy as they
- * retain its source. Decided by which values the mapper READ:
+ * inherits the redaction of the SELECTED value it copied — a mark (or
+ * inherited fields), by name, like a per-call `setValue(key, value, true)` —
+ * so the subflow's seed, log, mirror, reads, narrative and results, and the
+ * parent's merge-back, retain the copy as they retain its source. Decided by
+ * which values the mapper READ:
  *
+ *   - SAME NAME — a value passed on under the name it was read under keeps
+ *     that name's verdict (`{ count: p.count }`, `{ ...p }`): a clear value
+ *     stays clear, wherever else the mapper read a secret.
  *   - EXACT — an output OBJECT that IS (by reference) a value the mapper read
  *     inherits that key's verdict: whole stays whole, `fields` hand their paths
- *     to the new key, clear stays clear. (Values are never matched by EQUALITY:
- *     an equal primitive would over-match unrelated keys.)
- *   - CONSERVATIVE — any other output (a primitive, or an object the mapper
- *     built) is selected WHOLE when the mapper read a selected value — a
- *     whole-selected key, or a selected FIELD of a `fields`-selected record —
- *     or when it embeds such a record by reference; the library cannot tell
- *     what a computed value carries.
+ *     to the new key, clear stays clear. The record the mapper was HANDED,
+ *     passed on whole (`(p) => ({ ctx: p })`), hands every selected key of it
+ *     to the new key as a field (`ctx.token`).
+ *   - CONSERVATIVE — any other output (a primitive under a new name, or an
+ *     object the mapper built) is selected WHOLE when the mapper read a
+ *     selected value — a whole-selected key, or a selected FIELD of a
+ *     `fields`-selected record — or when it embeds a selected record by
+ *     reference; the library cannot tell what a computed value carries.
+ *     (Values are never matched by EQUALITY across names: an equal primitive
+ *     would over-match unrelated keys.)
+ *
+ * HOW FAR A MARK REACHES: a NAME, run-wide, from the moment it is made — every
+ * key of that name in the subflow, the parent, a sibling and every later stage
+ * is selected in whatever is served, until the key is deleted; a pause carries
+ * it to the resumed run (`FlowchartCheckpoint.redactionMarks`).
  *
  * A `fields`-selected record that holds a selected field is handed to the
  * mapper as a view of its own, so reading the record (to pass it on, or to
@@ -942,8 +1099,12 @@ function stricter(a: RedactionVerdict | undefined, b: RedactionVerdict): Redacti
 export class MapperTaint {
   /** Each object the mapper read → the verdict of the key it read it under. */
   private readonly sources = new Map<object, RedactionVerdict>();
+  /** Each key the mapper read → the values it read under that name. */
+  private readonly byName = new Map<string, unknown[]>();
   /** Each `fields` view handed out → the record behind it and its verdict. */
   private readonly views = new Map<object, { raw: object; verdict: RedactionVerdict }>();
+  /** Each record the mapper was handed → as a view (passed on whole, it hands on its selected keys). */
+  private readonly records = new Map<object, Record<string, unknown>>();
   private selectedRead = false;
   private open = true;
 
@@ -962,28 +1123,30 @@ export class MapperTaint {
    */
   watch<T>(record: T): T {
     if (!isPlainRecord(record)) return record;
-    return this.viewOf(record, (key) => this.served(key, record[key])) as T;
+    const view = this.viewOf(record, (key) => this.served(key, record[key]));
+    this.records.set(view, record);
+    return view as T;
   }
 
   /**
    * The mapper returned `output`: every key it wrote inherits what it copied
-   * (see the class). Returns the output to use — the same object unless a
-   * `fields` view had to be swapped back for its record.
+   * (see the class). Returns the output to use — the same object unless a view
+   * had to be swapped back for the record behind it.
    */
   inherit<T>(output: T): T {
     this.open = false;
     if (output === null || typeof output !== 'object') return output;
     let out: Record<string, unknown> | undefined;
     for (const [target, value] of Object.entries(output)) {
-      const view = value !== null && typeof value === 'object' ? this.views.get(value) : undefined;
-      const copied = view ? view.verdict : this.copiedVerdict(value);
+      const copied = this.copiedVerdict(target, value);
       if (copied === undefined) {
         if (this.selectedRead || this.embedsSelected(value, new WeakSet())) this.rule.mark(target);
       } else if (copied.kind === 'whole') this.rule.mark(target);
       else if (copied.kind === 'fields') this.rule.inheritFields(target, copied.paths);
-      if (view) {
+      const raw = this.behind(value);
+      if (raw !== value) {
         out ??= (Array.isArray(output) ? [...output] : { ...output }) as Record<string, unknown>;
-        out[target] = view.raw;
+        out[target] = raw;
       }
     }
     return (out ?? output) as T;
@@ -992,6 +1155,9 @@ export class MapperTaint {
   /** What one recorded read hands the mapper (see the class). */
   private served(key: string, value: unknown): unknown {
     if (!this.open) return value;
+    const read = this.byName.get(key);
+    if (read === undefined) this.byName.set(key, [value]);
+    else read.push(value);
     const verdict = this.rule.verdictOfRead(key, value);
     // An absent key carries no secret; neither does a value with no fields (a scalar) or none of
     // its selected ones — state retains those as they are too.
@@ -1007,8 +1173,9 @@ export class MapperTaint {
   }
 
   private remember(value: unknown, verdict: RedactionVerdict): unknown {
-    if (value !== null && typeof value === 'object')
+    if (value !== null && typeof value === 'object') {
       this.sources.set(value, stricter(this.sources.get(value), verdict));
+    }
     return value;
   }
 
@@ -1039,16 +1206,47 @@ export class MapperTaint {
     return view;
   }
 
-  /** The verdict an output value inherits by reference — `undefined` when it is no value the mapper read. */
-  private copiedVerdict(value: unknown): RedactionVerdict | undefined {
-    return value !== null && typeof value === 'object' ? this.sources.get(value) : undefined;
+  /** The record behind a view the mapper returned; any other value as it is. */
+  private behind(value: unknown): unknown {
+    if (value === null || typeof value !== 'object') return value;
+    return this.views.get(value)?.raw ?? this.records.get(value) ?? value;
   }
 
-  /** Does a value the mapper BUILT embed, by reference, a selected record it read? */
+  /**
+   * The verdict `target` inherits from `value` — `undefined` when it is
+   * neither a value the mapper read nor one passed under its own name.
+   */
+  private copiedVerdict(target: string, value: unknown): RedactionVerdict | undefined {
+    if (value !== null && typeof value === 'object') {
+      const view = this.views.get(value);
+      if (view) return view.verdict;
+      const record = this.records.get(value);
+      if (record) return this.selectedFieldsOf(record);
+      const known = this.sources.get(value);
+      if (known) return known;
+    }
+    const read = this.byName.get(target);
+    return read?.some((v) => Object.is(v, value)) ? this.rule.verdictOfRead(target, value) : undefined;
+  }
+
+  /** A whole record's selected keys, as fields of whatever key it is passed on under. */
+  private selectedFieldsOf(record: Record<string, unknown>): RedactionVerdict {
+    const paths: string[] = [];
+    for (const key of Object.keys(record)) {
+      const verdict = this.rule.verdictOfRead(key, record[key]);
+      if (verdict.kind === 'whole') paths.push(key);
+      else if (verdict.kind === 'fields') for (const path of verdict.paths) paths.push(`${key}.${path}`);
+    }
+    return paths.length === 0 ? CLEAR : { kind: 'fields', key: '', paths };
+  }
+
+  /** Does a value the mapper BUILT embed, by reference, a selected record it read or was handed? */
   private embedsSelected(value: unknown, seen: WeakSet<object>): boolean {
     if (value === null || typeof value !== 'object' || seen.has(value)) return false;
     seen.add(value);
     if (this.views.has(value)) return true;
+    const record = this.records.get(value);
+    if (record) return this.selectedFieldsOf(record).kind !== 'clear';
     const known = this.sources.get(value);
     if (known !== undefined && known.kind !== 'clear') return true;
     for (const child of Object.values(value)) if (this.embedsSelected(child, seen)) return true;

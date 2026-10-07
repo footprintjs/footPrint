@@ -25,8 +25,28 @@ describe('MapperTaint', () => {
 
   it('CONSERVATIVE: anything computed after reading a selected key is selected whole', () => {
     const rule = new RedactionRule({ keys: ['token'] });
-    map(rule, { token: 'sk', n: 1, cfg: { a: 1 } }, (p) => ({ tok: p.token, n: p.n, len: String(p.token).length }));
-    for (const key of ['tok', 'n', 'len']) expect(rule.retain([key], 'v')).toBe(MASK);
+    map(rule, { token: 'sk', n: 1, m: 2 }, (p) => ({ tok: p.token, total: p.n + p.m, len: String(p.token).length }));
+    for (const key of ['tok', 'total', 'len']) expect(rule.retain([key], 'v')).toBe(MASK);
+  });
+
+  it('SAME NAME: a value passed on under the name it was read under keeps that name’s verdict', () => {
+    const rule = new RedactionRule({ keys: ['token'] });
+    map(rule, { token: 'sk', n: 1, label: 'x' }, (p) => ({ key: p.token, n: p.n, ...{ label: p.label } }));
+    expect(rule.retain(['key'], 'sk')).toBe(MASK);
+    expect(rule.retain(['n'], 1)).toBe(1);
+    expect(rule.retain(['label'], 'x')).toBe('x');
+    // A DIFFERENT value under a read name is computed: conservative.
+    map(rule, { token: 'sk', n: 1 }, (p) => ({ tok: p.token, n: p.n + 1 }));
+    expect(rule.retain(['n'], 2)).toBe(MASK);
+  });
+
+  it('the WHOLE record passed on hands every selected key to the new key as a field', () => {
+    const rule = new RedactionRule({ keys: ['token'], fields: { profile: ['ssn'] } });
+    const live = { token: 'sk', profile: { ssn: '1', name: 'A' }, label: 'x' };
+    const out = map(rule, live, (p) => ({ ctx: p, wrap: { inner: p } })) as any;
+    expect(out.ctx).toBe(live); // the record itself, not the view
+    expect(rule.retain(['ctx'], live)).toEqual({ token: MASK, profile: { ssn: MASK, name: 'A' }, label: 'x' });
+    expect(rule.retain(['wrap'], {})).toBe(MASK); // a built value embedding it: conservative
   });
 
   it('EXACT: an object passed by reference keeps its own verdict — clear stays clear, whole stays whole', () => {

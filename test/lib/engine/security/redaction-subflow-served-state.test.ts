@@ -295,15 +295,13 @@ describe('loop — each iteration’s `#n` entry is scrubbed; the path key is th
     const mounts = mountKeys(served);
     expect(mounts).toHaveLength(2);
     expect(served[mounts[0]]).not.toBe(served[mounts[1]]);
-    // The inputMapper READ `apiKey` and wrote `i` beside it: the restored law's conservative taint
-    // selects `i` whole (a primitive cannot be traced to the key it came from). A value a subflow
-    // stage computes (`iNext`) is not a mapper copy, so it still tells the iterations apart.
+    // The inputMapper READ `apiKey` and passed `i` on under its OWN name: the same value under the
+    // same name keeps that name's verdict, so `i` stays served (it is not a copy of the secret).
+    expect(served[mounts[0]].treeContext.globalContext.i).toBe(0);
+    expect(served[mounts[1]].treeContext.globalContext.i).toBe(1);
     expect(served[mounts[0]].treeContext.globalContext.iNext).toBe(1);
     expect(served[mounts[1]].treeContext.globalContext.iNext).toBe(2);
-    for (const key of mounts) {
-      expect(served[key].treeContext.globalContext.apiKey).toBe('REDACTED');
-      expect(served[key].treeContext.globalContext.i).toBe('REDACTED');
-    }
+    for (const key of mounts) expect(served[key].treeContext.globalContext.apiKey).toBe('REDACTED');
     // The live heap keeps the real values.
     expect(executor.getSnapshot().sharedState).toMatchObject({ apiKey: SECRET, i: 2 });
     expect(served['sf-body']).toBe(served[mounts[1]]);

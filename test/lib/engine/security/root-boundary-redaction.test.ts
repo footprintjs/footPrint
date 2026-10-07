@@ -145,9 +145,12 @@ describe.each(['inline', 'deferred'] as const)('root boundary unchanged cases: %
     expect(await executor.run({ input })).toBe(output);
     expect(boundaries.map((event) => event.payload)).toEqual([input, output]);
     // Inline events keep the established borrowed-reference fast path.
-    // Deferred clone delivery deliberately owns a different object.
+    // Deferred clone delivery deliberately owns a different object. Under a
+    // policy the entry is walked over the leg's ONE input snapshot, never the
+    // live input a second time — equal to the input, not the same object.
     if (delivery === 'inline') {
-      expect(boundaries[0].payload).toBe(input);
+      if (kind === 'absent') expect(boundaries[0].payload).toBe(input);
+      else expect(boundaries[0].payload).not.toBe(input);
       expect(boundaries[1].payload).toBe(output);
     }
   });

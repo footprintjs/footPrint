@@ -671,7 +671,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (isTopLevel) {
       // Retain at the boundary, before dispatch or deferred capture — the
       // same owner as subflow entry, not a recorder-local scrub or later walk.
-      const input = redactionRule ? redactionRule.retainBoundary(this.readOnlyContext) : this.readOnlyContext;
+      // Under a policy the walk reads the leg's ONE snapshot (taken above), never the live input
+      // a second time; without one the event carries the input as it always has.
+      const input =
+        redactionRule && !redactionRule.isInert()
+          ? redactionRule.retainBoundary(this.deps.readOnlyContext)
+          : this.readOnlyContext;
       this.narrativeGenerator.onRunStart(input, rootContext);
     }
 

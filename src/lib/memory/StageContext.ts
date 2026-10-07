@@ -169,6 +169,8 @@ export class StageContext {
    *  `'reads-prefix'` dial; insertion-ordered (a Set) and monotonic, which
    *  is what makes "last write's prefix == union" hold in delta mode. */
   private _provenanceReads?: Set<string>;
+  /** Tracked reads of a selected value ({@link selectedReads}). */
+  private _selectedReads = 0;
 
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
@@ -659,12 +661,16 @@ export class StageContext {
     if (key !== undefined && this.policy.writeProvenance === 'reads-prefix') {
       (this._provenanceReads ??= new Set()).add(path.length > 0 ? [...path, key].join('.') : key);
     }
+    // The verdict, once — for the retained read below and the selected-read
+    // count (`selectedReads`). No policy and no marks → no verdict call, no
+    // allocation (activeRule).
+    const rule = key !== undefined ? this.activeRule() : undefined;
+    const verdict = rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
+    if (verdict.kind !== 'clear' && value !== undefined) this._selectedReads += 1;
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
     // placeholder, a field-level key as a scrubbed clone, never the secret.
-    // No policy and no marks → no verdict call, no allocation (activeRule).
     if (key !== undefined && this.policy.readTracking !== 'off') {
-      const rule = this.activeRule();
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
       else if (this.policy.readTracking === 'full' && isDevMode()) {
         if (this.buffer) this._viewReads?.delete(key);
@@ -673,17 +679,23 @@ export class StageContext {
       this._stageReads[userKeyOf(path, key)] =
         value === undefined
           ? undefined
-          : this.retainedForm(
-              rule !== undefined ? rule.verdictAt(path, key) : CLEAR,
-              value,
-              this.policy.readTracking,
-              summarizeReadValue,
-            );
+          : this.retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
     }
     return value;
+  }
+
+  /**
+   * How many tracked reads of this frame read a value the run's rule selects
+   * (a key it masks whole, or one with secret fields). A boundary that maps
+   * what a stage function READ into a new name — the `parallelForEach` items
+   * selector — compares it before and after, as a subflow mapper's taint does
+   * (`memory/redaction.ts · MapperTaint`). Always 0 without a policy or a mark.
+   */
+  get selectedReads(): number {
+    return this._selectedReads;
   }
 
   /** Read state without tracking in _stageReads or paying structuredClone cost.

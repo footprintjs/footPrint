@@ -132,6 +132,9 @@ const VOLATILE = new Set([
   'phase',
   'checkpointVersion',
   'continuationStageId',
+  // The restored redaction law — the one named checkpoint addition: the redaction marks a pause
+  // carries to the resumed run (names only; 9.28.0 has none). Pinned in redaction-review-52.test.ts.
+  'redactionMarks',
 ]);
 
 /**

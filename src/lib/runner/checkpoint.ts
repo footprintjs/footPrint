@@ -31,13 +31,15 @@ import type { SubflowResult } from '../engine/types.js';
 import { isExecutionKey } from '../ids/runtimeStageId.js';
 import type { StageSnapshot } from '../memory/types.js';
 import { CHECKPOINT_VERSION } from '../pause/record.js';
-import type { FlowchartCheckpoint, PauseSignal } from '../pause/types.js';
+import type { FlowchartCheckpoint, PauseSignal, RedactionMarks } from '../pause/types.js';
 
 /** The paused run's counters, as the executor holds them at the pause. */
 export interface PausedRun {
   readonly runId: string;
   readonly executionCount: number;
   readonly visitCounts: ReadonlyMap<string, number>;
+  /** The run's redaction marks — names only (`RedactionRule · marksForCheckpoint`); absent when none. */
+  readonly redactionMarks?: RedactionMarks;
 }
 
 /**
@@ -114,6 +116,9 @@ export function buildPauseCheckpoint(
     // the same checkpoint that resume() re-enters differently (stage top vs
     // resumeFn). Absent for every pre-9.14.0 checkpoint, which is correct.
     ...(signal.pausedBy && { pausedBy: signal.pausedBy }),
+    // The redaction the paused run had made — NAMES only (marks, a mapper's taints, inherited
+    // fields). Resume seeds the resumed run's rule with them. Absent when nothing was marked.
+    ...(run.redactionMarks && { redactionMarks: run.redactionMarks }),
     pausedAt: Date.now(),
   };
   try {
