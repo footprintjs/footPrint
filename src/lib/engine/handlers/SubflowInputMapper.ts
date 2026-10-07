@@ -14,6 +14,7 @@
  * | Neither present | Complete isolation (side effects only)    |
  */
 
+import { type RedactionRule, MapperTaint } from '../../memory/redaction.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
@@ -44,12 +45,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export function extractParentScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
   options?: SubflowMountOptions<TParentScope, TSubflowInput>,
+  rule?: RedactionRule,
 ): TSubflowInput | Record<string, unknown> {
   if (!options?.inputMapper) {
     return {};
   }
 
-  const result = options.inputMapper(parentScope);
+  // Redaction: a key the mapper writes inherits the redaction of the selected
+  // value it copied (`MapperTaint`) — decided here, before the seed is written
+  // or narrated. Without a policy or a mark the mapper gets the state itself.
+  const taint = MapperTaint.of(rule);
+  const raw = options.inputMapper(taint ? taint.watch(parentScope) : parentScope);
+  const result = taint ? taint.inherit(raw) : raw;
   if (result === null || result === undefined) {
     return {};
   }
@@ -64,8 +71,9 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
 export function getInitialScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
   options?: SubflowMountOptions<TParentScope, TSubflowInput>,
+  rule?: RedactionRule,
 ): Record<string, unknown> {
-  return extractParentScopeValues(parentScope, options) as Record<string, unknown>;
+  return extractParentScopeValues(parentScope, options, rule) as Record<string, unknown>;
 }
 
 /**
@@ -151,14 +159,22 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   parentScope: TParentScope,
   parentContext: StageContext,
   options?: SubflowMountOptions<TParentScope, any, TSubflowOutput>,
+  rule?: RedactionRule,
 ): Record<string, unknown> | undefined {
   if (!options?.outputMapper) {
     return undefined;
   }
 
   // The same boundary in the other direction: the mapper is handed the
-  // parent's typed scope too, so what it returns is taken as a value.
-  const mappedOutput = unwrapHandles(options.outputMapper(subflowOutput, parentScope));
+  // parent's typed scope too, so what it returns is taken as a value. A key it
+  // writes inherits the redaction of the selected value it copied — from the
+  // subflow's output or the parent's state — before the merge-back is written.
+  const taint = MapperTaint.of(rule);
+  const mappedOutput = unwrapHandles(
+    taint
+      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), taint.watch(parentScope)))
+      : options.outputMapper(subflowOutput, parentScope),
+  );
 
   if (mappedOutput === null || mappedOutput === undefined) {
     return undefined;

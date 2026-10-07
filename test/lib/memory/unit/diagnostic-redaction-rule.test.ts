@@ -4,14 +4,42 @@ import { DiagnosticCollector } from '../../../../src/lib/memory/DiagnosticCollec
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
 
 describe('diagnostic retention at its writer', () => {
-  it('keeps state selectors, diagnostic selectors and manual marks separate', () => {
+  it('keeps diagnostic-only selectors out of state', () => {
     const rule = new RedactionRule({ diagnostics: { keys: ['logs.secret'] } });
     expect(rule.isInert()).toBe(true);
     expect(rule.retain(['logs', 'secret'], 1)).toBe(1);
     expect(rule.retainDiagnostic(['logs', 'secret'], 1)).toBe('[REDACTED]');
+    // A mark is a STATE name: `logs.public` names no diagnostic entry (the channel takes no part).
     rule.mark('logs.public');
     expect(rule.retainDiagnostic(['logs', 'public'], 2)).toBe(2);
     expect(rule.report()).toEqual({ redactedKeys: ['logs.public'], fieldRedactions: {}, patterns: [] });
+  });
+
+  it('maps a diagnostic entry to the state key of its NAME — keys, patterns, marks, fields, nested keys', () => {
+    const rule = new RedactionRule({ keys: ['token'], patterns: [/secret$/i], fields: { profile: ['ssn'] } });
+    for (const channel of ['logs', 'errors', 'metrics', 'evals']) {
+      expect(rule.retainDiagnostic([channel, 'token'], 'raw')).toBe('[REDACTED]');
+      expect(rule.retainDiagnostic([channel, 'apiSecret'], 'raw')).toBe('[REDACTED]');
+    }
+    const profile = { name: 'Ada', ssn: '123' };
+    expect(rule.retainDiagnostic(['logs', 'profile'], profile)).toEqual({ name: 'Ada', ssn: '[REDACTED]' });
+    expect(profile.ssn).toBe('123');
+    // A record handed out whole: a selected name at any depth, a declared field under a key of its name.
+    const message = [{ request: { token: 't', profile: { ssn: '1', name: 'B' } } }];
+    expect(rule.retainDiagnostic(['logs', 'messages'], message)).toEqual([
+      { request: { token: '[REDACTED]', profile: { ssn: '[REDACTED]', name: 'B' } } },
+    ]);
+    expect(message[0].request.token).toBe('t');
+    // The name at the end of a nested path is a key too; clear values keep their identity.
+    expect(rule.retainDiagnostic(['logs', 'auth', 'token'], 'raw')).toBe('[REDACTED]');
+    const clear = { ok: true };
+    expect(rule.retainDiagnostic(['logs', 'status'], clear)).toBe(clear);
+    rule.mark('session');
+    expect(rule.retainDiagnostic(['metrics', 'session'], 1)).toBe('[REDACTED]');
+    // Flow-message text has no name of its own: only diagnostic selectors reach it.
+    expect(rule.retainFlowText(['flowMessages', 'description'], 'token')).toBe('token');
+    expect(rule.isFlowTextInert()).toBe(true);
+    expect(rule.isDiagnosticInert()).toBe(false);
   });
 
   it('uses the same ancestor, field and stateless pattern semantics', () => {

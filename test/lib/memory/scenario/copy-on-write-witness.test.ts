@@ -42,6 +42,7 @@ import {
   type Witnessed,
   BASELINE,
   BUILD,
+  bytes,
   chartProgramArb,
   cutAdmission,
   firstDifference,
@@ -95,6 +96,33 @@ describe('witnessClause — every branch, on hand-made rows', () => {
   });
 });
 
+describe('the redaction-law relation — what it admits, and the live heaps it never does', () => {
+  /** A kept output with one subflow whose LIVE heap and recorded history are given. */
+  const kept = (heap: unknown, history: unknown, field = 'subflowResults') => ({
+    sharedState: bytes({ token: 'sk' }),
+    [field]: bytes({ sub: { subflowId: 'sub', treeContext: { globalContext: heap, history } } }),
+  });
+
+  it.each(['subflowResults', 'leg0.sub'])(
+    '%s: a placeholder in the recorded history is the law; one in the LIVE heap is a difference',
+    (field) => {
+      const base = kept({ tok: 'sk', n: 1 }, [{ overwrite: { tok: 'sk' } }], field);
+      const lawful = kept({ tok: 'sk', n: 1 }, [{ overwrite: { tok: 'REDACTED' } }], field);
+      expect(firstDifference(base, lawful, true)).toBe('');
+      // The guard bites: the subflow's live heap is compared byte for byte, like the run's own.
+      const injected = kept({ tok: 'REDACTED', n: 1 }, [{ overwrite: { tok: 'REDACTED' } }], field);
+      expect(firstDifference(base, injected, true)).toMatch(new RegExp(`^${field.replace('.', '\\.')} differs`));
+      // Without a policy nothing is admitted at all.
+      expect(firstDifference(base, lawful, false)).not.toBe('');
+    },
+  );
+
+  it('the run’s own live state is never admitted either', () => {
+    const base = { sharedState: bytes({ token: 'sk' }) };
+    expect(firstDifference(base, { sharedState: bytes({ token: 'REDACTED' }) }, true)).toMatch(/^sharedState differs/);
+  });
+});
+
 describe('witnessLegs — a resumed leg is judged on its own when both engines start it together', () => {
   const together = () => true;
   const apart =
@@ -139,7 +167,8 @@ describe('witnessLegs — a resumed leg is judged on its own when both engines s
 
 // ─── The real engines ────────────────────────────────────────────────────
 
-type Ran = { out: Record<string, string>; seen: Witnessed[] };
+/** `redacted`: the program runs under a policy, where the restored redaction law may serve more placeholders. */
+type Ran = { out: Record<string, string>; seen: Witnessed[]; redacted?: boolean };
 type Run = (engine: Engine) => Promise<Ran>;
 
 const cfg: ChartProgram['cfg'] = {
@@ -163,7 +192,7 @@ const chart =
   (p: ChartProgram): Run =>
   async (engine) => {
     const [r, seen] = await witnessing(engine, () => runChart(engine, p));
-    return { out: r.out, seen };
+    return { out: r.out, seen, redacted: p.cfg.policy };
   };
 
 const nested =
@@ -295,7 +324,9 @@ describe('the generative differentials, with the admission cut', () => {
   const verdict = async (run: Run): Promise<string> => {
     const a = await run(BASELINE);
     const b = await run(BUILD);
-    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out) !== '');
+    // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
+    const redacted = a.redacted === true;
+    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out, redacted) !== '', redacted);
   };
 
   const FAMILIES: Array<[string, fc.Arbitrary<{ run: Run; label: string }>]> = [

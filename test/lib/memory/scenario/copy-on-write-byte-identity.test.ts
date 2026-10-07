@@ -62,8 +62,15 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { BASELINE, BUILD, witnessClause, witnessing } from '../property/copy-on-write-fixture.js';
-import { type Entry, type Family, B2_WRITE_BACK, CORPUS_PATH, digestsOf } from './copy-on-write-corpus.js';
+import {
+  type Witnessed,
+  BASELINE,
+  BUILD,
+  firstDifference,
+  witnessClause,
+  witnessing,
+} from '../property/copy-on-write-fixture.js';
+import { type Entry, type Family, B2_WRITE_BACK, CORPUS_PATH, digestKept, keptOf } from './copy-on-write-corpus.js';
 
 const corpus = JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as { generatedWith: string; entries: Entry[] };
 
@@ -102,23 +109,38 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
   it.each(['chart', 'borrowed', 'nested', 'writeback'] as const)(
     'every %s program reproduces 9.28.0’s digests — or is a listed admitted-record change the witness proves',
     async (family) => {
+      let lawOnly = 0;
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
-        const [now, buildSeen] = await witnessing(BUILD, () => digestsOf(BUILD, e.family, e.program));
-        const same = JSON.stringify(now) === JSON.stringify(e.digests);
+        const [kept, buildSeen] = await witnessing(BUILD, () => keptOf(BUILD, e.family, e.program));
+        const same = JSON.stringify(digestKept(kept)) === JSON.stringify(e.digests);
         const listed = ADMITTED[family].includes(i);
         const where = `entry ${i} (${family})`;
         if (same && listed) throw new Error(`${where} reproduces 9.28.0 again — take it off ADMITTED`);
-        if (!same && !listed) {
-          const field = Object.keys(e.digests).find((k) => now[k] !== e.digests[k]);
-          throw new Error(`${where} differs at ${field}\nprogram: ${JSON.stringify(e.program)}`);
+        // THE RESTORED REDACTION LAW (fixture · `sameUnderLaw`): under a policy the build may serve
+        // MORE placeholders than 9.28.0 — an object copied under a new name keeps its rule. Judged
+        // against 9.28.0 run live; the live heap and the checkpoint stay exact.
+        const redacted = e.program?.cfg?.policy === true;
+        let differs = !same;
+        let baselineSeen: Witnessed[] = [];
+        if (!same) {
+          const [base, seen] = await witnessing(BASELINE, () => keptOf(BASELINE, e.family, e.program));
+          baselineSeen = seen;
+          const diff = firstDifference(base, kept, redacted);
+          if (diff === '') {
+            if (listed)
+              throw new Error(`${where} differs from 9.28.0 by the redaction law alone — take it off ADMITTED`);
+            lawOnly += 1;
+            differs = false;
+          } else if (!listed) {
+            throw new Error(`${where} ${diff}\nprogram: ${JSON.stringify(e.program)}`);
+          }
         }
-        const [, baselineSeen] = same
-          ? [undefined, []]
-          : await witnessing(BASELINE, () => digestsOf(BASELINE, e.family, e.program));
-        const broken = witnessClause(baselineSeen, buildSeen, !same);
+        const broken = witnessClause(baselineSeen, buildSeen, differs, redacted);
         if (broken) throw new Error(`${where}: ${broken}\nprogram: ${JSON.stringify(e.program)}`);
       }
+      // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
+      if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);
     },
     300_000,
   );

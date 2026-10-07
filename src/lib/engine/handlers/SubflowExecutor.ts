@@ -138,10 +138,22 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     const resumeCapture = resumeHop?.seed;
     const isResumeForThisSubflow = resumeCapture !== undefined;
 
+    // The run's policy (F5) — the four dials, the redaction rule, the mirror
+    // flag — read off the parent-mount frame, which holds it by reference.
+    // The nested runtime is constructed WITH it, so the seed commit below
+    // (`history[0]`) and every later commit of the subflow run under the same
+    // object, and the nested runtime keeps a mirror of its own exactly when
+    // the run does (its SERVED state is then the fold of its own scrubbed
+    // log, never a second scrub).
+    const policy: RunPolicy = parentContext.getPolicy();
+    const redactionRule = policy.redaction;
+
     if (mountOptions) {
       try {
         const parentScope = parentContext.getScope();
-        mappedInput = detachMappedInput(getInitialScopeValues(parentScope, mountOptions));
+        // The rule rides along: a key the mapper copies a selected value into
+        // inherits its redaction before the seed is written (the taint rule).
+        mappedInput = detachMappedInput(getInitialScopeValues(parentScope, mountOptions, redactionRule));
         if (Object.keys(mappedInput).length > 0) {
           // mappedInput is captured in SubflowResult.treeContext for debugging
         }
@@ -154,15 +166,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
     }
 
-    // The run's policy (F5) — the four dials, the redaction rule, the mirror
-    // flag — read off the parent-mount frame, which holds it by reference.
-    // The nested runtime is constructed WITH it, so the seed commit below
-    // (`history[0]`) and every later commit of the subflow run under the same
-    // object, and the nested runtime keeps a mirror of its own exactly when
-    // the run does (its SERVED state is then the fold of its own scrubbed
-    // log, never a second scrub).
-    const policy: RunPolicy = parentContext.getPolicy();
-    const redactionRule = policy.redaction;
     // Narrative receives the RETAINED form of the mapped input — an
     // inputMapper may inject values from anywhere, so the seed is scrubbed
     // under the policy before any recorder sees it. Same object when nothing
@@ -374,7 +377,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
         // merge-back retained plaintext).
         const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
-        const mappedOutput = applyOutputMapping(effectiveOutput, parentScope, outputContext, mountOptions);
+        const mappedOutput = applyOutputMapping(
+          effectiveOutput,
+          parentScope,
+          outputContext,
+          mountOptions,
+          redactionRule,
+        );
 
         outputContext.commit();
       } catch (error: any) {

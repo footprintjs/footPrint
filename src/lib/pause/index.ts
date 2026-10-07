@@ -1,4 +1,11 @@
 export type { InterruptPayload } from './interrupt.js';
 export { interrupt, InterruptSignal, isInterruptSignal, provideInterruptAnswer } from './interrupt.js';
-export type { FlowchartCheckpoint, PausableHandler, PausedExecution, PauseResult, PendingPause } from './types.js';
+export type {
+  FlowchartCheckpoint,
+  PausableHandler,
+  PausedExecution,
+  PauseResult,
+  PendingPause,
+  RedactionMarks,
+} from './types.js';
 export { isPauseResult, isPauseSignal, PauseSignal } from './types.js';

@@ -278,7 +278,13 @@ export { CompositeRecorder } from './lib/recorder/index.js';
 
 /** @category Pause/Resume */
 /** @category Pause/Resume */
-export type { FlowchartCheckpoint, PausableHandler, PausedExecution, PendingPause } from './lib/pause/index.js';
+export type {
+  FlowchartCheckpoint,
+  PausableHandler,
+  PausedExecution,
+  PendingPause,
+  RedactionMarks,
+} from './lib/pause/index.js';
 
 /**
  * @category Pause/Resume

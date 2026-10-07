@@ -54,6 +54,7 @@ import {
   type ChartOp,
   type Engine,
   type LegTally,
+  type LiveParent,
   type Witnessed,
   applyChartOp,
   BASELINE,
@@ -65,6 +66,7 @@ import {
   keepOffDates,
   r13Seeds,
   rewriteCommits,
+  sameUnderLaw,
   witnessClause,
   witnessing,
   witnessLegs,
@@ -121,7 +123,8 @@ const progArb: fc.Arbitrary<Prog> = fc.record({
 const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length }] });
 
 /** Head → [Sub] → Ask (interrupt) → P (pausable) → Route: loop to Head, or Final. */
-function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void) {
+/** `live`: the parent heap the harness's M6 guard reads — around the mapper's argument (fixture · `LiveParent`). */
+function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void, live: LiveParent) {
   const run = (s: any, ops: ChartOp[]) => {
     for (const o of ops) applyChartOp(s, o, errors);
   };
@@ -184,7 +187,7 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
           sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
             ? { obj: { y: out.a ?? null, deep: { q: out.ians ?? 1 } }, list: [7], hist: out.list ?? [] }
             : { b: out.obj ?? null, list: [8], ians: out.ians ?? null },
-          parent,
+          live() ?? parent,
         ),
       ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
     });
@@ -263,7 +266,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(E, p, pause, errors, capture);
+  const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
@@ -331,10 +334,12 @@ const NO_LEGS: LegTally = { legs: 0, explained: 0, rejudged: 0, downstream: 0 };
  * (header). A leg starts together when both engines' checkpoints for it are
  * byte-identical. `broken` is '' when it holds.
  */
-function judge(a: Driven, b: Driven, differs: boolean): { broken: string; tally: LegTally } {
-  const wide = witnessClause(a.legs.flat(), b.legs.flat(), differs);
+function judge(a: Driven, b: Driven, differs: boolean, redacted: boolean): { broken: string; tally: LegTally } {
+  const wide = witnessClause(a.legs.flat(), b.legs.flat(), differs, redacted);
   if (wide) return { broken: wide, tally: NO_LEGS };
-  return witnessLegs(a.legs, b.legs, (leg) => leg === 0 || a.out[`cp${leg}`] === b.out[`cp${leg}`]);
+  const alike = (x: string | undefined, y: string | undefined) =>
+    x === y || (redacted && x !== undefined && y !== undefined && sameUnderLaw(x, y));
+  return witnessLegs(a.legs, b.legs, (leg) => leg === 0 || alike(a.out[`cp${leg}`], b.out[`cp${leg}`]), redacted);
 }
 
 const RUNS = Number(process.env.COW_DIFF_RUNS ?? 0) || 500;
@@ -347,13 +352,15 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
       fc.asyncProperty(progArb, async (p) => {
         const a = await drive(BASELINE, p, true);
         const b = await drive(BUILD, p, true);
-        const diff = firstDifference(a.out, b.out);
-        const paused = judge(a, b, diff !== '');
+        // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
+        const redacted = p.cfg.policy;
+        const diff = firstDifference(a.out, b.out, redacted);
+        const paused = judge(a, b, diff !== '', redacted);
         if (paused.broken) throw new Error(`A (paused): ${paused.broken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
         const da = await drive(BASELINE, p, false);
         const db = await drive(BUILD, p, false);
-        const dd = firstDifference(da.out, db.out);
-        const direct = judge(da, db, dd !== '');
+        const dd = firstDifference(da.out, db.out, redacted);
+        const direct = judge(da, db, dd !== '', redacted);
         if (direct.broken) throw new Error(`A (direct): ${direct.broken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
         if (diff || dd) stats.explained += 1;
         else if ((a.final === da.final) !== (b.final === db.final)) {

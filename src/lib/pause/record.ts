@@ -134,7 +134,24 @@ export function decodeCheckpoint(stored: unknown): FlowchartCheckpoint {
     refuse('visitCounts must map stage ids to non-negative integers');
   }
   if (checkpoint.pendingPauses !== undefined) checkpoint.pendingPauses = decodePendingPauses(checkpoint.pendingPauses);
+  // The redaction a pause carries (names only) seeds the resumed run's rule — a malformed one
+  // is refused, never dropped: dropping it would serve in plain what the run had masked.
+  if (checkpoint.redactionMarks !== undefined) decodeRedactionMarks(checkpoint.redactionMarks);
   return checkpoint as unknown as FlowchartCheckpoint;
+}
+
+/** `redactionMarks`: `keys` an array of strings; `fields`, when present, keys → arrays of strings. */
+function decodeRedactionMarks(marks: unknown): void {
+  if (!isPlainRecord(marks)) refuse('redactionMarks must be an object');
+  if (!isStrings(marks.keys)) refuse('redactionMarks.keys must be an array of strings');
+  const fields = marks.fields;
+  if (fields !== undefined && (!isPlainRecord(fields) || !Object.values(fields).every(isStrings))) {
+    refuse('redactionMarks.fields must map keys to arrays of strings');
+  }
+}
+
+function isStrings(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
 /**

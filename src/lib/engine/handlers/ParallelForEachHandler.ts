@@ -111,7 +111,16 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
         }) as TScope);
     runtime.target.notifyStageStart?.();
 
+    const selectedBefore = context.selectedReads;
     const items = this.resolveItems(config, scope, node);
+    // The items selector is a mapper boundary: what it read becomes each branch's `item`, and the
+    // branches' results land under `into`. A selector that READ a selected value hands both the
+    // redaction, by name, for the rest of the run (the conservative half of `MapperTaint`).
+    if (context.selectedReads > selectedBefore) {
+      const rule = context.getRedactionRule();
+      rule?.mark('item');
+      rule?.mark(config.into);
+    }
     const total = items.length;
     const branchCount = Math.min(total, config.maxBranches);
     const truncated = total > branchCount;

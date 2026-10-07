@@ -38,6 +38,20 @@ export interface PausedExecution {
   readonly runtimeStageId: string;
 }
 
+/**
+ * The redaction a pause carries to the resumed run — NAMES only, never a value
+ * (the checkpoint stays real): the keys marked secret for the rest of the run
+ * (a per-call `setValue(key, value, true)`, a key the policy redacted whole, a
+ * subflow mapper's taint) and the fields a mapper handed to a new key. Resume
+ * seeds the resumed run's rule with them, so a copy made before the pause is
+ * still masked after it.
+ */
+export interface RedactionMarks {
+  readonly keys: readonly string[];
+  /** Key → the field paths a mapper handed it. Absent when none. */
+  readonly fields?: Readonly<Record<string, readonly string[]>>;
+}
+
 /** True for a well-formed {@link PausedExecution} (two non-empty strings). */
 export function isPausedExecution(value: unknown): value is PausedExecution {
   const v = value as { runId?: unknown; runtimeStageId?: unknown } | null | undefined;
@@ -461,6 +475,14 @@ export interface FlowchartCheckpoint {
    * join runs once every child is done.
    */
   readonly pendingPauses?: readonly PendingPause[];
+
+  /**
+   * The redaction marks of the paused run — NAMES only (see
+   * {@link RedactionMarks}). Absent when the run marked nothing (no policy
+   * and no per-call mark, or an older checkpoint): the resumed run then starts
+   * from its policy alone.
+   */
+  readonly redactionMarks?: RedactionMarks;
 
   /** Timestamp of when the pause occurred. */
   readonly pausedAt: number;

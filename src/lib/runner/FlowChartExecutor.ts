@@ -44,7 +44,7 @@ import {
 import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
 import type { CommitValuesMode, ReadTrackingMode, WriteTrackingMode } from '../memory/types.js';
-import type { FlowchartCheckpoint } from '../pause/types.js';
+import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
@@ -125,6 +125,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       existingRuntime?: InstanceType<typeof ExecutionRuntime>;
       /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
       resume?: ResumeEntry<TOut, TScope>;
+      /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
+      redactionMarks?: RedactionMarks;
     },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
@@ -132,6 +134,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const narrativeFlag = this.observers.startLeg(fc.enableNarrative ?? false, overrides?.preserveRecorders === true);
 
     this.redactionRule = new RedactionRule(this.redactionPolicy);
+    // A resume continues the paused run's redaction: a copy masked before the pause stays masked.
+    if (overrides?.redactionMarks) this.redactionRule.restoreMarks(overrides.redactionMarks);
     // ONE factory: the base factory, then every scope modifier (recorders,
     // deferred tap, redaction) in a flat pass — see `RunObservers`.
     const scopeFactory = this.observers.composeScopeFactory(
@@ -337,6 +341,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         preserveRecorders: true,
         ...(existingRuntime ? { existingRuntime } : {}),
         resume: plan.entry,
+        ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
       },
     );
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
@@ -371,10 +376,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private pausedOrThrow(error: unknown): PausedResult {
     this.observers.deferredTier?.terminalFlush();
     if (isPauseSignal(error)) {
+      const redactionMarks = this.redactionRule.marksForCheckpoint();
       this.lastCheckpoint = buildPauseCheckpoint(error, this.traverser, {
         runId: this._currentRunId,
         executionCount: this._executionCounter.value,
         visitCounts: this._visitCounts,
+        ...(redactionMarks && { redactionMarks }),
       });
       return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
     }

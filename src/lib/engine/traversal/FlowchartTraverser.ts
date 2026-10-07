@@ -42,6 +42,7 @@ import type { QueuedPause } from '../handlers/ResumeEntry.js';
 import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
+import { servedPause } from '../handlers/servedPause.js';
 import { loggableStageError, recordStageError, servedStageError } from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
@@ -332,6 +333,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   /** Validated value passed via `run({input})`. Root boundary observers
    *  receive its retained form; stage arguments keep the original data. */
   private readonly readOnlyContext?: unknown;
+  /** The handlers' shared deps — its `readOnlyContext` is the leg's input snapshot, set by `execute`. */
+  private readonly deps: HandlerDeps<TOut, TScope>;
   /** Per-`executor.run()` identifier. Stamped onto every TraversalContext.
    *  Inherited by subflow traversers so all events of one run share one runId. */
   private readonly runId: string;
@@ -514,6 +517,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // Build shared deps bag
     const deps = this.createDeps(opts);
+    this.deps = deps;
 
     // Build O(1) node ID map from the root graph (avoids repeated DFS on every loopTo()).
     // From `root`, never from `entry`: a resume's stand-in carries the paused
@@ -615,9 +619,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throttlingErrorChecker: opts.throttlingErrorChecker,
       streamHandlers: opts.streamHandlers,
       scopeProtectionMode: opts.scopeProtectionMode ?? 'error',
-      // ONE owned frozen snapshot per traverser (= per run/resume leg, per subflow mount):
-      // every scope of the leg gets it, so each pays O(root keys), not O(input).
-      readOnlyContext: snapshotRunInput(opts.readOnlyContext),
+      // The leg's ONE owned frozen input snapshot is taken when the leg STARTS
+      // (`execute`), never here: a getter on the input must not run at construction.
+      readOnlyContext: undefined,
       executionEnv: opts.executionEnv,
       narrativeGenerator: this.narrativeGenerator,
       logger: this.logger,
@@ -636,6 +640,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private _topBreakFlag: { shouldBreak: boolean; reason?: string } = { shouldBreak: false };
 
   async execute(branchPath?: string): Promise<TraversalResult> {
+    // ONE owned frozen input snapshot per leg (run, resume, subflow mount), taken as the
+    // leg starts — never at construction (an executor constructs a traverser it may never
+    // run): every scope of the leg gets it, so each pays O(root keys), not O(input).
+    this.deps.readOnlyContext = snapshotRunInput(this.readOnlyContext);
     const context = this.executionRuntime.rootStageContext;
     this._topBreakFlag = { shouldBreak: false };
     // The entry is one-shot: the first execute() starts there, never again —
@@ -663,7 +671,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (isTopLevel) {
       // Retain at the boundary, before dispatch or deferred capture — the
       // same owner as subflow entry, not a recorder-local scrub or later walk.
-      const input = redactionRule ? redactionRule.retainBoundary(this.readOnlyContext) : this.readOnlyContext;
+      // Under a policy the walk reads the leg's ONE snapshot (taken above), never the live input
+      // a second time; without one the event carries the input as it always has.
+      const input =
+        redactionRule && !redactionRule.isInert()
+          ? redactionRule.retainBoundary(this.deps.readOnlyContext)
+          : this.readOnlyContext;
       this.narrativeGenerator.onRunStart(input, rootContext);
     }
 
@@ -721,7 +734,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       throw error;
     }
     const { pause, stageName } = waiting[0];
-    this.narrativeGenerator.onPause(stageName, pause.pausedStageId, pause.pauseData, pause.subflowPath);
+    this.narrativeGenerator.onPause(
+      stageName,
+      pause.pausedStageId,
+      servedPause(context, pause.pauseData),
+      pause.subflowPath,
+    );
     throw raiseQueuedPause(waiting);
   }
 
@@ -1502,7 +1520,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
           context.commit();
-          this.narrativeGenerator.onPause(node.name, node.id, error.pauseData, error.subflowPath, traversalContext);
+          this.narrativeGenerator.onPause(
+            node.name,
+            node.id,
+            servedPause(context, error.pauseData),
+            error.subflowPath,
+            traversalContext,
+          );
           throw error;
         }
         context.commit();

@@ -132,6 +132,9 @@ const VOLATILE = new Set([
   'phase',
   'checkpointVersion',
   'continuationStageId',
+  // The restored redaction law — the one named checkpoint addition: the redaction marks a pause
+  // carries to the resumed run (names only; 9.28.0 has none). Pinned in redaction-review-52.test.ts.
+  'redactionMarks',
 ]);
 
 /**
@@ -370,8 +373,22 @@ export function applyChartOp(s: any, o: ChartOp, errors: string[]): void {
   }
 }
 
+/**
+ * The parent state the HARNESS reads inside a mapper — the M6 guard (`keepOffDates`) and the
+ * seed's `n` — read from the LIVE heap (`live`), not through the mapper's argument. The
+ * restored redaction law (owner ruling (a)) selects a key a mapper writes after it READ a
+ * selected value (`memory/redaction.ts · MapperTaint` — conservative: anything it computes
+ * then); 9.28.0 has no such rule, so a harness read of the policy's `b` through the argument
+ * would make every later key of a policy program differ by design. These differentials judge
+ * commit mechanics; the law is pinned on its own (engine/security/redaction-law-table.test.ts).
+ * A read around the argument — a closure, as here — is invisible to the taint by definition:
+ * it judges what a mapper reads from the records it is HANDED. Without `live` (a caller that
+ * judges no differential) the harness reads through the argument.
+ */
+export type LiveParent = () => Record<string, unknown> | undefined;
+
 /** The chart a program describes, built on `engine`. `capture` runs at the top of every top-level stage. */
-function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?: () => void) {
+function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?: () => void, live?: LiveParent) {
   const stageFn = (ops: ChartOp[], top: boolean) => (s: any) => {
     if (top) capture?.();
     for (const o of ops) applyChartOp(s, o, errors);
@@ -395,7 +412,7 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
         // one) — the D1 path: the mount must not freeze the parent's object.
         inputMapper: (parent: any) =>
           sub.seedObj
-            ? { obj: { x: 1, n: parent.b ?? 0 }, list: [1, 2], a: parent.a ?? 'none' }
+            ? { obj: { x: 1, n: (live?.() ?? parent).b ?? 0 }, list: [1, 2], a: parent.a ?? 'none' }
             : { a: parent.a ?? 'none', list: [1] },
         // A plain-object merge-back writes NESTED rows (obj.y, obj.deep).
         // Into a `Date` it would hang expandos on it — named behaviour M6,
@@ -405,7 +422,7 @@ function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?:
             sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
               ? { obj: { y: out.a ?? null, deep: { q: 1 } }, list: [7], hist: out.list ?? [] }
               : { b: out.obj ?? null, list: [8] },
-            parent,
+            live?.() ?? parent,
           ),
         ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
       });
@@ -555,7 +572,7 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(engine, p, errors, capture);
+  const chart = buildChart(engine, p, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const ex = new engine.FlowChartExecutor(chart, {
     commitValues: p.cfg.commitValues,
     readTracking: p.cfg.readTracking,
@@ -1293,13 +1310,13 @@ export function witnessingSync<T>(engine: Engine, fn: () => T): [T, Witnessed[]]
  * clause holds, else what broke it. `differs` is whether the runs' kept
  * bytes differ anywhere.
  */
-export function witnessClause(baseline: Witnessed[], build: Witnessed[], differs: boolean): string {
+export function witnessClause(baseline: Witnessed[], build: Witnessed[], differs: boolean, redacted = false): string {
   const unadmitted = build.findIndex((c) => !c.foldsBack);
   if (unadmitted >= 0) return `the build's commit ${unadmitted} does not fold back to what its stage read`;
   if (!differs) return '';
   const n = Math.max(baseline.length, build.length);
   for (let i = 0; i < n; i++) {
-    if (baseline[i]?.bytes === build[i]?.bytes) continue;
+    if (sameCommit(baseline[i]?.bytes, build[i]?.bytes, redacted)) continue;
     if (baseline[i] === undefined || build[i] === undefined)
       return `the engines made a different number of commits (${i})`;
     return baseline[i].foldsBack ? `commit ${i} differs, but 9.28.0's bundle there folded back` : '';
@@ -1337,6 +1354,7 @@ export function witnessLegs(
   baseline: Witnessed[][],
   build: Witnessed[][],
   startsTogether: (leg: number) => boolean,
+  redacted = false,
 ): { broken: string; tally: LegTally } {
   const tally: LegTally = { legs: 0, explained: 0, rejudged: 0, downstream: 0 };
   let earlierDiffered = false;
@@ -1344,8 +1362,8 @@ export function witnessLegs(
     const a = baseline[i] ?? [];
     const b = build[i] ?? [];
     const together = startsTogether(i);
-    const differs = a.length !== b.length || a.some((c, k) => c.bytes !== b[k].bytes);
-    const broken = witnessClause(a, b, together && differs);
+    const differs = a.length !== b.length || a.some((c, k) => !sameCommit(c.bytes, b[k].bytes, redacted));
+    const broken = witnessClause(a, b, together && differs, redacted);
     if (broken) return { broken: `leg ${i}: ${broken}`, tally };
     tally.legs += 1;
     if (!together) tally.downstream += 1;
@@ -1405,13 +1423,123 @@ export type Tally = { programs: number; explained: number };
 
 // ─── Comparison ──────────────────────────────────────────────────────────
 
+// ─── The restored redaction law (owner ruling (a)) ───────────────────────
+
+/*
+ * THE RESTORED REDACTION LAW (the live heaps — the run's and each subflow's
+ * plain `treeContext.globalContext` — are always compared byte for byte): a
+ * policy covers everything the library retains or serves. Two of its rules reach these programs: a stage that writes an
+ * OBJECT it read under a selected name under another name hands that name the
+ * same rule (`StageContext · stageWrite`, by identity — the `copy` op), and a
+ * subflow mapper's copy of a selected value inherits its redaction
+ * (`memory/redaction.ts · MapperTaint`). 9.28.0 served those copies in plain,
+ * so under a policy this build may serve a placeholder where 9.28.0 served a
+ * value — and only that. The differentials ask {@link sameUnderLaw} of policy
+ * programs only, never of a live field ({@link LIVE_FIELD}: the heap, the fold
+ * base, the errors) and never of a checkpoint's live parts: the law never
+ * touches the live heap or the checkpoint.
+ */
+
+/** Fields the law never touches: compared byte for byte under every policy. */
+export const LIVE_FIELD = /^(runError|stageErrors|errors|pauses|sharedState|initialState)$|\.(state|init)$/;
+
+/** A checkpoint's live parts — the heap, the captures and the question — compared byte for byte. */
+const CHECKPOINT_LIVE = ['sharedState', 'subflowStates', 'pauseData'] as const;
+
+/** Fields that keep the PLAIN `subflowResults`, whose `treeContext.globalContext` is each subflow's LIVE heap. */
+const PLAIN_SUBFLOWS_FIELD = /^subflowResults$|\.sub$/;
+
+/** Each subflow's live heap — `treeContext.globalContext` — byte for byte, like the run's own live state. */
+function subflowHeapsAlike(field: string, x: string, y: string): boolean {
+  if (!PLAIN_SUBFLOWS_FIELD.test(field)) return true;
+  const heaps = (bytesOf: string) => {
+    const results = JSON.parse(bytesOf) as Record<string, any> | null;
+    return JSON.stringify(Object.entries(results ?? {}).map(([key, r]) => [key, r?.treeContext?.globalContext]));
+  };
+  return heaps(x) === heaps(y);
+}
+
+const PLACEHOLDERS = new Set(['REDACTED', '[REDACTED]']);
+
+/**
+ * `true` when `build` is `base` with nothing but the law's differences: a
+ * placeholder in place of a value, and `redactedPaths` (an array, or a Set as
+ * `bytes` spells it) covering every path 9.28.0's did (itself or an ancestor).
+ * Never a different value.
+ */
+export function onlyMoreRedacted(base: unknown, build: unknown, key = ''): boolean {
+  if (Object.is(base, build)) return true;
+  if (typeof build === 'string' && PLACEHOLDERS.has(build)) return true;
+  if (key === 'redactedPaths') return pathsCover(base, build);
+  if (base === null || build === null || typeof base !== 'object' || typeof build !== 'object') return false;
+  if (Array.isArray(base) !== Array.isArray(build)) return false;
+  const keys = Object.keys(base);
+  if (keys.length !== Object.keys(build).length) return false;
+  return keys.every(
+    (k) => Object.prototype.hasOwnProperty.call(build, k) && onlyMoreRedacted((base as any)[k], (build as any)[k], k),
+  );
+}
+
+function pathsCover(base: unknown, build: unknown): boolean {
+  const list = (v: unknown): unknown[] | undefined =>
+    Array.isArray(v) ? v : isObj(v) && Array.isArray(v['«set»']) ? (v['«set»'] as unknown[]) : undefined;
+  const had = list(base);
+  const has = list(build);
+  if (had === undefined || has === undefined) return false;
+  const kept = has.map(String);
+  return had.every((p) => kept.some((q) => String(p) === q || String(p).startsWith(`${q}\u001f`)));
+}
+
+/** A checkpoint's live parts — the heap, the captures, the question, each subflow's own heap — byte for byte. */
+function checkpointLiveAlike(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const heaps = (cp: Record<string, unknown>) =>
+    Object.entries((cp.subflowResults ?? {}) as Record<string, any>).map(([k, r]) => [
+      k,
+      r?.treeContext?.globalContext,
+    ]);
+  return (
+    CHECKPOINT_LIVE.every((part) => JSON.stringify(a[part]) === JSON.stringify(b[part])) &&
+    JSON.stringify(heaps(a)) === JSON.stringify(heaps(b))
+  );
+}
+
+/** Two kept byte strings (one JSON value, or one per line) related by {@link onlyMoreRedacted}; a checkpoint's live parts exact. */
+export function sameUnderLaw(x: string, y: string): boolean {
+  const parse = (v: string): { ok: boolean; value?: unknown } => {
+    try {
+      return { ok: true, value: JSON.parse(v) };
+    } catch {
+      return { ok: false };
+    }
+  };
+  const a = parse(x);
+  const b = parse(y);
+  if (a.ok && b.ok) {
+    const isCheckpoint = isObj(a.value) && Object.prototype.hasOwnProperty.call(a.value, 'pausedStageId');
+    if (isCheckpoint && isObj(b.value) && !checkpointLiveAlike(a.value as Record<string, unknown>, b.value)) {
+      return false;
+    }
+    return onlyMoreRedacted(a.value, b.value);
+  }
+  const xs = x.split('\n');
+  const ys = y.split('\n');
+  return xs.length > 1 && xs.length === ys.length && xs.every((line, i) => sameUnderLaw(line, ys[i]));
+}
+
+/** Two witnessed commits alike — byte for byte, or (under a policy) as the law relates them. */
+function sameCommit(x: string | undefined, y: string | undefined, redacted: boolean): boolean {
+  if (x === y) return true;
+  return redacted && x !== undefined && y !== undefined && sameUnderLaw(x, y);
+}
+
 /** The first field where two runs' bytes differ, with context — '' when identical. */
-export function firstDifference(a: Record<string, string>, b: Record<string, string>): string {
+export function firstDifference(a: Record<string, string>, b: Record<string, string>, redacted = false): string {
   const fields = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const field of fields) {
     const x = a[field] ?? '«absent»';
     const y = b[field] ?? '«absent»';
     if (x === y) continue;
+    if (redacted && !LIVE_FIELD.test(field) && sameUnderLaw(x, y) && subflowHeapsAlike(field, x, y)) continue;
     let i = 0;
     while (i < x.length && x[i] === y[i]) i++;
     const from = Math.max(0, i - 160);
