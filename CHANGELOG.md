@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The ESLint fence comment names the real detach scope methods.** `.eslintrc.js` listed the scope → `detach/spawn.ts` edge as `ScopeFacade.$spawn`, a name that does not exist; it now says `$detachAndJoinLater` / `$detachAndForget`, matching `scripts/layering.config.cjs`. Documentation only: lint zones and runtime behavior are unchanged.
+
+### Fixed
+
+- **The `BoundaryStateStore` 10k load test counts work instead of timing it.** Its 50 ms wall-clock bound read 50.6 ms once under full-suite load. The test now counts the store's operations on its backing Map (each lookup, write and iteration step) and requires an update to do the same work with 10,000 boundaries open as with 100, so a scan or copy per update still fails it. Test only: the store is unchanged.
+
 ### Changed — the redaction law restored (owner ruling (a))
 
 **THE LAW: a redaction policy covers everything the library retains or serves, and never the live heap or the resume checkpoint.** Served = anything a recorder (inline or deferred), the narrative, a snapshot, an event, a log line or an answer exposes. 9.41–9.42 docs had narrowed it (diagnostics, pause payloads and recorder data were listed as "outside"); the code now closes those gaps and the docs say the law again (CLAUDE.md "Redaction", `memory/` and `scope/` READMEs, `redaction.ts` header, the scope guide, AGENTS.md, the Claude skill). The two true exceptions are named: the `run()` rejection (the thrown value itself) and the live fork result are the caller's own values. A policy selects by NAME (a key, a dotted path, a field), never by content: a value with no name (a scalar root payload, a scalar pause payload, free error text) is selected by nothing.
