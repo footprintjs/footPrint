@@ -36,7 +36,7 @@ This Code of Conduct applies within all community spaces — GitHub issues, pull
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening a [private GitHub discussion](https://github.com/footprintjs/footPrint/discussions) or using GitHub's [Report Abuse](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam) feature.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the maintainer at [sanjay@footprintjs.dev](mailto:sanjay@footprintjs.dev) or by using GitHub's [Report Abuse](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam) feature.
 
 All complaints will be reviewed promptly and investigated fairly. The maintainer is obligated to maintain confidentiality with regard to the reporter of an incident.
 
