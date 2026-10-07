@@ -365,3 +365,55 @@ describe.each(ROWS)('the redaction law — a shared reference at two paths, poli
     expect(pinned.pin).toBe(PIN); // never edited in place
   });
 });
+
+/**
+ * More rows: a CIRCULAR result holding a masked error (review finding 2). A
+ * fork child throws an error carrying the policy's name; the chart's output
+ * holds that error and a reference back to itself. Every served edge — the
+ * direct one and the cycle — carries the masked form.
+ */
+describe.each(ROWS)('the redaction law — a circular result holding a masked error, policy by $label', (row) => {
+  it('serves the masked form along every edge, the cycle included', async () => {
+    let captured: unknown;
+    const chart = flowChart<any>('Seed', () => undefined, 'seed')
+      .addListOfFunction([
+        {
+          id: 'reject',
+          name: 'Reject',
+          fn: () => {
+            captured = Object.assign(new Error('upstream rejected'), { [row.src]: row.value() });
+            throw captured;
+          },
+        },
+        { id: 'pass', name: 'Pass', fn: () => undefined },
+      ])
+      .addFunction(
+        'Finish',
+        () => {
+          const output: Record<string, unknown> = { failure: captured };
+          output.self = output;
+          return output;
+        },
+        'finish',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy(row.policy);
+    const inline: unknown[] = [];
+    const deferred: unknown[] = [];
+    executor.attachCombinedRecorder(everyHook('inline', inline));
+    executor.attachCombinedRecorder(everyHook('deferred', deferred), { delivery: 'deferred' });
+    const output = (await executor.run()) as Record<string, unknown>;
+    await executor.drainObservers();
+
+    expect(output.failure).toBe(captured); // the caller's own value stays real
+    const ends = [...inline, ...deferred].filter(([hook]: any) => hook === 'onRunEnd').map(([, e]: any) => e.payload);
+    expect(ends).toHaveLength(2);
+    for (const payload of ends) {
+      expect(payload.failure.raw).toBeUndefined();
+      expect(payload.self.failure.raw).toBeUndefined();
+      expect(payload.self.self.failure.message).toBe('upstream rejected');
+    }
+    expect(dump([inline, deferred, executor.getSnapshot({ redact: true })])).not.toContain(SECRET);
+  });
+});

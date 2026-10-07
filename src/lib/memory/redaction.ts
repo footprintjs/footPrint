@@ -525,7 +525,7 @@ export class RedactionRule {
     // A masked stage error inside the record (a fork envelope's `result`) is
     // served in its masked form: an Error's message is non-enumerable and a
     // thrown string is a plain value, so no key walk sees either.
-    const served = this.maskedErrors?.size ? (this.withServedErrors(record, new Map()) as T) : record;
+    const served = this.maskedErrors?.size ? (this.withServedErrors(record) as T) : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as object;
     // Below the top keys, one decision per PATH (the whole record is the walk's root, so a cycle
@@ -534,33 +534,85 @@ export class RedactionRule {
   }
 
   /**
-   * Copy-on-write over plain containers: every remembered masked error becomes
-   * its served form — an object error its masked structured info, a thrown
+   * Copy-on-write over containers: every remembered masked error becomes its
+   * served form — an object error its masked structured info, a thrown
    * string/number its masked text (the value keeps being a scalar). A scalar is
    * matched by VALUE, so an unrelated field that happens to equal a masked
    * thrown string is masked too: over-masking is the safe direction.
    * `undefined`/`null`/booleans are never swapped — they carry no text, and
    * swapping them would rewrite ordinary data shapes.
+   *
+   * CYCLE-SAFE (review finding 2). The containers that can REACH a masked
+   * error are found first ({@link reachingMaskedErrors} — the whole reachable
+   * graph, cycles included); each of them is copied, its copy allocated and
+   * remembered BEFORE its children are filled, so an edge back to it — a cycle
+   * — lands on the copy, never on the original that still holds the raw error.
+   * Every other container keeps its identity.
    */
-  private withServedErrors(value: unknown, done: Map<object, unknown>): unknown {
-    if (value === null || typeof value !== 'object') {
-      const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
-      const masked = swappable ? this.maskedErrors?.get(value) : undefined;
-      return masked ? masked.message : value;
+  private withServedErrors(value: unknown): unknown {
+    const leaf = this.servedLeaf(value);
+    if (leaf !== KEEP || value === null || typeof value !== 'object') return leaf === KEEP ? value : leaf;
+    const reaching = this.reachingMaskedErrors(value);
+    if (!reaching.has(value)) return value;
+    const copies = new Map<object, Record<string, unknown>>();
+    const copyOf = (node: object): Record<string, unknown> => {
+      const known = copies.get(node);
+      if (known !== undefined) return known;
+      const copy = (Array.isArray(node) ? node.slice() : { ...node }) as Record<string, unknown>;
+      copies.set(node, copy);
+      for (const [key, child] of Object.entries(node)) {
+        const served = this.servedLeaf(child);
+        if (served !== KEEP) copy[key] = served;
+        else if (child !== null && typeof child === 'object' && reaching.has(child)) copy[key] = copyOf(child);
+      }
+      return copy;
+    };
+    return copyOf(value);
+  }
+
+  /** A masked error's served form — `KEEP` for anything else (a scalar never swapped, a container). */
+  private servedLeaf(value: unknown): unknown {
+    if (value === null || value === undefined || typeof value === 'boolean') return KEEP;
+    if (typeof value === 'object') {
+      const masked = this.maskedErrors?.get(value);
+      return masked ? { ...masked } : KEEP;
     }
-    const masked = this.maskedErrors?.get(value);
-    if (masked) return { ...masked };
-    if (done.has(value)) return done.get(value);
-    done.set(value, value);
-    let copy: Record<string, unknown> | unknown[] | undefined;
-    for (const [key, child] of Object.entries(value)) {
-      const kept = this.withServedErrors(child, done);
-      if (kept === child) continue;
-      copy ??= Array.isArray(value) ? [...value] : { ...(value as Record<string, unknown>) };
-      (copy as Record<string, unknown>)[key] = kept;
+    const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
+    const masked = swappable ? this.maskedErrors?.get(value) : undefined;
+    return masked ? masked.message : KEEP;
+  }
+
+  /** Every container under `root` (itself included) from which some path reaches a masked error. */
+  private reachingMaskedErrors(root: object): Set<object> {
+    const parents = new Map<object, object[]>();
+    const holders: object[] = [];
+    const seen = new Set<object>([root]);
+    const stack: object[] = [root];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      for (const child of Object.values(node)) {
+        if (this.servedLeaf(child) !== KEEP) {
+          holders.push(node);
+          continue;
+        }
+        if (child === null || typeof child !== 'object') continue;
+        const of = parents.get(child);
+        if (of === undefined) parents.set(child, [node]);
+        else of.push(node);
+        if (!seen.has(child)) {
+          seen.add(child);
+          stack.push(child);
+        }
+      }
     }
-    if (copy) done.set(value, copy);
-    return copy ?? value;
+    const reaching = new Set<object>();
+    while (holders.length > 0) {
+      const node = holders.pop()!;
+      if (reaching.has(node)) continue;
+      reaching.add(node);
+      holders.push(...(parents.get(node) ?? []));
+    }
+    return reaching;
   }
 
   /** Does `value` hold one of `paths` — an own key of that name, or a dotted path inside it? */
@@ -685,6 +737,9 @@ interface Walk {
  */
 const WALK_BUDGET = 1_000_000;
 const BUDGET_SPENT: unique symbol = Symbol('redaction walk budget spent');
+
+/** `servedLeaf`'s answer for a value it leaves as it is. */
+const KEEP: unique symbol = Symbol('kept as it is');
 
 /** Each field path as one literal key and, when dotted, as its segments. */
 function targetsOf(paths: readonly string[] | undefined): Target[] {
