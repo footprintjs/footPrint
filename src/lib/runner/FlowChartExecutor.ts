@@ -246,6 +246,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * JSON-serializable (store it in Redis, Postgres, localStorage…) and fully
    * DETACHED from engine state (`checkpoint.ts`): mutating or persisting it
    * cannot affect the executor, nor a later resume a checkpoint you stored.
+   * LEAN: what `resume()` reads and the pause's own record — its size is the
+   * state's, never the run's length. The run's history (execution tree,
+   * commit log, subflow results) is {@link getSnapshot}'s.
    *
    * @example
    * ```typescript

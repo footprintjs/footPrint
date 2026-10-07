@@ -132,7 +132,42 @@ Pinned: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`
 byte identical to the published 9.28.0).
 Bench: `npx tsx bench/commit-clones.ts` (`--src <tree>` measures another tree).
 
-## 7. What decides, and what does not
+## 7. Keep only what the next leg reads — the pause checkpoint (format 2)
+
+**Problem.** A pause checkpoint is persisted — Redis, Postgres, a file — and
+read back by `resume()`. Format 1 carried the run's whole execution tree and
+the finished subflows' results beside the state. A resume read neither, and
+both grew with every finished iteration, so a long agent run paid megabytes
+per pause for a state of kilobytes. Building them was work too: the pause built
+the root's tree, plus a tree for each subflow on the pause path, only to read
+its state.
+
+**Pattern.** *Carry what the consumer reads; serve the rest on demand.* A
+resume reads the cursor, the state (the root's, plus one capture per subflow
+on the pause path), the counters, the waiting siblings and the redaction names.
+That, with the pause's own record (the question, the link, the time), is the
+checkpoint. The run's history is the snapshot's, so a reader who wants it
+takes it from the paused executor. The format moved from 1 to 2, and the ONE
+codec's upcaster drops the two fields, so a stored format 1 checkpoint resumes
+into the same run.
+
+| 60-turn agent run (`bench/checkpoint-size.ts`) | Format 1 (9.43.0) | Format 2 |
+|---|---|---|
+| checkpoint, 15 / 60 / 240 turns | 3.93 / 19.27 / 80.61 MB | 0.134 / 0.134 / 0.134 MB |
+| of which the execution tree (60 turns) | 18.68 MB (97%) | — |
+| state the resume reads (`sharedState` + `subflowStates`) | 0.133 MB | 0.133 MB |
+
+Where: `src/lib/runner/checkpoint.ts · buildPauseCheckpoint`,
+`src/lib/engine/handlers/SubflowExecutor.ts` (the capture reads the store, not
+a snapshot), `src/lib/pause/record.ts · upcastCheckpoint`.
+Pinned: `test/lib/pause/checkpoint-size.test.ts` (the same checkpoint up to its
+counters' digits after 3 turns or 40, and after a finished subflow of 2 steps
+or 60; a pause builds zero tree nodes; red on 9.43.0), and
+`test/lib/pause/resume-real-chart.property.test.ts` (a paused-and-resumed run
+equals the never-paused one).
+Bench: `npx tsx bench/checkpoint-size.ts` (`--src <tree>` measures another tree).
+
+## 8. What decides, and what does not
 
 Two rules run through all of the above.
 

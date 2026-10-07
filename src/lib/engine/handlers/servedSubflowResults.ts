@@ -3,8 +3,9 @@
  * result serves under `getSnapshot({ redact: true })` (9.20.0).
  *
  * A `SubflowResult` is built once by `SubflowExecutor` with the subflow's raw
- * heap as `treeContext.globalContext` — the live view the plain snapshot and
- * the checkpoint keep. When the run keeps a redacted mirror, the nested
+ * heap as `treeContext.globalContext` — the live view the plain snapshot
+ * keeps (the pause checkpoint keeps no subflow result: format 2). When the
+ * run keeps a redacted mirror, the nested
  * runtime keeps one too (enabled by `SubflowExecutor` the way the root does),
  * and its final state is REMEMBERED here beside the result — never written
  * into the result, so the plain snapshot stays byte-identical, and never

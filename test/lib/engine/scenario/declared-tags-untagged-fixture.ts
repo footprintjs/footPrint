@@ -189,10 +189,7 @@ export async function runUntaggedFixture(commitValues: CommitValuesMode): Promis
 
   return stableJSON({
     paused: project(first),
-    checkpoint:
-      checkpoint.subflowResults === undefined
-        ? checkpoint
-        : { ...checkpoint, subflowResults: withoutSubflowLogAddresses(checkpoint.subflowResults) },
+    checkpoint,
     resumed: project(second),
   });
 }

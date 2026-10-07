@@ -1490,17 +1490,14 @@ function pathsCover(base: unknown, build: unknown): boolean {
   return had.every((p) => kept.some((q) => String(p) === q || String(p).startsWith(`${q}\u001f`)));
 }
 
-/** A checkpoint's live parts — the heap, the captures, the question, each subflow's own heap — byte for byte. */
+/**
+ * A checkpoint's live parts — the heap, the captures, the question — byte for
+ * byte. (A finished subflow's own heap rode here too until the lean checkpoint,
+ * format 2, stopped carrying `subflowResults`; it is compared on the leg's
+ * snapshot, `subflowHeapsAlike`.)
+ */
 function checkpointLiveAlike(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-  const heaps = (cp: Record<string, unknown>) =>
-    Object.entries((cp.subflowResults ?? {}) as Record<string, any>).map(([k, r]) => [
-      k,
-      r?.treeContext?.globalContext,
-    ]);
-  return (
-    CHECKPOINT_LIVE.every((part) => JSON.stringify(a[part]) === JSON.stringify(b[part])) &&
-    JSON.stringify(heaps(a)) === JSON.stringify(heaps(b))
-  );
+  return CHECKPOINT_LIVE.every((part) => JSON.stringify(a[part]) === JSON.stringify(b[part]));
 }
 
 /** Two kept byte strings (one JSON value, or one per line) related by {@link onlyMoreRedacted}; a checkpoint's live parts exact. */

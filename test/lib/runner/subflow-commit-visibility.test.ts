@@ -119,7 +119,7 @@ describe('listSubflowPaths — path-only contract preserved', () => {
 });
 
 // ─── 4. PAUSE/RESUME — the checkpoint stays lean ─────────────────────
-describe('pause checkpoint — lean (no per-iteration keys, no per-subflow history)', () => {
+describe('pause checkpoint — lean (no subflow results at all: format 2)', () => {
   function buildCompletedSubflowThenPauseChart() {
     const work = flowChart<Loose>('Work', async (scope) => scope.$setValue('w', 1), 'work').build();
     const hold: PausableHandler<Loose> = {
@@ -132,22 +132,20 @@ describe('pause checkpoint — lean (no per-iteration keys, no per-subflow histo
       .build();
   }
 
-  it('checkpoint.subflowResults drops # keys + strips treeContext.history; resume still works', async () => {
+  it('the checkpoint carries no finished subflow (the snapshot does); resume still works', async () => {
     const executor = new FlowChartExecutor(buildCompletedSubflowThenPauseChart());
     await executor.run();
     expect(executor.isPaused()).toBe(true);
 
     const cp = executor.getCheckpoint()!;
-    expect(cp.subflowResults).toBeDefined();
-    const sr = cp.subflowResults as Record<string, unknown>;
-    // lean: only the path key, no per-iteration (#) duplication
-    expect(Object.keys(sr)).toEqual(['sf-work']);
-    // lean: the per-subflow commit log is stripped (resume never reads it)
-    const treeCtx = (sr['sf-work'] as { treeContext?: Record<string, unknown> }).treeContext!;
-    expect(Object.prototype.hasOwnProperty.call(treeCtx, 'history')).toBe(false);
-    expect(treeCtx.globalContext).toBeDefined(); // the rest of treeContext survives
+    // lean: a finished subflow is the run's record, which resume never reads —
+    // format 1 carried it (minus its history); format 2 carries none of it.
+    expect(Object.prototype.hasOwnProperty.call(cp, 'subflowResults')).toBe(false);
+    expect(cp.subflowStates).toEqual({}); // and no capture: the pause is not inside it
+    // …the snapshot still serves it, both keys.
+    expect(Object.keys(executor.getSnapshot().subflowResults ?? {}).sort()).toEqual(['sf-work', 'sf-work#1']);
 
-    // the whole point: resume works WITHOUT the stripped history
+    // the whole point: resume works WITHOUT it — the subflow's writes are in the state
     await executor.resume(cp, {});
     expect(executor.isPaused()).toBe(false);
   });

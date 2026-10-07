@@ -145,14 +145,12 @@ describe('checkpoint isolation — mutating a returned checkpoint leaves engine 
     cp.sharedState.amount = 999;
     (cp.sharedState.config as { multiplier: number }).multiplier = -1;
     (cp.sharedState.config as { tags: string[] }).tags.push('EVIL');
-    (cp.executionTree as { name?: string }).name = 'TAMPERED';
 
     // Engine state is untouched by the checkpoint mutation.
     const live = executor.getSnapshot().sharedState;
     expect(live.amount).toBe(10);
     expect((live.config as State['config'])!.multiplier).toBe(2);
     expect((live.config as State['config'])!.tags).toEqual(['original']);
-    expect(executor.getSnapshot().executionTree.name).not.toBe('TAMPERED');
 
     // Same-executor resume (even handed the vandalized checkpoint) continues
     // from the engine's original data: total = 10 * 2, not 999 * -1.
@@ -292,6 +290,11 @@ describe('snapshot isolation — production mode is unchanged', () => {
 });
 
 // ── (e) Clone resilience — non-cloneable diagnostics never abort a pause ──
+//
+// Format 1 carried the execution tree, so a `$debug`'d function rode into the
+// checkpoint and was SANITIZED there to a marker string. The lean checkpoint
+// (format 2) carries no diagnostic at all: the pause survives because nothing
+// non-cloneable is ever in it.
 
 /** Same Seed → Approve → Process chart, but Seed $debug/$metric's FUNCTIONS. */
 function buildDiagnosticChart() {
@@ -325,31 +328,27 @@ function buildDiagnosticChart() {
     .build();
 }
 
-describe('checkpoint clone resilience — diagnostic bags are sanitized, the pause survives', () => {
-  it('a $debug-ed FUNCTION no longer aborts the pause — sanitized to a marker in the checkpoint', async () => {
+describe('checkpoint clone resilience — diagnostics never enter the checkpoint, the pause survives', () => {
+  it('a $debug-ed FUNCTION does not abort the pause — the checkpoint carries no diagnostic', async () => {
     const executor = new FlowChartExecutor(buildDiagnosticChart());
     const result = await executor.run();
     expect(result).toMatchObject({ paused: true });
     expect(executor.isPaused()).toBe(true);
 
-    const tree = executor.getCheckpoint()!.executionTree as {
-      logs: Record<string, unknown>;
-      metrics: Record<string, unknown>;
-    };
-    expect(tree.logs.callback).toBe('[non-serializable: function]');
-    // Nested non-cloneable is replaced; the cloneable sibling survives intact.
-    expect(tree.metrics.timing).toEqual({ cb: '[non-serializable: function]', ms: 42 });
-    // The sanitized checkpoint is JSON-safe end-to-end (the persistence contract).
-    expect(() => JSON.stringify(executor.getCheckpoint())).not.toThrow();
+    const checkpoint = executor.getCheckpoint()!;
+    expect(Object.prototype.hasOwnProperty.call(checkpoint, 'executionTree')).toBe(false);
+    // The checkpoint is JSON-safe end-to-end (the persistence contract) and clones.
+    expect(() => JSON.stringify(checkpoint)).not.toThrow();
+    expect(() => structuredClone(checkpoint)).not.toThrow();
   });
 
-  it('sanitization touches only the checkpoint — live engine diagnostics keep the raw value', async () => {
+  it('the live engine diagnostics keep the raw value', async () => {
     const executor = new FlowChartExecutor(buildDiagnosticChart());
     await executor.run();
     expect(typeof executor.getSnapshot().executionTree.logs.callback).toBe('function');
   });
 
-  it('resume completes normally after a sanitized pause', async () => {
+  it('resume completes normally after such a pause', async () => {
     const executor = new FlowChartExecutor(buildDiagnosticChart());
     await executor.run();
     await executor.resume(executor.getCheckpoint()!, { approved: true });
