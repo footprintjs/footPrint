@@ -2,13 +2,12 @@
 
 ## Supported Versions
 
-We release security fixes for the latest minor version. Older major versions receive fixes only for critical vulnerabilities.
+Security fixes land on the **latest minor of the current major**, and a patched release goes out for that line. Earlier majors are not back-patched: upgrade to the latest 9.x.
 
 | Version | Supported |
 | ------- | --------- |
-| 3.x (latest) | ✅ Active |
-| 2.x | ⚠️ Critical fixes only |
-| < 2.0 | ❌ End of life |
+| 9.x (latest minor) | ✅ Active |
+| < 9.0 | ❌ Not back-patched |
 
 ## Reporting a Vulnerability
 
