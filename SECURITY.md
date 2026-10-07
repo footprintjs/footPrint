@@ -28,8 +28,8 @@ A useful report answers these questions:
 
 | Stage | Target |
 | ----- | ------ |
-| Acknowledgement | Within 48 hours |
-| Triage + severity assessment | Within 5 business days |
+| Acknowledgement | Within 7 days |
+| Assessment — confirmed, declared limitation, or not reproducible | Within 14 days of the acknowledgement |
 | Fix available (critical/high) | Within 30 days |
 | Fix available (medium/low) | Within 90 days |
 | Public disclosure | After fix is released and deployed |
