@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **A redaction pattern's source is read in linear time** (CodeQL `js/polynomial-redos`). For every pattern of a policy, `RedactionRule` asks whether it can depend on a whole dotted path (`memory/redaction.ts · needsPath`). That check found the pattern's character classes with a regex that, after a `[` that never closed, retried at every later `[` and rescanned to the end each time: a source holding `\[` n times cost O(n²), 20,000 of them about 0.3 s and 32,000 about 0.7 s — paid once per stage while a policy is set, because the executor re-states its policy on every stage's scope. The scan is now one forward pass (`classBodies`) and gives the same answers as the old regex, which the tests keep as the control: for every string of up to nine characters, checked exhaustively, and for longer ones by property test. Ten times the source now costs about ten times the time, where it cost about a hundred times. Reachable only through a pattern the application configures itself. No behaviour change.
+- **A `fields` redaction policy no longer fails the run on data holding a key named like an `Object.prototype` member.** `RedactionRule` looked up `policy.fields[key]` through the prototype chain, and the key is a name from data. Under any `fields` policy, a run rejected with `TypeError: fields is not iterable` (or `(paths ?? []) is not iterable`) when its input, a record it handed out whole, or a state key held a key named `constructor`, `hasOwnProperty`, `isPrototypeOf`, `toString` or a similar member. Untrusted input could fail any such run this way. `memory/redaction.ts · declaredFields` now reads own keys only, and `RedactionRule.report` builds `fieldRedactions` from a Map, so a mapper-written key named `toString` or `__proto__` is an own data key. A policy that declares such a name as its own key still applies to it. Found in review of the CodeQL triage; pinned by `test/lib/engine/security/hostile-keys-no-pollution.security.test.ts`.
+
 ## [9.44.0] - 2026-10-03
 
 ### Changed — the lean pause checkpoint (format 2)
