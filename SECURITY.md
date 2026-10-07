@@ -62,7 +62,7 @@ FootPrint executes user-supplied functions in the same process and trust boundar
 3. **Scope keys** — user-supplied key strings are used as property accessors; prototype pollution defences are in place
 4. **Self-describing outputs** (`toOpenAPI`, `toMCPTool`) — stage IDs and descriptions are injected into generated specs
 
-The prototype pollution denylist in `evaluator.ts` (`__proto__`, `constructor`, `toString`, `valueOf`, and related keys) is part of the security design, not just defensive coding. Any bypass of this denylist is a valid security finding.
+The prototype pollution denylist in `evaluator.ts` (`__proto__`, `constructor`, `toString`, `valueOf`, and related keys) is part of the security design, not just defensive coding. So is the path-segment denylist in `memory/pathOps.ts` (`isDeniedSegment`: `__proto__`, `constructor`, `prototype`): a state write, delete or commit-log replay whose path has one of those names as a segment does nothing, and a read through one finds nothing. A key with one of those names inside a value is kept as data. Any bypass of either denylist is a valid security finding.
 
 ## Acknowledgements
 
