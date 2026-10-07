@@ -1426,8 +1426,9 @@ export type Tally = { programs: number; explained: number };
 // ─── The restored redaction law (owner ruling (a)) ───────────────────────
 
 /*
- * THE RESTORED REDACTION LAW: a policy covers everything the library retains
- * or serves. Two of its rules reach these programs: a stage that writes an
+ * THE RESTORED REDACTION LAW (the live heaps — the run's and each subflow's
+ * plain `treeContext.globalContext` — are always compared byte for byte): a
+ * policy covers everything the library retains or serves. Two of its rules reach these programs: a stage that writes an
  * OBJECT it read under a selected name under another name hands that name the
  * same rule (`StageContext · stageWrite`, by identity — the `copy` op), and a
  * subflow mapper's copy of a selected value inherits its redaction
@@ -1444,6 +1445,19 @@ export const LIVE_FIELD = /^(runError|stageErrors|errors|pauses|sharedState|init
 
 /** A checkpoint's live parts — the heap, the captures and the question — compared byte for byte. */
 const CHECKPOINT_LIVE = ['sharedState', 'subflowStates', 'pauseData'] as const;
+
+/** Fields that keep the PLAIN `subflowResults`, whose `treeContext.globalContext` is each subflow's LIVE heap. */
+const PLAIN_SUBFLOWS_FIELD = /^subflowResults$|\.sub$/;
+
+/** Each subflow's live heap — `treeContext.globalContext` — byte for byte, like the run's own live state. */
+function subflowHeapsAlike(field: string, x: string, y: string): boolean {
+  if (!PLAIN_SUBFLOWS_FIELD.test(field)) return true;
+  const heaps = (bytesOf: string) => {
+    const results = JSON.parse(bytesOf) as Record<string, any> | null;
+    return JSON.stringify(Object.entries(results ?? {}).map(([key, r]) => [key, r?.treeContext?.globalContext]));
+  };
+  return heaps(x) === heaps(y);
+}
 
 const PLACEHOLDERS = new Set(['REDACTED', '[REDACTED]']);
 
@@ -1525,7 +1539,7 @@ export function firstDifference(a: Record<string, string>, b: Record<string, str
     const x = a[field] ?? '«absent»';
     const y = b[field] ?? '«absent»';
     if (x === y) continue;
-    if (redacted && !LIVE_FIELD.test(field) && sameUnderLaw(x, y)) continue;
+    if (redacted && !LIVE_FIELD.test(field) && sameUnderLaw(x, y) && subflowHeapsAlike(field, x, y)) continue;
     let i = 0;
     while (i < x.length && x[i] === y[i]) i++;
     const from = Math.max(0, i - 160);

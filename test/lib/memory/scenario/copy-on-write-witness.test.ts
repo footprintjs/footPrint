@@ -42,6 +42,7 @@ import {
   type Witnessed,
   BASELINE,
   BUILD,
+  bytes,
   chartProgramArb,
   cutAdmission,
   firstDifference,
@@ -92,6 +93,33 @@ describe('witnessClause — every branch, on hand-made rows', () => {
   it('identical and honest is silent', () => {
     expect(witnessClause([row('a'), row('b')], [row('a'), row('b')], false)).toBe('');
     expect(witnessClause([], [], false)).toBe('');
+  });
+});
+
+describe('the redaction-law relation — what it admits, and the live heaps it never does', () => {
+  /** A kept output with one subflow whose LIVE heap and recorded history are given. */
+  const kept = (heap: unknown, history: unknown, field = 'subflowResults') => ({
+    sharedState: bytes({ token: 'sk' }),
+    [field]: bytes({ sub: { subflowId: 'sub', treeContext: { globalContext: heap, history } } }),
+  });
+
+  it.each(['subflowResults', 'leg0.sub'])(
+    '%s: a placeholder in the recorded history is the law; one in the LIVE heap is a difference',
+    (field) => {
+      const base = kept({ tok: 'sk', n: 1 }, [{ overwrite: { tok: 'sk' } }], field);
+      const lawful = kept({ tok: 'sk', n: 1 }, [{ overwrite: { tok: 'REDACTED' } }], field);
+      expect(firstDifference(base, lawful, true)).toBe('');
+      // The guard bites: the subflow's live heap is compared byte for byte, like the run's own.
+      const injected = kept({ tok: 'REDACTED', n: 1 }, [{ overwrite: { tok: 'REDACTED' } }], field);
+      expect(firstDifference(base, injected, true)).toMatch(new RegExp(`^${field.replace('.', '\\.')} differs`));
+      // Without a policy nothing is admitted at all.
+      expect(firstDifference(base, lawful, false)).not.toBe('');
+    },
+  );
+
+  it('the run’s own live state is never admitted either', () => {
+    const base = { sharedState: bytes({ token: 'sk' }) };
+    expect(firstDifference(base, { sharedState: bytes({ token: 'REDACTED' }) }, true)).toMatch(/^sharedState differs/);
   });
 });
 
