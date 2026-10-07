@@ -212,13 +212,22 @@ rule.retain(['tok'], 'sk-1');                                     // '[REDACTED]
 
 A value with no name — a scalar root input/output or pause payload, free error text — is selected by nothing; inside a stage function an OBJECT read under a selected name and written under another keeps its rule (`stageWrite`, by identity), while a primitive or a new object copied across names is selected by its own name only. A mark (per-call, policy-whole, taint) is a NAME, run-wide, until the key is deleted; a pause carries the marks and inherited fields — names only — to the resumed run (`marksForCheckpoint` → `FlowchartCheckpoint.redactionMarks` → `restoreMarks`). The walk shares decisions per (object, targets) unless a pattern is genuinely path-dependent (`needsPath`); such a walk past 1,000,000 path visits serves its unvisited remainder as the placeholder and warns once in dev mode — it never fails a run. See [the scope guide](../../../docs/guides/scope.md#the-one-law--what-a-policy-covers) for the contract.
 
+**A `fields` policy is read by OWN key only** (`declaredFields`). The key it is asked about is a name from data — a state key, a key of a record handed out whole — and a plain-object lookup reads the prototype chain: `fields['constructor']` is `Object`. Before the own-key rule, any `fields` policy failed the run with a TypeError on data holding a `constructor`, `hasOwnProperty` or `toString` key. `report()` keys its `fieldRedactions` the same way (a Map, then own data keys).
+
+```ts
+const rule = new RedactionRule({ fields: { profile: ['ssn'] } });
+rule.verdict(['constructor']);                         // { kind: 'clear' } — not Object's "fields"
+rule.retainBoundary({ user: { toString: 1 }, profile: { ssn: '1' } }); // { user: { toString: 1 }, profile: { ssn: '[REDACTED]' } }
+new RedactionRule({ fields: { toString: ['secret'] } }).verdict(['toString']); // declared, so its fields apply
+```
+
 **Reading a pattern is linear in its source.** `needsPath` runs for every pattern each time a policy is set — once per stage's scope under an executor — so its own scans make one forward pass: `classBodies` takes a class body from a `[` to the first `]` that no `\` escapes, and a `[` that never closes ends the scan (every later `[` would read the same tail the same way). It replaced a regex that rescanned to the end from every later `[`, quadratic in the source (CodeQL `js/polynomial-redos`; same answers, pinned against that regex as the control in `test/lib/memory/security/needs-path-linear.security.test.ts`).
 
 ```ts
 needsPath(/^user\.ssn$/); // true  — a `.` can match the separator between segments
 needsPath(/[+-/]/);       // true  — a class range that spans `.`
 needsPath(/password/i);   // false — decided by the key name
-needsPath(/\[a-z\]/);     // false — escaped brackets are text, not a class
+needsPath(/\[a-z\]/);     // false — the `\]` never closes what the `\[` opened, so no body is read
 needsPath(new RegExp('\\['.repeat(20_000))); // false, in one pass (the regex took ~0.3 s)
 ```
 

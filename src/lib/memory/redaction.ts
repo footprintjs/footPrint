@@ -141,6 +141,18 @@ export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const)
  */
 const MAX_PATTERN_KEY_LEN = 256;
 
+/**
+ * The fields a policy declares under `key` — only when `fields` OWNS `key`.
+ * The key is a name from data (a state key, a nested key of a record handed
+ * out whole), and a plain-object lookup reads the prototype chain:
+ * `fields['constructor']` is `Object`, `fields['__proto__']` is
+ * `Object.prototype`. The walk then iterated them, so any `fields` policy
+ * failed the run with a TypeError on data holding such a key.
+ */
+function declaredFields(fields: Record<string, string[]> | undefined, key: string): readonly string[] | undefined {
+  return fields !== undefined && Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined;
+}
+
 /** Policy patterns are predicates, not cursors over successive keys/events. */
 function matchesPattern(value: string, patterns: readonly RegExp[] | undefined): boolean {
   if (!patterns) return false;
@@ -515,7 +527,7 @@ export class RedactionRule {
 
   /** The secret fields of a top key: the policy's, plus any a mapper handed it ({@link MapperTaint}). */
   private fieldsOf(key: string): readonly string[] | undefined {
-    const declared = this.policy?.fields?.[key];
+    const declared = declaredFields(this.policy?.fields, key);
     const inherited = this.inherited?.get(key);
     if (inherited === undefined) return declared;
     return declared === undefined ? inherited : [...new Set([...declared, ...inherited])];
@@ -776,17 +788,20 @@ export class RedactionRule {
   }
 
   report(): RedactionReport {
-    const fieldRedactions: Record<string, string[]> = {};
+    // Keyed by a Map, then made own data keys by `fromEntries`: a key a mapper
+    // wrote is a name from data, and on a plain object `toString` would read
+    // the inherited method and `__proto__` would call the prototype setter.
+    const fieldRedactions = new Map<string, string[]>();
     for (const [key, fields] of Object.entries(this.policy?.fields ?? {})) {
-      fieldRedactions[key] = [...fields];
+      fieldRedactions.set(key, [...fields]);
     }
     // Fields a mapper handed to a new key are scrubbed under that key too.
     for (const [key, fields] of this.inherited ?? []) {
-      fieldRedactions[key] = [...new Set([...(fieldRedactions[key] ?? []), ...fields])];
+      fieldRedactions.set(key, [...new Set([...(fieldRedactions.get(key) ?? []), ...fields])]);
     }
     return {
       redactedKeys: [...this.marked],
-      fieldRedactions,
+      fieldRedactions: Object.fromEntries(fieldRedactions),
       patterns: (this.policy?.patterns ?? []).map((p) => p.source),
     };
   }

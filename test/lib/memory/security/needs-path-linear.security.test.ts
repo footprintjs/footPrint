@@ -7,12 +7,13 @@
  * every stage's scope. `redaction.ts · classBodies` is one forward pass.
  *
  *   1. scaling — ten times the source costs about ten times the time, never
- *      about a hundred. A RATIO of two timings on the same machine, never
- *      absolute milliseconds, so machine load cancels out. FAILED before the
- *      fix (measured ~95x);
- *   2. differential — the same class bodies and the same answer as the
- *      implementation it replaced, kept below as the CONTROL, for every string
- *      over the characters the scan turns on (fast-check);
+ *      about a hundred. A RATIO of two timings on the same machine, each the
+ *      fastest of many short batches, so a pause from preemption or GC drops
+ *      out instead of landing in one side. FAILED before the fix (94-109x measured);
+ *   2. differential — the same class bodies and the same verdict as the
+ *      implementation it replaced, kept below as the CONTROL: exhaustively
+ *      for every string of up to nine characters, and by fast-check for
+ *      longer ones;
  *   3. examples — what a pattern's source decides, one line each.
  */
 import * as fc from 'fast-check';
@@ -43,56 +44,65 @@ const decide = (source: string): boolean => needsPath({ source } as RegExp);
 
 // ── 1. scaling ────────────────────────────────────────────────────────────────
 
-/** Mean milliseconds per call of `needsPath` on `source`, over enough calls to fill `windowMs`. */
-function msPerCall(source: string, windowMs = 30): number {
-  let calls = 0;
-  let elapsed = 0;
-  const start = performance.now();
-  do {
-    decide(source);
-    calls += 1;
-    elapsed = performance.now() - start;
-  } while (elapsed < windowMs);
-  return elapsed / calls;
+/**
+ * Milliseconds per call of `needsPath` on `source`: the fastest of up to 100
+ * batches of `calls` calls, within a `budgetMs` time budget (so the quadratic
+ * scan, at ~75 ms a call, still fails in well under a second).
+ */
+function fastestPerCall(source: string, calls: number, budgetMs = 250): number {
+  let best = Number.POSITIVE_INFINITY;
+  const started = performance.now();
+  for (let batch = 0; batch < 100 && performance.now() - started < budgetMs; batch++) {
+    const start = performance.now();
+    for (let i = 0; i < calls; i++) decide(source);
+    best = Math.min(best, (performance.now() - start) / calls);
+  }
+  return best;
 }
 
 describe('1 — scaling: the source is read once', () => {
   it('ten times a source of unclosed `\\[` costs about ten times the time, never about a hundred', () => {
     const unclosed = (n: number) => '\\['.repeat(n);
-    msPerCall(unclosed(1_000)); // JIT warm-up, so the baseline does not absorb compilation
-    const base = msPerCall(unclosed(1_000));
-    const tenfold = msPerCall(unclosed(10_000));
+    fastestPerCall(unclosed(1_000), 10); // JIT warm-up, so the baseline does not absorb compilation
+    const base = fastestPerCall(unclosed(1_000), 10);
+    const tenfold = fastestPerCall(unclosed(10_000), 1);
     // Linear lands near 10x; the old quadratic scan lands near 100x.
     expect(tenfold / base).toBeLessThan(25);
-  });
-
-  it('a policy whose generated pattern repeats `\\[` installs, and still decides by name', () => {
-    const generated = new RegExp(`^(?:${'\\['.repeat(20_000)})$`);
-    const rule = new RedactionRule({ patterns: [generated] });
-    expect(rule.isKeyRedacted('password')).toBe(false);
-    expect(needsPath(generated)).toBe(false);
   });
 });
 
 // ── 2. differential ───────────────────────────────────────────────────────────
 
-/** The characters the scan turns on, plus a few on either side of `.` (a range can span it). */
-const TURNING = ['[', ']', '\\', '-', '^', '(', '?', '=', '!', '+', '/', '.', 'a', 'z', 'W', '0', '~'];
-const sources = fc.string({ unit: fc.constantFrom(...TURNING), maxLength: 40 });
-
 describe('2 — differential: the same answer as the regex scan it replaced', () => {
-  it('the same class bodies, for every string', () => {
-    fc.assert(
-      fc.property(sources, (source) => {
-        expect(classBodies(source)).toEqual(controlBodies(source));
-      }),
-      { numRuns: 3000 },
-    );
+  it('the same class bodies for EVERY string of up to nine characters', () => {
+    // Both scans treat every character other than `[`, `]` and `\` alike (the
+    // regex's `[^\]\\]` and `[\s\S]` take any code unit), so four symbols
+    // cover every string of each length — 349,525 strings, the empty one too.
+    const alphabet = ['[', ']', '\\', 'x'];
+    const mismatches: string[] = [];
+    let checked = 0;
+    let level = [''];
+    for (let length = 0; length <= 9; length++) {
+      for (const source of level) {
+        checked += 1;
+        const got = classBodies(source);
+        const want = controlBodies(source);
+        if (got.length !== want.length || got.some((body, i) => body !== want[i])) mismatches.push(source);
+      }
+      level = level.flatMap((prefix) => alphabet.map((char) => prefix + char));
+    }
+    expect(checked).toBe(349_525);
+    expect(mismatches).toEqual([]);
   });
 
-  it('the same verdict, for every string', () => {
+  /** The characters the verdict turns on, plus a few on either side of `.` (a range can span it). */
+  const TURNING = ['[', ']', '\\', '-', '^', '(', '?', '=', '!', '+', '/', '.', 'a', 'z', 'W', '0', '~'];
+  const longer = fc.string({ unit: fc.constantFrom(...TURNING), maxLength: 80, size: 'max' });
+
+  it('the same class bodies and verdict for longer strings', () => {
     fc.assert(
-      fc.property(sources, (source) => {
+      fc.property(longer, (source) => {
+        expect(classBodies(source)).toEqual(controlBodies(source));
         expect(decide(source)).toBe(controlNeedsPath(source));
       }),
       { numRuns: 3000 },
@@ -100,7 +110,7 @@ describe('2 — differential: the same answer as the regex scan it replaced', ()
   });
 
   it('the same verdict for real regex sources built from the same characters', () => {
-    const valid = sources.filter((source) => {
+    const valid = longer.filter((source) => {
       try {
         new RegExp(source);
         return true;
@@ -130,8 +140,9 @@ describe('3 — examples: what a source decides', () => {
     [/api\wKey/, false, '`\\w` cannot stand for `.`'],
     [/a\Wb/, true, '`\\W` can'],
     [/(?=secret)/, true, 'a lookaround'],
-    [/\[a-z\]/, false, 'escaped brackets are literal text, not a class'],
-    [/\[\[\[\[/, false, 'unclosed escaped brackets open no class'],
+    [/\[a-z\]/, false, 'the `\\]` never closes what the `\\[` opened, so no body is read'],
+    [/\[\[\[\[/, false, 'a `[` that never closes gives no body'],
+    [/\[+-\/]/, true, 'an escaped `[` still opens a body a later `]` closes — conservative'],
   ])('%s → %s (%s)', (pattern, expected) => {
     expect(needsPath(pattern)).toBe(expected);
     expect(controlNeedsPath(pattern.source)).toBe(expected);
@@ -141,5 +152,12 @@ describe('3 — examples: what a source decides', () => {
     expect(classBodies('[a\\]b]c[d]')).toEqual(['a\\]b', 'd']);
     expect(classBodies('[ab\\')).toEqual([]);
     expect(classBodies('x[a]y[b')).toEqual(['a']);
+  });
+
+  it('a policy whose generated pattern repeats `\\[` 20,000 times installs and decides by name', () => {
+    const generated = new RegExp(`^(?:${'\\['.repeat(20_000)})$`);
+    const rule = new RedactionRule({ patterns: [generated] });
+    expect(rule.isKeyRedacted('password')).toBe(false);
+    expect(needsPath(generated)).toBe(false);
   });
 });
