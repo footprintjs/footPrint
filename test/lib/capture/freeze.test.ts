@@ -12,7 +12,7 @@
  *             expando is left unfrozen there — and ONLY there: the default walk still reaches it
  */
 import { flowChart, FlowChartExecutor } from '../../../src';
-import { deepFreeze } from '../../../src/lib/capture/freeze';
+import { deepFreeze, freezeRecord, holdsUnsealed, serveRecord } from '../../../src/lib/capture/freeze';
 import { createFrozenArgs } from '../../../src/lib/scope/protection/readonlyInput';
 
 describe('deepFreeze — the walk', () => {
@@ -142,5 +142,54 @@ describe('deepFreeze — edges and named holes', () => {
     expect(Object.isFrozen(args)).toBe(true);
     expect(Object.isFrozen(args.plain)).toBe(true);
     expect(Object.isFrozen(lines)).toBe(false);
+  });
+});
+
+describe('freezeRecord / serveRecord — freeze what can be frozen, copy what can’t (9.45.0)', () => {
+  it('a record freezing seals whole is served as itself', () => {
+    const record = freezeRecord({ a: { b: [1, 'x', null] }, n: Object(1) });
+    expect(holdsUnsealed(record)).toBe(false);
+    expect(serveRecord(record)).toBe(record);
+  });
+
+  it('a record holding a value freezing cannot seal is served as a fresh frozen copy, every time', () => {
+    const record = freezeRecord({ nested: { when: new Date(5) } }, 'indices');
+    expect(holdsUnsealed(record)).toBe(true);
+    const served = serveRecord(record);
+    expect(served).not.toBe(record);
+    expect(Object.isFrozen(served.nested)).toBe(true);
+    served.nested.when.setTime(0); // the reader's own copy
+    expect(record.nested.when.getTime()).toBe(5);
+    // a copy is a record too: one stored from an earlier serve is copied again
+    expect(serveRecord(served)).not.toBe(served);
+  });
+
+  it('every kind freezing cannot seal marks the record — a view, a buffer, a Map, a Set, a RegExp, an error, a Blob', () => {
+    for (const value of [
+      new Uint8Array([1]),
+      new ArrayBuffer(1),
+      new Map(),
+      new Set(),
+      /a/,
+      new Error('e'),
+      new Blob(['a']),
+    ]) {
+      expect(holdsUnsealed(freezeRecord({ deep: [{ value }] }))).toBe(true);
+    }
+  });
+
+  it('a part frozen before is not frozen past, but is looked through: a Date inside it still marks the record', () => {
+    const inner = Object.freeze({ when: new Date(5) }); // a hand-built bundle's pre-frozen part
+    const record = freezeRecord({ p: inner }, 'indices');
+    expect(holdsUnsealed(record)).toBe(true);
+    serveRecord(record).p.when.setTime(0); // the reader's copy
+    expect(inner.when.getTime()).toBe(5);
+    expect(holdsUnsealed(freezeRecord({ p: Object.freeze({ n: 1 }) }))).toBe(false);
+  });
+
+  it("'indices' does not see an array expando — the named hole, out of contract for state", () => {
+    const record = freezeRecord({ list: Object.assign([1], { when: new Date(5) }) }, 'indices');
+    expect(holdsUnsealed(record)).toBe(false);
+    expect(holdsUnsealed(freezeRecord({ list: Object.assign([1], { when: new Date(5) }) }))).toBe(true);
   });
 });

@@ -20,6 +20,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **hcifootprint 2.6.1's real transitions** (`test/fixtures/hcifootprint/`), captured once from its `test/trace.test.ts` sessions plus a commit out of mint order. They are replayed through the `/advanced` calls 2.6.1 makes (its session constructor and `#commitDelta`, copied verbatim) against the log, fold base, state and reads they gave.
   - **The re-pin policy, proposed (owner ruling 3)**, in `test/fixtures/README.md`: a byte change is a bug or a named law fix; a law fix re-pins in a minor, named here under "Record bytes"; a refactor never re-pins.
 
+### Fixed
+
+- **A replaced value of any kind now commits a row.** The net-change filter asks `deepEqual` (`memory/equality.ts`) whether a write changed a path. `deepEqual` knew three kinds — Date, Map and Set — and compared every other object by its own enumerable keys. A RegExp, an Error, a boxed `Number` / `String` / `Boolean` / `BigInt`, an `ArrayBuffer`, a `DataView`, a `Blob` or a `DOMException` has none, so any two of a kind compared equal. `$setValue('re', /y/g)` over `/x/g`, or `new Error('b')` over `new Error('a')`, committed no row, and live state kept the OLD value. A `Uint8Array` replaced by an `Int8Array` with the same elements was dropped the same way. Now one classifier, `capture/valueKinds.ts · kindOf`, gives every value its kind. Built-ins are found by a prototype lookup. Any other object is classified by what its clone is, once per prototype: a class instance is plain, a `Map` subclass is a map, a host object is opaque. `equalPairs` has one arm per kind, and a kind added to `ValueKind` does not compile until it has one. Each arm compares what `structuredClone` keeps:
+  - a RegExp: its source and flags (the clone resets `lastIndex`);
+  - an error: its restored kind, own `message`, `stack` and own `cause` (other own fields are dropped by the clone, so they never count, as the admitted-record law says);
+  - a boxed primitive: its wrapper type and value;
+  - a buffer: its length, resizability and bytes;
+  - a typed array or `DataView`: its type, offset and length over equal buffers (the clone keeps the whole buffer, so bytes outside the view count — two equal-content Node `Buffer`s from the shared pool are different values);
+  - an opaque value (a Blob, a `DOMException` — content the library cannot read): by the caller's `OpaqueRule`. The replacement check (the net-change filter, the append check) asks `'identity'`, so a new object is a change. A reader comparing two copies of one record asks `'copies'`, so they are equal: the read model's writer rule, element provenance, the borrowed-mutation guard and the admitted-record check. Copies never share identity, so identity there would blame every later rewrite of a container for an untouched Blob, and would warn a stage that only read one.
+
+  Equal content still commits no row, and JSON-shaped records are byte-identical (every byte-identity pin and the 9.28.0 differential corpus pass unchanged). **Behaviour change:** re-writing an opaque value always commits a row, because what live state holds is a clone. An error re-created with the same message on another code path (another stack) is a change. Pinned per kind by `test/lib/memory/scenario/replaced-value-commits.test.ts` (20 of its 22 change cases are red on 9.44.1). A property over every cloneable kind checks it against an oracle that never asks the library (`test/lib/memory/property/replaced-value-commits.property.test.ts`). `test/lib/capture/value-kinds.test.ts` is generated from the runtime's own globals (those constructible with no arguments): every cloneable built-in or host object lands on the kind its clone is and equals its own clone, and the `SEALABLE` table is checked against what `Object.freeze` really seals. The opaque rule is pinned in `test/lib/memory/unit/opaque-value-copies.test.ts`.
+- **Nothing the library serves can be edited through what it serves.** `Object.freeze` cannot seal a Date's time, a Map's or Set's entries, a buffer's bytes, a RegExp (`compile()` rewrites a frozen one) or an Error (V8's own `stack` accessor writes through a frozen one). Every `getSnapshot()` also shared the log's own frozen bundles and fold base. So `snapshot.commitLog[i].overwrite.when.setTime(0)`, `.set()` on a Map or `transfer()` on a buffer rewrote what every later snapshot, `stateAt`, `commitValueAt`, slice and cursor returned. And beyond the log, a snapshot handed out the engine's own state in other places:
+  - the execution tree held each frame's own `stageReads` map and diagnostic bags (`delete snapshot.executionTree.stageReads.k` reached every later snapshot and every slice that reads keys from the tree);
+  - a subflow result was the traverser's own record (its `history`, `stageContexts` and the chart's own `pipelineStructure`);
+  - a recorder row held the recorder's own store;
+  - `getCheckpoint()` returned one object to every caller;
+  - `getNarrativeEntries()` returned the narrator's own entries.
+
+  THE LAW (`capture/freeze.ts`): nothing the library serves is its own mutable state.
+  - A RECORD — a commit bundle, the fold base, a retained read or write, a flow message, a subflow's stored tree — is frozen once (`freezeRecord`, which remembers whether it holds such a value). It is served by `serveRecord` / `serveOwned`: as itself when freezing sealed it (every JSON-shaped record: no copy), else as a fresh frozen copy.
+  - A value the library keeps but cannot freeze in place — a diagnostic bag holding the app's own objects, a recorder row, a chart structure — is served as a fresh copy (`serveCopy`), and so are the checkpoint and the narrative entries.
+  - The doors: `EventLog.list()` (so `getSnapshot().commitLog`), `getSnapshot().initialState`, `StageContext · snapshotSelf` (the execution tree), `servedSubflowResults` (so `getSnapshot().subflowResults`, `getSubflowResults()`, `getSubtreeSnapshot`), `recorder/snapshot.ts · copyBundle` (every recorder row), `getCheckpoint()` and the paused `run()` result, `getNarrativeEntries()`.
+  - The LIVE views are the named exceptions, by design: `sharedState` (the run's heap; dev mode serves a frozen clone), a subflow's `treeContext.globalContext` (its heap, or its live mirror under `redact`), and a narrative entry's `rawValue`.
+  - One class test walks EVERY field of every served surface, with and without `{ redact }`, then asks a fresh serve and every reader (`test/lib/runner/scenario/served-surfaces.test.ts`; red on 9.44.1). A field added later is covered without being listed. Per-door pins: `test/lib/memory/scenario/served-record-doors.test.ts` (6 of 9 red on 9.44.1). Property: `test/lib/memory/property/served-record.property.test.ts`.
+  - **Behaviour changes:**
+    - `EventLog.list()` (`footprintjs/advanced`) returns a new array on each call; it was the log's live array.
+    - `getCheckpoint()` and the paused `run()` result return a fresh copy each time; it was the same object.
+    - A subflow result, a recorder row, a diagnostic bag and a narrative entry are new objects on every serve. A bag value no longer aliases the app's object in the snapshot; the engine still retains the app's object.
+    - Retained reads and writes and flow messages are frozen on their first serve.
+    - A record holding such a value is a different object on each serve.
+  - **Cost** (`bench/served-record.ts`; `getSnapshot()` over 1,000 commits, median):
+    - JSON-shaped run: 0.10 → 0.27 ms (fresh containers and one lookup per retained value).
+    - Each commit and write holding a Date: 0.09 → 9.6 ms, because both the bundle and the retained write are copied per serve.
+    - The record walk adds one kind check per object: 0.52 → 0.51–0.60 ms at N = 10,000 element writes, worst row 1.9% → 2.3% of the run (budget 5%).
+    - `structuredClone` counts per stage are unchanged (`bench/commit-clones.ts`), and the time-travel and key-query benches are unchanged within noise.
+  - **Named, not covered:**
+    - A holder that edits its own served copy and reads that same copy reads its edit.
+    - An object hung on an array expando (out of contract for state).
+    - A `SharedArrayBuffer` (shared memory: no clone is a copy).
+    - A value `structuredClone` refuses inside a diagnostic bag or a recorder row (served as it is).
+    - A recorder's own query API (`recorder.getEntries()` returns its stored entries).
+- **`commitValueAt` no longer hands out its memo.** On a frozen log (every engine snapshot's) the read model memoises each top-level key's generations. A nested key's value was folded FROM a kept generation, so the answer could BE the memo: editing the returned object changed the next `commitValueAt` and `commitValueAtWithBasis` answer, for any value. `logModel · valueAt` now detaches such an answer, as the value rule's contract ("a detached clone") always said. Pinned in `served-record-doors.test.ts`.
+- **Named, a follow-up:** the union merge (`memory/merge.ts · deepSmartMerge`) still merges a non-plain value as an object with no keys. `$update('cfg', { when: new Date(5) })` leaves `cfg.when` an empty object. It is the same blindness, in the `merge` verb; changing it moves records of the 9.28.0 differential corpus, so it is its own change.
+
 ## [9.44.1] - 2026-10-07
 
 ### Security

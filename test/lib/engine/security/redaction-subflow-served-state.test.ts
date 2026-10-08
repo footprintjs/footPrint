@@ -154,8 +154,11 @@ describe('served — getSnapshot({ redact: true }).subflowResults holds the mirr
       expect(entry.treeContext.globalContext.apiKey).toBe(SECRET);
       expect((entry.treeContext.globalContext.profile as Profile).auth.token).toBe(TOKEN);
     }
-    // ...and it is the traverser's own record, not a rebuilt one.
-    expect((executor.getSnapshot().subflowResults as Served).sf).toBe(plain.sf);
+    // ...over the same LIVE heap every serve: the result itself is served fresh (9.45.0 — a holder's
+    // edit of one snapshot's result never reaches the next), its globalContext is the heap itself.
+    const again = executor.getSnapshot().subflowResults as Served;
+    expect(again.sf).not.toBe(plain.sf);
+    expect(again.sf.treeContext.globalContext).toBe(plain.sf.treeContext.globalContext);
     // The served twin is a different object with the same history and tree.
     const served = executor.getSnapshot({ redact: true }).subflowResults as Served;
     expect(served.sf).not.toBe(plain.sf);
@@ -346,17 +349,23 @@ describe('onSubflowExit.outputState — the recorder sees the mirror, the same v
   });
 });
 
-// ── Clause 6 · no policy, no mirror, no rebuild — the served objects are the plain ones ──
+// ── Clause 6 · no policy, no mirror — the served view is the plain view ──
 
-describe('no policy — the served view is the plain view, object for object, and allocates no mirror', () => {
-  it.each(ENCODINGS)('[%s] redact: true serves the traverser’s own records', async (encoding) => {
-    const executor = await runTwoDeep(encoding, false);
-    const plain = executor.getSnapshot().subflowResults as Served;
-    const served = executor.getSnapshot({ redact: true }).subflowResults as Served;
-    expect(Object.keys(served)).toEqual(Object.keys(plain));
-    for (const key of Object.keys(plain)) expect(served[key]).toBe(plain[key]);
-    expect(bytes(served)).toContain(SECRET);
-  });
+describe('no policy — the served view is the plain view, value for value, and allocates no mirror', () => {
+  it.each(ENCODINGS)(
+    '[%s] redact: true serves what the plain snapshot serves — over the same live heap',
+    async (encoding) => {
+      const executor = await runTwoDeep(encoding, false);
+      const plain = executor.getSnapshot().subflowResults as Served;
+      const served = executor.getSnapshot({ redact: true }).subflowResults as Served;
+      expect(Object.keys(served)).toEqual(Object.keys(plain));
+      for (const key of Object.keys(plain)) {
+        expect(bytes(served[key])).toBe(bytes(plain[key]));
+        expect(served[key].treeContext.globalContext).toBe(plain[key].treeContext.globalContext);
+      }
+      expect(bytes(served)).toContain(SECRET);
+    },
+  );
 
   it('one SharedMemory per runtime without a policy; exactly one more per runtime with one', async () => {
     // A run builds three runtimes: the root, `sf`, `sf/sf-deep`. (The executor's

@@ -687,9 +687,10 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
 - `getSnapshot().commitLog` is a **detached, frozen** copy of the engine's live
   log ARRAY, and since 9.33.0 every bundle in it is frozen too, to every depth,
   at `EventLog · record` — a holder can no longer rewrite the history a fold
-  reads (Map/Set contents and typed-array bytes are the named holes;
-  memory/README.md). A snapshot is a fold result: it does not keep changing
-  under its holder.
+  reads. What freezing cannot seal (a Date, a Map, a buffer …) is served as a
+  fresh copy per snapshot since 9.45.0, so an edit of one stays in that
+  snapshot (memory/README.md, "Freeze what can be frozen, copy what can't").
+  A snapshot is a fold result: it does not keep changing under its holder.
 - `initialState` is the run's RAW seed — `initialContext` merged with
   `defaultValuesForContext` — and no redaction policy ever touched it: a policy
   scrubs stage WRITES at the scope facade, and nothing wrote the base. So

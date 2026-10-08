@@ -8,6 +8,7 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
+import { serveCopy, serveOwned } from '../capture/freeze.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
@@ -1167,7 +1168,16 @@ export class StageContext {
   }
 
   /** Snapshot of THIS context's own fields — `next`/`children` are filled
-   *  in by the iterative walk in `getSnapshot`. */
+   *  in by the iterative walk in `getSnapshot`.
+   *
+   *  SERVED, never handed out (9.45.0): every container is built for this
+   *  snapshot; a retained read or write — the engine's own copy — is frozen
+   *  once and shared, or served as a copy when freezing cannot seal it
+   *  (`capture/freeze.ts · serveOwned`), and so is a flow message (the
+   *  engine builds each one); a diagnostic bag — which can hold the app's
+   *  own objects — is served as a fresh copy (`serveCopy`). Until 9.45.0 the tree held this frame's own maps,
+   *  so a holder's `delete snapshot.stageReads.k` reached every later
+   *  snapshot and every slice that reads keys from the tree. */
   private snapshotSelf(): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
@@ -1175,22 +1185,24 @@ export class StageContext {
       name: this.stageName,
       isDecider: this.isDecider,
       isFork: this.isFork,
-      logs: this.debug.logContext,
-      errors: this.debug.errorContext,
-      metrics: this.debug.metricContext,
-      evals: this.debug.evalContext,
+      logs: servedBag(this.debug.logContext),
+      errors: servedBag(this.debug.errorContext),
+      metrics: servedBag(this.debug.metricContext),
+      evals: servedBag(this.debug.evalContext),
     };
     const stageWrites = this.retainedWrites();
     if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)
       const writes: Record<string, unknown> = {};
       for (const [k, entry] of Object.entries(stageWrites)) {
-        writes[k] = entry.value;
+        writes[k] = servedRetained(entry.value);
       }
       snapshot.stageWrites = writes;
     }
     if (Object.keys(this._stageReads).length > 0) {
-      snapshot.stageReads = this._stageReads;
+      const reads: Record<string, unknown> = {};
+      for (const [k, value] of Object.entries(this._stageReads)) reads[k] = servedRetained(value);
+      snapshot.stageReads = reads;
     }
     if (this.description) {
       snapshot.description = this.description;
@@ -1199,8 +1211,26 @@ export class StageContext {
       snapshot.subflowId = this.subflowId;
     }
     if (this.debug.flowMessages.length > 0) {
-      snapshot.flowMessages = this.debug.flowMessages;
+      // The engine's own records (each built fresh by `addFlowDebugMessage`): frozen once, shared.
+      snapshot.flowMessages = this.debug.flowMessages.map(servedRetained) as FlowMessage[];
     }
     return snapshot;
   }
+}
+
+/**
+ * A retained read or write as a snapshot serves it: the engine's own copy (a clone, a summary marker,
+ * a placeholder) frozen once, in place, and shared — or a fresh copy when it holds a value freezing
+ * cannot seal (`capture/freeze.ts · serveRecord`).
+ */
+function servedRetained(value: unknown): unknown {
+  return value !== null && typeof value === 'object' ? serveOwned(value) : value;
+}
+
+/** A diagnostic bag as a snapshot serves it: a fresh copy — its values can be the app's own objects. */
+function servedBag(bag: Record<string, unknown>): Record<string, unknown> {
+  const keys = Object.keys(bag);
+  const served: Record<string, unknown> = {};
+  for (let i = 0; i < keys.length; i++) served[keys[i]] = serveCopy(bag[keys[i]]);
+  return served;
 }

@@ -8,8 +8,9 @@
  *             `commitValueAt` and `stateAt` answer
  *   edge      a typed array in state commits and reads as before (the freeze skips it — the one state value
  *             that cannot be frozen); `getSnapshot()` with a `Uint8Array` in `initialContext` no longer
- *             throws (a regression the old walk carried); Map contents stay open (a named hole); a /g RegExp
- *             read from a bundle throws on `replace` (the named consequence)
+ *             throws (a regression the old walk carried); a Map in a bundle is served as a copy (9.45.0 —
+ *             it was the named hole: freezing cannot reach its entries, and every snapshot shared them);
+ *             a /g RegExp read from a bundle throws on `replace` (the named consequence)
  *   boundary  `EventLog.record` (footprintjs/advanced) freezes the bundle it is handed; the deprecated
  *             `materialise` still folds
  */
@@ -195,15 +196,18 @@ describe('the record is frozen — edges and named holes', () => {
     expect((executor.getSnapshot().initialState as { buf: Uint8Array }).buf[0]).toBe(9);
   });
 
-  it('Map contents inside a bundle stay mutable — the named hole', async () => {
+  it('a Map inside a bundle is served as a copy: an edit reaches no later snapshot (the hole, closed in 9.45.0)', async () => {
     const executor = new FlowChartExecutor(
       flowChart('S', (s: any) => s.$setValue('m', new Map([['k', 1]])), 's').build(),
     );
     await executor.run();
     const map = executor.getSnapshot().commitLog[0].overwrite.m as Map<string, number>;
     expect(Object.isFrozen(map)).toBe(true);
-    map.set('forged', 2); // Object.freeze cannot reach a Map's entries
+    map.set('forged', 2); // Object.freeze cannot reach a Map's entries — but this Map is the holder's copy
     expect(map.get('forged')).toBe(2);
+    const later = executor.getSnapshot();
+    expect((later.commitLog[0].overwrite.m as Map<string, number>).has('forged')).toBe(false);
+    expect((stateAt(later, 0).state.m as Map<string, number>).has('forged')).toBe(false);
   });
 
   it('a /g RegExp read from a bundle throws when replace advances it — copy it to use it', async () => {

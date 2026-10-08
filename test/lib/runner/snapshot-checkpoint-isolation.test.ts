@@ -187,8 +187,12 @@ describe('checkpoint isolation — mutating a returned checkpoint leaves engine 
     const cp = executor.getCheckpoint()!;
     const roundTripped = JSON.parse(JSON.stringify(cp));
     expect(roundTripped).toEqual(JSON.parse(JSON.stringify(executor.getCheckpoint()!)));
-    // Two reads return the SAME detached object (last-run-wins contract).
-    expect(executor.getCheckpoint()).toBe(cp);
+    // Two reads return EQUAL detached copies (9.45.0): each is the caller's own, so an edit of one
+    // (an annotation, a scrub before storing it) never reaches the next read.
+    expect(executor.getCheckpoint()).toEqual(cp);
+    expect(executor.getCheckpoint()).not.toBe(cp);
+    (cp as { pauseData?: unknown }).pauseData = 'edited by its holder';
+    expect(executor.getCheckpoint()!.pauseData).not.toBe('edited by its holder');
   });
 });
 

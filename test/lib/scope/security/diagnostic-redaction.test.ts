@@ -123,7 +123,8 @@ describe.each(['typed', 'facade', 'zod'] as const)('diagnostic retention through
       { key: 'profile', value: { token: MASK, keep: { public: 1 } }, level: 'debug' },
       { key: 'profile', value: { token: MASK, added: true }, level: 'debug' },
     ]);
-    expect((events[0].payload as { value: unknown }).value).toBe(profilesAtEmit[0]);
+    // The emit carries the retained object; a snapshot serves a copy of it (9.45.0) — one verdict, the same value.
+    expect((events[0].payload as { value: unknown }).value).toEqual(profilesAtEmit[0]);
     expect(first.token).toBe('first-private');
     expect(second.token).toBe('second-private');
   });
@@ -438,7 +439,7 @@ describe('default diagnostic bytes remain unchanged', () => {
     ['nonmatching state policy', { keys: ['unrelated'], fields: { other: ['secret'] } }],
     ['emit-only policy', { emitPatterns: [/^log\./] }],
   ];
-  it.each(controls)('%s preserves bag aliasing and merge/clear laws', async (_label, protection) => {
+  it.each(controls)('%s preserves bag bytes, retention aliasing and merge/clear laws', async (_label, protection) => {
     const raw = { secret: 'unmasked-raw', nested: { keep: true } };
     const executor = new FlowChartExecutor(
       flowChart<object>(
@@ -460,11 +461,17 @@ describe('default diagnostic bytes remain unchanged', () => {
     await executor.run();
     const logs = executor.getSnapshot().executionTree.logs;
     expect(logs).toEqual({ secret: raw, array: [1, 1, 1, 2], clear: [], messages: ['first', 'second'] });
-    expect(logs.secret).toBe(raw);
     expect((events[0].payload as { value?: unknown }).value ?? events[0].payload).toBe(
       protection?.emitPatterns ? MASK : raw,
     );
+    // The engine still RETAINS the app's own object (no copy at retention)…
     raw.secret = 'later-mutation';
-    expect((logs.secret as typeof raw).secret).toBe('later-mutation');
+    expect((executor.getSnapshot().executionTree.logs.secret as typeof raw).secret).toBe('later-mutation');
+    // …but a snapshot SERVES a copy (9.45.0): the one taken before keeps what it served, and a holder's
+    // edit of it reaches neither the app's object nor the next snapshot.
+    expect(logs.secret).not.toBe(raw);
+    expect((logs.secret as typeof raw).secret).toBe('unmasked-raw');
+    (logs.secret as typeof raw).secret = 'holder-edit';
+    expect(raw.secret).toBe('later-mutation');
   });
 });

@@ -19,9 +19,10 @@
  * That ratio is the number `src/lib/reactive/README.md` quotes.
  *
  * The FREEZE row (F3, 9.33.0): every commit bundle is deep-frozen at `EventLog · record`. `freeze ms`
- * is that walk timed on its own — `deepFreeze(structuredClone(work bundle), 'indices')`, the same
- * tree the engine freezes — and `freeze %` is it against the run total. The budget is ≤ 5% of the
- * run at N ≥ 10k; the last line says whether every such row is inside it.
+ * is that walk timed on its own — `freezeRecord(structuredClone(work bundle), 'indices')` since 9.45.0
+ * (the freeze plus the kind check that remembers a record serving must copy; a tree from before 9.45.0:
+ * `deepFreeze(…, 'indices')`), the same tree the engine freezes — and `freeze %` is it against the run
+ * total. The budget is ≤ 5% of the run at N ≥ 10k; the last line says whether every such row is inside it.
  *
  * A NESTED array (`scope.k.arr[i].n = i`) commits the same way — `set` of
  * `k` — and measures the same; the top-level key is used so `$batchArray`
@@ -50,9 +51,16 @@ type Lib = {
     getSnapshot(): { commitLog: Array<{ trace: unknown[] }>; initialState?: unknown };
   };
   stateAt: (source: unknown, idx: number) => unknown;
-  /** The commit log's freeze walk; absent in a built tree that predates it. */
-  deepFreeze?: (value: unknown, arrays?: 'every-key' | 'indices') => unknown;
+  /** The commit log's record walk (`EventLog · record`'s); absent in a built tree that predates it. */
+  recordWalk?: (bundle: unknown) => unknown;
 };
+
+/** A tree's record walk: `freezeRecord` since 9.45.0, `deepFreeze(…, 'indices')` since 9.33.0. */
+function recordWalkOf(freeze: Record<string, any> | undefined): Lib['recordWalk'] {
+  if (typeof freeze?.freezeRecord === 'function') return (bundle) => freeze.freezeRecord(bundle, 'indices');
+  if (typeof freeze?.deepFreeze === 'function') return (bundle) => freeze.deepFreeze(bundle, 'indices');
+  return undefined;
+}
 
 async function loadLib(): Promise<{ lib: Lib; label: string }> {
   const flag = process.argv.indexOf('--dist');
@@ -61,12 +69,12 @@ async function loadLib(): Promise<{ lib: Lib; label: string }> {
     const core = await import(`file://${root}/dist/esm/index.js`);
     const trace = await import(`file://${root}/dist/esm/trace.js`);
     const freeze = await import(`file://${root}/dist/esm/lib/capture/freeze.js`).catch(() => undefined);
-    return { lib: { ...core, stateAt: trace.stateAt, deepFreeze: freeze?.deepFreeze } as Lib, label: root };
+    return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) } as Lib, label: root };
   }
   const core = (await import('../src/index')) as unknown as Lib;
   const trace = (await import('../src/trace')) as unknown as { stateAt: Lib['stateAt'] };
-  const freeze = (await import('../src/lib/capture/freeze')) as unknown as { deepFreeze: Lib['deepFreeze'] };
-  return { lib: { ...core, stateAt: trace.stateAt, deepFreeze: freeze.deepFreeze }, label: 'src' };
+  const freeze = (await import('../src/lib/capture/freeze')) as Record<string, any>;
+  return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) }, label: 'src' };
 }
 
 function sizes(): number[] {
@@ -117,10 +125,10 @@ async function once(lib: Lib, n: number, variant: Variant, commitValues: 'full' 
   // The record's freeze, on its own: a fresh (unfrozen) copy of the work bundle, walked as
   // `EventLog · record` walks it. NaN when the tree under test has no freeze.
   let freeze = Number.NaN;
-  if (lib.deepFreeze) {
+  if (lib.recordWalk) {
     const copy = structuredClone(workBundle);
     const t2 = performance.now();
-    lib.deepFreeze(copy, 'indices');
+    lib.recordWalk(copy);
     freeze = performance.now() - t2;
   }
   return { total, body: body.ms, fold, freeze, rows };

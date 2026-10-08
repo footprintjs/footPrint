@@ -23,6 +23,7 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
+import { freezeRecord } from '../../capture/freeze.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -1755,7 +1756,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       subflowName: node.name,
       treeContext: {
         globalContext: {},
-        stageContexts: childStages as unknown as Record<string, unknown>,
+        // Stored, then served by every later snapshot (`servedSubflowResults`): a record, frozen once.
+        stageContexts: freezeRecord(childStages) as unknown as Record<string, unknown>,
         history: [],
         initialState: {},
       },

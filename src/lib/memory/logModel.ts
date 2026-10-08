@@ -247,7 +247,7 @@ export class LogModel {
           commit = touch.commitIdx;
           start = before;
         }
-        verdict.set(commit, !deepEqual(start, after));
+        verdict.set(commit, !deepEqual(start, after, 'copies'));
       },
     });
     changes = [...verdict].filter(([, changed]) => changed).map(([c]) => c);
@@ -275,7 +275,7 @@ export class LogModel {
     queryWork.units += candidates.length;
     return candidates.filter((c) => {
       const g = h.kept.get(c);
-      return g !== undefined && !deepEqual(nativeGet(g.before, rest), nativeGet(g.after, rest));
+      return g !== undefined && !deepEqual(nativeGet(g.before, rest), nativeGet(g.after, rest), 'copies');
     });
   }
 
@@ -362,11 +362,19 @@ export class LogModel {
       const kept = lastBefore(h.keptAt, idx + 1);
       if (kept !== -1) {
         const after = rows.filter((row) => row.commitIdx > kept);
-        return foldKey(after, segs, { anchored: true, start: h.kept.get(kept)?.after });
+        // Folded FROM the kept generation, the answer can BE it (no row after it) or share its parts, and
+        // the memo answers every later question: detach it, as the value rule promises (until 9.45.0 an
+        // edit of one answer changed the next).
+        return detached(foldKey(after, segs, { anchored: true, start: h.kept.get(kept)?.after }));
       }
     }
     return foldKey(rows, segs, { anchored: true });
   }
+}
+
+/** A value the caller owns: a container is cloned, a primitive is itself. */
+function detached(value: unknown): unknown {
+  return value !== null && typeof value === 'object' ? structuredClone(value) : value;
 }
 
 /** Is the last `set` / `delete` row ON `key` in this commit a `set`? */

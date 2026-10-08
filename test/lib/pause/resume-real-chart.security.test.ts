@@ -132,7 +132,7 @@ describe('a path the chart cannot walk is refused before anything runs', () => {
 
     await expect(executor.resume(bad, { n: 1 })).rejects.toThrow(/Cannot resume/);
     expect(executor.isPaused()).toBe(true);
-    expect(executor.getCheckpoint()).toBe(good);
+    expect(executor.getCheckpoint()).toEqual(good); // the same checkpoint — each read a fresh copy (9.45.0)
     // …and the good one still resumes.
     await executor.resume(good, { n: 1 });
     expect(executor.getSnapshot().sharedState.trace).toEqual([
@@ -262,7 +262,7 @@ describe('a subflow id mounted TWICE: a pause inside it is refused, loudly, at r
       await expect(executor.resume(checkpoint, {})).rejects.toThrow(
         "Cannot resume: subflow 'sf' is mounted more than once in the flowchart ('First', 'Second')",
       );
-      if (mode === 'same') expect(executor.getCheckpoint()).toBe(checkpoint);
+      if (mode === 'same') expect(executor.getCheckpoint()).toEqual(checkpoint);
     },
   );
 
