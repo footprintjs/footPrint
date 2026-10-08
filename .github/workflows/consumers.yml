@@ -82,6 +82,14 @@ jobs:
 
       - run: npm install -g npm@11
 
+      # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
+      # and the run's annotations should be the audit's verdicts; the output stays in the log.
+      - name: Keep the consumers' compiler output out of the run's annotations
+        run: |
+          echo "::remove-matcher owner=tsc::"
+          echo "::remove-matcher owner=eslint-stylish::"
+          echo "::remove-matcher owner=eslint-compact::"
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: candidate

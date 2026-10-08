@@ -50,7 +50,7 @@ AUDIT="$(gh run list --workflow consumers.yml --commit "$HEAD_SHA" --limit 1 --j
 if [[ "$AUDIT" != "completed success "* ]]; then
   echo "Error: the consumer audit is not green for HEAD ${HEAD_SHA:0:8} (latest run: ${AUDIT:-none, or gh is missing})."
   echo "  1. Push HEAD, then start the audit on it:  gh workflow run consumers.yml --ref $(git rev-parse --abbrev-ref HEAD)"
-  echo "  2. Wait for it (about 15 minutes):        gh run list --workflow consumers.yml --commit $HEAD_SHA"
+  echo "  2. Wait for it (about 11 minutes):        gh run list --workflow consumers.yml --commit $HEAD_SHA"
   echo "  3. Green: run this release again. Red: open the run; a BLOCKING consumer means this commit breaks it."
   exit 1
 fi

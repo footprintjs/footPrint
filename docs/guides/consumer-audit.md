@@ -40,7 +40,7 @@ A merge commit, or a commit pushed straight to main, has no PR run of its own. B
 
 ```bash
 git push
-gh workflow run consumers.yml --ref main               # about 15 minutes
+gh workflow run consumers.yml --ref main               # about 11 minutes; agentfootprint's suite is most of it
 gh run list --workflow consumers.yml --commit "$(git rev-parse HEAD)"
 ```
 
