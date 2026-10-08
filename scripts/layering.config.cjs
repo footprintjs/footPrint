@@ -16,7 +16,8 @@
  *   L0 values and leaves        address, compare, summarise a value; the dev-mode flag
  *   L1 verbs                    the one law that turns a trace row into a value
  *   L2 staging and commit       one stage's ops → one net-change bundle; the next generation
- *   L3 the log as a read model  what a finished log can honestly say (slice/, time-travel/)
+ *   L3 the log as a read model  what a finished log can honestly say (slice/, time-travel/), and the
+ *                               log itself with the one step that lands a commit on it (recordCommit)
  *   L4 the frame and run policy one stage's frame; the run's runtime
  *   L5 scope, recorders, hooks  what a stage may do; how every event reaches every recorder
  *   L6 engine                   walking the chart: one phase chain, one id grammar
@@ -101,6 +102,8 @@ const LAYERS = [
     name: 'the log as a read model',
     files: [
       'src/lib/memory/EventLog.ts',
+      // One commit onto the record: the bundle's key order, the scrub, the live/mirror apply, the log (C1).
+      'src/lib/memory/recordCommit.ts',
       'src/lib/memory/commitLogUtils.ts',
       // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
       'src/lib/memory/logModel.ts',
