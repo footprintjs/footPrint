@@ -1,0 +1,414 @@
+{
+  "full": {
+    "snapshot": {
+      "sharedState": {
+        "when": "«date:2026-07-03T00:00:00.000Z»",
+        "index": {
+          "«map»": [
+            [
+              "k",
+              2
+            ]
+          ]
+        },
+        "tags": {
+          "«set»": [
+            "b"
+          ]
+        }
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "when": "«date:2026-07-02T00:00:00.000Z»",
+          "index": {
+            "«map»": [
+              [
+                "k",
+                1
+              ]
+            ]
+          },
+          "tags": {
+            "«set»": [
+              "a"
+            ]
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Same stage",
+            "timestamp": "«time»",
+            "targetStage": "Same"
+          }
+        ],
+        "next": {
+          "id": "same",
+          "runtimeStageId": "same#1",
+          "name": "Same",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Changed stage",
+              "timestamp": "«time»",
+              "targetStage": "Changed"
+            }
+          ],
+          "next": {
+            "id": "changed",
+            "runtimeStageId": "changed#2",
+            "name": "Changed",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "when": "«date:2026-07-03T00:00:00.000Z»",
+              "index": {
+                "«map»": [
+                  [
+                    "k",
+                    2
+                  ]
+                ]
+              },
+              "tags": {
+                "«set»": [
+                  "b"
+                ]
+              },
+              "blank": "«undefined»"
+            }
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  1
+                ]
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "when",
+              "verb": "set"
+            },
+            {
+              "path": "index",
+              "verb": "set"
+            },
+            {
+              "path": "tags",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {},
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [],
+          "stage": "Same",
+          "stageId": "same",
+          "runtimeStageId": "same#1",
+          "idx": 1
+        },
+        {
+          "overwrite": {
+            "when": "«date:2026-07-03T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  2
+                ]
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "b"
+              ]
+            }
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "when",
+              "verb": "set"
+            },
+            {
+              "path": "index",
+              "verb": "set"
+            },
+            {
+              "path": "tags",
+              "verb": "set"
+            }
+          ],
+          "stage": "Changed",
+          "stageId": "changed",
+          "runtimeStageId": "changed#2",
+          "idx": 2
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:1»"
+    }
+  },
+  "delta": {
+    "snapshot": {
+      "sharedState": {
+        "when": "«date:2026-07-03T00:00:00.000Z»",
+        "index": {
+          "«map»": [
+            [
+              "k",
+              2
+            ]
+          ]
+        },
+        "tags": {
+          "«set»": [
+            "b"
+          ]
+        }
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "when": "«date:2026-07-02T00:00:00.000Z»",
+          "index": {
+            "«map»": [
+              [
+                "k",
+                1
+              ]
+            ]
+          },
+          "tags": {
+            "«set»": [
+              "a"
+            ]
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Same stage",
+            "timestamp": "«time»",
+            "targetStage": "Same"
+          }
+        ],
+        "next": {
+          "id": "same",
+          "runtimeStageId": "same#1",
+          "name": "Same",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Changed stage",
+              "timestamp": "«time»",
+              "targetStage": "Changed"
+            }
+          ],
+          "next": {
+            "id": "changed",
+            "runtimeStageId": "changed#2",
+            "name": "Changed",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "when": "«date:2026-07-03T00:00:00.000Z»",
+              "index": {
+                "«map»": [
+                  [
+                    "k",
+                    2
+                  ]
+                ]
+              },
+              "tags": {
+                "«set»": [
+                  "b"
+                ]
+              },
+              "blank": "«undefined»"
+            }
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  1
+                ]
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "when",
+              "verb": "set"
+            },
+            {
+              "path": "index",
+              "verb": "set"
+            },
+            {
+              "path": "tags",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {},
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [],
+          "stage": "Same",
+          "stageId": "same",
+          "runtimeStageId": "same#1",
+          "idx": 1
+        },
+        {
+          "overwrite": {
+            "when": "«date:2026-07-03T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  2
+                ]
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "b"
+              ]
+            }
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "when",
+              "verb": "set"
+            },
+            {
+              "path": "index",
+              "verb": "set"
+            },
+            {
+              "path": "tags",
+              "verb": "set"
+            }
+          ],
+          "stage": "Changed",
+          "stageId": "changed",
+          "runtimeStageId": "changed#2",
+          "idx": 2
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "off",
+      "runId": "«run:2»"
+    }
+  }
+}

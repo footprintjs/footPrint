@@ -1,0 +1,608 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "words": [
+        "a",
+        "bb",
+        "ccc"
+      ],
+      "lens": [
+        {
+          "item": "a",
+          "index": 0,
+          "len": 1
+        },
+        {
+          "item": "bb",
+          "index": 1,
+          "len": 2
+        }
+      ],
+      "count": 2
+    },
+    "executionTree": {
+      "id": "split",
+      "runtimeStageId": "split#0",
+      "name": "Split",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "words": [
+          "a",
+          "bb",
+          "ccc"
+        ]
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Each stage",
+          "timestamp": "«time»",
+          "targetStage": "Each"
+        }
+      ],
+      "next": {
+        "id": "each",
+        "runtimeStageId": "each#1",
+        "name": "Each",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "parallelForEach": {
+            "items": 3,
+            "branches": 2,
+            "maxBranches": 2,
+            "truncated": true,
+            "into": "lens"
+          }
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "lens": [
+            {
+              "item": "a",
+              "index": 0,
+              "len": 1
+            },
+            {
+              "item": "bb",
+              "index": 1,
+              "len": 2
+            }
+          ]
+        },
+        "stageReads": {
+          "words": [
+            "a",
+            "bb",
+            "ccc"
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "maxBranches reached: running 2 of 3 items (1 not run)",
+            "timestamp": "«time»",
+            "count": 2
+          }
+        ],
+        "next": {
+          "id": "count",
+          "runtimeStageId": "count#6",
+          "name": "Count",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "count": 2
+          },
+          "stageReads": {
+            "lens": [
+              {
+                "item": "a",
+                "index": 0,
+                "len": 1
+              },
+              {
+                "item": "bb",
+                "index": 1,
+                "len": 2
+              }
+            ]
+          }
+        },
+        "children": [
+          {
+            "id": "each~0",
+            "runtimeStageId": "each~0#2",
+            "name": "Each [0]",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "each~0",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering Each [0] subflow",
+                "timestamp": "«time»",
+                "targetStage": "each~0"
+              },
+              {
+                "type": "subflow",
+                "description": "Exiting Each [0] subflow",
+                "timestamp": "«time»",
+                "targetStage": "each~0"
+              }
+            ]
+          },
+          {
+            "id": "each~1",
+            "runtimeStageId": "each~1#4",
+            "name": "Each [1]",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "each~1",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering Each [1] subflow",
+                "timestamp": "«time»",
+                "targetStage": "each~1"
+              },
+              {
+                "type": "subflow",
+                "description": "Exiting Each [1] subflow",
+                "timestamp": "«time»",
+                "targetStage": "each~1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "words": [
+            "a",
+            "bb",
+            "ccc"
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "words",
+            "verb": "set"
+          }
+        ],
+        "stage": "Split",
+        "stageId": "split",
+        "runtimeStageId": "split#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Each [0]",
+        "stageId": "each~0",
+        "runtimeStageId": "each~0#2",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Each [1]",
+        "stageId": "each~1",
+        "runtimeStageId": "each~1#4",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Each [0]",
+        "stageId": "each~0",
+        "runtimeStageId": "each~0#2",
+        "phase": "repeat",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Each [1]",
+        "stageId": "each~1",
+        "runtimeStageId": "each~1#4",
+        "phase": "repeat",
+        "idx": 4
+      },
+      {
+        "overwrite": {
+          "lens": [
+            {
+              "item": "a",
+              "index": 0,
+              "len": 1
+            },
+            {
+              "item": "bb",
+              "index": 1,
+              "len": 2
+            }
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "lens",
+            "verb": "set"
+          }
+        ],
+        "stage": "Each",
+        "stageId": "each",
+        "runtimeStageId": "each#1",
+        "idx": 5
+      },
+      {
+        "overwrite": {
+          "count": 2
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "count",
+            "verb": "set"
+          }
+        ],
+        "stage": "Count",
+        "stageId": "count",
+        "runtimeStageId": "count#6",
+        "idx": 6
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "each~0": {
+        "subflowId": "each~0",
+        "subflowName": "Each [0]",
+        "treeContext": {
+          "globalContext": {
+            "item": "a",
+            "index": 0,
+            "len": 1
+          },
+          "stageContexts": {
+            "id": "each~0/measure",
+            "runtimeStageId": "each~0/measure#3",
+            "name": "each~0/Measure",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "len": 1
+            },
+            "stageReads": {
+              "item": "a"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "item": "a",
+                "index": 0
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "item",
+                  "verb": "set"
+                },
+                {
+                  "path": "index",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Each [0]",
+              "stageId": "each~0",
+              "runtimeStageId": "each~0#2",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "len": 1
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "len",
+                  "verb": "set"
+                }
+              ],
+              "stage": "each~0/Measure",
+              "stageId": "each~0/measure",
+              "runtimeStageId": "each~0/measure#3",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "each~0#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "each~0.Each [0]"
+      },
+      "each~0#2": {
+        "subflowId": "each~0",
+        "subflowName": "Each [0]",
+        "treeContext": {
+          "globalContext": {
+            "item": "a",
+            "index": 0,
+            "len": 1
+          },
+          "stageContexts": {
+            "id": "each~0/measure",
+            "runtimeStageId": "each~0/measure#3",
+            "name": "each~0/Measure",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "len": 1
+            },
+            "stageReads": {
+              "item": "a"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "item": "a",
+                "index": 0
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "item",
+                  "verb": "set"
+                },
+                {
+                  "path": "index",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Each [0]",
+              "stageId": "each~0",
+              "runtimeStageId": "each~0#2",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "len": 1
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "len",
+                  "verb": "set"
+                }
+              ],
+              "stage": "each~0/Measure",
+              "stageId": "each~0/measure",
+              "runtimeStageId": "each~0/measure#3",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "each~0#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "each~0.Each [0]"
+      },
+      "each~1": {
+        "subflowId": "each~1",
+        "subflowName": "Each [1]",
+        "treeContext": {
+          "globalContext": {
+            "item": "bb",
+            "index": 1,
+            "len": 2
+          },
+          "stageContexts": {
+            "id": "each~1/measure",
+            "runtimeStageId": "each~1/measure#5",
+            "name": "each~1/Measure",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "len": 2
+            },
+            "stageReads": {
+              "item": "bb"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "item": "bb",
+                "index": 1
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "item",
+                  "verb": "set"
+                },
+                {
+                  "path": "index",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Each [1]",
+              "stageId": "each~1",
+              "runtimeStageId": "each~1#4",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "len": 2
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "len",
+                  "verb": "set"
+                }
+              ],
+              "stage": "each~1/Measure",
+              "stageId": "each~1/measure",
+              "runtimeStageId": "each~1/measure#5",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "each~1#4"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "each~1.Each [1]"
+      },
+      "each~1#4": {
+        "subflowId": "each~1",
+        "subflowName": "Each [1]",
+        "treeContext": {
+          "globalContext": {
+            "item": "bb",
+            "index": 1,
+            "len": 2
+          },
+          "stageContexts": {
+            "id": "each~1/measure",
+            "runtimeStageId": "each~1/measure#5",
+            "name": "each~1/Measure",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "len": 2
+            },
+            "stageReads": {
+              "item": "bb"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "item": "bb",
+                "index": 1
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "item",
+                  "verb": "set"
+                },
+                {
+                  "path": "index",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Each [1]",
+              "stageId": "each~1",
+              "runtimeStageId": "each~1#4",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "len": 2
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "len",
+                  "verb": "set"
+                }
+              ],
+              "stage": "each~1/Measure",
+              "stageId": "each~1/measure",
+              "runtimeStageId": "each~1/measure#5",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "each~1#4"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "each~1.Each [1]"
+      }
+    }
+  }
+}

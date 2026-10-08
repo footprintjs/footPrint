@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/audit-family-versions.mjs` reads the same list. Its family now includes hcifootprint and footprint-storyreel, and its drift check now covers vizfootprint and the two playgrounds.
 - No library code changed.
 
+### Tests — today's record bytes, pinned
+
+- **The bytes footprintjs 9.44.1 writes are stored, and every run must reproduce them** (`test/fixtures/`). This is the safety net for the clean-up that moves the record half of a frame out of `StageContext`: a byte that moves fails a test that names the scenario and shows the line. Tests only; no library change.
+  - **26 flowchart scenarios** (`test/fixtures/record-bytes/`), each a small chart aimed at one record-shaping path: linear, decider, selector, fork, a failing and a throttled fork child, subflows (eager, lazy, `parallelForEach`, a branch merging back mid-fork), a loop, pause and resume (`addPausableFunction` on the same executor, `interrupt()` in a subflow from the stored checkpoint), retry, a failing stage and an uncloneable write, redaction (`keys`, `patterns`, `fields`, identity inheritance, per-call marks carried by the checkpoint, the subflow seed and merge-back, the mirror's seed), both `commitValues` encodings, the retention dials, `writeProvenance: 'reads-prefix'`, declared tags with `untrackedSources` and `phase`, fork children's `runs/<id>` writes and a branch mount's merge-back at its parent's address, the facade's path-aware reads and writes, both empty-commit paths, the first-touch diff base, both read tiers (the lazy buffer and `detachBase`), the four verbs, and Date/Map/Set. Each pins what `getSnapshot()` serves, plus the checkpoint and the resumed run when it pauses, the redacted view under a policy, and how a failed run failed. The first nine are the charts of `scripts/byte-identity-probe.ts`, promoted; the script is removed (the narrative and the resume's return value it also dumped are not record bytes and are not pinned).
+  - **hcifootprint 2.6.1's real transitions** (`test/fixtures/hcifootprint/`), captured once from its `test/trace.test.ts` sessions plus a commit out of mint order. They are replayed through the `/advanced` calls 2.6.1 makes (its session constructor and `#commitDelta`, copied verbatim) against the log, fold base, state and reads they gave.
+  - **The re-pin policy, proposed (owner ruling 3)**, in `test/fixtures/README.md`: a byte change is a bug or a named law fix; a law fix re-pins in a minor, named here under "Record bytes"; a refactor never re-pins.
+
 ## [9.44.1] - 2026-10-07
 
 ### Security

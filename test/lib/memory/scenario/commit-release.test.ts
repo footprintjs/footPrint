@@ -15,7 +15,8 @@
  * BOTH paths (no-buffer fast path and buffer path). Both fields re-create
  * lazily, so re-use after commit (fork double-commit, subflow outputMapper
  * double-commit, engine post-commit writes) stays observably identical —
- * proven byte-for-byte by scripts/byte-identity-probe.ts across 9 scenarios.
+ * proven byte-for-byte by the probe's 9 scenarios, now stored and checked on
+ * every run (test/fixtures/record-bytes, the first nine).
  *
  * Covers:
  *   UNIT        — release on both commit paths; lazy re-anchor of reads and

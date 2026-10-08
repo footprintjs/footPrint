@@ -1,0 +1,297 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "forTenant": "t-1",
+      "doubled": 4
+    },
+    "executionTree": {
+      "id": "args",
+      "runtimeStageId": "args#0",
+      "name": "Args",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "forTenant": "t-1"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Quiet stage",
+          "timestamp": "«time»",
+          "targetStage": "Quiet"
+        }
+      ],
+      "next": {
+        "id": "quiet",
+        "runtimeStageId": "quiet#1",
+        "name": "Quiet",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Double stage",
+            "timestamp": "«time»",
+            "targetStage": "Double"
+          }
+        ],
+        "next": {
+          "id": "sf-double",
+          "runtimeStageId": "sf-double#2",
+          "name": "Double",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "subflowId": "sf-double",
+          "flowMessages": [
+            {
+              "type": "subflow",
+              "description": "Entering Double subflow",
+              "timestamp": "«time»",
+              "targetStage": "sf-double"
+            },
+            {
+              "type": "subflow",
+              "description": "Exiting Double subflow",
+              "timestamp": "«time»",
+              "targetStage": "sf-double"
+            }
+          ]
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "forTenant": "t-1"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "forTenant",
+            "verb": "set"
+          }
+        ],
+        "stage": "Args",
+        "stageId": "args",
+        "runtimeStageId": "args#0",
+        "untrackedSources": [
+          "args"
+        ],
+        "tags": [
+          "ingress"
+        ],
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Quiet",
+        "stageId": "quiet",
+        "runtimeStageId": "quiet#1",
+        "tags": [
+          "audit",
+          "stop"
+        ],
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "doubled": 4
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "doubled",
+            "verb": "set"
+          }
+        ],
+        "stage": "Double",
+        "stageId": "sf-double",
+        "runtimeStageId": "sf-double#2",
+        "tags": [
+          "mount"
+        ],
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Double",
+        "stageId": "sf-double",
+        "runtimeStageId": "sf-double#2",
+        "phase": "exit",
+        "idx": 3
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-double": {
+        "subflowId": "sf-double",
+        "subflowName": "Double",
+        "treeContext": {
+          "globalContext": {
+            "in": 2,
+            "out": 4
+          },
+          "stageContexts": {
+            "id": "sf-double/inner",
+            "runtimeStageId": "sf-double/inner#3",
+            "name": "sf-double/Inner",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "out": 4
+            },
+            "stageReads": {
+              "in": 2
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "in": 2
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "in",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Double",
+              "stageId": "sf-double",
+              "runtimeStageId": "sf-double#2",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "out": 4
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "out",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-double/Inner",
+              "stageId": "sf-double/inner",
+              "runtimeStageId": "sf-double/inner#3",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-double#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Double"
+      },
+      "sf-double#2": {
+        "subflowId": "sf-double",
+        "subflowName": "Double",
+        "treeContext": {
+          "globalContext": {
+            "in": 2,
+            "out": 4
+          },
+          "stageContexts": {
+            "id": "sf-double/inner",
+            "runtimeStageId": "sf-double/inner#3",
+            "name": "sf-double/Inner",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "out": 4
+            },
+            "stageReads": {
+              "in": 2
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "in": 2
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "in",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Double",
+              "stageId": "sf-double",
+              "runtimeStageId": "sf-double#2",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "out": 4
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "out",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-double/Inner",
+              "stageId": "sf-double/inner",
+              "runtimeStageId": "sf-double/inner#3",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-double#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Double"
+      }
+    }
+  }
+}

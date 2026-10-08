@@ -1,0 +1,337 @@
+{
+  "paused": {
+    "sharedState": {
+      "k": "mutated"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "k": "orig"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Mutate stage",
+          "timestamp": "«time»",
+          "targetStage": "Mutate"
+        }
+      ],
+      "next": {
+        "id": "mutate",
+        "runtimeStageId": "mutate#1",
+        "name": "Mutate",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "mutated"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Approve stage",
+            "timestamp": "«time»",
+            "targetStage": "Approve"
+          }
+        ],
+        "next": {
+          "id": "approve",
+          "runtimeStageId": "approve#2",
+          "name": "Approve",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "k": "orig"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "k": "mutated"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Mutate",
+        "stageId": "mutate",
+        "runtimeStageId": "mutate#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Approve",
+        "stageId": "approve",
+        "runtimeStageId": "approve#2",
+        "idx": 2
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  },
+  "checkpoint": {
+    "checkpointVersion": 2,
+    "sharedState": {
+      "k": "mutated"
+    },
+    "pausedStageId": "approve",
+    "pausedExecution": {
+      "runId": "«run:1»",
+      "runtimeStageId": "approve#2"
+    },
+    "subflowPath": [],
+    "pauseData": {
+      "question": "approve?"
+    },
+    "subflowStates": {},
+    "executionCount": 3,
+    "visitCounts": {
+      "seed": 1,
+      "mutate": 1,
+      "approve": 1
+    },
+    "pausedAt": "«time»"
+  },
+  "resumed": {
+    "sharedState": {
+      "k": "orig",
+      "resumeRead": "mutated",
+      "finished": "orig"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "k": "orig"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Mutate stage",
+          "timestamp": "«time»",
+          "targetStage": "Mutate"
+        }
+      ],
+      "next": {
+        "id": "mutate",
+        "runtimeStageId": "mutate#1",
+        "name": "Mutate",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "mutated"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Approve stage",
+            "timestamp": "«time»",
+            "targetStage": "Approve"
+          }
+        ],
+        "next": {
+          "id": "approve",
+          "runtimeStageId": "approve#2",
+          "name": "Approve",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "next": {
+            "id": "approve",
+            "runtimeStageId": "approve#3",
+            "name": "Approve",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "k": "orig",
+              "resumeRead": "mutated"
+            },
+            "stageReads": {
+              "k": "mutated"
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to Finish stage",
+                "timestamp": "«time»",
+                "targetStage": "Finish"
+              }
+            ],
+            "next": {
+              "id": "finish",
+              "runtimeStageId": "finish#4",
+              "name": "Finish",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "finished": "orig"
+              },
+              "stageReads": {
+                "k": "orig"
+              }
+            }
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "k": "orig"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "k": "mutated"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Mutate",
+        "stageId": "mutate",
+        "runtimeStageId": "mutate#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Approve",
+        "stageId": "approve",
+        "runtimeStageId": "approve#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "k": "orig",
+          "resumeRead": "mutated"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          },
+          {
+            "path": "resumeRead",
+            "verb": "set"
+          }
+        ],
+        "stage": "Approve",
+        "stageId": "approve",
+        "runtimeStageId": "approve#3",
+        "idx": 3
+      },
+      {
+        "overwrite": {
+          "finished": "orig"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "finished",
+            "verb": "set"
+          }
+        ],
+        "stage": "Finish",
+        "stageId": "finish",
+        "runtimeStageId": "finish#4",
+        "idx": 4
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:2»"
+  }
+}

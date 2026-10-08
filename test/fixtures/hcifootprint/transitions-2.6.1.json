@@ -1,0 +1,2131 @@
+{
+  "capturedFrom": "hcifootprint 2.6.1 (main bcb6306) on footprintjs 9.44.1 from npm",
+  "sessions": [
+    {
+      "name": "playSession (delta, the default; redactedKeys user)",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "login",
+          "stageId": "login",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "authenticated",
+              true,
+              false
+            ],
+            [
+              "user",
+              {
+                "name": "ada"
+              },
+              true
+            ]
+          ],
+          "runtimeStageId": "login#0"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [
+                {
+                  "id": "p1"
+                }
+              ],
+              false
+            ],
+            [
+              "cartCount",
+              1,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#1"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [
+                {
+                  "id": "p1"
+                },
+                {
+                  "id": "p2"
+                }
+              ],
+              false
+            ],
+            [
+              "cartCount",
+              2,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#2"
+        },
+        {
+          "stage": "go-to-cart",
+          "stageId": "go-to-cart",
+          "reads": [
+            "cartCount"
+          ],
+          "writes": [],
+          "runtimeStageId": "go-to-cart#3"
+        },
+        {
+          "stage": "proceed-to-checkout",
+          "stageId": "proceed-to-checkout",
+          "reads": [
+            "cartCount"
+          ],
+          "writes": [],
+          "runtimeStageId": "proceed-to-checkout#4"
+        },
+        {
+          "stage": "place-order",
+          "stageId": "place-order",
+          "reads": [
+            "cartCount",
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "orderId",
+              "ord-1",
+              false
+            ]
+          ],
+          "runtimeStageId": "place-order#5"
+        },
+        {
+          "stage": "stimulus:structure-swap",
+          "stageId": "stimulus:structure-swap",
+          "reads": [],
+          "writes": [],
+          "runtimeStageId": "stimulus:structure-swap#6"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "authenticated": true,
+              "user": "REDACTED"
+            },
+            "updates": {},
+            "redactedPaths": [
+              "user"
+            ],
+            "trace": [
+              {
+                "path": "authenticated",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "user",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "login",
+            "stageId": "login",
+            "runtimeStageId": "login#0",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "cart": [
+                {
+                  "id": "p1"
+                }
+              ],
+              "cartCount": 1
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "cart",
+                "verb": "append",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "cartCount",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#1",
+            "idx": 1
+          },
+          {
+            "overwrite": {
+              "cart": [
+                {
+                  "id": "p2"
+                }
+              ],
+              "cartCount": 2
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "cart",
+                "verb": "append",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "cartCount",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#2",
+            "idx": 2
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "go-to-cart",
+            "stageId": "go-to-cart",
+            "runtimeStageId": "go-to-cart#3",
+            "idx": 3
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "proceed-to-checkout",
+            "stageId": "proceed-to-checkout",
+            "runtimeStageId": "proceed-to-checkout#4",
+            "idx": 4
+          },
+          {
+            "overwrite": {
+              "orderId": "ord-1"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "orderId",
+                "verb": "set",
+                "readKeys": [
+                  "cartCount",
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "place-order",
+            "stageId": "place-order",
+            "runtimeStageId": "place-order#5",
+            "idx": 5
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "stimulus:structure-swap",
+            "stageId": "stimulus:structure-swap",
+            "runtimeStageId": "stimulus:structure-swap#6",
+            "idx": 6
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": true,
+          "user": {
+            "name": "ada"
+          },
+          "cartCount": 2,
+          "cart": [
+            {
+              "id": "p1"
+            },
+            {
+              "id": "p2"
+            }
+          ],
+          "orderId": "ord-1"
+        },
+        "reads": [
+          [
+            "login#0",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#1",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#2",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "go-to-cart#3",
+            [
+              "cartCount"
+            ]
+          ],
+          [
+            "proceed-to-checkout#4",
+            [
+              "cartCount"
+            ]
+          ],
+          [
+            "place-order#5",
+            [
+              "cartCount",
+              "authenticated"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "name": "playSession ('full')",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "full",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "login",
+          "stageId": "login",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "authenticated",
+              true,
+              false
+            ],
+            [
+              "user",
+              {
+                "name": "ada"
+              },
+              true
+            ]
+          ],
+          "runtimeStageId": "login#0"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [
+                {
+                  "id": "p1"
+                }
+              ],
+              false
+            ],
+            [
+              "cartCount",
+              1,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#1"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [
+                {
+                  "id": "p1"
+                },
+                {
+                  "id": "p2"
+                }
+              ],
+              false
+            ],
+            [
+              "cartCount",
+              2,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#2"
+        },
+        {
+          "stage": "go-to-cart",
+          "stageId": "go-to-cart",
+          "reads": [
+            "cartCount"
+          ],
+          "writes": [],
+          "runtimeStageId": "go-to-cart#3"
+        },
+        {
+          "stage": "proceed-to-checkout",
+          "stageId": "proceed-to-checkout",
+          "reads": [
+            "cartCount"
+          ],
+          "writes": [],
+          "runtimeStageId": "proceed-to-checkout#4"
+        },
+        {
+          "stage": "place-order",
+          "stageId": "place-order",
+          "reads": [
+            "cartCount",
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "orderId",
+              "ord-1",
+              false
+            ]
+          ],
+          "runtimeStageId": "place-order#5"
+        },
+        {
+          "stage": "stimulus:structure-swap",
+          "stageId": "stimulus:structure-swap",
+          "reads": [],
+          "writes": [],
+          "runtimeStageId": "stimulus:structure-swap#6"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "authenticated": true,
+              "user": "REDACTED"
+            },
+            "updates": {},
+            "redactedPaths": [
+              "user"
+            ],
+            "trace": [
+              {
+                "path": "authenticated",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "user",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "login",
+            "stageId": "login",
+            "runtimeStageId": "login#0",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "cart": [
+                {
+                  "id": "p1"
+                }
+              ],
+              "cartCount": 1
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "cart",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "cartCount",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#1",
+            "idx": 1
+          },
+          {
+            "overwrite": {
+              "cart": [
+                {
+                  "id": "p1"
+                },
+                {
+                  "id": "p2"
+                }
+              ],
+              "cartCount": 2
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "cart",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "cartCount",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#2",
+            "idx": 2
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "go-to-cart",
+            "stageId": "go-to-cart",
+            "runtimeStageId": "go-to-cart#3",
+            "idx": 3
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "proceed-to-checkout",
+            "stageId": "proceed-to-checkout",
+            "runtimeStageId": "proceed-to-checkout#4",
+            "idx": 4
+          },
+          {
+            "overwrite": {
+              "orderId": "ord-1"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "orderId",
+                "verb": "set",
+                "readKeys": [
+                  "cartCount",
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "place-order",
+            "stageId": "place-order",
+            "runtimeStageId": "place-order#5",
+            "idx": 5
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "stimulus:structure-swap",
+            "stageId": "stimulus:structure-swap",
+            "runtimeStageId": "stimulus:structure-swap#6",
+            "idx": 6
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": true,
+          "user": {
+            "name": "ada"
+          },
+          "cartCount": 2,
+          "cart": [
+            {
+              "id": "p1"
+            },
+            {
+              "id": "p2"
+            }
+          ],
+          "orderId": "ord-1"
+        },
+        "reads": [
+          [
+            "login#0",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#1",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#2",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "go-to-cart#3",
+            [
+              "cartCount"
+            ]
+          ],
+          [
+            "proceed-to-checkout#4",
+            [
+              "cartCount"
+            ]
+          ],
+          [
+            "place-order#5",
+            [
+              "cartCount",
+              "authenticated"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "name": "a Date survives settlement; an undefined value is dropped",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "when",
+              "«date:2026-07-02T00:00:00.000Z»",
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#0"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "when": "«date:2026-07-02T00:00:00.000Z»"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "when",
+                "verb": "set",
+                "readKeys": []
+              }
+            ],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#0",
+            "idx": 0
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": [],
+          "when": "«date:2026-07-02T00:00:00.000Z»"
+        },
+        "reads": []
+      }
+    },
+    {
+      "name": "a different Date, Map or Set is a change",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "when",
+              "«date:2026-07-02T00:00:00.000Z»",
+              false
+            ],
+            [
+              "index",
+              {
+                "«map»": [
+                  [
+                    "k",
+                    1
+                  ]
+                ]
+              },
+              false
+            ],
+            [
+              "tags",
+              {
+                "«set»": [
+                  "a"
+                ]
+              },
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#0"
+        },
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "when",
+              "«date:2026-07-03T00:00:00.000Z»",
+              false
+            ],
+            [
+              "index",
+              {
+                "«map»": [
+                  [
+                    "k",
+                    2
+                  ]
+                ]
+              },
+              false
+            ],
+            [
+              "tags",
+              {
+                "«set»": [
+                  "b"
+                ]
+              },
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#1"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "when": "«date:2026-07-02T00:00:00.000Z»",
+              "index": {
+                "«map»": [
+                  [
+                    "k",
+                    1
+                  ]
+                ]
+              },
+              "tags": {
+                "«set»": [
+                  "a"
+                ]
+              }
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "when",
+                "verb": "set",
+                "readKeys": []
+              },
+              {
+                "path": "index",
+                "verb": "set",
+                "readKeys": []
+              },
+              {
+                "path": "tags",
+                "verb": "set",
+                "readKeys": []
+              }
+            ],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#0",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "when": "«date:2026-07-03T00:00:00.000Z»",
+              "index": {
+                "«map»": [
+                  [
+                    "k",
+                    2
+                  ]
+                ]
+              },
+              "tags": {
+                "«set»": [
+                  "b"
+                ]
+              }
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "when",
+                "verb": "set",
+                "readKeys": []
+              },
+              {
+                "path": "index",
+                "verb": "set",
+                "readKeys": []
+              },
+              {
+                "path": "tags",
+                "verb": "set",
+                "readKeys": []
+              }
+            ],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#1",
+            "idx": 1
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": [],
+          "when": "«date:2026-07-03T00:00:00.000Z»",
+          "index": {
+            "«map»": [
+              [
+                "k",
+                2
+              ]
+            ]
+          },
+          "tags": {
+            "«set»": [
+              "b"
+            ]
+          }
+        },
+        "reads": []
+      }
+    },
+    {
+      "name": "a report differing only by an own undefined field commits nothing",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "o",
+              {
+                "a": 1
+              },
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#0"
+        },
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "o",
+              {
+                "a": 1,
+                "b": "«undefined»"
+              },
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#1"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "o": {
+                "a": 1
+              }
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "o",
+                "verb": "set",
+                "readKeys": []
+              }
+            ],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#0",
+            "idx": 0
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#1",
+            "idx": 1
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": [],
+          "o": {
+            "a": 1
+          }
+        },
+        "reads": []
+      }
+    },
+    {
+      "name": "25 revisits keep runtimeStageIds unique",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": true,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#0"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#1"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#2"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#3"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#4"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#5"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#6"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#7"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#8"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#9"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#10"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#11"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#12"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#13"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#14"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#15"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#16"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#17"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#18"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#19"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#20"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#21"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#22"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#23"
+        },
+        {
+          "stage": "add-to-cart",
+          "stageId": "add-to-cart",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "cart",
+              [],
+              false
+            ],
+            [
+              "cartCount",
+              0,
+              false
+            ]
+          ],
+          "runtimeStageId": "add-to-cart#24"
+        },
+        {
+          "stage": "stimulus:structure-swap",
+          "stageId": "stimulus:structure-swap",
+          "reads": [],
+          "writes": [],
+          "runtimeStageId": "stimulus:structure-swap#25"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#0",
+            "idx": 0
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#1",
+            "idx": 1
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#2",
+            "idx": 2
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#3",
+            "idx": 3
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#4",
+            "idx": 4
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#5",
+            "idx": 5
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#6",
+            "idx": 6
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#7",
+            "idx": 7
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#8",
+            "idx": 8
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#9",
+            "idx": 9
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#10",
+            "idx": 10
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#11",
+            "idx": 11
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#12",
+            "idx": 12
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#13",
+            "idx": 13
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#14",
+            "idx": 14
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#15",
+            "idx": 15
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#16",
+            "idx": 16
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#17",
+            "idx": 17
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#18",
+            "idx": 18
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#19",
+            "idx": 19
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#20",
+            "idx": 20
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#21",
+            "idx": 21
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#22",
+            "idx": 22
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#23",
+            "idx": 23
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "add-to-cart",
+            "stageId": "add-to-cart",
+            "runtimeStageId": "add-to-cart#24",
+            "idx": 24
+          },
+          {
+            "overwrite": {},
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [],
+            "stage": "stimulus:structure-swap",
+            "stageId": "stimulus:structure-swap",
+            "runtimeStageId": "stimulus:structure-swap#25",
+            "idx": 25
+          }
+        ],
+        "initialState": {
+          "authenticated": true,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": true,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "reads": [
+          [
+            "add-to-cart#0",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#1",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#2",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#3",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#4",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#5",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#6",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#7",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#8",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#9",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#10",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#11",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#12",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#13",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#14",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#15",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#16",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#17",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#18",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#19",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#20",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#21",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#22",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#23",
+            [
+              "authenticated"
+            ]
+          ],
+          [
+            "add-to-cart#24",
+            [
+              "authenticated"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "name": "out of mint order: fire login, a push stimulus commits, then login settles",
+      "open": {
+        "rootName": "session",
+        "rootId": "session",
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "commitValues": "delta",
+        "writeProvenance": "reads-prefix"
+      },
+      "transitions": [
+        {
+          "stage": "stimulus:push",
+          "stageId": "stimulus:push",
+          "reads": [],
+          "writes": [
+            [
+              "banner",
+              "sale",
+              false
+            ]
+          ],
+          "runtimeStageId": "stimulus:push#1"
+        },
+        {
+          "stage": "login",
+          "stageId": "login",
+          "reads": [
+            "authenticated"
+          ],
+          "writes": [
+            [
+              "authenticated",
+              true,
+              false
+            ],
+            [
+              "user",
+              {
+                "name": "ada"
+              },
+              false
+            ]
+          ],
+          "runtimeStageId": "login#0"
+        }
+      ],
+      "recorded": {
+        "commitLog": [
+          {
+            "overwrite": {
+              "banner": "sale"
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "banner",
+                "verb": "set",
+                "readKeys": []
+              }
+            ],
+            "stage": "stimulus:push",
+            "stageId": "stimulus:push",
+            "runtimeStageId": "stimulus:push#1",
+            "idx": 0
+          },
+          {
+            "overwrite": {
+              "authenticated": true,
+              "user": {
+                "name": "ada"
+              }
+            },
+            "updates": {},
+            "redactedPaths": [],
+            "trace": [
+              {
+                "path": "authenticated",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              },
+              {
+                "path": "user",
+                "verb": "set",
+                "readKeys": [
+                  "authenticated"
+                ]
+              }
+            ],
+            "stage": "login",
+            "stageId": "login",
+            "runtimeStageId": "login#0",
+            "idx": 1
+          }
+        ],
+        "initialState": {
+          "authenticated": false,
+          "user": null,
+          "cartCount": 0,
+          "cart": []
+        },
+        "state": {
+          "authenticated": true,
+          "user": {
+            "name": "ada"
+          },
+          "cartCount": 0,
+          "cart": [],
+          "banner": "sale"
+        },
+        "reads": [
+          [
+            "login#0",
+            [
+              "authenticated"
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

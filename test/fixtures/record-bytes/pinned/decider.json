@@ -1,0 +1,169 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "score": 72,
+      "routed": true,
+      "lane": "fast",
+      "done": "fast"
+    },
+    "executionTree": {
+      "id": "score",
+      "runtimeStageId": "score#0",
+      "name": "Score",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "score": 72
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Route stage",
+          "timestamp": "«time»",
+          "targetStage": "Route"
+        }
+      ],
+      "next": {
+        "id": "route",
+        "runtimeStageId": "route#1",
+        "name": "Route",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "routed": true
+        },
+        "stageReads": {
+          "score": 72
+        },
+        "flowMessages": [
+          {
+            "type": "branch",
+            "description": "Evaluated scope and returned 'high' → chose High path.",
+            "timestamp": "«time»",
+            "targetStage": "High",
+            "rationale": "returned branchId: high"
+          }
+        ],
+        "next": {
+          "id": "after",
+          "runtimeStageId": "after#3",
+          "name": "After",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "done": "fast"
+          },
+          "stageReads": {
+            "lane": "fast"
+          }
+        },
+        "children": [
+          {
+            "id": "high",
+            "runtimeStageId": "high#2",
+            "name": "High",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "lane": "fast"
+            }
+          }
+        ]
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "score": 72
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "score",
+            "verb": "set"
+          }
+        ],
+        "stage": "Score",
+        "stageId": "score",
+        "runtimeStageId": "score#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "routed": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "routed",
+            "verb": "set"
+          }
+        ],
+        "stage": "Route",
+        "stageId": "route",
+        "runtimeStageId": "route#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "lane": "fast"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "lane",
+            "verb": "set"
+          }
+        ],
+        "stage": "High",
+        "stageId": "high",
+        "runtimeStageId": "high#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "done": "fast"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "done",
+            "verb": "set"
+          }
+        ],
+        "stage": "After",
+        "stageId": "after",
+        "runtimeStageId": "after#3",
+        "idx": 3
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

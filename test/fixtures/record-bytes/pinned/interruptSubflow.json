@@ -1,0 +1,369 @@
+{
+  "paused": {
+    "sharedState": {
+      "amount": 10
+    },
+    "executionTree": {
+      "id": "prepare",
+      "runtimeStageId": "prepare#0",
+      "name": "Prepare",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "amount": 10
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Approval stage",
+          "timestamp": "«time»",
+          "targetStage": "Approval"
+        }
+      ],
+      "next": {
+        "id": "sf-ask",
+        "runtimeStageId": "sf-ask#1",
+        "name": "Approval",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "subflowId": "sf-ask",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Approval subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-ask"
+          }
+        ]
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "amount": 10
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "amount",
+            "verb": "set"
+          }
+        ],
+        "stage": "Prepare",
+        "stageId": "prepare",
+        "runtimeStageId": "prepare#0",
+        "idx": 0
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  },
+  "checkpoint": {
+    "checkpointVersion": 2,
+    "sharedState": {
+      "amount": 10
+    },
+    "pausedStageId": "sf-ask/ask",
+    "pausedExecution": {
+      "runId": "«run:1»",
+      "runtimeStageId": "sf-ask/ask#2"
+    },
+    "subflowPath": [
+      "sf-ask"
+    ],
+    "pauseData": {
+      "reason": "Approve?",
+      "expects": {
+        "ok": "boolean"
+      }
+    },
+    "subflowStates": {
+      "sf-ask": {
+        "amount": 10,
+        "asked": true
+      }
+    },
+    "executionCount": 3,
+    "visitCounts": {
+      "prepare": 1,
+      "sf-ask": 1,
+      "sf-ask/ask": 1
+    },
+    "pausedBy": "interrupt",
+    "pausedAt": "«time»"
+  },
+  "resumed": {
+    "sharedState": {
+      "amount": 10,
+      "approved": true,
+      "outcome": "paid"
+    },
+    "executionTree": {
+      "id": "sf-ask",
+      "runtimeStageId": "sf-ask#3",
+      "name": "Approval",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "subflowId": "sf-ask",
+      "flowMessages": [
+        {
+          "type": "subflow",
+          "description": "Entering Approval subflow",
+          "timestamp": "«time»",
+          "targetStage": "sf-ask"
+        },
+        {
+          "type": "subflow",
+          "description": "Exiting Approval subflow",
+          "timestamp": "«time»",
+          "targetStage": "sf-ask"
+        }
+      ],
+      "next": {
+        "id": "settle",
+        "runtimeStageId": "settle#5",
+        "name": "Settle",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "outcome": "paid"
+        },
+        "stageReads": {
+          "approved": true
+        }
+      }
+    },
+    "initialState": {
+      "amount": 10
+    },
+    "commitLog": [
+      {
+        "overwrite": {
+          "approved": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "approved",
+            "verb": "set"
+          }
+        ],
+        "stage": "Approval",
+        "stageId": "sf-ask",
+        "runtimeStageId": "sf-ask#3",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Approval",
+        "stageId": "sf-ask",
+        "runtimeStageId": "sf-ask#3",
+        "phase": "exit",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "outcome": "paid"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "outcome",
+            "verb": "set"
+          }
+        ],
+        "stage": "Settle",
+        "stageId": "settle",
+        "runtimeStageId": "settle#5",
+        "idx": 2
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:2»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:2»",
+    "subflowResults": {
+      "sf-ask": {
+        "subflowId": "sf-ask",
+        "subflowName": "Approval",
+        "treeContext": {
+          "globalContext": {
+            "amount": 10,
+            "asked": true,
+            "approved": true
+          },
+          "stageContexts": {
+            "id": "sf-ask/ask",
+            "runtimeStageId": "sf-ask/ask#4",
+            "name": "sf-ask/Ask",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "asked": true,
+              "approved": true
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "amount": 10,
+                "asked": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "amount",
+                  "verb": "set"
+                },
+                {
+                  "path": "asked",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Approval",
+              "stageId": "sf-ask",
+              "runtimeStageId": "sf-ask#3",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "approved": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "approved",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-ask/Ask",
+              "stageId": "sf-ask/ask",
+              "runtimeStageId": "sf-ask/ask#4",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:2»",
+            "drillPath": [
+              "sf-ask#3"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Approval"
+      },
+      "sf-ask#3": {
+        "subflowId": "sf-ask",
+        "subflowName": "Approval",
+        "treeContext": {
+          "globalContext": {
+            "amount": 10,
+            "asked": true,
+            "approved": true
+          },
+          "stageContexts": {
+            "id": "sf-ask/ask",
+            "runtimeStageId": "sf-ask/ask#4",
+            "name": "sf-ask/Ask",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "asked": true,
+              "approved": true
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "amount": 10,
+                "asked": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "amount",
+                  "verb": "set"
+                },
+                {
+                  "path": "asked",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Approval",
+              "stageId": "sf-ask",
+              "runtimeStageId": "sf-ask#3",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "approved": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "approved",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-ask/Ask",
+              "stageId": "sf-ask/ask",
+              "runtimeStageId": "sf-ask/ask#4",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:2»",
+            "drillPath": [
+              "sf-ask#3"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Approval"
+      }
+    }
+  }
+}
