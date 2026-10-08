@@ -1,0 +1,268 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "seedValue": "v",
+      "after": true
+    },
+    "executionTree": {
+      "id": "start",
+      "runtimeStageId": "start#0",
+      "name": "Start",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "seedValue": "v"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Lazy stage",
+          "timestamp": "«time»",
+          "targetStage": "Lazy"
+        }
+      ],
+      "next": {
+        "id": "sf-lazy",
+        "runtimeStageId": "sf-lazy#1",
+        "name": "Lazy",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "subflowId": "sf-lazy",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Lazy subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-lazy"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Lazy subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-lazy"
+          }
+        ],
+        "next": {
+          "id": "after",
+          "runtimeStageId": "after#3",
+          "name": "After",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "after": true
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "seedValue": "v"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "seedValue",
+            "verb": "set"
+          }
+        ],
+        "stage": "Start",
+        "stageId": "start",
+        "runtimeStageId": "start#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Lazy",
+        "stageId": "sf-lazy",
+        "runtimeStageId": "sf-lazy#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "after": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "after",
+            "verb": "set"
+          }
+        ],
+        "stage": "After",
+        "stageId": "after",
+        "runtimeStageId": "after#3",
+        "idx": 2
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-lazy": {
+        "subflowId": "sf-lazy",
+        "subflowName": "Lazy",
+        "treeContext": {
+          "globalContext": {
+            "seed": "v",
+            "innerDone": "v!"
+          },
+          "stageContexts": {
+            "id": "sf-lazy/inner",
+            "runtimeStageId": "sf-lazy/inner#2",
+            "name": "sf-lazy/Inner",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "innerDone": "v!"
+            },
+            "stageReads": {
+              "seed": "v"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "seed": "v"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "seed",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Lazy",
+              "stageId": "sf-lazy",
+              "runtimeStageId": "sf-lazy#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "innerDone": "v!"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerDone",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-lazy/Inner",
+              "stageId": "sf-lazy/inner",
+              "runtimeStageId": "sf-lazy/inner#2",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-lazy#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Lazy"
+      },
+      "sf-lazy#1": {
+        "subflowId": "sf-lazy",
+        "subflowName": "Lazy",
+        "treeContext": {
+          "globalContext": {
+            "seed": "v",
+            "innerDone": "v!"
+          },
+          "stageContexts": {
+            "id": "sf-lazy/inner",
+            "runtimeStageId": "sf-lazy/inner#2",
+            "name": "sf-lazy/Inner",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "innerDone": "v!"
+            },
+            "stageReads": {
+              "seed": "v"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "seed": "v"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "seed",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Lazy",
+              "stageId": "sf-lazy",
+              "runtimeStageId": "sf-lazy#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "innerDone": "v!"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerDone",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-lazy/Inner",
+              "stageId": "sf-lazy/inner",
+              "runtimeStageId": "sf-lazy/inner#2",
+              "idx": 1
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-lazy#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Lazy"
+      }
+    }
+  }
+}

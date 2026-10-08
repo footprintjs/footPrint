@@ -1,0 +1,106 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "x": [
+        0
+      ],
+      "y": [
+        1
+      ]
+    },
+    "executionTree": {
+      "id": "before-first-write",
+      "runtimeStageId": "before-first-write#0",
+      "name": "BeforeFirstWrite",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "y": [
+          1
+        ]
+      },
+      "stageReads": {
+        "y": []
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to AfterFirstWrite stage",
+          "timestamp": "«time»",
+          "targetStage": "AfterFirstWrite"
+        }
+      ],
+      "next": {
+        "id": "after-first-write",
+        "runtimeStageId": "after-first-write#1",
+        "name": "AfterFirstWrite",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "message": "[WRITE] deleted x"
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "x": [
+            0
+          ]
+        },
+        "stageReads": {
+          "x": []
+        }
+      }
+    },
+    "initialState": {
+      "x": [],
+      "y": []
+    },
+    "commitLog": [
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "BeforeFirstWrite",
+        "stageId": "before-first-write",
+        "runtimeStageId": "before-first-write#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "x": [
+            0
+          ]
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "x",
+            "verb": "set"
+          },
+          {
+            "path": "x",
+            "verb": "set"
+          }
+        ],
+        "stage": "AfterFirstWrite",
+        "stageId": "after-first-write",
+        "runtimeStageId": "after-first-write#1",
+        "idx": 1
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

@@ -1,0 +1,351 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "k": "orig",
+      "runs": {
+        "plain": {
+          "plainDone": true
+        }
+      },
+      "branchResult": "from-subflow",
+      "joined": "from-subflow"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "k": "orig"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to PickBoth stage",
+          "timestamp": "«time»",
+          "targetStage": "PickBoth"
+        }
+      ],
+      "next": {
+        "id": "pick-both",
+        "runtimeStageId": "pick-both#1",
+        "name": "PickBoth",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "selectedChildIds": [
+            "plain",
+            "sf-branch"
+          ],
+          "selectorPattern": "scope-based-multi-choice"
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "selected",
+            "description": "Running Plain, SubflowBranch (2 of 2 matched)",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "Plain",
+              "SubflowBranch"
+            ]
+          }
+        ],
+        "next": {
+          "id": "join",
+          "runtimeStageId": "join#5",
+          "name": "Join",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "joined": "from-subflow"
+          },
+          "stageReads": {
+            "branchResult": "from-subflow"
+          }
+        },
+        "children": [
+          {
+            "id": "plain",
+            "runtimeStageId": "plain#2",
+            "name": "Plain",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "plainDone": true
+            }
+          },
+          {
+            "id": "sf-branch",
+            "runtimeStageId": "sf-branch#3",
+            "name": "SubflowBranch",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "subflowId": "sf-branch",
+            "flowMessages": [
+              {
+                "type": "subflow",
+                "description": "Entering SubflowBranch subflow",
+                "timestamp": "«time»",
+                "targetStage": "sf-branch"
+              },
+              {
+                "type": "subflow",
+                "description": "Exiting SubflowBranch subflow",
+                "timestamp": "«time»",
+                "targetStage": "sf-branch"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "k": "orig"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "PickBoth",
+        "stageId": "pick-both",
+        "runtimeStageId": "pick-both#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "plain": {
+              "plainDone": true
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fplain\u001fplainDone",
+            "verb": "set"
+          }
+        ],
+        "stage": "Plain",
+        "stageId": "plain",
+        "runtimeStageId": "plain#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Plain",
+        "stageId": "plain",
+        "runtimeStageId": "plain#2",
+        "phase": "repeat",
+        "idx": 3
+      },
+      {
+        "overwrite": {
+          "branchResult": "from-subflow"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "branchResult",
+            "verb": "set"
+          }
+        ],
+        "stage": "SubflowBranch",
+        "stageId": "sf-branch",
+        "runtimeStageId": "sf-branch#3",
+        "idx": 4
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "SubflowBranch",
+        "stageId": "sf-branch",
+        "runtimeStageId": "sf-branch#3",
+        "phase": "exit",
+        "idx": 5
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "SubflowBranch",
+        "stageId": "sf-branch",
+        "runtimeStageId": "sf-branch#3",
+        "phase": "repeat",
+        "idx": 6
+      },
+      {
+        "overwrite": {
+          "joined": "from-subflow"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "joined",
+            "verb": "set"
+          }
+        ],
+        "stage": "Join",
+        "stageId": "join",
+        "runtimeStageId": "join#5",
+        "idx": 7
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-branch": {
+        "subflowId": "sf-branch",
+        "subflowName": "SubflowBranch",
+        "treeContext": {
+          "globalContext": {
+            "branchResult": "from-subflow"
+          },
+          "stageContexts": {
+            "id": "sf-branch/branch-work",
+            "runtimeStageId": "sf-branch/branch-work#4",
+            "name": "sf-branch/BranchWork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "branchResult": "from-subflow"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "branchResult": "from-subflow"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "branchResult",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-branch/BranchWork",
+              "stageId": "sf-branch/branch-work",
+              "runtimeStageId": "sf-branch/branch-work#4",
+              "idx": 0
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-branch#3"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "sf-branch.SubflowBranch"
+      },
+      "sf-branch#3": {
+        "subflowId": "sf-branch",
+        "subflowName": "SubflowBranch",
+        "treeContext": {
+          "globalContext": {
+            "branchResult": "from-subflow"
+          },
+          "stageContexts": {
+            "id": "sf-branch/branch-work",
+            "runtimeStageId": "sf-branch/branch-work#4",
+            "name": "sf-branch/BranchWork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "branchResult": "from-subflow"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "branchResult": "from-subflow"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "branchResult",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-branch/BranchWork",
+              "stageId": "sf-branch/branch-work",
+              "runtimeStageId": "sf-branch/branch-work#4",
+              "idx": 0
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-branch#3"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "sf-branch.SubflowBranch"
+      }
+    }
+  }
+}

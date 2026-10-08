@@ -1,0 +1,1418 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "ssn": "ssn-1",
+      "profile": {
+        "name": "Ada",
+        "auth": {
+          "token": "t-1"
+        }
+      },
+      "items": [
+        "a",
+        "b"
+      ],
+      "meta": {
+        "list": [
+          "x",
+          "y"
+        ],
+        "obj": {
+          "w": 0,
+          "z": 1
+        }
+      },
+      "token": "tok-1"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "ssn": "[REDACTED]",
+        "profile": {
+          "name": "Ada",
+          "auth": {
+            "token": "[REDACTED]"
+          }
+        },
+        "items": [
+          "a"
+        ],
+        "meta": {
+          "list": [
+            "x"
+          ],
+          "obj": {
+            "w": 0
+          }
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Inner stage",
+          "timestamp": "«time»",
+          "targetStage": "Inner"
+        }
+      ],
+      "next": {
+        "id": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "name": "Inner",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "meta.list": "[REDACTED]",
+          "meta.obj": "[REDACTED]"
+        },
+        "stageReads": {
+          "meta.list": "[REDACTED]",
+          "meta.obj": "[REDACTED]"
+        },
+        "subflowId": "sf-in",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-in"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-in"
+          }
+        ]
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "ssn": "REDACTED",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "REDACTED"
+            }
+          },
+          "items": [
+            "a"
+          ],
+          "meta": {
+            "list": [
+              "x"
+            ],
+            "obj": {
+              "w": 0
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [
+          "ssn",
+          "profile\u001fauth.token",
+          "profile\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "ssn",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "profile",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "items",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "meta",
+            "verb": "set",
+            "readKeys": []
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "items": "REDACTED",
+          "meta": {
+            "list": "REDACTED",
+            "obj": "REDACTED"
+          },
+          "token": "REDACTED"
+        },
+        "updates": {},
+        "redactedPaths": [
+          "items",
+          "meta\u001flist",
+          "meta\u001fobj",
+          "token"
+        ],
+        "trace": [
+          {
+            "path": "items",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "meta\u001flist",
+            "verb": "set",
+            "readKeys": [
+              "meta.list"
+            ]
+          },
+          {
+            "path": "meta\u001fobj",
+            "verb": "set",
+            "readKeys": [
+              "meta.list",
+              "meta.obj"
+            ]
+          },
+          {
+            "path": "token",
+            "verb": "set",
+            "readKeys": [
+              "meta.list",
+              "meta.obj"
+            ]
+          }
+        ],
+        "stage": "Inner",
+        "stageId": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Inner",
+        "stageId": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "phase": "exit",
+        "idx": 2
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "reads-prefix",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-in": {
+        "subflowId": "sf-in",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "ssnIn": "ssn-1",
+            "who": {
+              "name": "Ada",
+              "auth": {
+                "token": "t-1"
+              }
+            },
+            "runs": {
+              "sf-in/p": {
+                "pv": 1
+              },
+              "sf-in/q": {
+                "qv": 2
+              }
+            },
+            "token": "tok-1"
+          },
+          "stageContexts": {
+            "id": "sf-in/fan",
+            "runtimeStageId": "sf-in/fan#2",
+            "name": "sf-in/Fan",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                "timestamp": "«time»",
+                "count": 2,
+                "targetStage": [
+                  "sf-in/P",
+                  "sf-in/Q"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to sf-in/Mark stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-in/Mark"
+              }
+            ],
+            "next": {
+              "id": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "name": "sf-in/Mark",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "token": "[REDACTED]"
+              }
+            },
+            "children": [
+              {
+                "id": "sf-in/p",
+                "runtimeStageId": "sf-in/p#3",
+                "name": "sf-in/P",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "pv": 1
+                }
+              },
+              {
+                "id": "sf-in/q",
+                "runtimeStageId": "sf-in/q#4",
+                "name": "sf-in/Q",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "qv": 2
+                }
+              }
+            ]
+          },
+          "history": [
+            {
+              "overwrite": {
+                "ssnIn": "REDACTED",
+                "who": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [
+                "ssnIn",
+                "who\u001fauth\u001ftoken"
+              ],
+              "trace": [
+                {
+                  "path": "ssnIn",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fname",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fauth",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-in",
+              "runtimeStageId": "sf-in#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Fan",
+              "stageId": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/p": {
+                    "pv": 1
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/p\u001fpv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "idx": 2
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/q": {
+                    "qv": 2
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/q\u001fqv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "idx": 3
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "phase": "repeat",
+              "idx": 4
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "phase": "repeat",
+              "idx": 5
+            },
+            {
+              "overwrite": {
+                "token": "REDACTED"
+              },
+              "updates": {},
+              "redactedPaths": [
+                "token"
+              ],
+              "trace": [
+                {
+                  "path": "token",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Mark",
+              "stageId": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "idx": 6
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-in#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      },
+      "sf-in#1": {
+        "subflowId": "sf-in",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "ssnIn": "ssn-1",
+            "who": {
+              "name": "Ada",
+              "auth": {
+                "token": "t-1"
+              }
+            },
+            "runs": {
+              "sf-in/p": {
+                "pv": 1
+              },
+              "sf-in/q": {
+                "qv": 2
+              }
+            },
+            "token": "tok-1"
+          },
+          "stageContexts": {
+            "id": "sf-in/fan",
+            "runtimeStageId": "sf-in/fan#2",
+            "name": "sf-in/Fan",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                "timestamp": "«time»",
+                "count": 2,
+                "targetStage": [
+                  "sf-in/P",
+                  "sf-in/Q"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to sf-in/Mark stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-in/Mark"
+              }
+            ],
+            "next": {
+              "id": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "name": "sf-in/Mark",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "token": "[REDACTED]"
+              }
+            },
+            "children": [
+              {
+                "id": "sf-in/p",
+                "runtimeStageId": "sf-in/p#3",
+                "name": "sf-in/P",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "pv": 1
+                }
+              },
+              {
+                "id": "sf-in/q",
+                "runtimeStageId": "sf-in/q#4",
+                "name": "sf-in/Q",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "qv": 2
+                }
+              }
+            ]
+          },
+          "history": [
+            {
+              "overwrite": {
+                "ssnIn": "REDACTED",
+                "who": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [
+                "ssnIn",
+                "who\u001fauth\u001ftoken"
+              ],
+              "trace": [
+                {
+                  "path": "ssnIn",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fname",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fauth",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-in",
+              "runtimeStageId": "sf-in#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Fan",
+              "stageId": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/p": {
+                    "pv": 1
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/p\u001fpv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "idx": 2
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/q": {
+                    "qv": 2
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/q\u001fqv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "idx": 3
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "phase": "repeat",
+              "idx": 4
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "phase": "repeat",
+              "idx": 5
+            },
+            {
+              "overwrite": {
+                "token": "REDACTED"
+              },
+              "updates": {},
+              "redactedPaths": [
+                "token"
+              ],
+              "trace": [
+                {
+                  "path": "token",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Mark",
+              "stageId": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "idx": 6
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-in#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      }
+    }
+  },
+  "redacted": {
+    "sharedState": {
+      "ssn": "REDACTED",
+      "profile": {
+        "name": "Ada",
+        "auth": {
+          "token": "REDACTED"
+        }
+      },
+      "items": "REDACTED",
+      "meta": {
+        "list": "REDACTED",
+        "obj": "REDACTED"
+      },
+      "token": "REDACTED"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "ssn": "[REDACTED]",
+        "profile": {
+          "name": "Ada",
+          "auth": {
+            "token": "[REDACTED]"
+          }
+        },
+        "items": [
+          "a"
+        ],
+        "meta": {
+          "list": [
+            "x"
+          ],
+          "obj": {
+            "w": 0
+          }
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Inner stage",
+          "timestamp": "«time»",
+          "targetStage": "Inner"
+        }
+      ],
+      "next": {
+        "id": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "name": "Inner",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "meta.list": "[REDACTED]",
+          "meta.obj": "[REDACTED]"
+        },
+        "stageReads": {
+          "meta.list": "[REDACTED]",
+          "meta.obj": "[REDACTED]"
+        },
+        "subflowId": "sf-in",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-in"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-in"
+          }
+        ]
+      }
+    },
+    "commitLog": [
+      {
+        "overwrite": {
+          "ssn": "REDACTED",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "REDACTED"
+            }
+          },
+          "items": [
+            "a"
+          ],
+          "meta": {
+            "list": [
+              "x"
+            ],
+            "obj": {
+              "w": 0
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [
+          "ssn",
+          "profile\u001fauth.token",
+          "profile\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "ssn",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "profile",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "items",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "meta",
+            "verb": "set",
+            "readKeys": []
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "items": "REDACTED",
+          "meta": {
+            "list": "REDACTED",
+            "obj": "REDACTED"
+          },
+          "token": "REDACTED"
+        },
+        "updates": {},
+        "redactedPaths": [
+          "items",
+          "meta\u001flist",
+          "meta\u001fobj",
+          "token"
+        ],
+        "trace": [
+          {
+            "path": "items",
+            "verb": "set",
+            "readKeys": []
+          },
+          {
+            "path": "meta\u001flist",
+            "verb": "set",
+            "readKeys": [
+              "meta.list"
+            ]
+          },
+          {
+            "path": "meta\u001fobj",
+            "verb": "set",
+            "readKeys": [
+              "meta.list",
+              "meta.obj"
+            ]
+          },
+          {
+            "path": "token",
+            "verb": "set",
+            "readKeys": [
+              "meta.list",
+              "meta.obj"
+            ]
+          }
+        ],
+        "stage": "Inner",
+        "stageId": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Inner",
+        "stageId": "sf-in",
+        "runtimeStageId": "sf-in#1",
+        "phase": "exit",
+        "idx": 2
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "reads-prefix",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-in": {
+        "subflowId": "sf-in",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "ssnIn": "REDACTED",
+            "who": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "runs": {
+              "sf-in/p": {
+                "pv": 1
+              },
+              "sf-in/q": {
+                "qv": 2
+              }
+            },
+            "token": "REDACTED"
+          },
+          "stageContexts": {
+            "id": "sf-in/fan",
+            "runtimeStageId": "sf-in/fan#2",
+            "name": "sf-in/Fan",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                "timestamp": "«time»",
+                "count": 2,
+                "targetStage": [
+                  "sf-in/P",
+                  "sf-in/Q"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to sf-in/Mark stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-in/Mark"
+              }
+            ],
+            "next": {
+              "id": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "name": "sf-in/Mark",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "token": "[REDACTED]"
+              }
+            },
+            "children": [
+              {
+                "id": "sf-in/p",
+                "runtimeStageId": "sf-in/p#3",
+                "name": "sf-in/P",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "pv": 1
+                }
+              },
+              {
+                "id": "sf-in/q",
+                "runtimeStageId": "sf-in/q#4",
+                "name": "sf-in/Q",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "qv": 2
+                }
+              }
+            ]
+          },
+          "history": [
+            {
+              "overwrite": {
+                "ssnIn": "REDACTED",
+                "who": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [
+                "ssnIn",
+                "who\u001fauth\u001ftoken"
+              ],
+              "trace": [
+                {
+                  "path": "ssnIn",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fname",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fauth",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-in",
+              "runtimeStageId": "sf-in#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Fan",
+              "stageId": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/p": {
+                    "pv": 1
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/p\u001fpv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "idx": 2
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/q": {
+                    "qv": 2
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/q\u001fqv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "idx": 3
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "phase": "repeat",
+              "idx": 4
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "phase": "repeat",
+              "idx": 5
+            },
+            {
+              "overwrite": {
+                "token": "REDACTED"
+              },
+              "updates": {},
+              "redactedPaths": [
+                "token"
+              ],
+              "trace": [
+                {
+                  "path": "token",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Mark",
+              "stageId": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "idx": 6
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-in#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      },
+      "sf-in#1": {
+        "subflowId": "sf-in",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "ssnIn": "REDACTED",
+            "who": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "runs": {
+              "sf-in/p": {
+                "pv": 1
+              },
+              "sf-in/q": {
+                "qv": 2
+              }
+            },
+            "token": "REDACTED"
+          },
+          "stageContexts": {
+            "id": "sf-in/fan",
+            "runtimeStageId": "sf-in/fan#2",
+            "name": "sf-in/Fan",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "totalChildren": 2,
+              "orderOfExecution": "ChildrenAfterStage"
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "flowMessages": [
+              {
+                "type": "children",
+                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                "timestamp": "«time»",
+                "count": 2,
+                "targetStage": [
+                  "sf-in/P",
+                  "sf-in/Q"
+                ]
+              },
+              {
+                "type": "next",
+                "description": "Moving to sf-in/Mark stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-in/Mark"
+              }
+            ],
+            "next": {
+              "id": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "name": "sf-in/Mark",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "token": "[REDACTED]"
+              }
+            },
+            "children": [
+              {
+                "id": "sf-in/p",
+                "runtimeStageId": "sf-in/p#3",
+                "name": "sf-in/P",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "pv": 1
+                }
+              },
+              {
+                "id": "sf-in/q",
+                "runtimeStageId": "sf-in/q#4",
+                "name": "sf-in/Q",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "qv": 2
+                }
+              }
+            ]
+          },
+          "history": [
+            {
+              "overwrite": {
+                "ssnIn": "REDACTED",
+                "who": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [
+                "ssnIn",
+                "who\u001fauth\u001ftoken"
+              ],
+              "trace": [
+                {
+                  "path": "ssnIn",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fname",
+                  "verb": "set",
+                  "readKeys": []
+                },
+                {
+                  "path": "who\u001fauth",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-in",
+              "runtimeStageId": "sf-in#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Fan",
+              "stageId": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/p": {
+                    "pv": 1
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/p\u001fpv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "idx": 2
+            },
+            {
+              "overwrite": {
+                "runs": {
+                  "sf-in/q": {
+                    "qv": 2
+                  }
+                }
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "runs\u001fsf-in/q\u001fqv",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "idx": 3
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/P",
+              "stageId": "sf-in/p",
+              "runtimeStageId": "sf-in/p#3",
+              "phase": "repeat",
+              "idx": 4
+            },
+            {
+              "overwrite": {},
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [],
+              "stage": "sf-in/Q",
+              "stageId": "sf-in/q",
+              "runtimeStageId": "sf-in/q#4",
+              "phase": "repeat",
+              "idx": 5
+            },
+            {
+              "overwrite": {
+                "token": "REDACTED"
+              },
+              "updates": {},
+              "redactedPaths": [
+                "token"
+              ],
+              "trace": [
+                {
+                  "path": "token",
+                  "verb": "set",
+                  "readKeys": []
+                }
+              ],
+              "stage": "sf-in/Mark",
+              "stageId": "sf-in/mark",
+              "runtimeStageId": "sf-in/mark#5",
+              "idx": 6
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-in#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      }
+    }
+  }
+}

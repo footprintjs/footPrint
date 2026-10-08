@@ -1,0 +1,165 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "greeting": "hello",
+      "config": {
+        "retries": 3
+      },
+      "echo": "hello-back"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "greeting": "hello",
+        "config": {
+          "retries": 3
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to ReadWrite stage",
+          "timestamp": "«time»",
+          "targetStage": "ReadWrite"
+        }
+      ],
+      "next": {
+        "id": "read-write",
+        "runtimeStageId": "read-write#1",
+        "name": "ReadWrite",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "echo": "hello-back"
+        },
+        "stageReads": {
+          "greeting": "hello"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to NoTouch stage",
+            "timestamp": "«time»",
+            "targetStage": "NoTouch"
+          }
+        ],
+        "next": {
+          "id": "no-touch",
+          "runtimeStageId": "no-touch#2",
+          "name": "NoTouch",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to SameValue stage",
+              "timestamp": "«time»",
+              "targetStage": "SameValue"
+            }
+          ],
+          "next": {
+            "id": "same-value",
+            "runtimeStageId": "same-value#3",
+            "name": "SameValue",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "greeting": "hello"
+            }
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "greeting": "hello",
+          "config": {
+            "retries": 3
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "greeting",
+            "verb": "set"
+          },
+          {
+            "path": "config",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "echo": "hello-back"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "echo",
+            "verb": "set"
+          }
+        ],
+        "stage": "ReadWrite",
+        "stageId": "read-write",
+        "runtimeStageId": "read-write#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "NoTouch",
+        "stageId": "no-touch",
+        "runtimeStageId": "no-touch#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "SameValue",
+        "stageId": "same-value",
+        "runtimeStageId": "same-value#3",
+        "idx": 3
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

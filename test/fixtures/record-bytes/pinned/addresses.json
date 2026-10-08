@@ -1,0 +1,325 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "summary": {
+        "kept": true,
+        "from": "subflow"
+      },
+      "seen": "subflow"
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "totalChildren": 2,
+        "orderOfExecution": "ChildrenAfterStage"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "summary": {
+          "kept": true
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "children",
+          "description": "Executing all 2 children in parallel: Cleaner, Merge",
+          "timestamp": "«time»",
+          "count": 2,
+          "targetStage": [
+            "Cleaner",
+            "Merge"
+          ]
+        },
+        {
+          "type": "next",
+          "description": "Moving to Join stage",
+          "timestamp": "«time»",
+          "targetStage": "Join"
+        }
+      ],
+      "next": {
+        "id": "join",
+        "runtimeStageId": "join#4",
+        "name": "Join",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "seen": "subflow"
+        },
+        "stageReads": {
+          "summary": {
+            "kept": true,
+            "from": "subflow"
+          }
+        }
+      },
+      "children": [
+        {
+          "id": "cleaner",
+          "runtimeStageId": "cleaner#1",
+          "name": "Cleaner",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {
+            "message": "[WRITE] deleted missing"
+          },
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "missing": "«undefined»"
+          }
+        },
+        {
+          "id": "sf-merge",
+          "runtimeStageId": "sf-merge#2",
+          "name": "Merge",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "summary.from": "subflow"
+          },
+          "subflowId": "sf-merge",
+          "flowMessages": [
+            {
+              "type": "subflow",
+              "description": "Entering Merge subflow",
+              "timestamp": "«time»",
+              "targetStage": "sf-merge"
+            },
+            {
+              "type": "subflow",
+              "description": "Exiting Merge subflow",
+              "timestamp": "«time»",
+              "targetStage": "sf-merge"
+            }
+          ]
+        }
+      ]
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "summary": {
+            "kept": true
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "summary",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Cleaner",
+        "stageId": "cleaner",
+        "runtimeStageId": "cleaner#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Cleaner",
+        "stageId": "cleaner",
+        "runtimeStageId": "cleaner#1",
+        "phase": "repeat",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "summary": {
+            "from": "subflow"
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "summary\u001ffrom",
+            "verb": "set"
+          }
+        ],
+        "stage": "Merge",
+        "stageId": "sf-merge",
+        "runtimeStageId": "sf-merge#2",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Merge",
+        "stageId": "sf-merge",
+        "runtimeStageId": "sf-merge#2",
+        "phase": "exit",
+        "idx": 4
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Merge",
+        "stageId": "sf-merge",
+        "runtimeStageId": "sf-merge#2",
+        "phase": "repeat",
+        "idx": 5
+      },
+      {
+        "overwrite": {
+          "seen": "subflow"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "seen",
+            "verb": "set"
+          }
+        ],
+        "stage": "Join",
+        "stageId": "join",
+        "runtimeStageId": "join#4",
+        "idx": 6
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-merge": {
+        "subflowId": "sf-merge",
+        "subflowName": "Merge",
+        "treeContext": {
+          "globalContext": {
+            "from": "subflow"
+          },
+          "stageContexts": {
+            "id": "sf-merge/summarize",
+            "runtimeStageId": "sf-merge/summarize#3",
+            "name": "sf-merge/Summarize",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "from": "subflow"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "from": "subflow"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "from",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-merge/Summarize",
+              "stageId": "sf-merge/summarize",
+              "runtimeStageId": "sf-merge/summarize#3",
+              "idx": 0
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-merge#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "sf-merge.Merge"
+      },
+      "sf-merge#2": {
+        "subflowId": "sf-merge",
+        "subflowName": "Merge",
+        "treeContext": {
+          "globalContext": {
+            "from": "subflow"
+          },
+          "stageContexts": {
+            "id": "sf-merge/summarize",
+            "runtimeStageId": "sf-merge/summarize#3",
+            "name": "sf-merge/Summarize",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "from": "subflow"
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "from": "subflow"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "from",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-merge/Summarize",
+              "stageId": "sf-merge/summarize",
+              "runtimeStageId": "sf-merge/summarize#3",
+              "idx": 0
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-merge#2"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "sf-merge.Merge"
+      }
+    }
+  }
+}

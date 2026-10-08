@@ -6,8 +6,8 @@
  * (it changes the log's encoding, never its information):
  *
  *   'full'  — default; every surviving `set` path stores the full final
- *             value. BYTE-IDENTICAL to history (the byte-identity probe
- *             gates this — scripts/byte-identity-probe.ts).
+ *             value. BYTE-IDENTICAL to history (the stored record-bytes
+ *             fixtures gate this — test/fixtures/README.md).
  *   'delta' — array net-changes that are "base plus a tail" commit as an
  *             `append` verb storing ONLY the tail; `deleteValue()` commits
  *             as a real `delete` verb (replay removes the key); exactly ONE

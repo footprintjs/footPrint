@@ -1,0 +1,161 @@
+{
+  "stageThrows": {
+    "failed": "Error: stage failed",
+    "snapshot": {
+      "sharedState": {
+        "k": 1,
+        "partial": true
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": 1
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Fails stage",
+            "timestamp": "«time»",
+            "targetStage": "Fails"
+          }
+        ],
+        "next": {
+          "id": "fails",
+          "runtimeStageId": "fails#1",
+          "name": "Fails",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {
+            "stageExecutionError": "Error: stage failed"
+          },
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "partial": true
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "k": 1
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "k",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "partial": true
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "partial",
+              "verb": "set"
+            }
+          ],
+          "stage": "Fails",
+          "stageId": "fails",
+          "runtimeStageId": "fails#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:1»"
+    }
+  },
+  "uncloneable": {
+    "failed": "DataCloneError: () => 1 could not be cloned.",
+    "snapshot": {
+      "sharedState": {
+        "k": 1
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": 1
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Uncloneable stage",
+            "timestamp": "«time»",
+            "targetStage": "Uncloneable"
+          }
+        ],
+        "next": {
+          "id": "uncloneable",
+          "runtimeStageId": "uncloneable#1",
+          "name": "Uncloneable",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "k": 1
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "k",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:2»"
+    }
+  }
+}

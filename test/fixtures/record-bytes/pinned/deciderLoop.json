@@ -1,0 +1,466 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "i": 5,
+      "history": [
+        {
+          "idx": 0
+        },
+        {
+          "idx": 1
+        },
+        {
+          "idx": 2
+        },
+        {
+          "idx": 3
+        },
+        {
+          "idx": 4
+        }
+      ]
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "i": 0,
+        "history": []
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Work stage",
+          "timestamp": "«time»",
+          "targetStage": "Work"
+        }
+      ],
+      "next": {
+        "id": "work",
+        "runtimeStageId": "work#1",
+        "name": "Work",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "dynamicNextTarget": "work",
+          "dynamicNextIteration": 0
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "history": [
+            {
+              "idx": 0
+            }
+          ],
+          "i": 1
+        },
+        "stageReads": {
+          "i": 0,
+          "history": []
+        },
+        "flowMessages": [
+          {
+            "type": "loop",
+            "description": "Looping back to Work (iteration 1)",
+            "timestamp": "«time»",
+            "targetStage": "Work",
+            "iteration": 1
+          }
+        ],
+        "next": {
+          "id": "work",
+          "runtimeStageId": "work#2",
+          "name": "Work",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {
+            "dynamicNextTarget": "work",
+            "dynamicNextIteration": 1
+          },
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "history": [
+              {
+                "idx": 0
+              },
+              {
+                "idx": 1
+              }
+            ],
+            "i": 2
+          },
+          "stageReads": {
+            "i": 1,
+            "history": [
+              {
+                "idx": 0
+              }
+            ]
+          },
+          "flowMessages": [
+            {
+              "type": "loop",
+              "description": "Looping back to Work (iteration 2)",
+              "timestamp": "«time»",
+              "targetStage": "Work",
+              "iteration": 2
+            }
+          ],
+          "next": {
+            "id": "work",
+            "runtimeStageId": "work#3",
+            "name": "Work.1",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {
+              "dynamicNextTarget": "work",
+              "dynamicNextIteration": 2
+            },
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "history": [
+                {
+                  "idx": 0
+                },
+                {
+                  "idx": 1
+                },
+                {
+                  "idx": 2
+                }
+              ],
+              "i": 3
+            },
+            "stageReads": {
+              "i": 2,
+              "history": [
+                {
+                  "idx": 0
+                },
+                {
+                  "idx": 1
+                }
+              ]
+            },
+            "flowMessages": [
+              {
+                "type": "loop",
+                "description": "Looping back to Work (iteration 3)",
+                "timestamp": "«time»",
+                "targetStage": "Work",
+                "iteration": 3
+              }
+            ],
+            "next": {
+              "id": "work",
+              "runtimeStageId": "work#4",
+              "name": "Work.2",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {
+                "dynamicNextTarget": "work",
+                "dynamicNextIteration": 3
+              },
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "history": [
+                  {
+                    "idx": 0
+                  },
+                  {
+                    "idx": 1
+                  },
+                  {
+                    "idx": 2
+                  },
+                  {
+                    "idx": 3
+                  }
+                ],
+                "i": 4
+              },
+              "stageReads": {
+                "i": 3,
+                "history": [
+                  {
+                    "idx": 0
+                  },
+                  {
+                    "idx": 1
+                  },
+                  {
+                    "idx": 2
+                  }
+                ]
+              },
+              "flowMessages": [
+                {
+                  "type": "loop",
+                  "description": "Looping back to Work (iteration 4)",
+                  "timestamp": "«time»",
+                  "targetStage": "Work",
+                  "iteration": 4
+                }
+              ],
+              "next": {
+                "id": "work",
+                "runtimeStageId": "work#5",
+                "name": "Work.3",
+                "isDecider": false,
+                "isFork": false,
+                "logs": {},
+                "errors": {},
+                "metrics": {},
+                "evals": {},
+                "stageWrites": {
+                  "history": [
+                    {
+                      "idx": 0
+                    },
+                    {
+                      "idx": 1
+                    },
+                    {
+                      "idx": 2
+                    },
+                    {
+                      "idx": 3
+                    },
+                    {
+                      "idx": 4
+                    }
+                  ],
+                  "i": 5
+                },
+                "stageReads": {
+                  "i": 4,
+                  "history": [
+                    {
+                      "idx": 0
+                    },
+                    {
+                      "idx": 1
+                    },
+                    {
+                      "idx": 2
+                    },
+                    {
+                      "idx": 3
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "i": 0,
+          "history": []
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "i",
+            "verb": "set"
+          },
+          {
+            "path": "history",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "history": [
+            {
+              "idx": 0
+            }
+          ],
+          "i": 1
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "history",
+            "verb": "set"
+          },
+          {
+            "path": "i",
+            "verb": "set"
+          }
+        ],
+        "stage": "Work",
+        "stageId": "work",
+        "runtimeStageId": "work#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            }
+          ],
+          "i": 2
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "history",
+            "verb": "set"
+          },
+          {
+            "path": "i",
+            "verb": "set"
+          }
+        ],
+        "stage": "Work",
+        "stageId": "work",
+        "runtimeStageId": "work#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            }
+          ],
+          "i": 3
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "history",
+            "verb": "set"
+          },
+          {
+            "path": "i",
+            "verb": "set"
+          }
+        ],
+        "stage": "Work.1",
+        "stageId": "work",
+        "runtimeStageId": "work#3",
+        "idx": 3
+      },
+      {
+        "overwrite": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            },
+            {
+              "idx": 3
+            }
+          ],
+          "i": 4
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "history",
+            "verb": "set"
+          },
+          {
+            "path": "i",
+            "verb": "set"
+          }
+        ],
+        "stage": "Work.2",
+        "stageId": "work",
+        "runtimeStageId": "work#4",
+        "idx": 4
+      },
+      {
+        "overwrite": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            },
+            {
+              "idx": 3
+            },
+            {
+              "idx": 4
+            }
+          ],
+          "i": 5
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "history",
+            "verb": "set"
+          },
+          {
+            "path": "i",
+            "verb": "set"
+          }
+        ],
+        "stage": "Work.3",
+        "stageId": "work",
+        "runtimeStageId": "work#5",
+        "idx": 5
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

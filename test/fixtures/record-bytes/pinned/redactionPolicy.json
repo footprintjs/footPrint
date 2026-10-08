@@ -1,0 +1,1215 @@
+{
+  "full": {
+    "snapshot": {
+      "sharedState": {
+        "ssn": "ssn-1",
+        "cards": [
+          "c0",
+          "c1"
+        ],
+        "region": "eu",
+        "apiSecret": {
+          "id": "k-1",
+          "rotated": true
+        },
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "t-2"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "t-1"
+          }
+        },
+        "vault": {
+          "id": "k-1"
+        },
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "apiSecret": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "note": "clear"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "vault": "[REDACTED]",
+            "ssnCopy": "ssn-1",
+            "cards": "[REDACTED]",
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "apiSecret": "[REDACTED]"
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "apiSecret": "[REDACTED]",
+            "ssn": "[REDACTED]",
+            "cards": "[REDACTED]"
+          }
+        }
+      },
+      "initialState": {
+        "ssn": "ssn-0",
+        "cards": [
+          "c0"
+        ],
+        "region": "eu"
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:1»"
+    },
+    "redacted": {
+      "sharedState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu",
+        "apiSecret": "REDACTED",
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "vault": "REDACTED",
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "apiSecret": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "note": "clear"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "vault": "[REDACTED]",
+            "ssnCopy": "ssn-1",
+            "cards": "[REDACTED]",
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "apiSecret": "[REDACTED]"
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "apiSecret": "[REDACTED]",
+            "ssn": "[REDACTED]",
+            "cards": "[REDACTED]"
+          }
+        }
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:1»"
+    }
+  },
+  "summary": {
+    "snapshot": {
+      "sharedState": {
+        "ssn": "ssn-1",
+        "cards": [
+          "c0",
+          "c1"
+        ],
+        "region": "eu",
+        "apiSecret": {
+          "id": "k-1",
+          "rotated": true
+        },
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "t-2"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "t-1"
+          }
+        },
+        "vault": {
+          "id": "k-1"
+        },
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "apiSecret": "[REDACTED]",
+          "profile": {
+            "__writeSummary": true,
+            "type": "object",
+            "size": 2
+          },
+          "note": {
+            "__writeSummary": true,
+            "type": "string",
+            "size": 5,
+            "preview": "clear"
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "person": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "vault": "[REDACTED]",
+            "ssnCopy": {
+              "__writeSummary": true,
+              "type": "string",
+              "size": 5,
+              "preview": "ssn-1"
+            },
+            "cards": "[REDACTED]",
+            "profile": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "apiSecret": "[REDACTED]"
+          },
+          "stageReads": {
+            "profile": {
+              "__readSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "apiSecret": "[REDACTED]",
+            "ssn": "[REDACTED]",
+            "cards": "[REDACTED]"
+          }
+        }
+      },
+      "initialState": {
+        "ssn": "ssn-0",
+        "cards": [
+          "c0"
+        ],
+        "region": "eu"
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:2»"
+    },
+    "redacted": {
+      "sharedState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu",
+        "apiSecret": "REDACTED",
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "vault": "REDACTED",
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "apiSecret": "[REDACTED]",
+          "profile": {
+            "__writeSummary": true,
+            "type": "object",
+            "size": 2
+          },
+          "note": {
+            "__writeSummary": true,
+            "type": "string",
+            "size": 5,
+            "preview": "clear"
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "person": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "vault": "[REDACTED]",
+            "ssnCopy": {
+              "__writeSummary": true,
+              "type": "string",
+              "size": 5,
+              "preview": "ssn-1"
+            },
+            "cards": "[REDACTED]",
+            "profile": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "apiSecret": "[REDACTED]"
+          },
+          "stageReads": {
+            "profile": {
+              "__readSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "apiSecret": "[REDACTED]",
+            "ssn": "[REDACTED]",
+            "cards": "[REDACTED]"
+          }
+        }
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:2»"
+    }
+  },
+  "offDelta": {
+    "snapshot": {
+      "sharedState": {
+        "ssn": "ssn-1",
+        "cards": [
+          "c0",
+          "c1"
+        ],
+        "region": "eu",
+        "apiSecret": {
+          "id": "k-1",
+          "rotated": true
+        },
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "t-2"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "t-1"
+          }
+        },
+        "vault": {
+          "id": "k-1"
+        },
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      },
+      "initialState": {
+        "ssn": "ssn-0",
+        "cards": [
+          "c0"
+        ],
+        "region": "eu"
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "append"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:3»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "off",
+      "runId": "«run:3»"
+    },
+    "redacted": {
+      "sharedState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu",
+        "apiSecret": "REDACTED",
+        "profile": {
+          "name": "Ada L.",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "note": "clear",
+        "person": {
+          "name": "Ada",
+          "auth": {
+            "token": "REDACTED"
+          }
+        },
+        "vault": "REDACTED",
+        "ssnCopy": "ssn-1"
+      },
+      "executionTree": {
+        "id": "collect",
+        "runtimeStageId": "collect#0",
+        "name": "Collect",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Copy stage",
+            "timestamp": "«time»",
+            "targetStage": "Copy"
+          }
+        ],
+        "next": {
+          "id": "copy",
+          "runtimeStageId": "copy#1",
+          "name": "Copy",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      },
+      "commitLog": [
+        {
+          "overwrite": {
+            "ssn": "REDACTED",
+            "apiSecret": "REDACTED",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "note": "clear"
+          },
+          "updates": {},
+          "redactedPaths": [
+            "ssn",
+            "apiSecret",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken"
+          ],
+          "trace": [
+            {
+              "path": "ssn",
+              "verb": "set"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "note",
+              "verb": "set"
+            }
+          ],
+          "stage": "Collect",
+          "stageId": "collect",
+          "runtimeStageId": "collect#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "person": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "vault": "REDACTED",
+            "ssnCopy": "ssn-1",
+            "cards": "REDACTED"
+          },
+          "updates": {
+            "profile": {
+              "name": "Ada L.",
+              "auth": {
+                "token": "REDACTED"
+              }
+            },
+            "apiSecret": "REDACTED"
+          },
+          "redactedPaths": [
+            "person\u001fauth.token",
+            "person\u001fauth\u001ftoken",
+            "vault",
+            "cards",
+            "profile\u001fauth.token",
+            "profile\u001fauth\u001ftoken",
+            "apiSecret"
+          ],
+          "trace": [
+            {
+              "path": "person",
+              "verb": "set"
+            },
+            {
+              "path": "vault",
+              "verb": "set"
+            },
+            {
+              "path": "ssnCopy",
+              "verb": "set"
+            },
+            {
+              "path": "cards",
+              "verb": "append"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "apiSecret",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Copy",
+          "stageId": "copy",
+          "runtimeStageId": "copy#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:3»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "off",
+      "runId": "«run:3»"
+    }
+  }
+}

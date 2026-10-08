@@ -1,0 +1,188 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "k": "orig",
+      "runs": {
+        "child-a": {
+          "a": 1
+        }
+      },
+      "joined": true
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "totalChildren": 2,
+        "orderOfExecution": "ChildrenAfterStage"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "k": "orig"
+      },
+      "flowMessages": [
+        {
+          "type": "children",
+          "description": "Executing all 2 children in parallel: ChildA, ThrottledChild",
+          "timestamp": "«time»",
+          "count": 2,
+          "targetStage": [
+            "ChildA",
+            "ThrottledChild"
+          ]
+        },
+        {
+          "type": "next",
+          "description": "Moving to Join stage",
+          "timestamp": "«time»",
+          "targetStage": "Join"
+        }
+      ],
+      "next": {
+        "id": "join",
+        "runtimeStageId": "join#3",
+        "name": "Join",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "joined": true
+        }
+      },
+      "children": [
+        {
+          "id": "child-a",
+          "runtimeStageId": "child-a#1",
+          "name": "ChildA",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "a": 1
+          }
+        },
+        {
+          "id": "throttled-child",
+          "runtimeStageId": "throttled-child#2",
+          "name": "ThrottledChild",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {
+            "stageExecutionError": "Error: 429 rate limited"
+          },
+          "metrics": {},
+          "evals": {}
+        }
+      ]
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "k": "orig"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "child-a": {
+              "a": 1
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fchild-a\u001fa",
+            "verb": "set"
+          }
+        ],
+        "stage": "ChildA",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "ThrottledChild",
+        "stageId": "throttled-child",
+        "runtimeStageId": "throttled-child#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "ChildA",
+        "stageId": "child-a",
+        "runtimeStageId": "child-a#1",
+        "phase": "repeat",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "ThrottledChild",
+        "stageId": "throttled-child",
+        "runtimeStageId": "throttled-child#2",
+        "phase": "repeat",
+        "idx": 4
+      },
+      {
+        "overwrite": {
+          "joined": true
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "joined",
+            "verb": "set"
+          }
+        ],
+        "stage": "Join",
+        "stageId": "join",
+        "runtimeStageId": "join#3",
+        "idx": 5
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

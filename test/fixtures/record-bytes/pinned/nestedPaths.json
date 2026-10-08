@@ -1,0 +1,563 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "profile": {
+        "name": "Ada",
+        "auth": {
+          "token": "t-1"
+        }
+      },
+      "runs": {
+        "child": {
+          "profile": {
+            "auth": {
+              "token": "t-2"
+            }
+          },
+          "stats": {
+            "seen": "Ada",
+            "count": 1
+          },
+          "box": {
+            "inner": {
+              "name": "Ada",
+              "auth": {
+                "token": "t-1"
+              }
+            }
+          }
+        },
+        "remerge": {
+          "k": {
+            "y": 2,
+            "z": 3
+          }
+        }
+      }
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "totalChildren": 2,
+        "orderOfExecution": "ChildrenAfterStage"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "profile": {
+          "name": "Ada",
+          "auth": {
+            "token": "[REDACTED]"
+          }
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "children",
+          "description": "Executing all 2 children in parallel: Child, Remerge",
+          "timestamp": "«time»",
+          "count": 2,
+          "targetStage": [
+            "Child",
+            "Remerge"
+          ]
+        }
+      ],
+      "children": [
+        {
+          "id": "child",
+          "runtimeStageId": "child#1",
+          "name": "Child",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "profile.auth.token": "[REDACTED]",
+            "stats": {
+              "seen": "Ada",
+              "count": 1
+            },
+            "box.inner": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "profile.name": "Ada"
+          }
+        },
+        {
+          "id": "remerge",
+          "runtimeStageId": "remerge#2",
+          "name": "Remerge",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "k": {
+              "z": 3
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "REDACTED"
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [
+          "profile\u001fauth.token",
+          "profile\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "profile",
+            "verb": "set",
+            "readKeys": []
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "child": {
+              "profile": {
+                "auth": {
+                  "token": "REDACTED"
+                }
+              },
+              "box": {
+                "inner": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "updates": {
+          "runs": {
+            "child": {
+              "stats": {
+                "seen": "Ada",
+                "count": 1
+              }
+            }
+          }
+        },
+        "redactedPaths": [
+          "runs\u001fchild\u001fprofile\u001fauth\u001ftoken",
+          "runs\u001fchild\u001fbox\u001finner\u001fauth.token",
+          "runs\u001fchild\u001fbox\u001finner\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "runs\u001fchild\u001fprofile\u001fauth\u001ftoken",
+            "verb": "set",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          },
+          {
+            "path": "runs\u001fchild\u001fstats",
+            "verb": "merge",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          },
+          {
+            "path": "runs\u001fchild\u001fbox\u001finner",
+            "verb": "set",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          }
+        ],
+        "stage": "Child",
+        "stageId": "child",
+        "runtimeStageId": "child#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "remerge": {
+              "k": {
+                "y": 2,
+                "z": 3
+              }
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fremerge\u001fk",
+            "verb": "set",
+            "readKeys": [
+              "profile"
+            ]
+          }
+        ],
+        "stage": "Remerge",
+        "stageId": "remerge",
+        "runtimeStageId": "remerge#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Child",
+        "stageId": "child",
+        "runtimeStageId": "child#1",
+        "phase": "repeat",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Remerge",
+        "stageId": "remerge",
+        "runtimeStageId": "remerge#2",
+        "phase": "repeat",
+        "idx": 4
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "delta",
+    "writeProvenance": "reads-prefix",
+    "runId": "«run:1»"
+  },
+  "redacted": {
+    "sharedState": {
+      "profile": {
+        "name": "Ada",
+        "auth": {
+          "token": "REDACTED"
+        }
+      },
+      "runs": {
+        "child": {
+          "profile": {
+            "auth": {
+              "token": "REDACTED"
+            }
+          },
+          "stats": {
+            "seen": "Ada",
+            "count": 1
+          },
+          "box": {
+            "inner": {
+              "name": "Ada",
+              "auth": {
+                "token": "REDACTED"
+              }
+            }
+          }
+        },
+        "remerge": {
+          "k": {
+            "y": 2,
+            "z": 3
+          }
+        }
+      }
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "totalChildren": 2,
+        "orderOfExecution": "ChildrenAfterStage"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "profile": {
+          "name": "Ada",
+          "auth": {
+            "token": "[REDACTED]"
+          }
+        }
+      },
+      "flowMessages": [
+        {
+          "type": "children",
+          "description": "Executing all 2 children in parallel: Child, Remerge",
+          "timestamp": "«time»",
+          "count": 2,
+          "targetStage": [
+            "Child",
+            "Remerge"
+          ]
+        }
+      ],
+      "children": [
+        {
+          "id": "child",
+          "runtimeStageId": "child#1",
+          "name": "Child",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "profile.auth.token": "[REDACTED]",
+            "stats": {
+              "seen": "Ada",
+              "count": 1
+            },
+            "box.inner": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "profile.name": "Ada"
+          }
+        },
+        {
+          "id": "remerge",
+          "runtimeStageId": "remerge#2",
+          "name": "Remerge",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "k": {
+              "z": 3
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "commitLog": [
+      {
+        "overwrite": {
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "REDACTED"
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [
+          "profile\u001fauth.token",
+          "profile\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "profile",
+            "verb": "set",
+            "readKeys": []
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "child": {
+              "profile": {
+                "auth": {
+                  "token": "REDACTED"
+                }
+              },
+              "box": {
+                "inner": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "REDACTED"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "updates": {
+          "runs": {
+            "child": {
+              "stats": {
+                "seen": "Ada",
+                "count": 1
+              }
+            }
+          }
+        },
+        "redactedPaths": [
+          "runs\u001fchild\u001fprofile\u001fauth\u001ftoken",
+          "runs\u001fchild\u001fbox\u001finner\u001fauth.token",
+          "runs\u001fchild\u001fbox\u001finner\u001fauth\u001ftoken"
+        ],
+        "trace": [
+          {
+            "path": "runs\u001fchild\u001fprofile\u001fauth\u001ftoken",
+            "verb": "set",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          },
+          {
+            "path": "runs\u001fchild\u001fstats",
+            "verb": "merge",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          },
+          {
+            "path": "runs\u001fchild\u001fbox\u001finner",
+            "verb": "set",
+            "readKeys": [
+              "profile",
+              "profile.name"
+            ]
+          }
+        ],
+        "stage": "Child",
+        "stageId": "child",
+        "runtimeStageId": "child#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "remerge": {
+              "k": {
+                "y": 2,
+                "z": 3
+              }
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001fremerge\u001fk",
+            "verb": "set",
+            "readKeys": [
+              "profile"
+            ]
+          }
+        ],
+        "stage": "Remerge",
+        "stageId": "remerge",
+        "runtimeStageId": "remerge#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Child",
+        "stageId": "child",
+        "runtimeStageId": "child#1",
+        "phase": "repeat",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Remerge",
+        "stageId": "remerge",
+        "runtimeStageId": "remerge#2",
+        "phase": "repeat",
+        "idx": 4
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "delta",
+    "writeProvenance": "reads-prefix",
+    "runId": "«run:1»"
+  }
+}

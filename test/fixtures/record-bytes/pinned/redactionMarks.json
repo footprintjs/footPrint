@@ -1,0 +1,258 @@
+{
+  "paused": {
+    "sharedState": {
+      "token": "tok-2",
+      "pin": "1111"
+    },
+    "executionTree": {
+      "id": "mark",
+      "runtimeStageId": "mark#0",
+      "name": "Mark",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "token": "[REDACTED]",
+        "pin": "[REDACTED]"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Again stage",
+          "timestamp": "«time»",
+          "targetStage": "Again"
+        }
+      ],
+      "next": {
+        "id": "again",
+        "runtimeStageId": "again#1",
+        "name": "Again",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "message": "[WRITE] deleted pin"
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "token": "[REDACTED]",
+          "pin": "[REDACTED]"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Unmarked stage",
+            "timestamp": "«time»",
+            "targetStage": "Unmarked"
+          }
+        ],
+        "next": {
+          "id": "unmarked",
+          "runtimeStageId": "unmarked#2",
+          "name": "Unmarked",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "pin": "1111"
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Gate stage",
+              "timestamp": "«time»",
+              "targetStage": "Gate"
+            }
+          ],
+          "next": {
+            "id": "gate",
+            "runtimeStageId": "gate#3",
+            "name": "Gate",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {}
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "token": "REDACTED",
+          "pin": "REDACTED"
+        },
+        "updates": {},
+        "redactedPaths": [
+          "token",
+          "pin"
+        ],
+        "trace": [
+          {
+            "path": "token",
+            "verb": "set"
+          },
+          {
+            "path": "pin",
+            "verb": "set"
+          }
+        ],
+        "stage": "Mark",
+        "stageId": "mark",
+        "runtimeStageId": "mark#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "token": "REDACTED",
+          "pin": "«undefined»"
+        },
+        "updates": {},
+        "redactedPaths": [
+          "token",
+          "pin"
+        ],
+        "trace": [
+          {
+            "path": "token",
+            "verb": "set"
+          },
+          {
+            "path": "pin",
+            "verb": "set"
+          }
+        ],
+        "stage": "Again",
+        "stageId": "again",
+        "runtimeStageId": "again#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {
+          "pin": "1111"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "pin",
+            "verb": "set"
+          }
+        ],
+        "stage": "Unmarked",
+        "stageId": "unmarked",
+        "runtimeStageId": "unmarked#2",
+        "idx": 2
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Gate",
+        "stageId": "gate",
+        "runtimeStageId": "gate#3",
+        "idx": 3
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  },
+  "checkpoint": {
+    "checkpointVersion": 2,
+    "sharedState": {
+      "token": "tok-2",
+      "pin": "1111"
+    },
+    "pausedStageId": "gate",
+    "pausedExecution": {
+      "runId": "«run:1»",
+      "runtimeStageId": "gate#3"
+    },
+    "subflowPath": [],
+    "pauseData": {
+      "question": "go?"
+    },
+    "subflowStates": {},
+    "executionCount": 4,
+    "visitCounts": {
+      "mark": 1,
+      "again": 1,
+      "unmarked": 1,
+      "gate": 1
+    },
+    "redactionMarks": {
+      "keys": [
+        "token"
+      ]
+    },
+    "pausedAt": "«time»"
+  },
+  "resumed": {
+    "sharedState": {
+      "token": "tok-3",
+      "pin": "1111"
+    },
+    "executionTree": {
+      "id": "gate",
+      "runtimeStageId": "gate#4",
+      "name": "Gate",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "token": "[REDACTED]"
+      }
+    },
+    "initialState": {
+      "token": "tok-2",
+      "pin": "1111"
+    },
+    "commitLog": [
+      {
+        "overwrite": {
+          "token": "REDACTED"
+        },
+        "updates": {},
+        "redactedPaths": [
+          "token"
+        ],
+        "trace": [
+          {
+            "path": "token",
+            "verb": "set"
+          }
+        ],
+        "stage": "Gate",
+        "stageId": "gate",
+        "runtimeStageId": "gate#4",
+        "idx": 0
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:2»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:2»"
+  }
+}

@@ -1,0 +1,206 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "k": 2,
+      "late": "from-sibling",
+      "runs": {
+        "reader": {
+          "seenLate": "from-sibling"
+        }
+      },
+      "final": 2
+    },
+    "executionTree": {
+      "id": "seed",
+      "runtimeStageId": "seed#0",
+      "name": "Seed",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {
+        "totalChildren": 2,
+        "orderOfExecution": "ChildrenAfterStage"
+      },
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "k": 1
+      },
+      "flowMessages": [
+        {
+          "type": "children",
+          "description": "Executing all 2 children in parallel: Reader, Writer",
+          "timestamp": "«time»",
+          "count": 2,
+          "targetStage": [
+            "Reader",
+            "Writer"
+          ]
+        },
+        {
+          "type": "next",
+          "description": "Moving to Join stage",
+          "timestamp": "«time»",
+          "targetStage": "Join"
+        }
+      ],
+      "next": {
+        "id": "join",
+        "runtimeStageId": "join#3",
+        "name": "Join",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "final": 2
+        },
+        "stageReads": {
+          "k": 2
+        }
+      },
+      "children": [
+        {
+          "id": "reader",
+          "runtimeStageId": "reader#1",
+          "name": "Reader",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "seenLate": "from-sibling"
+          },
+          "stageReads": {
+            "k": 1,
+            "late": "from-sibling"
+          }
+        },
+        {
+          "id": "writer",
+          "runtimeStageId": "writer#2",
+          "name": "Writer",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      ]
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "k": 1
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          }
+        ],
+        "stage": "Seed",
+        "stageId": "seed",
+        "runtimeStageId": "seed#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "k": 2,
+          "late": "from-sibling"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "k",
+            "verb": "set"
+          },
+          {
+            "path": "late",
+            "verb": "set"
+          }
+        ],
+        "stage": "Writer",
+        "stageId": "writer",
+        "runtimeStageId": "writer#2",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Writer",
+        "stageId": "writer",
+        "runtimeStageId": "writer#2",
+        "phase": "repeat",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "runs": {
+            "reader": {
+              "seenLate": "from-sibling"
+            }
+          }
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "runs\u001freader\u001fseenLate",
+            "verb": "set"
+          }
+        ],
+        "stage": "Reader",
+        "stageId": "reader",
+        "runtimeStageId": "reader#1",
+        "idx": 3
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Reader",
+        "stageId": "reader",
+        "runtimeStageId": "reader#1",
+        "phase": "repeat",
+        "idx": 4
+      },
+      {
+        "overwrite": {
+          "final": 2
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "final",
+            "verb": "set"
+          }
+        ],
+        "stage": "Join",
+        "stageId": "join",
+        "runtimeStageId": "join#3",
+        "idx": 5
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»"
+  }
+}

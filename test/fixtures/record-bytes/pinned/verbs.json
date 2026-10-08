@@ -1,0 +1,457 @@
+{
+  "full": {
+    "snapshot": {
+      "sharedState": {
+        "list": [
+          9
+        ],
+        "profile": {
+          "name": "b",
+          "tags": [
+            "x",
+            "y"
+          ],
+          "age": 3
+        },
+        "temp": "«undefined»"
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "list": [
+            1,
+            2
+          ],
+          "profile": {
+            "name": "a",
+            "tags": [
+              "x"
+            ]
+          },
+          "temp": "gone soon"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Change stage",
+            "timestamp": "«time»",
+            "targetStage": "Change"
+          }
+        ],
+        "next": {
+          "id": "change",
+          "runtimeStageId": "change#1",
+          "name": "Change",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {
+            "message": "[WRITE] deleted temp"
+          },
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              1,
+              2,
+              3
+            ],
+            "profile": {
+              "tags": [
+                "y"
+              ],
+              "age": 3
+            },
+            "temp": "«undefined»"
+          },
+          "stageReads": {
+            "list": [
+              1,
+              2
+            ]
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Shrink stage",
+              "timestamp": "«time»",
+              "targetStage": "Shrink"
+            }
+          ],
+          "next": {
+            "id": "shrink",
+            "runtimeStageId": "shrink#2",
+            "name": "Shrink",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "list": [
+                9
+              ],
+              "profile": {
+                "name": "b"
+              }
+            },
+            "stageReads": {
+              "profile": {
+                "name": "a",
+                "tags": [
+                  "x",
+                  "y"
+                ],
+                "age": 3
+              }
+            }
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "list": [
+              1,
+              2
+            ],
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x"
+              ]
+            },
+            "temp": "gone soon"
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "temp",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "list": [
+              1,
+              2,
+              3
+            ],
+            "temp": "«undefined»"
+          },
+          "updates": {
+            "profile": {
+              "tags": [
+                "y"
+              ],
+              "age": 3
+            }
+          },
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "temp",
+              "verb": "set"
+            }
+          ],
+          "stage": "Change",
+          "stageId": "change",
+          "runtimeStageId": "change#1",
+          "idx": 1
+        },
+        {
+          "overwrite": {
+            "list": [
+              9
+            ]
+          },
+          "updates": {
+            "profile": {
+              "name": "b"
+            }
+          },
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Shrink",
+          "stageId": "shrink",
+          "runtimeStageId": "shrink#2",
+          "idx": 2
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "full",
+      "writeProvenance": "off",
+      "runId": "«run:1»"
+    }
+  },
+  "delta": {
+    "snapshot": {
+      "sharedState": {
+        "list": [
+          9
+        ],
+        "profile": {
+          "name": "b",
+          "tags": [
+            "x",
+            "y"
+          ],
+          "age": 3
+        }
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "list": [
+            1,
+            2
+          ],
+          "profile": {
+            "name": "a",
+            "tags": [
+              "x"
+            ]
+          },
+          "temp": "gone soon"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Change stage",
+            "timestamp": "«time»",
+            "targetStage": "Change"
+          }
+        ],
+        "next": {
+          "id": "change",
+          "runtimeStageId": "change#1",
+          "name": "Change",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {
+            "message": "[WRITE] deleted temp"
+          },
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              1,
+              2,
+              3
+            ],
+            "profile": {
+              "tags": [
+                "y"
+              ],
+              "age": 3
+            },
+            "temp": "«undefined»"
+          },
+          "stageReads": {
+            "list": [
+              1,
+              2
+            ]
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Shrink stage",
+              "timestamp": "«time»",
+              "targetStage": "Shrink"
+            }
+          ],
+          "next": {
+            "id": "shrink",
+            "runtimeStageId": "shrink#2",
+            "name": "Shrink",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "list": [
+                9
+              ],
+              "profile": {
+                "name": "b"
+              }
+            },
+            "stageReads": {
+              "profile": {
+                "name": "a",
+                "tags": [
+                  "x",
+                  "y"
+                ],
+                "age": 3
+              }
+            }
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "list": [
+              1,
+              2
+            ],
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x"
+              ]
+            },
+            "temp": "gone soon"
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "set"
+            },
+            {
+              "path": "temp",
+              "verb": "set"
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "list": [
+              3
+            ],
+            "temp": "«undefined»"
+          },
+          "updates": {
+            "profile": {
+              "tags": [
+                "y"
+              ],
+              "age": 3
+            }
+          },
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "append"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            },
+            {
+              "path": "temp",
+              "verb": "delete"
+            }
+          ],
+          "stage": "Change",
+          "stageId": "change",
+          "runtimeStageId": "change#1",
+          "idx": 1
+        },
+        {
+          "overwrite": {
+            "list": [
+              9
+            ]
+          },
+          "updates": {
+            "profile": {
+              "name": "b"
+            }
+          },
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "list",
+              "verb": "set"
+            },
+            {
+              "path": "profile",
+              "verb": "merge"
+            }
+          ],
+          "stage": "Shrink",
+          "stageId": "shrink",
+          "runtimeStageId": "shrink#2",
+          "idx": 2
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "off",
+      "runId": "«run:2»"
+    }
+  }
+}

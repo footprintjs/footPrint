@@ -1,0 +1,368 @@
+{
+  "full": {
+    "snapshot": {
+      "sharedState": {
+        "a": 1,
+        "b": 2,
+        "x": 2,
+        "y": 4
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "a": 1,
+          "b": 2
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Derive stage",
+            "timestamp": "«time»",
+            "targetStage": "Derive"
+          }
+        ],
+        "next": {
+          "id": "derive",
+          "runtimeStageId": "derive#1",
+          "name": "Derive",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "x": 2,
+            "y": 4
+          },
+          "stageReads": {
+            "a": 1,
+            "b": 2,
+            "x": 2
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "a": 1,
+            "b": 2
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "a",
+              "verb": "set",
+              "readKeys": []
+            },
+            {
+              "path": "b",
+              "verb": "set",
+              "readKeys": []
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "x": 2,
+            "y": 4
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "x",
+              "verb": "set",
+              "readKeys": [
+                "a"
+              ]
+            },
+            {
+              "path": "y",
+              "verb": "set",
+              "readKeys": [
+                "a",
+                "b",
+                "x"
+              ]
+            }
+          ],
+          "stage": "Derive",
+          "stageId": "derive",
+          "runtimeStageId": "derive#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:1»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "reads-prefix",
+      "runId": "«run:1»"
+    }
+  },
+  "summary": {
+    "snapshot": {
+      "sharedState": {
+        "a": 1,
+        "b": 2,
+        "x": 2,
+        "y": 4
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "a": {
+            "__writeSummary": true,
+            "type": "number",
+            "preview": "1"
+          },
+          "b": {
+            "__writeSummary": true,
+            "type": "number",
+            "preview": "2"
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Derive stage",
+            "timestamp": "«time»",
+            "targetStage": "Derive"
+          }
+        ],
+        "next": {
+          "id": "derive",
+          "runtimeStageId": "derive#1",
+          "name": "Derive",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "x": {
+              "__writeSummary": true,
+              "type": "number",
+              "preview": "2"
+            },
+            "y": {
+              "__writeSummary": true,
+              "type": "number",
+              "preview": "4"
+            }
+          },
+          "stageReads": {
+            "a": {
+              "__readSummary": true,
+              "type": "number",
+              "preview": "1"
+            },
+            "b": {
+              "__readSummary": true,
+              "type": "number",
+              "preview": "2"
+            },
+            "x": {
+              "__readSummary": true,
+              "type": "number",
+              "preview": "2"
+            }
+          }
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "a": 1,
+            "b": 2
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "a",
+              "verb": "set",
+              "readKeys": []
+            },
+            {
+              "path": "b",
+              "verb": "set",
+              "readKeys": []
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "x": 2,
+            "y": 4
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "x",
+              "verb": "set",
+              "readKeys": [
+                "a"
+              ]
+            },
+            {
+              "path": "y",
+              "verb": "set",
+              "readKeys": [
+                "a",
+                "b",
+                "x"
+              ]
+            }
+          ],
+          "stage": "Derive",
+          "stageId": "derive",
+          "runtimeStageId": "derive#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:2»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "reads-prefix",
+      "runId": "«run:2»"
+    }
+  },
+  "off": {
+    "snapshot": {
+      "sharedState": {
+        "a": 1,
+        "b": 2,
+        "x": 2,
+        "y": 4
+      },
+      "executionTree": {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Derive stage",
+            "timestamp": "«time»",
+            "targetStage": "Derive"
+          }
+        ],
+        "next": {
+          "id": "derive",
+          "runtimeStageId": "derive#1",
+          "name": "Derive",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {}
+        }
+      },
+      "initialState": {},
+      "commitLog": [
+        {
+          "overwrite": {
+            "a": 1,
+            "b": 2
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "a",
+              "verb": "set",
+              "readKeys": []
+            },
+            {
+              "path": "b",
+              "verb": "set",
+              "readKeys": []
+            }
+          ],
+          "stage": "Seed",
+          "stageId": "seed",
+          "runtimeStageId": "seed#0",
+          "idx": 0
+        },
+        {
+          "overwrite": {
+            "x": 2,
+            "y": 4
+          },
+          "updates": {},
+          "redactedPaths": [],
+          "trace": [
+            {
+              "path": "x",
+              "verb": "set",
+              "readKeys": [
+                "a"
+              ]
+            },
+            {
+              "path": "y",
+              "verb": "set",
+              "readKeys": [
+                "a",
+                "b",
+                "x"
+              ]
+            }
+          ],
+          "stage": "Derive",
+          "stageId": "derive",
+          "runtimeStageId": "derive#1",
+          "idx": 1
+        }
+      ],
+      "logAddress": {
+        "logRunId": "«run:3»",
+        "drillPath": []
+      },
+      "commitValues": "delta",
+      "writeProvenance": "reads-prefix",
+      "runId": "«run:3»"
+    }
+  }
+}

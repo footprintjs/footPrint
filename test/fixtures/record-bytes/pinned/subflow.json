@@ -1,0 +1,370 @@
+{
+  "snapshot": {
+    "sharedState": {
+      "outerKey": "outer-value",
+      "innerResult": "got:seeded-value",
+      "after": "got:seeded-value"
+    },
+    "executionTree": {
+      "id": "outer",
+      "runtimeStageId": "outer#0",
+      "name": "Outer",
+      "isDecider": false,
+      "isFork": false,
+      "logs": {},
+      "errors": {},
+      "metrics": {},
+      "evals": {},
+      "stageWrites": {
+        "outerKey": "outer-value"
+      },
+      "flowMessages": [
+        {
+          "type": "next",
+          "description": "Moving to Inner stage",
+          "timestamp": "«time»",
+          "targetStage": "Inner"
+        }
+      ],
+      "next": {
+        "id": "sf-inner",
+        "runtimeStageId": "sf-inner#1",
+        "name": "Inner",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "subflowId": "sf-inner",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-inner"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Inner subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-inner"
+          }
+        ],
+        "next": {
+          "id": "after",
+          "runtimeStageId": "after#4",
+          "name": "After",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "after": "got:seeded-value"
+          },
+          "stageReads": {
+            "innerResult": "got:seeded-value"
+          }
+        }
+      }
+    },
+    "initialState": {},
+    "commitLog": [
+      {
+        "overwrite": {
+          "outerKey": "outer-value"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "outerKey",
+            "verb": "set"
+          }
+        ],
+        "stage": "Outer",
+        "stageId": "outer",
+        "runtimeStageId": "outer#0",
+        "idx": 0
+      },
+      {
+        "overwrite": {
+          "innerResult": "got:seeded-value"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "innerResult",
+            "verb": "set"
+          }
+        ],
+        "stage": "Inner",
+        "stageId": "sf-inner",
+        "runtimeStageId": "sf-inner#1",
+        "idx": 1
+      },
+      {
+        "overwrite": {},
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [],
+        "stage": "Inner",
+        "stageId": "sf-inner",
+        "runtimeStageId": "sf-inner#1",
+        "phase": "exit",
+        "idx": 2
+      },
+      {
+        "overwrite": {
+          "after": "got:seeded-value"
+        },
+        "updates": {},
+        "redactedPaths": [],
+        "trace": [
+          {
+            "path": "after",
+            "verb": "set"
+          }
+        ],
+        "stage": "After",
+        "stageId": "after",
+        "runtimeStageId": "after#4",
+        "idx": 3
+      }
+    ],
+    "logAddress": {
+      "logRunId": "«run:1»",
+      "drillPath": []
+    },
+    "commitValues": "full",
+    "writeProvenance": "off",
+    "runId": "«run:1»",
+    "subflowResults": {
+      "sf-inner": {
+        "subflowId": "sf-inner",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "seededKey": "seeded-value",
+            "innerResult": "got:seeded-value",
+            "innerSecond": true
+          },
+          "stageContexts": {
+            "id": "sf-inner/inner-work",
+            "runtimeStageId": "sf-inner/inner-work#2",
+            "name": "sf-inner/InnerWork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "innerResult": "got:seeded-value"
+            },
+            "stageReads": {
+              "seededKey": "seeded-value"
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to sf-inner/InnerSecond stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-inner/InnerSecond"
+              }
+            ],
+            "next": {
+              "id": "sf-inner/inner-second",
+              "runtimeStageId": "sf-inner/inner-second#3",
+              "name": "sf-inner/InnerSecond",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerSecond": true
+              }
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "seededKey": "seeded-value"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "seededKey",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-inner",
+              "runtimeStageId": "sf-inner#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "innerResult": "got:seeded-value"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerResult",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-inner/InnerWork",
+              "stageId": "sf-inner/inner-work",
+              "runtimeStageId": "sf-inner/inner-work#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "innerSecond": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerSecond",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-inner/InnerSecond",
+              "stageId": "sf-inner/inner-second",
+              "runtimeStageId": "sf-inner/inner-second#3",
+              "idx": 2
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-inner#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      },
+      "sf-inner#1": {
+        "subflowId": "sf-inner",
+        "subflowName": "Inner",
+        "treeContext": {
+          "globalContext": {
+            "seededKey": "seeded-value",
+            "innerResult": "got:seeded-value",
+            "innerSecond": true
+          },
+          "stageContexts": {
+            "id": "sf-inner/inner-work",
+            "runtimeStageId": "sf-inner/inner-work#2",
+            "name": "sf-inner/InnerWork",
+            "isDecider": false,
+            "isFork": false,
+            "logs": {},
+            "errors": {},
+            "metrics": {},
+            "evals": {},
+            "stageWrites": {
+              "innerResult": "got:seeded-value"
+            },
+            "stageReads": {
+              "seededKey": "seeded-value"
+            },
+            "flowMessages": [
+              {
+                "type": "next",
+                "description": "Moving to sf-inner/InnerSecond stage",
+                "timestamp": "«time»",
+                "targetStage": "sf-inner/InnerSecond"
+              }
+            ],
+            "next": {
+              "id": "sf-inner/inner-second",
+              "runtimeStageId": "sf-inner/inner-second#3",
+              "name": "sf-inner/InnerSecond",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerSecond": true
+              }
+            }
+          },
+          "history": [
+            {
+              "overwrite": {
+                "seededKey": "seeded-value"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "seededKey",
+                  "verb": "set"
+                }
+              ],
+              "stage": "Inner",
+              "stageId": "sf-inner",
+              "runtimeStageId": "sf-inner#1",
+              "idx": 0
+            },
+            {
+              "overwrite": {
+                "innerResult": "got:seeded-value"
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerResult",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-inner/InnerWork",
+              "stageId": "sf-inner/inner-work",
+              "runtimeStageId": "sf-inner/inner-work#2",
+              "idx": 1
+            },
+            {
+              "overwrite": {
+                "innerSecond": true
+              },
+              "updates": {},
+              "redactedPaths": [],
+              "trace": [
+                {
+                  "path": "innerSecond",
+                  "verb": "set"
+                }
+              ],
+              "stage": "sf-inner/InnerSecond",
+              "stageId": "sf-inner/inner-second",
+              "runtimeStageId": "sf-inner/inner-second#3",
+              "idx": 2
+            }
+          ],
+          "logAddress": {
+            "logRunId": "«run:1»",
+            "drillPath": [
+              "sf-inner#1"
+            ]
+          },
+          "initialState": {}
+        },
+        "parentStageId": "Inner"
+      }
+    }
+  }
+}
