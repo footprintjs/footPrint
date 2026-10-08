@@ -3,7 +3,7 @@
  *
  * Over every kind a record can hold (test/helpers/valueKinds.ts · `cloneable`: plain objects, arrays,
  * class instances, Date, RegExp, Map, Set, every Error type, boxed primitives, buffers — resizable
- * too — every typed array, DataView, Blob, DOMException, nested), a stage writes `a` and the next
+ * too — every typed array, DataView, Blob, nested), a stage writes `a` and the next
  * writes `b`. The second commits a row on `v` exactly when a record holds something different for
  * them, by an oracle that never asks the library (`recordKey`: tags, `structuredClone`,
  * `v8.serialize`); and live state and the record then hold `b`, else `a`.

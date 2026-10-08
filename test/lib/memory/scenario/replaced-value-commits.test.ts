@@ -4,8 +4,8 @@
  * The net-change filter drops a write that leaves a path as it was, and asks `deepEqual`
  * (`memory/equality.ts`, the one owner of "what counts as a change") whether it did. Until 9.45.0
  * `deepEqual` knew three kinds — Date, Map, Set — and compared every other object by its own
- * enumerable keys. A RegExp, an Error, a boxed primitive, an ArrayBuffer, a DataView, a Blob or a
- * DOMException has none, so any two of a kind were "equal": the stage wrote, no row was committed,
+ * enumerable keys. A RegExp, an Error, a boxed primitive, an ArrayBuffer, a DataView or a Blob has
+ * none, so any two of a kind were "equal": the stage wrote, no row was committed,
  * and live state kept the OLD value. A typed array against another typed array type with the same
  * elements was "equal" too.
  *
@@ -77,7 +77,6 @@ const CHANGED: Array<[string, () => [unknown, unknown]]> = [
     () => [new Uint8Array(bytes(1, 2), 0, 1), new Uint8Array(bytes(1, 3), 0, 1)],
   ],
   ['Blob: another blob', () => [new Blob(['a']), new Blob(['a'])]],
-  ['DOMException: another message', () => [new DOMException('a'), new DOMException('b')]],
   ['nested in an object', () => [{ re: /x/ }, { re: /y/ }]],
   ['nested in an array', () => [[Object(1)], [Object(2)]]],
   ['nested in a Map', () => [new Map([['k', /x/]]), new Map([['k', /y/]])]],

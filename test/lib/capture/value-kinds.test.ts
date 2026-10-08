@@ -104,7 +104,9 @@ const SAMPLES: Record<ValueKind, Array<() => object>> = {
     () => new (ArrayBuffer as unknown as new (n: number, o: object) => ArrayBuffer)(3, { maxByteLength: 8 }),
   ],
   view: [() => new Uint8Array([1, 2, 3]), () => new Float64Array([1]), () => new DataView(new ArrayBuffer(4))],
-  opaque: [() => new Blob(['a']), () => new DOMException('m')],
+  // A Blob is opaque on every runtime. (A DOMException's clone differs by runtime — itself on Node 24
+  // and in browsers, a plain `{}` on Node 22 — and the classifier follows the clone, so it is not a sample.)
+  opaque: [() => new Blob(['a'])],
 };
 
 /** Did anything a holder can do move the value's content (as a record holds it)? */

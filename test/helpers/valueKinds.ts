@@ -4,8 +4,9 @@
  *
  *   - `cloneable`  a fast-check arbitrary over every kind `structuredClone` keeps that state may hold
  *                  (plain objects, arrays, class instances, Date, RegExp, Map, Set, every Error type,
- *                  boxed primitives, ArrayBuffer — resizable too — every typed array, DataView, Blob,
- *                  DOMException), nested; small domains, so near-misses are common
+ *                  boxed primitives, ArrayBuffer — resizable too — every typed array, DataView, Blob),
+ *                  nested; small domains, so near-misses are common (a DOMException is left out: its clone
+ *                  differs by runtime — itself on Node 24, a plain `{}` on Node 22)
  *   - `recordKey`  an independent oracle: the value as a record holds it, as one string — built from
  *                  `Object.prototype.toString` tags, `structuredClone` and raw bytes. Two values hold the
  *                  same thing iff their keys are equal (a length-tracking view and a fixed view of the
@@ -93,7 +94,6 @@ const leaf: fc.Arbitrary<unknown> = fc.oneof(
     .tuple(bytes, smallInt)
     .map(([b, offset]) => new DataView(bufferOf(new Uint8Array([...b, 0, 0]), false), offset % 2)),
   small.map((s) => new Blob([s])),
-  fc.tuple(small, fc.constantFrom('AbortError', 'TimeoutError')).map(([m, name]) => new DOMException(m, name)),
 );
 
 /** Every kind, nested: plain objects, arrays, class instances, Maps, Sets, errors with a cause. */
