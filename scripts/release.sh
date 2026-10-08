@@ -11,6 +11,7 @@ say() { if [ "${RELEASE_QUIET:-0}" != "1" ]; then echo "$@"; fi; }
 #
 # Release pipeline (gates before version bump):
 #   1. Clean working tree
+#   1b. Consumer audit green for HEAD (.github/workflows/consumers.yml)
 #   2. Documentation check (no stale API refs in .md files)
 #   2.5 Duplicate type check (no same type name defined in two files)
 #   3. API conformance tests (47 design contract tests)
@@ -37,6 +38,20 @@ fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Error: working tree is not clean. Commit or stash changes first."
+  exit 1
+fi
+
+# ── Gate 1b: Consumer audit ─────────────────────────────────────────────
+# No tag unless .github/workflows/consumers.yml is green for this exact commit:
+# every family consumer's own checks, run against it (docs/guides/consumer-audit.md).
+HEAD_SHA="$(git rev-parse HEAD)"
+AUDIT="$(gh run list --workflow consumers.yml --commit "$HEAD_SHA" --limit 1 --json status,conclusion,url \
+  --jq '.[] | "\(.status) \(.conclusion) \(.url)"' 2>/dev/null || true)"
+if [[ "$AUDIT" != "completed success "* ]]; then
+  echo "Error: the consumer audit is not green for HEAD ${HEAD_SHA:0:8} (latest run: ${AUDIT:-none, or gh is missing})."
+  echo "  1. Push HEAD, then start the audit on it:  gh workflow run consumers.yml --ref $(git rev-parse --abbrev-ref HEAD)"
+  echo "  2. Wait for it (about 11 minutes):        gh run list --workflow consumers.yml --commit $HEAD_SHA"
+  echo "  3. Green: run this release again. Red: open the run; a BLOCKING consumer means this commit breaks it."
   exit 1
 fi
 
@@ -118,8 +133,9 @@ say "==> Released v$VERSION"
 echo "    npm: https://www.npmjs.com/package/footprintjs/v/$VERSION (published by CI)"
 echo "    changelog: CHANGELOG.md"
 echo ""
-echo "Release pipeline passed all 9 gates:"
+echo "Release pipeline passed all 10 gates:"
 echo "  1. Clean tree               ✓"
+echo "  1b. Consumer audit          ✓  (every family consumer green on this commit)"
 echo "  2. Doc check                ✓  (0 stale API refs)"
 echo "  2.5 Dup type check          ✓  (no duplicate exported type names)"
 echo "  3. API conformance          ✓  (47 design contract tests)"
