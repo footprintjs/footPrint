@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the consumer audit, a release gate
+
+- **No release tags until every family consumer passes its own checks against the candidate.** hcifootprint 2.6.0 broke on every fresh install after 9.36 removed `/advanced` internals it imported, and nobody noticed for weeks. A new workflow, `.github/workflows/consumers.yml`, runs on every PR to main and on demand. It packs the candidate. Then, for each consumer in the new `scripts/family.json` (hcifootprint, agentfootprint, agentfootprint-lens, footprint-storyreel, vizfootprint, footprint-playground, agent-playground), it clones the default branch, installs it, swaps footprintjs for the tarball and runs the consumer's own checks. A consumer red on the candidate runs again on the published footprintjs. Red on both is the consumer's own failure: a warning, not blocking. Red only on the candidate fails the run. `scripts/release.sh` (gate 1b) refuses to tag unless that workflow is green for HEAD's exact commit, and its message says how to start a run. `npm run audit:consumers -- --local` runs the same checks against your local checkouts. They can be stale, so the CI run is the gate. Each run also counts each consumer's record-symbol imports from `/advanced`, as a measurement only. See `docs/guides/consumer-audit.md`.
+- `scripts/audit-family-versions.mjs` reads the same list. Its family now includes hcifootprint and footprint-storyreel, and its drift check now covers vizfootprint and the two playgrounds.
+- No library code changed.
+
 ### Tests — today's record bytes, pinned
 
 - **The bytes footprintjs 9.44.1 writes are stored, and every run must reproduce them** (`test/fixtures/`). This is the safety net for the clean-up that moves the record half of a frame out of `StageContext`: a byte that moves fails a test that names the scenario and shows the line. Tests only; no library change.

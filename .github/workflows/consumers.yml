@@ -1,0 +1,101 @@
+name: Consumers
+
+# THE CONSUMER AUDIT: every family consumer's own checks, run against this footprintjs candidate.
+# hcifootprint 2.6.0 broke on every fresh install after footprintjs 9.36 removed internals it
+# imported, and nobody noticed for weeks. scripts/release.sh refuses to tag unless this workflow
+# is green for HEAD. The consumers are listed in scripts/family.json; the rule lives in
+# scripts/audit-consumers.mjs; docs/guides/consumer-audit.md says how to read a run.
+#
+# A consumer red only on the candidate fails its job: BLOCKING. A consumer red on the published
+# footprintjs too is its own failure: a warning on the run, and its job stays green.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A read-only token and no secrets. No cache is restored or saved, and every action is pinned to
+# a full commit SHA (a moved tag would otherwise run here).
+permissions:
+  contents: read
+
+concurrency:
+  group: consumers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      consumers: ${{ steps.list.outputs.consumers }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
+      - run: npm install -g npm@11
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+
+      - name: Pack the candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate"
+          npm pack --pack-destination "$RUNNER_TEMP/candidate"
+          mv "$RUNNER_TEMP"/candidate/footprintjs-*.tgz "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz"
+
+      - name: List the consumers (scripts/family.json)
+        id: list
+        run: echo "consumers=$(node -p "JSON.stringify(require('./scripts/family.json').family.filter((f) => f.checks).map((f) => f.package))")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
+          retention-days: 3
+
+  consumer:
+    needs: pack
+    name: ${{ matrix.consumer }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        consumer: ${{ fromJSON(needs.pack.outputs.consumers) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node 22: the version the consumers' own CI runs.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - run: npm install -g npm@11
+
+      # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
+      # and the run's annotations should be the audit's verdicts; the output stays in the log.
+      - name: Keep the consumers' compiler output out of the run's annotations
+        run: |
+          echo "::remove-matcher owner=tsc::"
+          echo "::remove-matcher owner=eslint-stylish::"
+          echo "::remove-matcher owner=eslint-compact::"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Audit ${{ matrix.consumer }}
+        env:
+          CONSUMER: ${{ matrix.consumer }}
+        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt

@@ -27,16 +27,12 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-// pkg name → checkout dir name (under the org root)
-const FAMILY = {
-  footprintjs: 'footPrint',
-  agentfootprint: 'agentfootprint',
-  'agentfootprint-lens': 'agentfootprint-lens',
-  'footprint-explainable-ui': 'explainable-ui',
-  agentthinkingui: 'agentThinkingUI',
-};
-// consumer apps that depend on the family (not published; checked for drift only)
-const CONSUMERS = { 'neo-agentfootprint': 'neo-agentfootprint' };
+// One list, scripts/family.json (the consumer audit reads it too).
+const { family } = JSON.parse(readFileSync(new URL('./family.json', import.meta.url), 'utf8'));
+// pkg name → checkout dir name (under the org root): the published family packages…
+const FAMILY = Object.fromEntries(family.filter((f) => f.published).map((f) => [f.package, f.dir]));
+// …and the apps that depend on the family (not published; checked for drift only)
+const CONSUMERS = Object.fromEntries(family.filter((f) => !f.published).map((f) => [f.package, f.dir]));
 
 const FAMILY_NAMES = new Set(Object.keys(FAMILY));
 // first NON-flag arg is the org root (so `--deep` isn't mistaken for a path)
