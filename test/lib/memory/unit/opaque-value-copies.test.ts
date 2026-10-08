@@ -1,6 +1,6 @@
 /**
  * An OPAQUE value (a Blob, a DOMException — content this library cannot read) and the two questions
- * `deepEqual` answers about it (9.45.0, `memory/equality.ts · OpaqueRule`).
+ * `deepEqual` answers about it (9.44.2, `memory/equality.ts · OpaqueRule`).
  *
  *   unit      `'identity'` (the replacement check): equal only to itself. `'copies'` (both sides are
  *             copies of one record): equal to any other of its kind — copies never share identity

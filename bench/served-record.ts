@@ -1,12 +1,13 @@
 /**
- * served-record — what serving the record costs (9.45.0).
+ * served-record — what serving the record costs (9.44.2).
  *
  * Why it exists: a commit bundle or fold base that holds a value `Object.freeze` cannot seal (a Date, a
- * Map, a buffer …) is served as a fresh frozen copy on every `getSnapshot()` (`capture/freeze.ts ·
- * serveRecord`); one freezing sealed whole is served as itself. This bench is the instrument for both
- * sides: a log of N commits each writing a small JSON value, and the same log with a Date in every
- * commit. `snapshot ms` is the median `getSnapshot()` time; `served copies` says how many bundles the
- * snapshot copied.
+ * Map, a buffer …) is served as a copy of its open paths on every `getSnapshot()` — the containers on
+ * the way to each such value, mapped at the record's first serve (`capture/freeze.ts · serveRecord`);
+ * one freezing sealed whole is served as itself. This bench is the instrument for both sides: a log of
+ * N commits each writing a small JSON value, and the same log with a Date in every commit. `first ms`
+ * is the first `getSnapshot()` (it maps the open paths), `snapshot ms` the median of the next 21;
+ * `served copies` says how many bundles a snapshot copied.
  *
  * Run:  npx tsx bench/served-record.ts
  */
@@ -30,12 +31,14 @@ async function main() {
     return executor;
   }
 
-  console.log('served-record [src] — getSnapshot() over N commits (median of 21)');
-  console.log('     N  record              snapshot ms   served copies');
+  console.log('served-record [src] — getSnapshot() over N commits (first, then median of 21)');
+  console.log('     N  record              first ms   snapshot ms   served copies');
   for (const n of SIZES) {
     for (const withDate of [false, true]) {
       const executor = await run(n, withDate);
+      const t = performance.now();
       const log = executor.getSnapshot().commitLog;
+      const first = performance.now() - t;
       const again = executor.getSnapshot().commitLog;
       const copies = log.filter((bundle: unknown, i: number) => bundle !== again[i]).length;
       const times: number[] = [];
@@ -47,7 +50,9 @@ async function main() {
       times.sort((a, b) => a - b);
       const label = withDate ? 'a Date per commit' : 'JSON-shaped';
       console.log(
-        `${String(n).padStart(6)}  ${label.padEnd(18)} ${times[ROUNDS >> 1].toFixed(2).padStart(11)}   ${String(copies).padStart(13)}`,
+        `${String(n).padStart(6)}  ${label.padEnd(18)} ${first.toFixed(2).padStart(8)}   ${times[ROUNDS >> 1]
+          .toFixed(2)
+          .padStart(11)}   ${String(copies).padStart(13)}`,
       );
     }
   }

@@ -465,7 +465,10 @@ things are checked, each with its own reason:
    lineage whose indices merely happen to be higher — a different chart's
    resume, say — which checks 1 and 2 cannot see. Paths the log was redacted
    at are excluded (the fold holds `'REDACTED'` there; the checkpoint holds
-   the value).
+   the value). "Deep-equals" is the library's ONE equality law
+   (`memory/equality.ts · deepEqual`, `'copies'`: the two sides are copies of
+   one record); until 9.44.2 the check had an equality of its own, which held
+   any two RegExps, Errors or buffers equal.
 
 **What check 3 needs, said out loud.** It runs only where the record allows
 it: the later leg must carry an `initialState`, and the earlier legs must fold
@@ -688,8 +691,9 @@ shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
   log ARRAY, and since 9.33.0 every bundle in it is frozen too, to every depth,
   at `EventLog · record` — a holder can no longer rewrite the history a fold
   reads. What freezing cannot seal (a Date, a Map, a buffer …) is served as a
-  fresh copy per snapshot since 9.45.0, so an edit of one stays in that
-  snapshot (memory/README.md, "Freeze what can be frozen, copy what can't").
+  fresh copy per snapshot since 9.44.2 — with the containers on the way to it;
+  every other part is shared — so an edit of one stays in that snapshot
+  (memory/README.md, "Freeze what can be frozen, copy what can't").
   A snapshot is a fold result: it does not keep changing under its holder.
 - `initialState` is the run's RAW seed — `initialContext` merged with
   `defaultValuesForContext` — and no redaction policy ever touched it: a policy

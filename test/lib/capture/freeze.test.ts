@@ -12,8 +12,11 @@
  *             expando is left unfrozen there — and ONLY there: the default walk still reaches it
  */
 import { flowChart, FlowChartExecutor } from '../../../src';
-import { deepFreeze, freezeRecord, holdsUnsealed, serveRecord } from '../../../src/lib/capture/freeze';
+import { deepFreeze, freezeRecord, serveRecord } from '../../../src/lib/capture/freeze';
 import { createFrozenArgs } from '../../../src/lib/scope/protection/readonlyInput';
+
+/** Is `record` served as a copy — does it hold a value freezing cannot seal? */
+const holdsUnsealed = (record: object) => serveRecord(record) !== record;
 
 describe('deepFreeze — the walk', () => {
   it('freezes every object reachable through own properties and returns its argument', () => {
@@ -145,7 +148,7 @@ describe('deepFreeze — edges and named holes', () => {
   });
 });
 
-describe('freezeRecord / serveRecord — freeze what can be frozen, copy what can’t (9.45.0)', () => {
+describe('freezeRecord / serveRecord — freeze what can be frozen, copy what can’t (9.44.2)', () => {
   it('a record freezing seals whole is served as itself', () => {
     const record = freezeRecord({ a: { b: [1, 'x', null] }, n: Object(1) });
     expect(holdsUnsealed(record)).toBe(false);
@@ -191,5 +194,83 @@ describe('freezeRecord / serveRecord — freeze what can be frozen, copy what ca
     const record = freezeRecord({ list: Object.assign([1], { when: new Date(5) }) }, 'indices');
     expect(holdsUnsealed(record)).toBe(false);
     expect(holdsUnsealed(freezeRecord({ list: Object.assign([1], { when: new Date(5) }) }))).toBe(true);
+  });
+});
+
+describe('freezeRecord / serveRecord — the open paths, iteratively (9.44.2)', () => {
+  /** A chain `depth` objects deep, `leaf` at the bottom. */
+  const chain = (depth: number, leaf: unknown) => {
+    let node: Record<string, unknown> = { leaf };
+    for (let i = 0; i < depth; i++) node = { next: node };
+    return node;
+  };
+  const bottom = (node: Record<string, unknown>) => {
+    let at = node;
+    while (at.next !== undefined) at = at.next as Record<string, unknown>;
+    return at;
+  };
+
+  it('a record 20,000 deep freezes, is looked through and is served without a recursion', () => {
+    // Identity is compared as booleans: the matcher's own deep diff would recurse 20,000 levels.
+    const sealed = freezeRecord(chain(20_000, 1));
+    expect(holdsUnsealed(sealed)).toBe(false);
+    expect(serveRecord(sealed) === sealed).toBe(true);
+    expect(Object.isFrozen(bottom(sealed))).toBe(true);
+
+    const open = freezeRecord(chain(20_000, new Date(5)));
+    expect(holdsUnsealed(open)).toBe(true);
+    const served = serveRecord(open);
+    expect(served === open).toBe(false);
+    (bottom(served).leaf as Date).setTime(0); // the reader's copy, 20,000 down
+    expect((bottom(open).leaf as Date).getTime()).toBe(5);
+    expect((bottom(serveRecord(open)).leaf as Date).getTime()).toBe(5);
+
+    expect(() => deepFreeze(chain(20_000, { x: 1 }))).not.toThrow();
+  });
+
+  it('only the open paths are copied: a sealed part is served as itself, shared', () => {
+    const history = Array.from({ length: 1_000 }, (_, i) => ({ i, text: `m${i}` }));
+    const record = freezeRecord({ history, meta: { at: new Date(1), tags: ['a'] } });
+    const served = serveRecord(record);
+    expect(served).not.toBe(record);
+    expect(served.history).toBe(record.history); // sealed: shared, not copied
+    expect(served.meta).not.toBe(record.meta); // on the way to the Date: copied
+    expect(served.meta.tags).toBe(record.meta.tags);
+    expect(served.meta.at).not.toBe(record.meta.at);
+  });
+
+  it('a part another record already mapped still opens the new record on the way to it', () => {
+    const shared = { when: new Date(5) };
+    serveRecord(freezeRecord({ shared })); // maps `shared` as an open path of the first record
+    const second = freezeRecord({ wrap: { shared } });
+    const served = serveRecord(second);
+    expect(served.wrap.shared === shared).toBe(false);
+    served.wrap.shared.when.setTime(0); // the reader's copy
+    expect(shared.when.getTime()).toBe(5);
+    expect(serveRecord(second).wrap.shared.when.getTime()).toBe(5);
+  });
+
+  it('sharing and cycles inside a record are kept in its served copy', () => {
+    const when = new Date(3);
+    const node: Record<string, unknown> = { a: when, b: when };
+    node.self = node;
+    const served = serveRecord(freezeRecord({ node })) as { node: Record<string, unknown> };
+    expect(served.node.a).toBe(served.node.b); // one Date, copied once
+    expect(served.node.self).toBe(served.node); // the cycle lands on the copy
+    expect(served.node.a).not.toBe(when);
+  });
+
+  it('a view over a SLICE of a bigger buffer (a Node Buffer and its pool) keeps only the bytes it views', () => {
+    const pooled = Buffer.from('hi'); // a slice of Node's shared pool
+    expect(pooled.buffer.byteLength).toBeGreaterThan(pooled.byteLength);
+    const record = freezeRecord({
+      bytes: structuredClone(pooled),
+      view: new DataView(new Uint8Array([9, 1, 2]).buffer, 1),
+    });
+    const bytes = record.bytes as Uint8Array;
+    expect([...bytes]).toEqual([...pooled]);
+    expect(bytes.byteOffset).toBe(0);
+    expect(bytes.buffer.byteLength).toBe(bytes.byteLength); // the pool's other bytes are gone from the record
+    expect(new Uint8Array((record.view as DataView).buffer)).toEqual(new Uint8Array([1, 2]));
   });
 });

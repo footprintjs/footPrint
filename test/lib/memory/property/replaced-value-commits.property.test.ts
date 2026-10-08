@@ -1,5 +1,5 @@
 /**
- * Property — a different value always commits a row; the same value never does (9.45.0).
+ * Property — a different value always commits a row; the same value never does (9.44.2).
  *
  * Over every kind a record can hold (test/helpers/valueKinds.ts · `cloneable`: plain objects, arrays,
  * class instances, Date, RegExp, Map, Set, every Error type, boxed primitives, buffers — resizable
@@ -10,7 +10,7 @@
  *
  * Pairs come three ways: independent (small domains, so near-misses are common), `b` a clone of `a`
  * (the same content — an opaque value inside is never the same one), and `b` the very object `a`.
- * Red before 9.45.0: the first counterexample is two RegExps, buffers or errors that differ.
+ * Red before 9.44.2: the first counterexample is two RegExps, buffers or errors that differ.
  */
 import fc from 'fast-check';
 

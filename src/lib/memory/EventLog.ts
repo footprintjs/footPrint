@@ -14,13 +14,16 @@
  * test/lib/memory/property/record-reachability.property.test.ts.
  *
  * What `Object.freeze` cannot seal — a Date's time, a Map's or Set's entries, a buffer's bytes, a
- * RegExp, an Error's stack — is never handed out (9.45.0): `record` remembers which bundles hold
- * such a value (`capture/freeze.ts · freezeRecord`), and `list()` serves each of those as a fresh
- * frozen copy (`serveRecord`), so a reader edits only its own copy and every later serve reads the
- * record as recorded. The one hole left is named: an object hung on an array EXPANDO (arrays are
- * walked by index — the `'indices'` walk, which keeps the freeze inside its budget; an expando is
- * out of contract for state). A frozen RegExp's `lastIndex` is read-only, so a `/g` or `/y` regex
- * read from a bundle throws when `exec` or `replace` advance it.
+ * RegExp, an Error's stack — is never handed out to a reader (9.44.2): `record` remembers that a
+ * bundle holds such a value (`capture/freeze.ts · freezeRecord`), and `list()` — like the public
+ * snapshot, `runner/snapshot.ts · servedSnapshot` — serves that bundle as a copy of its open paths
+ * (`serveRecord`, mapped at its first serve): fresh frozen containers down to each such value, a
+ * fresh copy of it, every other part the log's own. A reader edits only its own copy; every later
+ * serve reads the record as recorded. `recorded()` is the engine's own, unserved read. Named holes: an object hung on an array EXPANDO (arrays are walked
+ * by index — the `'indices'` walk, which keeps the freeze inside its budget; an expando is out of
+ * contract for state) and a `SharedArrayBuffer` (every copy shares its memory). A frozen RegExp's
+ * `lastIndex` is read-only, so a `/g` or `/y` regex read from a bundle throws when `exec` or
+ * `replace` advance it.
  */
 
 import { freezeRecord, serveRecord } from '../capture/freeze.js';
@@ -104,12 +107,21 @@ export class EventLog {
   }
 
   /**
-   * Every recorded commit bundle, AS SERVED (9.45.0): a new array each call; a bundle freezing sealed
-   * whole is the log's own (frozen) object, one holding a Date, Map, buffer … is a fresh frozen copy
-   * (`capture/freeze.ts · serveRecord`) — the reader's own, so no edit reaches the log.
+   * Every recorded commit bundle, AS SERVED (9.44.2): a new array each call; a bundle freezing sealed
+   * whole is the log's own (frozen) object, one holding a Date, Map, buffer … is a copy of its open
+   * paths (`capture/freeze.ts · serveRecord`) — the reader's own, so no edit reaches the log.
    */
   list(): CommitBundle[] {
     return this.steps.map(serveRecord);
+  }
+
+  /**
+   * The bundles as the log holds them: its own live array, every bundle frozen, nothing served. For the
+   * engine's own snapshot (`ExecutionRuntime · getSnapshot`, which a subflow mount takes once per mount),
+   * so the run serves nothing; a reader is served by `list()` and `getSnapshot().commitLog`.
+   */
+  recorded(): readonly CommitBundle[] {
+    return this.steps;
   }
 
   /** Number of recorded commits. */

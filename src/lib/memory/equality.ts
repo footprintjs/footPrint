@@ -20,7 +20,7 @@ import { type ValueKind, kindOf } from '../capture/valueKinds.js';
  * when a record holds the same thing for both. Every kind has ONE arm below
  * (`equalPairs`' switch over `ValueKind` — a kind added to the union does not
  * compile until it is compared). Before 9.22.0 a Date, Map or Set was compared
- * as an object with no own keys, and until 9.45.0 so were a RegExp, an Error,
+ * as an object with no own keys, and until 9.44.2 so were a RegExp, an Error,
  * a boxed primitive, an ArrayBuffer, a DataView and a Blob: any two of a kind
  * were "equal", so `$setValue('re', /y/g)` over `/x/g` committed no row and
  * live state kept the OLD value.
@@ -38,8 +38,9 @@ import { type ValueKind, kindOf } from '../capture/valueKinds.js';
  *     (the admitted record's law)
  *   - a boxed primitive: the same wrapper type and the same primitive inside
  *   - an `ArrayBuffer`: length, resizability and bytes; a typed array or a
- *     `DataView`: its type, offset and length over equal buffers (the clone
- *     keeps the WHOLE buffer, so bytes outside the view count)
+ *     `DataView`: its type and the bytes IT views — never the rest of its
+ *     buffer (a Node `Buffer` views a slice of a shared pool, and the record
+ *     keeps the view's bytes only: `capture/freeze.ts · freezeRecord`)
  *   - `Map`: same size AND, per key of `a`, `b` holds a deep-equal value —
  *     keys by `Map` identity (`SameValueZero`), values deep
  *   - `Set`: same size AND every member of `a` is deep-equal to SOME member
@@ -182,10 +183,14 @@ function tagOf(value: object): string {
   return Object.prototype.toString.call(value);
 }
 
-/** The same view type, offset and length, over buffers with the same bytes. */
+/** The same view type over the same bytes — the bytes the view sees, wherever they sit in its buffer. */
 function equalViews(a: ArrayBufferView, b: ArrayBufferView): boolean {
-  if (tagOf(a) !== tagOf(b) || a.byteOffset !== b.byteOffset || a.byteLength !== b.byteLength) return false;
-  return a.buffer === b.buffer || equalBuffers(a.buffer, b.buffer);
+  if (tagOf(a) !== tagOf(b) || a.byteLength !== b.byteLength) return false;
+  if (a.buffer === b.buffer && a.byteOffset === b.byteOffset) return true;
+  const p = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+  const q = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+  for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) return false;
+  return true;
 }
 
 /** The same length, resizability and bytes. */

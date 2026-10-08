@@ -1,21 +1,25 @@
 /**
- * A served record cannot be edited through what it serves (9.45.0) — one test per door.
+ * The commit log cannot be edited through what it serves (9.44.2) — one test per door.
  *
  * `Object.freeze` cannot seal a Date's time, a Map's or Set's entries, a buffer's bytes, a RegExp
- * (`compile()` rewrites a frozen one) or an Error's stack. Until 9.45.0 every snapshot shared the
+ * (`compile()` rewrites a frozen one) or an Error's stack. Until 9.44.2 every snapshot shared the
  * log's own frozen bundles and the run's frozen fold base, so `snapshot.commitLog[i].overwrite.when
  * .setTime(0)` — or `.set()` on a Map — rewrote what every later snapshot, `stateAt`,
- * `commitValueAt`, slice and cursor returned. Now a record holding such a value is SERVED as a fresh
- * frozen copy each time (`capture/freeze.ts · serveRecord`): the holder edits only its own copy.
+ * `commitValueAt`, slice and cursor returned. Now a record holding such a value is SERVED as a copy
+ * of its open paths (`capture/freeze.ts · serveRecord`): the holder edits only its own copy.
  *
- *   security  per door — `getSnapshot().commitLog`, `.initialState`, `.subflowResults` (and
- *             `getSubtreeSnapshot`), `EventLog.list()` on `footprintjs/advanced` — every mutation a
- *             holder can try (test/helpers/valueKinds.ts · vandalize) lands on its own copy, and the
- *             next serve and every reader read the record as recorded
+ *   security  per door — `getSnapshot().commitLog`, `.initialState`, `EventLog.list()` on
+ *             `footprintjs/advanced` — every mutation a holder can try (test/helpers/valueKinds.ts ·
+ *             vandalize) lands on its own copy, and the next serve and every reader read the record
+ *             as recorded; the engine's own read (`EventLog.recorded()`) is the log itself, unserved
  *   security  a reader's own answer — `commitValueAt` (its memo: an edit of one answer changed the
  *             next), `stateAt`, the cursor — is the caller's: editing it changes no later answer
  *   boundary  the pause checkpoint and the dev-mode `sharedState` are fresh copies already
  *   unit      a record freezing seals whole is served as itself: no copy, the same object every time
+ *
+ * Not a door of this release (the served-surface law, with the record-frame clean-up C3/C4): a
+ * subflow's stored results, the execution tree, recorder rows, `getCheckpoint()` identity, the
+ * narrative entries.
  */
 import v8 from 'node:v8';
 
@@ -96,7 +100,7 @@ function answers(executor: FlowChartExecutor): string {
   return v8.serialize(all).toString('hex');
 }
 
-describe('a served record cannot be edited through what it serves (9.45.0)', () => {
+describe('the commit log cannot be edited through what it serves (9.44.2)', () => {
   it('getSnapshot().commitLog: every edit lands on the holder’s copy', async () => {
     const executor = await run();
     const before = answers(executor);
@@ -114,20 +118,6 @@ describe('a served record cannot be edited through what it serves (9.45.0)', () 
     const snap = executor.getSnapshot();
     (snap.initialState!.base as { when: Date }).when.setTime(0);
     expect(vandalize(snap.initialState)).toBeGreaterThan(0);
-    expect(answers(executor)).toBe(before);
-  });
-
-  it('getSnapshot().subflowResults and getSubtreeSnapshot', async () => {
-    const executor = await run();
-    const before = answers(executor);
-    const snap = executor.getSnapshot();
-    const sub = getSubtreeSnapshot(snap, 'sub')!;
-    expect(vandalize(sub.history) + vandalize(sub.initialState)).toBeGreaterThan(0);
-    for (const result of Object.values(snap.subflowResults ?? {})) {
-      const tree = (result as { treeContext: { history: unknown; initialState: unknown } }).treeContext;
-      vandalize(tree.history);
-      vandalize(tree.initialState);
-    }
     expect(answers(executor)).toBe(before);
   });
 
@@ -150,12 +140,53 @@ describe('a served record cannot be edited through what it serves (9.45.0)', () 
     expect((again.overwrite.m as Map<string, number>).get('k')).toBe(1);
     expect(log.materialise().when.getTime()).toBe(5);
   });
+
+  it('the engine’s own read is not served: recorded() is the log’s own array, so the run path copies nothing', () => {
+    const log = new EventLog({});
+    const bundle: CommitBundle = {
+      stage: 'S',
+      stageId: 's',
+      runtimeStageId: 's#0',
+      trace: [{ path: 'when', verb: 'set' }],
+      overwrite: { when: new Date(5) },
+      updates: {},
+      redactedPaths: [],
+    } as CommitBundle;
+    log.record(bundle);
+    expect(log.recorded()[0]).toBe(bundle); // the engine's (ExecutionRuntime · getSnapshot, per subflow mount)
+    expect(log.list()[0]).not.toBe(bundle); // a reader's: a copy of its open paths
+    expect(log.recorded()).toBe(log.recorded());
+  });
+});
+
+describe('the door is iterative: a bundle 20,000 deep (9.44.2)', () => {
+  it('EventLog.list() seals and serves it without a recursion; an edit of the served copy reaches nothing', () => {
+    let deep: Record<string, unknown> = { at: new Date(5) };
+    for (let i = 0; i < 20_000; i++) deep = { next: deep };
+    const log = new EventLog({});
+    log.record({
+      stage: 'S',
+      stageId: 's',
+      runtimeStageId: 's#0',
+      trace: [{ path: 'deep', verb: 'set' }],
+      overwrite: { deep },
+      updates: {},
+      redactedPaths: [],
+    });
+    const bottom = (bundle: CommitBundle) => {
+      let at = bundle.overwrite.deep as Record<string, unknown>;
+      while (at.next !== undefined) at = at.next as Record<string, unknown>;
+      return at.at as Date;
+    };
+    bottom(log.list()[0]).setTime(0); // the reader's copy, 20,000 down
+    expect(bottom(log.list()[0]).getTime()).toBe(5);
+  });
 });
 
 describe('a reader’s answer is the caller’s own: editing it changes no later answer', () => {
   it('commitValueAt on an engine log (memoised) — a nested key folded from a kept generation', () => {
     // `cfg` is set whole, then `cfg␟a` is set: the memo keeps the generation after commit 0, and
-    // `cfg␟a` at commit 0 is folded from it. Until 9.45.0 the answer WAS the memo.
+    // `cfg␟a` at commit 0 is folded from it. Until 9.44.2 the answer WAS the memo.
     const log = new EventLog({});
     const bundle = (i: number, path: string, overwrite: Record<string, unknown>): CommitBundle => ({
       stage: `S${i}`,

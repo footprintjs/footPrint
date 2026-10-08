@@ -6,11 +6,12 @@
  * recorder row per recorder id, and the deferred tier's accounting.
  */
 
-import { deepFreeze } from '../capture/freeze.js';
+import { deepFreeze, serveRecord } from '../capture/freeze.js';
 import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
+import type { CommitBundle } from '../memory/types.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';
@@ -26,7 +27,7 @@ export function servedSnapshot(
   observers: RunObservers,
   options?: { redact?: boolean },
 ): RuntimeSnapshot {
-  const snapshot = traverser.getSnapshot(options) as RuntimeSnapshot;
+  const snapshot = servedLog(traverser.getSnapshot(options) as RuntimeSnapshot);
   if (isDevMode()) {
     // Dev-mode mutation guard: freeze a CLONE, never the live engine
     // state — `snapshot.sharedState` IS SharedMemory's current generation,
@@ -60,6 +61,21 @@ export function servedSnapshot(
   }
 
   return snapshot;
+}
+
+/**
+ * The commit log and the fold base as a reader may hold them (9.44.2): a record freezing sealed whole
+ * is served as itself; one holding what freezing cannot seal — a Date, a Map, a buffer … — as a copy
+ * of its open paths, the reader's own (`capture/freeze.ts · serveRecord`). Here, at the public door:
+ * the engine's own snapshot of a log (a subflow mount's) is not served, so the run pays nothing.
+ */
+function servedLog(snapshot: RuntimeSnapshot): RuntimeSnapshot {
+  const { initialState } = snapshot;
+  return {
+    ...snapshot,
+    commitLog: Object.freeze(snapshot.commitLog.map(serveRecord)) as CommitBundle[],
+    ...(initialState === undefined ? {} : { initialState: serveRecord(initialState) }),
+  };
 }
 
 /**

@@ -5,7 +5,7 @@
  * record holds are the kinds the clone keeps. Two laws need the kind, and both ask here:
  *
  *   - what counts as a CHANGE (`memory/equality.ts · deepEqual`): two values are equal when a record
- *     holds the same thing for both, compared kind by kind. Until 9.45.0 only Date, Map and Set had a
+ *     holds the same thing for both, compared kind by kind. Until 9.44.2 only Date, Map and Set had a
  *     kind; a RegExp, an Error, a boxed number, a buffer, a DataView or a Blob was compared as an
  *     object with no own keys — equal to any other of its kind — so replacing one committed no row
  *     and live state kept the old value;
@@ -61,32 +61,60 @@ export const SEALABLE: { readonly [K in ValueKind]: boolean } = /* @__PURE__ */ 
   opaque: false, // content this library cannot read — never assumed sealed
 });
 
-/** A prototype → its kind, for every built-in the clone produces (one Map lookup). */
-const BY_PROTOTYPE: ReadonlyMap<object, ValueKind> = /* @__PURE__ */ prototypeTable();
+/** What a brand check returns, when it does not throw, for a value without the slot. */
+const NOT_BRAND = Symbol('not the brand');
 
-function prototypeTable(): Map<object, ValueKind> {
-  const table = new Map<object, ValueKind>();
-  const global = globalThis as Record<string, unknown>;
-  const add = (name: string, kind: ValueKind) => {
-    const proto = (global[name] as { prototype?: unknown } | undefined)?.prototype;
-    if (proto !== null && typeof proto === 'object') table.set(proto, kind);
+/**
+ * A built-in kind is known by its BRAND — an internal slot only the real thing has — never by its
+ * prototype: `Object.create(RegExp.prototype)` is not a RegExp (its clone is `{}`), and reading
+ * `source` from it throws. The candidate comes from `Object.prototype.toString` (one call), then ONE
+ * brand-checked read confirms it; a value that fails it is classified by its clone instead.
+ */
+const BRANDS: ReadonlyMap<string, { readonly kind: ValueKind; readonly check: (value: object) => unknown }> =
+  /* @__PURE__ */ brandTable();
+
+function brandTable(): Map<string, { kind: ValueKind; check: (value: object) => unknown }> {
+  const getter = (proto: object | undefined, key: string): ((value: object) => unknown) | undefined => {
+    const get = proto && Object.getOwnPropertyDescriptor(proto, key)?.get;
+    return get ? (value) => get.call(value) : undefined;
   };
-  add('Date', 'date');
-  add('RegExp', 'regexp');
-  add('Map', 'map');
-  add('Set', 'set');
-  for (const name of ['Error', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError']) {
-    add(name, 'error');
-  }
-  for (const name of ['Boolean', 'Number', 'String', 'BigInt']) add(name, 'boxed');
-  for (const name of ['ArrayBuffer', 'SharedArrayBuffer']) add(name, 'buffer');
-  add('DataView', 'view');
-  // `Float16Array` is newer than the library's target; a runtime without it simply has no row.
-  for (const bits of ['Int8', 'Uint8', 'Uint8Clamped', 'Int16', 'Uint16', 'Int32', 'Uint32', 'Float16', 'Float32']) {
-    add(`${bits}Array`, 'view');
-  }
-  for (const name of ['Float64Array', 'BigInt64Array', 'BigUint64Array']) add(name, 'view');
+  const global = globalThis as unknown as Record<string, { prototype?: object } | undefined>;
+  const isError = (Error as unknown as { isError?: (value: unknown) => boolean }).isError;
+  const rows: Array<[string, ValueKind, ((value: object) => unknown) | undefined]> = [
+    ['Date', 'date', (value) => Date.prototype.getTime.call(value)],
+    ['RegExp', 'regexp', getter(RegExp.prototype, 'source')],
+    ['Map', 'map', getter(Map.prototype, 'size')],
+    ['Set', 'set', getter(Set.prototype, 'size')],
+    // An error's tag comes from its own [[ErrorData]] slot: no Error prototype carries a toStringTag. Where
+    // the brand check `Error.isError` is missing (Node 22), a tag a getter supplies is therefore a spoof.
+    ['Error', 'error', (value) => ((isError ? isError(value) : untagged(value)) ? true : NOT_BRAND)],
+    ['Number', 'boxed', (value) => Number.prototype.valueOf.call(value)],
+    ['String', 'boxed', (value) => String.prototype.valueOf.call(value)],
+    ['Boolean', 'boxed', (value) => Boolean.prototype.valueOf.call(value)],
+    ['BigInt', 'boxed', (value) => (global.BigInt?.prototype as { valueOf(): unknown }).valueOf.call(value)],
+    ['ArrayBuffer', 'buffer', getter(ArrayBuffer.prototype, 'byteLength')],
+    ['SharedArrayBuffer', 'buffer', getter(global.SharedArrayBuffer?.prototype, 'byteLength')],
+  ];
+  const table = new Map<string, { kind: ValueKind; check: (value: object) => unknown }>();
+  for (const [name, kind, check] of rows) if (check) table.set(`[object ${name}]`, { kind, check });
   return table;
+}
+
+/** No `Symbol.toStringTag` on the value or its prototypes: its tag came from a slot. */
+function untagged(value: object): boolean {
+  return (value as Record<symbol, unknown>)[Symbol.toStringTag] === undefined;
+}
+
+/** The kind of a built-in value, by its brand — `undefined` for anything else. */
+function builtinKind(value: object): ValueKind | undefined {
+  if (ArrayBuffer.isView(value)) return 'view'; // a brand check of its own: [[ViewedArrayBuffer]]
+  const brand = BRANDS.get(Object.prototype.toString.call(value));
+  if (brand === undefined) return undefined;
+  try {
+    return brand.check(value) === NOT_BRAND ? undefined : brand.kind;
+  } catch {
+    return undefined; // the prototype without the slot
+  }
 }
 
 /** Prototypes classified by a probe clone of their first instance (see {@link kindOf}). */
@@ -94,34 +122,39 @@ const PROBED = new WeakMap<object, ValueKind>();
 
 /**
  * The kind of an object, as a record holds it. A plain object or an array — the bulk of state —
- * costs one `Array.isArray` and one `getPrototypeOf`; a built-in one more Map lookup.
+ * costs one `Array.isArray` and one `getPrototypeOf`; a built-in a tag and one brand-checked read.
+ * The brand is the value's own slot, so a subclass (a `Map` subclass is a `'map'`, Node's `Buffer` a
+ * `'view'`) and a value from another realm land on their kind.
  *
  * Any other object is classified by WHAT ITS CLONE IS, once per prototype: a class instance comes
- * back a plain object (`'plain'`), a subclass of a built-in comes back the built-in (a `Map` subclass
- * is a `'map'`, Node's `Buffer` a `'view'`, a Date from another realm a `'date'`), and a host object
- * comes back as itself (`'opaque'`). An instance the clone refuses is `'opaque'` — it cannot be held,
- * and its commit will refuse it.
+ * back a plain object (`'plain'`), a fake built-in (`Object.create(Date.prototype)`, or a class whose
+ * `Symbol.toStringTag` says `'Date'`) comes back `{}` (`'plain'`), and a host object comes back as
+ * itself (`'opaque'`). A prototype whose instance the clone refuses is `'opaque'` — remembered too:
+ * it cannot be held, and its commit will refuse it.
  */
 export function kindOf(value: object): ValueKind {
   if (Array.isArray(value)) return 'array';
   const proto = Object.getPrototypeOf(value);
   if (proto === Object.prototype || proto === null) return 'plain';
-  return BY_PROTOTYPE.get(proto) ?? PROBED.get(proto) ?? probe(value, proto);
+  return builtinKind(value) ?? PROBED.get(proto) ?? probe(value, proto);
 }
 
 function probe(value: object, proto: object): ValueKind {
-  let clone: unknown;
+  let kind: ValueKind;
   try {
-    clone = structuredClone(value);
+    const clone: unknown = structuredClone(value);
+    kind = clone === null || typeof clone !== 'object' ? 'opaque' : kindOfClone(clone);
   } catch {
-    return 'opaque';
+    kind = 'opaque';
   }
-  const cloneProto = clone !== null && typeof clone === 'object' ? Object.getPrototypeOf(clone) : undefined;
-  const kind: ValueKind = Array.isArray(clone)
-    ? 'array'
-    : cloneProto === Object.prototype || cloneProto === null
-    ? 'plain'
-    : BY_PROTOTYPE.get(cloneProto as object) ?? 'opaque';
   PROBED.set(proto, kind);
   return kind;
+}
+
+/** The kind of a CLONE — a value of this realm, so its prototype or its brand decides it. */
+function kindOfClone(clone: object): ValueKind {
+  if (Array.isArray(clone)) return 'array';
+  const proto = Object.getPrototypeOf(clone);
+  if (proto === Object.prototype || proto === null) return 'plain';
+  return builtinKind(clone) ?? 'opaque';
 }

@@ -1,5 +1,5 @@
 /**
- * Every kind of value a record can hold, for the record-truth tests (9.45.0) — built from the RUNTIME,
+ * Every kind of value a record can hold, for the record-truth tests (9.44.2) — built from the RUNTIME,
  * never from the library under test:
  *
  *   - `cloneable`  a fast-check arbitrary over every kind `structuredClone` keeps that state may hold
@@ -10,7 +10,8 @@
  *   - `recordKey`  an independent oracle: the value as a record holds it, as one string — built from
  *                  `Object.prototype.toString` tags, `structuredClone` and raw bytes. Two values hold the
  *                  same thing iff their keys are equal (a length-tracking view and a fixed view of the
- *                  same bytes aside: nothing can tell them apart without resizing the buffer)
+ *                  same bytes aside: nothing can tell them apart without resizing the buffer). A view is
+ *                  keyed by its type and the bytes it views, as the record keeps it
  *   - `vandalize`  everything a holder can try on what it holds, applied to every object reachable from a
  *                  root: every method of its prototypes with several argument shapes, assignment, delete
  *                  and defineProperty of its own and its content-bearing names, writes through a view,
@@ -172,11 +173,12 @@ function keyOf(v: unknown, opaque: 'identity' | 'kind'): string {
         .map((k) => `${JSON.stringify(k)}:${key(o[k])}`)
         .join(',')}}`;
     default:
-      // A buffer: its bytes, length and resizability. A typed array or DataView: its type, offset and
-      // length over its WHOLE buffer — what `structuredClone` keeps (v8.serialize keeps only the view's
-      // own bytes, so it cannot be the key).
+      // A buffer: its bytes, length and resizability. A typed array or DataView: its type and the bytes
+      // IT views — the record keeps those and nothing else of its buffer (a Node Buffer's pool).
       if (v instanceof ArrayBuffer) return `${tag}:${bufferKey(v)}`;
-      if (ArrayBuffer.isView(v)) return `${tag}@${v.byteOffset}+${v.byteLength}:${bufferKey(v.buffer as ArrayBuffer)}`;
+      if (ArrayBuffer.isView(v)) {
+        return `${tag}:${Buffer.from(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)).toString('hex')}`;
+      }
       throw new Error(`recordKey: no key for ${tag}`);
   }
 }

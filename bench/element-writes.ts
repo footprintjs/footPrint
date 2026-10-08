@@ -19,8 +19,8 @@
  * That ratio is the number `src/lib/reactive/README.md` quotes.
  *
  * The FREEZE row (F3, 9.33.0): every commit bundle is deep-frozen at `EventLog · record`. `freeze ms`
- * is that walk timed on its own — `freezeRecord(structuredClone(work bundle), 'indices')` since 9.45.0
- * (the freeze plus the kind check that remembers a record serving must copy; a tree from before 9.45.0:
+ * is that walk timed on its own — `freezeRecord(structuredClone(work bundle), 'indices')` since 9.44.2
+ * (the freeze plus the kind check that remembers a record serving must copy; a tree from before 9.44.2:
  * `deepFreeze(…, 'indices')`), the same tree the engine freezes — and `freeze %` is it against the run
  * total. The budget is ≤ 5% of the run at N ≥ 10k; the last line says whether every such row is inside it.
  *
@@ -55,7 +55,7 @@ type Lib = {
   recordWalk?: (bundle: unknown) => unknown;
 };
 
-/** A tree's record walk: `freezeRecord` since 9.45.0, `deepFreeze(…, 'indices')` since 9.33.0. */
+/** A tree's record walk: `freezeRecord` since 9.44.2, `deepFreeze(…, 'indices')` since 9.33.0. */
 function recordWalkOf(freeze: Record<string, any> | undefined): Lib['recordWalk'] {
   if (typeof freeze?.freezeRecord === 'function') return (bundle) => freeze.freezeRecord(bundle, 'indices');
   if (typeof freeze?.deepFreeze === 'function') return (bundle) => freeze.deepFreeze(bundle, 'indices');

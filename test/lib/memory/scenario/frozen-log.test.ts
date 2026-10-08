@@ -8,7 +8,7 @@
  *             `commitValueAt` and `stateAt` answer
  *   edge      a typed array in state commits and reads as before (the freeze skips it — the one state value
  *             that cannot be frozen); `getSnapshot()` with a `Uint8Array` in `initialContext` no longer
- *             throws (a regression the old walk carried); a Map in a bundle is served as a copy (9.45.0 —
+ *             throws (a regression the old walk carried); a Map in a bundle is served as a copy (9.44.2 —
  *             it was the named hole: freezing cannot reach its entries, and every snapshot shared them);
  *             a /g RegExp read from a bundle throws on `replace` (the named consequence)
  *   boundary  `EventLog.record` (footprintjs/advanced) freezes the bundle it is handed; the deprecated
@@ -196,7 +196,7 @@ describe('the record is frozen — edges and named holes', () => {
     expect((executor.getSnapshot().initialState as { buf: Uint8Array }).buf[0]).toBe(9);
   });
 
-  it('a Map inside a bundle is served as a copy: an edit reaches no later snapshot (the hole, closed in 9.45.0)', async () => {
+  it('a Map inside a bundle is served as a copy: an edit reaches no later snapshot (the hole, closed in 9.44.2)', async () => {
     const executor = new FlowChartExecutor(
       flowChart('S', (s: any) => s.$setValue('m', new Map([['k', 1]])), 's').build(),
     );

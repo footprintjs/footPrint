@@ -25,7 +25,6 @@
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
-import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
@@ -261,9 +260,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * ```
    */
   getCheckpoint(): FlowchartCheckpoint | undefined {
-    // A fresh copy per call (9.45.0): the checkpoint is the caller's own, so one holder's edit
-    // (an annotation, a scrub before storing it) never reaches the next `getCheckpoint()`.
-    return this.lastCheckpoint === undefined ? undefined : structuredClone(this.lastCheckpoint);
+    return this.lastCheckpoint;
   }
 
   /** Returns `true` if the most recent run() was paused (checkpoint available). */
@@ -389,7 +386,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         visitCounts: this._visitCounts,
         ...(redactionMarks && { redactionMarks }),
       });
-      return { paused: true, checkpoint: structuredClone(this.lastCheckpoint) } satisfies PausedResult;
+      return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
     }
     throw error;
   }
@@ -560,9 +557,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   getNarrativeEntries(): CombinedNarrativeEntry[] {
     if (this.observers.combinedRecorder) {
-      // Fresh entries (9.45.0): an edit of one is the caller's, never the narrator's. `rawValue`
-      // stays what it is by contract — a live reference to the scope value.
-      return this.observers.combinedRecorder.getEntries().map((entry) => ({ ...entry }));
+      return this.observers.combinedRecorder.getEntries();
     }
     const flowSentences = this.traverser.getNarrative();
     return flowSentences.map((text) => ({ type: 'stage' as const, text, depth: 0 }));
@@ -687,9 +682,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return this.traverser.getRuntimeStructure();
   }
 
-  /** @internal Served as `getSnapshot().subflowResults` is (9.45.0): fresh results, records served. */
+  /** @internal */
   getSubflowResults(): Map<string, SubflowResult> {
-    return new Map(Object.entries(servedSubflowResults(this.traverser.getSubflowResults(), false)));
+    return this.traverser.getSubflowResults();
   }
 
   /**

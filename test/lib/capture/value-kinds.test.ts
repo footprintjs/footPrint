@@ -1,5 +1,5 @@
 /**
- * capture/valueKinds.ts — what KIND of value a record holds: the one classifier (9.45.0). Generated from
+ * capture/valueKinds.ts — what KIND of value a record holds: the one classifier (9.44.2). Generated from
  * the RUNTIME, so a kind the table has never heard of is still checked:
  *
  *   completeness  every global constructor of this runtime whose instance `structuredClone` keeps lands on
@@ -156,6 +156,28 @@ describe('valueKinds — kindOf, by what the clone is', () => {
     expect(kindOf(new Registry())).toBe('map');
     expect(kindOf(Buffer.from('ab'))).toBe('view');
     expect(kindOf(Object.create(null))).toBe('plain');
+  });
+
+  it('a built-in is known by its brand, never its prototype: a fake is what its clone is ({})', () => {
+    for (const proto of [Date, RegExp, Map, Set, Error, Number, BigInt, ArrayBuffer, Uint8Array, DataView]) {
+      expect(kindOf(Object.create(proto.prototype))).toBe('plain');
+    }
+    expect(kindOf(RegExp.prototype)).toBe('plain');
+    expect(deepEqual(Object.create(RegExp.prototype), /x/)).toBe(false); // compared, not thrown on
+  });
+
+  it('a tag is not a brand: a class whose Symbol.toStringTag names a built-in is what its clone is', () => {
+    const tags = ['Date', 'RegExp', 'Map', 'Set', 'Error', 'Number', 'String', 'Boolean', 'BigInt', 'ArrayBuffer'];
+    for (const tag of tags) {
+      class Spoof {
+        get [Symbol.toStringTag]() {
+          return tag;
+        }
+      }
+      const spoof = new Spoof();
+      expect([tag, Object.prototype.toString.call(spoof)]).toEqual([tag, `[object ${tag}]`]);
+      expect([tag, kindOf(spoof)]).toEqual([tag, 'plain']); // on Node 22 too, where Error.isError is missing
+    }
   });
 
   it('a value from another realm lands on its kind — and still compares by content', () => {

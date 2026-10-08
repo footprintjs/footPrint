@@ -1,6 +1,6 @@
 /**
  * freeze.ts — the ONE deep-freeze walk (moved here from `scope/protection/readonlyInput.ts` in F3),
- * and the serve-time law for a frozen record (9.45.0).
+ * and the serve-time law for the commit log (9.44.2).
  *
  * WHY HERE. Saved trees freeze through this walk: the fold base served as
  * `initialState` (`ExecutionRuntime · getFoldBase`), the
@@ -10,14 +10,18 @@
  * walk lives in this leaf folder, which imports nothing outside itself. Args use an ownership snapshot
  * instead (`scope/protection/readonlyInput.ts · createFrozenArgs`): never freeze borrowed caller values.
  *
- * FREEZE WHAT CAN BE FROZEN, COPY WHAT CAN'T (9.45.0). `Object.freeze` cannot seal a Date's time, a
+ * FREEZE WHAT CAN BE FROZEN, COPY WHAT CAN'T (9.44.2). `Object.freeze` cannot seal a Date's time, a
  * Map's or Set's entries, a buffer's bytes, a RegExp (`compile()` rewrites a frozen one) or an Error
  * (V8's own `stack` accessor writes through a frozen one). A fresh tree handed to one caller (a `stateAt`
- * state, the dev-mode snapshot) is that caller's own, so freezing it is a guard and nothing more. A
- * RECORD — a commit bundle, the fold base — is served to every reader, so {@link freezeRecord} remembers
- * which ones hold such a value and {@link serveRecord} hands each reader a fresh copy of those: until
- * 9.45.0 `snapshot.commitLog[i].overwrite.when.setTime(0)` rewrote every later snapshot, `stateAt`,
- * `commitValueAt`, slice and cursor answer.
+ * state, the dev-mode snapshot) is that caller's own, so freezing it is a guard and nothing more. The
+ * COMMIT LOG — each bundle, and the fold base — is served to every reader, so {@link freezeRecord}
+ * remembers that a record holds such a value, its first serve maps the containers on the way to each
+ * one (its open PATHS), and {@link serveRecord} hands a reader a copy of those paths only: a fresh copy
+ * of each such value, fresh frozen containers on the way to it, and every other part shared, frozen, as
+ * it is. Until 9.44.2 `snapshot.commitLog[i].overwrite.when.setTime(0)` rewrote every later snapshot,
+ * `stateAt`, `commitValueAt`, slice and cursor answer.
+ *
+ * Every walk here is ITERATIVE (an explicit stack): a record's depth is not bounded by the call stack.
  *
  * @example
  * ```typescript
@@ -27,9 +31,11 @@
  * Object.isFrozen(args.order.lines[0]); // true
  * Object.isFrozen(args.bytes); // false — a typed array cannot be frozen; it is skipped
  *
- * const record = freezeRecord({ when: new Date(0) });
- * serveRecord(record).when.setTime(5); // changes the reader's copy
+ * const record = freezeRecord({ when: new Date(0), tags: ['a'] });
+ * const served = serveRecord(record);
+ * served.when.setTime(5); // changes the reader's copy
  * serveRecord(record).when.getTime(); // 0 — every serve is the record as recorded
+ * served.tags === record.tags; // true — the sealed part is shared, not copied
  * serveRecord(freezeRecord({ n: 1 })); // a record freezing sealed whole: served as itself
  * ```
  */
@@ -60,114 +66,233 @@ export type ArrayWalk = 'every-key' | 'indices';
  *   snapshot here.
  * - What `Object.freeze` cannot reach stays mutable — Map and Set contents, a Date's time, the
  *   bytes behind a buffer. A frozen RegExp's `lastIndex` is read-only, so a `/g` or `/y` regex
- *   taken from a frozen tree throws when `exec` or `replace` advance it. A tree many readers are
- *   served goes through {@link freezeRecord} and {@link serveRecord} instead.
+ *   taken from a frozen tree throws when `exec` or `replace` advance it. The commit log goes through
+ *   {@link freezeRecord} and {@link serveRecord} instead.
  * - Functions are not descended (they are not values the engine stores).
  */
 export function deepFreeze<T>(obj: T, arrays: ArrayWalk = 'every-key'): T {
-  freezeValue(obj, arrays === 'indices', false);
+  if (obj !== null && typeof obj === 'object') walkAndFreeze(obj, arrays === 'indices', false);
   return obj;
 }
 
 /**
- * The records a reader is SERVED — each commit bundle (`EventLog · record`), the fold base
- * (`ExecutionRuntime · getFoldBase`), a retained read or write (`StageContext`), a subflow's stored
- * tree — that hold a value `Object.freeze` cannot seal: a Date, a Map, a Set, a RegExp, an Error, a
- * buffer or a view (`valueKinds.ts · SEALABLE`). Held weakly.
+ * Containers of a record that hold — on some path below them — a value freezing cannot seal: `true` once
+ * mapped (the container is on an open path), `false` for a record {@link freezeRecord} found open whose
+ * paths no serve has mapped yet. A container absent here is sealed whole.
  */
-const OPEN = new WeakSet<object>();
-
-/** The records `freezeRecord` froze and found sealed whole — served as themselves, never looked through again. */
-const SEALED = new WeakSet<object>();
+const OPEN = new WeakMap<object, boolean>();
 
 /**
- * {@link deepFreeze} for a record many readers are SERVED, remembering whether freezing sealed all of
- * it. Returns `record`. A part that was frozen before is not frozen past (deepFreeze's contract) but is
- * still looked through, so a value freezing cannot seal inside it still marks the record.
+ * {@link deepFreeze} for a record many readers are SERVED (a commit bundle, the fold base), and two more
+ * things on the same walk:
+ *
+ *   - it remembers THAT the record holds a value freezing cannot seal — one flag; the record's first
+ *     serve maps WHERE (the containers on the way to each such value, its open paths), so the run pays
+ *     nothing more and {@link serveRecord} copies those paths and nothing else;
+ *   - a typed array or `DataView` that views a SLICE of a bigger buffer (a Node `Buffer` views its
+ *     shared pool) is replaced, in the record, by a copy of the bytes it views — the record keeps the
+ *     view's bytes, never the rest of the buffer (a resizable or shared buffer is kept as it is).
+ *
+ * A part frozen before is not frozen past (deepFreeze's contract) but is looked through, so a value
+ * freezing cannot seal inside it still opens the record. Returns `record`.
  */
 export function freezeRecord<T extends object>(record: T, arrays: ArrayWalk = 'every-key'): T {
-  if (OPEN.has(record) || SEALED.has(record)) return record;
-  (freezeValue(record, arrays === 'indices', true) ? OPEN : SEALED).add(record);
+  if (!OPEN.has(record) && walkAndFreeze(record, arrays === 'indices', true)) OPEN.set(record, false);
   return record;
 }
 
 /**
- * The record as a reader may hold it — THE serve-time law for a frozen record: freeze what can be
- * frozen, copy what can't. A record freezing sealed whole is served as itself (shared, no cost); one
- * that holds a value freezing cannot seal is served as a fresh frozen COPY, so its Dates, Maps and
- * buffers are the reader's own and the record's stay out of reach. A copy is served the same way
- * again, so a record stored from one serve (a subflow's result) is still copied for the next.
+ * The record as a reader may hold it — THE serve-time law: a record freezing sealed whole is served as
+ * itself (shared, no cost); any other as a copy of its open paths ({@link freezeRecord}): fresh frozen
+ * containers down to each value freezing cannot seal, a fresh copy of that value, and every other part
+ * shared, frozen, as it is. A copy is served the same way again.
  */
 export function serveRecord<T>(record: T): T {
-  return holdsUnsealed(record) ? freezeRecord(structuredClone(record) as T & object) : record;
+  if (record === null || typeof record !== 'object') return record;
+  const mapped = OPEN.get(record);
+  if (mapped === undefined) return record;
+  if (!mapped) mapOpenPaths(record);
+  return OPEN.get(record) === true ? (copyOpenPaths(record) as T) : record;
+}
+
+/** A value freezing cannot seal — a view, or a kind `SEALABLE` says no to (a Date, a Map, an Error …). */
+function isUnsealable(value: object): boolean {
+  return ArrayBuffer.isView(value) || !SEALABLE[kindOf(value)];
 }
 
 /**
- * A value the library keeps and OWNS (its own clone: a retained read or write) as a reader may hold
- * it: frozen once, in place, on its first serve, then {@link serveRecord} — so a sealed one (the common
- * case) costs one lookup per serve.
+ * Freeze `root` and every container under it, iteratively; `record` adds the look-through of parts
+ * frozen before and the compaction of views over a slice. `true` when something under `root` (or `root`
+ * itself) cannot be sealed.
  */
-export function serveOwned<T extends object>(value: T): T {
-  if (SEALED.has(value)) return value;
-  return serveRecord(freezeRecord(value));
+function walkAndFreeze(root: object, indices: boolean, record: boolean): boolean {
+  let open = false;
+  let lookedThrough: Set<object> | undefined;
+  const stack: object[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (ArrayBuffer.isView(node)) {
+      open = true; // its bytes — and a non-empty one cannot be frozen at all
+      continue;
+    }
+    const frozenBefore = Object.isFrozen(node);
+    if (frozenBefore) {
+      if (!record || OPEN.has(node)) {
+        open ||= record;
+        continue;
+      }
+      if ((lookedThrough ??= new Set()).has(node)) continue;
+      lookedThrough.add(node); // a part frozen before: looked through, never frozen past
+    }
+    if (record && !open && !SEALABLE[kindOf(node)]) open = true;
+    // Children first, while `node` is still open to the compaction below; then the freeze.
+    const compacting = record && !frozenBefore;
+    if (indices && Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const child: unknown = node[i];
+        if (child === null || typeof child !== 'object') continue;
+        stack.push(compacting && ArrayBuffer.isView(child) ? compact(node, i, child) : child);
+      }
+    } else {
+      const names = Object.getOwnPropertyNames(node);
+      for (let i = 0; i < names.length; i++) {
+        const child = (node as Record<string, unknown>)[names[i]];
+        if (child === null || typeof child !== 'object') continue;
+        stack.push(compacting && ArrayBuffer.isView(child) ? compact(node, names[i], child) : child);
+      }
+    }
+    if (!frozenBefore) Object.freeze(node);
+  }
+  return open;
 }
 
 /**
- * A value the library KEEPS but cannot freeze in place — a diagnostic bag holding the app's own
- * objects, a recorder's row, a chart's structure — as a reader may hold it: a fresh copy, the reader's
- * own (not frozen: nothing else reads it). A value `structuredClone` refuses (a function in a
- * diagnostic) cannot be copied and is served as it is — the one value this law cannot reach.
+ * A view over a SLICE of a bigger buffer, replaced in `container` by a copy of the bytes it views
+ * (the type it is — a Node `Buffer` comes out a `Uint8Array`, as a clone of it does). Anything else is
+ * returned as it is. A resizable or shared buffer is kept: a copy would change what it is.
  */
-export function serveCopy<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
+function compact(container: object, key: string | number, child: ArrayBufferView): object {
+  const buffer = child.buffer as ArrayBuffer & { resizable?: boolean };
+  if (child.byteOffset === 0 && child.byteLength === buffer.byteLength) return child;
+  if (buffer.resizable === true || !(buffer instanceof ArrayBuffer)) return child;
+  const bytes = buffer.slice(child.byteOffset, child.byteOffset + child.byteLength);
+  const tag = Object.prototype.toString.call(child).slice(8, -1);
+  const Ctor = (globalThis as unknown as Record<string, new (buffer: ArrayBuffer) => ArrayBufferView>)[tag];
+  if (typeof Ctor !== 'function') return child;
+  const copy = new Ctor(bytes);
+  try {
+    (container as Record<string | number, unknown>)[key] = copy;
+  } catch {
+    return child; // a property the record does not let be replaced (a hand-built bundle)
+  }
+  return copy;
+}
+
+/**
+ * Map the open paths of `root` — mark every container that reaches a value freezing cannot seal, so a
+ * serve copies exactly those (DAGs and cycles included: the marks run UP the reverse edges from each
+ * such value). Runs once per open record, at its first serve. A node's first holder is kept in one map;
+ * any other holder (a shared part, a cycle) in a second, made only when there is one.
+ */
+function mapOpenPaths(root: object): void {
+  OPEN.delete(root); // set again below when a value freezing cannot seal is reachable from it
+  const holder = new Map<object, object>();
+  let moreHolders: Map<object, object[]> | undefined;
+  const leaves: object[] = [];
+  const stack: object[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (isUnsealable(node)) {
+      leaves.push(node); // a leaf: its contents are copied with it
+      continue;
+    }
+    const names = Object.keys(node);
+    for (let i = 0; i < names.length; i++) {
+      const child = (node as Record<string, unknown>)[names[i]];
+      if (child === null || typeof child !== 'object') continue;
+      if (child !== root && !holder.has(child)) {
+        holder.set(child, node);
+        stack.push(child);
+        continue;
+      }
+      const more = (moreHolders ??= new Map()).get(child);
+      if (more === undefined) moreHolders.set(child, [node]);
+      else more.push(node);
+    }
+  }
+  const up: object[] = [];
+  const holdersOf = (node: object): void => {
+    const first = holder.get(node);
+    if (first !== undefined) up.push(first);
+    const more = moreHolders?.get(node);
+    if (more !== undefined) up.push(...more);
+  };
+  for (const leaf of leaves) {
+    if (leaf === root) OPEN.set(root, true);
+    holdersOf(leaf);
+  }
+  // Marked in THIS map, not by an earlier one: a part another record already mapped still opens
+  // every container of this record on the way to it.
+  const marked = new Set<object>();
+  while (up.length > 0) {
+    const node = up.pop()!;
+    if (marked.has(node)) continue;
+    marked.add(node);
+    OPEN.set(node, true);
+    holdersOf(node);
+  }
+}
+
+/**
+ * The served copy of an open record: its open containers copied (fresh, then frozen, and themselves
+ * open — a copy is served by copy again), each value freezing cannot seal copied, every sealed part
+ * shared. Iterative; one copy per original, so sharing and cycles are kept.
+ */
+function copyOpenPaths(root: object): object {
+  const copies = new Map<object, object>();
+  const shells: object[] = [];
+  const copyOf = (value: object, pending: object[]): object => {
+    const done = copies.get(value);
+    if (done !== undefined) return done;
+    let copy: object;
+    if (isUnsealable(value)) {
+      copy = copyLeaf(value);
+    } else {
+      copy = Array.isArray(value) ? new Array(value.length) : {};
+      shells.push(copy);
+      pending.push(value);
+    }
+    copies.set(value, copy);
+    return copy;
+  };
+  const pending: object[] = [];
+  const out = copyOf(root, pending);
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    const copy = copies.get(node) as Record<string, unknown>;
+    for (const name of Object.keys(node)) {
+      const child = (node as Record<string, unknown>)[name];
+      copy[name] =
+        child !== null && typeof child === 'object' && (OPEN.has(child) || isUnsealable(child))
+          ? copyOf(child, pending)
+          : child;
+    }
+  }
+  for (const shell of shells) {
+    Object.freeze(shell);
+    OPEN.set(shell, true);
+  }
+  // A leaf copy is the reader's own; frozen where freezing reaches, as the record's parts are.
+  for (const copy of copies.values()) if (!ArrayBuffer.isView(copy)) Object.freeze(copy);
+  return out;
+}
+
+/** A fresh copy of a value freezing cannot seal. One the clone refuses (hand-built) is served as it is. */
+function copyLeaf(value: object): object {
+  if (kindOf(value) === 'date') return new Date(Date.prototype.getTime.call(value));
   try {
     return structuredClone(value);
   } catch {
     return value;
   }
-}
-
-/** Does `record` (one {@link freezeRecord} froze) hold a value freezing cannot seal? */
-export function holdsUnsealed(record: unknown): boolean {
-  return record !== null && typeof record === 'object' && OPEN.has(record);
-}
-
-/** Freeze `value` deep; `true` when it holds a value freezing cannot seal. */
-function freezeValue(value: unknown, indices: boolean, detect: boolean): boolean {
-  if (value === null || typeof value !== 'object') return false;
-  if (ArrayBuffer.isView(value)) return true; // its bytes — and a non-empty one cannot be frozen at all
-  if (Object.isFrozen(value)) {
-    return detect && !SEALED.has(value) && (OPEN.has(value) || unsealedInside(value, new WeakSet()));
-  }
-  Object.freeze(value);
-  let open = !SEALABLE[kindOf(value)];
-  // The two loops are written out rather than shared through a callback: this runs once per object of
-  // every commit, and a closure per object is measurable.
-  if (indices && Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      const child: unknown = value[i];
-      if (child !== null && typeof child === 'object' && freezeValue(child, indices, detect)) open = true;
-    }
-    return open;
-  }
-  const names = Object.getOwnPropertyNames(value);
-  for (let i = 0; i < names.length; i++) {
-    const child = (value as Record<string, unknown>)[names[i]];
-    if (child !== null && typeof child === 'object' && freezeValue(child, indices, detect)) open = true;
-  }
-  return open;
-}
-
-/** Does an object frozen before `freezeRecord` met it hold a value freezing cannot seal? A look, no freeze. */
-function unsealedInside(value: object, seen: WeakSet<object>): boolean {
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (SEALED.has(value)) return false;
-  if (ArrayBuffer.isView(value) || !SEALABLE[kindOf(value)] || OPEN.has(value)) return true;
-  const names = Object.getOwnPropertyNames(value);
-  for (let i = 0; i < names.length; i++) {
-    const child = (value as Record<string, unknown>)[names[i]];
-    if (child !== null && typeof child === 'object' && unsealedInside(child, seen)) return true;
-  }
-  return false;
 }

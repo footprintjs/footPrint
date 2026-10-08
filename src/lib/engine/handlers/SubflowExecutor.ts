@@ -13,7 +13,6 @@
  * and abort signals all work inside subflows automatically.
  */
 
-import { freezeRecord } from '../../capture/freeze.js';
 import { thrownText } from '../../errors/errorInfo.js';
 import { LOG_PLACEHOLDER } from '../../memory/placeholders.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
@@ -404,8 +403,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       subflowName,
       treeContext: {
         globalContext: subflowTreeContext.sharedState,
-        // Stored, then served by every later snapshot (`servedSubflowResults`): a record, frozen once.
-        stageContexts: freezeRecord(subflowTreeContext.executionTree as object) as unknown as Record<string, unknown>,
+        stageContexts: subflowTreeContext.executionTree as unknown as Record<string, unknown>,
         history: subflowTreeContext.commitLog,
         ...(subflowTreeContext.logAddress === undefined ? {} : { logAddress: subflowTreeContext.logAddress }),
         // The subflow's own fold base travels with its own log — same

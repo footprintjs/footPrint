@@ -363,7 +363,7 @@ export class LogModel {
       if (kept !== -1) {
         const after = rows.filter((row) => row.commitIdx > kept);
         // Folded FROM the kept generation, the answer can BE it (no row after it) or share its parts, and
-        // the memo answers every later question: detach it, as the value rule promises (until 9.45.0 an
+        // the memo answers every later question: detach it, as the value rule promises (until 9.44.2 an
         // edit of one answer changed the next).
         return detached(foldKey(after, segs, { anchored: true, start: h.kept.get(kept)?.after }));
       }
