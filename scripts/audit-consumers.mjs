@@ -28,6 +28,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -54,12 +55,17 @@ function parseArgs(argv) {
 
 // ── running things ────────────────────────────────────────────────────────────
 
-/** Run one shell command in `cwd` with its output streamed; `{ ok, seconds }`. */
+/**
+ * Run one shell command in `cwd` with its output streamed; `{ ok, seconds }`. In CI the output is
+ * data: between `stop-commands` and its random token, nothing a consumer prints (a test reporter's
+ * `::error`) becomes a workflow command, so the run's annotations are this audit's verdicts.
+ */
 function run(command, cwd) {
   const started = Date.now();
-  console.log(CI ? `::group::${command}` : `\n$ ${command}    # in ${cwd}`);
+  const token = randomUUID();
+  console.log(CI ? `::group::${command}\n::stop-commands::${token}` : `\n$ ${command}    # in ${cwd}`);
   const { status } = spawnSync('bash', ['-c', command], { cwd, stdio: 'inherit' });
-  if (CI) console.log('::endgroup::');
+  if (CI) console.log(`::${token}::\n::endgroup::`);
   return { ok: status === 0, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
