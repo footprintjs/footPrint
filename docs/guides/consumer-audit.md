@@ -17,7 +17,7 @@ No footprintjs release tags until every family consumer passes its own checks ag
 
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
-1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile).
+1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile) and the entry's `setup`.
 2. Swap footprintjs for the candidate tarball with `npm install --no-save`, and run the consumer's checks.
 3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`).
 
@@ -73,6 +73,7 @@ Add an entry to `scripts/family.json`:
 
 - `checks` are the consumer's own commands, run in order in its checkout. Every entry with `checks` is audited.
 - `apt`: Ubuntu packages its checks need (CI installs them; locally they must be on PATH).
+- `install`: replaces the default `npm ci` / `npm install`. `setup`: one command run after the install, such as a browser download its tests need.
 - `siblings`: checkouts it expects beside it (`{ repo, branch, dir, setup }`). Each is cloned and set up before the consumer installs, and any sibling that installs footprintjs gets the same swap.
 - `registry`: family packages it links by `file:` path that should come from npm instead.
 - `note`: why the setup is what it is.

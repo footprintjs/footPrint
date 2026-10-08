@@ -46,8 +46,9 @@
       "branch": "main",
       "dir": "vizfootprint",
       "published": false,
-      "note": "ui/ links ../../storydeck, so storydeck is a sibling checkout with its own dependencies; the demo-agent tests read the built ui stylesheet, so build:ui runs first.",
+      "note": "ui/ links ../../storydeck, so storydeck is a sibling checkout with its own dependencies. The browser tests launch Playwright's headless shell, so setup fetches it. The demo-agent tests read the built ui stylesheet, so build:ui runs first.",
       "siblings": [{ "repo": "footprintjs/storydeck", "branch": "main", "dir": "storydeck", "setup": "npm ci" }],
+      "setup": "npx playwright-core install chromium-headless-shell",
       "checks": ["npm run build:ui", "npm run typecheck", "npm test"]
     },
     {
@@ -56,7 +57,8 @@
       "branch": "main",
       "dir": "footprint-playground",
       "published": false,
-      "note": "Links footprintjs and footprint-explainable-ui by file: path; the published explainable-ui replaces its link, as the playground's own deploy workflow does. src/samples/examples links ../../../footPrint/examples, which the workspace provides.",
+      "note": "Links footprintjs and footprint-explainable-ui by file: path; the published explainable-ui replaces its link, as the playground's own deploy workflow does. src/samples/examples links ../../../footPrint/examples, which the workspace provides. --ignore-scripts: npm would run the linked footPrint checkout's own prepare (husky), a footprintjs dev hook; the playground has no install script of its own.",
+      "install": "npm ci --ignore-scripts --no-audit --no-fund",
       "registry": ["footprint-explainable-ui"],
       "checks": ["npm run build"]
     },
@@ -66,7 +68,8 @@
       "branch": "main",
       "dir": "agent-playground",
       "published": false,
-      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported.",
+      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
+      "install": "npm ci --ignore-scripts --no-audit --no-fund",
       "siblings": [
         {
           "repo": "footprintjs/agentfootprint",

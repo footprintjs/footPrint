@@ -9,7 +9,7 @@
  * refuses to tag unless that workflow is green for HEAD.
  *
  * Per consumer, in a fresh workspace where `footPrint` links to this tree:
- *   1. clone its default branch (and any sibling checkout it needs) and install it;
+ *   1. clone its default branch (and any sibling checkout it needs), install it, run its `setup`;
  *   2. swap footprintjs for the candidate tarball (`npm install --no-save`) and run its checks;
  *   3. if a step is red, run the same steps again on the PUBLISHED footprintjs:
  *        red on both               → the consumer's own failure: reported, not blocking;
@@ -229,8 +229,10 @@ function audit(entry, ws, ctx, opts) {
     if (!run(sibling.setup, sibDir).ok) return stop(`sibling ${sibling.dir}: \`${sibling.setup}\` failed`);
     siblings.push(sibDir);
   }
-  const install = `${existsSync(join(dir, 'package-lock.json')) ? 'npm ci' : 'npm install'} --no-audit --no-fund`;
+  const install =
+    entry.install ?? `${existsSync(join(dir, 'package-lock.json')) ? 'npm ci' : 'npm install'} --no-audit --no-fund`;
   if (!run(install, dir).ok) return stop(`\`${install}\` failed on the consumer's own tree`);
+  if (entry.setup && !run(entry.setup, dir).ok) return stop(`setup \`${entry.setup}\` failed`);
   result.advanced = advancedImports(dir, ctx.record);
 
   // Swapped in the consumer and in every sibling that installed footprintjs: one footprintjs in the workspace.
