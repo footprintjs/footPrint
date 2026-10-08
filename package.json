@@ -53,6 +53,7 @@
     "check:layering": "node scripts/check-layering.mjs",
     "check:doc-snippets": "node scripts/check-doc-snippets.mjs",
     "audit:family": "node scripts/audit-family-versions.mjs",
+    "audit:consumers": "node scripts/audit-consumers.mjs",
     "lint": "eslint '{src,test}/**/*.ts' --ext .ts",
     "lint:fix": "eslint '{src,test}/**/*.ts' --ext .ts --fix",
     "format:fix": "prettier --config .prettierrc.js --write '{src,test}/**/*.ts'",
