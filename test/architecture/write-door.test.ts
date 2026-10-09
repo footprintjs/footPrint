@@ -18,11 +18,12 @@
  *             record (`memory/frameTypes.ts`, L4; the retention family in `capture/`), so the walk
  *             alone finds every one of them
  *   boundary  the walk is live: it reaches the record types the door's signatures name, skips the
- *             private buffer, catches each engine type C6 moved out of `memory/types.ts`, and the SAME
- *             walk over the engine's frame (`StageContext`) reaches outside the record
+ *             private buffer, and the SAME walk over the engine's frame (`StageContext`) reaches
+ *             outside the record
  *   boundary  a synthetic program: an engine type reached only through a heritage clause, a
  *             type-parameter default, an interface constraint or an alias constraint is caught; a
- *             type that names none passes
+ *             type that names none passes; a signature that names each engine type C6 moved out of
+ *             `memory/types.ts` is caught for each
  */
 import { join, relative, resolve, sep } from 'path';
 import ts from 'typescript';
@@ -50,8 +51,9 @@ const PLAN = [
 ];
 
 /**
- * The engine types C6(a) moved out of the record's `memory/types.ts` — named here only to show the
- * walk catches each one by where it is declared (`ScopeFactory`'s copy there was dead and is gone).
+ * The engine types C6(a) moved out of the record's `memory/types.ts`, by where each is declared now —
+ * named here only to build the probe that shows the walk reaches each one through a signature and
+ * catches it (`ScopeFactory`'s copy there was dead and is gone). The walk itself lists no names.
  */
 const MOVED_ENGINE_TYPES: Record<string, string[]> = {
   'src/lib/memory/frameTypes.ts': [
@@ -247,6 +249,14 @@ const SYNTHETIC: Record<string, string> = {
     'export interface Constrained<T extends EngineThing> { n: number; k?: keyof T }',
     'export type Aliased<T extends EngineThing = EngineThing> = { n: number; k?: keyof T };',
     'export interface Clean { n: number; s: string; when: Date }',
+    // A record-side signature that names every engine type C6(a) moved out of memory/types.ts.
+    "import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from '../memory/frameTypes';",
+    "import type { RetentionPolicy } from '../capture/policies';",
+    "import type { ReadSummaryMarker, WriteSummaryMarker } from '../capture/summarize';",
+    'export interface NamesMovedTypes {',
+    '  s?: StageSnapshot; m?: FlowMessage; c?: FlowControlType; r?: ReadTrackingMode; w?: WriteTrackingMode;',
+    '  p?: RetentionPolicy; rm?: ReadSummaryMarker; wm?: WriteSummaryMarker;',
+    '}',
   ].join('\n'),
 };
 
@@ -315,16 +325,6 @@ describe('footprintjs/write — engine-free in every type it names', () => {
     expect(names).not.toContain('TransactionBuffer');
   });
 
-  it('the walk alone catches every engine type C6 moved out of memory/types.ts — no list of names', () => {
-    for (const [file, names] of Object.entries(MOVED_ENGINE_TYPES)) {
-      const moved = exportsOf(program, join(REPO, file)).filter((s) => names.includes(s.getName()));
-      expect(moved.map((s) => s.getName()).sort(), file).toEqual([...names].sort());
-      for (const symbol of moved) {
-        expect(outsideTheRecord(walk(checker, [symbol])).join('\n'), symbol.getName()).toContain(`${file} (L`);
-      }
-    }
-  });
-
   it("the same walk over the engine's frame (StageContext) reaches outside the record — the check can fail", () => {
     const stageContext = exportsOf(program, FRAME).find((s) => s.getName() === 'StageContext')!;
     expect(outsideTheRecord(walk(checker, [stageContext]))).not.toEqual([]);
@@ -352,5 +352,16 @@ describe('the type walk — what it must not miss (a synthetic program)', () => 
 
   it('a type that names nothing of the engine passes', () => {
     expect(leaks('Clean')).toEqual([]);
+  });
+
+  it('a signature that names the engine types C6 moved out of memory/types.ts is caught for each, by the walk alone', () => {
+    const reached = walk(
+      probeChecker,
+      door.filter((s) => s.getName() === 'NamesMovedTypes'),
+    );
+    for (const [file, names] of Object.entries(MOVED_ENGINE_TYPES)) {
+      expect([...(reached.get(file) ?? [])].sort(), file).toEqual(expect.arrayContaining(names));
+      expect(outsideTheRecord(reached).join('\n')).toContain(`${file} (L`);
+    }
   });
 });

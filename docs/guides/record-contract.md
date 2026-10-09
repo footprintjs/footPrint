@@ -15,7 +15,7 @@ required.
 |---|---|---|---|
 | `commitLog` | array of bundles | yes | One bundle per executed stage, in execution order. Position is the commit index. |
 | `initialState` | object | no | The state the run started from — the **frozen base** every fold starts at. Absent: the fold starts from `{}` and reports `basis: 'log-only'`. |
-| `executionTree` | tree of stages | no | The run tree, stages linked by `next` and `children`. Needed only for stop kinds and grouping; the commit axis works without it. |
+| `executionTree` | `ExecutionTree` (9.48.0) | no | The run tree, stages linked by `next` and `children`. The readers read `id`, `runtimeStageId`, `subflowId`, the keys of `stageReads`, `next` and `children` — all optional; a live run's `StageSnapshot` tree is one. Needed only for stop kinds, grouping and read keys; the commit axis works without it. |
 | `history` | array | no | An older name for `commitLog`; read when `commitLog` is absent. |
 
 Everything else a footprintjs snapshot carries (`sharedState`,

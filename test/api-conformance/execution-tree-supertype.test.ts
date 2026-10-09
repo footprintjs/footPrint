@@ -7,11 +7,13 @@
  *
  *   contract  execution-tree-supertype.consumers.ts — the published consumers' shapes — compiles with
  *             no diagnostic against this tree
- *   contract  the same file compiles against the published release (`footprintjs-published`): it is
- *             code that compiled BEFORE the change, not code written to fit it
+ *   contract  the same file compiles against a release from BEFORE the change: it is code that compiled
+ *             then, not code written to fit it. The release is `footprintjs-baseline` (9.28.0, an npm
+ *             alias pinned EXACTLY): `footprintjs-published` is a caret range, and with no lockfile a
+ *             fresh install resolves it to the newest 9.x — the release that carries this change
  *   boundary  the one shape that sees the new type: an implementer that leaves its tree parameter
  *             unannotated is typed by the signature, so reading a `StageSnapshot`-only field there no
- *             longer compiles (it did against the published release) — and this check can fail
+ *             longer compiles (it did before) — and this check can fail
  */
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
@@ -48,11 +50,11 @@ function diagnostics(files: Record<string, string>): string[] {
     });
 }
 
-/** `source` with its imports of this tree's doors re-pointed at the published release. */
-const published = (source: string) =>
+/** `source` with its imports of this tree's doors re-pointed at a release from before C6 (exactly pinned). */
+const before = (source: string) =>
   source
-    .replace(/'\.\.\/\.\.\/src\/advanced\.js'/g, "'footprintjs-published/advanced'")
-    .replace(/'\.\.\/\.\.\/src\/trace\.js'/g, "'footprintjs-published/trace'");
+    .replace(/'\.\.\/\.\.\/src\/advanced\.js'/g, "'footprintjs-baseline/advanced'")
+    .replace(/'\.\.\/\.\.\/src\/trace\.js'/g, "'footprintjs-baseline/trace'");
 
 const consumers = readFileSync(PROBE, 'utf8');
 
@@ -70,13 +72,18 @@ describe('ExecutionTree is a supertype of StageSnapshot — what compiled before
     expect(diagnostics({ [PROBE]: consumers })).toEqual([]);
   }, 60_000);
 
-  it('the same shapes compile against the published release — the probe is pre-C6 code', () => {
-    expect(published(consumers)).toContain("from 'footprintjs-published/trace'");
-    expect(diagnostics({ [resolve(__dirname, '__published_consumers__.ts')]: published(consumers) })).toEqual([]);
+  it('the same shapes compile against a release from before the change — the probe is pre-C6 code', () => {
+    expect(before(consumers)).toContain("from 'footprintjs-baseline/trace'");
+    expect(diagnostics({ [resolve(__dirname, '__before_consumers__.ts')]: before(consumers) })).toEqual([]);
   }, 60_000);
 
   it('the boundary: an UNANNOTATED tree parameter is typed by the signature (and the check can fail)', () => {
-    expect(diagnostics({ [resolve(__dirname, '__published_unannotated__.ts')]: published(UNANNOTATED) })).toEqual([]);
+    expect(diagnostics({ [resolve(__dirname, '__before_unannotated__.ts')]: before(UNANNOTATED) })).toEqual([]);
+    // The before-side is typed, not `any`: a field no StageSnapshot has is refused there too.
+    const nope = diagnostics({
+      [resolve(__dirname, '__before_nope__.ts')]: before(UNANNOTATED.replace('logs', 'nope')),
+    });
+    expect(nope.join('\n')).toMatch(/Property 'nope' does not exist on type 'StageSnapshot'/);
     const here = diagnostics({ [resolve(__dirname, '__unannotated__.ts')]: UNANNOTATED });
     expect(here).toHaveLength(1);
     expect(here[0]).toMatch(/Property 'logs' does not exist on type 'ExecutionTree'/);

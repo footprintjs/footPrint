@@ -46,7 +46,7 @@ export function keysReadFromExecutionTree(tree: ExecutionTree | readonly Executi
   // also handed CONSUMER-provided data — a visited set makes a malformed or
   // hand-built tree a non-event instead of an infinite loop.
   const visited = new Set<ExecutionTree>();
-  const stack: ExecutionTree[] = [tree].flat(); // one root, or several (subflow trees)
+  const stack: ExecutionTree[] = [tree].flat(); // one root, or several (subflow trees); a hole is skipped
   while (stack.length > 0) {
     const node = stack.pop()!;
     if (visited.has(node)) continue;

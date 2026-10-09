@@ -10,14 +10,14 @@
  * same commit log, and disagreeing about the answers. This is that arithmetic,
  * once, in the library that owns the substrate.
  *
- * DAG position: memory ← time-travel. This module may import ONLY from
- * memory/ plus `ids/runtimeStageId` — the zero-dependency id grammar that
- * defines what a `runtimeStageId` means, and therefore the one piece of
- * engine/ a reader of ids cannot honestly re-implement. Recorders, traversal
- * and runner must never be imported here; the
- * snapshot arrives as a plain structural shape ({@link FoldSource},
- * {@link TimeTravelSource}) so a stored JSON trace works exactly like a live
- * `getSnapshot()`.
+ * DAG position: memory ← time-travel. Every file here is a record file
+ * (`RECORD_FILES`, scripts/layering.config.cjs, C6): it may import only record
+ * files — memory/, the id grammar (`ids/runtimeStageId`), and the record's two
+ * capture/ leaves (`freeze`, `valueKinds`). Recorders, traversal and runner
+ * must never be imported here; the snapshot arrives as a plain structural
+ * shape ({@link FoldSource}, {@link TimeTravelSource}, the record's own
+ * `ExecutionTree` for the tree) so a stored JSON trace works exactly like a
+ * live `getSnapshot()`.
  */
 
 import type { RegisteredCode } from '../memory/honesty.js';
@@ -396,10 +396,12 @@ export interface Mark {
  * with the log. A strategy may ignore it.
  *
  * `executionTree` is an {@link ExecutionTree} (9.48.0; a `StageSnapshot`
- * before): the fields the record's readers read. A strategy that reads more of
- * a live snapshot's tree keeps its parameter annotated `StageSnapshot` — a
- * method's parameters are compared both ways, so it is still a
- * `TimeTravelStrategy`; one left unannotated is typed by this signature.
+ * before): the fields the record's readers read. A strategy written before
+ * 9.48.0 that annotates the parameter `StageSnapshot` still compiles — a
+ * method's parameters are compared both ways — but the annotation is a claim
+ * nothing checks: `timeTravel` hands a stored recording's tree over as parsed,
+ * so a field beyond these is read defensively. One left unannotated is typed
+ * by this signature.
  */
 export interface TimeTravelStrategy<TMeta = unknown> {
   stopsFor(commitLog: readonly CommitBundle[], executionTree?: ExecutionTree, subflowResults?: unknown): Stop<TMeta>[];

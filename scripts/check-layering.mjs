@@ -14,7 +14,11 @@
  *   5. shim importers     — anything under src/ that still imports a deprecated old path;
  *   6. the closed record  — an import of ANY kind (value, type, lazy) from a RECORD_FILES
  *                           file to a file outside the set (C6), and a RECORD_FILES entry
- *                           that matches no file or places a file above L3.
+ *                           that matches no file or places a file above L3; and the record
+ *                           COMPILED ALONE — a program of the record files that loads any
+ *                           other file, or reports a diagnostic, fails. That is the property
+ *                           itself, and it sees what no import declaration shows: an
+ *                           `import('…')` type reference, a package import.
  *
  * Type-only imports are NOT layering edges: tsc erases them. They are listed (and checked
  * against the allowance list) for information, and never fail the layering — but they do
@@ -32,9 +36,9 @@
  * Exit code: 0 clean, 1 any failure.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -173,6 +177,35 @@ const adjacencyOf = (edges, nodeOf) => {
   return adjacency;
 };
 
+/**
+ * The record compiled on its own: a program rooted at the record files must load no other file —
+ * of the tree or of node_modules; TypeScript's own lib aside — and report no diagnostic. A package
+ * cut along RECORD_FILES compiles alone exactly when this is empty. `types: []` keeps the ambient
+ * `@types` packages out, as a package that declares no dependency would have them.
+ */
+export function recordAlone(root, recordFiles) {
+  if (recordFiles.length === 0) return [];
+  const config = join(root, 'tsconfig.json');
+  const options = existsSync(config)
+    ? ts.parseJsonConfigFileContent(ts.readConfigFile(config, ts.sys.readFile).config, ts.sys, root).options
+    : { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, strict: true };
+  const program = ts.createProgram(
+    recordFiles.map((f) => join(root, f)),
+    { ...options, noEmit: true, types: [] },
+  );
+  const roots = new Set(recordFiles.map((f) => resolve(root, f)));
+  const where = (file) => relative(root, file).split('\\').join('/');
+  const problems = program
+    .getSourceFiles()
+    .filter((sf) => !program.isSourceFileDefaultLibrary(sf) && !roots.has(resolve(sf.fileName)))
+    .map((sf) => `compiled alone, the record loads ${where(sf.fileName)}`);
+  for (const d of ts.getPreEmitDiagnostics(program)) {
+    const at = d.file ? `${where(d.file.fileName)}:${d.file.getLineAndCharacterOfPosition(d.start ?? 0).line + 1} ` : '';
+    problems.push(`compiled alone: ${at}${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
+  }
+  return problems;
+}
+
 // ── the analysis ─────────────────────────────────────────────────────────────
 
 /**
@@ -257,6 +290,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
       .filter((f) => inRecord(f) && rank.get(f) !== null && rank.get(f) > 3)
       .map((f) => `${f} is at L${rank.get(f)}: the record is L0-L3`),
   ];
+  const recordCompile = recordAlone(root, files.filter(inRecord));
 
   const result = {
     files: files.length,
@@ -277,6 +311,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     recordFiles: files.filter(inRecord).length,
     recordEscapes,
     recordProblems,
+    recordCompile,
   };
   result.ok =
     moduleCycles.length === 0 &&
@@ -286,7 +321,8 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     staleNames.length === 0 &&
     shimImporters.length === 0 &&
     recordEscapes.length === 0 &&
-    recordProblems.length === 0;
+    recordProblems.length === 0 &&
+    recordCompile.length === 0;
   return result;
 }
 
@@ -351,11 +387,15 @@ export function format(result) {
     lines.push(`  deprecated path imported: ${short(s.from)}:${s.line} -> ${short(s.to)}`);
   lines.push('');
   lines.push(
-    `the record (RECORD_FILES): ${result.recordFiles} files   imports out of it: ${result.recordEscapes.length}   config problems: ${result.recordProblems.length}`,
+    `the record (RECORD_FILES): ${result.recordFiles} files   imports out of it: ${
+      result.recordEscapes.length
+    }   compiled alone: ${result.recordCompile.length === 0 ? 'clean' : `${result.recordCompile.length} problems`}   config problems: ${
+      result.recordProblems.length
+    }`,
   );
   for (const e of result.recordEscapes)
     lines.push(`  ${short(e.from)}:${e.line} -> ${short(e.to)}   [${e.kind}: a record file imports only record files]`);
-  for (const p of result.recordProblems) lines.push(`  ${p}`);
+  for (const p of [...result.recordCompile, ...result.recordProblems]) lines.push(`  ${p}`);
   lines.push('');
   lines.push(result.ok ? 'OK' : 'FAIL');
   return lines.join('\n');

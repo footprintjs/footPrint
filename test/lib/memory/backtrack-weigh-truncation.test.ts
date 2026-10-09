@@ -162,12 +162,13 @@ describe('causalChain — truncation visibility (D4)', () => {
 
   it('truncation is data, never a console line — in dev mode or out (the warning went in C6)', () => {
     const { log, reads } = chainLog(10);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const methods = ['warn', 'error', 'log', 'info', 'debug'] as const;
+    const spies = methods.map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
 
     expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
     enableDevMode();
     expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
-    expect(warn).not.toHaveBeenCalled();
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 
   it('both limits cut → both flags, both causes in the footer', () => {

@@ -1,8 +1,8 @@
 /**
  * Code written against `StageSnapshot` before C6 — compiled, never run, by
- * execution-tree-supertype.test.ts, which requires ZERO diagnostics against this tree AND against the
- * published release (the imports re-pointed at `footprintjs-published`), so this file is a faithful copy
- * of what compiled before the readers took `ExecutionTree`.
+ * execution-tree-supertype.test.ts, which requires ZERO diagnostics against this tree AND against a
+ * release from before the change (the imports re-pointed at `footprintjs-baseline`, pinned exactly), so
+ * this file is a faithful copy of what compiled before the readers took `ExecutionTree`.
  *
  * The shapes are the published consumers' — agentfootprint's `milestoneStops` (a function whose tree
  * parameter is annotated `StageSnapshot`, assigned as a strategy), the Lens's `tagAxis` (a stored tree

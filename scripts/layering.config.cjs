@@ -33,7 +33,9 @@
  *
  * THE SECOND RULE (C6) — the record names nothing outside itself. RECORD_FILES is the record:
  * the files a trace package would hold. A record file imports only record files, and here EVERY
- * import counts, `import type` included: a package cut along this list must compile alone.
+ * import counts, `import type` included: a package cut along this list must compile alone — which
+ * `check-layering.mjs · recordAlone` checks by compiling the list on its own. A new file that is the
+ * record's goes into RECORD_FILES as well as LAYERS.
  */
 
 const fs = require('fs');
@@ -213,7 +215,7 @@ const LAYERS = [
  * The rule that decides membership is the extraction plan's (docs/design/2026-10-trace-extraction.md,
  * section 7.5): a symbol moves to the trace package iff it is declared in one of these files.
  */
-const RECORD_FILES = [
+const RECORD_FILES = Object.freeze([
   // L0 — the record's types (and the execution tree its readers read), the path codec, structural
   // equality and the union merge, the path spine, the honesty vocabulary, the log's placeholder,
   // which rows touch a key, where an emit sits in the log, the id grammar, the record's freezer and
@@ -249,7 +251,7 @@ const RECORD_FILES = [
   'src/lib/recorder/CommitRangeIndex.ts',
   'src/lib/slice/**',
   'src/lib/time-travel/**',
-];
+]);
 
 /**
  * The three edges the fence names on purpose. Each is a (from → to) pair; `from` may be a

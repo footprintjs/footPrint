@@ -19,6 +19,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import layering from '../scripts/layering.config.cjs';
+
+const { isRecordFile } = layering;
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const esmDir = resolve(repoRoot, 'dist/esm');
 const built = existsSync(resolve(esmDir, 'index.js'));
@@ -101,12 +105,27 @@ describe.skipIf(!built)('ESM packaging', () => {
   });
 
   /**
-   * What `/trace` holds (C6): the record's READERS — the fold, the cursor and its stops, the slices, the causal
-   * chain, the log queries, the id grammar, the honesty codes — and the recorder-side tools it has always handed
-   * out (the stores, `CommitRangeIndex`, the Topology / InOut / ControlDep / Quality recorders, `qualityTrace`,
-   * `walkSubflowSpec`, the `~` segment grammar). It does not hold the WRITER (`/write`) or the engine's FRAME
-   * (`/advanced`): until C6 it reached both through the `memory/index.js` barrel.
+   * What `/trace` holds (C6) — an allow-list, so the decision is executable: the record's READERS (record files:
+   * the fold, the cursor and its stops, the slices, the causal chain, the log queries, the id grammar, the honesty
+   * codes, `CommitRangeIndex`) and the recorder-side tools it has always handed out, which stay on
+   * `footprintjs/trace` after the extraction (plan section 7.5, last row). Not the WRITER, which is record files
+   * too but has its own door (`/write`), and nothing of the engine (`/advanced`): until C6 it loaded both
+   * through the `memory/index.js` barrel.
    */
+  const TRACE_TOOLS = [
+    'src/lib/recorder/BoundaryStateStore.ts',
+    'src/lib/recorder/KeyedStore.ts',
+    'src/lib/recorder/SequenceStore.ts',
+    'src/lib/recorder/TopologyRecorder.ts',
+    'src/lib/recorder/InOutRecorder.ts',
+    'src/lib/recorder/ControlDepRecorder.ts',
+    'src/lib/recorder/QualityRecorder.ts',
+    'src/lib/recorder/qualityTrace.ts',
+    'src/lib/engine/walkSubflowSpec.ts',
+    'src/lib/ids/branchSegment.ts',
+    'src/lib/devMode.ts', // BoundaryStateStore's dev-mode warning
+  ];
+  /** The writer: the record files behind `/write` (the heap, the log, the frame, staging and the commit). */
   const WRITER = [
     'SharedMemory',
     'EventLog',
@@ -116,39 +135,33 @@ describe.skipIf(!built)('ESM packaging', () => {
     'admission',
     'deltaEncoding',
     'scrub',
-  ];
-  const FRAME = [
-    'StageContext',
-    'redaction',
-    'runPolicy',
-    'runAddress',
-    'DiagnosticCollector',
-    'borrowedMutation',
-    'index',
-  ];
-  const memoryModules = (names: string[]) => names.map((name) => `lib/memory/${name}.js`);
+  ].map((name) => `src/lib/memory/${name}.ts`);
+  /** A door's modules as the src files they were built from (`lib/memory/verbs.js` → `src/lib/memory/verbs.ts`). */
+  const sourcesOf = async (entry: string) =>
+    (await bundleOf(entry)).modules.filter((m) => m.startsWith('lib/')).map((m) => `src/${m.replace(/\.js$/, '.ts')}`);
+  const notTrace = (files: string[]) => files.filter((f) => !(isRecordFile(f) || TRACE_TOOLS.includes(f)));
 
   it('footprintjs/trace loads the readers and the recorder-side tools — not the writer, not the engine', async () => {
-    const trace = await bundleOf('trace.js');
-    expect(trace.modules.filter((m) => memoryModules([...WRITER, ...FRAME]).includes(m))).toEqual([]);
+    const trace = await sourcesOf('trace.js');
+    expect(notTrace(trace), 'a module that is neither a record file nor a tool /trace hands out').toEqual([]);
     expect(
-      trace.modules.filter((m) => /^lib\/(scope|reactive|decide|runner|builder|contract|detach)\//.test(m)),
-      'no scope, executor or builder module',
+      trace.filter((f) => WRITER.includes(f)),
+      'the writer has its own door, /write',
     ).toEqual([]);
-    expect(trace.modules.filter((m) => m.startsWith('lib/engine/'))).toEqual(['lib/engine/walkSubflowSpec.js']);
+    expect(
+      TRACE_TOOLS.filter((f) => !trace.includes(f)),
+      'every named tool is really loaded',
+    ).toEqual([]);
+    for (const reader of ['time-travel/stateAt', 'time-travel/timeTravel', 'slice/sliceForKey', 'memory/backtrack'])
+      expect(trace, reader).toContain(`src/lib/${reader}.ts`);
+    const text = (await bundleOf('trace.js')).text;
     for (const name of [...ENGINE, 'SharedMemory', 'EventLog', 'RecordFrame', 'TransactionBuffer'])
-      expect(declares(trace.text, name), `${name} must not ride in with footprintjs/trace`).toBe(false);
-    // The readers are there: the fold, the cursor, a slice, the causal chain.
-    for (const m of [
-      'lib/time-travel/stateAt.js',
-      'lib/time-travel/timeTravel.js',
-      'lib/slice/sliceForKey.js',
-      'lib/memory/backtrack.js',
-    ])
-      expect(trace.modules, m).toContain(m);
+      expect(declares(text, name), `${name} must not ride in with footprintjs/trace`).toBe(false);
 
-    // The control: the same check finds the writer in /write's graph and the frame in /advanced's.
-    expect((await bundleOf('write.js')).modules).toEqual(expect.arrayContaining(memoryModules(WRITER)));
-    expect((await bundleOf('advanced.js')).modules).toEqual(expect.arrayContaining(memoryModules(FRAME)));
+    // The controls: the same checks find the engine in /advanced's graph and the writer in /write's.
+    expect(notTrace(await sourcesOf('advanced.js'))).toEqual(
+      expect.arrayContaining(['src/lib/memory/StageContext.ts', 'src/lib/memory/redaction.ts']),
+    );
+    expect((await sourcesOf('write.js')).filter((f) => WRITER.includes(f)).sort()).toEqual([...WRITER].sort());
   });
 });

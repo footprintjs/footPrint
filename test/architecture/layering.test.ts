@@ -308,6 +308,25 @@ describe('check-layering — the record names nothing outside itself', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('what no import declaration shows — an import() TYPE reference, a package — fails: the record compiled alone', () => {
+    const typeRef = run(
+      { 'src/lib/low/other.ts': leaf, 'src/lib/mid/rec.ts': "export type Rec = import('../low/other.js').Leaf;\n" },
+      record,
+    );
+    expect(typeRef.recordEscapes).toEqual([]); // not an import declaration: the edge reader cannot see it …
+    expect(typeRef.recordCompile).toEqual(['compiled alone, the record loads src/lib/low/other.ts']); // … the compile can
+    expect(typeRef.ok).toBe(false);
+
+    const pkg = run(
+      { 'src/lib/mid/rec.ts': "import type { Thing } from 'not-a-package';\nexport type Rec = Thing;\n" },
+      record,
+    );
+    expect(pkg.recordCompile.join('\n')).toMatch(
+      /compiled alone: src\/lib\/mid\/rec\.ts:1 Cannot find module 'not-a-package'/,
+    );
+    expect(pkg.ok).toBe(false);
+  });
+
   it('a lazy import() out of the record fails', () => {
     const r = run(
       { 'src/lib/low/other.ts': leaf, 'src/lib/mid/rec.ts': "export const rec = () => import('../low/other.js');\n" },
@@ -371,6 +390,7 @@ describe('the footprintjs source tree', () => {
   it('the record is closed: every RECORD_FILES file imports only record files, by value or by type (R1, R2 = 0)', () => {
     expect(result.recordEscapes).toEqual([]);
     expect(result.recordProblems).toEqual([]);
+    expect(result.recordCompile, 'the record compiled on its own loads nothing else and has no diagnostic').toEqual([]);
     expect(result.recordFiles).toBe(listSourceFiles(REPO).filter((f: string) => isRecordFile(f)).length);
     // R1 of the extraction plan: no L0–L3 file names an L4+ file, by value or by type.
     const below = (e: { from: string; to: string }) => (rankOf(e.from) ?? 9) <= 3 && (rankOf(e.to) ?? 0) >= 4;
@@ -387,6 +407,7 @@ describe('the footprintjs source tree', () => {
       'src/lib/memory/equality.ts',
       'src/lib/time-travel/chain.ts',
     ]);
+    expect(control.recordCompile).toEqual(['compiled alone, the record loads src/lib/capture/valueKinds.ts']);
   });
 
   it('the deprecated shims exist and nothing under src/ imports them', () => {
@@ -438,5 +459,11 @@ describe('the ESLint zones', () => {
     const out = await lint(down, 'src/lib/memory/backtrack.ts');
     expect(out).toHaveLength(1);
     expect(out[0].message).toMatch(/A record file imports only record files: RECORD_FILES/);
+    // … and so is a TYPE import out of the record (the rule counts every kind; ESLint sees `import type` too).
+    const typeOut = await lint(
+      "import type { StageSnapshot } from './frameTypes.js';\nexport type Y = StageSnapshot;\n",
+      'src/lib/memory/backtrack.ts',
+    );
+    expect(typeOut.map((m) => m.message).join('\n')).toMatch(/A record file imports only record files: RECORD_FILES/);
   }, 60_000);
 });
