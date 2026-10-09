@@ -88,9 +88,10 @@ function foldsBack(fold: unknown, workingCopy: unknown, family: Family, address:
   if (!spineHeld(fold, workingCopy, segments, address)) return false;
   const folded = _get(fold, segments);
   const read = _get(workingCopy, segments);
-  if (deepEqual(folded, read)) return true;
+  // Both sides are the same values as a record holds them: an opaque one (a Blob) is never the same object.
+  if (deepEqual(folded, read, 'copies')) return true;
   family.held = { value: structuredClone(read) };
-  return deepEqual(folded, family.held.value);
+  return deepEqual(folded, family.held.value, 'copies');
 }
 
 /**

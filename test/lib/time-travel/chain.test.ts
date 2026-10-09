@@ -343,3 +343,33 @@ describe('lineage — a later leg must BEGIN where the earlier leg ENDED', () =>
     expect(() => timeTravel([bare(paused), resumed])).not.toThrow();
   });
 });
+
+describe('lineage — the state check is the ONE equality law (9.44.2)', () => {
+  /** Two legs: the first writes `v`, the second claims to begin from `base`. */
+  const legs = (first: unknown, base: unknown) => {
+    const bundle = (id: string, overwrite: Record<string, unknown>, path: string) => ({
+      stage: id,
+      stageId: id.split('#')[0],
+      runtimeStageId: id,
+      trace: [{ path, verb: 'set' as const }],
+      overwrite,
+      updates: {},
+      redactedPaths: [],
+    });
+    return [
+      { commitLog: [bundle('seed#0', { v: first }, 'v')], initialState: {} },
+      { commitLog: [bundle('next#1', { n: 1 }, 'n')], initialState: { v: base } },
+    ];
+  };
+
+  // Red before 9.44.2: the chain had its own equality, which held any two of these equal.
+  it.each([
+    ['a RegExp', /x/g, /y/g],
+    ['an Error', new Error('a'), new Error('b')],
+    ['a buffer', new Uint8Array([1]).buffer, new Uint8Array([2]).buffer],
+    ['a typed array', new Uint8Array([1]), new Uint8Array([2])],
+  ])('refuses a leg whose base holds another %s', (_kind, written, other) => {
+    expect(() => timeTravel(legs(written, other))).toThrow(/one lineage/);
+    expect(() => timeTravel(legs(written, structuredClone(written)))).not.toThrow();
+  });
+});

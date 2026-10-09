@@ -42,9 +42,10 @@
  * `@throws`, and in the README.
  */
 
+import { kindOf } from '../capture/valueKinds.js';
 import { parseRuntimeStageId } from '../ids/runtimeStageId.js';
 import type { CommitBundle } from '../memory/types.js';
-import { DELIM } from '../memory/utils.js';
+import { deepEqual, DELIM } from '../memory/utils.js';
 import { type ReadSource, foldLegs } from './stateAt.js';
 import type { TimeTravelSource } from './types.js';
 
@@ -85,37 +86,38 @@ export function spanOf(log: readonly CommitBundle[]): {
  *
  * The fold reproduces `'REDACTED'` wherever the engine scrubbed a write, while
  * the checkpoint that seeded the resumed leg holds the real value — so those
- * paths CANNOT agree, and are not asked to. Everything else must: same keys
- * (a key holding `undefined` counts as absent, as it does through JSON), same
- * array lengths, same leaves by `Object.is`, Dates by their instant. Values
- * are whatever survived `structuredClone`, which is the library's own law on
- * state values.
+ * paths CANNOT agree, and are not asked to. Everything else is decided by the
+ * ONE equality law (`memory/equality.ts · deepEqual`, every value kind compared
+ * as the record holds it; 9.44.2 — this walk had a law of its own, which held
+ * any two RegExps, Errors or buffers equal). Both sides are copies of one
+ * record, so an opaque value compares as `'copies'`. Only the containers above
+ * a redacted path are walked here.
  */
 function sameState(a: unknown, b: unknown, redacted: ReadonlySet<string>, path: string): boolean {
-  if (Object.is(a, b)) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  if (a instanceof Date || b instanceof Date) {
-    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
-  }
-  if (a instanceof Map || b instanceof Map || a instanceof Set || b instanceof Set) {
-    if (!(a instanceof Map && b instanceof Map) && !(a instanceof Set && b instanceof Set)) return false;
-    return sameState([...a.entries()], [...b.entries()], redacted, path);
-  }
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (!redactedBelow(path, redacted)) return deepEqual(a, b, 'copies');
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     return a.every((item, i) => sameState(item, b[i], redacted, path === '' ? String(i) : `${path}${DELIM}${i}`));
   }
-  const left = a as Record<string, unknown>;
-  const right = b as Record<string, unknown>;
+  const plain = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) && kindOf(v) === 'plain';
+  if (!plain(a) || !plain(b)) return deepEqual(a, b, 'copies');
   const present = (o: Record<string, unknown>) => Object.keys(o).filter((k) => o[k] !== undefined);
-  const leftKeys = present(left);
-  const rightKeys = new Set(present(right));
+  const leftKeys = present(a);
+  const rightKeys = new Set(present(b));
   if (leftKeys.length !== rightKeys.size || !leftKeys.every((k) => rightKeys.has(k))) return false;
   return leftKeys.every((k) => {
     const childPath = path === '' ? k : `${path}${DELIM}${k}`;
-    return redacted.has(childPath) || sameState(left[k], right[k], redacted, childPath);
+    return redacted.has(childPath) || sameState(a[k], b[k], redacted, childPath);
   });
+}
+
+/** Is `path`, or a path below it, one the log was redacted at? */
+function redactedBelow(path: string, redacted: ReadonlySet<string>): boolean {
+  if (redacted.size === 0) return false;
+  if (path === '') return true;
+  for (const r of redacted) if (r === path || r.startsWith(`${path}${DELIM}`)) return true;
+  return false;
 }
 
 /**

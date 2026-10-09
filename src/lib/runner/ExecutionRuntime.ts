@@ -10,7 +10,7 @@
  * After execution, consumers query it for the full execution state.
  */
 
-import { deepFreeze } from '../capture/freeze.js';
+import { freezeRecord } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
 import type { LogAddress } from '../memory/eventPosition.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
@@ -242,12 +242,15 @@ export class ExecutionRuntime {
    * The frozen, detached fold base served as {@link RuntimeSnapshot.initialState}.
    * Computed once (the base never changes after construction) and shared —
    * safe because it is deeply frozen, so no holder can mutate it or reach the
-   * engine through it.
+   * engine through it; a base holding a Date, Map, buffer … (what freezing
+   * cannot seal) is served by the public snapshot as a copy of its open paths
+   * (`runner/snapshot.ts · servedSnapshot`, `capture/freeze.ts · serveRecord`,
+   * 9.44.2).
    */
   private getFoldBase(): Record<string, unknown> {
     if (!this._foldBase) {
       const base = this.executionHistory.getInitialState();
-      this._foldBase = deepFreeze(base && typeof base === 'object' ? base : {}) as Record<string, unknown>;
+      this._foldBase = freezeRecord(base && typeof base === 'object' ? base : {}) as Record<string, unknown>;
     }
     return this._foldBase;
   }
@@ -306,12 +309,14 @@ export class ExecutionRuntime {
       // rather than leak it — `stateAt` degrades to `basis: 'log-only'`.
       ...(useRedacted ? {} : { initialState: this.getFoldBase() }),
       // DETACHED: the engine keeps its live EventLog; the snapshot gets a
-      // frozen copy of the array. Serving `list()` directly aliased the
-      // internal array, so a snapshot taken mid-run kept growing under its
-      // holder and a consumer could splice the engine's own history. The
-      // bundles in it are the log's own, frozen at `EventLog · record` (F3).
-      // The copy stays: it is what keeps a holder's array from growing.
-      commitLog: Object.freeze(this.executionHistory.list().slice()) as CommitBundle[],
+      // frozen array of its own (`recorded()` builds a new one). Serving the
+      // internal array aliased it, so a snapshot taken mid-run kept growing
+      // under its holder and a consumer could splice the engine's own history.
+      // The bundles in it are the log's own, frozen at `EventLog · record`
+      // (F3). The public snapshot serves them (`runner/snapshot.ts ·
+      // servedSnapshot`, 9.44.2); this one is also the engine's own — a
+      // subflow mount takes it once per mount — so the run path serves nothing.
+      commitLog: Object.freeze(this.executionHistory.recorded()) as CommitBundle[],
       ...(this.executionHistory.address === undefined ? {} : { logAddress: this.executionHistory.address }),
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,

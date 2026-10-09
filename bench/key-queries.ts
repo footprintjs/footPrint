@@ -10,7 +10,9 @@
  *   SCALING  commit i writes `cfg␟f{i}`, every 50th commit also merges `cfg`, stage i reads `cfg␟f{i-1}`; one
  *            `causalChain` from the last commit, at N = 1k, 2k, 4k, 8k. Near-linear: each doubling ≈ 2×.
  *   SINGLE   100 `findLastWriter` + 100 `commitValueAt` of nested keys on a FROZEN log (an engine log — its read
- *            model is memoised on it), N = 2.5k and 10k, a 100-field container.
+ *            model is memoised on it), N = 2.5k and 10k, a 100-field container; then 100 `commitValueAt` of the
+ *            container itself — an OBJECT answer, which the memo hands out as a detached copy since 9.44.2
+ *            (`logModel · valueAt`): this column is that copy's cost.
  *
  * Run:  npx tsx bench/key-queries.ts
  */
@@ -86,7 +88,9 @@ async function main() {
     previous = best;
   }
 
-  console.log('SINGLE — 100 findLastWriter + 100 commitValueAt of nested keys on a frozen log (100-field container)');
+  console.log(
+    'SINGLE — 100 findLastWriter + 100 commitValueAt of nested keys, then of the container, on a frozen log (100 fields)',
+  );
   for (const n of [2500, 10000]) {
     const { log } = build(n, 100);
     deepFreeze(log, 'indices');
@@ -97,10 +101,13 @@ async function main() {
     const v = time(() => {
       for (let j = 0; j < 100; j++) trace.commitValueAt(log, n - 1 - j, `cfg${D}f${(n - 2 - j) % 100}`);
     });
+    const c = time(() => {
+      for (let j = 0; j < 100; j++) trace.commitValueAt(log, n - 1 - j, 'cfg');
+    });
     console.log(
       `  N=${String(n).padStart(5)}  findLastWriter ×100 ${w.toFixed(1).padStart(7)} ms   commitValueAt ×100 ${v
         .toFixed(1)
-        .padStart(7)} ms`,
+        .padStart(7)} ms   container ×100 ${c.toFixed(1).padStart(7)} ms`,
     );
   }
 }

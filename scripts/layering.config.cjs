@@ -49,8 +49,9 @@ const LAYERS = [
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
       'src/lib/memory/eventPosition.ts',
-      // The path codec, structural equality and the union merge: leaves that import nothing
-      // (split out of utils.ts in F2). The verb law (verbs.ts) reads them from L1.
+      // The path codec, structural equality and the union merge: leaves (split out of utils.ts in
+      // F2) — equality imports only the value-kind classifier (capture/valueKinds.ts, 9.44.2). The
+      // verb law (verbs.ts) reads them from L1.
       'src/lib/memory/paths.ts',
       'src/lib/memory/equality.ts',
       'src/lib/memory/merge.ts',

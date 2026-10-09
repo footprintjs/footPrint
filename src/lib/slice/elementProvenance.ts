@@ -60,7 +60,7 @@ import type { ArrayProvenance, AttributionBasis, ElementBirth, StateKey } from '
 function isStrictPrefix(prev: unknown[], next: unknown[]): boolean {
   if (prev.length > next.length) return false;
   for (let i = 0; i < prev.length; i++) {
-    if (!deepEqual(prev[i], next[i])) return false;
+    if (!deepEqual(prev[i], next[i], 'copies')) return false;
   }
   return true;
 }

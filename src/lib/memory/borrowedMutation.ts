@@ -47,7 +47,7 @@ function joinSegment(prefix: string, segment: string, intoArray: boolean): strin
  * `deepEqual`, and stops at the first disagreement.
  */
 export function firstDifferingPath(before: unknown, after: unknown, prefix = '', depth = 0): string | undefined {
-  if (deepEqual(before, after)) return undefined;
+  if (deepEqual(before, after, 'copies')) return undefined;
   if (depth >= 24) return prefix; // pathological nesting — name what we have
   if (before === null || after === null || typeof before !== 'object' || typeof after !== 'object') return prefix;
 
