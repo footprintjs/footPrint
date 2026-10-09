@@ -60,6 +60,8 @@ before.turn;                         // still the old value — a generation is 
 
 ### Nested writes and diagnostic bags
 
+The private path writer and copy-on-write walk obey the same own-field boundary as readers: preflight the complete selector, traverse own intermediates only, and delegate placement to `capture/ownData.ts`. Default merging also considers only own destination fields, so allowed defaults named `toString` or `valueOf` remain data. Record union merging, diagnostic concatenation and path container creation remain separate operation laws; sharing placement does not merge their semantics. Existing own accessors may execute and arbitrary proxies are not sandboxed.
+
 `setNestedValue` and `updateNestedValue` serve both the heap's direct setters and `DiagnosticCollector`'s separate bags. They validate the complete address, path and final field with `isDeniedSegment` before writing. An exact `__proto__`, `constructor` or `prototype` selector makes the whole operation a no-op: no partial containers, no prototype change, and no new SharedMemory generation. The existing JavaScript defaults remain: `undefined` address or path means `[]`; other non-array addresses (including `null` and strings) still throw the existing `TypeError`.
 
 The writers follow own intermediate properties, create missing properties as own data properties, and update only an own existing value. Inherited values are not merged and inherited getters/setters are not invoked to create a property. Existing own accessors retain their normal behavior; arbitrary proxies and side-effecting own accessors are not a sandboxed input contract.

@@ -63,6 +63,7 @@
  * write — and is admitted without the fold.
  */
 
+import { putOwn } from '../capture/ownData.js';
 import { type Family, type Lossy, type Member, type Rows, addressDepthOf, lossyFamilies } from './admission.js';
 import { type OpVerb, type Survivor, emitInFamilyOrder, groupIntoFamilies, pushValueRow } from './deltaEncoding.js';
 import { relation } from './keyPaths.js';
@@ -471,12 +472,12 @@ export class TransactionBuffer {
       if (!this.owned.has(value)) {
         if (value !== atBase || this.staged.has(value)) return;
         if (i === path.length - 1) {
-          parent[k] = this.privateCopyOf(value);
+          putOwn(parent, k, this.privateCopyOf(value));
           return;
         }
         value = shallowCopy(value);
         this.owned.add(value);
-        parent[k] = value;
+        putOwn(parent, k, value);
       }
       parent = value;
       base = atBase;
@@ -502,7 +503,7 @@ export class TransactionBuffer {
         const atBase = ownChild(nodeBase, key);
         if (this.owned.has(child)) work.push([child, atBase]);
         else if (child === atBase && !this.staged.has(child)) {
-          (node as Record<string, unknown>)[key] = this.privateCopyOf(child);
+          putOwn(node as Record<string, unknown>, key, this.privateCopyOf(child));
         }
       }
       this.privateTrees.add(node);

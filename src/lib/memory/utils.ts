@@ -15,6 +15,7 @@
  * Zero external dependencies.
  */
 
+import { setOwnValue } from '../capture/ownData.js';
 import { isDeniedSegment, nativeGet as _get } from './pathOps.js';
 import { DELIM } from './paths.js';
 import type { MemoryPatch } from './types.js';
@@ -72,15 +73,6 @@ export function isDeniedWritePath(
 ): boolean {
   const prefix = addressOf(address);
   return prefix.some(isDeniedSegment) || path.some(isDeniedSegment) || isDeniedSegment(field);
-}
-
-/** Keep existing own-property behavior; a missing slot must not call an inherited setter. */
-function setOwnValue(object: NestedObject, key: string | number, value: unknown): void {
-  if (Object.prototype.hasOwnProperty.call(object, key)) {
-    object[key] = value;
-  } else {
-    Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
-  }
 }
 
 /**
