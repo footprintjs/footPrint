@@ -87,7 +87,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       const snap = ctx.getSnapshot();
       expect(snap.stageReads).toEqual({ config: { retries: 3 }, greeting: 'hello' });
       // The recorded read is a CLONE, not the committed reference.
-      expect(snap.stageReads?.config).not.toBe(mem.getValue('p1', [], 'config'));
+      expect(snap.stageReads?.config).not.toBe(mem.getValue(['runs', 'p1'], [], 'config'));
     });
 
     it("NEGATIVE CONTROL: under 'full' the per-read value clone DOES fire (counter proof)", () => {
@@ -505,7 +505,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       expect(ctx.getValue([], 'config')).toEqual({ retries: 3 }); // committed read
       ctx.commit();
 
-      expect(mem.getValue('p1', [], 'greeting')).toBe('updated');
+      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('updated');
       const bundle = log.list()[1];
       expect(bundle.overwrite).toEqual({ runs: { p1: { greeting: 'updated' } } });
       expect(bundle.trace).toHaveLength(1);

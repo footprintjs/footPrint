@@ -30,14 +30,19 @@ A single shared store that all stages read from and write to, with automatic nam
 
 **Why it connects to the main goal:** For traces to be connected, all state must flow through a single, observable location. If stages stored data in local variables, closures, or scattered global objects, the runtime couldn't know what data influenced what decision. SharedMemory is the single source of truth — every read and every write passes through it, so the runtime can record the full data flow.
 
-**Why not just a plain object?** Namespace isolation. Run A's `result` key must not collide with Run B's `result` key. SharedMemory stores data under `runs/{id}/` automatically — each flowchart execution (run) gets its own isolated address space. Values fall back from run scope to global scope — same as CSS inheritance or prototype chains — so you can set global defaults that any run overrides.
+**Why not just a plain object?** Namespace isolation. Run A's `result` key must not collide with Run B's `result` key. Every value is written at an ADDRESS — a path prefix such as `['runs', 'run-1']` — so each flowchart execution (run) gets its own isolated address space. A read looks at the address first and falls back to the root — same as CSS inheritance or prototype chains — so you can set global defaults that any run overrides.
+
+**The write address is data (C2).** SharedMemory never names a namespace of its own. The engine decides where a frame writes — `['runs', <runId>]` for a frame with a run id (a fork child, a branch), `[]` (the root) otherwise — from ONE constant in the frame (`StageContext.ts · RUN_NAMESPACE`, L4, read by `address` and `withNamespace`), and hands the address down as a path prefix: to `SharedMemory · getValue` / `setValue` / `updateValue`, to `utils · setNestedValue` / `updateNestedValue` / `getRunAndGlobalPaths`, and to the buffer (`TransactionBuffer`'s `address`, 9.30.0). The default values seed the root, and the container AT an address when a write creates it. Before C2 these took a run id and spelled `runs/<id>` themselves; the engine writes the same bytes. `test/architecture/write-address.test.ts` fails on a `'runs'` literal in any L0–L3 file outside its shrinking exception list (today: `RedactionRule · verdictOfRead`, until C4).
 
 ```typescript
+import { SharedMemory } from 'footprintjs/advanced';
+
 const mem = new SharedMemory({ defaultTheme: 'light' });
-mem.setValue('run-1', [], 'name', 'Alice');
-mem.getValue('run-1', [], 'name');    // 'Alice'
-mem.getValue('run-2', [], 'name');    // undefined (isolated)
-mem.getValue('run-1', [], 'defaultTheme'); // 'light' (global fallback)
+mem.setValue(['runs', 'run-1'], [], 'name', 'Alice');
+mem.getValue(['runs', 'run-1'], [], 'name'); // 'Alice'
+mem.getValue(['runs', 'run-2'], [], 'name'); // undefined (isolated)
+mem.getValue(['runs', 'run-2'], [], 'defaultTheme'); // 'light' (the root, as a fallback)
+mem.getState().runs; // { 'run-1': { defaultTheme: 'light', name: 'Alice' } } — the address's container, seeded
 ```
 
 **Copy-on-write (9.29.0).** The state is a sequence of GENERATIONS, and a generation is never edited. Every write — a stage's commit (`applyPatch`, through `utils · nextGeneration`), `setValue`, `updateValue` — copies the root and the containers on each path it writes, shares every other subtree with the generation before it, and swaps the new one in. That is what lets a stage hold the generation it first touched by bare reference (its read snapshot and its buffer's diff base) for free, and it makes a write cost what it writes, not what the state holds. The seed (`initialContext` + defaults) is detached once, when the store is built.
@@ -226,7 +231,7 @@ Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and pro
 
 **Why does this exist? Why not hand stages a TransactionBuffer directly?** Because a stage needs more than read/write:
 
-- **Namespace scoping** — Stage writes `result`, it lands at `runs/{id}/result`. The stage doesn't know about namespacing.
+- **Namespace scoping** — Stage writes `result`, it lands at `runs/{id}/result`. The stage doesn't know about namespacing; the frame does, and hands the record layer the address (`StageContext · address`, [C2](#1-sharedmemory--the-heap)).
 - **Tree structure** — Stages form a tree (next, children, parent). The engine traverses this tree for execution. Snapshots capture the full shape.
 - **Commit orchestration** — `commit()` runs the record's half (`recordCommit`: SharedMemory + mirror + EventLog) between the frame's own steps. If stages managed this themselves, someone would forget to record history and the trace would have a gap.
 
@@ -387,7 +392,7 @@ Parent creates N children via createChild()
 | Decision | Why | How it serves the goal |
 |---|---|---|
 | Single SharedMemory as source of truth | All data flows through one observable location | Every read/write is capturable — no hidden state |
-| Namespace isolation via `runs/{id}/` prefix | Prevents collisions between concurrent runs | Parallel runs produce clean, separate traces |
+| Namespace isolation via `runs/{id}/` prefix — an address the frame computes and the record layer takes as data (C2) | Prevents collisions between concurrent runs | Parallel runs produce clean, separate traces |
 | Run-then-global fallback reads | Global defaults with per-run overrides | Traces show where a value came from (local vs. inherited) |
 | TransactionBuffer with operation trace | Records *how* state changed, not just *what* | Enables deterministic replay and time-travel |
 | One staged commit per stage (NOT rollback) | No mid-stage visibility; on a stage error the staged writes still commit — audit evidence over all-or-nothing | Every commit in the history is one stage's net change, including what a failing stage changed |
@@ -419,7 +424,7 @@ A commit row carries one of four verbs — `set | merge | append | delete` — a
 | `paths.ts` | L0 | The path codec: `DELIM`, the one separator inside a `TraceEntry.path` (never a dot — a state key may contain one), `normalisePath` to write a path, `pathSegments` to take it apart |
 | `equality.ts` | L0 | `deepEqual` — THE owner of "what counts as a change": one arm per value KIND a record can hold (`capture/valueKinds.ts · kindOf`, by brand — Date, RegExp, Map, Set, Error, boxed primitive, buffer; a typed array / DataView by the bytes it views; an opaque value such as a Blob by the caller's `OpaqueRule`; 9.44.2), an own `undefined` is a deleted key, cycles terminate |
 | `merge.ts` | L0 | `deepSmartMerge` — the union merge the `merge` verb applies: arrays union, objects recurse, `[]` clears, cycles terminate |
-| `utils.ts` | L1 | The nested-object helpers (`setNestedValue`, `updateNestedValue`, `updateValue`, `getNestedValue`; `redactPatch` moved to `redaction.ts` in 9.33.0, beside the engine's clone-free `scrubPatch`) and the one re-export surface of the four files above, so no importer moved |
+| `utils.ts` | L1 | The nested-object helpers (`setNestedValue`, `updateNestedValue`, `updateValue`, `getNestedValue`; the writers take the ADDRESS as data — C2; `redactPatch` moved to `redaction.ts` in 9.33.0, beside the engine's clone-free `scrubPatch`) and the one re-export surface of the four files above, so no importer moved |
 
 `paths.ts` and `merge.ts` import nothing, `equality.ts` only the kind classifier (`capture/valueKinds.ts`, an L0 leaf); `verbs.ts` imports only them and `pathOps.ts` (layer table: `scripts/layering.config.cjs`).
 

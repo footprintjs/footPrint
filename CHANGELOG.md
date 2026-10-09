@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking — `/advanced`: the write address is data (C2 of the record-layer clean-up)
+
+- **Why.** The record layer spelled the engine's run namespace itself: `memory/utils.ts · getRunAndGlobalPaths` built `['runs', runId, …]`, the nested writers and `SharedMemory` took a run id, and `SharedMemory` had a `getRuns()`. The engine now decides where a frame writes, `['runs', <runId>]` for a frame with a run id and `[]` (the root) otherwise, from ONE constant in the frame (`StageContext · address`, L4). It hands that ADDRESS down as data, as it already did to `TransactionBuffer` (9.30.0). No L0–L3 file spells `'runs'` except `RedactionRule · verdictOfRead`, which C4 lifts to L4; the new `test/architecture/write-address.test.ts` keeps it so. The law, with an example, is in `src/lib/memory/README.md` ("The write address is data").
+- **Breaks (`footprintjs/advanced`):**
+  - `SharedMemory · getValue`, `setValue` and `updateValue` take the address where they took a run id. *Migration:* pass `['runs', id]` where you passed `id`, and `[]` where you passed `''`.
+  - `SharedMemory · getRuns()` is removed. *Migration:* `getState().runs`.
+  - `getRunAndGlobalPaths`, `setNestedValue` and `updateNestedValue` take the address in the run id's place. *Migration:* as above.
+  - The default values seed only the container AT the address, when a write creates it. Before, any container on the way whose key equalled the run id was seeded with the same object, so a run id of `'runs'`, or a path segment repeating the run id, could tie the state into a cycle (and a run id of `''` seeded a container named `''`). *Migration:* none, unless you relied on that.
+- **Nothing else moves.** The engine writes the same bytes: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references, and the `structuredClone` counts are unchanged on every `bench/commit-clones.ts` row. The two nested writers now share one walk. No audited consumer calls the changed methods: hcifootprint builds its `SharedMemory` only through `new ExecutionRuntime(...)`, and agentfootprint's test helper only constructs one.
+
 ## [9.44.3] - 2026-10-09
 
 ### Internal

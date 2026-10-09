@@ -316,7 +316,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       expect(clonesOf(cfg)).toBe(1); // ONLY the buffer's commit-path clone
       expect(ctx.getSnapshot().stageWrites).toBeUndefined();
       // The write still committed — shared state, bundle payload, and trace intact.
-      expect(mem.getValue('p1', [], 'config')).toEqual({ retries: 5 });
+      expect(mem.getValue(['runs', 'p1'], [], 'config')).toEqual({ retries: 5 });
       const bundle = log.list()[0];
       expect(bundle.overwrite).toEqual({ runs: { p1: { config: { retries: 5 } } } });
       expect(bundle.trace).toHaveLength(1);

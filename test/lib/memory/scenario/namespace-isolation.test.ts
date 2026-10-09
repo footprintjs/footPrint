@@ -16,8 +16,8 @@ describe('Scenario: namespace isolation between runs', () => {
     p2.setObject([], 'result', 'B-result');
     p2.commit();
 
-    expect(mem.getValue('run-A', [], 'result')).toBe('A-result');
-    expect(mem.getValue('run-B', [], 'result')).toBe('B-result');
+    expect(mem.getValue(['runs', 'run-A'], [], 'result')).toBe('A-result');
+    expect(mem.getValue(['runs', 'run-B'], [], 'result')).toBe('B-result');
   });
 
   it('run reads do not leak between namespaces', () => {
@@ -64,8 +64,8 @@ describe('Scenario: namespace isolation between runs', () => {
     ctx.commit();
 
     // Run-specific value wins
-    expect(mem.getValue('p1', [], 'theme')).toBe('dark');
+    expect(mem.getValue(['runs', 'p1'], [], 'theme')).toBe('dark');
     // Global default still exists
-    expect(mem.getValue('', [], 'theme')).toBe('light');
+    expect(mem.getValue([], [], 'theme')).toBe('light');
   });
 });

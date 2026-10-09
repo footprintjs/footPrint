@@ -195,9 +195,9 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
       expect(ctx.getValue([], 'greeting')).toBe('changed'); // buffered read
 
       // SharedMemory unchanged until commit
-      expect(mem.getValue('p1', [], 'greeting')).toBe('hello');
+      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('hello');
       ctx.commit();
-      expect(mem.getValue('p1', [], 'greeting')).toBe('changed');
+      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('changed');
     });
 
     it('after the first write, reads of OTHER keys still see committed values', () => {
@@ -386,7 +386,7 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
       expect(bundle?.trace).toEqual([]);
 
       // A's value survives — B's empty patch replays nothing over it.
-      expect(mem.getValue('', [], 'g')).toBe('A');
+      expect(mem.getValue([], [], 'g')).toBe('A');
     });
 
     it('keys present in the view at first touch read repeatably from it', () => {
@@ -399,7 +399,7 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
       const intruder = new StageContext('p1', 'intruder', 'intruder', mem, '', log);
       intruder.setObject([], 'greeting', 'changed');
       intruder.commit();
-      expect(mem.getValue('p1', [], 'greeting')).toBe('changed');
+      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('changed');
 
       // View-present keys are repeatable: the eager engine served them from
       // its workingCopy clone; the lazy view serves the same bytes by

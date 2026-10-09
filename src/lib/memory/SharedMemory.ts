@@ -2,8 +2,11 @@
  * SharedMemory — The shared state container for all flowchart execution
  *
  * Like a runtime heap with namespace isolation:
- * - Each run gets its own namespace (runs/{id}/)
- * - Default values can be initialised and preserved
+ * - A value is written at an ADDRESS — a path prefix the caller computed
+ *   (C2: the engine's frame decides it, `StageContext · address`) — and read
+ *   there first, then at the root
+ * - Default values seed the root, and the container at an address when a
+ *   write creates it
  * - Accepts commit bundles from TransactionBuffer
  *
  * COPY-ON-WRITE (9.29.0 — docs/design/2026-10-copy-on-write-commit.md):
@@ -41,22 +44,17 @@ export class SharedMemory {
     return this._defaultValues ? structuredClone(this._defaultValues) : undefined;
   }
 
-  /** Gets all run namespaces. */
-  getRuns() {
-    return this.context.runs;
-  }
-
-  /** Updates a value using merge semantics, as a new generation (path copy + swap). */
-  updateValue(runId: string, path: string[], key: string, value: unknown) {
-    const next = this.ownedPathTo(runId, path, key);
-    updateNestedValue(next, runId, path, key, value, this.getDefaultValues());
+  /** Updates a value at `address` + `path` using merge semantics, as a new generation (path copy + swap). */
+  updateValue(address: readonly string[], path: string[], key: string, value: unknown) {
+    const next = this.ownedPathTo(address, path, key);
+    updateNestedValue(next, address, path, key, value, this.getDefaultValues());
     this.context = next;
   }
 
-  /** Sets a value using overwrite semantics, as a new generation (path copy + swap). */
-  setValue(runId: string, path: string[], key: string, value: unknown) {
-    const next = this.ownedPathTo(runId, path, key);
-    setNestedValue(next, runId, path, key, value, this.getDefaultValues());
+  /** Sets a value at `address` + `path` using overwrite semantics, as a new generation (path copy + swap). */
+  setValue(address: readonly string[], path: string[], key: string, value: unknown) {
+    const next = this.ownedPathTo(address, path, key);
+    setNestedValue(next, address, path, key, value, this.getDefaultValues());
     this.context = next;
   }
 
@@ -64,20 +62,20 @@ export class SharedMemory {
    * A copy of the current generation's root whose containers on the way to
    * `key` are owned — the in-place helpers above then edit only copies.
    */
-  private ownedPathTo(runId: string, path: string[], key: string): { [key: string]: any } {
+  private ownedPathTo(address: readonly string[], path: string[], key: string): { [key: string]: any } {
     const owned = new WeakSet<object>();
     const root = ownedRootOf(this.context, owned);
-    const { runPath, globalPath } = getRunAndGlobalPaths(runId, path);
+    const { runPath, globalPath } = getRunAndGlobalPaths(address, path);
     ownSpine(root, [...(runPath || globalPath), key], owned);
     return root;
   }
 
   /**
    * Reads a value from the store.
-   * Looks up in run namespace first, falls back to global.
+   * Looks up at `address` first, falls back to the root.
    */
-  getValue(runId?: string, path?: string[], key?: string): any {
-    const { globalPath, runPath } = getRunAndGlobalPaths(runId, path);
+  getValue(address?: readonly string[], path?: string[], key?: string): any {
+    const { globalPath, runPath } = getRunAndGlobalPaths(address, path);
     const value = runPath ? getNestedValue(this.context, runPath, key) : undefined;
     return typeof value !== 'undefined' ? value : getNestedValue(this.context, globalPath, key);
   }

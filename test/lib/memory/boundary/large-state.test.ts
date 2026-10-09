@@ -14,7 +14,7 @@ describe('Boundary: large state', () => {
     ctx.commit();
 
     for (let i = 0; i < 1000; i++) {
-      expect(mem.getValue('p1', [], `key${i}`)).toBe(`value${i}`);
+      expect(mem.getValue(['runs', 'p1'], [], `key${i}`)).toBe(`value${i}`);
     }
   });
 
@@ -32,7 +32,7 @@ describe('Boundary: large state', () => {
     ctx.setObject([], 'bigData', largeArray);
     ctx.commit();
 
-    const retrieved = mem.getValue('p1', [], 'bigData');
+    const retrieved = mem.getValue(['runs', 'p1'], [], 'bigData');
     expect(retrieved).toHaveLength(10000);
     expect(retrieved[9999].id).toBe(9999);
   });

@@ -10,6 +10,8 @@
  * (`merge.ts`) at L0, and the verb law (`verbs.ts`) at L1 — `applySmartMerge`,
  * `nextGeneration`, `applySmartMergeInto`, `dryFold`, `supersededByNextSet`.
  * The log's scrub, `redactPatch`, moved to its owner `redaction.ts` in 9.33.0.
+ * The writers take an ADDRESS, a path prefix their caller computed, and never
+ * name one (C2: the engine decides where a stage writes, `StageContext · address`).
  * Zero external dependencies.
  */
 
@@ -25,68 +27,71 @@ export { applySmartMerge, applySmartMergeInto, dryFold, nextGeneration, supersed
 type NestedObject = { [key: string]: any };
 
 /**
- * Resolves run-namespaced and global paths.
- * Each flowchart execution (run) stores data under `runs/{id}/` to prevent collisions.
+ * The two places a value at `path` can sit: under `address` (`runPath`, absent
+ * for the root address `[]`) and at the root (`globalPath`). `address` is a
+ * path prefix the caller computed — for the engine, a frame's run namespace
+ * (`StageContext · address`, C2).
  */
-export function getRunAndGlobalPaths(runId?: string, path: (string | number)[] = []) {
+export function getRunAndGlobalPaths(address: readonly string[] = [], path: (string | number)[] = []) {
   return {
-    runPath: runId ? ['runs', runId, ...path] : undefined,
+    runPath: address.length > 0 ? [...address, ...path] : undefined,
     globalPath: [...path],
   };
 }
 
 /**
- * Sets a value at a nested path, creating intermediate objects as needed.
+ * The container at `address` + `path` inside `obj`, each missing one created
+ * on the way: the one AT the address from `defaultValues` when given, every
+ * other one empty. The one walk both nested writers share.
+ */
+function containerAt(
+  obj: NestedObject,
+  address: readonly string[] = [],
+  path: readonly (string | number)[] = [],
+  defaultValues?: unknown,
+): NestedObject {
+  const segments = [...address, ...path];
+  let current = obj;
+  for (let i = 0; i < segments.length; i++) {
+    const key = segments[i];
+    if (!Object.prototype.hasOwnProperty.call(current, key)) {
+      current[key] = i === address.length - 1 && defaultValues ? defaultValues : {};
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+/**
+ * Sets a value at a nested path under `address`, creating intermediate objects as needed.
  */
 export function setNestedValue<T>(
   obj: NestedObject,
-  runId: string,
-  _path: string[],
+  address: readonly string[],
+  path: string[],
   field: string,
   value: T,
   defaultValues?: unknown,
 ): NestedObject {
-  const { runPath, globalPath } = getRunAndGlobalPaths(runId, _path);
-  const path = runPath || globalPath;
-  const pathCopy = [...path];
-  let current: NestedObject = obj;
-  while (pathCopy.length > 0) {
-    const key = pathCopy.shift() as string;
-    if (!Object.prototype.hasOwnProperty.call(current, key)) {
-      current[key] = key === runId && defaultValues ? defaultValues : {};
-    }
-    current = current[key];
-  }
-  current[field] = value;
+  containerAt(obj, address, path, defaultValues)[field] = value;
   return obj;
 }
 
 /**
- * Deep-merges a value into the object at the specified path.
+ * Deep-merges a value into the object at a nested path under `address`.
  * - Arrays: concatenate
  * - Objects: shallow merge at each level
  * - Primitives: replace
  */
 export function updateNestedValue<T>(
   obj: any,
-  runId: string | undefined,
-  _path: (string | number)[],
+  address: readonly string[],
+  path: (string | number)[],
   field: string | number,
   value: T,
   defaultValues?: unknown,
 ): any {
-  const { runPath, globalPath } = getRunAndGlobalPaths(runId, _path);
-  const path = runPath || globalPath;
-  const pathCopy = [...path];
-  let current: NestedObject = obj;
-  while (pathCopy.length > 0) {
-    const key = pathCopy.shift() as string;
-    if (!Object.prototype.hasOwnProperty.call(current, key)) {
-      current[key] = key === runId && defaultValues ? defaultValues : {};
-    }
-    current = current[key];
-  }
-  updateValue(current, field, value);
+  updateValue(containerAt(obj, address, path, defaultValues), field, value);
   return obj;
 }
 

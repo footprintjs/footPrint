@@ -17,8 +17,8 @@ describe('Scenario: write → commit → read', () => {
     ctx.setObject([], 'age', 30);
     ctx.commit();
 
-    expect(mem.getValue(runId, [], 'userName')).toBe('Alice');
-    expect(mem.getValue(runId, [], 'age')).toBe(30);
+    expect(mem.getValue(['runs', runId], [], 'userName')).toBe('Alice');
+    expect(mem.getValue(['runs', runId], [], 'age')).toBe(30);
   });
 
   it('stage writes are visible to the next stage after commit', () => {
@@ -64,9 +64,9 @@ describe('Scenario: write → commit → read', () => {
     s3.setObject([], 'c', 3);
     s3.commit();
 
-    expect(mem.getValue(runId, [], 'a')).toBe(1);
-    expect(mem.getValue(runId, [], 'b')).toBe(2);
-    expect(mem.getValue(runId, [], 'c')).toBe(3);
+    expect(mem.getValue(['runs', runId], [], 'a')).toBe(1);
+    expect(mem.getValue(['runs', runId], [], 'b')).toBe(2);
+    expect(mem.getValue(['runs', runId], [], 'c')).toBe(3);
   });
 
   it('EventLog records all commits', () => {
