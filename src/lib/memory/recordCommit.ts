@@ -6,9 +6,11 @@
  *   1. No payload (the stage staged no write) → an EMPTY bundle goes to the log, and nothing else
  *      moves: live state and the mirror keep their generation. Every executed stage is a cursor stop.
  *   2. A payload → its names are read first, so a stamp that cannot be read fails the commit before
- *      anything moves; then its raw rows build live state's next generation, `scrubPatch` puts the
- *      placeholder at each redacted path that holds a value (in a spine copy, never in the raw
- *      patch), and the mirror and the log take the scrubbed rows — never the raw ones.
+ *      anything moves; then its raw rows build live state's next generation, `scrubPatch`
+ *      (`scrub.ts`, the record's own) puts the placeholder at each redacted path that holds a value
+ *      (in a spine copy, never in the raw patch), and the mirror and the log take the scrubbed rows —
+ *      never the raw ones. The redacted paths are data by now: the engine decided them per write
+ *      (`RecordFrame · write`); nothing here imports the engine's verdict (C4).
  *   3. The bundle's KEY ORDER is the record's bytes: `overwrite`, `updates`, `redactedPaths`, `trace`,
  *      `stage`, `stageId`, `runtimeStageId`, then `untrackedSources`, `tags` and `phase`, each only
  *      when it has something to say (absent, never empty). `EventLog · record` appends `idx`. The
@@ -20,7 +22,7 @@
  */
 
 import type { EventLog } from './EventLog.js';
-import { scrubPatch } from './redaction.js';
+import { scrubPatch } from './scrub.js';
 import type { SharedMemory } from './SharedMemory.js';
 import type { TransactionBuffer } from './TransactionBuffer.js';
 import type { CommitBundle, CommitPhase, MemoryPatch, TraceEntry, UntrackedSource } from './types.js';

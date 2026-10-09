@@ -123,12 +123,13 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
       const { mem, log } = seededMemory();
       const ctx = new StageContext('', 'writer', 'writer', mem, '', log);
       ctx.setGlobal('k', 'v1');
-      const firstBuffer = recordOf(ctx).getTransactionBuffer();
+      const firstBuffer = staging(ctx).buffer;
+      expect(firstBuffer).toBeDefined();
       ctx.commit();
 
       // Same-value rewrite vs the POST-commit state → net no-change.
       ctx.setGlobal('k', 'v1');
-      const secondBuffer = recordOf(ctx).getTransactionBuffer();
+      const secondBuffer = staging(ctx).buffer;
       expect(secondBuffer).not.toBe(firstBuffer);
       ctx.commit();
 

@@ -12,7 +12,7 @@
  * field) is served as the placeholder — never raw, and never a failed pause.
  */
 
-import { SCOPE_PLACEHOLDER } from '../../memory/placeholders.js';
+import { SCOPE_PLACEHOLDER } from '../../memory/redaction.js';
 import type { StageContext } from '../../memory/StageContext.js';
 
 export function servedPause(context: StageContext, pauseData: unknown): unknown {

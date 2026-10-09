@@ -2,7 +2,7 @@
  * memory/borrowedMutation — the honest boundary's two texts: the dev-mode
  * REPORT for a write the engine cannot see ({@link borrowedMutationMessage})
  * and the REFUSAL for a write from a handle held past its stage
- * ({@link deadFrameMessage}, thrown by `StageContext.stageWrite`).
+ * ({@link deadFrameMessage}, thrown by `ScopeFacade · assertLive`).
  *
  * ── The honest boundary ──────────────────────────────────────────────────
  * The typed scope intercepts every write it can reach: a property at any

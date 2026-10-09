@@ -16,7 +16,7 @@
  * See docs/design/13c-b-delta-commit-verb.md.
  */
 import { nativeDelete } from '../../../../src/lib/memory/pathOps';
-import { scrubPatch } from '../../../../src/lib/memory/redaction';
+import { scrubPatch } from '../../../../src/lib/memory/scrub';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 import { applySmartMerge, DELIM } from '../../../../src/lib/memory/utils';
 

@@ -13,9 +13,10 @@ export { SharedMemory } from './SharedMemory.js';
 export { StageContext } from './StageContext.js';
 export { TransactionBuffer } from './TransactionBuffer.js';
 
-// Redaction — the ONE owner of the verdict (9.19.0)
+// Redaction — the ONE owner of the verdict (9.19.0); the log's scrub is the record's (scrub.ts, C4)
 export type { RedactionVerdict } from './redaction.js';
-export { RedactionRule, redactPatch } from './redaction.js';
+export { RedactionRule } from './redaction.js';
+export { redactPatch } from './scrub.js';
 
 // The run's policy — the four dials, the rule, the mirror flag as ONE object (F5)
 export type { RunDials, RunPolicy } from './runPolicy.js';
@@ -25,8 +26,9 @@ export { DEFAULT_RUN_POLICY, runPolicy } from './runPolicy.js';
 export type { HonestyCode } from './honesty.js';
 export { HONESTY_CODES } from './honesty.js';
 
-// The two strings a redaction leaves where a value was (F4a; `REDACTED` is now `SCOPE_PLACEHOLDER`)
-export { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
+// The two strings a redaction leaves where a value was, one per owner (F4a; split in C4): the record's, the verdict's
+export { LOG_PLACEHOLDER } from './placeholders.js';
+export { SCOPE_PLACEHOLDER } from './redaction.js';
 
 // Types
 export type {
