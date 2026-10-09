@@ -61,7 +61,8 @@ const LAYERS = [
       // The honesty vocabulary (F4a): code → the one sentence; imports nothing, typed through from L3.
       'src/lib/memory/honesty.ts',
       // The log's redaction placeholder (F4a; the scope one moved to the verdict, redaction.ts, in C4):
-      // imports nothing; written by the record's scrub (scrub.ts, L2), typed through by slice/ and time-travel/ (L3).
+      // imports nothing; written by the record's scrub (scrub.ts, L2), passed by runner/ExecutionRuntime.ts and
+      // engine/handlers/SubflowExecutor.ts (the mirror's seed, a subflow's served state).
       'src/lib/memory/placeholders.ts',
       // Which rows touch a key — the path half of the writer rule and the writer index (F3).
       // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
@@ -127,8 +128,9 @@ const LAYERS = [
       'src/lib/memory/StageContext.ts',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
       'src/lib/memory/runPolicy.ts',
-      // The redaction verdict — RedactionRule, the write decision (decideWrite, markWritten), MapperTaint, the scope
-      // placeholder — beside the policy that carries it (C4: the engine decides, the record writes the bytes).
+      // The redaction verdict — RedactionRule, the write decision (decideWrite, inheritByIdentity, markStagedWrite),
+      // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
+      // writes the bytes).
       'src/lib/memory/redaction.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).

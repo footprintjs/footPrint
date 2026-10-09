@@ -402,6 +402,19 @@ describe('RecordFrame — law 7: write, with the bytes of a verdict', () => {
     ]);
   });
 
+  it('a whole merge and a whole set are scrubbed alike — the scrub rides every verb', () => {
+    const { state, log, frame, mirror } = mirrored({ cfg: { a: 1 } });
+    frame.write(['cfg'], { b: 2 }, 'merge', { whole: true });
+    frame.write(['pin'], '0000', 'set', { whole: true });
+    commitAs(frame, 's');
+    expect(state.getState()).toEqual({ cfg: { a: 1, b: 2 }, pin: '0000' });
+    expect(mirror.getState()).toEqual({ cfg: 'REDACTED', pin: 'REDACTED' });
+    const bundle = last(log);
+    expect(bundle.updates).toEqual({ cfg: 'REDACTED' });
+    expect(bundle.overwrite).toEqual({ pin: 'REDACTED' });
+    expect(bundle.redactedPaths).toEqual(['cfg', 'pin']);
+  });
+
   it('a whole delete registers its path; there is no value to replace', () => {
     const { log, frame, mirror } = mirrored({ token: 'sk-0', n: 1 });
     frame.write(['token'], undefined, 'delete', { whole: true });

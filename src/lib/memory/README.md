@@ -286,14 +286,46 @@ log.list()[1].trace; // [] — against the first touch, writing 1 changed nothin
 
 **Redaction — one owner (9.19.0), the law restored (owner ruling (a)):** a policy covers EVERYTHING the library retains or serves — the commit log (both encodings), the mirror, `stageReads`/`stageWrites`, every recorder event (inline and deferred) and the rows built from them, the narrative, snapshots, diagnostics, pause payloads, boundary records and log lines — and NEVER the live heap or the resume checkpoint. The two true exceptions are the caller's own values: the `run()` rejection (the thrown value itself) and the live fork result. `RedactionRule` (`redaction.ts`) is the one owner; the run's policy ([below](#runpolicy--one-object-for-the-dials-the-rule-and-the-mirror-f5)) carries it by reference to every frame. `StageContext.stageWrite` asks it once for each staged write; `getValue` retains tracked reads under the same verdict. Redaction precedes the retention dial.
 
-**One verdict owner, one encoding owner (C4).** A redaction has two halves, and each has one owner. The DECISION is the engine's: `redaction.ts` (L4, beside the run policy that carries the rule) — `RedactionRule`, and for a staged write `decideWrite` (the verdict) and `RedactionRule · markWritten` (the marks). The BYTES are the record's: `RecordFrame · write` registers the paths a verdict's scrub names (`scrubOf(verdict)`), and `scrub.ts` (L2) writes the log's placeholder there at commit. `StageContext · stageWrite` is the seam — decide, write, mark — and THE LAW is its order:
+**One verdict owner, one encoding owner (C4).** A redaction has two halves, and each has one owner. The DECISION is the engine's: `redaction.ts` (L4, beside the run policy that carries the rule) — `RedactionRule`, and for each staged write the functions of "the write decision". The BYTES are the record's: `RecordFrame · write` registers the paths a verdict's scrub names (`scrubOf(verdict)`), and `scrub.ts` (L2) writes the log's placeholder there at commit. `StageContext · stageWrite` is the seam — decide, write, mark — and THE LAW is its order:
 
-1. **Verdict** (`decideWrite`). An explicit per-call flag (`setValue(key, value, true)`) makes the value secret whole; else the rule decides from the user-level path; no rule, or an inert one, is clear with no verdict call (the no-policy fast path).
-2. **Identity** (`decideWrite`). An object the stage read under a selected name, written under another (`s.person = s.profile`), keeps that read's rule — whole marks the new key, `fields` hands it the fields. Decided before the write: the verdict needs it.
+1. **Verdict** (`decideWrite`). An explicit per-call flag (`setValue(key, value, true)`) makes the value secret whole; else the rule that is active as the write begins decides from the user-level path; no rule, or an inert one, is clear with no verdict call (the no-policy fast path).
+2. **Identity** (`inheritByIdentity`). An object the stage read under a selected name, written under another (`s.person = s.profile`), keeps that read's rule — whole marks the new key, `fields` hands it the fields. Asked against the frame's selected reads as they stand after step 1, and decided before the write: the verdict needs it.
 3. **Bytes** (`RecordFrame · write(path, value, verb, scrubOf(verdict))`). The record is handed `{ whole: true }`, `{ fields }`, or nothing. It never decides them, and its buffer is reachable only through `write`.
-4. **Marks, after the write is staged** (`RedactionRule · markWritten`) — so a write that fails to stage (a value a `merge` cannot read, a nested write through a held value nothing can clone) marks nothing, as before C4: a delete clears its key's mark; a whole verdict marks its key for the rest of the run, on the run's rule as it is (an explicit mark is what makes an inert rule active).
+4. **Marks, once the write is staged** (`markStagedWrite`). A write that fails to stage (a value a `merge` cannot read, a nested write through a held value nothing can clone) marks nothing. A delete clears its key's mark; a whole verdict marks the key that decided it (an ancestor, for a nested write under a whole-selected key) for the rest of the run.
 
-The decision is two calls around the write, not one before it, because of step 4. (One function that took the write as a callback kept the order too, but measured about 10% more per write: a closure and an argument object for every staged write.)
+A mark is a run-wide NAME: it travels in the checkpoint (`redactionMarks`) and is reported (`getRedactionReport().redactedKeys`). It is taken when a write is decided (step 2) or staged (step 4) — never for a write that failed to stage — and only a staged delete removes one: a stage whose commit later fails, or a retry attempt that is discarded, keeps its marks (the safe side). So a stage that catches a failed `$update` and goes on leaves no mark for that key (below). Each step reads the rule, and step 2 the selected reads, when it acts — as `stageWrite` always did — so user code that runs during a write (a getter on the written value, a pattern's `test`) sees the same rule and leaves the same marks as before C4. That is why the decision is calls around the write, not one call before it. (One function that took the write as a callback kept the order too, but paid for a closure and an argument object on every staged write.)
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const unreadable = Object.defineProperty({}, 'plan', {
+  enumerable: true,
+  get: () => {
+    throw new Error('cannot read');
+  },
+});
+const executor = new FlowChartExecutor(
+  flowChart(
+    'Draft',
+    (scope: any) => {
+      try {
+        scope.$update('secretPlan', unreadable); // the merge cannot read its value: nothing is staged
+      } catch {
+        scope.failed = true;
+      }
+      scope.secretNote = 'n'; // this write stages, then its key is marked
+    },
+    'draft',
+  )
+    .addPausableFunction('Gate', { execute: async () => ({ question: 'go?' }), resume: async () => undefined }, 'gate')
+    .build(),
+);
+executor.setRedactionPolicy({ patterns: [/secret/i] });
+await executor.run();
+executor.getRedactionReport().redactedKeys; // ['secretNote'] — no mark for 'secretPlan', which never staged
+executor.getCheckpoint()?.redactionMarks; // { keys: ['secretNote'] } — the resumed run inherits the same names
+executor.getSnapshot().commitLog[0].overwrite; // { failed: true, secretNote: 'REDACTED' }
+```
 
 Each owner keeps its own placeholder too: the log's `'REDACTED'` is a record byte (`placeholders.ts · LOG_PLACEHOLDER`); the scope channel's `'[REDACTED]'` is the verdict's (`redaction.ts · SCOPE_PLACEHOLDER`). The record never imports `redaction.ts`: `recordCommit.ts` takes its scrub from `scrub.ts`, which closes the last edge from the record to the engine's policy (C1's `recordCommit.ts → redaction.ts`). Before C4 `stageWrite` made the four buffer calls itself, and `redaction.ts` held both the decision and the scrub at L2. The move is byte-identical.
 
@@ -408,8 +440,8 @@ The full flow for a single stage:
 
 2. Stage function receives a scope object (built from StageContext by the scope layer)
 
-3. Stage writes → StageContext (decideWrite: the verdict) → RecordFrame.write (the op + its scrub) → TransactionBuffer;
-   then the rule takes the run's marks (markWritten)
+3. Stage writes → StageContext (decideWrite, inheritByIdentity: the verdict) → RecordFrame.write (the op + its scrub)
+   → TransactionBuffer; then markStagedWrite takes the run's marks
    (buffer constructed lazily on the stage's FIRST write — #13; since 9.29.0
     it holds committed state by reference and copies only the paths written)
    (staged in buffer, not applied to shared memory yet)
@@ -658,7 +690,7 @@ Adding a code is one new line in `HONESTY_CODES`. A union declared through `Regi
 This library has ZERO dependencies on other footprint libraries.
 
   StageContext (L4) — a stage inside a run: the policy (and its RedactionRule), retention, the dev-mode warnings,
-     |                 the commit observer; per write, decideWrite (redaction, L4) → RecordFrame.write → markWritten
+     |                 the commit observer; per write, decideWrite (redaction, L4) → RecordFrame.write → markStagedWrite
      |                 — where it writes: runAddress (L4 leaf, the run namespace)
      |                                     \
   RecordFrame (L3) — the record half         DiagnosticCollector (L4)
@@ -674,7 +706,7 @@ This library has ZERO dependencies on other footprint libraries.
   paths · equality · merge · pathOps (leaves) — utils re-exports them and holds the nested-object helpers
   keyPaths (leaf) — which rows touch a key; read by TransactionBuffer (L2) and every log reader (L3)
   honesty (leaf) — HONESTY_CODES; typed through by slice/ and time-travel/
-  placeholders (leaf) — the log's redaction string; written by scrub (L2), read by slice/, time-travel/, runner/
+  placeholders (leaf) — the log's redaction string; written by scrub (L2), passed by runner/ and engine/ (the mirrors)
                          (the scope channel's string is the verdict's: redaction.ts, L4)
     |
   types (MemoryPatch, CommitBundle, TraceEntry, FlowMessage, etc.)

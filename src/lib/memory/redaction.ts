@@ -41,9 +41,9 @@
  * the facade — five of them — retained plaintext under a policy.
  *
  * ONE VERDICT OWNER, ONE ENCODING OWNER (C4). This file DECIDES — the rule,
- * and for a staged write {@link decideWrite} (the verdict, identity
- * inheritance) and `RedactionRule · markWritten` (the marks) — and is the
- * engine's (L4, beside the run policy that carries the rule). The BYTES of a
+ * and for a staged write {@link decideWrite} (the verdict),
+ * {@link inheritByIdentity} and {@link markStagedWrite} (the marks) — and is
+ * the engine's (L4, beside the run policy that carries the rule). The BYTES of a
  * verdict are the record's: the frame hands its scrub (`whole`, or the
  * `fields` inside the value — {@link scrubOf}) to `RecordFrame · write`, and
  * the record's own scrub (`memory/scrub.ts`, L2) writes the log's placeholder
@@ -278,17 +278,6 @@ export class RedactionRule {
   unmark(key: string): void {
     this.marked.delete(key);
     if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
-  }
-
-  /**
-   * The marks a STAGED write leaves (step 4 of the write decision, {@link decideWrite}) — called once
-   * the record frame has staged it, so a write that fails to stage marks nothing. A delete clears its
-   * key's mark ({@link unmark}); a whole verdict marks its key for the rest of the run (the
-   * declare-once contract) — an explicit mark on an inert rule is exactly what makes it active.
-   */
-  markWritten(verdict: RedactionVerdict, path: readonly string[], key: string, verb: WriteVerb): void {
-    if (verb === 'delete') this.unmark(userKeyOf(path, key));
-    else if (verdict.kind === 'whole') this.mark(verdict.key);
   }
 
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
@@ -857,49 +846,59 @@ export class RedactionRule {
 }
 
 // ─── The write decision — one per staged write (C4) ─────────────────────────
+//
+// What the run's rule says about one staged write, and what the write leaves on the rule. Every staged
+// write passes `StageContext · stageWrite` (the one funnel: facade writes, a subflow seed, an
+// `outputMapper` merge-back, a resume re-seed), which runs the four steps in the order the record needs:
+//
+//   1. VERDICT  `decideWrite` — an explicit per-call flag, else the rule that is ACTIVE as the write begins.
+//   2. IDENTITY `inheritByIdentity` — with the frame's selected reads AS THEY STAND after step 1: a policy
+//               pattern is user code, and it can read on the very frame that is writing.
+//   3. BYTES    the caller: `RecordFrame · write(path, value, verb, scrubOf(verdict))`. The record writes
+//               them; it never decides them.
+//   4. MARKS    `markStagedWrite` — only once the write staged: a write that fails to stage marks nothing.
+//
+// Steps 1–2 and step 4 are calls around the write, not one call before it, and each reads the rule when
+// it acts — as the funnel always did, so user code that runs DURING a write (a getter on the value, a
+// pattern's `test`) finds the same rule, and leaves the same marks, as before C4.
 
 /**
- * THE WRITE DECISION — what the run's rule says about one staged write. Every staged write passes
- * here (`StageContext · stageWrite`, the one funnel: facade writes, a subflow seed, an `outputMapper`
- * merge-back, a resume re-seed), in the order the record needs:
- *
- *   1. VERDICT (here). An explicit per-call flag makes the value secret whole; else the rule decides
- *      from the user-level path (`verdictAt`). No rule, or an inert one: clear, with no verdict call
- *      and no path allocation (the no-policy fast path).
- *   2. IDENTITY (here). An OBJECT the stage read under a selected name (`selected` — filled by the
- *      frame's tracked reads), written under another name (`s.person = s.profile`), keeps that read's
- *      rule, matched by identity: a whole read marks the new key, a `fields` read hands it the fields
- *      (re-based under the written path). A new object or a primitive is selected by its own name only.
- *   3. BYTES (the caller). The record frame stages the write with the verdict's scrub
- *      (`RecordFrame · write(path, value, verb, scrubOf(verdict))`): the whole value, the fields inside
- *      it, or nothing. The record writes them; it never decides them.
- *   4. MARKS (`RedactionRule · markWritten`), once the write is staged — a write that fails to stage
- *      (a value a `merge` cannot read) marks nothing.
- *
- * Steps 1–2 and step 4 are two calls around the write, not one: the marks follow the staged write.
- * Returns the verdict, so the caller stages, retains and reports the write under the same decision.
+ * Step 1 — THE VERDICT for one staged write: an explicit per-call flag (`setValue(key, value, true)`)
+ * makes the value secret whole under its user-level key; else the `active` rule decides from the
+ * user-level path; with none (no rule, or an inert one — the caller passes `undefined`), clear, with no
+ * verdict call and no path allocation (the no-policy fast path). Marks nothing.
  *
  * ```ts
- * const rule = new RedactionRule({ fields: { card: ['number'] } });
- * const verdict = decideWrite(rule, undefined, [], 'card', card, false); // { kind: 'fields', key: 'card', paths: ['number'] }
- * frame.write(['card'], card, 'set', scrubOf(verdict)); // the record registers card·number
- * rule.markWritten(verdict, [], 'card', 'set'); // a fields verdict marks nothing
+ * decideWrite(new RedactionRule({ fields: { card: ['number'] } }), [], 'card', false); // { kind: 'fields', key: 'card', paths: ['number'] }
+ * decideWrite(undefined, ['profile'], 'auth', true); // { kind: 'whole', key: 'profile.auth' }
  * ```
  */
 export function decideWrite(
-  rule: RedactionRule | undefined,
+  active: RedactionRule | undefined,
+  path: readonly string[],
+  key: string,
+  explicit: boolean | undefined,
+): RedactionVerdict {
+  if (explicit) return { kind: 'whole', key: userKeyOf(path, key) };
+  return active !== undefined ? active.verdictAt(path, key) : CLEAR;
+}
+
+/**
+ * Step 2 — IDENTITY: an OBJECT the stage read under a selected name (`selected` — the frame's selected
+ * reads, filled by its tracked reads), written under another name (`s.person = s.profile`), keeps that
+ * read's rule, matched by identity: a whole read marks the new key, a `fields` read hands it the fields
+ * (re-based under the written path), and the verdict is asked again. A new object, a primitive, or a
+ * write already whole is selected by its own name only — `verdict` comes back as it is. Decided BEFORE
+ * the write, because the verdict needs it: an inheritance stays even if the write then fails to stage.
+ */
+export function inheritByIdentity(
+  active: RedactionRule | undefined,
+  verdict: RedactionVerdict,
   selected: WeakMap<object, RedactionVerdict> | undefined,
   path: readonly string[],
   key: string,
   value: unknown,
-  explicit: boolean | undefined,
 ): RedactionVerdict {
-  const active = rule !== undefined && !rule.isInert() ? rule : undefined;
-  const verdict: RedactionVerdict = explicit
-    ? { kind: 'whole', key: userKeyOf(path, key) }
-    : active !== undefined
-    ? active.verdictAt(path, key)
-    : CLEAR;
   const read =
     active !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
       ? selected?.get(value)
@@ -920,12 +919,34 @@ export function decideWrite(
 const WHOLE_SCRUB: WriteScrub = Object.freeze({ whole: true });
 
 /**
- * A verdict's BYTES for the record (`RecordFrame · write`): nothing when clear, the whole value, or the
- * fields inside it. No allocation on the default path (clear) or for a whole verdict.
+ * Step 3's input — a verdict's BYTES for the record (`RecordFrame · write`): nothing when clear, the
+ * whole value, or the fields inside it. No allocation on the default path (clear) or for a whole verdict.
  */
 export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
   if (verdict.kind === 'whole') return WHOLE_SCRUB;
   return verdict.kind === 'fields' ? { fields: verdict.paths } : undefined;
+}
+
+/**
+ * Step 4 — the MARKS a staged write leaves; call it only once the write staged, so a write that fails to
+ * stage marks nothing. A delete clears its key's mark (and any fields a mapper handed it) on `active`,
+ * the rule that was active as the write BEGAN — none when it was inert, even if user code marked the key
+ * during the write. A whole verdict marks its key — the key that DECIDED it (`verdict.key`: an ancestor
+ * for a nested write under a whole-selected key) — for the rest of the run on `rule`, the run's rule as
+ * it stands NOW (user code during the write may have installed one; an explicit mark is what makes an
+ * inert rule active). A mark is a run-wide NAME: it stays when the stage's commit fails or a retry
+ * discards the attempt — the safe side; only a staged delete removes one.
+ */
+export function markStagedWrite(
+  active: RedactionRule | undefined,
+  rule: RedactionRule | undefined,
+  verdict: RedactionVerdict,
+  path: readonly string[],
+  key: string,
+  verb: WriteVerb,
+): void {
+  if (verb === 'delete') active?.unmark(userKeyOf(path, key));
+  else if (verdict.kind === 'whole') rule?.mark(verdict.key);
 }
 
 // ─── The path walk — one decision per PATH ─────────────────────────────────

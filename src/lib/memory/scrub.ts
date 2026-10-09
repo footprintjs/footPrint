@@ -5,7 +5,7 @@
  * transaction buffer's `redactedPaths`, registered by `RecordFrame · write` from the scrub it was
  * handed — and this file only writes `LOG_PLACEHOLDER` (`placeholders.ts`) where such a path holds
  * a value. It never decides WHAT is secret: that is the engine's verdict (`redaction.ts`, L4 —
- * `RedactionRule`, `decideWrite`), which also owns the OTHER placeholder, the scope channel's
+ * `RedactionRule` and the write decision), which also owns the OTHER placeholder, the scope channel's
  * `SCOPE_PLACEHOLDER`. Before C4 both halves lived in `redaction.ts`, so the record imported the
  * engine's policy module to write a string.
  *

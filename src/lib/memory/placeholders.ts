@@ -10,8 +10,10 @@
  * strings, and both are historical, so neither may change (stored recordings hold this one). Which
  * one a reader sees depends on WHERE it reads, and each has the owner its reader has:
  *   - {@link LOG_PLACEHOLDER} (`'REDACTED'`, here) is a RECORD byte: the commit log and everything
- *     served from it — written by the record's scrub (`memory/scrub.ts`, L2) and typed through by
- *     the readers (`slice/`, `time-travel/`, L3);
+ *     served from it — written into the log by the record's scrub (`memory/scrub.ts`, L2), and
+ *     passed by the two places that serve a mirror (`runner/ExecutionRuntime.ts`, the mirror's
+ *     seed; `engine/handlers/SubflowExecutor.ts`, a subflow's served state). The readers
+ *     (`slice/`, `time-travel/`) only name it in their docs: they meet it as data in the log;
  *   - `SCOPE_PLACEHOLDER` (`'[REDACTED]'`) is the ENGINE's: the scope channel's retained reads and
  *     writes, recorder events, the narrative. It lives beside the verdict that writes it
  *     (`memory/redaction.ts`, L4). Until C4 both sat in this file ("two placeholders, one leaf");

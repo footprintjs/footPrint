@@ -1,13 +1,17 @@
 /**
- * The write decision (C4, `memory/redaction.ts`): one owner decides, the record writes the bytes. Its
- * three parts on their own — no engine, no record frame — and then the funnel that composes them
+ * The write decision (C4, `memory/redaction.ts`): the engine decides, the record writes the bytes. Its
+ * functions on their own — no engine, no record frame — and then the funnel that composes them
  * (`StageContext · stageWrite`), in the order the record needs:
  *
- *   1–2  decideWrite         the verdict: an explicit flag → whole; else the rule; no rule / an inert one
- *                            → clear; an object read under a selected name keeps that read's rule (identity)
- *   3    scrubOf             the verdict's bytes for `RecordFrame · write`: `{ whole }`, `{ fields }`, nothing
- *   4    markWritten         the run's marks, once the write is staged: a delete clears the key's mark, a
- *                            whole verdict marks its key — so a write that fails to stage marks nothing
+ *   1  decideWrite        the verdict: an explicit flag → whole; else the ACTIVE rule; none → clear
+ *   2  inheritByIdentity  an object read under a selected name, written under another, keeps that read's
+ *                         rule — against the selected reads as they stand after step 1
+ *   3  scrubOf            the verdict's bytes for `RecordFrame · write`: `{ whole }`, `{ fields }`, nothing
+ *   4  markStagedWrite    the run's marks, once the write staged: a delete unmarks on the rule active as the
+ *                         write began; a whole verdict marks its deciding key on the run's rule as it is now
+ *
+ * The funnel cases pin what user code running DURING a write sees — the same as before C4 (each step reads
+ * the rule, and step 2 the selected reads, when it acts).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +20,8 @@ import {
   type RedactionVerdict,
   CLEAR,
   decideWrite,
+  inheritByIdentity,
+  markStagedWrite,
   RedactionRule,
   scrubOf,
 } from '../../../../src/lib/memory/redaction';
@@ -26,55 +32,43 @@ import { StageContext } from '../../../../src/lib/memory/StageContext';
 const selectedAs = (value: object, verdict: RedactionVerdict) =>
   new WeakMap<object, RedactionVerdict>([[value, verdict]]);
 
-describe('decideWrite — steps 1 and 2: the verdict', () => {
-  it('no rule, or an inert one: clear', () => {
-    expect(decideWrite(undefined, undefined, [], 'k', 'v', undefined)).toBe(CLEAR);
-    const inert = new RedactionRule();
-    expect(decideWrite(inert, undefined, [], 'k', 'v', false)).toBe(CLEAR);
-    expect(inert.isInert()).toBe(true);
+describe('decideWrite — step 1: the verdict', () => {
+  it('no active rule: clear; an explicit flag is whole under its user-level key, rule or none', () => {
+    expect(decideWrite(undefined, [], 'k', undefined)).toBe(CLEAR);
+    expect(decideWrite(undefined, [], 'pin', true)).toEqual({ kind: 'whole', key: 'pin' });
+    expect(decideWrite(undefined, ['profile'], 'auth', true)).toEqual({ kind: 'whole', key: 'profile.auth' });
   });
 
-  it('an explicit flag is whole under its user-level key — with no rule at all, too', () => {
-    expect(decideWrite(undefined, undefined, [], 'pin', '0000', true)).toEqual({ kind: 'whole', key: 'pin' });
-    expect(decideWrite(undefined, undefined, ['profile'], 'auth', {}, true)).toEqual({
-      kind: 'whole',
-      key: 'profile.auth',
-    });
-  });
-
-  it('else the rule decides from the path: a key is whole, declared fields are fields, anything else clear', () => {
+  it('else the active rule decides from the path: a key is whole, declared fields are fields, anything else clear', () => {
     const rule = new RedactionRule({ keys: ['ssn'], fields: { card: ['number', 'cvc'] } });
-    expect(decideWrite(rule, undefined, [], 'ssn', '1', false)).toEqual({ kind: 'whole', key: 'ssn' });
-    expect(decideWrite(rule, undefined, [], 'card', {}, false)).toEqual({
-      kind: 'fields',
-      key: 'card',
-      paths: ['number', 'cvc'],
-    });
-    expect(decideWrite(rule, undefined, [], 'name', 'Ada', false)).toBe(CLEAR);
+    expect(decideWrite(rule, [], 'ssn', false)).toEqual({ kind: 'whole', key: 'ssn' });
+    expect(decideWrite(rule, [], 'card', false)).toEqual({ kind: 'fields', key: 'card', paths: ['number', 'cvc'] });
+    expect(decideWrite(rule, ['profile'], 'ssn', false)).toBe(CLEAR); // `profile.ssn` is not `ssn`
+    expect(decideWrite(rule, [], 'name', false)).toBe(CLEAR);
   });
 
-  it('a verdict marks nothing — the marks are step 4, after the write is staged', () => {
+  it('marks nothing — the marks are step 4, after the write is staged', () => {
     const rule = new RedactionRule({ keys: ['ssn'] });
-    decideWrite(rule, undefined, [], 'ssn', '1', false);
-    const inert = new RedactionRule();
-    decideWrite(inert, undefined, [], 'pin', '0000', true);
+    decideWrite(rule, [], 'ssn', false);
+    decideWrite(rule, [], 'pin', true);
     expect(rule.report().redactedKeys).toEqual([]);
-    expect(inert.isInert()).toBe(true);
   });
+});
 
-  it('an object read under a whole-selected name, written under another, is whole there too', () => {
+describe('inheritByIdentity — step 2: an object read under a selected name keeps that rule', () => {
+  it('a whole-selected read makes the new key whole, and marks it (the verdict needs the mark)', () => {
     const rule = new RedactionRule({ keys: ['profile'] });
     const profile = { name: 'Ada' };
     const selected = selectedAs(profile, { kind: 'whole', key: 'profile' });
-    expect(decideWrite(rule, selected, [], 'person', profile, false)).toEqual({ kind: 'whole', key: 'person' });
-    expect(rule.isKeyRedacted('person')).toBe(true); // the inheritance is decided here: the verdict needs it
+    expect(inheritByIdentity(rule, CLEAR, selected, [], 'person', profile)).toEqual({ kind: 'whole', key: 'person' });
+    expect(rule.isKeyRedacted('person')).toBe(true);
   });
 
   it('a fields-selected read hands its fields to the new key, re-based under the written path', () => {
     const rule = new RedactionRule({ fields: { card: ['number'] } });
     const card = { number: '4242', owner: 'Ada' };
     const selected = selectedAs(card, { kind: 'fields', key: 'card', paths: ['number'] });
-    expect(decideWrite(rule, selected, ['wallet'], 'primary', card, false)).toEqual({
+    expect(inheritByIdentity(rule, CLEAR, selected, ['wallet'], 'primary', card)).toEqual({
       kind: 'fields',
       key: 'wallet',
       paths: ['number'],
@@ -82,14 +76,16 @@ describe('decideWrite — steps 1 and 2: the verdict', () => {
     expect(rule.report().fieldRedactions.wallet).toEqual(['primary.number']);
   });
 
-  it('a primitive, a new object, or a write already whole is selected by its own name only', () => {
+  it('a primitive, a new object, a write already whole, or no active rule: the verdict comes back as it is', () => {
     const rule = new RedactionRule({ keys: ['profile', 'pin'] });
     const profile = { name: 'Ada' };
     const selected = selectedAs(profile, { kind: 'whole', key: 'profile' });
-    expect(decideWrite(rule, selected, [], 'copy', { ...profile }, false)).toBe(CLEAR);
-    expect(decideWrite(rule, selected, [], 'copy', 'Ada', false)).toBe(CLEAR);
-    expect(decideWrite(rule, selected, [], 'pin', profile, false)).toEqual({ kind: 'whole', key: 'pin' });
-    expect(rule.report().redactedKeys).toEqual([]); // no inheritance: a whole write needs none
+    const whole: RedactionVerdict = { kind: 'whole', key: 'pin' };
+    expect(inheritByIdentity(rule, CLEAR, selected, [], 'copy', { ...profile })).toBe(CLEAR);
+    expect(inheritByIdentity(rule, CLEAR, selected, [], 'copy', 'Ada')).toBe(CLEAR);
+    expect(inheritByIdentity(rule, whole, selected, [], 'pin', profile)).toBe(whole);
+    expect(inheritByIdentity(undefined, CLEAR, selected, [], 'copy', profile)).toBe(CLEAR);
+    expect(rule.report().redactedKeys).toEqual([]);
   });
 });
 
@@ -107,51 +103,59 @@ describe('scrubOf — step 3: the verdict’s bytes for the record', () => {
   });
 });
 
-describe('RedactionRule · markWritten — step 4: the run’s marks', () => {
-  it('a whole verdict marks its key; a fields or clear one marks nothing', () => {
+describe('markStagedWrite — step 4: the run’s marks, once the write staged', () => {
+  it('a whole verdict marks the key that DECIDED it — an ancestor for a nested write; fields or clear mark nothing', () => {
     const rule = new RedactionRule({ fields: { card: ['number'] } });
-    rule.markWritten({ kind: 'fields', key: 'card', paths: ['number'] }, [], 'card', 'set');
-    rule.markWritten(CLEAR, [], 'name', 'merge');
+    markStagedWrite(rule, rule, { kind: 'fields', key: 'card', paths: ['number'] }, [], 'card', 'set');
+    markStagedWrite(rule, rule, CLEAR, [], 'name', 'merge');
     expect(rule.report().redactedKeys).toEqual([]);
-    rule.markWritten({ kind: 'whole', key: 'profile.auth' }, ['profile'], 'auth', 'set');
-    expect(rule.report().redactedKeys).toEqual(['profile.auth']);
+    markStagedWrite(rule, rule, { kind: 'whole', key: 'profile' }, ['profile'], 'auth', 'set');
+    expect(rule.report().redactedKeys).toEqual(['profile']); // not 'profile.auth'
   });
 
-  it('an explicit mark is what makes an inert rule active — the declare-once contract', () => {
+  it('marks on the run’s rule as it is now — an explicit mark is what makes an inert rule active', () => {
     const rule = new RedactionRule();
-    rule.markWritten({ kind: 'whole', key: 'pin' }, [], 'pin', 'set');
+    markStagedWrite(undefined, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'set');
     expect(rule.isInert()).toBe(false);
-    expect(decideWrite(rule, undefined, [], 'pin', '1111', false)).toEqual({ kind: 'whole', key: 'pin' });
+    expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
-  it('a delete clears its key’s mark, whatever its verdict — a policy verdict survives it', () => {
+  it('a delete clears its key’s mark on the rule active as the write began — none, when it was inert', () => {
     const rule = new RedactionRule({ keys: ['ssn'] });
     rule.mark('pin');
     rule.mark('ssn');
-    rule.markWritten({ kind: 'whole', key: 'pin' }, [], 'pin', 'delete');
-    rule.markWritten({ kind: 'whole', key: 'ssn' }, [], 'ssn', 'delete');
+    markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete');
+    markStagedWrite(rule, rule, { kind: 'whole', key: 'ssn' }, [], 'ssn', 'delete');
     expect(rule.report().redactedKeys).toEqual([]);
     expect(rule.isKeyRedacted('ssn')).toBe(true); // the policy still names it
-    expect(rule.isKeyRedacted('pin')).toBe(false);
+    const later = new RedactionRule();
+    later.mark('box');
+    markStagedWrite(undefined, later, CLEAR, [], 'box', 'delete');
+    expect(later.isKeyRedacted('box')).toBe(true);
   });
 });
 
 describe('the funnel — StageContext · stageWrite decides, stages the bytes, then marks', () => {
-  /** A bare frame over `state` with `rule` installed; its commit lands on the log. */
-  function frame(rule: RedactionRule, state?: Record<string, unknown>) {
+  /** A bare frame over `state`, with `rule` installed when given; its commits land on the log. */
+  function frame(rule?: RedactionRule, state?: Record<string, unknown>) {
     const heap = new SharedMemory(undefined, state);
     const log = new EventLog(heap.getState());
     const ctx = new StageContext('', 's', 's', heap, '', log);
-    ctx.useRedactionRule(rule);
-    return { ctx, log };
+    if (rule) ctx.useRedactionRule(rule);
+    return { ctx, log, heap };
   }
 
-  /** A value a merge cannot read: one of its getters throws. */
-  function hostile(): object {
-    return Object.defineProperty({ ok: 1 }, 'boom', {
+  /** A value with one enumerable getter that runs `effect` the first time it is read. */
+  function withGetter(effect: () => unknown): Record<string, unknown> {
+    let fired = false;
+    return Object.defineProperty({}, 'g', {
       enumerable: true,
       get: () => {
-        throw new Error('cannot read');
+        if (!fired) {
+          fired = true;
+          effect();
+        }
+        return 1;
       },
     });
   }
@@ -165,12 +169,21 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     expect(rule.report().redactedKeys).toEqual(['pin']);
   });
 
+  it('a nested write under a whole-selected key marks that key, not the nested path', () => {
+    const rule = new RedactionRule({ keys: ['profile'] });
+    const { ctx } = frame(rule);
+    expect(ctx.setObject(['profile'], 'auth', 'tok')).toEqual({ kind: 'whole', key: 'profile' });
+    expect(rule.report().redactedKeys).toEqual(['profile']);
+  });
+
   it('a write that fails to stage marks nothing — the merge of a value it cannot read', () => {
     const rule = new RedactionRule();
     const { ctx } = frame(rule);
-    expect(() => ctx.merge([], 'pin', hostile(), true)).toThrow('cannot read');
+    const unreadable = withGetter(() => {
+      throw new Error('cannot read');
+    });
+    expect(() => ctx.merge([], 'pin', unreadable, true)).toThrow('cannot read');
     expect(rule.isInert()).toBe(true);
-    expect(rule.report().redactedKeys).toEqual([]);
   });
 
   it('…and a nested write through a held value nothing can clone', () => {
@@ -178,7 +191,6 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     const { ctx } = frame(rule);
     ctx.setObject([], 'held', { fn: () => 1 });
     expect(() => ctx.setObject(['held'], 'x', 1, true)).toThrow();
-    expect(rule.isKeyRedacted('held.x')).toBe(false);
     expect(rule.isInert()).toBe(true);
   });
 
@@ -188,7 +200,7 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     const profile = ctx.getValue([], 'profile'); // a read under a selected name
     ctx.setObject([], 'held', { fn: () => 1 });
     expect(() => ctx.setObject(['held'], 'p', profile)).toThrow();
-    expect(rule.isKeyRedacted('held.p')).toBe(true); // the verdict needed it; the write's own mark never came
+    expect(rule.isKeyRedacted('held.p')).toBe(true);
   });
 
   it('a delete that stages clears the key’s per-call mark', () => {
@@ -197,6 +209,59 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     ctx.setObject([], 'pin', '0000', true);
     ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
     expect(rule.isKeyRedacted('pin')).toBe(false);
-    expect(ctx.setObject([], 'pin', '1111')).toBe(CLEAR); // clear again after the delete
+    expect(ctx.setObject([], 'pin', '1111')).toBe(CLEAR);
+  });
+
+  // User code that runs DURING a write — a getter on the value, a pattern's `test` — sees what it saw before C4.
+
+  it('a rule installed during a write takes that write’s whole mark (the mark reads the rule after staging)', () => {
+    const { ctx } = frame();
+    const late = new RedactionRule();
+    ctx.updateObject(
+      [],
+      'k',
+      withGetter(() => ctx.useRedactionRule(late)),
+      undefined,
+      true,
+    );
+    expect(late.isKeyRedacted('k')).toBe(true);
+  });
+
+  it('a delete that began under an inert rule unmarks nothing, even a mark made during it', () => {
+    const rule = new RedactionRule();
+    const { ctx } = frame(rule);
+    // the nested delete clones the held `box`, which runs its getter: an explicit write of the same key
+    ctx.setObject(
+      [],
+      'box',
+      withGetter(() => ctx.setObject(['box'], 'x', 'secret-1', true)),
+    );
+    ctx.setObject(['box'], 'x', undefined, false, undefined, 'delete');
+    expect(rule.isKeyRedacted('box.x')).toBe(true);
+  });
+
+  it('identity is asked against the selected reads as they stand after the verdict — a pattern can read', () => {
+    const { ctx, log, heap } = frame(undefined, { secret: { pin: '1234' } });
+    let inTest = false;
+    const readsWhileTesting = {
+      global: false,
+      sticky: false,
+      lastIndex: 0,
+      source: 'reads',
+      test: (name: string) => {
+        if (!inTest && name === 'copy') {
+          inTest = true;
+          ctx.getValue([], 'secret'); // a tracked read of a selected key, during the verdict
+          inTest = false;
+        }
+        return false;
+      },
+    } as unknown as RegExp;
+    const rule = new RedactionRule({ keys: ['secret'], patterns: [readsWhileTesting] });
+    ctx.useRedactionRule(rule);
+    ctx.setObject([], 'copy', heap.getState().secret); // the very object that read selected
+    ctx.commit();
+    expect(log.list()[0].overwrite).toEqual({ copy: 'REDACTED' });
+    expect(rule.report().redactedKeys).toEqual(['copy']);
   });
 });

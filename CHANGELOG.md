@@ -12,13 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Why.** A redaction has two halves, and both lived on the wrong side of the record's fence. The engine's frame wrote the record's bytes: `StageContext · stageWrite` (L4) reached into its record frame's transaction buffer four ways (`set` / `merge` / `delete` with a "whole" flag, `markRedactedFields`). And the record imported the engine's policy module to write a string: `memory/redaction.ts` held both the decision (`RedactionRule`) and the log's scrub (`scrubPatch`, `redactPatch`), so `recordCommit.ts` (L3) imported it (review finding N2; C1's `recordCommit.ts → redaction.ts` edge).
 - **What moved.** The DECISION is the engine's and the BYTES are the record's, one owner each:
   - `RecordFrame · write(path, value, verb, scrub?)` is the one way to stage. The scrub is the bytes of a verdict: `{ whole: true }`, or `{ fields }` inside the value. The frame registers those paths and never decides them. `RecordFrame · getTransactionBuffer` is private now.
-  - `stageWrite`'s rule moves beside `RedactionRule`, in the order the record needs. `redaction.ts · decideWrite` gives the verdict (an explicit flag, else the rule) and the identity inheritance (an object read under a selected name, written under another). `RecordFrame · write` stages the write with the verdict's bytes (`scrubOf(verdict)`). `RedactionRule · markWritten` then takes the run's marks. The marks still follow the staged write, so a write that fails to stage (a value a `merge` cannot read) marks nothing, as before. That is why the decision is two calls around the write, not one before it. A single function that took the write as a callback kept the order too, but cost about 10% more per write.
+  - `stageWrite`'s rule moves beside `RedactionRule` as four steps, in the order the record needs ("The write decision" in `redaction.ts`):
+    - `decideWrite` gives the verdict: an explicit flag, else the rule that is active as the write begins;
+    - `inheritByIdentity` keeps the rule of an object the stage read under a selected name and writes under another;
+    - `RecordFrame · write` stages the write with the verdict's bytes (`scrubOf`);
+    - `markStagedWrite` then takes the run's marks.
+
+    Each step reads the rule when it acts, as `stageWrite` always did, so the marks still follow the staged write: a write that fails to stage (a value a `merge` cannot read) marks nothing. A mark is still a run-wide name: only a staged delete removes one, and a failed commit or a discarded retry attempt keeps it. All of this is as before.
   - NEW `memory/scrub.ts` (L2) holds `scrubPatch` and the public `redactPatch`, moved out of `redaction.ts` unchanged. `recordCommit.ts` imports it, and no record file imports `redaction.ts` any more. `redactPatch` keeps its `footprintjs/advanced` door.
   - The two placeholders are split by owner. `placeholders.ts` (L0) keeps `LOG_PLACEHOLDER`, a record byte. `SCOPE_PLACEHOLDER` moves to `redaction.ts`, beside the verdict that writes it. Neither string changes.
   - `redaction.ts` moves from L2 to L4 (`scripts/layering.config.cjs`), beside `runPolicy.ts`, which carries the rule.
   - NEW `memory/runAddress.ts` (an L4 leaf): `RUN_NAMESPACE` and `runAddress`, moved out of `StageContext.ts`. `RedactionRule · verdictOfRead` and `retainState` read the constant instead of spelling `'runs'`. `test/architecture/write-address.test.ts` has no exceptions left.
   - `userKeyOf`, the dotted user-level name of a path that the verdict and the marks use and that `StageContext` keys its retention by, moves out of `StageContext.ts` to `redaction.ts`, so the decision and the frame share one spelling.
-- **Nothing else moves.** No public API changes: `RedactionRule`, `redactPatch` and `StageContext` keep their doors and signatures, and `RecordFrame` is on no door. The law, with an example, is in `src/lib/memory/README.md` ("One verdict owner, one encoding owner").
+- **Nothing else moves.** No public API changes: `RedactionRule`, `redactPatch` and `StageContext` keep their doors, signatures and declared types (the six door `.d.ts` files are byte-identical), and `RecordFrame` is on no door. The engine writes the same bytes: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references; the `structuredClone` counts are unchanged on every `bench/commit-clones.ts` row; the counted guards stay green; the 12-round benches are within noise. Base-versus-branch probes give the same output:
+  - the C1–C3 kits;
+  - two new redaction probes: 24,000 frame programs over every write door and policy shape, and an engine probe covering the log, the mirror and its seed, recorder events inline and deferred, the narrative, diagnostics, emits, decision evidence, errors, and pause payloads with the checkpoint's marks across both resumes;
+  - the reviewer's door matrix: 899 scenarios, including writes that fail to stage and user code that writes back during a write.
+
+  The law, with two examples, is in `src/lib/memory/README.md` ("One verdict owner, one encoding owner").
 
 ## [9.46.0] - 2026-10-09
 

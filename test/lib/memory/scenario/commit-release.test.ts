@@ -130,6 +130,7 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
       // Same-value rewrite vs the POST-commit state → net no-change.
       ctx.setGlobal('k', 'v1');
       const secondBuffer = staging(ctx).buffer;
+      expect(secondBuffer).toBeDefined();
       expect(secondBuffer).not.toBe(firstBuffer);
       ctx.commit();
 

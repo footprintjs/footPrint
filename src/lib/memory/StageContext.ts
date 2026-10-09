@@ -20,7 +20,16 @@ import type { EventLog } from './EventLog.js';
 import type { EmitSourcePosition } from './eventPosition.js';
 import { type WriteVerb, RecordFrame } from './RecordFrame.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, decideWrite, RedactionRule, SCOPE_PLACEHOLDER, scrubOf, userKeyOf } from './redaction.js';
+import {
+  CLEAR,
+  decideWrite,
+  inheritByIdentity,
+  markStagedWrite,
+  RedactionRule,
+  SCOPE_PLACEHOLDER,
+  scrubOf,
+  userKeyOf,
+} from './redaction.js';
 import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
@@ -370,9 +379,8 @@ export class StageContext {
   /**
    * The rule with something to say — `undefined` on the no-policy path (no
    * rule installed, or a rule with no policy entries and no marked keys), so
-   * a tracked read there pays no verdict call and no path allocation (a
-   * staged write asks the same of the rule inside `decideWrite`). The
-   * default run is byte-identical AND cost-identical.
+   * a tracked read or a staged write there pays no verdict call and no path
+   * allocation. The default run is byte-identical AND cost-identical.
    */
   private activeRule(): RedactionRule | undefined {
     const rule = this.policy.redaction;
@@ -382,15 +390,19 @@ export class StageContext {
   /**
    * THE ONE FUNNEL every staged write passes through — facade writes AND
    * the paths that bypass the facade (subflow seed, `outputMapper`
-   * merge-back, resume re-seed). Two owners (C4): the run's rule DECIDES
-   * (`redaction.ts · decideWrite` — an explicit per-call flag, else the rule
-   * from the user-level path; identity inheritance from this frame's
-   * selected reads), the record frame WRITES the verdict's bytes
-   * (`RecordFrame · write` — the op and its scrub: the whole value, or the
-   * fields inside it), and only then does the rule take the run's marks
-   * (`RedactionRule · markWritten`), so a write that fails to stage marks
-   * nothing. Returns the verdict so the caller retains and reports under
-   * the same decision.
+   * merge-back, resume re-seed). Two owners (C4): the run's rule DECIDES,
+   * the record frame WRITES the verdict's bytes, in four steps
+   * (`redaction.ts`, "The write decision"):
+   *   1. the verdict — `decideWrite`, under the rule active as the write begins;
+   *   2. identity inheritance — `inheritByIdentity`, against this frame's
+   *      selected reads as they stand after step 1;
+   *   3. the bytes — `RecordFrame · write`, the op and its scrub (the whole
+   *      value, or the fields inside it);
+   *   4. the marks — `markStagedWrite`, only once the write staged, so a
+   *      write that fails to stage marks nothing.
+   * Each step reads the rule (and the selected reads) when it acts, as this
+   * funnel always did. Returns the verdict so the caller retains and reports
+   * under the same decision.
    */
   private stageWrite(
     nsPath: string[],
@@ -400,10 +412,19 @@ export class StageContext {
     explicit: boolean | undefined,
     verb: WriteVerb,
   ): RedactionVerdict {
-    const rule = this.policy.redaction;
-    const verdict = decideWrite(rule, this._selectedObjects, path, key, value, explicit);
+    const active = this.activeRule();
+    if (active === undefined && !explicit) {
+      // The no-policy fast path, the same four steps with nothing to do: no rule with anything to say
+      // and no flag is clear (step 1), nothing to inherit without a rule (step 2), no scrub (step 3),
+      // and nothing to mark — a clear verdict marks nothing, and a delete unmarks only on the rule
+      // active as it began (step 4). The default run pays the record's write and nothing else.
+      this.record.write(nsPath, value, verb);
+      return CLEAR;
+    }
+    const asked = decideWrite(active, path, key, explicit);
+    const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value);
     this.record.write(nsPath, value, verb, scrubOf(verdict));
-    rule?.markWritten(verdict, path, key, verb);
+    markStagedWrite(active, this.policy.redaction, verdict, path, key, verb);
     return verdict;
   }
 
