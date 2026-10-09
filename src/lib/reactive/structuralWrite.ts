@@ -5,7 +5,7 @@
  * path inside the value I read, put this". The value it read is BORROWED —
  * before a stage's first staged write it is a bare reference into committed
  * shared memory, and committed state is immutable-after-swap (see
- * `StageContext.firstTouchState`). Editing it in place would corrupt every
+ * `RecordFrame · firstTouch`). Editing it in place would corrupt every
  * in-flight stage AND leave the commit log with nothing to record.
  *
  * So the write path never mutates. It COPIES the containers along the path

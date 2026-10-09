@@ -18,7 +18,8 @@
  *   L2 staging and commit       one stage's ops → one net-change bundle; the next generation
  *   L3 the log as a read model  what a finished log can honestly say (slice/, time-travel/), and the
  *                               log itself with the one step that lands a commit on it (recordCommit)
- *   L4 the frame and run policy one stage's frame; the run's runtime
+ *                               and the record half of a stage's frame that takes it there (RecordFrame)
+ *   L4 the frame and run policy one stage's frame inside a run (it composes a RecordFrame); the runtime
  *   L5 scope, recorders, hooks  what a stage may do; how every event reaches every recorder
  *   L6 engine                   walking the chart: one phase chain, one id grammar
  *   L7 builder and executor     the DSL and the run lifecycle
@@ -104,6 +105,9 @@ const LAYERS = [
       'src/lib/memory/EventLog.ts',
       // One commit onto the record: the bundle's key order, the scrub, the live/mirror apply, the log (C1).
       'src/lib/memory/recordCommit.ts',
+      // The record half of a stage's frame: the address, the first-touch base, the two-tier read, the
+      // lazy buffer, the readKeys list, and the commit through recordCommit (C3). StageContext composes it.
+      'src/lib/memory/RecordFrame.ts',
       'src/lib/memory/commitLogUtils.ts',
       // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
       'src/lib/memory/logModel.ts',

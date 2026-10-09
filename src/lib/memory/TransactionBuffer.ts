@@ -382,8 +382,8 @@ export class TransactionBuffer {
    * Keep the diff base exact under a read the working copy cannot answer.
    *
    * When `workingCopy` holds nothing at `path` — the stage deleted or unset
-   * it, or a write replaced a container above it — `StageContext ·
-   * readState` serves the read from LIVE committed state, exactly as 9.28.0
+   * it, or a write replaced a container above it — `RecordFrame · read`
+   * serves the read from LIVE committed state, exactly as 9.28.0
    * did, so the value it hands out is committed state itself. On 9.28.0 the
    * diff base was a whole-state clone taken at the stage's first write, and
    * an in-place edit of that value (out of contract — reads are borrowed)
