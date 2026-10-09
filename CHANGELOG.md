@@ -26,6 +26,14 @@ footprintjs 10.0.0. Record bytes and counted clone costs remain unchanged.
 
 The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-10-trace-extraction.md#75-the-symbol-map-and-each-consumers-move).
 
+### Test-only follow-up — deterministic oversized-key bypass proof
+
+- Replace the legacy exponential-regex fixture with a safe, instrumented predicate that fails if
+  an oversized key reaches matching. An inclusive-boundary control and a deliberate bypass probe
+  verify the detector; existing timing and redaction-output checks remain. No runtime or record
+  algorithm changes, and no security-check suppression. This proves the existing length bypass,
+  not comprehensive safety for arbitrary redaction regexes.
+
 ## [9.48.1] - 2026-10-09
 
 ### Security

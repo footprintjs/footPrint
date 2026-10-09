@@ -1,10 +1,10 @@
 /**
- * Security tests for ReDoS (Regular Expression Denial of Service) protection
- * in ScopeFacade._isPolicyRedacted().
+ * Regression tests for the redaction rule's existing oversized-key matcher bypass
+ * as exercised through ScopeFacade.
  *
- * Fix: pattern testing is now skipped for keys longer than 256 characters.
- * Scope state keys are always short identifiers; keys exceeding this cap
- * are pathological and would trigger catastrophic backtracking on naive regexes.
+ * Pattern testing is skipped for keys longer than 256 characters. This input-length
+ * cap is not comprehensive ReDoS protection: a pathological regex can also be
+ * expensive on shorter keys. These tests prove the bypass, not arbitrary regex safety.
  *
  * The exact-key path (Array.includes) is unaffected — it still checks all lengths.
  */
@@ -17,7 +17,7 @@ import type { RedactionPolicy } from '../../../../src/lib/scope/types';
 
 function makeScope() {
   const mem = new SharedMemory();
-  const log = new EventLog();
+  const log = new EventLog(undefined);
   const ctx = new StageContext('run-1', 's1', 's1', mem, '', log);
   return new ScopeFacade(ctx, 'test-stage');
 }
@@ -112,14 +112,19 @@ describe('redaction ReDoS guard — boundary: keys at/above 256-char cap', () =>
 });
 
 // ---------------------------------------------------------------------------
-// Pattern 3: scenario — pathological regex + long key completes instantly
+// Pattern 3: scenario — oversized keys never reach regex evaluation
 // ---------------------------------------------------------------------------
-describe('redaction ReDoS guard — scenario: pathological regex does not hang', () => {
-  it('catastrophic backtracking regex against a long key returns within 100ms', () => {
+describe('redaction ReDoS guard — scenario: oversized keys bypass regex evaluation', () => {
+  it('skips matching a long key and returns within 100ms', () => {
     const scope = makeScope();
-    // Classic exponential-backtracking pattern
-    const catastrophicPattern = /^(a+)+$/;
-    scope.useRedactionPolicy({ patterns: [catastrophicPattern] });
+    // Test-only tripwire: fail deterministically if the guard ever evaluates a long key.
+    // A safe regex avoids hanging the test runner when that guard regresses.
+    const pattern = /^a+$/;
+    const patternTest = vi.spyOn(pattern, 'test').mockImplementation((key: string) => {
+      if (key.length > 256) throw new Error('oversized key reached regex evaluation');
+      return RegExp.prototype.test.call(pattern, key);
+    });
+    scope.useRedactionPolicy({ patterns: [pattern] });
 
     const writes: unknown[] = [];
     scope.attachScopeRecorder({
@@ -127,14 +132,24 @@ describe('redaction ReDoS guard — scenario: pathological regex does not hang',
       onWrite: (e: any) => writes.push(e),
     });
 
-    // A 500-char string that would cause catastrophic backtracking without the guard
+    // Positive boundary control: the same predicate really runs at the inclusive cap.
+    const boundaryKey = 'a'.repeat(256);
+    scope.setValue(boundaryKey, 'boundary-value');
+    expect(patternTest).toHaveBeenCalledWith(boundaryKey);
+    expect(writes[0]).toMatchObject({ value: '[REDACTED]' });
+    writes.length = 0;
+
     const longKey = 'a'.repeat(500);
+    // Controlled red probe: bypassing the guard must trip the detector, not silently pass.
+    expect(() => pattern.test(longKey)).toThrow('oversized key reached regex evaluation');
+    patternTest.mockClear();
 
     const start = Date.now();
     scope.setValue(longKey, 'value');
     const elapsed = Date.now() - start;
 
-    // Guard must skip pattern testing — completing in << 1s
+    // Keep the existing timing/output checks; the zero-call assertion proves the guard.
+    expect(patternTest).not.toHaveBeenCalled();
     expect(elapsed).toBeLessThan(100);
     // Not redacted (skipped)
     expect(writes[0]).toMatchObject({ value: 'value' });
