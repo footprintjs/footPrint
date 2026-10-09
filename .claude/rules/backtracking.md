@@ -33,34 +33,35 @@ There is NO state rollback anywhere. M1 is commit-on-error by design (`Transacti
 (FlowChartExecutorOptions) makes every staged write stamp `TraceEntry.readKeys` —
 the keys tracked-read BEFORE that write (temporal prefix; monotone within a
 stage, so delta-mode's one-entry-per-path keeps the LAST prefix == the union).
-Capture: StageContext keeps a lazy `_provenanceReads` Set filled in `getValue`
-(INDEPENDENT of readTracking — key strings only); `getTransactionBuffer` hands
-the buffer a live `readKeysProvider` closure; both commit payloads
+Capture: the frame's `RecordFrame` keeps the readKeys list, filled by
+`RecordFrame · noteRead` from `getValue` (INDEPENDENT of readTracking — key
+strings only; C3, 9.46.0); `RecordFrame · getTransactionBuffer` hands the buffer
+a live `readKeysProvider` closure; both commit payloads
 (`toChangeOnlyPayload` per-op, `toDeltaPayload` last-op-per-path) carry it.
 Default `'off'` = byte-identical logs. Same 6-site propagation as the other
 three dials. Snapshot discriminant: `getSnapshot().writeProvenance`.
 
 ## M1 — TransactionBuffer staging + net-change commit
-Files: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); `detachBase` (a read the working copy cannot answer is served LIVE by `StageContext · readState`, the diff base first gets a private copy at that path); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `verbs · nextGeneration` (copy the root + each written path, apply verbs via `foldRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
+Files: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); `detachBase` (a read the working copy cannot answer is served LIVE by `RecordFrame · read`, the diff base first gets a private copy at that path); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `verbs · nextGeneration` (copy the root + each written path, apply verbs via `foldRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
 | first write | baseSnapshot = the committed generation BY REFERENCE; workingCopy = a root copy (9.29.0 — before: 2 whole-state structuredClones) | — | — |
 | during stage | ops in workingCopy/overwritePatch/opTrace | own writes readable (read-your-writes) | — |
-| commit (success) | net-change CommitBundle → commitLog; new state generation swapped in | — | no-op & write-then-revert paths; buffer + stateView released |
+| commit (success) | net-change CommitBundle → commitLog; new state generation swapped in | — | no-op & write-then-revert paths; buffer + first-touch base released (`RecordFrame · release`) |
 | stage THROWS | **same commit still happens** (:1088), then rethrow | — | NOTHING — writes never vanish |
 
 Invariant: committed state is immutable-after-swap (a generation is never edited — copy-on-write, 9.29.0), so a bare-reference first-touch view is a stable snapshot & diff base even under parallel-fork sibling commits — unless USER code edits a committed object in place: a raw read before the stage's first write, edited and written back, then records no change (M7; dev mode warns).
 Breaks when: code assumes rollback (write-then-throw IS committed), or a consumer mutates production `getSnapshot().sharedState` (zero-copy live view; frozen only in dev mode, `FlowChartExecutor.ts:1588`).
 
 ```
-onFirstWrite: buf = new TransactionBuffer(firstTouchState)   // base by reference, root copy (9.29.0)
+onFirstWrite: buf = new TransactionBuffer(firstTouch)   // RecordFrame · firstTouch (C3); base by reference, root copy (9.29.0)
 write(p,v):   ownSpine(workingCopy, p); workingCopy[p]=v; overwritePatch[p]=v (ref); opTrace.push
 read(p):      privatise(p) — a container still shared with committed state → a private deep copy, once
               nothing at p (deleted/unset) → LIVE state, after detachBase(p): base[p] = a private copy
 commit():     keep ops where !deepEqual(base[p], working[p]); payload values cloned once
               sharedMemory.context = nextGeneration(state, bundle)  // copy written paths, share the rest, swap
-              eventLog.record(bundle); release buf/stateView
+              eventLog.record(bundle); RecordFrame · release (buffer + first-touch base)
 onError:      commit(); rethrow          // NO abort path exists
 ```
 
