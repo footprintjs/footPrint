@@ -34,7 +34,7 @@
  *      `writeBackProgram`). The same comparison and generation check as
  *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). At its fixed
  *      seed (7301, the recheck's) the 500 programs in `npm test` fail at
- *      program 91 if `readState` skips `detachBase` or `detachBase` is a
+ *      program 91 if the frame's read (`RecordFrame · read`) skips `detachBase` or `detachBase` is a
  *      no-op, and the property also requires that `detachBase` really gave
  *      the base a private copy at least once — so a generator change cannot
  *      quietly stop it reaching the law.

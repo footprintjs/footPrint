@@ -3,8 +3,9 @@
  *
  * A frame with a run id writes and reads under `runs/<id>/`. Before C2 the record layer spelled that
  * namespace itself (`utils · getRunAndGlobalPaths`, `SharedMemory · getRuns`). Now one L4 constant,
- * `StageContext.ts · RUN_NAMESPACE`, builds every frame's address, and `SharedMemory` and
- * `TransactionBuffer` take it as a path prefix. This test reads src with the TypeScript compiler API and
+ * `StageContext.ts · RUN_NAMESPACE`, builds every frame's address (`runAddress`), and the record layer
+ * takes it as a path prefix: `RecordFrame` holds it (C3), `SharedMemory` and `TransactionBuffer` are
+ * handed it. This test reads src with the TypeScript compiler API and
  * fails when an L0–L3 file (the fence's own ranks) names the namespace — a `'runs'` string literal, or
  * `runs` as a property (`state.runs`, `{ runs: … }`) — outside the exceptions below. The list is live —
  * an exception that no longer matches fails too — so it only shrinks.
@@ -127,7 +128,7 @@ describe('the footprintjs source tree', () => {
     expect(
       strays,
       'The run namespace is named below L4. The record layer takes the write address as data (C2): ' +
-        `take it from the frame (StageContext · address) instead of naming '${NAMESPACE}'.`,
+        `take it from the frame (RecordFrame · address, built by StageContext.ts · runAddress) instead of naming '${NAMESPACE}'.`,
     ).toEqual([]);
   });
 

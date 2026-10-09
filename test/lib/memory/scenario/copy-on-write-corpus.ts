@@ -65,7 +65,8 @@ export async function keptOf(engine: Engine, family: Family, program: any): Prom
 
 /**
  * The B2 shape, shrunk: the recheck's WRITE-BACK counterexample under both B2
- * injections (`readState` without `detachBase`; `detachBase` a no-op). The
+ * injections (the frame's read without `detachBase` — `RecordFrame · read`, `StageContext · readState`
+ * before C3; `detachBase` a no-op). The
  * stage deletes `x`, deletes it again, reads it — served from live state —
  * pushes onto it in place and sets it back: 9.28.0 records `x = [0]`; with the
  * base left shared, the build recorded no row. The first write-back entry.

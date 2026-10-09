@@ -11,7 +11,7 @@
  * `nextGeneration`, `applySmartMergeInto`, `dryFold`, `supersededByNextSet`.
  * The log's scrub, `redactPatch`, moved to its owner `redaction.ts` in 9.33.0.
  * The writers take an ADDRESS, a path prefix their caller computed, and never
- * name one (C2: the engine decides where a stage writes, `StageContext · address`).
+ * name one (C2: the engine decides where a stage writes, `StageContext.ts · runAddress`).
  * Zero external dependencies.
  */
 
@@ -30,7 +30,7 @@ type NestedObject = { [key: string]: any };
  * The two places a value at `path` can sit: under `address` (`runPath`, absent
  * for the root address `[]`) and at the root (`globalPath`). `address` is a
  * path prefix the caller computed — for the engine, a frame's run namespace
- * (`StageContext · address`, C2).
+ * (`StageContext.ts · runAddress`, C2), held by its record frame (`RecordFrame · address`, C3).
  */
 export function getRunAndGlobalPaths(address: readonly string[] = [], path: (string | number)[] = []) {
   return {

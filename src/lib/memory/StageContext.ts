@@ -2,9 +2,11 @@
  * StageContext — Execution context for a single stage in a flowchart run
  *
  * Like a stack frame in a compiler/runtime:
- * - Reference to SharedMemory (accessing heap memory)
- * - TransactionBuffer for staging mutations (transaction buffer)
+ * - A RecordFrame — the record half (C3): the heap, the address, the
+ *   first-touch base, the lazy transaction buffer, the readKeys list
  * - Links to parent/child/next contexts (call stack frames)
+ * - What belongs to a stage inside a run: retention of reads and writes, the
+ *   redaction verdict per write, the dev-mode warnings, the commit observer
  * - DiagnosticCollector for logs, errors, metrics
  */
 
@@ -12,17 +14,15 @@ import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js
 import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
-import { EventLog } from './EventLog.js';
+import type { EventLog } from './EventLog.js';
 import type { EmitSourcePosition } from './eventPosition.js';
-import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
-import { recordCommit } from './recordCommit.js';
+import { RecordFrame } from './RecordFrame.js';
 import type { RedactionVerdict } from './redaction.js';
 import { CLEAR, RedactionRule } from './redaction.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
-import { SharedMemory } from './SharedMemory.js';
-import { TransactionBuffer } from './TransactionBuffer.js';
+import type { SharedMemory } from './SharedMemory.js';
 import type {
   CommitPhase,
   FlowControlType,
@@ -43,26 +43,31 @@ function userKeyOf(path: string[], key: string): string {
 /**
  * The key run namespaces sit under — a frame with run id `c0` (a fork or
  * selector child takes its own id at the top level) writes at `runs/c0/…`. The
- * engine's one spelling of it: every frame's address is built from it, and the
- * record layer takes that address as data (C2).
+ * engine's one spelling of it: every frame's address is built from it
+ * ({@link runAddress}), and the record layer takes that address as data (C2).
  */
 const RUN_NAMESPACE = 'runs';
 
+/** The root's address, shared by every frame without a run id (most of them). Never edited. */
+const ROOT_ADDRESS: readonly string[] = Object.freeze([]);
+
+/** Where a frame with run id `runId` reads and writes: `['runs', <id>]`, or `[]` (the root) with none. */
+function runAddress(runId: string): readonly string[] {
+  return runId ? [RUN_NAMESPACE, runId] : ROOT_ADDRESS;
+}
+
 export class StageContext {
-  private sharedMemory: SharedMemory;
   /**
-   * Parallel redacted mirror of `sharedMemory`. Populated in `commit()` with
-   * the already-computed redacted patches (the same ones fed to `eventLog`).
-   * Present **only** when the executor has been told to maintain a redacted
-   * view — i.e. when a `RedactionPolicy` is configured. Otherwise undefined,
-   * zero extra work per commit.
-   *
-   * The mirror is read via `FlowChartExecutor.getSnapshot({ redact: true })`
-   * and is the foundation for the "export trace" / paste-into-viewer feature
-   * — consumers share the redacted view externally without leaking raw PII
-   * through `sharedState`.
+   * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
+   * when the run keeps them, the redacted mirror and the log; the address;
+   * the first-touch base; the lazy transaction buffer; the readKeys list.
+   * Every state read of this frame goes through it, and so does every
+   * commit. The mirror is present **only** when the run's policy keeps a
+   * redacted view (a `RedactionPolicy` is configured) — read via
+   * `FlowChartExecutor.getSnapshot({ redact: true })`, the foundation for
+   * sharing a trace without leaking raw PII through `sharedState`.
    */
-  private redactedSharedMemory?: SharedMemory;
+  private readonly record: RecordFrame;
   /**
    * The run's policy — the four dials, the redaction rule, the mirror flag
    * (`runPolicy.ts`, F5). Held BY REFERENCE: one frozen object per run (and
@@ -72,15 +77,6 @@ export class StageContext {
    * ({@link usePolicy}). Never edited; a change is a new object.
    */
   private policy: RunPolicy = DEFAULT_RUN_POLICY;
-  private buffer?: TransactionBuffer;
-  /**
-   * Committed-state view captured at this stage's FIRST touch (first read OR
-   * first write) — held by REFERENCE, never cloned. See
-   * {@link firstTouchState} for the algorithm and the immutability invariant
-   * that makes a bare reference safe.
-   */
-  private stateView?: Record<string, unknown>;
-  private eventLog?: EventLog;
   /** The emitting frame's logical leg, never the mutable executor's current leg. */
   private emitRunId?: string;
 
@@ -98,7 +94,13 @@ export class StageContext {
    * none — the same once-per-execution law `_untrackedSources` keeps.
    */
   public tags?: readonly string[];
-  public runId: string;
+  /**
+   * The run this frame belongs to — its identity on every event, and the run
+   * namespace it reads and writes in ({@link runAddress}), read once, when the
+   * frame is built (C3). Only {@link useAddressOf} moves the address after
+   * that, and only before the first write.
+   */
+  public readonly runId: string;
   /**
    * The run namespace this frame writes and reads in when that is not its own
    * `runId` — set once, before the frame's first write, by
@@ -173,11 +175,6 @@ export class StageContext {
    */
   private _committed = false;
 
-  /** Lazily-allocated ordered registry of keys tracked-read in THIS stage —
-   *  the source of the per-write prefix. Only allocated under the
-   *  `'reads-prefix'` dial; insertion-ordered (a Set) and monotonic, which
-   *  is what makes "last write's prefix == union" hold in delta mode. */
-  private _provenanceReads?: Set<string>;
   /** Tracked reads of a selected value ({@link selectedReads}). */
   private _selectedReads = 0;
   /** Each object this frame read under a selected name → that read's verdict (`stageWrite` hands it on). */
@@ -211,44 +208,44 @@ export class StageContext {
     this.runId = runId;
     this.stageName = name;
     this.stageId = stageId;
-    this.sharedMemory = sharedMemory;
+    this.record = new RecordFrame(sharedMemory, eventLog, runAddress(runId));
+    this.record.useEncoding(this.policy);
     this.branchId = branchId;
-    this.eventLog = eventLog;
     this.isDecider = !!isDecider;
     this.isFork = false;
   }
 
   /** Returns the SharedMemory instance (needed by scope layer). */
   getSharedMemory(): SharedMemory {
-    return this.sharedMemory;
+    return this.record.state;
   }
 
   /** @internal Stamped beside runtimeStageId, before scope construction. */
   bindEmitOrigin(runId: string, drillPath: readonly string[] | undefined): void {
     this.emitRunId = drillPath === undefined ? undefined : runId;
-    if (drillPath !== undefined) this.eventLog?.bindAddress(runId, drillPath);
+    if (drillPath !== undefined) this.record.log?.bindAddress(runId, drillPath);
   }
 
   /** Capture from this frame's OWN log. A manual/unaddressable frame stays unknown. */
   captureEmitPosition(): EmitSourcePosition | undefined {
-    return this.emitRunId === undefined ? undefined : this.eventLog?.capturePosition(this.emitRunId);
+    return this.emitRunId === undefined ? undefined : this.record.log?.capturePosition(this.emitRunId);
   }
 
   /**
    * Install a parallel redacted mirror. Subsequent `commit()` calls apply
    * the already-computed redacted patches — the ones the log records — to
-   * this mirror, beside the raw patches on `sharedMemory` (`recordCommit`).
+   * this mirror, beside the raw patches on the heap (`recordCommit`).
    * Child / next contexts inherit the mirror via `createNext` / `createChild`.
    *
    * Called on a runtime's root frame by `ExecutionRuntime` when the run's policy keeps a mirror.
    */
   useRedactedMirror(mirror: SharedMemory): void {
-    this.redactedSharedMemory = mirror;
+    this.record.useMirror(mirror);
   }
 
   /** Returns the redacted mirror if installed, else undefined. */
   getRedactedSharedMemory(): SharedMemory | undefined {
-    return this.redactedSharedMemory;
+    return this.record.mirror;
   }
 
   /**
@@ -260,7 +257,7 @@ export class StageContext {
    * frame after commit under the run's dials too.
    */
   usePolicy(policy: RunPolicy): void {
-    this.policy = policy;
+    this.adoptPolicy(policy);
   }
 
   /** The run's policy this frame retains, encodes and scrubs under. */
@@ -280,7 +277,7 @@ export class StageContext {
    * verdict is `'clear'` unless the caller passed an explicit flag.
    */
   useRedactionRule(rule: RedactionRule): void {
-    if (this.policy.redaction !== rule) this.policy = withRedaction(this.policy, rule);
+    if (this.policy.redaction !== rule) this.adoptPolicy(withRedaction(this.policy, rule));
   }
 
   /** The installed redaction rule, if any (the facade's lookup). */
@@ -294,8 +291,18 @@ export class StageContext {
    * {@link createChild} both call it, and it names no dial.
    */
   private inheritRun(from: StageContext): void {
-    this.policy = from.policy;
-    this.redactedSharedMemory = from.redactedSharedMemory;
+    this.adoptPolicy(from.policy);
+    this.record.useMirror(from.record.mirror);
+  }
+
+  /**
+   * The ONE place this frame's policy changes: the frame holds it, and its
+   * record frame encodes under the same reference (`commitValues`,
+   * `writeProvenance` — `RecordFrame · useEncoding`), so the two never differ.
+   */
+  private adoptPolicy(policy: RunPolicy): void {
+    this.policy = policy;
+    this.record.useEncoding(policy);
   }
 
   /**
@@ -437,7 +444,7 @@ export class StageContext {
       verdict = rule.verdictAt(path, key);
     }
     const whole = verdict.kind === 'whole';
-    const buffer = this.getTransactionBuffer();
+    const buffer = this.record.getTransactionBuffer();
     if (verb === 'merge') buffer.merge(nsPath, value, whole);
     else if (verb === 'delete') buffer.delete(nsPath, whole);
     else buffer.set(nsPath, value, whole);
@@ -453,98 +460,24 @@ export class StageContext {
   }
 
   /**
-   * ── The first-touch state view (#13) ────────────────────────────────────
-   *
-   * WHAT: returns the committed shared state as it was at this stage's FIRST
-   * touch (first read or first write), capturing the reference on first call.
-   * Serves two consumers: reads before the first write ({@link readState})
-   * and the transaction buffer's diff base ({@link getTransactionBuffer}).
-   *
-   * WHY A BARE REFERENCE IS SAFE — the invariant this rests on: committed
-   * state is immutable-after-swap. Every write to `SharedMemory` builds the
-   * NEXT generation and swaps it in (copy-on-write, 9.29.0: `applyPatch` via
-   * `nextGeneration`, and `setValue`/`updateValue` too) — it copies the root
-   * and the containers on each written path, shares the rest, and never
-   * edits a container of the generation a stage captured here. Holding the
-   * reference therefore gives this stage a stable snapshot at zero cost — no
-   * clone, which is the entire point of #13. The transaction buffer's
-   * net-change diff base rests on the same guarantee: it IS this view.
-   *
-   * WHY FIRST TOUCH, not first write: the pre-#13 eager engine cloned the
-   * state into the buffer at the stage's first ACCESS, anchoring both its
-   * snapshot reads and its commit baseline (the net-change diff base) there.
-   * #13's first cut anchored the lazy buffer at first WRITE — observably
-   * different when something else commits in the gap between this stage's
-   * first read and its first write. That gap is REACHABLE: fork siblings are
-   * namespace-isolated for run-scoped keys (each child writes under
-   * `runs/<childId>/`), but ROOT-level keys are shared — written via
-   * `setGlobal` from consumer scope code and, critically, by
-   * `SubflowInputMapper`'s output mapping (`parentContext.setGlobal`), which
-   * is exactly what runs when a subflow is a fork branch. A sibling's
-   * root-key commit landing in the gap would shift this stage's diff base,
-   * making its CommitBundle record a phantom change (or swallow a real one)
-   * relative to the eager engine. Anchoring the view at first touch restores
-   * the EXACT eager semantics — sequential AND parallel — at zero clone cost.
-   *
-   * Read visibility is two-tier, matching eager byte-for-byte: keys present
-   * in the view at first touch read repeatably from it; keys ABSENT from it
-   * fall back to LIVE state (the eager engine's exact fallback — a
-   * mid-flight sibling root-key write was always visible to reads, and
-   * stays visible; only the DIFF BASE is pinned).
+   * Write and read at ANOTHER frame's address (its run namespace) while this
+   * frame keeps its own identity on the record — `stage`, `stageId`,
+   * `runtimeStageId`, tags. A subflow mount's merge-back is the one caller
+   * (`SubflowExecutor · executeSubflow`, R13): the mount frame of a branch or
+   * fork child lands its values where its parent writes, as before, and its
+   * bundle now names the mount instead of the stage before it. Refused once
+   * the frame has staged anything — its buffer's address is fixed then. The
+   * decision is the engine's (namespace ids, as since R13); the record frame
+   * takes the address it comes to (`RecordFrame · useAddress`).
    */
-  private firstTouchState(): Record<string, unknown> {
-    if (!this.stateView) {
-      this.stateView = this.sharedMemory.getState();
-    }
-    return this.stateView;
-  }
-
-  /** Lazily creates the transaction buffer on the stage's FIRST WRITE (#13).
-   *
-   *  Reads NEVER construct it: read-your-writes only matters once a staged
-   *  write exists, so before that {@link getValue}/{@link getValueDirect}
-   *  serve from the first-touch state view and {@link commit} records an
-   *  empty bundle — all with ZERO `structuredClone`s of the shared state.
-   *
-   *  The buffer's base is the FIRST-TOUCH view, NOT the live state at write
-   *  time: under parallel forks a sibling may have committed between this
-   *  stage's first read and this write, and the net-change diff base must
-   *  stay anchored at first touch to match the eager engine — see
-   *  {@link firstTouchState}. */
-  getTransactionBuffer(): TransactionBuffer {
-    if (!this.buffer) {
-      // Per-write provenance (#P1): hand the buffer a live view of this
-      // stage's read prefix — evaluated AT EACH WRITE, so each staged op
-      // captures exactly the reads that preceded it (temporal prefix).
-      const readKeysProvider =
-        this.policy.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
-      // The stage's address (9.30.0: the admitted record reads the containers
-      // there as where the stage writes, never as a value it read).
-      this.buffer = new TransactionBuffer(
-        this.firstTouchState(),
-        this.policy.commitValues,
-        readKeysProvider,
-        this.address,
+  useAddressOf(frame: StageContext): void {
+    if (this.record.hasStaged && frame.namespaceId !== this.namespaceId) {
+      throw new Error(
+        `[footprint] StageContext.useAddressOf: '${this.stageId}' has already staged writes at its own address.`,
       );
     }
-    return this.buffer;
-  }
-
-  /**
-   * Where this frame writes and reads: `['runs', <id>]`, or `[]` (the root) with
-   * no run id. Handed to the record layer as data (C2): the buffer's address,
-   * and where `SharedMemory · getValue` looks before the root.
-   */
-  private get address(): string[] {
-    return this.namespaceId ? [RUN_NAMESPACE, this.namespaceId] : [];
-  }
-
-  /** Builds an absolute path inside the shared memory: this frame's {@link address}, then the path. */
-  private withNamespace(path: string[], key: string): string[] {
-    // Spelled out, not `[...this.address, …]`: every read and write builds one, and the spread
-    // allocates the address array per call (+3% on a namespaced frame's read/write loop).
-    const id = this.namespaceId;
-    return id ? [RUN_NAMESPACE, id, ...path, key] : [...path, key];
+    this.addressRunId = frame.namespaceId;
+    this.record.useAddress(runAddress(this.namespaceId));
   }
 
   /** The run namespace writes and reads go to: {@link addressRunId}, else `runId`. */
@@ -552,28 +485,10 @@ export class StageContext {
     return this.addressRunId ?? this.runId;
   }
 
-  /**
-   * Write and read at ANOTHER frame's address (its run namespace) while this
-   * frame keeps its own identity on the record — `stage`, `stageId`,
-   * `runtimeStageId`, tags. A subflow mount's merge-back is the one caller
-   * (`SubflowExecutor · executeSubflow`, R13): the mount frame of a branch or
-   * fork child lands its values where its parent writes, as before, and its
-   * bundle now names the mount instead of the stage before it. Refused once
-   * the frame has staged anything — its buffer's address is fixed then.
-   */
-  useAddressOf(frame: StageContext): void {
-    if (this.buffer && frame.namespaceId !== this.namespaceId) {
-      throw new Error(
-        `[footprint] StageContext.useAddressOf: '${this.stageId}' has already staged writes at its own address.`,
-      );
-    }
-    this.addressRunId = frame.namespaceId;
-  }
-
   // ── Write operations ───────────────────────────────────────────────────
 
   patch(path: string[], key: string, value: unknown, shouldRedact = false): RedactionVerdict {
-    return this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'set');
+    return this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'set');
   }
 
   set(path: string[], key: string, value: unknown) {
@@ -581,7 +496,7 @@ export class StageContext {
   }
 
   merge(path: string[], key: string, value: unknown, shouldRedact?: boolean): RedactionVerdict {
-    return this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'merge');
+    return this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'merge');
   }
 
   setObject(
@@ -598,8 +513,8 @@ export class StageContext {
     // set-of-undefined — byte-identical to the historical flattening.
     const verdict =
       operationOverride === 'delete'
-        ? this.stageWrite(this.withNamespace(path, key), path, key, undefined, shouldRedact, 'delete')
-        : this.stageWrite(this.withNamespace(path, key), path, key, value, shouldRedact, 'set');
+        ? this.stageWrite(this.record.at(path, key), path, key, undefined, shouldRedact, 'delete')
+        : this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'set');
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
     this.trackWrite(userKeyOf(path, key), value, verdict, operationOverride ?? 'set');
@@ -660,35 +575,6 @@ export class StageContext {
 
   // ── Read operations ────────────────────────────────────────────────────
 
-  /** Buffer-aware read, mirroring the eager engine's read order byte-for-byte:
-   *
-   *    1. staged writes + first-touch snapshot — `buffer.get` over its
-   *       workingCopy when the buffer exists, else `nativeGet` over the
-   *       zero-clone state view (the buffer's base IS that view, so the two
-   *       tiers agree on content);
-   *    2. LIVE state via `sharedMemory.getValue` for keys absent from the
-   *       snapshot — including its run→global namespace fallback. The eager
-   *       engine had this exact live fallback for snapshot-missing keys;
-   *       byte-identity over purity. After the stage's first write such a
-   *       value can be the very container the buffer's diff base holds at
-   *       the path (the stage deleted or unset it, or replaced a container
-   *       above it), so the base is detached there first
-   *       (`TransactionBuffer · detachBase`): an in-place edit of the value
-   *       (out of contract) written back is recorded, as on 9.28.0, whose
-   *       base was a clone taken at the first write.
-   *
-   *  Reads never construct the buffer (#13): a stage that never writes
-   *  performs zero clones of the shared state. */
-  private readState(path: string[], key?: string): unknown {
-    const namespaced = this.withNamespace(path, key as string);
-    const fromSnapshot = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
-    if (typeof fromSnapshot !== 'undefined') return fromSnapshot;
-    const live = this.sharedMemory.getValue(this.address, path, key);
-    // Tier 2 after the first write: keep the diff base exact (see above).
-    if (this.buffer && live !== null && typeof live === 'object') this.buffer.detachBase(namespaced);
-    return live;
-  }
-
   /**
    * Tracked read. The returned value is BORROWED — see the contract on
    * `ScopeFacade.getValue`. Read-tracking cost is policy-gated (#14):
@@ -696,12 +582,11 @@ export class StageContext {
    * `'summary'` records a cheap marker, `'off'` records nothing.
    */
   getValue(path: string[], key?: string, description?: string) {
-    const value = this.readState(path, key);
-    // Per-write provenance registry (#P1) — key strings only, independent of
-    // the readTracking retention dial (which governs VALUE retention below).
-    if (key !== undefined && this.policy.writeProvenance === 'reads-prefix') {
-      (this._provenanceReads ??= new Set()).add(path.length > 0 ? [...path, key].join('.') : key);
-    }
+    // The record frame serves the value (two tiers) and keeps the per-write
+    // provenance registry (#P1) — key strings only, independent of the
+    // readTracking retention dial (which governs VALUE retention below).
+    const value = this.record.read(path, key);
+    if (key !== undefined) this.record.noteRead(path, key);
     // The verdict, once — for the retained read below and the selected-read
     // count (`selectedReads`). No policy and no marks → no verdict call, no
     // allocation (activeRule).
@@ -718,7 +603,7 @@ export class StageContext {
     if (key !== undefined && this.policy.readTracking !== 'off') {
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
       else if (this.policy.readTracking === 'full' && isDevMode()) {
-        if (this.buffer) this._viewReads?.delete(key);
+        if (this.record.hasStaged) this._viewReads?.delete(key);
         else (this._viewReads ??= new Set()).add(key);
       }
       this._stageReads[userKeyOf(path, key)] =
@@ -746,19 +631,19 @@ export class StageContext {
   /** Read state without tracking in _stageReads or paying structuredClone cost.
    *  Used by ScopeFacade.getValueSilent() for array proxy internal operations. */
   getValueDirect(path: string[], key?: string): unknown {
-    return this.readState(path, key);
+    return this.record.read(path, key);
   }
 
   getRoot(key: string) {
-    return this.sharedMemory.getValue(this.address, [], key);
+    return this.record.readLive(key);
   }
 
   getGlobal(key: string) {
-    return this.sharedMemory.getValue([], [], key);
+    return this.record.readGlobal(key);
   }
 
   getScope(): Record<string, unknown> {
-    return this.sharedMemory.getState();
+    return this.record.state.getState();
   }
 
   getRunId(): string {
@@ -808,8 +693,8 @@ export class StageContext {
    * those are engine reads (the subflow merge-back), not user reads.
    *
    * It also only looks at keys served from the PINNED source — the first-touch
-   * view or this stage's own buffer. A key absent from both was served by
-   * `readState`'s live fallback, which a parallel sibling's root-key commit can
+   * view or this stage's own buffer. A key absent from both was served by the
+   * read's live fallback (`RecordFrame · read`, tier 2), which a parallel sibling's root-key commit can
    * legitimately move; accusing the stage there would be a false alarm. For
    * the same reason it runs on the frame's FIRST commit only: the reads belong
    * to that round, and by the engine's second round (a fork double-commit, a
@@ -835,8 +720,8 @@ export class StageContext {
       if (retained === null || typeof retained !== 'object') continue;
       if (this._nestedReads?.has(key)) continue;
       if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
-      const namespaced = this.withNamespace([], key);
-      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.buffer?.wasStaged(namespaced)) {
+      const namespaced = this.record.at([], key);
+      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.record.wasStaged(namespaced)) {
         this.warnOnCommittedMutation(key, namespaced, retained);
         continue;
       }
@@ -844,7 +729,7 @@ export class StageContext {
       // The pinned source only — see the note on the live fallback above.
       // `peek`, not `get`: a report compares, and must not take the private
       // copy a stage's read would (copy-on-write, 9.29.0).
-      const current = this.buffer ? this.buffer.peek(namespaced) : nativeGet(this.firstTouchState(), namespaced);
+      const current = this.record.peek(namespaced);
       if (current === undefined) continue;
 
       const path = firstDifferingPath(retained, current);
@@ -857,7 +742,7 @@ export class StageContext {
   /** The staged-key half of {@link warnOnBorrowedMutation}: did committed state itself move under a read? */
   private warnOnCommittedMutation(key: string, namespaced: string[], retained: unknown): void {
     if (!this._viewReads?.has(key)) return;
-    const committed = nativeGet(this.firstTouchState(), namespaced);
+    const committed = this.record.baseAt(namespaced);
     if (committed === undefined) return;
     const path = firstDifferingPath(retained, committed);
     if (path === undefined) return;
@@ -877,21 +762,16 @@ export class StageContext {
    * `outputMapper` (a lazy mount, every `parallelForEach` branch), whose exit
    * is its only bundle, records that bundle as its own, tags and all.
    *
-   * Commit is the stage's lifecycle end: `buffer` (its working copy and
-   * whatever private copies its reads took) and `stateView` (a reference that
-   * pins one committed-state GENERATION) are only needed DURING execution,
-   * as the read snapshot + net-change diff base. The execution tree retains
-   * every StageContext for the lifetime of the run, so WITHOUT the release a
-   * long loop retains one state generation per executed stage — measured
-   * O(N²) before copy-on-write (9.29.0), when each generation and each
-   * buffer was a whole-state clone: 563.8MB at N=200 on an agent-style
-   * chart; a 500-iteration agent OOMed a default Node heap (backlog #18).
-   * Generations now share every unchanged subtree, but a pinned one still
-   * keeps the containers later commits replaced alive.
+   * Commit is the stage's lifecycle end: the record frame's buffer and
+   * first-touch base are only needed DURING execution, as the read snapshot +
+   * net-change diff base, so the record frame releases them once the commit
+   * has landed and the observer has seen it (`RecordFrame · release` — why a
+   * frame that kept them would retain one state generation per executed
+   * stage, and why a re-used frame re-anchors on current state, is there).
    *
-   * RE-USE AFTER COMMIT stays correct because both fields re-create lazily:
-   * - a later READ re-anchors via {@link firstTouchState} on the CURRENT
-   *   committed state (which includes this stage's own flushed writes);
+   * RE-USE AFTER COMMIT stays correct because both re-create lazily:
+   * - a later READ re-anchors on the CURRENT committed state (which includes
+   *   this stage's own flushed writes);
    * - a later WRITE constructs a fresh buffer on that re-anchored view, so a
    *   second commit diffs against post-first-commit state. The pre-release
    *   buffer behaved the same for VALUES (its `workingCopy` was reset on
@@ -915,20 +795,17 @@ export class StageContext {
     const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
-    // The record's half (`recordCommit.ts`). No buffer = no write ever built
-    // one (#13): the commit is empty by construction, recorded with ZERO clones.
-    recordCommit(
-      this.buffer?.commit(),
-      {
-        stage: this.stageName,
-        stageId: this.stageId,
-        runtimeStageId: this.runtimeStageId,
-        untrackedSources: this._untrackedSources,
-        tags: this.tags,
-        phase: continuation,
-      },
-      { state: this.sharedMemory, mirror: this.redactedSharedMemory, log: this.eventLog },
-    );
+    // The record's half (`RecordFrame · commit` → `recordCommit.ts`). No buffer
+    // = no write ever built one (#13): the commit is empty by construction,
+    // recorded with ZERO clones. The names are read once the payload is built.
+    this.record.commit(() => ({
+      stage: this.stageName,
+      stageId: this.stageId,
+      runtimeStageId: this.runtimeStageId,
+      untrackedSources: this._untrackedSources,
+      tags: this.tags,
+      phase: continuation,
+    }));
     // The observer (ScopeFacade) sees the tracked mutations, THEN the staging
     // state is released (#13b), so it sees the world as it was. D2's markers
     // and the declared tags release with it — one stamp per execution, so the
@@ -936,8 +813,7 @@ export class StageContext {
     if (this._commitObserver) {
       this._commitObserver({ ...this._stageWrites });
     }
-    this.buffer = undefined;
-    this.stateView = undefined;
+    this.record.release();
     this._untrackedSources = undefined;
     this.tags = undefined;
     this._committed = true;
@@ -954,20 +830,18 @@ export class StageContext {
    * (M1: the transaction buffer holds writes until `commit()` flushes them).
    *
    * What is released, and why each one matters for the next attempt:
-   *  - `buffer`      — the staged writes themselves; the next attempt starts
-   *                    with nothing staged;
-   *  - `stateView`   — the first-touch anchor; the next attempt re-anchors on
-   *                    committed state as it stands NOW (a sibling fork branch
-   *                    may legitimately have committed in between);
+   *  - the record frame's staged state (`RecordFrame · discard`) — the buffer
+   *                    (the next attempt starts with nothing staged), the
+   *                    first-touch base (it re-anchors on committed state as
+   *                    it stands NOW — a sibling fork branch may legitimately
+   *                    have committed in between) and the readKeys list (#P1:
+   *                    a discarded attempt's reads must never reach the next
+   *                    attempt's `TraceEntry.readKeys`);
    *  - `_stageWrites` / `_pendingWrites` / `_stageReads` — the snapshot
    *                    payload; without the reset the execution tree would
    *                    report writes that were discarded, which is the exact
    *                    lie this feature exists to prevent (the pending map
    *                    holds bare references — dropping it un-clones nothing);
-   *  - `_provenanceReads` — the per-write read prefix (#P1); a discarded
-   *                    attempt's reads must never appear in the next attempt's
-   *                    `TraceEntry.readKeys`, or a backward slice would follow
-   *                    an edge that no committed write ever had;
    *  - `_untrackedSources` — the D2 honesty markers, released with the rest.
    *
    * What is deliberately KEPT: `debug` (logs, metrics, errors, flow messages).
@@ -978,10 +852,8 @@ export class StageContext {
    * cursor stop, because from shared state's point of view it never happened.
    */
   discardStaged(): void {
-    this.buffer = undefined;
-    this.stateView = undefined;
+    this.record.discard();
     this._untrackedSources = undefined;
-    this._provenanceReads = undefined;
     this._pendingWrites = undefined;
     this._stageWrites = {};
     this._stageReads = {};
@@ -1003,7 +875,7 @@ export class StageContext {
    */
   createNext(path: string, stageName: string, stageId: string, isDecider = false): StageContext {
     if (!this.next) {
-      this.next = new StageContext(path, stageName, stageId, this.sharedMemory, '', this.eventLog, isDecider);
+      this.next = new StageContext(path, stageName, stageId, this.record.state, '', this.record.log, isDecider);
       this.next.parent = this;
       this.next.inheritRun(this);
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
@@ -1021,7 +893,7 @@ export class StageContext {
     if (!this.children) {
       this.children = [];
     }
-    const child = new StageContext(runId, stageName, stageId, this.sharedMemory, branchId, this.eventLog, isDecider);
+    const child = new StageContext(runId, stageName, stageId, this.record.state, branchId, this.record.log, isDecider);
     child.parent = this;
     child.inheritRun(this);
     this.children.push(child);

@@ -32,7 +32,7 @@ A single shared store that all stages read from and write to, with automatic nam
 
 **Why not just a plain object?** Namespace isolation. Run A's `result` key must not collide with Run B's `result` key. Every value is written at an ADDRESS — a path prefix such as `['runs', 'run-1']` — so each flowchart execution (run) gets its own isolated address space. A read looks at the address first and falls back to the root — same as CSS inheritance or prototype chains — so you can set global defaults that any run overrides.
 
-**The write address is data (C2).** SharedMemory never names a namespace of its own. The engine decides where a frame writes — `['runs', <runId>]` for a frame with a run id (at the top level, a fork or selector child takes its own id), `[]` (the root) otherwise — from ONE constant in the frame (`StageContext.ts · RUN_NAMESPACE`, L4, read by `address` and `withNamespace`). The record layer takes the address as data, as a path prefix, wherever it reads or writes at one — `SharedMemory · getValue` / `setValue` / `updateValue`, `utils · setNestedValue` / `updateNestedValue` / `getRunAndGlobalPaths`, and the buffer (`TransactionBuffer`'s `address`, 9.30.0) — and refuses an address that is not an array. The frame hands it to two of them: the buffer, and `SharedMemory · getValue` (a read served from live state, `getRoot`, `getGlobal`). The default values seed the root, and the container AT an address when a write creates it. Before C2 these took a run id and spelled `runs/<id>` themselves; the engine writes the same bytes. `test/architecture/write-address.test.ts` fails when an L0–L3 file names the namespace — a `'runs'` literal, or `runs` as a property — outside its shrinking exception list (today: `RedactionRule · verdictOfRead` and `retainState`, until C4 moves `redaction.ts` to L4).
+**The write address is data (C2).** SharedMemory never names a namespace of its own. The engine decides where a frame writes — `['runs', <runId>]` for a frame with a run id (at the top level, a fork or selector child takes its own id), `[]` (the root) otherwise — from ONE constant in the frame (`StageContext.ts · RUN_NAMESPACE`, L4, read by `runAddress`). The record layer takes the address as data, as a path prefix, wherever it reads or writes at one — `SharedMemory · getValue` / `setValue` / `updateValue`, `utils · setNestedValue` / `updateNestedValue` / `getRunAndGlobalPaths`, and the buffer (`TransactionBuffer`'s `address`, 9.30.0) — and refuses an address that is not an array. The engine's frame builds it once, when the frame is built (`runAddress`); its record frame holds it (`RecordFrame · address`, C3, [below](#the-record-half-of-the-frame--recordframets-l3-c3)) and hands it to two of them: the buffer, and `SharedMemory · getValue` (a read served from live state, `getRoot`, `getGlobal`). The default values seed the root, and the container AT an address when a write creates it. Before C2 these took a run id and spelled `runs/<id>` themselves; the engine writes the same bytes. `test/architecture/write-address.test.ts` fails when an L0–L3 file names the namespace — a `'runs'` literal, or `runs` as a property — outside its shrinking exception list (today: `RedactionRule · verdictOfRead` and `retainState`, until C4 moves `redaction.ts` to L4).
 
 ```typescript
 import { SharedMemory } from 'footprintjs/advanced';
@@ -188,7 +188,7 @@ log.filter((b) => b.stageId === 'sf-pay').map((b) => b.phase); // [undefined, 'e
 log.filter((b) => b.stageId === 'child-a').map((b) => b.phase); // [undefined, 'repeat']
 ```
 
-**One commit onto the record — `recordCommit.ts` (L3, C1).** A commit has two halves. The frame's half (`StageContext · commit`, L4) decides WHAT is committed — the buffer's payload, the stage's names, whether the bundle is a continuation — and runs what is not the record around it: retention (`materialiseWrites`), the dev-mode warnings, the commit observer and the release of the staging state (diagnostics stay on the frame too; a commit never writes them). The record's half is ONE function, `recordCommit(payload, stamp, { state, mirror?, log? })`, the only code that shapes a bundle's bytes. Its law:
+**One commit onto the record — `recordCommit.ts` (L3, C1).** A commit has two halves. The frame's half (`StageContext · commit`, L4) decides WHAT is committed — the buffer's payload (through its record frame, `RecordFrame · commit`, since C3), the stage's names, whether the bundle is a continuation — and runs what is not the record around it: retention (`materialiseWrites`), the dev-mode warnings, the commit observer and the release of the staging state (diagnostics stay on the frame too; a commit never writes them). The record's half is ONE function, `recordCommit(payload, stamp, { state, mirror?, log? })`, the only code that shapes a bundle's bytes. Its law:
 
 1. **No payload** (the stage staged no write) → an empty bundle goes to the log and nothing else moves: live state and the mirror keep their generation. Every executed stage is still a cursor stop.
 2. **A payload** → its names are read first, so a stamp that cannot be read fails the commit before anything moves; then its raw rows build live state's next generation, `scrubPatch` puts `'REDACTED'` at each redacted path that holds a value (in a spine copy, never in the raw patch), and the mirror and the log take the scrubbed rows — never the raw ones.
@@ -225,13 +225,13 @@ look.tags; // ['audit'] — after `runtimeStageId`, present because the stage de
 
 ### 4. StageContext — "The Stack Frame"
 
-Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and provides tree navigation.
+Per-stage execution context. Composes a `RecordFrame` — the record half: the heap, the address, the first-touch base, the lazy TransactionBuffer, the readKeys list ([below](#the-record-half-of-the-frame--recordframets-l3-c3)) — and provides tree navigation.
 
-**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, the frame takes its retained writes and runs its dev-mode checks, then hands the record's half to `recordCommit` ([above](#3-eventlog--git-history)) — patches applied to SharedMemory, scrubbed for the mirror, recorded to EventLog — and finally tells the commit observer. That one call is what makes traces connected — the execution and the history stay in sync without the stage author thinking about it.
+**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, the frame takes its retained writes and runs its dev-mode checks, then its record frame hands the record's half to `recordCommit` ([above](#3-eventlog--git-history)) — patches applied to SharedMemory, scrubbed for the mirror, recorded to EventLog — and finally tells the commit observer. That one call is what makes traces connected — the execution and the history stay in sync without the stage author thinking about it.
 
 **Why does this exist? Why not hand stages a TransactionBuffer directly?** Because a stage needs more than read/write:
 
-- **Namespace scoping** — Stage writes `result`, it lands at `runs/{id}/result`. The stage doesn't know about namespacing; the frame does, and hands the record layer the address (`StageContext · address`, [C2](#1-sharedmemory--the-heap)).
+- **Namespace scoping** — Stage writes `result`, it lands at `runs/{id}/result`. The stage doesn't know about namespacing; the frame does, and hands the record layer the address (`StageContext.ts · runAddress`, [C2](#1-sharedmemory--the-heap); its record frame holds it).
 - **Tree structure** — Stages form a tree (next, children, parent). The engine traverses this tree for execution. Snapshots capture the full shape.
 - **Commit orchestration** — `commit()` runs the record's half (`recordCommit`: SharedMemory + mirror + EventLog) between the frame's own steps. If stages managed this themselves, someone would forget to record history and the trace would have a gap.
 
@@ -245,9 +245,41 @@ const next = ctx.createNext('run-1', 'process', 'process');
 const child = ctx.createChild('run-1', 'branch-1', 'parallelTask', 'parallelTask');
 ```
 
-**Key design decision:** TransactionBuffer is lazily created — you only pay the `structuredClone` cost if the stage actually writes. Many stages are read-only; lazy instantiation saves real time.
+**Key design decision:** TransactionBuffer is lazily created (`RecordFrame · getTransactionBuffer`) — you only pay for it if the stage actually writes. Many stages are read-only; lazy instantiation saves real time.
 
-**Key design decision — staging state is released at commit (#13b).** `commit()` nulls both the buffer (2 full-state clones) and the first-touch state view (a reference pinning one full committed-state generation) at its end; both re-create lazily if the context is touched again, so engine double-commit paths are observably identical. Without the release, the execution tree — which retains every StageContext for the lifetime of the run — pinned one state generation + two clones per executed stage: O(N²) retained heap on loop charts (the #18 finding; 849MB at 500 iterations, OOM for the full agent). See `docs/guides/execution-model.md` § "Staging-state lifetime".
+**Key design decision — staging state is released at commit (#13b).** `commit()` releases both the buffer and the first-touch base (a reference pinning one committed-state generation) at its end, after the commit observer has run (`RecordFrame · release`); both re-create lazily if the context is touched again, so engine double-commit paths are observably identical. Without the release, the execution tree — which retains every StageContext for the lifetime of the run — pinned one state generation + two clones per executed stage: O(N²) retained heap on loop charts (the #18 finding; 849MB at 500 iterations, OOM for the full agent). See `docs/guides/execution-model.md` § "Staging-state lifetime".
+
+#### The record half of the frame — `RecordFrame.ts` (L3, C3)
+
+A frame is two halves. `StageContext` (L4) is a stage inside a run: the run's policy, the retention of what the stage read and wrote (`stageReads` / `stageWrites`), the redaction verdict per write, the dev-mode warnings, the commit observer, the diagnostics and the tree. `RecordFrame` (L3) is what the stage needs to read and write the RECORD: the heap (and, when the run keeps them, the redacted mirror and the log), the address, the first-touch base, the lazy transaction buffer and the readKeys list. `StageContext` composes one; every state read and every commit of the stage goes through it. Its law:
+
+1. **Address.** It reads and writes at an address, a path prefix the engine builds once from the frame's run id (`StageContext.ts · runAddress`, [C2](#1-sharedmemory--the-heap)); `runId` is read when the frame is built and is `readonly`. Only `StageContext · useAddressOf` (a mount's merge-back, R13) moves it, and only before the frame's first write — it refuses after, and the frame takes the address it comes to (`RecordFrame · useAddress`); the buffer keeps the address it was built at.
+2. **First touch.** The committed generation the frame first touched — its first read OR first write — is held by reference, never cloned: the read view before the first write and the buffer's net-change diff base after it. A sibling's commit landing between the two is no phantom change.
+3. **Two tiers.** A read is served from the stage's own view (the buffer's working copy once it wrote, else the first-touch base); a key absent there from LIVE state, at the address and then the root. After the first write, the buffer's diff base is first given a private copy at that path (`TransactionBuffer · detachBase`), so an in-place edit of the value, written back, is still recorded.
+4. **Lazy buffer.** Built at the first write — on the first-touch base, at the address, under the run's encoding (`commitValues`, `writeProvenance`: `RecordFrame · useEncoding`, the run's policy by reference). A frame that never writes builds none, and its commit is the empty bundle, with zero clones.
+5. **readKeys.** Under `writeProvenance: 'reads-prefix'` every tracked read puts its user-level key (dotted for a nested path) on the frame's list, once, in order; each staged row carries a copy of the list as it stands then.
+6. **Commit, release, discard.** `commit(stampOf)` takes the payload from the buffer, then the names (`stampOf()`, read once the payload is built: a getter on a staged value that marks the stage while its values are taken counts), and hands both to `recordCommit`. `release()` drops the buffer and the base — after the commit observer has run, so an observer that reads through the frame still finds the committed buffer; a frame touched again re-anchors on the state as it stands then. The readKeys list survives a release and goes with `discard()` (a failed retry attempt).
+
+Before C3 all of this lived in `StageContext` (`firstTouchState`, `readState`, `getTransactionBuffer`, `_provenanceReads`, `address`, `withNamespace`). The move is byte-identical: the record-byte fixtures pass unmodified. `RecordFrame` has tests of its own that build no engine (`test/lib/memory/unit/RecordFrame.test.ts`). Not moved yet: the bytes of a redaction verdict — `StageContext · stageWrite` still stages through the frame's buffer (`set` / `merge` / `delete`, `markRedactedFields`); C4 gives the frame one `write`.
+
+```typescript
+import { EventLog, SharedMemory, StageContext } from 'footprintjs/advanced';
+
+const heap = new SharedMemory(undefined, { k: 1 });
+const log = new EventLog(heap.getState());
+const stage = new StageContext('', 'reader', 'reader', heap, '', log);
+stage.getValue([], 'k'); // 1 — the first touch pins this generation (law 2)
+
+const sibling = new StageContext('', 'sibling', 'sibling', heap, '', log);
+sibling.setGlobal('k', 2);
+sibling.commit(); // live state moves under the reader's feet
+
+stage.getValue([], 'k'); // 1 — the stage's own view is repeatable (law 3)
+stage.getRoot('k'); // 2 — a live read
+stage.setObject([], 'k', 1); // the first write builds the buffer on the first-touch base (law 4)
+stage.commit();
+log.list()[1].trace; // [] — against the first touch, writing 1 changed nothing
+```
 
 **Read values are borrowed — do not mutate them.** Since the lazy buffer (#13), a read before the stage's first write returns a reference INTO COMMITTED SHARED STATE (the zero-clone first-touch view); a read after a write returns a reference into the buffer's working copy. Mutating a returned value in place corrupts state without a commit record — write changes back through `setObject`/`updateObject` (or, at the scope tier, `setValue`/`updateValue`). TypedScope consumers are safe automatically (the proxy routes every mutation through tracked writes). There is deliberately no dev-mode deep-freeze guard: freezing a buffer-served read would freeze the stage's own working copy (a later deep write into the same key throws), and freezing a committed-state read mutates an object shared with every other consumer of the live state — neither is a safe guard, so the contract is documented instead.
 
@@ -345,26 +377,27 @@ The full flow for a single stage:
 
 2. Stage function receives a scope object (built from StageContext by the scope layer)
 
-3. Stage writes → StageContext → TransactionBuffer
+3. Stage writes → StageContext → its RecordFrame → TransactionBuffer
    (buffer constructed lazily on the stage's FIRST write — #13; since 9.29.0
     it holds committed state by reference and copies only the paths written)
    (staged in buffer, not applied to shared memory yet)
    (every write recorded in operation trace)
 
-4. Stage reads → StageContext → TransactionBuffer (if a write created one) → SharedMemory (fallback)
+4. Stage reads → StageContext → its RecordFrame → TransactionBuffer (if a write created one), else
+   the first-touch base → SharedMemory (fallback, live)
    (read-after-write: sees own uncommitted writes)
    (after the first write: a read of committed state is the stage's own copy — once per container)
    (before any write: reads go straight to SharedMemory — zero clones, borrowed)
 
 5. Stage finishes → engine calls ctx.commit():
    a. the frame's half             → retained writes taken, dev-mode checks run
-   b. TransactionBuffer.commit()   → returns { overwrite, updates, redactedPaths, trace }
+   b. RecordFrame.commit()         → TransactionBuffer.commit() returns { overwrite, updates, redactedPaths, trace }
       (no buffer = stage never wrote → empty bundle recorded, zero clones)
    c. recordCommit()               → the record's half (recordCommit.ts):
       SharedMemory.applyPatch()    → the next generation: written paths copied, the rest shared (visible to next stage)
       scrubPatch() + mirror        → 'REDACTED' at redacted paths, applied to the redacted mirror
       EventLog.record()            → history recorded in the bundle's one key order, frozen (replayable)
-   d. commit observer              → ScopeRecorder.onCommit; staging state released
+   d. commit observer              → ScopeRecorder.onCommit; then RecordFrame.release() drops the buffer and the base
 
 6. Next stage gets a fresh StageContext → same SharedMemory, fresh (lazy) buffer
 ```
@@ -592,9 +625,13 @@ Adding a code is one new line in `HONESTY_CODES`. A union declared through `Regi
 ```
 This library has ZERO dependencies on other footprint libraries.
 
-  StageContext (L4) — the frame; it also holds SharedMemory, EventLog and the RedactionRule itself
-     |               \                       \
-  recordCommit (L3)   TransactionBuffer (L2)   DiagnosticCollector (L4)
+  StageContext (L4) — a stage inside a run: the policy (and its RedactionRule), retention, the verdict per write,
+     |                 the dev-mode warnings, the commit observer
+     |                                     \
+  RecordFrame (L3) — the record half         DiagnosticCollector (L4)
+     |   the heap, the mirror, the log; the address; the first-touch base; the lazy buffer; the readKeys list
+     |                  \
+  recordCommit (L3)   TransactionBuffer (L2)
      |   one commit onto the record: SharedMemory.applyPatch · scrubPatch (redaction, L2) · mirror · EventLog.record
      |
   SharedMemory (L2) · EventLog (L3)

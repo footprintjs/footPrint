@@ -11,7 +11,8 @@
  * On an agent-style loop with a growing history key that made retained heap
  * grow O(N²) — 563.8MB at N=200, OOM at N=500 on a default Node heap (#18).
  *
- * #13b: `StageContext.commit()` nulls `buffer` + `stateView` at the end of
+ * #13b: `StageContext.commit()` nulls `buffer` + `stateView` (since C3 the
+ * record frame's buffer and base, `RecordFrame · release`) at the end of
  * BOTH paths (no-buffer fast path and buffer path). Both fields re-create
  * lazily, so re-use after commit (fork double-commit, subflow outputMapper
  * double-commit, engine post-commit writes) stays observably identical —
@@ -35,16 +36,22 @@ import { describe, expect, it } from 'vitest';
 import type { PausableHandler } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
+import type { RecordFrame } from '../../../../src/lib/memory/RecordFrame';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 import type { CommitBundle } from '../../../../src/lib/memory/types';
 
 type Loose = Record<string, unknown>;
 
-/** Test-only view of the released private fields. */
+/** The record half of a frame (`RecordFrame`, C3) — test-only access to the private field. */
+function recordOf(ctx: StageContext): RecordFrame {
+  return (ctx as unknown as { record: RecordFrame }).record;
+}
+
+/** Test-only view of the released private fields: the buffer and the first-touch base (`stateView` before C3). */
 function staging(ctx: StageContext): { buffer: unknown; stateView: unknown } {
-  const anyCtx = ctx as unknown as { buffer: unknown; stateView: unknown };
-  return { buffer: anyCtx.buffer, stateView: anyCtx.stateView };
+  const frame = recordOf(ctx) as unknown as { buffer: unknown; base: unknown };
+  return { buffer: frame.buffer, stateView: frame.base };
 }
 
 /** Walk the LIVE execution tree (next + children) collecting every context. */
@@ -116,12 +123,12 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
       const { mem, log } = seededMemory();
       const ctx = new StageContext('', 'writer', 'writer', mem, '', log);
       ctx.setGlobal('k', 'v1');
-      const firstBuffer = ctx.getTransactionBuffer();
+      const firstBuffer = recordOf(ctx).getTransactionBuffer();
       ctx.commit();
 
       // Same-value rewrite vs the POST-commit state → net no-change.
       ctx.setGlobal('k', 'v1');
-      const secondBuffer = ctx.getTransactionBuffer();
+      const secondBuffer = recordOf(ctx).getTransactionBuffer();
       expect(secondBuffer).not.toBe(firstBuffer);
       ctx.commit();
 

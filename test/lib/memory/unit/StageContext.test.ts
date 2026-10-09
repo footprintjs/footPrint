@@ -442,6 +442,25 @@ describe('StageContext', () => {
     });
   });
 
+  describe('runId — read once, when the frame is built (C3)', () => {
+    it('an assignment afterwards changes the id the frame reports, not where it reads and writes', () => {
+      const mem = new SharedMemory(undefined, { k: 'root', runs: { p1: { k: 'p1' }, p2: { k: 'p2' } } });
+      const log = new EventLog(mem.getState());
+      const ctx = new StageContext('p1', 's', 's', mem, '', log);
+      expect(ctx.getValue([], 'k')).toBe('p1');
+      (ctx as { runId: string }).runId = 'p2'; // `readonly` in the type; a JavaScript caller can still assign
+      expect(ctx.getRunId()).toBe('p2');
+      expect(ctx.getStageId()).toBe('p2.s');
+      expect(ctx.getValue([], 'k')).toBe('p1'); // the address is the frame's, decided at construction
+      expect(ctx.getRoot('k')).toBe('p1');
+      ctx.setObject([], 'w', 1);
+      ctx.runtimeStageId = 's#0';
+      ctx.commit();
+      expect(mem.getState().runs).toEqual({ p1: { k: 'p1', w: 1 }, p2: { k: 'p2' } });
+      expect(log.list()[0].trace).toEqual([{ path: 'runs\u001fp1\u001fw', verb: 'set' }]);
+    });
+  });
+
   describe('namespace with empty runId', () => {
     it('skips runs prefix when runId is empty', () => {
       const mem = new SharedMemory();

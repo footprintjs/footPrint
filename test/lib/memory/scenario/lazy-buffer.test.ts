@@ -347,7 +347,7 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
   // lazy buffer must anchor its zero-clone state view at the same point, NOT
   // at first write, where a concurrent root-key commit landing in the gap
   // would shift the diff base and record a phantom change (or swallow a real
-  // one). See firstTouchState() in StageContext.
+  // one). See `RecordFrame · firstTouch` (`StageContext · firstTouchState` before C3).
   describe('first-touch anchor: concurrent root-key commit in the read→write gap', () => {
     it('commit baseline stays at first touch — rewriting the first-read value nets EMPTY', () => {
       const mem = new SharedMemory();
