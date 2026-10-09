@@ -40,22 +40,47 @@
  * the facade held the verdict alone, and every path that wrote or read past
  * the facade — five of them — retained plaintext under a policy.
  *
- * TWO PLACEHOLDERS, BOTH HISTORICAL: the commit log and the mirror carry
- * `'REDACTED'` (`scrubPatch` / `redactPatch`, below — the strings unchanged since 4.x); every scope-tier view —
- * scope recorder events, `stageReads`/`stageWrites`, narrative — carries
- * `'[REDACTED]'`. Neither string changed in 9.19.0. The strings themselves are
- * owned by `memory/placeholders.ts` (`LOG_PLACEHOLDER` / `SCOPE_PLACEHOLDER`)
- * and spelled nowhere else in `src/` — this rule asks for the scope one by name.
+ * ONE VERDICT OWNER, ONE ENCODING OWNER (C4). This file DECIDES — the rule,
+ * and for a staged write {@link decideWrite} (the verdict),
+ * {@link inheritByIdentity} and {@link markStagedWrite} (the marks) — and is
+ * the engine's (L4, beside the run policy that carries the rule). The BYTES of a
+ * verdict are the record's: the frame hands its scrub (`whole`, or the
+ * `fields` inside the value — {@link scrubOf}) to `RecordFrame · write`, and
+ * the record's own scrub (`memory/scrub.ts`, L2) writes the log's placeholder
+ * at commit. Before C4 the scrub lived here too, so the record imported the
+ * engine's policy module to write a string.
+ *
+ * TWO PLACEHOLDERS, BOTH HISTORICAL, ONE PER OWNER: the commit log and the
+ * mirror carry `'REDACTED'` (`LOG_PLACEHOLDER`, `memory/placeholders.ts` — a
+ * record byte, written by `memory/scrub.ts`); every scope-tier view — scope
+ * recorder events, `stageReads`/`stageWrites`, narrative — carries
+ * `'[REDACTED]'` ({@link SCOPE_PLACEHOLDER}, below — the verdict's own).
+ * Neither string changed in 9.19.0 or since; each is spelled once in `src/`.
  */
 
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
-import { nativeGet, nativeHas, nativeSet, ownedRootOf, ownSpine } from './pathOps.js';
-import { DELIM } from './paths.js';
-import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from './placeholders.js';
-import type { MemoryPatch } from './types.js';
+import { nativeHas } from './pathOps.js';
+import type { WriteScrub, WriteVerb } from './RecordFrame.js';
+import { RUN_NAMESPACE } from './runAddress.js';
+
+/**
+ * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
+ * commit events, the `stageReads` / `stageWrites` retention, the narrative, a decision's evidence, an
+ * emit payload matched by `emitPatterns`, a pause payload's served form and a subflow's narrated seed
+ * (`onSubflowEntry`) — every value this verdict serves, unless its caller passes the log's string.
+ *
+ * Its twin is the RECORD's `LOG_PLACEHOLDER` (`'REDACTED'`, `memory/placeholders.ts`): the commit log,
+ * the redacted mirror and everything served from them. So NOT every recorder event carries this one:
+ * `onSubflowExit.outputState` serves the subflow's redacted mirror when a policy keeps one, and so
+ * carries the log's string (without a mirror — per-call marks alone — it is the subflow's heap
+ * retained under the rule, with this one). Both strings are historical and neither changed when it
+ * moved: this one was the constant `REDACTED` in this file until F4a, then `placeholders.ts ·
+ * SCOPE_PLACEHOLDER`, and since C4 it lives here again, beside the verdict that writes it.
+ */
+export const SCOPE_PLACEHOLDER = '[REDACTED]';
 
 /**
  * Declarative key/path redaction for recorded state and boundary records.
@@ -131,6 +156,17 @@ export type RedactionVerdict =
   | { readonly kind: 'fields'; readonly key: string; readonly paths: readonly string[] };
 
 export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const);
+
+/**
+ * The user-level NAME of `key` under `path` — the key itself at the top level, else the segments
+ * joined by a dot (`['profile'] + 'auth'` → `'profile.auth'`): what a verdict decides on, a mark
+ * holds, and the frame keys a stage's retained reads and writes by (`StageContext`). A name, not an
+ * address — a key may contain a dot — so it never goes into a trace path. No allocation for the
+ * common top-level key. (The record spells the same name for `readKeys`, `RecordFrame · noteRead`.)
+ */
+export function userKeyOf(path: readonly string[], key: string): string {
+  return path.length > 0 ? [...path, key].join('.') : key;
+}
 
 /**
  * Maximum key length (characters) that will be tested against regex redaction
@@ -564,10 +600,12 @@ export class RedactionRule {
     (this.inherited ??= new Map()).set(target, [...new Set([...prior, ...paths])]);
   }
 
-  /** The verdict of a key a mapper read — `runs` (the run namespaces) is selected when any namespaced key is. */
+  /** The verdict of a key a mapper read — `runs` (the run namespaces, `RUN_NAMESPACE`) is selected when any namespaced key is. */
   verdictOfRead(key: string, value: unknown): RedactionVerdict {
     const verdict = this.verdictOfKey(key);
-    if (verdict.kind !== 'clear' || key !== 'runs' || value === null || typeof value !== 'object') return verdict;
+    if (verdict.kind !== 'clear' || key !== RUN_NAMESPACE || value === null || typeof value !== 'object') {
+      return verdict;
+    }
     for (const space of Object.values(value)) {
       if (space === null || typeof space !== 'object') continue;
       for (const inner of Object.keys(space)) {
@@ -740,7 +778,7 @@ export class RedactionRule {
   retainState<T>(state: T, placeholder: string = SCOPE_PLACEHOLDER): T {
     const kept = this.retainRecord(state, placeholder);
     if (kept === null || typeof kept !== 'object') return kept;
-    const runs = (kept as { runs?: unknown }).runs;
+    const runs = (kept as Record<string, unknown>)[RUN_NAMESPACE];
     if (runs === null || typeof runs !== 'object' || Array.isArray(runs)) return kept;
     let scrubbedRuns: Record<string, unknown> | undefined;
     for (const [runId, record] of Object.entries(runs as Record<string, unknown>)) {
@@ -749,7 +787,7 @@ export class RedactionRule {
       scrubbedRuns ??= { ...(runs as Record<string, unknown>) };
       scrubbedRuns[runId] = keptRun;
     }
-    return scrubbedRuns === undefined ? kept : ({ ...(kept as object), runs: scrubbedRuns } as T);
+    return scrubbedRuns === undefined ? kept : ({ ...(kept as object), [RUN_NAMESPACE]: scrubbedRuns } as T);
   }
 
   /** Apply a verdict to a value — see {@link retain}. */
@@ -805,6 +843,110 @@ export class RedactionRule {
       patterns: (this.policy?.patterns ?? []).map((p) => p.source),
     };
   }
+}
+
+// ─── The write decision — one per staged write (C4) ─────────────────────────
+//
+// What the run's rule says about one staged write, and what the write leaves on the rule. Every staged
+// write passes `StageContext · stageWrite` (the one funnel: facade writes, a subflow seed, an
+// `outputMapper` merge-back, a resume re-seed), which runs the four steps in the order the record needs:
+//
+//   1. VERDICT  `decideWrite` — an explicit per-call flag, else the rule that is ACTIVE as the write begins.
+//   2. IDENTITY `inheritByIdentity` — with the frame's selected reads AS THEY STAND after step 1: a policy
+//               pattern is user code, and it can read on the very frame that is writing.
+//   3. BYTES    the caller: `RecordFrame · write(path, value, verb, scrubOf(verdict))`. The record writes
+//               them; it never decides them.
+//   4. MARKS    `markStagedWrite` — only once the write staged: a write that fails to stage marks nothing.
+//
+// Steps 1–2 and step 4 are calls around the write, not one call before it, and each reads the rule when
+// it acts — as the funnel always did, so user code that runs DURING a write (a getter on the value, a
+// pattern's `test`) finds the same rule, and leaves the same marks, as before C4.
+
+/**
+ * Step 1 — THE VERDICT for one staged write: an explicit per-call flag (`setValue(key, value, true)`)
+ * makes the value secret whole under its user-level key; else the `active` rule decides from the
+ * user-level path; with none (no rule, or an inert one — the caller passes `undefined`), clear, with no
+ * verdict call and no path allocation (the no-policy fast path). Marks nothing.
+ *
+ * ```ts
+ * decideWrite(new RedactionRule({ fields: { card: ['number'] } }), [], 'card', false); // { kind: 'fields', key: 'card', paths: ['number'] }
+ * decideWrite(undefined, ['profile'], 'auth', true); // { kind: 'whole', key: 'profile.auth' }
+ * ```
+ */
+export function decideWrite(
+  active: RedactionRule | undefined,
+  path: readonly string[],
+  key: string,
+  explicit: boolean | undefined,
+): RedactionVerdict {
+  if (explicit) return { kind: 'whole', key: userKeyOf(path, key) };
+  return active !== undefined ? active.verdictAt(path, key) : CLEAR;
+}
+
+/**
+ * Step 2 — IDENTITY: an OBJECT the stage read under a selected name (`selected` — the frame's selected
+ * reads, filled by its tracked reads), written under another name (`s.person = s.profile`), keeps that
+ * read's rule, matched by identity: a whole read marks the new key, a `fields` read hands it the fields
+ * (re-based under the written path), and the verdict is asked again. A new object, a primitive, or a
+ * write already whole is selected by its own name only — `verdict` comes back as it is. Decided BEFORE
+ * the write, because the verdict needs it: an inheritance stays even if the write then fails to stage.
+ */
+export function inheritByIdentity(
+  active: RedactionRule | undefined,
+  verdict: RedactionVerdict,
+  selected: WeakMap<object, RedactionVerdict> | undefined,
+  path: readonly string[],
+  key: string,
+  value: unknown,
+): RedactionVerdict {
+  const read =
+    active !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
+      ? selected?.get(value)
+      : undefined;
+  if (read === undefined || active === undefined) return verdict;
+  if (read.kind === 'whole') active.mark(userKeyOf(path, key));
+  else if (read.kind === 'fields') {
+    const at = [...path.slice(1), ...(path.length > 0 ? [key] : [])];
+    active.inheritFields(
+      path[0] ?? key,
+      read.paths.map((field) => [...at, field].join('.')),
+    );
+  }
+  return active.verdictAt(path, key);
+}
+
+/** The scrub of a whole verdict — one frozen object for every write it covers. */
+const WHOLE_SCRUB: WriteScrub = Object.freeze({ whole: true });
+
+/**
+ * Step 3's input — a verdict's BYTES for the record (`RecordFrame · write`): nothing when clear, the
+ * whole value, or the fields inside it. No allocation on the default path (clear) or for a whole verdict.
+ */
+export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
+  if (verdict.kind === 'whole') return WHOLE_SCRUB;
+  return verdict.kind === 'fields' ? { fields: verdict.paths } : undefined;
+}
+
+/**
+ * Step 4 — the MARKS a staged write leaves; call it only once the write staged, so a write that fails to
+ * stage marks nothing. A delete clears its key's mark (and any fields a mapper handed it) on `active`,
+ * the rule that was active as the write BEGAN — none when it was inert, even if user code marked the key
+ * during the write. A whole verdict marks its key — the key that DECIDED it (`verdict.key`: an ancestor
+ * for a nested write under a whole-selected key) — for the rest of the run on `rule`, the run's rule as
+ * it stands NOW (user code during the write may have installed one; an explicit mark is what makes an
+ * inert rule active). A mark is a run-wide NAME: it stays when the stage's commit fails or a retry
+ * discards the attempt — the safe side; only a staged delete removes one.
+ */
+export function markStagedWrite(
+  active: RedactionRule | undefined,
+  rule: RedactionRule | undefined,
+  verdict: RedactionVerdict,
+  path: readonly string[],
+  key: string,
+  verb: WriteVerb,
+): void {
+  if (verb === 'delete') active?.unmark(userKeyOf(path, key));
+  else if (verdict.kind === 'whole') rule?.mark(verdict.key);
 }
 
 // ─── The path walk — one decision per PATH ─────────────────────────────────
@@ -1410,55 +1552,4 @@ export class MapperTaint {
     for (const child of Object.values(value)) if (this.embedsSelected(child, seen)) return true;
     return false;
   }
-}
-
-/**
- * The commit log's scrub: `patch` with {@link LOG_PLACEHOLDER} at every path in `redactedPaths` that
- * holds a defined value — the copy `recordCommit` records and feeds the redacted mirror.
- *
- * CLONE-FREE (9.33.0). The patch is the transaction buffer's commit-time payload, already the record's
- * own copy (`TransactionBuffer · commit` clones each surviving path once; the buffer is dropped at
- * commit), so the scrub copies only what it must not edit in place:
- *   - no path to scrub (no policy, no per-call mark — the common case) → `patch` ITSELF, no copy at all;
- *   - otherwise → a new root and a shallow copy of each container on a scrubbed path (`pathOps ·
- *     ownSpine`), every other subtree shared with `patch`. `patch` is never edited.
- * The engine called the public {@link redactPatch} (a whole `structuredClone`) twice per commit before
- * 9.33.0. The bytes are the same: a scrubbed path holds the placeholder, every other path the value the
- * buffer cloned (pinned by the 9.18.1 / 9.19.1 redaction byte tests).
- *
- * Paths are scrubbed in the set's order, against the tree as scrubbed so far: a path under one already
- * scrubbed finds a string, not a container, and is left alone (as before).
- *
- * INTERNAL — the result shares structure with `patch`. A caller outside the commit path wants
- * {@link redactPatch}.
- *
- * @param redactedPaths DELIM-joined paths (`TransactionBuffer`'s `redactedPaths`; a bundle's
- *   `redactedPaths` array works too).
- */
-export function scrubPatch(patch: MemoryPatch, redactedPaths: Iterable<string>): MemoryPatch {
-  let out: MemoryPatch | undefined;
-  let owned: WeakSet<object> | undefined;
-  for (const flat of redactedPaths) {
-    const segs = flat.split(DELIM);
-    const current = out ?? patch;
-    if (!nativeHas(current, segs) || nativeGet(current, segs) === undefined) continue;
-    if (out === undefined) {
-      owned = new WeakSet<object>();
-      out = ownedRootOf(patch, owned) as MemoryPatch;
-    }
-    ownSpine(out, segs, owned!);
-    nativeSet(out, segs, LOG_PLACEHOLDER);
-  }
-  return out ?? patch;
-}
-
-/**
- * Redacts sensitive values in a patch for logging/debugging — the PUBLIC scrub (`footprintjs/advanced`),
- * its contract unchanged since 4.x: a fresh deep copy of `patch` (`structuredClone`) with
- * {@link LOG_PLACEHOLDER} at every listed path that holds a defined value. Shares nothing with `patch`
- * and never edits it. (Moved here from `memory/utils.ts` in 9.33.0; the engine's own commit path uses the
- * clone-free {@link scrubPatch}.)
- */
-export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch {
-  return scrubPatch(structuredClone(patch), redactedSet);
 }

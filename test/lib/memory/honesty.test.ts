@@ -9,7 +9,8 @@
  *   scenario  the five slice notes still say the 9.31.0 bytes; each code the slice queries and the fold
  *             EMIT is on the registry, and the signals that carry no code gained no field; the `/trace` door
  *             hands out the very registry; a redacted run still speaks both placeholders
- *             (`memory/placeholders.ts`) at the five places that used to spell them
+ *             (`memory/placeholders.ts`, the log's; `memory/redaction.ts`, the scope's since C4) at the five
+ *             places that used to spell them
  *
  * The bytes below were taken from the library at 9.31.0, before the placeholders moved. Nothing in this file
  * changed a runtime string.
@@ -31,7 +32,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { decide, flowChart, FlowChartExecutor } from '../../../src';
 import { HONESTY_CODES } from '../../../src/lib/memory/honesty';
-import { LOG_PLACEHOLDER, SCOPE_PLACEHOLDER } from '../../../src/lib/memory/placeholders';
+import { LOG_PLACEHOLDER } from '../../../src/lib/memory/placeholders';
+import { SCOPE_PLACEHOLDER } from '../../../src/lib/memory/redaction';
 import type { CommitBundle } from '../../../src/lib/memory/types';
 import {
   conservativeEdgesNote,
@@ -567,7 +569,7 @@ describe('the two placeholders — the five places that used to spell them still
     const live = executor.getSnapshot();
     const safe = executor.getSnapshot({ redact: true });
 
-    // LOG tier — memory/redaction.ts · redactPatch: what the commit log recorded
+    // LOG tier — memory/scrub.ts · scrubPatch (via recordCommit): what the commit log recorded
     const seedCommit = (live.commitLog as CommitBundle[]).find((b) => b.stageId === 'seed')!;
     expect(seedCommit.overwrite).toMatchObject({ ssn: 'REDACTED', apiKey: 'REDACTED' });
     // LOG tier — runner/ExecutionRuntime.ts: the mirror's seed is scrubbed with the log's string

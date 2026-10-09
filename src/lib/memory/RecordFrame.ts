@@ -3,10 +3,11 @@
  *
  * What a stage's frame needs to READ and WRITE the record, and nothing about the stage inside a run:
  * where it writes (its address), what it read first (the first-touch base), what it staged (the lazy
- * transaction buffer), which keys it read (the readKeys list), and where a commit lands (live state,
- * the redacted mirror, the log — through `recordCommit`). The engine's frame (`StageContext`, L4)
- * composes one and keeps the rest: retention, diagnostics, the dev-mode warnings, the commit observer
- * and the redaction verdict.
+ * transaction buffer) and which of it the log must not show (the scrub of each write), which keys it
+ * read (the readKeys list), and where a commit lands (live state, the redacted mirror, the log —
+ * through `recordCommit`). The engine's frame (`StageContext`, L4) composes one and keeps the rest:
+ * retention, diagnostics, the dev-mode warnings, the commit observer and the redaction DECISION —
+ * which value is secret (`redaction.ts · decideWrite`); the frame writes the bytes it is handed (C4).
  *
  * THE LAW:
  *   1. ADDRESS. The frame reads and writes at its address, a path prefix the engine computed and hands
@@ -28,8 +29,15 @@
  *      the names, and hands both to `recordCommit`. `release` drops the buffer and the base; a frame
  *      touched again re-anchors on the state as it stands then. The readKeys list survives a release,
  *      and goes with `discard` (a failed attempt never happened).
+ *   7. WRITE. `write(path, value, verb, scrub?)` is the one way to stage: `set`, `merge` or `delete`
+ *      at an absolute path (the address already joined — `at`), with the bytes of a redaction
+ *      verdict. `whole` → the log and the mirror carry `LOG_PLACEHOLDER` at the path; `fields` → at
+ *      each field inside the value (a literal key and, when dotted, the nested path) — wherever it
+ *      holds a value at commit (`scrub.ts`). No scrub → the value as it is. The frame never decides
+ *      a scrub, and nothing outside it reaches its buffer.
  */
 
+import type { OpVerb } from './deltaEncoding.js';
 import type { EventLog } from './EventLog.js';
 import { nativeGet } from './pathOps.js';
 import { type CommitStamp, recordCommit } from './recordCommit.js';
@@ -45,6 +53,23 @@ import type { CommitValuesMode, WriteProvenanceMode } from './types.js';
 export interface RecordEncoding {
   readonly commitValues: CommitValuesMode;
   readonly writeProvenance: WriteProvenanceMode;
+}
+
+/**
+ * What a stage can stage (law 7) — the transaction buffer's op verbs (`deltaEncoding.ts · OpVerb`), one
+ * union. `append` is not one: it is how the log encodes a grown array (`'delta'`).
+ */
+export type WriteVerb = OpVerb;
+
+/**
+ * The bytes of a redaction verdict for one write (law 7): which of it the commit log and the redacted
+ * mirror must not show. The engine decides it (`redaction.ts · decideWrite`); the frame only writes it.
+ */
+export interface WriteScrub {
+  /** The whole value: `LOG_PLACEHOLDER` at the write's path. */
+  readonly whole?: boolean;
+  /** Dot-paths INSIDE the value, relative to it: `LOG_PLACEHOLDER` at each one that holds a value. */
+  readonly fields?: readonly string[];
 }
 
 export class RecordFrame {
@@ -172,8 +197,10 @@ export class RecordFrame {
    * The buffer's base is the FIRST-TOUCH view, NOT the live state at write time: under parallel forks
    * a sibling may have committed between this frame's first read and this write, and the net-change
    * diff base must stay anchored at first touch to match the eager engine — see {@link firstTouch}.
+   *
+   * Private since C4: every write goes through {@link write}, so the scrub travels with the op.
    */
-  getTransactionBuffer(): TransactionBuffer {
+  private getTransactionBuffer(): TransactionBuffer {
     if (!this.buffer) {
       // Per-write provenance (#P1): hand the buffer a live view of this frame's read prefix —
       // evaluated AT EACH WRITE, so each staged op captures exactly the reads that preceded it.
@@ -189,6 +216,25 @@ export class RecordFrame {
       );
     }
     return this.buffer;
+  }
+
+  /**
+   * Stage one write (law 7): `verb` at `path` — an absolute path, the address already joined
+   * ({@link at}) — and the bytes of its redaction verdict. The first write builds the buffer (law 4).
+   *
+   * The scrub registers paths, never values: `whole` marks the op's own path, `fields` each field
+   * inside the value (a literal key and, when dotted, the nested path); `recordCommit` puts the
+   * log's placeholder wherever one of them holds a value at commit, for the mirror and the log only
+   * (`scrub.ts`). Live state takes the value as it is. A path marked by a write that the net-change
+   * filter drops goes with it.
+   */
+  write(path: (string | number)[], value: unknown, verb: WriteVerb, scrub?: WriteScrub): void {
+    const buffer = this.getTransactionBuffer();
+    const whole = scrub?.whole === true;
+    if (verb === 'merge') buffer.merge(path, value, whole);
+    else if (verb === 'delete') buffer.delete(path, whole);
+    else buffer.set(path, value, whole);
+    if (scrub?.fields !== undefined) buffer.markRedactedFields(path, scrub.fields);
   }
 
   /** Has the frame staged a write since its last release — does its buffer exist? */

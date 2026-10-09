@@ -3,10 +3,12 @@
  *
  * Like a stack frame in a compiler/runtime:
  * - A RecordFrame — the record half (C3): the heap, the address, the
- *   first-touch base, the lazy transaction buffer, the readKeys list
+ *   first-touch base, the lazy transaction buffer and every write's scrub
+ *   (C4), the readKeys list
  * - Links to parent/child/next contexts (call stack frames)
  * - What belongs to a stage inside a run: retention of reads and writes, the
- *   redaction verdict per write, the dev-mode warnings, the commit observer
+ *   redaction decision per write (`redaction.ts · decideWrite`) and where the
+ *   frame writes (`runAddress.ts`), the dev-mode warnings, the commit observer
  * - DiagnosticCollector for logs, errors, metrics
  */
 
@@ -16,10 +18,19 @@ import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath }
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { EventLog } from './EventLog.js';
 import type { EmitSourcePosition } from './eventPosition.js';
-import { SCOPE_PLACEHOLDER } from './placeholders.js';
-import { RecordFrame } from './RecordFrame.js';
+import { type WriteVerb, RecordFrame } from './RecordFrame.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, RedactionRule } from './redaction.js';
+import {
+  CLEAR,
+  decideWrite,
+  inheritByIdentity,
+  markStagedWrite,
+  RedactionRule,
+  SCOPE_PLACEHOLDER,
+  scrubOf,
+  userKeyOf,
+} from './redaction.js';
+import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import type { SharedMemory } from './SharedMemory.js';
@@ -32,29 +43,6 @@ import type {
   UntrackedSource,
   WriteTrackingMode,
 } from './types.js';
-
-/** The user-level key of a write or read — dotted only for a nested path (a
- *  subflow seed's `['profile'] + 'auth'`); no allocation for the common
- *  single-segment case. */
-function userKeyOf(path: string[], key: string): string {
-  return path.length > 0 ? [...path, key].join('.') : key;
-}
-
-/**
- * The key run namespaces sit under — a frame with run id `c0` (a fork or
- * selector child takes its own id at the top level) writes at `runs/c0/…`. The
- * engine's one spelling of it: every frame's address is built from it
- * ({@link runAddress}), and the record layer takes that address as data (C2).
- */
-const RUN_NAMESPACE = 'runs';
-
-/** The root's address, shared by every frame without a run id (most of them). Never edited. */
-const ROOT_ADDRESS: readonly string[] = Object.freeze([]);
-
-/** Where a frame with run id `runId` reads and writes: `['runs', <id>]`, or `[]` (the root) with none. */
-function runAddress(runId: string): readonly string[] {
-  return runId ? [RUN_NAMESPACE, runId] : ROOT_ADDRESS;
-}
 
 export class StageContext {
   /**
@@ -317,10 +305,10 @@ export class StageContext {
    * and stores nothing under `'off'` (entry skipped entirely — nothing to
    * leak). A field-level verdict scrubs a clone BEFORE the dial sees it, so
    * a summary preview can never show the secret either. The verdict is the
-   * one `stageWrite` asked the rule for BEFORE staging, carried to commit
-   * with the value. The staged write itself is unaffected — redaction of
-   * the committed payload is handled by the transaction buffer's
-   * `redactedPaths`.
+   * one `stageWrite` decided BEFORE staging, carried to commit with the
+   * value. The staged write itself is unaffected — redaction of the
+   * committed payload is the record frame's scrub of that write
+   * (`RecordFrame · write`, then `scrub.ts` at commit).
    */
   private trackWrite(
     userKey: string,
@@ -402,14 +390,19 @@ export class StageContext {
   /**
    * THE ONE FUNNEL every staged write passes through — facade writes AND
    * the paths that bypass the facade (subflow seed, `outputMapper`
-   * merge-back, resume re-seed). The ONE decision is made here: an explicit
-   * per-call flag makes the value secret outright (and marks the key for the
-   * rest of the run, the declare-once contract); otherwise the installed
-   * rule decides from the user-level path. It stages the write, registers
-   * the redacted paths the commit log and mirror will scrub (whole key, or
-   * the fields inside the value), and keeps the run's marked-keys set in
-   * step (a whole verdict marks its key; a delete clears the mark). Returns
-   * the verdict so the caller retains and reports under the same decision.
+   * merge-back, resume re-seed). Two owners (C4): the run's rule DECIDES,
+   * the record frame WRITES the verdict's bytes, in four steps
+   * (`redaction.ts`, "The write decision"):
+   *   1. the verdict — `decideWrite`, under the rule active as the write begins;
+   *   2. identity inheritance — `inheritByIdentity`, against this frame's
+   *      selected reads as they stand after step 1;
+   *   3. the bytes — `RecordFrame · write`, the op and its scrub (the whole
+   *      value, or the fields inside it);
+   *   4. the marks — `markStagedWrite`, only once the write staged, so a
+   *      write that fails to stage marks nothing.
+   * Each step reads the rule (and the selected reads) when it acts, as this
+   * funnel always did. Returns the verdict so the caller retains and reports
+   * under the same decision.
    */
   private stageWrite(
     nsPath: string[],
@@ -417,45 +410,21 @@ export class StageContext {
     key: string,
     value: unknown,
     explicit: boolean | undefined,
-    verb: 'set' | 'merge' | 'delete',
+    verb: WriteVerb,
   ): RedactionVerdict {
-    const rule = this.activeRule();
-    let verdict: RedactionVerdict = explicit
-      ? { kind: 'whole', key: userKeyOf(path, key) }
-      : rule !== undefined
-      ? rule.verdictAt(path, key)
-      : CLEAR;
-    // A copy INSIDE the stage: the very object it read under a selected name, written under
-    // another (`s.person = s.profile`), keeps that rule — matched by IDENTITY. A new object
-    // or a primitive copied across names is selected by its own name only.
-    const read =
-      rule !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
-        ? this._selectedObjects?.get(value)
-        : undefined;
-    if (read !== undefined && rule !== undefined) {
-      if (read.kind === 'whole') rule.mark(userKeyOf(path, key));
-      else if (read.kind === 'fields') {
-        const at = [...path.slice(1), ...(path.length > 0 ? [key] : [])];
-        rule.inheritFields(
-          path[0] ?? key,
-          read.paths.map((field) => [...at, field].join('.')),
-        );
-      }
-      verdict = rule.verdictAt(path, key);
+    const active = this.activeRule();
+    if (active === undefined && !explicit) {
+      // The no-policy fast path, the same four steps with nothing to do: no rule with anything to say
+      // and no flag is clear (step 1), nothing to inherit without a rule (step 2), no scrub (step 3),
+      // and nothing to mark — a clear verdict marks nothing, and a delete unmarks only on the rule
+      // active as it began (step 4). The default run pays the record's write and nothing else.
+      this.record.write(nsPath, value, verb);
+      return CLEAR;
     }
-    const whole = verdict.kind === 'whole';
-    const buffer = this.record.getTransactionBuffer();
-    if (verb === 'merge') buffer.merge(nsPath, value, whole);
-    else if (verb === 'delete') buffer.delete(nsPath, whole);
-    else buffer.set(nsPath, value, whole);
-    if (verdict.kind === 'fields') buffer.markRedactedFields(nsPath, verdict.paths);
-    if (verb === 'delete') {
-      rule?.unmark(userKeyOf(path, key));
-    } else if (verdict.kind === 'whole') {
-      // The REAL rule, not the active one: an explicit mark on an inert rule
-      // is exactly what makes it active for the rest of the run.
-      this.policy.redaction?.mark(verdict.key);
-    }
+    const asked = decideWrite(active, path, key, explicit);
+    const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value);
+    this.record.write(nsPath, value, verb, scrubOf(verdict));
+    markStagedWrite(active, this.policy.redaction, verdict, path, key, verb);
     return verdict;
   }
 

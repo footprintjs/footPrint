@@ -15,11 +15,12 @@
  *
  *   L0 values and leaves        address, compare, summarise a value; the dev-mode flag
  *   L1 verbs                    the one law that turns a trace row into a value
- *   L2 staging and commit       one stage's ops → one net-change bundle; the next generation
+ *   L2 staging and commit       one stage's ops → one net-change bundle; the next generation; the log's scrub
  *   L3 the log as a read model  what a finished log can honestly say (slice/, time-travel/), and the
  *                               log itself with the one step that lands a commit on it (recordCommit)
  *                               and the record half of a stage's frame that takes it there (RecordFrame)
- *   L4 the frame and run policy one stage's frame inside a run (it composes a RecordFrame); the runtime
+ *   L4 the frame and run policy one stage's frame inside a run (it composes a RecordFrame); the runtime;
+ *                               the redaction verdict (it decides; the record frame writes the bytes)
  *   L5 scope, recorders, hooks  what a stage may do; how every event reaches every recorder
  *   L6 engine                   walking the chart: one phase chain, one id grammar
  *   L7 builder and executor     the DSL and the run lifecycle
@@ -59,7 +60,9 @@ const LAYERS = [
       'src/lib/memory/merge.ts',
       // The honesty vocabulary (F4a): code → the one sentence; imports nothing, typed through from L3.
       'src/lib/memory/honesty.ts',
-      // The two redaction placeholders (F4a): import nothing; written from L2 (redaction.ts) up.
+      // The log's redaction placeholder (F4a; the scope one moved to the verdict, redaction.ts, in C4):
+      // imports nothing; written by the record's scrub (scrub.ts, L2), passed by runner/ExecutionRuntime.ts and
+      // engine/handlers/SubflowExecutor.ts (the mirror's seed, a subflow's served state).
       'src/lib/memory/placeholders.ts',
       // Which rows touch a key — the path half of the writer rule and the writer index (F3).
       // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
@@ -92,7 +95,9 @@ const LAYERS = [
     name: 'staging and commit',
     files: [
       'src/lib/memory/TransactionBuffer.ts',
-      'src/lib/memory/redaction.ts',
+      // The log's scrub: the placeholder at each redacted path of a patch (C4 — out of redaction.ts, so the
+      // record never imports the engine's verdict). recordCommit (L3) calls it; `redactPatch` is its public twin.
+      'src/lib/memory/scrub.ts',
       'src/lib/memory/SharedMemory.ts',
       'src/lib/memory/admission.ts',
       'src/lib/memory/deltaEncoding.ts',
@@ -123,6 +128,13 @@ const LAYERS = [
       'src/lib/memory/StageContext.ts',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
       'src/lib/memory/runPolicy.ts',
+      // The redaction verdict — RedactionRule, the write decision (decideWrite, inheritByIdentity, markStagedWrite),
+      // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
+      // writes the bytes).
+      'src/lib/memory/redaction.ts',
+      // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
+      // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
+      'src/lib/memory/runAddress.ts',
       'src/lib/memory/DiagnosticCollector.ts',
       'src/lib/memory/borrowedMutation.ts',
       'src/lib/memory/index.ts',

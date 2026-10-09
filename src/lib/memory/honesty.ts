@@ -29,9 +29,10 @@
  * field means `'truncated'`; they are registered so a reader explains them from the same place.
  *
  * NOT HERE: the two strings a redaction leaves where a value was. The engine writes those on every
- * redacted run; they live in their own leaf, `memory/placeholders.ts`, so that an app which only
- * runs charts does not carry these sentences in its bundle (`HONESTY_CODES` is a pure expression,
- * so a bundler drops it wherever nothing reads it).
+ * redacted run; the log's lives in its own leaf, `memory/placeholders.ts` (the scope channel's with
+ * the verdict, `memory/redaction.ts`), so that an app which only runs charts does not carry these
+ * sentences in its bundle (`HONESTY_CODES` is a pure expression, so a bundler drops it wherever
+ * nothing reads it).
  *
  * WHY L0. This file imports NOTHING, and `slice/` and `time-travel/` (L3) type their codes through
  * it, so it sits below them — the layer table is `scripts/layering.config.cjs`.

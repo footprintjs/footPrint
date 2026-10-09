@@ -9,6 +9,7 @@
  *   4  lazy buffer  built at the first write, on the first-touch base, at the address, under the encoding
  *   5  readKeys     under 'reads-prefix' each row carries the keys noted before it; `release` keeps them
  *   6  commit       the payload, then the names, to `recordCommit`; `release` ends the hold; `discard` drops everything
+ *   7  write        the one way to stage — set / merge / delete with the bytes of a verdict (C4); the frame decides none
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -38,7 +39,7 @@ function commitAs(frame: RecordFrame, id: string): void {
 /** Another writer commits `key = value` at the root, under the frame's feet. */
 function commitElsewhere(state: SharedMemory, log: EventLog, key: string, value: unknown): void {
   const other = new RecordFrame(state, log);
-  other.getTransactionBuffer().set([key], value);
+  other.write([key], value, 'set');
   commitAs(other, 'other');
 }
 
@@ -61,7 +62,7 @@ describe('RecordFrame — law 1: the address', () => {
     const { state, frame } = setup({ k: 'root', theme: 'light', runs: { p1: { k: 'p1' } } }, RUN);
     expect(frame.read([], 'k')).toBe('p1');
     expect(frame.read([], 'theme')).toBe('light'); // tier 2: live state, the root as the fallback
-    frame.getTransactionBuffer().set(frame.at([], 'w'), 1);
+    frame.write(frame.at([], 'w'), 1, 'set');
     commitAs(frame, 's');
     expect(state.getState()).toEqual({ k: 'root', theme: 'light', runs: { p1: { k: 'p1', w: 1 } } });
     expect(frame.readLive('k')).toBe('p1');
@@ -74,7 +75,7 @@ describe('RecordFrame — law 1: the address', () => {
     frame.useAddress(['runs', 'p2']);
     expect(frame.address).toEqual(['runs', 'p2']);
     expect(frame.read([], 'k')).toBe('p2');
-    frame.getTransactionBuffer().set(frame.at([], 'w'), { n: 1 });
+    frame.write(frame.at([], 'w'), { n: 1 }, 'set');
     expect(frame.hasStaged).toBe(true);
     commitAs(frame, 's');
     expect((state.getState().runs as Loose).p2).toEqual({ k: 'p2', w: { n: 1 } });
@@ -97,7 +98,7 @@ describe('RecordFrame — law 2: the first-touch base', () => {
     const { state, log, frame } = setup({ k: 1 });
     frame.read([], 'k'); // first touch: k = 1
     commitElsewhere(state, log, 'k', 2);
-    frame.getTransactionBuffer().set(['k'], 1); // what the stage first saw
+    frame.write(['k'], 1, 'set'); // what the stage first saw
     commitAs(frame, 's');
     expect(last(log).overwrite).toEqual({}); // no net change against the first touch
     expect(last(log).trace).toEqual([]);
@@ -119,7 +120,7 @@ describe('RecordFrame — law 3: two tiers', () => {
     frame.read([], 'k');
     commitElsewhere(state, log, 'late', 'v1');
     expect(frame.read([], 'late')).toBe('v1');
-    frame.getTransactionBuffer().set(['mine'], true);
+    frame.write(['mine'], true, 'set');
     commitElsewhere(state, log, 'later', 'v2');
     expect(frame.read([], 'later')).toBe('v2');
     expect(frame.read([], 'mine')).toBe(true); // read-your-writes
@@ -127,7 +128,7 @@ describe('RecordFrame — law 3: two tiers', () => {
 
   it('after the first write, a read of a committed container is the stage’s own copy', () => {
     const { state, frame } = setup({ cfg: { a: 1 } });
-    frame.getTransactionBuffer().set(['other'], 1);
+    frame.write(['other'], 1, 'set');
     const own = frame.read([], 'cfg') as Loose;
     expect(own).toEqual({ a: 1 });
     expect(own).not.toBe(state.getState().cfg);
@@ -136,11 +137,10 @@ describe('RecordFrame — law 3: two tiers', () => {
 
   it('detaches the diff base before a tier-2 container goes out, so a write-back is recorded', () => {
     const { log, frame } = setup({ obj: { n: 1 } });
-    const buffer = frame.getTransactionBuffer();
-    buffer.delete(['obj']); // the working copy holds nothing at obj now
+    frame.write(['obj'], undefined, 'delete'); // the working copy holds nothing at obj now
     const live = frame.read([], 'obj') as Loose; // tier 2: committed state itself
     live.n = 2; // out of contract — an in-place edit of a borrowed read
-    buffer.set(['obj'], live);
+    frame.write(['obj'], live, 'set');
     commitAs(frame, 's');
     expect(last(log).overwrite).toEqual({ obj: { n: 2 } }); // against a detached base, the edit is a change
   });
@@ -176,18 +176,27 @@ describe('RecordFrame — law 4: the lazy buffer', () => {
   });
 
   it('builds one buffer at the first write and keeps it until release', () => {
-    const { frame } = setup();
-    const buffer = frame.getTransactionBuffer();
-    expect(frame.hasStaged).toBe(true);
-    expect(frame.getTransactionBuffer()).toBe(buffer);
-    frame.release();
+    const { log, frame } = setup();
     expect(frame.hasStaged).toBe(false);
-    expect(frame.getTransactionBuffer()).not.toBe(buffer);
+    frame.write(['a'], 1, 'set');
+    expect(frame.hasStaged).toBe(true);
+    frame.write(['b'], 2, 'set'); // the same buffer: both rows land in one bundle
+    commitAs(frame, 's');
+    expect(last(log).trace).toEqual([
+      { path: 'a', verb: 'set' },
+      { path: 'b', verb: 'set' },
+    ]);
+    frame.write(['c'], 3, 'set');
+    frame.release();
+    expect(frame.hasStaged).toBe(false); // released: what was staged goes with the buffer
+    frame.write(['d'], 4, 'set'); // a fresh buffer
+    commitAs(frame, 's');
+    expect(last(log).trace).toEqual([{ path: 'd', verb: 'set' }]);
   });
 
   it('encodes under the encoding it holds when the buffer is built — full by default, delta on request', () => {
     const grow = (frame: RecordFrame) => {
-      frame.getTransactionBuffer().set(['list'], [1, 2, 3]);
+      frame.write(['list'], [1, 2, 3], 'set');
       commitAs(frame, 's');
     };
     const full = setup({ list: [1, 2] });
@@ -209,10 +218,10 @@ describe('RecordFrame — law 5: the readKeys list', () => {
     const { log, frame } = setup({ a: 1, cfg: { k: 2 } });
     frame.useEncoding(PREFIX);
     frame.noteRead([], 'a');
-    frame.getTransactionBuffer().set(['x'], 1);
+    frame.write(['x'], 1, 'set');
     frame.noteRead(['cfg'], 'k');
     frame.noteRead([], 'a');
-    frame.getTransactionBuffer().set(['y'], 2);
+    frame.write(['y'], 2, 'set');
     commitAs(frame, 's');
     expect(last(log).trace).toEqual([
       { path: 'x', verb: 'set', readKeys: ['a'] },
@@ -223,7 +232,7 @@ describe('RecordFrame — law 5: the readKeys list', () => {
   it("keeps nothing unless the frame encodes under 'reads-prefix'", () => {
     const { log, frame } = setup({ a: 1 });
     frame.noteRead([], 'a');
-    frame.getTransactionBuffer().set(['x'], 1);
+    frame.write(['x'], 1, 'set');
     commitAs(frame, 's');
     expect(last(log).trace).toEqual([{ path: 'x', verb: 'set' }]);
   });
@@ -233,13 +242,13 @@ describe('RecordFrame — law 5: the readKeys list', () => {
     frame.useEncoding(PREFIX);
     frame.noteRead([], 'a');
     commitAs(frame, 'first');
-    frame.getTransactionBuffer().set(['x'], 1);
+    frame.write(['x'], 1, 'set');
     commitAs(frame, 'again');
     expect(last(log).trace).toEqual([{ path: 'x', verb: 'set', readKeys: ['a'] }]);
 
     frame.noteRead([], 'b');
     frame.discard();
-    frame.getTransactionBuffer().set(['y'], 2);
+    frame.write(['y'], 2, 'set');
     commitAs(frame, 'retried');
     expect(last(log).trace).toEqual([{ path: 'y', verb: 'set', readKeys: [] }]);
   });
@@ -251,8 +260,8 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
     const mirror = new SharedMemory();
     frame.useMirror(mirror);
     expect(frame.mirror).toBe(mirror);
-    frame.getTransactionBuffer().set(['token'], 'sk-1', /* redact */ true);
-    frame.getTransactionBuffer().set(['n'], 1);
+    frame.write(['token'], 'sk-1', 'set', { whole: true }); // the bytes of a whole verdict (law 7)
+    frame.write(['n'], 1, 'set');
     frame.commit(() => ({ stage: 'Seed', stageId: 'seed', runtimeStageId: 'seed#0', tags: ['audit'] }));
     expect(state.getState()).toEqual({ token: 'sk-1', n: 1 });
     expect(mirror.getState()).toEqual({ token: 'REDACTED', n: 1 });
@@ -282,7 +291,7 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
         return 1;
       },
     });
-    frame.getTransactionBuffer().set(['v'], value);
+    frame.write(['v'], value, 'set');
     frame.commit(() => ({ stage: 's', stageId: 's', runtimeStageId: 's#0', tags }));
     expect(last(log).tags).toEqual(['late']);
     expect(last(log).overwrite).toEqual({ v: { g: 1 } });
@@ -293,7 +302,7 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
     expect(frame.wasStaged(frame.at([], 'cfg'))).toBe(false); // no buffer yet
     const before = state.getState().cfg;
     expect(frame.peek(['cfg'])).toBe(before); // the first-touch base itself
-    frame.getTransactionBuffer().set(frame.at(['cfg'], 'a'), 2);
+    frame.write(frame.at(['cfg'], 'a'), 2, 'set');
     expect(frame.wasStaged(frame.at([], 'cfg'))).toBe(true); // below it
     expect(frame.wasStaged(frame.at(['cfg', 'a'], 'deep'))).toBe(true); // above it
     expect(frame.wasStaged(frame.at([], 'list'))).toBe(false);
@@ -305,7 +314,7 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
   it('commit records and release ends the hold: two steps, so a caller can run its own between them', () => {
     const { state, frame } = setup({ k: 1 });
     frame.read([], 'k');
-    frame.getTransactionBuffer().set(['k'], 2);
+    frame.write(['k'], 2, 'set');
     frame.commit(() => ({ stage: 's', stageId: 's', runtimeStageId: 's#0' }));
     expect(state.getState().k).toBe(2);
     expect(frame.hasStaged).toBe(true); // committed, still held
@@ -316,9 +325,9 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
 
   it('a released frame re-used for a second commit diffs against the state after the first', () => {
     const { log, frame } = setup();
-    frame.getTransactionBuffer().set(['k'], 'v');
+    frame.write(['k'], 'v', 'set');
     commitAs(frame, 's');
-    frame.getTransactionBuffer().set(['k'], 'v'); // the same value again
+    frame.write(['k'], 'v', 'set'); // the same value again
     commitAs(frame, 's');
     expect(log.list().map((b) => b.overwrite)).toEqual([{ k: 'v' }, {}]);
   });
@@ -326,7 +335,7 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
   it('discard drops what was staged: nothing reaches state or the log, and the next read re-anchors', () => {
     const { state, log, frame } = setup({ k: 1 });
     frame.read([], 'k');
-    frame.getTransactionBuffer().set(['k'], 99);
+    frame.write(['k'], 99, 'set');
     commitElsewhere(state, log, 'k', 2);
     const logged = log.list().length;
     frame.discard();
@@ -334,5 +343,95 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
     expect(log.list()).toHaveLength(logged);
     expect(state.getState().k).toBe(2);
     expect(frame.read([], 'k')).toBe(2); // a fresh first touch
+  });
+});
+
+describe('RecordFrame — law 7: write, with the bytes of a verdict', () => {
+  /** A frame over `initial` whose commits land on a mirror too — the log and the mirror take the scrubbed rows. */
+  function mirrored(initial: Loose = {}) {
+    const { state, log, frame } = setup(initial);
+    const mirror = new SharedMemory(undefined, initial);
+    frame.useMirror(mirror);
+    return { state, log, frame, mirror };
+  }
+
+  it('stages each verb at an absolute path: set replaces, merge unions, delete leaves the key undefined', () => {
+    const { state, log, frame } = setup({ list: [1], cfg: { a: 1 }, gone: 1 });
+    frame.write(['cfg'], { b: 2 }, 'merge');
+    frame.write(['list'], [2], 'merge');
+    frame.write(['gone'], undefined, 'delete');
+    frame.write(['n'], 1, 'set');
+    commitAs(frame, 's');
+    expect(state.getState()).toEqual({ list: [1, 2], cfg: { a: 1, b: 2 }, gone: undefined, n: 1 });
+    const bundle = last(log);
+    expect(bundle.trace.map((row) => [row.path, row.verb])).toEqual([
+      ['cfg', 'merge'],
+      ['list', 'merge'],
+      ['gone', 'set'], // 'full' flattens a delete into a set of undefined
+      ['n', 'set'],
+    ]);
+    expect(bundle.redactedPaths).toEqual([]); // no scrub, nothing registered
+  });
+
+  it('whole: the log and the mirror carry the placeholder at the path; fields: at each field that holds a value', () => {
+    const { state, log, frame, mirror } = mirrored();
+    frame.write(['token'], 'sk-1', 'set', { whole: true });
+    frame.write(['card'], { number: '4242', owner: 'Ada' }, 'set', { fields: ['number'] });
+    frame.write(['deep'], { a: { b: 1, c: 2 } }, 'merge', { fields: ['a.b', 'missing'] });
+    commitAs(frame, 's');
+    expect(state.getState()).toEqual({
+      token: 'sk-1',
+      card: { number: '4242', owner: 'Ada' },
+      deep: { a: { b: 1, c: 2 } },
+    });
+    const scrubbed = {
+      token: 'REDACTED',
+      card: { number: 'REDACTED', owner: 'Ada' },
+      deep: { a: { b: 'REDACTED', c: 2 } },
+    };
+    expect(mirror.getState()).toEqual(scrubbed); // `missing` holds no value: scrubbing never invents a field
+    const bundle = last(log);
+    expect({ ...bundle.overwrite, ...bundle.updates }).toEqual(scrubbed);
+    // A field is registered as a literal key and, when dotted, as the nested path it names.
+    expect(bundle.redactedPaths).toEqual([
+      'token',
+      'card\u001fnumber',
+      'deep\u001fa.b',
+      'deep\u001fa\u001fb',
+      'deep\u001fmissing',
+    ]);
+  });
+
+  it('a whole merge and a whole set are scrubbed alike — the scrub rides every verb', () => {
+    const { state, log, frame, mirror } = mirrored({ cfg: { a: 1 } });
+    frame.write(['cfg'], { b: 2 }, 'merge', { whole: true });
+    frame.write(['pin'], '0000', 'set', { whole: true });
+    commitAs(frame, 's');
+    expect(state.getState()).toEqual({ cfg: { a: 1, b: 2 }, pin: '0000' });
+    expect(mirror.getState()).toEqual({ cfg: 'REDACTED', pin: 'REDACTED' });
+    const bundle = last(log);
+    expect(bundle.updates).toEqual({ cfg: 'REDACTED' });
+    expect(bundle.overwrite).toEqual({ pin: 'REDACTED' });
+    expect(bundle.redactedPaths).toEqual(['cfg', 'pin']);
+  });
+
+  it('a whole delete registers its path; there is no value to replace', () => {
+    const { log, frame, mirror } = mirrored({ token: 'sk-0', n: 1 });
+    frame.write(['token'], undefined, 'delete', { whole: true });
+    commitAs(frame, 's');
+    expect(last(log).redactedPaths).toEqual(['token']);
+    expect(last(log).overwrite).toEqual({ token: undefined });
+    expect(mirror.getState()).toEqual({ token: undefined, n: 1 });
+  });
+
+  it('a scrub travels with its write: a dropped write takes it along, and the frame keeps no mark of its own', () => {
+    const { log, frame } = setup({ token: 'same' });
+    frame.write(['token'], 'same', 'set', { whole: true }); // no net change against the first touch
+    commitAs(frame, 'first');
+    expect([last(log).trace, last(log).redactedPaths]).toEqual([[], []]);
+    frame.write(['token'], 'new', 'set'); // the decision is the engine's: no scrub handed, none applied
+    commitAs(frame, 'second');
+    expect(last(log).overwrite).toEqual({ token: 'new' });
+    expect(last(log).redactedPaths).toEqual([]);
   });
 });

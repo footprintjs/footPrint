@@ -1,16 +1,17 @@
 /**
- * Placeholders — the two strings a redaction leaves where a value was have ONE owner (F4a).
+ * Placeholders — each string a redaction leaves where a value was has ONE owner (F4a; split by owner in C4).
  *
  * `'REDACTED'` is what the commit log and the redacted mirror carry (and so a fold, a slice and a
- * subflow's served state); `'[REDACTED]'` is what the scope channel carries. Before F4a six files each
- * spelled one of them as a string literal, and a spelling kept in six places is a placeholder a reader
- * can no longer match on. `memory/placeholders.ts` owns both (`LOG_PLACEHOLDER`, `SCOPE_PLACEHOLDER`);
- * this test reads every `src/**\/*.ts` with the TypeScript compiler API and fails on a string literal
- * that IS either of them anywhere else.
+ * subflow's served state) — a RECORD byte, owned by `memory/placeholders.ts` (`LOG_PLACEHOLDER`, L0);
+ * `'[REDACTED]'` is what the scope channel carries — the ENGINE's, owned by the verdict that writes it,
+ * `memory/redaction.ts` (`SCOPE_PLACEHOLDER`, L4). Before F4a six files each spelled one of them as a
+ * string literal, and a spelling kept in six places is a placeholder a reader can no longer match on.
+ * This test reads every `src/**\/*.ts` with the TypeScript compiler API and fails on a string literal
+ * that IS either of them anywhere but its owner.
  *
  *   unit      the scanner: every quote form, a type position and a template part are found; a comment,
  *             an identifier and a sentence that merely says the word are not
- *   scenario  THE REAL TREE: placeholders.ts spells each exactly once and no other file spells either
+ *   scenario  THE REAL TREE: each owner spells its placeholder exactly once and no other file spells either
  *
  * The scan walks syntax nodes, not text, so a doc comment may say `'[REDACTED]'` as often as it
  * likes — only a literal the program can actually emit counts.
@@ -23,8 +24,12 @@ import { describe, expect, it } from 'vitest';
 import layering from '../../scripts/layering.config.cjs';
 
 const REPO = resolve(__dirname, '../..');
-const OWNER = 'src/lib/memory/placeholders.ts';
-const PLACEHOLDERS = new Set(['REDACTED', '[REDACTED]']);
+/** Each placeholder → the one file that spells it: the record's string at L0, the verdict's at L4. */
+const OWNERS: Record<string, string> = {
+  REDACTED: 'src/lib/memory/placeholders.ts',
+  '[REDACTED]': 'src/lib/memory/redaction.ts',
+};
+const PLACEHOLDERS = new Set(Object.keys(OWNERS));
 
 interface Spelling {
   /** Which placeholder the literal is. */
@@ -114,26 +119,26 @@ describe('the footprintjs source tree', () => {
     }
   });
 
-  it('memory/placeholders.ts spells each placeholder exactly once — the log one and the scope one', () => {
-    expect(
-      spelled
-        .get(OWNER)!
-        .map((s) => s.text)
-        .sort(),
-    ).toEqual(['REDACTED', '[REDACTED]']);
+  it('each owner spells its own placeholder exactly once — the log one at L0, the scope one beside the verdict at L4', () => {
+    expect(spelled.get(OWNERS.REDACTED)?.map((s) => s.text)).toEqual(['REDACTED']);
+    expect(spelled.get(OWNERS['[REDACTED]'])?.map((s) => s.text)).toEqual(['[REDACTED]']);
+    expect(layering.rankOf(OWNERS.REDACTED)).toBe(0);
+    expect(layering.rankOf(OWNERS['[REDACTED]'])).toBe(4);
   });
 
   it('no other src file spells either as a string literal — they import LOG_PLACEHOLDER / SCOPE_PLACEHOLDER', () => {
     const strays = [...spelled]
-      .filter(([file, found]) => file !== OWNER && found.length > 0)
+      .map(([file, found]) => [file, found.filter((s) => OWNERS[s.text] !== file)] as const)
+      .filter(([, found]) => found.length > 0)
       .map(
         ([file, found]) =>
           `${file}:${found.map((s) => s.line).join(',')}  ${[...new Set(found.map((s) => s.text))].join(' ')}`,
       );
     expect(
       strays,
-      "A placeholder is spelled as a literal outside src/lib/memory/placeholders.ts. Import LOG_PLACEHOLDER ('REDACTED', the " +
-        "commit log and the mirror) or SCOPE_PLACEHOLDER ('[REDACTED]', the scope channel) from it — it is L0, any layer may read it.",
+      "A placeholder is spelled as a literal outside its owner. Import LOG_PLACEHOLDER ('REDACTED', the commit log and the " +
+        'mirror — a record byte) from src/lib/memory/placeholders.ts (L0, any layer may read it), or SCOPE_PLACEHOLDER ' +
+        "('[REDACTED]', the scope channel) from src/lib/memory/redaction.ts (L4, the verdict's side).",
     ).toEqual([]);
   });
 });

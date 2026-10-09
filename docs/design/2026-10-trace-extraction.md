@@ -113,10 +113,10 @@ AFTER — footprintjs 10 + foottrace 1
   - **The bytes of a verdict** move into the frame. `RecordFrame · write(path, value, verb, { whole, fields })` replaces two calls inside `StageContext · stageWrite`: `buffer.set/merge/delete(…, whole)` and `buffer.markRedactedFields(path, fields)`.
   - **The scrub** moves out of `memory/redaction.ts`. `scrubPatch` and `redactPatch` go to a new record leaf, `memory/scrub.ts` (L2).
   - **The placeholders split by owner** (review N2). `memory/placeholders.ts` keeps `LOG_PLACEHOLDER`, a record byte; `SCOPE_PLACEHOLDER` moves to the verdict's side. Each README names the other placeholder; this replaces F4a's "two placeholders, one leaf".
-  - **The decision** (`stageWrite`'s rule: marks and identity inheritance) becomes one function beside `RedactionRule`.
+  - **The decision** (`stageWrite`'s rule: marks and identity inheritance) moves beside `RedactionRule`. As built (PR #67, approved): `decideWrite` (the verdict), `inheritByIdentity`, then — after `RecordFrame · write` — `markStagedWrite` (the marks). The marks must follow the staged write, so a write that fails to stage (a failed `$update`) marks nothing; one call before the write could not keep that.
   - **The verdict is re-ranked.** In `LAYERS`, `memory/redaction.ts` moves from L2 to L4, beside `runPolicy.ts`, which carries it. Once `scrubPatch` has left, only L4+ files import it.
 - **Consumers:** none (`redactPatch` keeps its `/advanced` door until C5).
-- **Done when:** `stageWrite` is two calls (the verdict, then `RecordFrame · write`), and no record file imports `redaction.ts`. This closes C1's `recordCommit.ts → redaction.ts` edge.
+- **Done when:** `stageWrite` is the decision, then `RecordFrame · write`, then the marks (planned as "two calls"; built as above), and no record file imports `redaction.ts`. This closes C1's `recordCommit.ts → redaction.ts` edge.
 - **Release:** patch (expected **9.46.1**).
 
 ### C5 — The record layer is the public way to write

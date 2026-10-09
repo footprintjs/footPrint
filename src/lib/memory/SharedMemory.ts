@@ -3,7 +3,7 @@
  *
  * Like a runtime heap with namespace isolation:
  * - A value is written at an ADDRESS — a path prefix the caller computed
- *   (C2: the engine's frame decides it, `StageContext.ts · runAddress`) — and read
+ *   (C2: the engine's frame decides it, `runAddress.ts · runAddress`) — and read
  *   there first, then at the root
  * - Default values seed the root, and the container at an address when a
  *   write creates it

@@ -9,9 +9,9 @@
  * (`paths.ts`), structural equality (`equality.ts`) and the union merge
  * (`merge.ts`) at L0, and the verb law (`verbs.ts`) at L1 — `applySmartMerge`,
  * `nextGeneration`, `applySmartMergeInto`, `dryFold`, `supersededByNextSet`.
- * The log's scrub, `redactPatch`, moved to its owner `redaction.ts` in 9.33.0.
+ * The log's scrub, `redactPatch`, moved out in 9.33.0; it is the record's own, `scrub.ts` (C4).
  * The writers take an ADDRESS, a path prefix their caller computed, and never
- * name one (C2: the engine decides where a stage writes, `StageContext.ts · runAddress`).
+ * name one (C2: the engine decides where a stage writes, `runAddress.ts · runAddress`).
  * Zero external dependencies.
  */
 
@@ -30,7 +30,7 @@ type NestedObject = { [key: string]: any };
  * The two places a value at `path` can sit: under `address` (`runPath`, absent
  * for the root address `[]`) and at the root (`globalPath`). `address` is a
  * path prefix the caller computed — for the engine, a frame's run namespace
- * (`StageContext.ts · runAddress`, C2), held by its record frame (`RecordFrame · address`, C3).
+ * (`runAddress.ts · runAddress`, C2), held by its record frame (`RecordFrame · address`, C3).
  */
 export function getRunAndGlobalPaths(address: readonly string[] = [], path: (string | number)[] = []) {
   return {

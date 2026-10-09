@@ -3,16 +3,17 @@
  *
  * A frame with a run id writes and reads under `runs/<id>/`. Before C2 the record layer spelled that
  * namespace itself (`utils · getRunAndGlobalPaths`, `SharedMemory · getRuns`). Now one L4 constant,
- * `StageContext.ts · RUN_NAMESPACE`, builds every frame's address (`runAddress`), and the record layer
+ * `runAddress.ts · RUN_NAMESPACE`, builds every frame's address (`runAddress`), and the record layer
  * takes it as a path prefix: `RecordFrame` holds it (C3), `SharedMemory` and `TransactionBuffer` are
- * handed it. This test reads src with the TypeScript compiler API and
- * fails when an L0–L3 file (the fence's own ranks) names the namespace — a `'runs'` string literal, or
- * `runs` as a property (`state.runs`, `{ runs: … }`) — outside the exceptions below. The list is live —
- * an exception that no longer matches fails too — so it only shrinks.
+ * handed it. The redaction verdict, which reads the namespace too (a mapper reading `runs`, the
+ * mirror's seed), moved to L4 beside the constant in C4 — the last two exceptions this test carried.
+ * This test reads src with the TypeScript compiler API and fails when an L0–L3 file (the fence's own
+ * ranks) names the namespace at all — a `'runs'` string literal, or `runs` as a property
+ * (`state.runs`, `{ runs: … }`).
  *
  *   unit      the scanner: a literal in any quote form, a property name in any position, with the
  *             function it sits in; never a comment, a longer string or a local variable
- *   scenario  THE REAL TREE: StageContext.ts spells it once; no record file names it outside the list
+ *   scenario  THE REAL TREE: runAddress.ts spells it once, at L4; no record file names it
  */
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
@@ -40,21 +41,7 @@ import layering from '../../scripts/layering.config.cjs';
 
 const REPO = resolve(__dirname, '../..');
 const NAMESPACE = 'runs';
-const OWNER = 'src/lib/memory/StageContext.ts';
-
-/** Names below L4 that a later step removes: `redaction.ts` moves to L4 in C4. */
-const EXCEPTIONS = [
-  {
-    file: 'src/lib/memory/redaction.ts',
-    within: 'verdictOfRead',
-    why: 'a mapper reading the namespace root reads every namespaced key',
-  },
-  {
-    file: 'src/lib/memory/redaction.ts',
-    within: 'retainState',
-    why: "the mirror's seed scrubs every run namespace under the root",
-  },
-];
+const OWNER = 'src/lib/memory/runAddress.ts';
 
 /** The name of the function or method around `node`, if it has one. */
 function enclosingName(node: Node, file: SourceFile): string | undefined {
@@ -115,29 +102,24 @@ describe('the footprintjs source tree', () => {
 
   it('the engine names the namespace once: the L4 constant every frame builds its address from', () => {
     expect(layering.rankOf(OWNER)).toBe(4);
-    expect(spelled.get(OWNER)).toHaveLength(1);
+    expect(spelled.get(OWNER)).toEqual([{ line: expect.any(Number), within: undefined }]);
   });
 
-  it('no record file (L0–L3) names it outside the exceptions — the record takes the address as data', () => {
+  it('the redaction verdict reads it from there, at L4 — it no longer spells it (C4)', () => {
+    expect(layering.rankOf('src/lib/memory/redaction.ts')).toBe(4);
+    expect(spelled.get('src/lib/memory/redaction.ts')).toEqual([]);
+    expect(spelled.get('src/lib/memory/StageContext.ts')).toEqual([]);
+  });
+
+  it('no record file (L0–L3) names it — the record takes the address as data', () => {
     expect(recordFiles.length).toBeGreaterThan(60);
     const strays = recordFiles.flatMap((file) =>
-      (spelled.get(file) ?? [])
-        .filter((s) => !EXCEPTIONS.some((e) => e.file === file && e.within === s.within))
-        .map((s) => `${file}:${s.line}${s.within ? ` (${s.within})` : ''}`),
+      (spelled.get(file) ?? []).map((s) => `${file}:${s.line}${s.within ? ` (${s.within})` : ''}`),
     );
     expect(
       strays,
       'The run namespace is named below L4. The record layer takes the write address as data (C2): ' +
-        `take it from the frame (RecordFrame · address, built by StageContext.ts · runAddress) instead of naming '${NAMESPACE}'.`,
+        `take it from the frame (RecordFrame · address, built by runAddress.ts · runAddress) instead of naming '${NAMESPACE}'.`,
     ).toEqual([]);
-  });
-
-  it('every exception still names it — the list only shrinks', () => {
-    for (const e of EXCEPTIONS) {
-      expect(
-        spelled.get(e.file)?.some((s) => s.within === e.within),
-        `${e.file} · ${e.within} no longer names '${NAMESPACE}' — delete its exception`,
-      ).toBe(true);
-    }
   });
 });
