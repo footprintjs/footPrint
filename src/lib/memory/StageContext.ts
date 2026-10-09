@@ -41,9 +41,10 @@ function userKeyOf(path: string[], key: string): string {
 }
 
 /**
- * The key run namespaces sit under — a frame with run id `c0` (a fork child, a
- * branch) writes at `runs/c0/…`. The engine's one spelling of it: every frame's
- * address is built from it, and the record layer takes that address as data (C2).
+ * The key run namespaces sit under — a frame with run id `c0` (a fork or
+ * selector child takes its own id at the top level) writes at `runs/c0/…`. The
+ * engine's one spelling of it: every frame's address is built from it, and the
+ * record layer takes that address as data (C2).
  */
 const RUN_NAMESPACE = 'runs';
 

@@ -83,6 +83,17 @@ describe('SharedMemory', () => {
     expect(mem.getState()).toEqual({ runs: { p1: { x: 1 } }, tenants: { t1: { cfg: { y: 2 } } }, z: 3 });
   });
 
+  it('refuses an address that is not an array: a run id passed in its place throws, never spreads (C2)', () => {
+    const mem = new SharedMemory();
+    expect(() => mem.setValue('p1' as never, [], 'x', 1)).toThrow(TypeError);
+    expect(() => mem.updateValue('' as never, [], 'x', 1)).toThrow(TypeError);
+    expect(() => mem.getValue('p1' as never, [], 'x')).toThrow(TypeError);
+    expect(() => mem.getValue(null as never, [], 'x')).toThrow(TypeError);
+    expect(mem.getState()).toEqual({});
+    mem.setValue([], [], 'x', 1);
+    expect(mem.getValue(undefined, [], 'x')).toBe(1); // no address is still the root
+  });
+
   it('the default values seed the container AT the address when a write creates it, and no other', () => {
     const mem = new SharedMemory({ theme: 'light' });
     // A path segment that repeats the address's last one is an ordinary container.

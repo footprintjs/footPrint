@@ -5,7 +5,7 @@
  *
  * Measures real numbers for the critical paths:
  * 1. Write throughput (setValue calls)
- * 2. Read throughput (getValue calls, no buffer creation)
+ * 2. Read throughput (getValue calls, no buffer creation; a fork child's reads served from live state)
  * 3. Pipeline scale (end-to-end latency by stage count)
  * 4. Concurrent pipelines (parallel executor.run() calls)
  * 5. State size (structuredClone cost at different object sizes)
@@ -102,6 +102,31 @@ function benchReadThroughput(): BenchResult[] {
   }
 
   return results;
+}
+
+/**
+ * A fork child reading its parent's ROOT keys: each read misses the child's own
+ * namespace (`runs/c0`) and is served from live state — the frame's address
+ * joined to the path on every read (`StageContext · readState`, C2).
+ */
+function benchLiveStateReads(): BenchResult[] {
+  const count = 10_000;
+  const mem = new SharedMemory();
+  const log = new EventLog({});
+  const writeCtx = new StageContext('', 'setup', 'setup', mem, '', log);
+  for (let i = 0; i < count; i++) writeCtx.setObject([], `key_${i}`, `value_${i}`);
+  writeCtx.commit();
+  const child = new StageContext('c0', 'child', 'child', mem, '', log);
+  const t = measure(() => {
+    for (let i = 0; i < count; i++) child.getValue([], `key_${i}`);
+  }, 5);
+  return [
+    {
+      name: `Read ${formatNum(count)} root keys from a fork child`,
+      value: formatMs(t.median),
+      detail: `${formatNum(Math.round(count / (t.median / 1000)))} ops/s (served from live state)`,
+    },
+  ];
 }
 
 async function benchPipelineScale(): Promise<BenchResult[]> {
@@ -300,7 +325,7 @@ async function main() {
   printHeader('FootPrint Performance Benchmarks (micro)');
 
   printTable('Write Throughput', benchWriteThroughput());
-  printTable('Read Throughput', benchReadThroughput());
+  printTable('Read Throughput', [...benchReadThroughput(), ...benchLiveStateReads()]);
   printTable('Pipeline Scale (end-to-end)', await benchPipelineScale());
   printTable('Concurrent Pipelines', await benchConcurrentPipelines());
   printTable('structuredClone Cost', benchStateSize());

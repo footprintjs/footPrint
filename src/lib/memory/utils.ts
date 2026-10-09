@@ -34,9 +34,29 @@ type NestedObject = { [key: string]: any };
  */
 export function getRunAndGlobalPaths(address: readonly string[] = [], path: (string | number)[] = []) {
   return {
-    runPath: address.length > 0 ? [...address, ...path] : undefined,
+    runPath: addressOf(address).length > 0 ? pathUnder(address, path) : undefined,
     globalPath: [...path],
   };
+}
+
+/** An address is an array. A run id still passed in its place (C2) is refused, never spread into its characters. */
+function addressOf(address: readonly string[]): readonly string[] {
+  if (Array.isArray(address)) return address;
+  throw new TypeError(
+    `footprintjs: an address is an array path prefix, got ${address === null ? 'null' : typeof address}`,
+  );
+}
+
+/**
+ * `address` then `path`, as one new array. An index loop, because the double
+ * spread `[...address, ...path]` costs twice as much and a frame builds one on
+ * every read it serves from live state (a fork child reading a root key).
+ */
+function pathUnder(address: readonly string[], path: readonly (string | number)[]): (string | number)[] {
+  const out = new Array<string | number>(address.length + path.length);
+  for (let i = 0; i < address.length; i++) out[i] = address[i];
+  for (let i = 0; i < path.length; i++) out[address.length + i] = path[i];
+  return out;
 }
 
 /**
@@ -50,7 +70,7 @@ function containerAt(
   path: readonly (string | number)[] = [],
   defaultValues?: unknown,
 ): NestedObject {
-  const segments = [...address, ...path];
+  const segments = pathUnder(addressOf(address), path);
   let current = obj;
   for (let i = 0; i < segments.length; i++) {
     const key = segments[i];
