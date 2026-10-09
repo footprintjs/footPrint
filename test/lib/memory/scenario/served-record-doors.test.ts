@@ -21,13 +21,11 @@
  * subflow's stored results, the execution tree, recorder rows, `getCheckpoint()` identity, the
  * narrative entries.
  */
-import v8 from 'node:v8';
-
 import type { CommitBundle } from '../../../../src';
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
 import { EventLog } from '../../../../src/advanced';
 import { arrayProvenance, commitValueAt, stateAt, timeTravel } from '../../../../src/trace';
-import { vandalize } from '../../../helpers/valueKinds';
+import { recordKey, vandalize } from '../../../helpers/valueKinds';
 
 /** Every value freezing cannot seal, plus a JSON key beside them. */
 const unsealable = () => ({
@@ -77,7 +75,10 @@ async function run() {
   return executor;
 }
 
-/** Every answer the record gives, as bytes — read from a FRESH snapshot. */
+/**
+ * Every answer the record gives, keyed by VALUE (test/helpers/valueKinds.ts · recordKey — not `v8.serialize`
+ * bytes, which also encode how V8 stores a number) — read from a FRESH snapshot.
+ */
 function answers(executor: FlowChartExecutor): string {
   const snap = executor.getSnapshot();
   const log = snap.commitLog as CommitBundle[];
@@ -97,7 +98,7 @@ function answers(executor: FlowChartExecutor): string {
       state: stateAt(sub, (sub.history?.length ?? 0) - 1).state,
     },
   };
-  return v8.serialize(all).toString('hex');
+  return recordKey(all, 'kind');
 }
 
 describe('the commit log cannot be edited through what it serves (9.44.2)', () => {
@@ -210,14 +211,15 @@ describe('a reader’s answer is the caller’s own: editing it changes no later
     const snap = executor.getSnapshot();
     const log = snap.commitLog as CommitBundle[];
     const read = () =>
-      v8
-        .serialize([
+      recordKey(
+        [
           commitValueAt(log, 0, 'rec'),
           stateAt(snap, 1).state,
           timeTravel(snap).stateAt().state,
           getSubtreeSnapshot(snap, 'sub')?.initialState,
-        ])
-        .toString('hex');
+        ],
+        'kind',
+      );
     const before = read();
     vandalize([commitValueAt(log, 0, 'rec'), stateAt(snap, 1).state, timeTravel(snap).stateAt().state]);
     expect(read()).toBe(before);
@@ -247,7 +249,7 @@ describe('the copies that already were: checkpoint and dev-mode sharedState', ()
     enableDevMode();
     try {
       const executor = await run();
-      const read = () => v8.serialize(executor.getSnapshot().sharedState.rec).toString('hex');
+      const read = () => recordKey(executor.getSnapshot().sharedState.rec, 'kind');
       const before = read();
       vandalize(executor.getSnapshot().sharedState.rec);
       expect(read()).toBe(before);
