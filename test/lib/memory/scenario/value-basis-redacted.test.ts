@@ -56,7 +56,11 @@ describe('a redacted merge-back', () => {
 // Review findings 1 and 4 (F4b): two answers that said 'never-written' and were false.
 describe('a removed base value and a hidden write', () => {
   /** One stage, `only`, over `seed` — its record under `commitValues`. */
-  function snapOf(body: Parameters<ReturnType<typeof recordRun>['step']>[1], seed = {}, commitValues: 'full' | 'delta' = 'full') {
+  function snapOf(
+    body: Parameters<ReturnType<typeof recordRun>['step']>[1],
+    seed = {},
+    commitValues: 'full' | 'delta' = 'full',
+  ) {
     const rec = recordRun(seed, { commitValues });
     rec.step('only', body, { name: 'Only' });
     return rec.snapshot();

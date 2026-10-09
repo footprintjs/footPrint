@@ -6,13 +6,13 @@
 
 ## 0. On one screen
 
-- **The goal.** The record becomes its own small package, **foottrace** (working name). The record is what a run wrote, plus every reader of it: the fold, the time-travel cursor, the stops, the slices and the honesty codes. footprintjs becomes flowchart + trace: it depends on foottrace and re-exports nothing from it.
+- **The goal.** The record becomes its own small package, **foottrace** (name approved 2026-10-09). The record is what a run wrote, plus every reader of it: the fold, the time-travel cursor, the stops, the slices and the honesty codes. footprintjs becomes flowchart + trace: it depends on foottrace and re-exports nothing from it.
 - **Simplify first, then move.** Six small clean-up steps (C1–C6) happen inside footprintjs. They move the record's half of the stage frame out of `StageContext` and cut every tie from the record to the engine. Each step changes no byte of any record, ships on its own, and is checked against every consumer. C1 is built. Then six extraction steps (E1–E6) get the tests and the consumers ready, publish foottrace 1.0.0, move the consumers, and ship footprintjs 10.0.0.
 - **No new writer.** The extra writer wrapper of the writer-door design is dropped. After C5, the cleaned record layer itself (`RecordFrame`, `SharedMemory`, `EventLog`) is the public way to write a record: `footprintjs/write`, later `foottrace/write`. The engine writes through the same classes, so there is only one writer.
 - **The safety net is in place.** The consumer audit (#60) runs seven consumers against every release candidate. The byte fixtures (#61) pin 26 flowchart records and hcifootprint's real transitions. A step that moves a byte or breaks a consumer cannot merge.
 - **"Ready" is measured.** Six numbers are printed in every release PR (section 8). The two main ones: no record file reaches the engine, and at least 70% of the record's tests run without the engine (35% today).
 - **Versions.** foottrace starts at 1.0.0. footprintjs takes a major (10.0.0) for the move. A minor that removes the readers from `footprintjs/trace` would break every published consumer on a fresh install. Consumers move first, with ranges that accept footprintjs 9 or 10, so footprintjs's major forces none of them into a major of its own.
-- **Still open:** the name, major vs minor, the optional co-change condition, the `/testing` kit, the repository, and one change in the paused vizfootprint (section 10).
+- **Owner decisions approved (2026-10-09):** foottrace in its own repository, footprintjs 10.0.0 at extraction, co-change reported but not a gate, no `/testing` kit, one vizfootprint migration PR, and the record-bytes policy (section 10).
 
 ## 1. The layers, before and after
 
@@ -170,6 +170,13 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 - **The audit's measure.** Its "record symbols" count switches to section 7.5's definition: a symbol declared in a record file.
 - **Done when:** R4 is 70% or more. **Release:** none needed (tests and scripts only).
 
+**As built (2026-10-09):**
+
+- R4 is **73/104 (70.1%)**, with 31 named engine witnesses and 13 exclusions for engine-owned behavior. Mixed suites were split by ownership; their engine assertions remain. `recordRun` writes through the record layer, with byte-parity witnesses against real engine runs for both encodings, tracked reads, forks and subflows.
+- `npm run check:record-tests` enforces the classification and threshold. `npm run check:trace-ready` enforces E1's R1/R2/R4 gates; CI appends the report to its summary. `scripts/README.md` documents the report modes and evidence rules.
+- R1/R2 are zero. R3's complete declaration/import walk inventories **18** remaining internal declarations: the earlier count of 16 omitted the `ArrayWalk` and `DELIM` re-exports. E1 changes no runtime code or pinned record bytes; resolving these internals remains E3 work.
+- A fresh main-ref audit of all seven consumers measured R6 zero and no `/advanced` record imports. R5 deliberately remains **UNKNOWN** for `agentfootprint/test/helpers/typedScope.ts`, which imports `StageContext`. Inspection found an engine-scope test helper, not a standalone record writer; the automated checker still requires explicit review evidence before claiming the E3 entry gate. Missing or opaque consumer evidence is never converted into a passing zero.
+
 ### E2 — No consumer reads a door off a namespace
 
 - **The Lens.** `src/core/tags/tagAxis.ts · tagStopsStrategy` and `src/core/context/contextAt.ts · firstSegment` read `tagStops` and `pathSegments` off `import * as trace from 'footprintjs/trace'`. They become named imports; the peer floor `^9.26.0` already ships both.
@@ -178,7 +185,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 ### E3 — Build foottrace and the extraction branch (no release)
 
-- **Entry gate:** section 8 is all green, and the owner has ruled on section 10.
+- **Entry gate:** R1, R2, R4, R5 and R6 in section 8 are green, with fresh consumer evidence, and the owner has ruled on section 10. R3 is measured with an explicit list of remaining internals at entry; resolving that list through foottrace's two public doors is E3's work, not a circular prerequisite for starting it.
 - **The foottrace repository** is created with the moved files' history (`git filter-repo`). It holds:
   - the `RECORD_FILES` and their engine-free tests and READMEs;
   - `docs/guides/record-contract.md` and `examples/post-execution/time-travel/06-bring-your-own-record.ts`;
@@ -192,7 +199,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
   - removes the record symbols from its own doors and adds the cross-package rule (7.3);
   - retires the hcifootprint fixture's 2.6.1 frame replay: its JSON moves to foottrace, no consumer writes through the frame after C5, and the 26 flowchart records still pin the frame;
   - rewrites what teaches the old door: 35 example files, 7 docs, the 6 `ai-instructions/` files, 4 `docs-site/` pages and 83 mentions in `src/` comments.
-- **Done when:** foottrace's suite is green with no footprintjs installed, and footprintjs's suite and byte fixtures are green on the branch against the foottrace candidate, with the fixtures unmodified.
+- **Done when:** R3 is zero (each remaining internal is gone or published on one of foottrace's two doors), foottrace's suite is green with no footprintjs installed, and footprintjs's suite and byte fixtures are green on the branch against the foottrace candidate, with the fixtures unmodified.
 
 ### E4 — Publish foottrace 1.0.0
 
@@ -218,10 +225,10 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 ### 7.1 Name and doors
 
-- **The name:** `foottrace` (the owner's leaning, to be confirmed). "Trace" is the canon's word (Map · Walker · Trace · Fold · Lens). It was free on npm on 2026-10-08, as were `footrecord` and `foottrail`. `foottrail` stays reserved for vizfootprint's branching core.
+- **The name:** `foottrace` (approved 2026-10-09). "Trace" is the canon's word (Map · Walker · Trace · Fold · Lens). It was free on npm on 2026-10-08, as were `footrecord` and `foottrail`. Availability must be checked again at publication. `foottrail` stays reserved for vizfootprint's branching core.
 - **`.` reads.** The readers and every record type: the fold, the cursor, the stops, the slices, the causal chain, the key queries, the id grammar, `HONESTY_CODES`, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle` and its family, `CommitValuesMode`, `ExecutionTree` (C6), `EmitSourcePosition`, `LogAddress`.
 - **`/write` writes.** `RecordFrame`, `SharedMemory`, `EventLog`, their option types, `WriteProvenanceMode`, and the log's placeholder.
-- **`/testing`:** only if section 10 says yes.
+- **`/testing`:** not part of extraction (section 10); no third door.
 - **Internals footprintjs needs.** R3 lists the record internals footprintjs's other layers use. Each one disappears in a C step, or E3's review publishes it on one of the two doors under a plain name.
 
 ### 7.2 Dependencies
@@ -275,7 +282,7 @@ Outside the audit, four apps import `/trace` or `/advanced`: neo-agentfootprint 
 
 ## 8. The "ready to extract" check
 
-E3 starts only when every row except the optional one is met. `scripts/trace-ready.mjs` (E1) prints this table in each release PR.
+E3 starts when R1, R2, R4, R5 and R6 are met. R3 must be reported at entry and reach zero before E3 is complete: publishing the necessary internal names on foottrace's doors is part of E3 itself. Co-change is information only, not a gate. `scripts/trace-ready.mjs` (E1) prints this table; missing consumer evidence is unknown, never a passing zero.
 
 | # | Measure | Today | Ready when |
 |---|---|---|---|
@@ -308,15 +315,17 @@ E3 starts only when every row except the optional one is met. `scripts/trace-rea
 | A fix lands in only one copy during E4–E6 | The freeze check in footprintjs CI; the window is kept to days |
 | Docs keep teaching the old door | E3's rewrite; `npm run test:examples` and `npm run check:doc-snippets` compile the code; a grep finds no moved symbol beside `footprintjs/trace` |
 
-## 10. Owner decisions still open
+## 10. Owner decisions approved (2026-10-09)
 
-1. **The name:** confirm `foottrace`. Recommend yes.
-2. **footprintjs at extraction, major or minor:** recommend the major, 10.0.0. A minor breaks every published consumer whose caret admits it.
-3. **The co-change condition:** recommend dropping it; print the number as information (section 8).
-4. **A `/testing` kit:** recommend none at extraction. Add it as a foottrace minor when a producer writes records with its own code, such as viz's trail or a hand-built recording.
-5. **The repository:** recommend its own repo, `footprintjs/foottrace` (the family stays polyrepo, ruling of 2026-06-22). You create the repo and its npm trusted publisher.
-6. **vizfootprint's E5 change** (three symbols and one mock, while viz is paused): recommend allowing that one PR; otherwise viz leaves the audit for 10.0.0.
-7. **The bytes policy** (`test/fixtures/README.md`, proposed as ruling 3): recommend adopting it as foottrace's promise, unchanged.
+The owner approved all seven recommendations, as recorded in the takeover handoff dated 2026-10-09. These are decisions, not questions to ask again.
+
+1. **The name:** `foottrace`.
+2. **footprintjs at extraction:** the major, **10.0.0**. A minor breaks every published consumer whose caret admits it.
+3. **The co-change condition:** dropped as a prerequisite; print the number as information (section 8).
+4. **A `/testing` kit:** none at extraction. A later foottrace minor can add it when a producer needs to write records with its own code, such as viz's trail or a hand-built recording.
+5. **The repository:** its own repo, `footprintjs/foottrace` (the family stays polyrepo, ruling of 2026-06-22). Repository creation and npm trusted-publisher setup remain operational prerequisites for publication, not blockers for E1.
+6. **vizfootprint's E5 change:** the one migration PR (three symbols and one mock) is allowed while its other work stays paused.
+7. **The bytes policy** (`test/fixtures/README.md`): adopted as foottrace's promise, unchanged.
 
 ## Appendix — how the numbers were counted (2026-10-08)
 

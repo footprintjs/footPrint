@@ -22,12 +22,13 @@ function input(channel: CaptureChannel = 'scope', payload: unknown = { v: 1 }): 
   return { channel, method: 'onWrite', runtimeStageId: 'seed#0', runId: 'run-1', payload };
 }
 
-/** Let queued microtasks (the flush) run. */
+/** Yield to the next flush; budget exhaustion may leave a backlog. */
 const checkpoint = () => Promise.resolve();
 
 describe('DeferredDispatcher — unit', () => {
-  it('delivers nothing synchronously; everything at the next checkpoint', async () => {
-    const d = new DeferredDispatcher();
+  it('delivers nothing synchronously; a batch within budget completes at the next checkpoint', async () => {
+    // Isolate scheduling from host pauses that can exhaust the default 2ms budget.
+    const d = new DeferredDispatcher({ now: () => 0 });
     const seen: number[] = [];
     d.addListener('a', (e) => seen.push(e.seq));
     d.capture(input());
@@ -35,6 +36,28 @@ describe('DeferredDispatcher — unit', () => {
     expect(seen).toHaveLength(0); // one beat behind
     await checkpoint();
     expect(seen).toEqual([0, 1]);
+    expect(d.getStats()).toMatchObject({ depth: 0, flushes: 1, budgetExhausted: 0 });
+  });
+
+  it('yields the backlog to the next checkpoint when the default 2ms budget is exhausted', async () => {
+    let now = 0;
+    const d = new DeferredDispatcher({ now: () => now });
+    const seen: number[] = [];
+    d.addListener('a', (e) => {
+      seen.push(e.seq);
+      now += 2; // Reach the default budget without relying on host time.
+    });
+    d.capture(input());
+    d.capture(input());
+    expect(seen).toHaveLength(0);
+
+    await checkpoint();
+    expect(seen).toEqual([0]);
+    expect(d.getStats()).toMatchObject({ depth: 1, flushes: 1, budgetExhausted: 1, drops: 0 });
+
+    await checkpoint();
+    expect(seen).toEqual([0, 1]);
+    expect(d.getStats()).toMatchObject({ depth: 0, flushes: 2, budgetExhausted: 1, drops: 0 });
   });
 
   it('addListener is idempotent by id — same id replaces, ids coexist', async () => {
@@ -66,7 +89,7 @@ describe('DeferredDispatcher — unit', () => {
   });
 
   it('events captured before a listener attaches stay queued (late attach gets backlog)', async () => {
-    const d = new DeferredDispatcher();
+    const d = new DeferredDispatcher({ now: () => 0 });
     d.capture(input());
     d.capture(input());
     const seen: number[] = [];
@@ -90,7 +113,7 @@ describe('DeferredDispatcher — unit', () => {
 describe('DeferredDispatcher — functional (isolation + inflight)', () => {
   it('a THROWING listener never affects siblings or the producer; error routed (sync)', async () => {
     const errors: Array<{ error: unknown; ctx: DispatchErrorContext }> = [];
-    const d = new DeferredDispatcher({ onError: (error, ctx) => errors.push({ error, ctx }) });
+    const d = new DeferredDispatcher({ now: () => 0, onError: (error, ctx) => errors.push({ error, ctx }) });
     const healthy: number[] = [];
     d.addListener('bomber', () => {
       throw new Error('boom');
@@ -201,7 +224,7 @@ describe('DeferredDispatcher — functional (isolation + inflight)', () => {
 
 describe('DeferredDispatcher — stats (A2/A4)', () => {
   it('exposes the A4 shape: depth/drops/flushes/budgetExhausted/p95FlushMs/perListener', async () => {
-    const d = new DeferredDispatcher({ maxQueue: 2, overflow: 'drop-oldest' });
+    const d = new DeferredDispatcher({ now: () => 0, maxQueue: 2, overflow: 'drop-oldest' });
     d.addListener('a', () => undefined);
     for (let i = 0; i < 5; i++) d.capture(input());
     const before = d.getStats();

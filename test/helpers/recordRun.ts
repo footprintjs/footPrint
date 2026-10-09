@@ -10,7 +10,7 @@
  * node per step, `next`-linked, as a linear chart's.
  *
  * The same steps a chart's stages take give the same bytes (test/lib/memory/scenario/write-door-same-bytes
- * pins that): a stage that assigns `scope.k = v` is `s.set('k', v)`, one that reads `scope.k` is
+ * directly checks this helper): a stage that assigns `scope.k = v` is `s.set('k', v)`, one that reads `scope.k` is
  * `s.read('k')`, `$update` is `s.merge`, `$delete` is `s.delete`.
  *
  * @example
@@ -83,7 +83,8 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
       read(key, path = []) {
         const value = frame.read(path, key);
         frame.noteRead(path, key);
-        stageReads[[...path, key].join('.')] = value;
+        // Full read retention takes its copy WHEN read, before the caller can edit the borrowed value.
+        stageReads[[...path, key].join('.')] = structuredClone(value);
         return value;
       },
       set: (key, value, scrub, path = []) => frame.write(at(key, path), value, 'set', scrub),
@@ -92,7 +93,8 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
     };
     body?.(scope);
     const continuation = options.phase !== undefined;
-    const runtimeStageId = options.runtimeStageId ?? (continuation ? lastIdOf.get(id) : undefined) ?? `${id}#${counter}`;
+    const runtimeStageId =
+      options.runtimeStageId ?? (continuation ? lastIdOf.get(id) : undefined) ?? `${id}#${counter}`;
     if (!continuation) {
       counter++;
       lastIdOf.set(id, runtimeStageId);

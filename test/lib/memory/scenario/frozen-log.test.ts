@@ -11,22 +11,12 @@
  *             throws (a regression the old walk carried); a Map in a bundle is served as a copy (9.44.2 —
  *             it was the named hole: freezing cannot reach its entries, and every snapshot shared them);
  *             a /g RegExp read from a bundle throws on `replace` (the named consequence)
- *   boundary  `EventLog.record` (footprintjs/write) freezes the bundle it is handed; the deprecated
- *             `materialise` still folds
+ * Direct EventLog freezing is checked without the engine in frozen-record.test.ts.
  */
-import type { CommitBundle } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
+import type { CommitBundle } from '../../../../src/trace';
 import { commitValueAt, stateAt } from '../../../../src/trace';
-
-/** Every object reachable from `v` that is NOT frozen (typed arrays and DataViews excepted — the named hole). */
-function unfrozen(v: unknown, path = '$', out: string[] = [], seen = new Set<object>()): string[] {
-  if (v === null || typeof v !== 'object' || seen.has(v) || ArrayBuffer.isView(v)) return out;
-  seen.add(v);
-  if (!Object.isFrozen(v)) out.push(path);
-  for (const k of Object.getOwnPropertyNames(v)) unfrozen((v as Record<string, unknown>)[k], `${path}.${k}`, out, seen);
-  return out;
-}
+import { unfrozen } from '../../../helpers/unfrozen';
 
 async function richRun() {
   const inner = flowChart(
@@ -216,25 +206,5 @@ describe('the record is frozen — edges and named holes', () => {
     const re = executor.getSnapshot().commitLog[0].overwrite.re as RegExp;
     expect(() => 'aa'.replace(re, 'b')).toThrow(TypeError);
     expect('aa'.replace(new RegExp(re), 'b')).toBe('bb');
-  });
-});
-
-describe('the record is frozen — the advanced door', () => {
-  it('EventLog.record freezes the bundle it is handed, after stamping its position; materialise still folds', () => {
-    const log = new EventLog({ k: 0 });
-    const bundle: CommitBundle = {
-      stage: 'S',
-      stageId: 's',
-      runtimeStageId: 's#0',
-      trace: [{ path: 'k', verb: 'set' }],
-      overwrite: { k: { v: [1] } },
-      updates: {},
-      redactedPaths: [],
-    };
-    log.record(bundle);
-    expect(bundle.idx).toBe(0);
-    expect(unfrozen(bundle)).toEqual([]);
-    expect(log.list()[0]).toBe(bundle);
-    expect(log.materialise()).toEqual({ k: { v: [1] } });
   });
 });

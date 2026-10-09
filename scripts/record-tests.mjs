@@ -6,12 +6,12 @@
  * record to its own package with the tests that need nothing else. This script reads that off what
  * each test file LOADS — never off its name or its folder:
  *
- *   - the edges are `check-layering.mjs · readEdges` over src/ and test/ together, every import kind
- *     (value, type, lazy): a test that moves must still compile where it lands;
+ *   - the edges are `doors.mjs · sourceEdges` over src/ and test/ together, every import kind
+ *     (value, type, lazy, require): a test that moves must still compile where it lands;
  *   - the record is `layering.config.cjs · RECORD_FILES`;
  *   - an import from a door (`src/*.ts`) counts as the files its NAMES are declared in
  *     (`doors.mjs · readDoors`), so `{ stateAt } from '…/src/trace'` loads the record and
- *     `{ flowChart } from '…/src'` loads the builder;
+ *     any import from the main or advanced door reaches the engine;
  *   - a test helper (a `.ts` under test/ that is not a test) is followed: what it loads, the test loads.
  *
  * A test RUNS WITHOUT THE ENGINE when everything it loads, at any depth, is a record file, a test
@@ -31,10 +31,11 @@
  * name and let it move), and on a name that matches no test file.
  *
  * Usage:
- *   node scripts/record-tests.mjs [--root <dir>] [--json] [--list]
+ *   node scripts/record-tests.mjs [--root <dir>] [--json] [--list] [--check]
  *     --root  classify <dir>'s tests (a copy of an older tree); the named list is this one's
  *     --json  machine-readable result
  *     --list  print every test file under its class, not only the counts and the problems
+ *     --check also require R4 >=70% (classification errors always fail)
  * Exit code: 0 clean, 1 any failure.
  */
 
@@ -42,8 +43,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { readEdges } from './check-layering.mjs';
-import { readDoors } from './doors.mjs';
+import { readDoors, sourceEdges } from './doors.mjs';
 
 const require = createRequire(import.meta.url);
 const layering = require('./layering.config.cjs');
@@ -104,6 +104,61 @@ export const STAYS = [
     group: 'witness',
     why: 'causal walks over real pipelines (decider, selector, subflow, loop), and the engine’s dev mode',
     files: ['test/lib/memory/backtrack-integration.test.ts'],
+  },
+  {
+    group: 'witness',
+    why: 'counted cost and load through the executor: retained state must not increase commit cloning or engine traversal cost',
+    files: [
+      'test/lib/memory/boundary/commit-cost-independent-of-state.test.ts',
+      'test/lib/memory/boundary/copy-on-write.load.test.ts',
+    ],
+  },
+  {
+    group: 'witness',
+    why: 'the engine and proxy write path preserve cyclic values, record honesty, and tracked-read provenance',
+    files: [
+      'test/lib/memory/deepEqual-cycles.engine.test.ts',
+      'test/lib/memory/honesty.engine.test.ts',
+      'test/lib/memory/untracked-sources.test.ts',
+      'test/lib/memory/writeProvenance.test.ts',
+    ],
+  },
+  {
+    group: 'witness',
+    why: 'engine snapshot doors preserve the record when callers mutate returned values, including pause/subflow and non-freezable payloads',
+    files: [
+      'test/lib/memory/property/served-record.property.test.ts',
+      'test/lib/memory/scenario/served-record-doors.test.ts',
+      'test/lib/memory/scenario/frozen-log.test.ts',
+    ],
+  },
+  {
+    group: 'witness',
+    why: 'frame/engine wiring: clone timing, commit observers and release, retention, lazy allocation, and full/delta option propagation',
+    files: [
+      'test/lib/memory/scenario/clone-once-at-commit.test.ts',
+      'test/lib/memory/scenario/commit-release.test.ts',
+      'test/lib/memory/scenario/commit-values.test.ts',
+      'test/lib/memory/scenario/lazy-buffer.test.ts',
+    ],
+  },
+  {
+    group: 'witness',
+    why: 'record bytes from the real engine equal the public writer or the pinned pre-refactor engine',
+    files: [
+      'test/lib/memory/scenario/repeated-path-byte-identity.test.ts',
+      'test/lib/memory/scenario/write-door-same-bytes.test.ts',
+    ],
+  },
+  {
+    group: 'witness',
+    why: 'slicing the engine’s nested rows, branches, redaction and live read/write tracking matches its actual output',
+    files: ['test/lib/slice/nested-rows.engine.test.ts', 'test/lib/slice/sliceForKey.engine.test.ts'],
+  },
+  {
+    group: 'witness',
+    why: 'the engine supplies the cursor’s initialState, subflow histories and resume legs; constructor seed and resume retain the fold base',
+    files: ['test/lib/time-travel/substrate.test.ts'],
   },
   // ── not the record's: tests in its folders whose subject stays in footprintjs ──
   {
@@ -169,10 +224,14 @@ function loadsOf(test, ctx) {
       }
       const door = ctx.doors.get(edge.to);
       if (door) {
+        if (!['src/trace.ts', 'src/write.ts'].includes(edge.to) || edge.names.length === 0) {
+          escapes.push({ chain: at, what: `${edge.to} (engine door or side-effect import)` });
+          continue;
+        }
         const names = edge.names.includes('*') ? [...door.keys()] : edge.names;
         for (const name of names) {
           const declared = door.get(name);
-          if (!declared) {
+          if (!declared?.length) {
             escapes.push({ chain: at, what: `'${name}', which ${edge.to} does not hand out` });
             continue;
           }
@@ -202,7 +261,7 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
   const src = layering.listSourceFiles(root);
   const tests = layering.listSourceFiles(root, 'test');
   const edgesFrom = new Map();
-  for (const edge of readEdges(root, [...src, ...tests], { outside: true })) {
+  for (const edge of sourceEdges(root, [...src, ...tests])) {
     if (!edgesFrom.has(edge.from)) edgesFrom.set(edge.from, []);
     edgesFrom.get(edge.from).push(edge);
   }
@@ -211,13 +270,16 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
   const named = new Map();
   const problems = [];
   for (const group of stays) {
+    if (!['frame', 'witness'].includes(group.group) || !group.why?.trim())
+      problems.push('Every STAYS group needs a valid class and a reason');
     for (const file of group.files) {
       if (named.has(file)) problems.push(`${file} is named twice in STAYS`);
       named.set(file, group);
     }
   }
   const testFiles = tests.filter(isTest);
-  for (const file of named.keys()) if (!testFiles.includes(file)) problems.push(`${file} is named in STAYS but is no test file`);
+  for (const file of named.keys())
+    if (!testFiles.includes(file)) problems.push(`${file} is named in STAYS but is no test file`);
 
   const files = testFiles.map((file) => {
     const inRecordDir = recordDirs.some((dir) => file.startsWith(dir));
@@ -231,9 +293,19 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
     else if (escapes.length === 0 && (inRecordDir || loadsRecord)) kind = 'record';
     else if (inRecordDir) {
       kind = 'unclassified';
-      problems.push(`${file} loads ${escapes[0].what}: make it engine-free, or name it in STAYS (scripts/record-tests.mjs)`);
+      problems.push(
+        `${file} loads ${escapes[0].what}: make it engine-free, or name it in STAYS (scripts/record-tests.mjs)`,
+      );
     } else kind = 'outside';
-    return { file, kind, inRecordDir, escapes, why: group?.why ?? null };
+    return {
+      file,
+      kind,
+      inRecordDir,
+      escapes,
+      why:
+        group?.why ??
+        (kind === 'record' ? 'only record declarations, test helpers and external test dependencies' : null),
+    };
   });
 
   const count = (kind) => files.filter((f) => f.kind === kind).length;
@@ -302,10 +374,17 @@ export function format(result, { list = false } = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--root') {
+      if (!args[++i] || args[i].startsWith('--')) throw new Error('--root needs a directory');
+    } else if (!['--json', '--list', '--check'].includes(args[i])) throw new Error(`unknown argument: ${args[i]}`);
+  }
   const at = args.indexOf('--root');
   const root = at === -1 ? REPO_ROOT : resolve(args[at + 1]);
   const result = classify({ root });
-  console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : format(result, { list: args.includes('--list') }));
+  console.log(
+    args.includes('--json') ? JSON.stringify(result, null, 2) : format(result, { list: args.includes('--list') }),
+  );
   // Not process.exit(): a long --json report written to a pipe would be cut off before it drains.
-  process.exitCode = result.ok ? 0 : 1;
+  process.exitCode = result.ok && (!args.includes('--check') || result.r4.share >= 0.7) ? 0 : 1;
 }

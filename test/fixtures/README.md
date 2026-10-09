@@ -20,14 +20,14 @@ timestamp: 1759912345678      → "«time»"    (also pausedAt)
 
 Everything else is JSON as the record writes it, with JSON's own losses: `NaN` and `±Infinity` become `null`, `-0` becomes `0`, an `Error` or `RegExp` becomes `{}`. The two settlings match by shape, so they would also catch user data shaped like them: any number under a key named `timestamp` or `pausedAt`, and any string shaped `<digits>-<10 digits>`. None of these occur in today's pins.
 
-## The re-pin policy — proposed, owner ruling 3
+## The re-pin policy — adopted 2026-10-09
 
 A pinned byte changes for one of two reasons, and the PR says which:
 
 1. **A bug.** The change broke the record. Fix the code; the fixture stays as it is.
 2. **A named law fix.** The release changes a stated law of the record on purpose, as 9.22.0 did when a new Date, Map or Set became a change. It re-pins in a **minor**, in the same PR as the fix, and the CHANGELOG names it under **"Record bytes"**: the law, the scenarios that moved, and why.
 
-**A refactor never re-pins.** C1–C6 are refactors: their PRs leave every pinned byte untouched (`record-bytes/pinned/` and `hcifootprint/transitions-2.6.1.json`).
+**A refactor never re-pins.** The C1–C6 clean-up and E1–E6 extraction leave every pinned byte untouched (`record-bytes/pinned/` and `hcifootprint/transitions-2.6.1.json`). Extraction may move a fixture to foottrace; it does not regenerate it. Any byte change other than a named law fix requires a major release (the extraction plan, section 7.4).
 
 Re-pin, only for a named law fix, then read the diff — every changed line must be the law's:
 

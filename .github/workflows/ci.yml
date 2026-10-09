@@ -48,6 +48,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Readiness reports the trailing co-change window from complete history.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -66,3 +69,7 @@ jobs:
       - run: npm run format
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
+      - run: npm run check:record-tests
+      # E1 is a local gate. Consumer evidence is UNKNOWN in this checkout; each
+      # consumer audit supplies its own import report. R3 is remaining E3 work.
+      - run: npm run check:trace-ready

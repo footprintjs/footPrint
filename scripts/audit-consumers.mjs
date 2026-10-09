@@ -32,7 +32,9 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { importsIn, recordSymbols } from './doors.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = process.env.GITHUB_ACTIONS === 'true';
@@ -156,56 +158,25 @@ function judge(candidate, published, fallback = true) {
 
 // ── the measurement: imports from footprintjs/advanced ────────────────────────
 
-/** `type c as d` → `c`: the name as the module exports it. */
-const sourceName = (specifier) =>
-  specifier
-    .trim()
-    .replace(/^type\s+/, '')
-    .split(/\s+as\s+/)[0];
-
-/** The inside of `{ a, type B, c as d }` → `['a', 'B', 'c']`. */
-const namesIn = (list) =>
-  list
-    .replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '')
-    .split(',')
-    .map(sourceName)
-    .filter(Boolean);
-
-/** Record symbols: what `/advanced` hands out from memory/ and ids/, plus the two classes a record writer composes today. */
-function recordSymbols() {
-  const names = new Set(['ExecutionRuntime', 'ScopeFacade']);
-  const barrel = readFileSync(join(REPO_ROOT, 'src/advanced.ts'), 'utf8');
-  for (const [, list] of barrel.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*'\.\/lib\/(?:memory|ids)\//g)) {
-    namesIn(list).forEach((name) => names.add(name));
-  }
-  return names;
-}
-
-const STATIC_IMPORT =
-  /\b(?:import|export)\s+(?:type\s+)?(\{[^}]*\}|\*(?:\s+as\s+[\w$]+)?|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[\w$]+))?)\s*from\s*['"]footprintjs\/advanced['"]/g;
-const DYNAMIC_IMPORT = /\b(?:import|require)\s*\(\s*['"]footprintjs\/advanced['"]\s*\)/g;
-
 /** Every name the consumer's tracked source imports from `footprintjs/advanced` (`*` = the whole namespace). */
-function advancedImports(dir, record) {
+export function advancedImports(dir, record = recordSymbols(undefined, 'src/advanced.ts')) {
   const names = new Set();
   let lines = 0;
   const files = read('git', ['ls-files'], dir).split('\n');
   for (const file of files.filter((f) => SOURCE_FILES.test(f))) {
     const text = readFileSync(join(dir, file), 'utf8');
-    for (const [, clause] of text.matchAll(STATIC_IMPORT)) {
+    for (const imported of importsIn(text, file).filter((row) => row.spec === 'footprintjs/advanced')) {
       lines++;
-      const braces = /\{([^}]*)\}/.exec(clause);
-      if (braces) namesIn(braces[1]).forEach((name) => names.add(name));
-      if (!clause.startsWith('{')) names.add('*');
-    }
-    const dynamic = [...text.matchAll(DYNAMIC_IMPORT)].length;
-    if (dynamic) {
-      lines += dynamic;
-      names.add('*');
+      imported.names.forEach((name) => names.add(name));
     }
   }
   const sorted = [...names].sort();
-  return { lines, record: sorted.filter((n) => record.has(n)), other: sorted.filter((n) => !record.has(n)) };
+  return {
+    lines,
+    record: sorted.filter((n) => record.has(n)),
+    other: sorted.filter((n) => !record.has(n)),
+    unresolved: names.has('*'),
+  };
 }
 
 // ── one consumer ─────────────────────────────────────────────────────────────
@@ -270,7 +241,8 @@ function report(r, ctx) {
   const adv = r.advanced
     ? `/advanced: ${r.advanced.lines} import line(s); record symbols ${r.advanced.record.length}` +
       `${r.advanced.record.length ? ` (${r.advanced.record.join(', ')})` : ''}; others ${r.advanced.other.length}` +
-      `${r.advanced.other.length ? ` (${r.advanced.other.join(', ')})` : ''}`
+      `${r.advanced.other.length ? ` (${r.advanced.other.join(', ')})` : ''}` +
+      (r.advanced.unresolved ? '; namespace/dynamic/mock access needs review (not a measured zero)' : '')
     : null;
   console.log(`\n${head}`);
   for (const [key, cand, pub] of rows) console.log(`  ${key.padEnd(28)} candidate ${cand.padEnd(12)} published ${pub}`);
@@ -311,51 +283,55 @@ function annotate(level, r, message) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-const opts = parseArgs(process.argv.slice(2));
-const { family } = JSON.parse(readFileSync(join(REPO_ROOT, 'scripts/family.json'), 'utf8'));
-const audited = family.filter((entry) => entry.checks);
-const consumers = opts.only
-  ? audited.filter((c) => opts.only.includes(c.package) || opts.only.includes(c.dir))
-  : audited;
-if (opts.only && consumers.length !== opts.only.length) {
-  throw new Error(`--only names a consumer scripts/family.json does not audit: ${opts.only.join(', ')}`);
-}
-if (opts.local) {
-  console.warn(
-    `--local: auditing the checkouts under ${opts.org}. A local checkout can be stale (each one's distance from` +
-      ' its last-fetched origin is printed below). The gate is the CI run, .github/workflows/consumers.yml.',
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const { family } = JSON.parse(readFileSync(join(REPO_ROOT, 'scripts/family.json'), 'utf8'));
+  const audited = family.filter((entry) => entry.checks);
+  const consumers = opts.only
+    ? audited.filter((c) => opts.only.includes(c.package) || opts.only.includes(c.dir))
+    : audited;
+  if (opts.only && consumers.length !== opts.only.length) {
+    throw new Error(`--only names a consumer scripts/family.json does not audit: ${opts.only.join(', ')}`);
+  }
+  if (opts.local) {
+    console.warn(
+      `--local: auditing the checkouts under ${opts.org}. A local checkout can be stale (each one's distance from` +
+        ' its last-fetched origin is printed below). The gate is the CI run, .github/workflows/consumers.yml.',
+    );
+  }
+
+  const ws = mkdtempSync(join(tmpdir(), 'fp-consumers-'));
+  let candidate = opts.candidate;
+  if (!candidate) {
+    if (!run('npm run build', REPO_ROOT).ok) throw new Error('the candidate does not build');
+    candidate = join(ws, read('npm', ['pack', '--pack-destination', ws], REPO_ROOT).split('\n').pop());
+  }
+  const ctx = {
+    candidate,
+    candidateVersion: JSON.parse(read('tar', ['-xOzf', candidate, 'package/package.json'])).version,
+    published: latest('footprintjs'),
+    record: recordSymbols(undefined, 'src/advanced.ts'),
+  };
+  console.log(
+    `candidate ${ctx.candidateVersion} (${candidate}); published footprintjs ${ctx.published}; workspace ${ws}`,
   );
+
+  const results = [];
+  for (const entry of consumers) {
+    const r = audit(entry, ws, ctx, opts);
+    results.push(r);
+    report(r, ctx);
+    if (!opts.keep) rmSync(join(ws, entry.package), { recursive: true, force: true });
+  }
+  if (!opts.keep) rmSync(ws, { recursive: true, force: true });
+
+  console.log('\nconsumer audit:');
+  for (const r of results) console.log(`  ${r.entry.package.padEnd(24)} ${r.verdict.padEnd(12)} ${r.seconds} s`);
+  const failed = results.filter((r) => r.verdict === 'BLOCKING' || r.verdict === 'no verdict');
+  console.log(
+    failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
+  );
+  process.exit(failed.length ? 1 : 0);
 }
 
-const ws = mkdtempSync(join(tmpdir(), 'fp-consumers-'));
-let candidate = opts.candidate;
-if (!candidate) {
-  if (!run('npm run build', REPO_ROOT).ok) throw new Error('the candidate does not build');
-  candidate = join(ws, read('npm', ['pack', '--pack-destination', ws], REPO_ROOT).split('\n').pop());
-}
-const ctx = {
-  candidate,
-  candidateVersion: JSON.parse(read('tar', ['-xOzf', candidate, 'package/package.json'])).version,
-  published: latest('footprintjs'),
-  record: recordSymbols(),
-};
-console.log(
-  `candidate ${ctx.candidateVersion} (${candidate}); published footprintjs ${ctx.published}; workspace ${ws}`,
-);
-
-const results = [];
-for (const entry of consumers) {
-  const r = audit(entry, ws, ctx, opts);
-  results.push(r);
-  report(r, ctx);
-  if (!opts.keep) rmSync(join(ws, entry.package), { recursive: true, force: true });
-}
-if (!opts.keep) rmSync(ws, { recursive: true, force: true });
-
-console.log('\nconsumer audit:');
-for (const r of results) console.log(`  ${r.entry.package.padEnd(24)} ${r.verdict.padEnd(12)} ${r.seconds} s`);
-const failed = results.filter((r) => r.verdict === 'BLOCKING' || r.verdict === 'no verdict');
-console.log(
-  failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
-);
-process.exit(failed.length ? 1 : 0);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
