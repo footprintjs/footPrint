@@ -10,7 +10,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { CommitBundle, StageSnapshot } from '../../../src/lib/memory/types.js';
+import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
+import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { controlDepRecorder } from '../../../src/lib/recorder/ControlDepRecorder.js';
 import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
 import {

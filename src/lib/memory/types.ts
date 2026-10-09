@@ -1,14 +1,11 @@
 /**
- * types.ts — Core type definitions for the memory library
+ * types.ts — the record's types: a bundle, its rows, its patches, its encoding, and the
+ * execution tree as the record's readers read it.
  *
- * Zero dependencies on old code or other libraries in this package, with one
- * deliberate exception: `capture/` — the standalone leaf module holding the
- * shared retention-policy family and summary-marker builders (extracted from
- * here in #13c-A so the read and write dials, and later RFC-001, share one
- * implementation).
+ * Imports nothing. The record names nothing outside itself (C6, `RECORD_FILES` in
+ * scripts/layering.config.cjs): the engine's frame types — the stage snapshot, the flow
+ * messages, the retention dials — live beside the frame, in `frameTypes.ts` (L4).
  */
-
-import type { RetentionPolicy } from '../capture/policies.js';
 
 // ── Patch & Trace ──────────────────────────────────────────────────────────
 
@@ -135,32 +132,6 @@ export interface CommitBundle {
 /** The continuation a bundle records — see {@link CommitBundle.phase}. */
 export type CommitPhase = 'exit' | 'repeat';
 
-// ── Flow Control Narrative ─────────────────────────────────────────────────
-
-/** Types of control flow decisions captured by the execution engine. */
-export type FlowControlType = 'next' | 'branch' | 'children' | 'selected' | 'subflow' | 'loop';
-
-/** A single flow control narrative entry. */
-export interface FlowMessage {
-  type: FlowControlType;
-  description: string;
-  targetStage?: string | string[];
-  rationale?: string;
-  count?: number;
-  iteration?: number;
-  timestamp?: number;
-}
-
-// ── Read / Write Tracking (#14, #13c-A) ────────────────────────────────────
-//
-// The policy family and marker shapes are owned by `capture/` (shared with
-// the write dial and, later, RFC-001's deferred-observer capture tier).
-// Re-exported here so every pre-extraction import path keeps working.
-
-export type { RetentionPolicy } from '../capture/policies.js';
-export type { ReadSummaryMarker, WriteSummaryMarker } from '../capture/summarize.js';
-export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from '../capture/summarize.js';
-
 /**
  * Per-write read-provenance policy (#P1) — the fourth dial of the
  * readTracking/writeTracking/commitValues family, same 6-site propagation
@@ -174,51 +145,6 @@ export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from '../capture/summariz
  *   `causalChain`'s `edgeAttribution: 'per-write'` and the slice layer.
  */
 export type WriteProvenanceMode = 'off' | 'reads-prefix';
-
-/**
- * Policy for how tracked reads are recorded into `StageSnapshot.stageReads`.
- *
- * - `'full'` (default) — every tracked read `structuredClone`s the value into
- *   the stage's read view. Byte-identical to the historical behavior; this is
- *   what snapshot consumers (lens, agentfootprint) see today.
- * - `'summary'` — reads record a cheap {@link ReadSummaryMarker} (type + size
- *   proxy + short preview) instead of the cloned value. O(1)-ish per read —
- *   no value clone, no serialization of large objects.
- * - `'off'` — reads are not recorded at all; `stageReads` is absent from the
- *   snapshot. Zero per-read cost. Values are still readable, and the
- *   `ScopeRecorder.onRead` event still fires (it passes the live reference and
- *   never cloned) — so narrative output is identical in every mode. The policy
- *   scopes ONLY the snapshot's `stageReads` payload.
- *
- * Set via `new FlowChartExecutor(chart, { readTracking })` or
- * `executor.setReadTracking(mode)` (before `run()`).
- *
- * Alias of the shared {@link RetentionPolicy} family (#13c-A) — kept as the
- * shipped public name for the read dial.
- */
-export type ReadTrackingMode = RetentionPolicy;
-
-/**
- * Policy for how tracked writes are recorded into `StageSnapshot.stageWrites`
- * (#13c-A) — the sibling of {@link ReadTrackingMode}.
- *
- * - `'full'` (default) — every tracked write `structuredClone`s the value into
- *   the stage's write view. Byte-identical to the historical behavior.
- * - `'summary'` — writes record a cheap {@link WriteSummaryMarker} instead of
- *   the cloned value.
- * - `'off'` — writes are not recorded at all; `stageWrites` is absent from the
- *   snapshot. The writes themselves still commit to shared state and still
- *   appear in the commit log — only the per-stage snapshot bookkeeping (and
- *   therefore the commit observer's mutations payload) is affected. (The
- *   commit log's own value encoding has its own lossless dial —
- *   {@link CommitValuesMode}, #13c-B.)
- *
- * Set via `new FlowChartExecutor(chart, { writeTracking })` or
- * `executor.setWriteTracking(mode)` (before `run()`). See
- * `FlowChartExecutorOptions.writeTracking` for the full observable-consequence
- * contract (onCommit payload, redaction precedence, what is OUT of scope).
- */
-export type WriteTrackingMode = RetentionPolicy;
 
 /**
  * Policy for how commit-bundle VALUES are encoded into the commit log
@@ -255,46 +181,41 @@ export type WriteTrackingMode = RetentionPolicy;
  */
 export type CommitValuesMode = 'full' | 'delta';
 
-// ── Stage Snapshot ─────────────────────────────────────────────────────────
+// ── The execution tree, as the record's readers read it ────────────────────
 
-/** Serialisable representation of a stage's state (for debugging / visualisation). */
-export type StageSnapshot = {
-  id: string;
-  /** Unique per-execution-step identifier. Format: [subflowPath/]stageId#executionIndex */
-  runtimeStageId?: string;
-  name?: string;
-  /** Human-readable description of what this stage does (from builder). */
-  description?: string;
-  /** Subflow identifier — present when this stage is a subflow entry point. */
-  subflowId?: string;
-  isDecider?: boolean;
-  isFork?: boolean;
-  /** User-level writes made by this stage (pre-namespace keys → values).
-   *  Shape depends on {@link WriteTrackingMode}: cloned values under `'full'`
-   *  (default), {@link WriteSummaryMarker}s under `'summary'`, absent under
-   *  `'off'`. Redacted writes show `'[REDACTED]'` regardless of mode. */
-  stageWrites?: Record<string, unknown>;
-  /** User-level reads made by this stage (pre-namespace keys → values at read
-   *  time). Shape depends on {@link ReadTrackingMode}: cloned values under
-   *  `'full'` (default), {@link ReadSummaryMarker}s under `'summary'`, absent
-   *  under `'off'`. */
-  stageReads?: Record<string, unknown>;
-  logs: Record<string, unknown>;
-  errors: Record<string, unknown>;
-  metrics: Record<string, unknown>;
-  evals: Record<string, unknown>;
-  flowMessages?: FlowMessage[];
-  next?: StageSnapshot;
-  children?: StageSnapshot[];
-};
-
-// ── Scope Factory ──────────────────────────────────────────────────────────
-
-/** Forward-declared so StageContext can accept it without importing scope/. */
-export type ScopeFactory<TScope> = (core: StageContext, stageName: string, readOnlyContext?: unknown) => TScope;
-
-// ── StageContext (forward reference for ScopeFactory) ──────────────────────
-
-// The actual class lives in StageContext.ts; we just need the type here for
-// the ScopeFactory generic. TypeScript's import-type handles this:
-import type { StageContext } from './StageContext.js';
+/**
+ * The execution tree as the record's readers read it (C6): the fields a reader touches and
+ * nothing else. `commitStops` (and so `tagStops` and every strategy built on it) reads the mount
+ * marker (`subflowId`) and the root's `id`; `keysReadFromExecutionTree` reads the keys of
+ * `stageReads`; both key on `runtimeStageId` and walk `next` and `children`.
+ *
+ * A structural type the record owns, so the readers name nothing of the engine. The engine's
+ * `StageSnapshot` (`getSnapshot().executionTree`) is one — a supertype of it, so every caller
+ * that hands a snapshot's tree over compiles unchanged — and so is a stored recording's parsed
+ * JSON with these fields. Every field is optional: a reader that finds one absent reads on.
+ *
+ * @example
+ * ```typescript
+ * import { type ExecutionTree, keysReadFromExecutionTree } from 'footprintjs/trace';
+ *
+ * const tree: ExecutionTree = {
+ *   runtimeStageId: 'seed#0',
+ *   next: { runtimeStageId: 'decide#1', stageReads: { creditTier: 'A' } },
+ * };
+ * keysReadFromExecutionTree(tree).lookup('decide#1'); // ['creditTier']
+ * ```
+ */
+export interface ExecutionTree {
+  /** The stage's id (prefixed inside a subflow). `commitStops` reads the root's to place a subflow's seed. */
+  readonly id?: string;
+  /** `[subflowPath/]stageId#executionIndex` — what a reader keys on. A node without one is not a stage. */
+  readonly runtimeStageId?: string;
+  /** Present on a subflow mount: the stop there says `kind: 'mount'`. */
+  readonly subflowId?: string;
+  /** What the stage tracked-read, by key. Only the KEYS are read: a `'summary'` marker serves as well as a value. */
+  readonly stageReads?: Readonly<Record<string, unknown>>;
+  /** The stage that ran next. */
+  readonly next?: ExecutionTree;
+  /** The stages that ran as this one's children (a fork's branches, a decider's chosen branch). */
+  readonly children?: readonly ExecutionTree[];
+}

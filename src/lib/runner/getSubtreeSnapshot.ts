@@ -24,7 +24,7 @@
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import { isExecutionKey, joinPath, lastSegmentOf, pathSegments } from '../ids/runtimeStageId.js';
-import type { StageSnapshot } from '../memory/types.js';
+import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 
 /** The result of navigating to a subtree within a snapshot. */

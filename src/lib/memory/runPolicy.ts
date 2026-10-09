@@ -30,8 +30,9 @@
  * its own store when `mirror` is set.
  */
 
+import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
-import type { CommitValuesMode, ReadTrackingMode, WriteProvenanceMode, WriteTrackingMode } from './types.js';
+import type { CommitValuesMode, WriteProvenanceMode } from './types.js';
 
 /**
  * The four observability dials as an executor takes them — every field optional, an absent

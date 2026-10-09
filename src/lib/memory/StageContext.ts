@@ -18,6 +18,7 @@ import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath }
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { EventLog } from './EventLog.js';
 import type { EmitSourcePosition } from './eventPosition.js';
+import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
 import { type WriteVerb, RecordFrame } from './RecordFrame.js';
 import type { RedactionVerdict } from './redaction.js';
 import {
@@ -34,15 +35,7 @@ import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import type { SharedMemory } from './SharedMemory.js';
-import type {
-  CommitPhase,
-  FlowControlType,
-  FlowMessage,
-  ReadTrackingMode,
-  StageSnapshot,
-  UntrackedSource,
-  WriteTrackingMode,
-} from './types.js';
+import type { CommitPhase, UntrackedSource } from './types.js';
 
 export class StageContext {
   /**

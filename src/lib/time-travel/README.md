@@ -676,10 +676,29 @@ declaration is the fact.
 ## DAG position
 
 `memory ← time-travel`, plus `ids/runtimeStageId` — the zero-dependency id
-grammar that defines what a `runtimeStageId` means, and therefore the one piece
-of `engine/` a reader of ids cannot honestly re-implement. Recorders, traversal
-and runner are never imported here: the snapshot arrives as a plain structural
-shape, so a stored JSON trace works exactly like a live `getSnapshot()`.
+grammar that defines what a `runtimeStageId` means — and the record's value-kind
+classifier (`capture/valueKinds.ts`). Every file here is a record file
+(`RECORD_FILES`, C6): it imports only record files, by value or by type.
+Recorders, traversal and runner are never imported here: the snapshot arrives as
+a plain structural shape, so a stored JSON trace works exactly like a live
+`getSnapshot()`. The tree is the record's own `ExecutionTree` (`memory/types.ts`,
+on `footprintjs/trace`) — the fields `commitStops` reads, a supertype of the
+engine's `StageSnapshot` — so a strategy's `stopsFor(log, tree)` names nothing
+of the engine either. A strategy that reads more of a live tree annotates its
+parameter `StageSnapshot`; a method's parameters are compared both ways, so it
+is still a `TimeTravelStrategy`.
+
+```typescript
+import type { CommitBundle, StageSnapshot } from 'footprintjs/advanced';
+import { type Stop, type TimeTravelStrategy, commitStops } from 'footprintjs/trace';
+
+// Reads a field only a live snapshot's tree has — and still is a TimeTravelStrategy.
+const namedRoot: TimeTravelStrategy = {
+  stopsFor(log: readonly CommitBundle[], tree?: StageSnapshot): Stop[] {
+    return commitStops(log, tree).map((stop) => ({ ...stop, label: tree?.name ?? stop.label }));
+  },
+};
+```
 
 ## Substrate this rests on
 

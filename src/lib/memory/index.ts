@@ -30,24 +30,12 @@ export { HONESTY_CODES } from './honesty.js';
 export { LOG_PLACEHOLDER } from './placeholders.js';
 export { SCOPE_PLACEHOLDER } from './redaction.js';
 
-// Types
-export type {
-  CommitBundle,
-  CommitValuesMode,
-  FlowControlType,
-  FlowMessage,
-  MemoryPatch,
-  ReadSummaryMarker,
-  ReadTrackingMode,
-  RetentionPolicy,
-  ScopeFactory,
-  StageSnapshot,
-  TraceEntry,
-  UntrackedSource,
-  WriteSummaryMarker,
-  WriteTrackingMode,
-} from './types.js';
-export { READ_PREVIEW_LENGTH, SUMMARY_PREVIEW_LENGTH } from './types.js';
+// Types — the retention family the frame's dials alias (capture/, its owner), the frame's (frameTypes.ts,
+// L4 — out of the record's types.ts in C6) and the record's (types.ts)
+export type { RetentionPolicy } from '../capture/policies.js';
+export type { ReadSummaryMarker, WriteSummaryMarker } from '../capture/summarize.js';
+export type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
+export type { CommitBundle, CommitValuesMode, MemoryPatch, TraceEntry, UntrackedSource } from './types.js';
 
 // The verb law's refusal: a commit row whose verb is not set | merge | append | delete
 export { UnknownVerbError } from './verbs.js';

@@ -326,6 +326,10 @@ as a lower bound on consumers, exactly as a backward slice is on causes.
 - **No recorder/engine/runner imports.** DAG position is `memory ← slice`;
   keeping the import set to `memory/` is what lets this evolve as a tiny
   library (its consumers — trace toolpacks, UI adapters — live above it).
+  Every file here is a record file (`RECORD_FILES`, C6), so even the tree
+  `keysReadFromExecutionTree` walks is the record's own type, `ExecutionTree`
+  (`memory/types.ts`): the ids, the keys of `stageReads`, `next` and
+  `children`. A snapshot's `StageSnapshot` tree is one; so is a stored tree.
 - **No cross-LLM claims.** A slice is structural. Whether a context piece
   *semantically* influenced a model output is a different (sampled, ablation-
   tested) question that belongs to downstream libraries.

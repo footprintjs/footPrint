@@ -11,10 +11,14 @@
  *   3. unassigned files   — a src file no layer pattern matches;
  *   4. stale names        — a named edge that no longer exists, or a type-only allowance
  *                           that became a runtime import;
- *   5. shim importers     — anything under src/ that still imports a deprecated old path.
+ *   5. shim importers     — anything under src/ that still imports a deprecated old path;
+ *   6. the closed record  — an import of ANY kind (value, type, lazy) from a RECORD_FILES
+ *                           file to a file outside the set (C6), and a RECORD_FILES entry
+ *                           that matches no file or places a file above L3.
  *
- * Type-only imports are NOT edges: tsc erases them. They are listed (and checked against
- * the allowance list) for information, and never fail the run. An import counts as
+ * Type-only imports are NOT layering edges: tsc erases them. They are listed (and checked
+ * against the allowance list) for information, and never fail the layering — but they do
+ * count for the record, which must compile on its own. An import counts as
  * runtime exactly when `ts.transpileModule` keeps it — the same elision `tsc` applies; the
  * set was checked equal to the `require()` graph of the compiled CJS output.
  *
@@ -173,10 +177,11 @@ const adjacencyOf = (edges, nodeOf) => {
 
 /**
  * @param {{ root?: string, config?: object }} [options] `config` shape: see layering.config.cjs
- *   (`layers`, `exceptions`, `typeOnlyAllowances`, `shims`).
+ *   (`layers`, `recordFiles`, `exceptions`, `typeOnlyAllowances`, `shims`).
  */
 export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   const layers = config.layers ?? defaultConfig.LAYERS;
+  const recordFiles = config.recordFiles ?? defaultConfig.RECORD_FILES;
   const exceptions = config.exceptions ?? defaultConfig.EXCEPTIONS;
   const typeOnlyAllowances = config.typeOnlyAllowances ?? defaultConfig.TYPE_ONLY_ALLOWANCES;
   const shims = config.shims ?? defaultConfig.SHIMS;
@@ -243,6 +248,16 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   ];
   const shimImporters = edges.filter((e) => shims.includes(e.to) && !shims.includes(e.from));
 
+  // The second rule (C6): the record names nothing outside itself — every import kind counts.
+  const inRecord = (f) => defaultConfig.isRecordFile(f, recordFiles);
+  const recordEscapes = edges.filter((e) => inRecord(e.from) && !inRecord(e.to));
+  const recordProblems = [
+    ...recordFiles.filter((glob) => !files.some((f) => match(glob, f))).map((glob) => `${glob} matches no file`),
+    ...files
+      .filter((f) => inRecord(f) && rank.get(f) !== null && rank.get(f) > 3)
+      .map((f) => `${f} is at L${rank.get(f)}: the record is L0-L3`),
+  ];
+
   const result = {
     files: files.length,
     edges: {
@@ -259,6 +274,9 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     unassigned,
     staleNames,
     shimImporters,
+    recordFiles: files.filter(inRecord).length,
+    recordEscapes,
+    recordProblems,
   };
   result.ok =
     moduleCycles.length === 0 &&
@@ -266,7 +284,9 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     upwardUnnamed.length === 0 &&
     unassigned.length === 0 &&
     staleNames.length === 0 &&
-    shimImporters.length === 0;
+    shimImporters.length === 0 &&
+    recordEscapes.length === 0 &&
+    recordProblems.length === 0;
   return result;
 }
 
@@ -329,6 +349,13 @@ export function format(result) {
   for (const s of result.staleNames) lines.push(`  stale: ${short(s.from)} -> ${short(s.to)}  ${s.why}`);
   for (const s of result.shimImporters)
     lines.push(`  deprecated path imported: ${short(s.from)}:${s.line} -> ${short(s.to)}`);
+  lines.push('');
+  lines.push(
+    `the record (RECORD_FILES): ${result.recordFiles} files   imports out of it: ${result.recordEscapes.length}   config problems: ${result.recordProblems.length}`,
+  );
+  for (const e of result.recordEscapes)
+    lines.push(`  ${short(e.from)}:${e.line} -> ${short(e.to)}   [${e.kind}: a record file imports only record files]`);
+  for (const p of result.recordProblems) lines.push(`  ${p}`);
   lines.push('');
   lines.push(result.ok ? 'OK' : 'FAIL');
   return lines.join('\n');

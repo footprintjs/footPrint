@@ -713,6 +713,39 @@ console.log(HONESTY_CODES[basis]); // 'log-only' → No initialState travelled w
 
 Adding a code is one new line in `HONESTY_CODES`. A union declared through `RegisteredCode` cannot hold a code without that line (it does not compile), and `test/architecture/honesty-vocabulary.test.ts` fails on a union of string literals `footprintjs/trace` exports that is neither inside the registry nor named there, with its reason, as a different kind of word.
 
+## The record is closed — `RECORD_FILES` (C6)
+
+THE LAW: the record names nothing outside itself. `RECORD_FILES` (`scripts/layering.config.cjs`) is the record — the files a trace package would hold: its types, the verb law and its leaves, staging and commit, the log, the record half of the frame, and every reader of the log (`slice/`, `time-travel/`, `backtrack`, `commitLogUtils`, `CommitRangeIndex`). A record file imports only record files, by value OR by type: a type import is a name too, and a package cut along the list must compile on its own. Every entry is placed at L0–L3. `npm run check:layering` fails on an import out of the set (`recordEscapes`, any kind: value, type, lazy), on an entry that matches no file, and on a record file above L3; the ESLint zone that `layerZones` adds says the same at lint time. The engine may import the record; the record never imports the engine.
+
+What C6 moved to close it (the record-byte fixtures pass unmodified):
+
+- **The frame's types left `types.ts`** for `frameTypes.ts` (L4): `StageSnapshot`, `FlowMessage`, `FlowControlType`, `ReadTrackingMode`, `WriteTrackingMode`. The retention family they alias (`RetentionPolicy`, the summary markers) is re-exported from `capture/`, its owner, and `types.ts` imports nothing. The doors hand out the same symbols as before. `types.ts`'s copy of `ScopeFactory` was dead (no file imported it, no door handed it out; the engine's is `engine/types.ts`) and is gone. This removed the one `TYPE_ONLY_ALLOWANCES` entry below L4.
+- **The readers name the record's own tree.** `commitStops`, `tagStops`, `TimeTravelStrategy`, `TimeTravelSource` and `keysReadFromExecutionTree` take an `ExecutionTree` (`types.ts`, on `footprintjs/trace`): the fields they read — `id`, `runtimeStageId`, `subflowId`, the keys of `stageReads`, `next`, `children` — all optional. It is a supertype of `StageSnapshot`, so every caller and every strategy that annotates its tree compiles unchanged (`test/api-conformance/execution-tree-supertype.test.ts` compiles the published consumers' shapes against this tree and against the last release).
+- **The id grammar is the record's; the id doors' refusal is the engine's.** `ids/runtimeStageId.ts` builds, parses and reads, and imports nothing; `refuseReservedId` moved to `ids/reservedIds.ts`, beside the `~` grammar (`branchSegment.ts`) it reads.
+- **Truncation is data only.** `causalChain` no longer warns on the console in dev mode: `root.truncated` (`{ byDepth, byNodes }`) and `formatCausalChain`'s footer are the signal.
+- **`capture/valueKinds.ts` and `capture/freeze.ts` are record files.** `equality.ts`, the freezer and `time-travel/chain.ts` share the value-kind classifier (9.44.2); leave it out of the list and `check:layering` names those three imports.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { type ExecutionTree, commitStops, keysReadFromExecutionTree } from 'footprintjs/trace';
+
+const chart = flowChart<{ tier: string; approved?: boolean }>('Seed', (s) => {
+  s.tier = 'A';
+}, 'seed')
+  .addFunction('Decide', (s) => {
+    s.approved = s.tier === 'A';
+  }, 'decide')
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+const { commitLog, executionTree } = executor.getSnapshot();
+
+const live: ExecutionTree = executionTree; // a StageSnapshot is an ExecutionTree
+const stored: ExecutionTree = JSON.parse(JSON.stringify(executionTree)); // so is a stored one
+keysReadFromExecutionTree(stored).lookup('decide#1'); // ['tier']
+commitStops(commitLog, live).map((stop) => stop.label); // ['Run start', 'Seed', 'Decide', 'Run end']
+```
+
 ## Dependency Graph
 
 ```
@@ -738,7 +771,8 @@ This library has ZERO dependencies on other footprint libraries.
   placeholders (leaf) — the log's redaction string; written by scrub (L2), passed by runner/ and engine/ (the mirrors)
                          (the scope channel's string is the verdict's: redaction.ts, L4)
     |
-  types (MemoryPatch, CommitBundle, TraceEntry, FlowMessage, etc.)
+  types (CommitBundle, TraceEntry, MemoryPatch, the encodings, ExecutionTree) — imports nothing
+  frameTypes (L4: StageSnapshot, FlowMessage, the retention dials) — the frame's, outside the record
 ```
 
 External dependencies: none — nested-path traversal uses the native `pathOps.ts` helpers, which replaced `lodash.get`/`lodash.set`/`lodash.has`/`lodash.mergewith`.

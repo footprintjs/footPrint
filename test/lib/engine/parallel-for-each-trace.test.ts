@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
-import type { StageSnapshot } from '../../../src/lib/memory/types.js';
+import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
 import {
   causalChain,
   forwardSliceForKey,

@@ -21,7 +21,7 @@
  */
 
 import type { RegisteredCode } from '../memory/honesty.js';
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ExecutionTree } from '../memory/types.js';
 
 // ── Sources ────────────────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ export type FoldSource = {
  * Every field is optional and the structural ones are `unknown` (9.18.0), so
  * a live `getSnapshot()` is assignable exactly as it was AND so is a stored
  * recording a consumer typed honestly — `commitLog: readonly unknown[]`,
- * `executionTree: unknown` — because parsed JSON is not a `StageSnapshot`
+ * `executionTree: unknown` — because parsed JSON is not an execution tree
  * until something says so. The narrowing happens inside: rows per bundle
  * (see {@link FoldSource}), the tree and the subflow results as plain
  * objects, anything else read as absent.
@@ -81,10 +81,11 @@ export interface TimeTravelSource {
   /**
    * The run's execution tree (`getSnapshot().executionTree`) — what makes a
    * mount stop say `kind: 'mount'` authoritatively instead of by shape. A live
-   * snapshot hands a {@link StageSnapshot}; a stored one hands parsed JSON,
-   * which is read as a tree when it is a plain object and ignored otherwise.
+   * snapshot hands its `StageSnapshot` tree, which is an {@link ExecutionTree};
+   * a stored one hands parsed JSON, which is read as a tree when it is a plain
+   * object and ignored otherwise.
    */
-  readonly executionTree?: StageSnapshot | unknown;
+  readonly executionTree?: ExecutionTree | unknown;
   /**
    * Dual-keyed subflow results (`getSnapshot().subflowResults`) — what
    * {@link TimeTravel.drill} navigates. Absent, or not a plain object ⇒
@@ -393,9 +394,15 @@ export interface Mark {
  * `subflowResults` (9.39.0) is the source's own `subflowResults`, as stored
  * (untyped) — a mount's per-execution key names it a mount when no tree came
  * with the log. A strategy may ignore it.
+ *
+ * `executionTree` is an {@link ExecutionTree} (9.48.0; a `StageSnapshot`
+ * before): the fields the record's readers read. A strategy that reads more of
+ * a live snapshot's tree keeps its parameter annotated `StageSnapshot` — a
+ * method's parameters are compared both ways, so it is still a
+ * `TimeTravelStrategy`; one left unannotated is typed by this signature.
  */
 export interface TimeTravelStrategy<TMeta = unknown> {
-  stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot, subflowResults?: unknown): Stop<TMeta>[];
+  stopsFor(commitLog: readonly CommitBundle[], executionTree?: ExecutionTree, subflowResults?: unknown): Stop<TMeta>[];
 }
 
 // ── The cursor ─────────────────────────────────────────────────────────────

@@ -29,10 +29,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReadSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
+import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import type { StageSnapshot } from '../../../../src/lib/memory/types';
 
 /** Seeds keys into run p1 via a first stage commit; returns a SECOND stage context. */
 function seededCtx() {

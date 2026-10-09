@@ -1,11 +1,13 @@
 /**
  * The grammar's one owner (F7) — the readers every parser now calls instead of
- * splitting on `#` / `/` itself, and the one refusal the builder's doors ask.
+ * splitting on `#` / `/` itself — and the one refusal the engine's id doors ask
+ * (`reservedIds.ts` since C6: the grammar is the record's and imports nothing).
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { branchSegmentReservationMessage, buildBranchSegment } from '../../../src/lib/ids/branchSegment.js';
+import { refuseReservedId } from '../../../src/lib/ids/reservedIds.js';
 import {
   buildRuntimeStageId,
   executionIndexOf,
@@ -15,7 +17,6 @@ import {
   lastSegmentOf,
   parseRuntimeStageId,
   pathSegments,
-  refuseReservedId,
   splitStageId,
   stageIdOf,
   subflowPathOf,

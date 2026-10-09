@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — the record names nothing outside itself (C6 of the record-layer clean-up)
+
+- **Why.** The record — what a run wrote, plus every reader of it — is to become its own small package (`docs/design/2026-10-trace-extraction.md`). A package can only be cut along a closed set of files: a record file that names a file outside the set cannot move. Two numbers of the plan's "ready to extract" check measured where the set was open. R1 counts record files that name a frame, scope or engine file: it was 1 (`memory/types.ts` declared `ScopeFactory` over `StageContext`). R2 counts imports out of the record set: it was 5, or 8 counting the three imports of `capture/valueKinds.ts` that 9.44.2 added. Both are 0 now, and a rule keeps them there.
+- **The rule is data.** NEW `RECORD_FILES` in `scripts/layering.config.cjs` lists the record's 44 files. `npm run check:layering` fails on any import (value, type or lazy) from a record file to a file outside the list. It also fails on an entry that matches no file and on a record file above L3. ESLint enforces the same zone at lint time. `test/architecture/layering.test.ts` shows the check bites: drop `capture/valueKinds.ts` from the list and the check names its three importers.
+- **What moved.**
+  - The frame's types left the record's `memory/types.ts` for NEW `memory/frameTypes.ts` (L4): `StageSnapshot`, `FlowMessage`, `FlowControlType`, `ReadTrackingMode` and `WriteTrackingMode`. `footprintjs` and `footprintjs/advanced` hand out the same declarations under the same names. `memory/types.ts` now imports nothing. Its copy of `ScopeFactory`, which no file imported and no door handed out, is deleted; the public `ScopeFactory` is the engine's and is unchanged. The last type-only exception to the layering below L4 is gone.
+  - `refuseReservedId` (with `IdPosition`) moved from `ids/runtimeStageId.ts` to NEW `ids/reservedIds.ts`, beside the `~` segment rule it reads. The id grammar now only builds, parses and reads ids, and imports nothing. The refusal messages are unchanged.
+  - `recorder/CommitRangeIndex.ts` (it imports nothing) is placed at L3 with the readers.
+- **Widened: the readers take the record's own tree type.** NEW `ExecutionTree` on `footprintjs/trace` lists the fields the readers touch: `id`, `runtimeStageId`, `subflowId`, the keys of `stageReads`, `next` and `children`, all optional. It is a supertype of `StageSnapshot`. These signatures named `StageSnapshot` and now name it:
+  - `commitStops(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
+  - `tagStops(tags?).stopsFor(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
+  - `TimeTravelStrategy.stopsFor(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
+  - `TimeTravelSource.executionTree?: ExecutionTree | unknown` (any value, as before);
+  - `keysReadFromExecutionTree(tree: ExecutionTree | readonly ExecutionTree[])`, which now also takes a readonly array.
+
+  Every caller compiles unchanged. So does every strategy that annotates its tree parameter `StageSnapshot`, because TypeScript compares a method's parameters both ways. `test/api-conformance/execution-tree-supertype.test.ts` compiles the published consumers' shapes against this release and against the last one. One shape sees the new type. A strategy whose tree parameter is unannotated (`stopsFor: (log, tree) => …`) gets its type from the signature, so reading a field only a `StageSnapshot` has (`tree.name`, `tree.logs`) no longer compiles there. Annotate the parameter `StageSnapshot` to keep reading it.
+- **Removed: `causalChain`'s dev-mode truncation warning.** Under `enableDevMode()`, a slice that `maxDepth` or `maxNodes` cut used to print `[footprint] causalChain('…') truncated by …` through `console.warn`. The record no longer writes to the console. Read `root.truncated` instead: `{ byDepth, byNodes }`, set only when a limit cut the slice. `formatCausalChain` still ends such a slice with `⚠ slice truncated …`.
+- **`footprintjs/trace` loads only what it hands out.** It took `UnknownVerbError`, `HONESTY_CODES` and `HonestyCode` from the internal `memory/index` barrel, and that barrel loaded the engine's frame and the writer too (`StageContext`, `RedactionRule`, `TransactionBuffer`, `SharedMemory`, `EventLog` …). It imports the leaf files now. Its module graph went from 63 modules and 616,522 B of code to 43 modules and 377,695 B (−38.7%; inline source maps excluded). A bundler had already dropped those classes, so a bundled `/trace` changes little (minified 76,094 → 75,840 B). `test/esm-packaging.test.ts` pins the graph: the readers and the recorder-side tools `/trace` has always handed out (the stores, the recorders, `walkSubflowSpec`, the `~` segment helpers), and no writer, frame, scope, executor or builder module.
+- **Nothing else moves.** No published name leaves a door. The record-byte fixtures (`test/fixtures/`) pass unmodified, the `bench/commit-clones.ts` counts are identical on every row, and the benches are within noise against 9.47.0. The law, with an example, is in `src/lib/memory/README.md` ("The record is closed"); the id split is in `src/lib/ids/README.md`; the rule is in `src/lib/README.md`.
+
 ## [9.47.0] - 2026-10-09
 
 ### Added — `footprintjs/write`: the record layer is the public way to write a record (C5 of the record-layer clean-up)

@@ -24,7 +24,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CommitValuesMode, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import type { StageSnapshot } from '../../../../src/lib/memory/types.js';
+import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes.js';
 import { stateAt } from '../../../../src/trace.js';
 
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];

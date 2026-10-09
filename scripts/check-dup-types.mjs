@@ -21,15 +21,9 @@ const ALLOWLIST = new Set([
   // ── Intentionally different types, different layers ───────────────────────
 
   'ScopeFactory',
-  // memory/types.ts (3-param internal forward-decl) + engine/types.ts (4-param public).
-  // Cannot consolidate: StageContext imports memory/types → adding engine import creates a cycle.
-  // Public API exports the richer engine version.
-
-  'StageSnapshot',
-  // memory/types.ts = serializable output tree (id, stageWrites, children[]).
-  // engine/types.ts = internal runtime snapshot (node, context, stageOutput).
-  // Same name, completely different shapes. Advanced.ts already exports engine's as EngineStageSnapshot.
-  // Rename requires a breaking change; tracked as tech debt.
+  // engine/types.ts (4-param public, over ExecutionEnv) + scope/providers/types.ts (the providers' own,
+  // over the facade's env parameter). Public API exports the engine version. (memory/types.ts held a
+  // third, dead 3-param copy until C6 deleted it.)
 
   'FlowChart',
   // builder/types.ts = compiled output with required description/stageDescriptions (builder contract).

@@ -17,7 +17,8 @@ import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
 import { commitValueAt } from '../../../src/lib/memory/commitLogUtils.js';
-import type { CommitBundle, StageSnapshot, TraceEntry } from '../../../src/lib/memory/types.js';
+import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
+import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
 import { deepEqual } from '../../../src/lib/memory/utils.js';
 import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
 import {

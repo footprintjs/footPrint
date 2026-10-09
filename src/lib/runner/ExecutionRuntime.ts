@@ -13,12 +13,13 @@
 import { freezeRecord } from '../capture/freeze.js';
 import { EventLog } from '../memory/EventLog.js';
 import type { LogAddress } from '../memory/eventPosition.js';
+import type { StageSnapshot } from '../memory/frameTypes.js';
 import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, CommitValuesMode, StageSnapshot, WriteProvenanceMode } from '../memory/types.js';
+import type { CommitBundle, CommitValuesMode, WriteProvenanceMode } from '../memory/types.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */

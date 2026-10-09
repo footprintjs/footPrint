@@ -16,7 +16,7 @@
  * not the recording.
  */
 
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ExecutionTree } from '../memory/types.js';
 import { isVerb, VERBS } from '../memory/verbs.js';
 import type { LogGap } from './types.js';
 
@@ -46,7 +46,7 @@ export function isPlainish(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Read a source's `executionTree` as a {@link StageSnapshot}, or as absent.
+ * Read a source's `executionTree` as an {@link ExecutionTree}, or as absent.
  *
  * The tree is only ever WALKED for mount ids (`subflowId` + `runtimeStageId`
  * on each node), so the honest narrowing a reader can do is "a plain object";
@@ -54,8 +54,8 @@ export function isPlainish(value: unknown): value is Record<string, unknown> {
  * array — is read as no tree at all, which sends `commitStops` down the same
  * shape-heuristic path a log handed over without its tree already takes.
  */
-export function readTree(value: unknown): StageSnapshot | undefined {
-  return isPlainish(value) ? (value as unknown as StageSnapshot) : undefined;
+export function readTree(value: unknown): ExecutionTree | undefined {
+  return isPlainish(value) ? (value as unknown as ExecutionTree) : undefined;
 }
 
 /**

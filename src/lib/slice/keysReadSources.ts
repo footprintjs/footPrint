@@ -10,13 +10,13 @@
  */
 
 import type { KeysReadLookup } from '../memory/backtrack.js';
-import type { StageSnapshot } from '../memory/types.js';
+import type { ExecutionTree } from '../memory/types.js';
 import type { KeysReadSource } from './types.js';
 
 /**
  * Post-hoc reads from a finished run's execution tree — ZERO setup.
  *
- * WHY this works: `StageSnapshot.stageReads` records the keys a stage
+ * WHY this works: a stage's `stageReads` records the keys it
  * tracked-read whenever the `readTracking` dial ≠ 'off' ('full' is the
  * engine default; 'summary' replaces VALUES with markers but keeps the
  * KEYS — and keys are all a slice needs). Under 'off' this source returns
@@ -39,15 +39,14 @@ import type { KeysReadSource } from './types.js';
  * genuinely spans them); it does not let a root-log slice cross a subflow
  * mount — see README.md § Subflow boundaries.
  */
-export function keysReadFromExecutionTree(tree: StageSnapshot | StageSnapshot[]): KeysReadSource {
+export function keysReadFromExecutionTree(tree: ExecutionTree | readonly ExecutionTree[]): KeysReadSource {
   const byStep = new Map<string, string[]>();
-  const roots = Array.isArray(tree) ? tree : [tree];
   let steps = 0;
   // The tree is acyclic by construction (next/children), but this walker is
   // also handed CONSUMER-provided data — a visited set makes a malformed or
   // hand-built tree a non-event instead of an infinite loop.
-  const visited = new Set<StageSnapshot>();
-  const stack: StageSnapshot[] = [...roots];
+  const visited = new Set<ExecutionTree>();
+  const stack: ExecutionTree[] = [tree].flat(); // one root, or several (subflow trees)
   while (stack.length > 0) {
     const node = stack.pop()!;
     if (visited.has(node)) continue;

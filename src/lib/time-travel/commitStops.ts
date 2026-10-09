@@ -11,7 +11,7 @@
 
 import { isExecutionKey, isWithinSubflow, parseRuntimeStageId, stageIdOf } from '../ids/runtimeStageId.js';
 import { buildCommitIndex, inferLegacyPhases, recordsPhases } from '../memory/commitLogUtils.js';
-import type { CommitBundle, CommitPhase, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, CommitPhase, ExecutionTree } from '../memory/types.js';
 import type { Stop, TimeTravelStrategy } from './types.js';
 
 /**
@@ -22,10 +22,10 @@ import type { Stop, TimeTravelStrategy } from './types.js';
  * tree names it. Only a log written before 9.39.0 AND handed over without its
  * tree falls back to the legacy inference (`inferLegacyPhases`).
  */
-function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
+function mountIdsFrom(tree: ExecutionTree | undefined): Set<string> {
   const ids = new Set<string>();
   if (!tree) return ids;
-  const work: StageSnapshot[] = [tree];
+  const work: ExecutionTree[] = [tree];
   while (work.length > 0) {
     const node = work.pop()!;
     if (node.subflowId && node.runtimeStageId) ids.add(node.runtimeStageId);
@@ -77,7 +77,7 @@ function mountIdsFrom(tree: StageSnapshot | undefined): Set<string> {
  */
 export function commitStops(
   commitLog: readonly CommitBundle[],
-  executionTree?: StageSnapshot,
+  executionTree?: ExecutionTree,
   subflowResults?: unknown,
 ): Stop[] {
   if (commitLog.length === 0) return [];
@@ -185,7 +185,7 @@ export const commitStopsStrategy: TimeTravelStrategy = { stopsFor: commitStops }
  * whose id carries the same subflow path. Without a tree such a log reads as
  * one stop.
  */
-function seedCommits(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot): number {
+function seedCommits(commitLog: readonly CommitBundle[], executionTree?: ExecutionTree): number {
   const head = commitLog[0]?.runtimeStageId;
   if (head === undefined) return 0;
   if (head === '') {

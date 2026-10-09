@@ -16,7 +16,8 @@ import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegment.js';
-import { type IdPosition, joinPath, refuseReservedId } from '../ids/runtimeStageId.js';
+import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
+import { joinPath } from '../ids/runtimeStageId.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
@@ -139,8 +140,8 @@ function applyTags(
 
 /**
  * The builder's ONE id refusal (F7, R5): every id door calls it once, before
- * the id lands anywhere. The rule lives with the grammar —
- * `ids/runtimeStageId.ts · refuseReservedId`: `#` and `/` are refused in
+ * the id lands anywhere. The rule lives beside the grammar —
+ * `ids/reservedIds.ts · refuseReservedId`: `#` and `/` are refused in
  * every id (they are the runtimeStageId grammar's delimiters), `~` in a
  * `'segment'` id (a subflow id or a `parallelForEach` id — see below).
  *

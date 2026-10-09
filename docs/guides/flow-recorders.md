@@ -502,7 +502,8 @@ library now surfaces both:
    `incompleteSources`, and the formatted chain prints
    `⚠ also consumed args — slice may be incomplete here`. A truncated
    slice (depth/node limits) is equally explicit: `root.truncated` +
-   a `⚠ slice truncated …` footer + a dev-mode warning. A consumer —
+   a `⚠ slice truncated …` footer (data only — since 9.48.0 there is no
+   dev-mode console warning; read the field). A consumer —
    human or LLM — debugging from a slice must be TOLD when the slice is
    incomplete; never present a partial slice as the whole story.
 

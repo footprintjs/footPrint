@@ -64,13 +64,13 @@ export { walkSubflowSpec } from './lib/engine/walkSubflowSpec.js';
 // contain a dot, so a dot separator would make `['a.b']` and `['a','b']`
 // indistinguishable), which is an encoding, not a display character. Render a
 // path through this instead of splitting on the delimiter yourself.
-export { pathSegments } from './lib/memory/utils.js';
+export { pathSegments } from './lib/memory/paths.js';
 
 // The refusal the commit-log readers raise for a row whose verb is not
 // set | merge | append | delete (`commitValueAt`, `arrayProvenance`, and
 // `applySmartMerge` below): a foreign or corrupted log fails loudly,
 // naming the row, instead of being folded as a merge.
-export { UnknownVerbError } from './lib/memory/index.js';
+export { UnknownVerbError } from './lib/memory/verbs.js';
 
 // The record's own shapes — one bundle per executed stage (`CommitBundle`), its
 // rows (`TraceEntry`) and its value patches (`MemoryPatch`) — and the one fold
@@ -78,6 +78,9 @@ export { UnknownVerbError } from './lib/memory/index.js';
 // (`applySmartMerge`, the verb law's public door). Also on `/advanced` until 10.0.0;
 // a record is WRITTEN through `footprintjs/write`. See docs/guides/record-contract.md.
 export type { CommitBundle, MemoryPatch, TraceEntry } from './lib/memory/types.js';
+// The execution tree as the readers read it (C6): what `commitStops`, `tagStops` and
+// `keysReadFromExecutionTree` take — a `StageSnapshot` is one, and so is a stored tree.
+export type { ExecutionTree } from './lib/memory/types.js';
 export { applySmartMerge } from './lib/memory/verbs.js';
 
 // Commit log queries — typed utilities for backtracking.
@@ -241,8 +244,8 @@ export {
 // subsets of `HonestyCode`, and test/architecture/honesty-vocabulary.test.ts fails on a union of
 // string literals this door exports that is neither registered nor named there as a different kind
 // of word. See src/lib/memory/README.md.
-export type { HonestyCode } from './lib/memory/index.js';
-export { HONESTY_CODES } from './lib/memory/index.js';
+export type { HonestyCode } from './lib/memory/honesty.js';
+export { HONESTY_CODES } from './lib/memory/honesty.js';
 
 // ── v5 Stores (concrete, composable — primary recorder API) ─────
 // Compose these via `new Store<T>()` as a field on your recorder
