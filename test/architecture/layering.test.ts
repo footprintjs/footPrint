@@ -408,7 +408,7 @@ describe('the footprintjs source tree', () => {
       'src/lib/time-travel/chain.ts',
     ]);
     expect(control.recordCompile).toEqual(['compiled alone, the record loads src/lib/capture/valueKinds.ts']);
-  });
+  }, 60_000); // a second whole-tree analysis, the record's compile included: ~0.6 s here, several on a CI runner
 
   it('the deprecated shims exist and nothing under src/ imports them', () => {
     const files = new Set(listSourceFiles(REPO));
