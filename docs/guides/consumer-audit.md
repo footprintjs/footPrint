@@ -33,7 +33,14 @@ Each consumer job writes its table to the run's summary page. A `BLOCKING` consu
 
 The rule compares steps, not single tests. While a consumer is red on its own, a new failure inside that same step cannot be seen, so fix an `own failure` promptly.
 
-Each job also counts the consumer's imports from `footprintjs/advanced`. *Record symbols* are the ones `/advanced` hands out from `memory/` and `ids/`, plus `ExecutionRuntime` and `ScopeFacade`. The count is a measurement only, never a gate: it tracks the consumers' move to the record's own doors.
+Each job also counts the consumer's imports from `footprintjs/advanced`. Record symbols are identified
+by their original declaration in the extraction inventory, preserved in `scripts/trace-extraction.json`.
+That historical inventory remains available after the current FootPrint doors remove those exports;
+an old consumer import must not become a false zero. Engine-frame construction is reported separately.
+
+The E3 branch is a local candidate, not a release. Consumer `main` branches migrate in E5; their
+pre-migration failures against this major candidate remain blocking evidence for E6. The E3 engine
+checks against an exact locally installed foottrace tarball do not stand in for that consumer audit.
 
 ## Releasing
 

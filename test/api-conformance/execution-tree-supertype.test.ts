@@ -53,15 +53,19 @@ function diagnostics(files: Record<string, string>): string[] {
 /** `source` with its imports of this tree's doors re-pointed at a release from before C6 (exactly pinned). */
 const before = (source: string) =>
   source
+    .replace(
+      "import type { CommitBundle } from 'foottrace';",
+      "import type { CommitBundle } from 'footprintjs-baseline/advanced';",
+    )
     .replace(/'\.\.\/\.\.\/src\/advanced\.js'/g, "'footprintjs-baseline/advanced'")
-    .replace(/'\.\.\/\.\.\/src\/trace\.js'/g, "'footprintjs-baseline/trace'");
+    .replace(/'foottrace'/g, "'footprintjs-baseline/trace'");
 
 const consumers = readFileSync(PROBE, 'utf8');
 
 /** An implementer that types its tree by the signature and reads what only a `StageSnapshot` has. */
 const UNANNOTATED = [
-  "import type { TimeTravelStrategy } from '../../src/trace.js';",
-  "import { commitStops } from '../../src/trace.js';",
+  "import type { TimeTravelStrategy } from 'foottrace';",
+  "import { commitStops } from 'foottrace';",
   'export const logged: TimeTravelStrategy = {',
   '  stopsFor: (log, tree) => (tree?.logs ? commitStops(log, tree) : []),',
   '};',

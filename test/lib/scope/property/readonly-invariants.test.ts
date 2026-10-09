@@ -1,6 +1,7 @@
 import * as fc from 'fast-check';
+import { EventLog, SharedMemory } from 'foottrace/write';
 
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx() {

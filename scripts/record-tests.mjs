@@ -35,7 +35,8 @@
  *     --root  classify <dir>'s tests (a copy of an older tree); the named list is this one's
  *     --json  machine-readable result
  *     --list  print every test file under its class, not only the counts and the problems
- *     --check also require R4 >=70% (classification errors always fail)
+ *     --check before extraction require R4 >=70%; afterward validate retained classification and
+ *             that engine-free record suites belong to foottrace (R4 itself remains UNKNOWN)
  * Exit code: 0 clean, 1 any failure.
  */
 
@@ -44,9 +45,11 @@ import { dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { readDoors, sourceEdges } from './doors.mjs';
+import { isExtracted } from './check-layering.mjs';
 
 const require = createRequire(import.meta.url);
 const layering = require('./layering.config.cjs');
+const extraction = require('./trace-extraction.json');
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -213,6 +216,7 @@ function loadsOf(test, ctx) {
     for (const edge of ctx.edgesFrom.get(file) ?? []) {
       const at = [...chain, `${file}:${edge.line}`];
       if (edge.to === null) {
+        if (extraction.doors.includes(edge.spec)) loadsRecord = true;
         if (FOOTPRINTJS.test(edge.spec)) escapes.push({ chain: at, what: `the package '${edge.spec}'` });
         else if (edge.spec.startsWith('.')) {
           escapes.push({
@@ -258,6 +262,7 @@ function loadsOf(test, ctx) {
  * @param {{ root?: string, stays?: typeof STAYS, recordDirs?: string[] }} [options]
  */
 export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_TEST_DIRS } = {}) {
+  const extracted = isExtracted(root);
   const src = layering.listSourceFiles(root);
   const tests = layering.listSourceFiles(root, 'test');
   const edgesFrom = new Map();
@@ -311,10 +316,26 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
   const count = (kind) => files.filter((f) => f.kind === kind).length;
   const record = count('record');
   const ofRecord = record + count('witness') + count('unclassified') + count('stale');
+  if (extracted)
+    for (const file of extraction.movedTests)
+      if (testFiles.includes(file)) problems.push(`${file} moved to foottrace but remains in footprintjs`);
+  if (extracted)
+    for (const entry of files.filter((file) => file.kind === 'record'))
+      problems.push(`${entry.file} is an engine-free record test; its owner is foottrace`);
   return {
+    extracted,
     tests: files.length,
     files,
-    r4: { engineFree: record, of: ofRecord, share: ofRecord === 0 ? 0 : record / ofRecord },
+    r4: extracted
+      ? {
+          engineFree: null,
+          of: null,
+          share: null,
+          status: 'UNKNOWN',
+          reason:
+            'The engine-free tests moved to foottrace; this checkout cannot measure the cross-package R4 population.',
+        }
+      : { engineFree: record, of: ofRecord, share: ofRecord === 0 ? 0 : record / ofRecord },
     counts: {
       record,
       recordElsewhere: files.filter((f) => f.kind === 'record' && !f.inRecordDir).length,
@@ -341,6 +362,14 @@ export function format(result, { list = false } = {}) {
     `  not the record's: ${c.frame} named in its folders (their subject stays in footprintjs), ${c.outside} elsewhere`,
     `R4: ${r4.engineFree} of ${r4.of} (${percent(r4.share)}) of the record's test files run without the engine`,
   ];
+  if (result.extracted)
+    lines.splice(
+      0,
+      3,
+      `record-tests: extracted-package mode; ${c.witness} engine witnesses and ${c.frame} frame suites remain`,
+      `R4: UNKNOWN — ${r4.reason}`,
+      `Historical E3 entry evidence: ${extraction.entryR4.engineFree}/${extraction.entryR4.of}; not a measurement of this tree.`,
+    );
   const section = (title, kind, detail) => {
     const rows = result.files.filter((f) => f.kind === kind);
     if (rows.length === 0) return;
@@ -386,5 +415,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     args.includes('--json') ? JSON.stringify(result, null, 2) : format(result, { list: args.includes('--list') }),
   );
   // Not process.exit(): a long --json report written to a pipe would be cut off before it drains.
-  process.exitCode = result.ok && (!args.includes('--check') || result.r4.share >= 0.7) ? 0 : 1;
+  process.exitCode = result.ok && (!args.includes('--check') || result.extracted || result.r4.share >= 0.7) ? 0 : 1;
 }

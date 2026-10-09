@@ -13,9 +13,10 @@
  *             a /g RegExp read from a bundle throws on `replace` (the named consequence)
  * Direct EventLog freezing is checked without the engine in frozen-record.test.ts.
  */
+import type { CommitBundle } from 'foottrace';
+import { commitValueAt, stateAt } from 'foottrace';
+
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import type { CommitBundle } from '../../../../src/trace';
-import { commitValueAt, stateAt } from '../../../../src/trace';
 import { unfrozen } from '../../../helpers/unfrozen';
 
 async function richRun() {

@@ -6,11 +6,11 @@
  * first-touch view, lazy allocation, addressed reads/writes, net diff and empty-bundle bytes are
  * exercised directly through RecordFrame in record-frame-lazy.test.ts.
  */
+import { EventLog } from 'foottrace/write';
+import { SharedMemory } from 'foottrace/write';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** Seeds 'greeting' into run p1 via a first stage commit; returns a SECOND stage context. */

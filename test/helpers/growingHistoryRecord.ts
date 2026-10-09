@@ -1,4 +1,5 @@
-import type { RecordEncoding } from '../../src/write';
+import type { RecordEncoding } from 'foottrace/write';
+
 import { recordRun } from './recordRun';
 
 /** The record of the three-turn history loop; its real-engine parity is pinned in commit-values.test.ts. */

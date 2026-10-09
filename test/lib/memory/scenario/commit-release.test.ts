@@ -31,15 +31,14 @@
  *   PROPERTY    — random write/commit/read cycles on one context never
  *                 diverge from shared state
  */
+import type { CommitBundle } from 'foottrace';
+import type { RecordFrame } from 'foottrace/write';
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import type { PausableHandler } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import type { RecordFrame } from '../../../../src/lib/memory/RecordFrame';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
-import type { CommitBundle } from '../../../../src/lib/memory/types';
 
 type Loose = Record<string, unknown>;
 

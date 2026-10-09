@@ -697,13 +697,13 @@ await chart.run({ input: { applicantName: 5 } }).catch((e: Error) => console.log
 
 ---
 
-## Reading a finished run (`footprintjs/trace`)
+## Reading a finished run (`foottrace`)
 
 The run's commit log answers questions after the fact — these read the log the run already recorded, they never re-walk the tree:
 
 ```typescript
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { stateAt, timeTravel, HONESTY_CODES } from 'footprintjs/trace';
+import { stateAt, timeTravel, HONESTY_CODES } from 'foottrace';
 
 const chart = flowChart<{ a: number; b?: number }>('One', (scope) => { scope.a = 1; }, 'one')
   .addFunction('Two', (scope) => { scope.b = scope.a + 1; }, 'two')
@@ -723,7 +723,7 @@ console.log(cursor.stops.map((stop) => `${stop.kind} ${stop.runtimeStageId}`));
 // [ 'start ', 'commit one#0', 'commit two#1', 'end ' ]
 ```
 
-`causalChain` and `sliceForKey` answer "what caused this value?" (backward slices); the READMEs in the repo are `src/lib/slice/README.md` and `src/lib/time-travel/README.md`. A reader that cannot answer says why with a code from `HONESTY_CODES` instead of guessing.
+`causalChain` and `sliceForKey` answer "what caused this value?" (backward slices). The canonical [slice](https://github.com/footprintjs/foottrace/blob/main/src/lib/slice/README.md) and [time-travel](https://github.com/footprintjs/foottrace/blob/main/src/lib/time-travel/README.md) contracts live in foottrace. A reader that cannot answer says why with a code from `HONESTY_CODES` instead of guessing.
 
 ---
 
@@ -756,7 +756,7 @@ subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflo
 
 ## Anti-Patterns to Avoid
 
-1. **Never post-process the tree.** Don't walk the spec after execution to collect data. Use recorders (or the `footprintjs/trace` queries over the recorded log).
+1. **Never post-process the tree.** Don't walk the spec after execution to collect data. Use recorders (or the `foottrace` queries over the recorded log).
 2. **Don't use `$getValue()`/`$setValue()` for keys you know.** Use typed property access (`scope.amount = 50000`); those two are escape hatches for dynamic keys. A plain `scope.getValue(...)` does not exist on a TypedScope.
 3. **Don't give a state key the name of a `$` method** (`scope.$break = 1` throws "conflicts with a reserved TypedScope method"). The reserved names are `SCOPE_METHOD_NAMES` in `footprintjs/advanced` (`$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, `$emit`, `$log`, `$read`, …); avoid `$`-prefixed state keys altogether.
 4. **Don't write a state key that is also an input key.** `run({ input: { requestId } })` makes `requestId` read-only for the run (a subflow's `inputMapper` keys are read-only inside that subflow) — name the state key differently.
@@ -772,14 +772,16 @@ subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflo
 
 ## Package doors and library layout (for contributors)
 
-`package.json` `exports` has seven doors — import from the one that owns the symbol:
+FootPrint's `package.json` `exports` has six engine doors. The separate foottrace package owns the record through three doors. Import from the owner; FootPrint does not re-export record declarations:
 
 | Import | What it is for |
 |---|---|
 | `footprintjs` | The main door: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `narrative`, the built-in recorder classes, `interrupt`, and the public types |
 | `footprintjs/recorders` | Recorder factories — `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` — and `CompositeRecorder` |
-| `footprintjs/trace` | Reading a finished run: the record's shapes (`CommitBundle`), commit-log queries (`causalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `commitStops`), the recorder stores (`KeyedStore`, `SequenceStore`), `HONESTY_CODES` |
-| `footprintjs/write` | Writing a record yourself: `SharedMemory`, `EventLog`, `RecordFrame` — the record layer the engine writes with |
+| `footprintjs/trace` | Engine tracing: recorder stores (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), structure walkers, control-dependency and quality recorders |
+| `foottrace` | Record shapes (`CommitBundle`), runtime IDs, commit-log queries (`causalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `commitStops`), `CommitRangeIndex`, `HONESTY_CODES` |
+| `foottrace/write` | Writing a record yourself: `SharedMemory`, `EventLog`, `RecordFrame` — the record layer the engine writes with |
+| `foottrace/paths` | Record-path encoding/decoding, safe nested access and diagnostic-bag writes |
 | `footprintjs/advanced` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, `SCOPE_METHOD_NAMES` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |

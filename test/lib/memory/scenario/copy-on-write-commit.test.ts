@@ -45,9 +45,9 @@
  * within its stage is recorded, one law with `set`).
  */
 import fc from 'fast-check';
+import { arrayProvenance } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
-import { arrayProvenance } from '../../../../src/trace.js';
 import {
   type Engine,
   type NestedProgram,

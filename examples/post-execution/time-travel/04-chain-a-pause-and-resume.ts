@@ -17,7 +17,7 @@
 
 import type { PausableHandler } from 'footprintjs';
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { timeTravel } from 'footprintjs/trace';
+import { timeTravel } from 'foottrace';
 
 interface ApprovalState {
   trail: string[];

@@ -20,13 +20,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import {
-  elementProvenance,
-  formatSlice,
-  keysReadFromExecutionTree,
-  sliceForKey,
-  sliceToJSON,
-} from 'footprintjs/trace';
+import { elementProvenance, formatSlice, keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
 
 // ── The backend under triage (same pipeline as example 03) ────────────────
 

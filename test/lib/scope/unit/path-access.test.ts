@@ -1,6 +1,7 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory/index.js';
+import { StageContext } from '../../../../src/lib/memory/index.js';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade.js';
 
 function fixture(input?: unknown) {

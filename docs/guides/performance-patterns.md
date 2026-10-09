@@ -6,6 +6,8 @@ them so an engineer (or a student) can see the pattern in a real codebase
 rather than a slide: the problem, the pattern, the number, the file. The
 bench that produced each number is checked in; run it, do not quote it.
 
+Ownership after E3: record implementation paths below (writer, replay, slice and time-travel) now belong to the [foottrace repository](https://github.com/footprintjs/foottrace). The numbered measurements are historical FootPrint release results, not new extraction benchmarks. Engine-side integration benchmarks and counted-cost witnesses remain here.
+
 All numbers: Apple M5 Pro, Node 22, `npm run bench:*`, median of several
 rounds. They are this machine's numbers, not a promise.
 
@@ -29,9 +31,9 @@ fifth replica" rule in CLAUDE.md.
 | fold at the last stop | 8.13 s | 2.8 ms |
 | fold at the middle stop | 1.78 s | 0.9 ms |
 
-Where: `src/lib/time-travel/stateAt.ts · foldLegsFrom`,
+Where (now in foottrace): `src/lib/time-travel/stateAt.ts · foldLegsFrom`,
 `src/lib/memory/utils.ts · applySmartMergeInto`.
-Pinned: `test/lib/time-travel/fold-memo.test.ts` — the new fold equals a
+Pinned in foottrace: `test/lib/time-travel/fold-memo.test.ts` — the new fold equals a
 fresh 9.17.0 fold at every stop, and the log is byte-identical before and
 after (a fold never touches the record).
 Bench: `npm run bench:time-travel`.
@@ -87,7 +89,7 @@ chain encodes and parses back.
 **Problem.** The same chain overflows any recursive walker, in any package.
 
 **Pattern.** *Work list* (an explicit queue or a loop over `next`).
-footprintjs's `commitStops` always walked with a work list. The lens's step
+`commitStops` (now in foottrace) always walked with a work list. The lens's step
 graph builder recursed and was fixed in agentfootprint-lens 0.58.2 by
 turning the tail call into a loop — the parent path is constant along a
 `next` chain, so the loop is the recursion exactly. Pinned there by a
@@ -124,7 +126,7 @@ contract.
 | `structuredClone` calls · bytes per stage | 8 · 3.05 MB | 5 · 29 B |
 | CPU per stage | 18.7 ms | 0.018 ms |
 
-Where: `src/lib/memory/utils.ts · nextGeneration`, `src/lib/memory/pathOps.ts · ownSpine`,
+Where (now in foottrace): `src/lib/memory/utils.ts · nextGeneration`, `src/lib/memory/pathOps.ts · ownSpine`,
 `src/lib/memory/TransactionBuffer.ts · privatise` / `detachBase`.
 Pinned: `test/lib/memory/boundary/commit-cost-independent-of-state.test.ts`
 (counted: the same clone work at N = 100 and 10 000 — red before), and

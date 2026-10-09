@@ -13,7 +13,8 @@
  * fixed in one copy of these traps and then found again in the other two).
  */
 
-import { nativeGet } from '../memory/pathOps.js';
+import { nativeGet } from 'foottrace/paths';
+
 import { unwrapHandles } from './handles.js';
 import type { MemberCache } from './liveView.js';
 import { buildNestedPatch } from './pathBuilder.js';

@@ -10,7 +10,27 @@ permissions:
   contents: read
 
 jobs:
+  foottrace-candidate:
+    # E3 only: the dependency has not been published. One immutable source pin,
+    # one packed artifact shared by every engine check; no registry fallback.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g npm@11
+      - run: node scripts/foottrace-candidate.mjs pack "$RUNNER_TEMP/foottrace"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foottrace-candidate
+          path: ${{ runner.temp }}/foottrace/foottrace-candidate.tgz*
+          retention-days: 3
+
   test:
+    needs: foottrace-candidate
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -33,7 +53,11 @@ jobs:
 
       # No committed lockfile (library policy: vitest 4.x → rolldown's per-OS native
       # binding, npm #4828). `cache: npm` dropped (it keys off the absent lockfile).
-      - run: npm install
+      - uses: actions/download-artifact@v4
+        with:
+          name: foottrace-candidate
+          path: ${{ runner.temp }}/foottrace
+      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/foottrace/foottrace-candidate.tgz"
       - run: npm run build
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
@@ -45,6 +69,7 @@ jobs:
       - run: npx @arethetypeswrong/cli --pack
 
   lint:
+    needs: foottrace-candidate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +89,15 @@ jobs:
       - run: npm install -g npm@11
 
       # No committed lockfile (library policy); cache:npm dropped (it requires one).
-      - run: npm install
+      - uses: actions/download-artifact@v4
+        with:
+          name: foottrace-candidate
+          path: ${{ runner.temp }}/foottrace
+      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/foottrace/foottrace-candidate.tgz"
       - run: npm run lint
       - run: npm run format
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
       - run: npm run check:record-tests
-      # E1 is a local gate. Consumer evidence is UNKNOWN in this checkout; each
-      # consumer audit supplies its own import report. R3 is remaining E3 work.
+      # E3's package boundary is local. Consumer migration remains a separate audit.
       - run: npm run check:trace-ready

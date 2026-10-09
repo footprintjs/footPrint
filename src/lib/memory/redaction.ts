@@ -58,12 +58,13 @@
  * Neither string changed in 9.19.0 or since; each is spelled once in `src/`.
  */
 
+import { nativeHas } from 'foottrace/paths';
+import type { WriteScrub, WriteVerb } from 'foottrace/write';
+
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
-import { nativeHas } from './pathOps.js';
-import type { WriteScrub, WriteVerb } from './RecordFrame.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 
 /**

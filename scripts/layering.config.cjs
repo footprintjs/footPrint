@@ -31,7 +31,11 @@
  * so the few upward type-only imports that exist today are named in TYPE_ONLY_ALLOWANCES.
  * That list only ever shrinks.
  *
- * THE SECOND RULE (C6) — the record names nothing outside itself. RECORD_FILES is the record:
+ * HISTORICAL RECORD BOUNDARY (C6) — the record names nothing outside itself. RECORD_FILES identifies
+ * the old paths for historical readiness/co-change analysis and pre-extraction fixture trees.
+ * E3's live engine fence instead rejects these paths and checks named imports on foottrace's three
+ * public doors. scripts/trace-extraction.json pins the exact 44 files and 74 tests that moved.
+ * Before extraction, RECORD_FILES is the record:
  * the files a trace package would hold. A record file imports only record files, and here EVERY
  * import counts, `import type` included: a package cut along this list must compile alone — which
  * `check-layering.mjs · recordAlone` checks by compiling the list on its own. A new file that is the
@@ -208,7 +212,7 @@ const LAYERS = [
 ];
 
 /**
- * The record (C6): every file a trace package would hold — the record's types, the verb law and its
+ * The historical record (C6; extracted in E3): every file the trace package holds — its types, the verb law and its
  * leaves, staging and commit, the log, the record half of the frame, and every reader of the log.
  * A record file imports only record files, by value or by type (`check-layering.mjs` · `recordEscapes`;
  * the ESLint zone in `layerZones` says the same). Every entry is placed at L0–L3 and matches a file.
@@ -436,11 +440,13 @@ function layerZones(root) {
   }
   // The second rule: a record file imports only record files. Every import kind counts here, so the
   // rule's blindness to `import type` is exactly right.
-  zones.push({
-    target: files.filter((f) => isRecordFile(f)).map(abs),
-    from: files.filter((f) => !isRecordFile(f)).map(abs),
-    message: 'A record file imports only record files: RECORD_FILES, scripts/layering.config.cjs.',
-  });
+  const recordTargets = files.filter((f) => isRecordFile(f)).map(abs);
+  if (recordTargets.length)
+    zones.push({
+      target: recordTargets,
+      from: files.filter((f) => !isRecordFile(f)).map(abs),
+      message: 'A record file imports only record files: RECORD_FILES, scripts/layering.config.cjs.',
+    });
   return zones;
 }
 

@@ -9,7 +9,7 @@
  * of its open paths (`capture/freeze.ts · serveRecord`): the holder edits only its own copy.
  *
  *   security  per door — `getSnapshot().commitLog`, `.initialState`, `EventLog.list()` on
- *             `footprintjs/write` — every mutation a holder can try (test/helpers/valueKinds.ts ·
+ *             `foottrace/write` — every mutation a holder can try (test/helpers/valueKinds.ts ·
  *             vandalize) lands on its own copy, and the next serve and every reader read the record
  *             as recorded; the engine's own read (`EventLog.recorded()`) is the log itself, unserved
  *   security  a reader's own answer — `commitValueAt` (its memo: an edit of one answer changed the
@@ -24,10 +24,11 @@
  * subflow's stored results, the execution tree, recorder rows, `getCheckpoint()` identity, the
  * narrative entries.
  */
+import type { CommitBundle } from 'foottrace';
+import { arrayProvenance, commitValueAt, stateAt, timeTravel } from 'foottrace';
+import { EventLog } from 'foottrace/write';
+
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
-import type { CommitBundle } from '../../../../src/trace';
-import { arrayProvenance, commitValueAt, stateAt, timeTravel } from '../../../../src/trace';
-import { EventLog } from '../../../../src/write';
 import { recordKey, vandalize } from '../../../helpers/valueKinds';
 
 /** Every value freezing cannot seal, plus a JSON key beside them. */

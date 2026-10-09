@@ -111,8 +111,9 @@ describe('the footprintjs source tree', () => {
     expect(spelled.get('src/lib/memory/StageContext.ts')).toEqual([]);
   });
 
-  it('no record file (L0–L3) names it — the record takes the address as data', () => {
-    expect(recordFiles.length).toBeGreaterThan(60);
+  it('no engine leaf (L0–L3) names it — the record takes the address as data', () => {
+    expect(recordFiles.length).toBeGreaterThan(0);
+    expect(recordFiles).toContain('src/lib/ids/reservedIds.ts');
     const strays = recordFiles.flatMap((file) =>
       (spelled.get(file) ?? []).map((s) => `${file}:${s.line}${s.within ? ` (${s.within})` : ''}`),
     );

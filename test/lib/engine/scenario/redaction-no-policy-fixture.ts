@@ -11,7 +11,9 @@
  * dropped so two runs of the same code agree byte for byte.
  */
 
-import type { CommitValuesMode, TypedScope } from '../../../../src/index.js';
+import type { CommitValuesMode } from 'foottrace';
+
+import type { TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 

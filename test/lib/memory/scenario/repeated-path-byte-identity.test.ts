@@ -38,10 +38,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { nativeGet } from '../../../../src/lib/memory/pathOps.js';
-import { DELIM } from '../../../../src/lib/memory/paths.js';
-import type { CommitBundle } from '../../../../src/lib/memory/types.js';
-import { stateAt } from '../../../../src/trace.js';
+import { nativeGet, normaliseStateKey } from 'foottrace/paths';
+const DELIM = normaliseStateKey(['', '']);
+import type { CommitBundle } from 'foottrace';
+import { stateAt } from 'foottrace';
+
 import { withoutRecordedPhases } from '../../engine/scenario/f8-recorded-phases.js';
 import { nameSeedsByMount } from '../../engine/scenario/r13-seed-named-by-mount.js';
 import { runRepeatedPathBuffer, runRepeatedPathChart, shellJSON } from './repeated-path-fixture.js';

@@ -1,5 +1,5 @@
 /**
- * A record written through `footprintjs/write` — the classes the engine writes with (C5) — shaped like a
+ * A record written through `foottrace/write` — the classes the engine writes with (C5) — shaped like a
  * run, for the record's tests that need a record and not the engine (scripts/record-tests.mjs).
  *
  * `step(id, body)` is one stage of a flowchart: a `RecordFrame` at the run's root (or at `address`) whose
@@ -20,9 +20,9 @@
  * const { commitLog, initialState, executionTree } = run.snapshot();
  * ```
  */
-import type { CommitBundle, CommitPhase, ExecutionTree, UntrackedSource } from '../../src/trace';
-import type { RecordEncoding, WriteScrub } from '../../src/write';
-import { EventLog, RecordFrame, SharedMemory } from '../../src/write';
+import type { CommitBundle, CommitPhase, ExecutionTree, UntrackedSource } from 'foottrace';
+import type { RecordEncoding, WriteScrub } from 'foottrace/write';
+import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 
 /** One stage's view of its frame: tracked reads and the three verbs, at user-level paths. */
 export interface StepScope {

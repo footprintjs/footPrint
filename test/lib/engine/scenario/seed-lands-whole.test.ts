@@ -16,11 +16,11 @@
  * Regression (a non-empty plain object still spreads — the per-field rows
  * the redaction verdicts rely on are byte-identical).
  */
+import type { CommitValuesMode } from 'foottrace';
+import { stateAt } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
-import type { CommitValuesMode } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { stateAt } from '../../../../src/trace.js';
 
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];
 const WHEN = new Date('2026-09-12T12:00:00Z');

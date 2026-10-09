@@ -43,7 +43,8 @@ footprintjs captures this for free because every scope read is recorded during t
 
 ```typescript
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { causalChain, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
+import { causalChain, formatCausalChain } from 'foottrace';
+import { QualityRecorder } from 'footprintjs/trace';
 
 interface State { input: number; processed: number; output: string }
 const chart = flowChart<State>('Seed', (scope) => { scope.input = 21; }, 'seed')

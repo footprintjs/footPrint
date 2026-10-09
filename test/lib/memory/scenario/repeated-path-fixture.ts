@@ -27,13 +27,13 @@
  * JSON would hide, and a skip that dropped or grew such a shell must fail.
  */
 
-import type { CommitValuesMode, TypedScope } from '../../../../src/index.js';
+import type { CommitBundle, CommitValuesMode } from 'foottrace';
+import { applySmartMerge, commitValueAt, stateAt } from 'foottrace';
+import { EventLog } from 'foottrace/write';
+
+import type { TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { EventLog } from '../../../../src/lib/memory/EventLog.js';
-import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer.js';
-import type { CommitBundle } from '../../../../src/lib/memory/types.js';
-import { applySmartMerge } from '../../../../src/lib/memory/utils.js';
-import { commitValueAt, stateAt } from '../../../../src/trace.js';
+import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 
 const VOLATILE_KEYS = new Set(['timestamp', 'runId', 'pipelineId', 'durationMs', 'duration', 'startTime', 'endTime']);
 const UNDEFINED_SHELL = '«undefined»';
@@ -297,7 +297,7 @@ export function runRepeatedPathBuffer(commitValues: CommitValuesMode): string {
   let live: Record<string, unknown> = structuredClone(base);
   const bundles: unknown[] = [];
   for (const [i, stage] of BUFFER_STAGES.entries()) {
-    const buffer = new TransactionBuffer(live, commitValues);
+    const buffer = new (recordBufferConstructor())(live, commitValues);
     for (const [verb, path, value] of stage.ops) {
       // The buffer keeps the RAW reference it is handed (landmine 3), so a
       // later nested op would write INTO the fixture literal — clone per op.

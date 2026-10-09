@@ -37,14 +37,14 @@ import fc from 'fast-check';
 import * as baselineCore from 'footprintjs-baseline';
 import * as baselineAdvanced from 'footprintjs-baseline/advanced';
 import * as baselineTrace from 'footprintjs-baseline/trace';
+import * as trace from 'foottrace';
+import { applySmartMerge } from 'foottrace';
+import * as write from 'foottrace/write';
 
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
-import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-import * as trace from '../../../../src/trace.js';
-import { applySmartMerge } from '../../../../src/trace.js';
-import * as write from '../../../../src/write.js';
+import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ export interface Engine {
 
 /**
  * `w` is where the record classes come from: `/advanced` on 9.28.0; this tree hands the heap and the
- * log out on `footprintjs/write` (C5), their canonical door, and the buffer only on `/advanced` until
+ * log out on `foottrace/write` (C5), their canonical door, and the buffer only on `/advanced` until
  * 10.0.0, so the build reads the buffer from its module.
  */
 function engine(label: string, c: any, a: any, t: any, w: any): Engine {
@@ -213,7 +213,7 @@ function engine(label: string, c: any, a: any, t: any, w: any): Engine {
 /** The published 9.28.0 — the last release before copy-on-write. */
 export const BASELINE = engine('9.28.0', baselineCore, baselineAdvanced, baselineTrace, baselineAdvanced);
 /** This tree's `src`. */
-export const BUILD = engine('build', core, advanced, trace, { ...write, TransactionBuffer });
+export const BUILD = engine('build', core, advanced, trace, { ...write, TransactionBuffer: recordBufferConstructor() });
 
 // ─── CHART programs (in contract) ────────────────────────────────────────
 

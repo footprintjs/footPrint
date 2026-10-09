@@ -21,12 +21,13 @@
  * seed — otherwise "the seed is unaffected" would pass vacuously).
  */
 import * as baseline from 'footprintjs-baseline';
+import type { CommitBundle } from 'foottrace';
+import { normaliseStateKey } from 'foottrace/paths';
 import { describe, expect, it } from 'vitest';
 
 import type { FlowChartExecutorOptions, PausableHandler } from '../../../../src';
 import * as current from '../../../../src';
-import type { CommitBundle } from '../../../../src/lib/memory/types';
-import { DELIM } from '../../../../src/lib/memory/utils';
+const DELIM = normaliseStateKey(['', '']);
 
 type S = Record<string, unknown>;
 

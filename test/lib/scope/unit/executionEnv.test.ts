@@ -1,5 +1,7 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
+
 import type { ExecutionEnv } from '../../../../src/lib/engine/types';
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { StageContext } from '../../../../src/lib/memory';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 
 function makeCtx(runId = 'p1', stageName = 's1') {

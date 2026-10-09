@@ -49,6 +49,22 @@ module.exports = {
       files: ['src/**/*.ts'],
       rules: {
         'import/no-cycle': ['error', { ignoreExternal: true }],
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: ['foottrace', 'foottrace/write', 'foottrace/paths'].map((name) => ({
+              name,
+              importNames: ['*', 'default'],
+              message: 'Use named imports from the owning foottrace door.',
+            })),
+            patterns: [
+              {
+                group: ['foottrace/**', '!foottrace/write', '!foottrace/paths'],
+                message: 'Only foottrace, foottrace/write and foottrace/paths are public doors.',
+              },
+            ],
+          },
+        ],
         'import/no-restricted-paths': ['error', { basePath: __dirname, zones: layerZones(__dirname) }],
       },
     },
@@ -77,7 +93,7 @@ module.exports = {
       },
     ],
     '@typescript-eslint/no-var-requires': 'error',
-    "@typescript-eslint/ban-ts-comment": "off",
+    '@typescript-eslint/ban-ts-comment': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],

@@ -1,5 +1,5 @@
 /**
- * The write door is the record's own — `footprintjs/write` (C5) loads and names nothing of the engine.
+ * The write door is the record's own — `foottrace/write` (C5) loads and names nothing of the engine.
  *
  * The extraction plan's "ready" check (docs/design/2026-10-trace-extraction.md, section 8: no record
  * file reaches the engine, R1/R2), applied to the one door that hands the record layer out. A writer
@@ -25,16 +25,17 @@
  *             type that names none passes; a signature that names each engine type C6 moved out of
  *             `memory/types.ts` is caught for each
  */
-import { join, relative, resolve, sep } from 'path';
+import { execFileSync } from 'child_process';
+import { dirname, join, relative, resolve, sep } from 'path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-import { readEdges } from '../../scripts/check-layering.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
-const { rankOf, isRecordFile, listSourceFiles } = layering;
+const { rankOf, isRecordFile } = layering;
 const REPO = resolve(__dirname, '../..');
-const WRITE = join(REPO, 'src/write.ts');
+const RECORD_ROOT = dirname(require.resolve('foottrace/package.json'));
+const WRITE = join(RECORD_ROOT, 'dist/types/write.d.ts');
 /** The engine's frame (L4) — the negative control: the same walk over it must reach outside the record. */
 const FRAME = join(REPO, 'src/lib/memory/StageContext.ts');
 
@@ -42,12 +43,15 @@ const FRAME = join(REPO, 'src/lib/memory/StageContext.ts');
 const PLAN = [
   'CommitStamp',
   'EventLog',
+  'LOG_PLACEHOLDER',
   'RecordEncoding',
   'RecordFrame',
   'SharedMemory',
   'WriteProvenanceMode',
   'WriteScrub',
   'WriteVerb',
+  'deepFreeze',
+  'freezeRecord',
 ];
 
 /**
@@ -215,7 +219,7 @@ function walk(checker: ts.TypeChecker, roots: ts.Symbol[]): Reached {
 function outsideTheRecord(reached: Reached): string[] {
   const out: string[] = [];
   for (const [file, names] of reached) {
-    if (file === '<lib>' || isRecordFile(file)) continue;
+    if (file === '<lib>' || isRecordFile(file) || resolve(REPO, file).startsWith(RECORD_ROOT + sep)) continue;
     const rank = file.startsWith('src/') ? rankOf(file) : null;
     out.push(`${file} (L${rank ?? '?'}): ${[...names].sort().join(', ')}`);
   }
@@ -224,16 +228,14 @@ function outsideTheRecord(reached: Reached): string[] {
 
 // ── the runtime closure ──────────────────────────────────────────────────────
 
-/** Every src file `entry` loads at run time: value (and lazy) imports, followed to any depth. */
-function loads(entry: string): string[] {
-  const edges = readEdges(REPO, listSourceFiles(REPO)) as { from: string; to: string; kind: string }[];
-  const next = new Map<string, string[]>();
-  for (const e of edges.filter((x) => x.kind !== 'type')) next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
-  const seen = new Set([entry]);
-  const queue = [entry];
-  while (queue.length > 0)
-    for (const to of next.get(queue.shift()!) ?? []) if (!seen.has(to) && seen.add(to)) queue.push(to);
-  return [...seen].sort();
+/** Inspect an isolated consumer process; every loaded module must belong to foottrace. */
+function loads(): string[] {
+  const output = execFileSync(
+    process.execPath,
+    ['-e', "require('foottrace/write'); console.log(JSON.stringify(Object.keys(require.cache)));"],
+    { cwd: REPO, encoding: 'utf8' },
+  );
+  return JSON.parse(output);
 }
 
 // ── a synthetic program for the walk's own boundary ──────────────────────────
@@ -276,33 +278,33 @@ function syntheticProgram(): ts.Program {
 
 const doorExports = exportsOf(program, WRITE);
 
-describe('footprintjs/write — the door', () => {
+describe('foottrace/write — the door', () => {
   it("hands out exactly C5's list: the three classes and their option types", () => {
     expect(doorExports.map((s) => s.getName()).sort()).toEqual(PLAN);
   });
 });
 
-describe('footprintjs/write — engine-free at run time', () => {
-  const files = loads('src/write.ts');
+describe('foottrace/write — engine-free at run time', () => {
+  const files = loads();
 
   it('every file it loads is a record file (RECORD_FILES, all at L0–L3)', () => {
-    const outside = files.filter((f) => f !== 'src/write.ts').filter((f) => !isRecordFile(f));
-    expect(outside, 'importing footprintjs/write must load no frame, scope or engine file').toEqual([]);
+    const outside = files.filter((f) => !f.startsWith(RECORD_ROOT + sep));
+    expect(outside, 'importing foottrace/write must load no frame, scope or engine file').toEqual([]);
   });
 
   it('the closure is live: it loads the three classes and the commit they share', () => {
     for (const f of [
-      'src/lib/memory/RecordFrame.ts',
-      'src/lib/memory/SharedMemory.ts',
-      'src/lib/memory/EventLog.ts',
-      'src/lib/memory/recordCommit.ts',
+      'dist/lib/memory/RecordFrame.js',
+      'dist/lib/memory/SharedMemory.js',
+      'dist/lib/memory/EventLog.js',
+      'dist/lib/memory/recordCommit.js',
     ]) {
-      expect(files).toContain(f);
+      expect(files).toContain(join(RECORD_ROOT, f));
     }
   });
 });
 
-describe('footprintjs/write — engine-free in every type it names', () => {
+describe('foottrace/write — engine-free in every type it names', () => {
   const checker = program.getTypeChecker();
   const reached = walk(checker, doorExports);
 

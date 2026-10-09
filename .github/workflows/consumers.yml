@@ -41,7 +41,10 @@ jobs:
 
       # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
       - run: npm install -g npm@11
-      - run: npm install --no-audit --no-fund
+      # E3 only: build the checked-in immutable source pin, then carry these exact
+      # bytes beside the engine tarball into every consumer's candidate leg.
+      - run: node scripts/foottrace-candidate.mjs pack "$RUNNER_TEMP/candidate"
+      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/candidate/foottrace-candidate.tgz"
       - run: npm run build
 
       - name: Pack the candidate
@@ -57,7 +60,10 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate
-          path: ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
+          path: |
+            ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
+            ${{ runner.temp }}/candidate/foottrace-candidate.tgz
+            ${{ runner.temp }}/candidate/foottrace-candidate.tgz.json
           retention-days: 3
 
   consumer:
@@ -82,11 +88,16 @@ jobs:
 
       - run: npm install -g npm@11
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+
       # The audit resolves public declarations with TypeScript. Its own declared
       # devDependencies belong to this checkout, not to whichever consumer is tested.
       # No build or lifecycle hooks are needed to run the source-level audit.
       - name: Install audit dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/candidate/foottrace-candidate.tgz" --ignore-scripts
 
       # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
       # and the run's annotations should be the audit's verdicts; the output stays in the log.
@@ -96,12 +107,7 @@ jobs:
           echo "::remove-matcher owner=eslint-stylish::"
           echo "::remove-matcher owner=eslint-compact::"
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: candidate
-          path: ${{ runner.temp }}/candidate
-
       - name: Audit ${{ matrix.consumer }}
         env:
           CONSUMER: ${{ matrix.consumer }}
-        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt
+        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --foottrace-candidate "$RUNNER_TEMP/candidate/foottrace-candidate.tgz" --apt

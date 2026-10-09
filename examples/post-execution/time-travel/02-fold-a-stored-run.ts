@@ -15,7 +15,7 @@
 
 import type { RuntimeSnapshot } from 'footprintjs';
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { commitIndexOf, stateAt } from 'footprintjs/trace';
+import { commitIndexOf, stateAt } from 'foottrace';
 
 interface AuditState {
   tenant: { id: string; plan: string };

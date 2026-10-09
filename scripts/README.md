@@ -15,8 +15,12 @@ npm run trace:ready -- --org /path/to/footprintjs --consumer-ref origin/main
 node scripts/trace-ready.mjs --org /path/to/footprintjs --consumer-ref origin/main --json
 ```
 
-`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list and enforces
-R4 ≥70%. The denominator includes all named engine witnesses, including the record-byte fixtures;
+`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list. After E3 it
+also checks that the 74 moved test files are absent. R4 is **UNKNOWN** in the extracted checkout:
+the engine-free population now lives in foottrace. `trace-extraction.json` preserves the historical
+74/105 entry measurement, its source commit, the exact 44 source files and the published record
+names for consumer audits; that snapshot is not a fresh R4 measurement. For a pre-extraction tree
+the classifier still enforces R4 ≥70%. Its denominator includes the record-byte fixtures;
 only tests whose subject stays with the engine are excluded. The classifier follows helpers,
 re-exports, dynamic imports, `require` and type dependencies. The main and advanced doors count
 as engine dependencies. The trace/write doors resolve each imported name to its declaration.
@@ -44,7 +48,8 @@ The modes have separate purposes:
 | Mode | Required evidence |
 |---|---|
 | Default / `npm run trace:ready` | Report only; no extraction claim |
-| `--check-e1` / `npm run check:trace-ready` | R1/R2 zero, R4 ≥70%, all tests classified |
+| `--check-extracted` / `npm run check:trace-ready` | Remaining engine layers, public named foottrace imports (including published symbol checks), and retained-test classification |
+| `--check-e1` | Pre-extraction R1/R2 zero, R4 ≥70%, all tests classified |
 | `--check-entry` | E1 plus R5/R6 zero, with complete consumer evidence |
 | `--require-ready` | All six rows, including R3 zero at E3 completion |
 

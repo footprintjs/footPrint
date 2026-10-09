@@ -15,11 +15,11 @@
  * checkable.
  */
 
+import { stateAt, timeTravel } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import type { PausableHandler } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
-import { stateAt, timeTravel } from '../../../src/trace.js';
 
 interface GateState {
   trail?: string[];

@@ -14,6 +14,8 @@
  * 7. The engine's dev mode — the record's walk writes no console line under it
  */
 
+import type { CommitBundle } from 'foottrace';
+import { causalChain, flattenCausalDAG, formatCausalChain } from 'foottrace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -25,8 +27,6 @@ import {
   FlowChartExecutor,
   select,
 } from '../../../src/index.js';
-import { causalChain, flattenCausalDAG, formatCausalChain } from '../../../src/lib/memory/backtrack.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { QualityRecorder } from '../../../src/lib/recorder/QualityRecorder.js';
 
 /**

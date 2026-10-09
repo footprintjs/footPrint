@@ -14,11 +14,11 @@
  * end-to-end integration with causalChain({ controlDeps }).
  */
 
+import type { CommitBundle } from 'foottrace';
+import { causalChain, formatCausalChain } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { decide, flowChart, FlowChartExecutor } from '../../../src/index.js';
-import { causalChain, formatCausalChain } from '../../../src/lib/memory/backtrack.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { controlDepRecorder } from '../../../src/lib/recorder/ControlDepRecorder.js';
 
 type Loose = Record<string, unknown>;

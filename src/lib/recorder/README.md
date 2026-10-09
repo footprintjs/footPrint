@@ -211,7 +211,7 @@ Every event flows through its dispatcher to every attached recorder. Errors thro
 ```
 
 ```ts
-import { parseRuntimeStageId, splitStageId } from 'footprintjs/trace';
+import { parseRuntimeStageId, splitStageId } from 'foottrace';
 
 parseRuntimeStageId('sf-tools/call-llm#5');
 // → { stageId: 'call-llm', executionIndex: 5, subflowPath: 'sf-tools' }
@@ -359,7 +359,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 | `KeyedStore<T>` | Each step produces ONE record. Translate by `runtimeStageId`. |
 | `SequenceStore<T>` | Each step produces N records, ordering matters. Aggregate, accumulate, range-query. |
 | `BoundaryStateStore<T>` | Live state DURING a matched `[start, stop]` interval; clears on stop. |
-| `CommitRangeIndex<T>` | Interval index over commit log positions. Generic label `T`. |
+| `CommitRangeIndex<T>` (from `foottrace`) | Interval index over commit log positions. Generic label `T`; owned by the record package, not a FootPrint export. |
 | `CombinedRecorder` | Implement multi-channel observation in one object. |
 | `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26); a child that throws never costs a sibling the event. |
 

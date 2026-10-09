@@ -1,7 +1,8 @@
+import type { CommitValuesMode } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import type { CommitValuesMode, FlowChartExecutorOptions, RedactionPolicy } from '../../../../src/index.js';
+import type { FlowChartExecutorOptions, RedactionPolicy } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { inOutRecorder } from '../../../../src/trace.js';
 import { defineScopeFromZod } from '../../../../src/zod.js';

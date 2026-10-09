@@ -23,7 +23,7 @@ If you do not use nvm, install Node 24 LTS with your preferred version manager b
 
 ```
 src/lib/
-├── memory/    Transactional state primitives
+├── memory/    Engine state and policy; composes foottrace writer primitives
 ├── schema/    Validation abstraction (Zod optional, duck-typed)
 ├── builder/   Fluent flowchart construction DSL
 ├── scope/     Scope facades, recorders, protection
@@ -37,7 +37,11 @@ src/lib/
 └── detach/    Fire-and-forget child flowcharts
 ```
 
-Each library is independently usable. Changes to one should not break others.
+The engine layers follow the dependency fence in `scripts/layering.config.cjs`.
+The standalone `foottrace` package owns record definitions, writing, replay and
+path rules. Import its named public doors directly; do not add local copies or
+re-export its declarations from FootPrint. Changes to one layer should not break
+others.
 
 ## Making Changes
 

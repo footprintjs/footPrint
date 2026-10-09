@@ -52,7 +52,7 @@
     "check:dup-types": "node scripts/check-dup-types.mjs",
     "check:layering": "node scripts/check-layering.mjs",
     "check:record-tests": "node scripts/record-tests.mjs --check",
-    "check:trace-ready": "node scripts/trace-ready.mjs --check-e1",
+    "check:trace-ready": "node scripts/trace-ready.mjs --check-extracted",
     "trace:ready": "node scripts/trace-ready.mjs",
     "check:doc-snippets": "node scripts/check-doc-snippets.mjs",
     "audit:family": "node scripts/audit-family-versions.mjs",
@@ -127,16 +127,6 @@
         "default": "./dist/trace.js"
       }
     },
-    "./write": {
-      "import": {
-        "types": "./dist/esm/write.d.ts",
-        "default": "./dist/esm/write.js"
-      },
-      "require": {
-        "types": "./dist/types/write.d.ts",
-        "default": "./dist/write.js"
-      }
-    },
     "./detach": {
       "import": {
         "types": "./dist/esm/detach.d.ts",
@@ -170,9 +160,6 @@
       "trace": [
         "./dist/types/trace.d.ts"
       ],
-      "write": [
-        "./dist/types/write.d.ts"
-      ],
       "detach": [
         "./dist/types/detach.d.ts"
       ],
@@ -188,6 +175,9 @@
     ]
   },
   "sideEffects": false,
+  "dependencies": {
+    "foottrace": "^1.0.0"
+  },
   "peerDependencies": {
     "zod": "^3.0.0 || ^4.0.0"
   },

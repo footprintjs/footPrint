@@ -13,8 +13,9 @@
  * and abort signals all work inside subflows automatically.
  */
 
+import { LOG_PLACEHOLDER } from 'foottrace/write';
+
 import { thrownText } from '../../errors/errorInfo.js';
-import { LOG_PLACEHOLDER } from '../../memory/placeholders.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';

@@ -10,16 +10,14 @@
  * After execution, consumers query it for the full execution state.
  */
 
-import { freezeRecord } from '../capture/freeze.js';
-import { EventLog } from '../memory/EventLog.js';
-import type { LogAddress } from '../memory/eventPosition.js';
+import type { CommitBundle, CommitValuesMode, LogAddress } from 'foottrace';
+import type { WriteProvenanceMode } from 'foottrace/write';
+import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
+
 import type { StageSnapshot } from '../memory/frameTypes.js';
-import { LOG_PLACEHOLDER } from '../memory/placeholders.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
-import { SharedMemory } from '../memory/SharedMemory.js';
 import { StageContext } from '../memory/StageContext.js';
-import type { CommitBundle, CommitValuesMode, WriteProvenanceMode } from '../memory/types.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -73,7 +71,7 @@ export type RuntimeSnapshot = {
    * Commit bundles are DIFFS, so the log alone cannot rebuild a value that
    * was seeded before the run and only ever merged afterwards. Shipping the
    * base WITH the log is what makes an offline fold — `stateAt(snapshot, i)`
-   * from `footprintjs/trace` — reproduce the state a stage actually saw.
+   * from `foottrace` — reproduce the state a stage actually saw.
    *
    * OPTIONAL BY TYPE, and absent in exactly two cases. A plain `getSnapshot()`
    * always carries it, so a live fold reports `basis: 'initial+log'`. Under

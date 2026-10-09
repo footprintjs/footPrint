@@ -1,6 +1,6 @@
+import { SharedMemory } from 'foottrace/write';
 import { z } from 'zod';
 
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
 import { StageContext } from '../../../../src/lib/memory/StageContext.js';
 import { ZodScopeResolver } from '../../../../src/lib/scope/state/zod/resolver.js';
 import { defineScopeSchema } from '../../../../src/lib/scope/state/zod/schema/builder.js';

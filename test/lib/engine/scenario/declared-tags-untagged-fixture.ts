@@ -17,7 +17,9 @@
  * the "absent when empty" law `CommitBundle.untrackedSources?` already keeps.
  */
 
-import type { CommitValuesMode, PausableHandler, TypedScope } from '../../../../src/index.js';
+import type { CommitValuesMode } from 'foottrace';
+
+import type { PausableHandler, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
 import { withoutSubflowLogAddresses } from './source-position-byte-view.js';

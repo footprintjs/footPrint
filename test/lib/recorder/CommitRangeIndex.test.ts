@@ -11,10 +11,10 @@
  *   7. load         — sustained 1M ranges with O(log N) queries
  */
 
+import { CommitRangeIndex } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
-import { CommitRangeIndex } from '../../../src/lib/recorder/CommitRangeIndex.js';
 
 // ─── 1. UNIT ────────────────────────────────────────────────────────
 
@@ -378,4 +378,4 @@ describe('CommitRangeIndex — load', () => {
 });
 
 // Type-only import for security test cast (avoids unused-import lint).
-import type { RangeEntry } from '../../../src/lib/recorder/CommitRangeIndex.js';
+import type { RangeEntry } from 'foottrace';

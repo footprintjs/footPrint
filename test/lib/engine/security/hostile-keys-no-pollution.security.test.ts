@@ -25,15 +25,12 @@
  *      a record key named like an `Object.prototype` member used to fail the
  *      run with a TypeError ("fields is not iterable").
  */
+import { stateAt } from 'foottrace';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { nativeDelete, nativeSet, ownChild, ownedRootOf, ownSpine } from '../../../../src/lib/memory/pathOps.js';
 import type { RedactionPolicy } from '../../../../src/lib/memory/redaction.js';
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
-import { applySmartMergeInto, DELIM, nextGeneration } from '../../../../src/lib/memory/utils.js';
-import { stateAt } from '../../../../src/trace.js';
 
 const DENIED_NAMES = ['__proto__', 'constructor', 'prototype'] as const;
 
@@ -79,79 +76,6 @@ const deniedOwnKeys = (value: unknown): string[] =>
   DENIED_NAMES.filter((name) => Object.prototype.hasOwnProperty.call(value, name));
 
 // ── 1. primitives ─────────────────────────────────────────────────────────────
-
-describe('1 — primitives: a path that names a denied segment is refused there', () => {
-  it.each(DENIED_NAMES)('nativeSet writes nothing at a path ending in %s — at the root or one level down', (name) => {
-    const root: Record<string, any> = { a: {} };
-    nativeSet(root, [name], { polluted: 'leaf' });
-    nativeSet(root, ['a', name], { polluted: 'leaf' });
-    expect(Object.getPrototypeOf(root)).toBe(Object.prototype);
-    expect(Object.getPrototypeOf(root.a)).toBe(Object.prototype);
-    expect(deniedOwnKeys(root)).toEqual([]);
-    expect(deniedOwnKeys(root.a)).toEqual([]);
-    clean();
-  });
-
-  it.each(DENIED_NAMES)('nativeDelete removes nothing at a path ending in %s, even an own data key', (name) => {
-    const root = JSON.parse(`{"${name}":{"x":1},"a":{"${name}":{"x":1}}}`);
-    nativeDelete(root, [name]);
-    nativeDelete(root, ['a', name]);
-    expect(deniedOwnKeys(root)).toEqual([name]);
-    expect(deniedOwnKeys(root.a)).toEqual([name]);
-  });
-
-  it('ownSpine copies nothing through `__proto__`: neither the root nor a child changes prototype', () => {
-    const owned = new WeakSet<object>();
-    const root = ownedRootOf({ a: { k: 1 } }, owned);
-    ownSpine(root, ['__proto__', 'x'], owned);
-    ownSpine(root, ['a', '__proto__', 'x'], owned);
-    expect(Object.getPrototypeOf(root)).toBe(Object.prototype);
-    expect(Object.getPrototypeOf(root.a)).toBe(Object.prototype);
-  });
-
-  it('ownChild answers nothing for a denied name, even where it is an own data key', () => {
-    const parent = JSON.parse('{"__proto__":{"a":1},"constructor":{"a":1},"prototype":{"a":1}}');
-    for (const name of DENIED_NAMES) expect(ownChild(parent, name)).toBeUndefined();
-  });
-
-  it.each(DENIED_NAMES)(
-    'every replay refuses a row whose path ENDS at %s (live commit, fold, SharedMemory)',
-    (name) => {
-      for (const segs of [[name], ['a', name]]) {
-        for (const verb of ['set', 'merge', 'append', 'delete'] as const) {
-          const overwrite: Record<string, any> = {};
-          const updates: Record<string, any> = {};
-          let o = overwrite;
-          let u = updates;
-          for (const seg of segs.slice(0, -1)) {
-            o = o[seg] = {};
-            u = u[seg] = {};
-          }
-          // defineProperty makes the denied name a real own key of the bundle, as JSON.parse would.
-          const own = { value: { polluted: 'row' }, enumerable: true, writable: true, configurable: true };
-          Object.defineProperty(o, name, own);
-          Object.defineProperty(u, name, own);
-          const trace = [{ path: segs.join(DELIM), verb }];
-          const base = Object.freeze({ a: Object.freeze({ k: 1 }) });
-          const mem = new SharedMemory(undefined, { a: { k: 1 } });
-          mem.applyPatch(overwrite, updates, trace);
-          const states = [
-            nextGeneration(base, updates, overwrite, trace),
-            applySmartMergeInto(structuredClone(base), updates, overwrite, trace),
-            mem.getState(),
-          ];
-          for (const state of states) {
-            expect(state).toEqual({ a: { k: 1 } });
-            expectStandardPrototypes(state, `${verb} ${segs.join('.')}`);
-          }
-        }
-      }
-      clean();
-    },
-  );
-});
-
-// ── 2. end to end ─────────────────────────────────────────────────────────────
 
 interface Inner {
   seeded?: Record<string, unknown>;

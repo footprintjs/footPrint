@@ -1,6 +1,6 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
+
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 function createCtx(runId = 'p1', stageName = 'stage1') {

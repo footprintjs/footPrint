@@ -22,12 +22,12 @@
  */
 
 import fc from 'fast-check';
+import type { CommitValuesMode } from 'foottrace';
+import { stateAt } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
-import type { CommitValuesMode } from '../../../../src/lib/memory/types';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import { stateAt } from '../../../../src/trace';
 
 type State = Record<string, any>;
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];

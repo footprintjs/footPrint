@@ -18,10 +18,10 @@
  * `commitValueAt` memo (a nested key folded from a kept generation): served-record-doors pins that.
  */
 import fc from 'fast-check';
+import { commitValueAt, stateAt, timeTravel } from 'foottrace';
 
 import type { CommitBundle } from '../../../../src';
 import { flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
-import { commitValueAt, stateAt, timeTravel } from '../../../../src/trace';
 import { cloneable, recordKey, vandalize } from '../../../helpers/valueKinds';
 
 const write = fc.tuple(fc.constantFrom('a', 'b', 'c'), cloneable);

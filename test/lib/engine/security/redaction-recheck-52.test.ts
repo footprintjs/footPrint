@@ -13,8 +13,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { disableDevMode, enableDevMode } from '../../../../src/index.js';
+import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { RedactionRule, useWalkLimit, WALK_LIMIT } from '../../../../src/lib/memory/redaction.js';
 
 const SECRET = 'sk-recheck52-SECRET';

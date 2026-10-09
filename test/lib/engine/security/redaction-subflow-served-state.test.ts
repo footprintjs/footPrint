@@ -16,13 +16,15 @@
  * pins one clause of that.
  */
 
-import type { CommitValuesMode, FlowRecorder, TypedScope } from '../../../../src/index.js';
+import type { CommitValuesMode } from 'foottrace';
+import { stateAt } from 'foottrace';
+
+import type { FlowRecorder, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { stateAt } from '../../../../src/trace.js';
 
 const memoryAllocations = vi.hoisted(() => ({ count: 0 }));
-vi.mock('../../../../src/lib/memory/SharedMemory.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/lib/memory/SharedMemory.js')>();
+vi.mock('foottrace/write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('foottrace/write')>();
   class CountingSharedMemory extends actual.SharedMemory {
     constructor(...args: ConstructorParameters<typeof actual.SharedMemory>) {
       super(...args);

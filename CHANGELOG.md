@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased — extraction candidate (E3; reserved for 10.0.0)
+
+This branch is not a 9.x release. Its record implementation and readers now come from
+`foottrace ^1.0.0`; E4 publishes that dependency, E5 migrates consumers, and E6 alone releases
+footprintjs 10.0.0. Record bytes and counted clone costs remain unchanged.
+
+### Breaks
+
+- Record readers, runtime-ID helpers, `CommitBundle`, `TraceEntry`, `MemoryPatch`, `CommitValuesMode`,
+  `ExecutionTree`, `EmitSourcePosition` and `LogAddress` move to `foottrace`.
+- Record writers and their option types move from `footprintjs/write` to `foottrace/write`.
+- Record `pathSegments`, `normaliseStateKey`, `setNestedValue` and `updateNestedValue` move to
+  `foottrace/paths`. The ID grammar's distinct path helper is `foottrace`'s `idPathSegments`.
+- The temporary record exports on `/advanced` are removed. `TransactionBuffer`, `deepSmartMerge`,
+  `getNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` are private
+  implementation details with no replacement public export. Use the public writer or readers.
+- FootPrint re-exports no foottrace declaration. `/trace` retains the recorder stores, topology,
+  in/out and control-dependence recorders, branch-segment helpers and `walkSubflowSpec`.
+
+The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-10-trace-extraction.md#75-the-symbol-map-and-each-consumers-move).
+
 ## [9.48.1] - 2026-10-09
 
 ### Security

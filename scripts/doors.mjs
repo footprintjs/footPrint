@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const layering = require('./layering.config.cjs');
+const extraction = require('./trace-extraction.json');
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -83,6 +84,21 @@ export function recordSymbols(doors = readDoors(), onlyDoor) {
     for (const [name, declared] of door) if (isRecordName(declared)) names.add(name);
   }
   return names;
+}
+
+/** After extraction the engine's doors deliberately hand out no record symbols. Consumer
+ * migration checks must still recognise the former exports, frozen from the published
+ * declarations and the 44-file extraction inventory; an empty current door is not zero debt. */
+export function recordSymbolsAt(root = REPO_ROOT, onlyDoor) {
+  const pkgFile = join(root, 'package.json');
+  if (!existsSync(pkgFile) || !JSON.parse(readFileSync(pkgFile, 'utf8')).dependencies?.foottrace)
+    return recordSymbols(readDoors(root), onlyDoor);
+  const subpath = onlyDoor === 'src/index.ts' ? '.' : onlyDoor?.replace(/^src\//, './').replace(/\.ts$/, '');
+  return new Set(
+    Object.entries(extraction.publishedRecordDoors)
+      .filter(([door]) => !subpath || door === subpath)
+      .flatMap(([, names]) => names),
+  );
 }
 
 /** Parse imports as syntax, never matching comments or quoted examples. Shared by the consumer

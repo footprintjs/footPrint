@@ -25,11 +25,14 @@
  *                            stage wrote the key" — the question states its own answer; `findLastWriterWithBasis`
  *                            says why a key has no writer at all.
  */
+import { type CommitBundle, HONESTY_CODES } from 'foottrace';
+import * as record from 'foottrace';
+import { normaliseStateKey, pathSegments } from 'foottrace/paths';
 import { describe, expect, it } from 'vitest';
 
-import { HONESTY_CODES } from '../../src/lib/memory/honesty';
-import type { CommitBundle } from '../../src/lib/memory/types';
-import * as trace from '../../src/trace';
+import * as engineTrace from '../../src/trace';
+
+const trace = { ...record, ...engineTrace, normaliseStateKey, pathSegments };
 
 const KEY_READERS = [
   'commitValueAt',
@@ -47,6 +50,13 @@ const KEY_READERS = [
 ];
 
 const NOT_KEY_READERS: Record<string, string> = {
+  deepEqual: 'structural equality, no log query',
+  serveRecord: 'defensive record copy, no log query',
+  isExecutionKey: 'id grammar',
+  joinPath: 'id grammar',
+  idPathSegments: 'id grammar',
+  stageIdOf: 'id grammar',
+  subflowSegmentsOf: 'id grammar',
   applySmartMerge: 'folds ONE bundle onto a state the caller hands it — no key query (an unknown verb throws)',
   BoundaryStateStore: 'a recorder store keyed by runtimeStageId, not a log reader',
   CommitRangeIndex: 'commit-index ranges, no state key',

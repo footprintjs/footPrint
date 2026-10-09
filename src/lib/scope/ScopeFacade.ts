@@ -14,6 +14,8 @@
  * ```
  */
 
+import { subflowSegmentsOf } from 'foottrace';
+
 import { hasCircularReference } from '../capture/circular.js';
 import {
   detachAndForget as detachAndForgetSpawn,
@@ -21,7 +23,6 @@ import {
 } from '../detach/spawn.js';
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
-import { subflowSegmentsOf } from '../ids/runtimeStageId.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';

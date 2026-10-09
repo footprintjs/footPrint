@@ -10,7 +10,7 @@
  * The gap for an unknown verb is footprintjs 9.27.0's reader; run against an
  * older package the third section shows the old silent merge instead.
  */
-import { stateAt, tagStops, timeTravel } from 'footprintjs/trace';
+import { stateAt, tagStops, timeTravel } from 'foottrace';
 
 const record = {
   initialState: { count: 0, items: [] as number[], profile: { name: 'a' } },

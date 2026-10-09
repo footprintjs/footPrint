@@ -31,7 +31,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { commitValueAt, findLastWriter } from 'footprintjs/trace';
+import { commitValueAt, findLastWriter } from 'foottrace';
 
 interface AgentState {
   i: number;

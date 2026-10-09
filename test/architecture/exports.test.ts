@@ -1,18 +1,18 @@
 /**
  * Export ownership — every public symbol has ONE canonical barrel.
  *
- * The package has seven doors (the keys of package.json `exports`): `.`, `./advanced`,
- * `./recorders`, `./trace`, `./write`, `./detach`, `./zod`. A symbol that two doors both hand out is two
+ * The package has six doors (the keys of package.json `exports`): `.`, `./advanced`,
+ * `./recorders`, `./trace`, `./detach`, `./zod`. A symbol that two doors both hand out is two
  * things to document, to keep in step and to deprecate; a symbol one door renames is a
  * second door nobody can grep. This test finds every symbol reachable through more than one
  * door — resolving aliases to the declaration, so `export { A as B }` counts — and lets only
  * the ones named in SECOND_DOORS through, each with its canonical door and its reason.
  *
  * The list only ever shrinks: a symbol that stops being double-exported must leave it, and
- * a new double export fails here until someone decides which door owns it. The one exception is a
- * MOVE: a published minor never drops a name (consumers hold caret ranges), so a symbol that moves
- * to its own door keeps the old one as a second door marked `keptUntil` the next major — and the
- * groups so marked fail here once the package version reaches that major, so it cannot ship them.
+ * a new double export fails here until someone decides which door owns it. E3 removes the 15
+ * temporary record second doors and nine kept internals for the planned 10.0.0 release.
+ * Every exported declaration must belong to footprintjs; foottrace re-exports, including
+ * renamed aliases and type-only exports, fail the ownership check.
  *
  *   unit      every door in package.json has a src entry file and a `typesVersions` line
  *   scenario  the real package: undeclared second doors and stale list entries both fail
@@ -36,8 +36,6 @@ interface SecondDoors {
   symbols: string[];
   /** A door that exports one under another name: `{ declaredName: { door: exportName } }`. */
   renamed?: Record<string, Record<string, string>>;
-  /** A moved symbol's old door, kept until this major removes it (a minor never drops a published name). */
-  keptUntil?: string;
   why: string;
 }
 
@@ -79,65 +77,12 @@ const SECOND_DOORS: SecondDoors[] = [
       'recorder family is documented and versioned at `/recorders`.',
   },
   {
-    canonical: './trace',
-    also: ['./advanced'],
-    symbols: [
-      'CommitBundle',
-      'ExecutionCounter',
-      'MemoryPatch',
-      'TraceEntry',
-      'UntrackedSource',
-      'applySmartMerge',
-      'buildRuntimeStageId',
-      'createExecutionCounter',
-      'findCommit',
-      'findCommits',
-      'findLastWriter',
-      'parseRuntimeStageId',
-      'pathSegments',
-    ],
-    keptUntil: '10.0.0',
-    why:
-      'kept until 10.0.0 (trace extraction, E6); the canonical home is /trace. 9.47.0 (C5) gave the record its own doors ' +
-      'without dropping a published name: consumers hold caret ranges, and a minor that drops an export breaks their fresh installs.',
-  },
-  {
-    canonical: './write',
-    also: ['./advanced'],
-    symbols: ['EventLog', 'SharedMemory'],
-    keptUntil: '10.0.0',
-    why:
-      'kept until 10.0.0 (trace extraction, E6); the canonical home is /write, the record layer as the public writer (C5). ' +
-      'The same symbols on two doors, no forwarder: a minor never drops a published name.',
-  },
-  {
     canonical: './recorders',
     also: ['./advanced'],
     symbols: ['AggregatedMetrics', 'StageMetrics'],
     why: 'the result types of MetricRecorder, handed out beside the engine internals for custom-engine users.',
   },
 ];
-
-/**
- * Record internals `/advanced` hands out with no other door: a published minor keeps them too, and
- * 10.0.0 (the trace extraction, E6) takes them off the public surface. Not second doors, so listed
- * here to get the same tripwire.
- */
-const KEPT_INTERNALS = {
-  door: './advanced',
-  keptUntil: '10.0.0',
-  symbols: [
-    'TransactionBuffer',
-    'deepSmartMerge',
-    'getNestedValue',
-    'getRunAndGlobalPaths',
-    'normalisePath',
-    'redactPatch',
-    'setNestedValue',
-    'updateNestedValue',
-    'updateValue',
-  ],
-};
 
 // ── reading the package ──────────────────────────────────────────────────────
 
@@ -165,13 +110,20 @@ interface Reached {
 }
 
 /** Every symbol every door hands out, aliases resolved to the declaration. */
-function reachability(doors: Record<string, string>): Map<ts.Symbol, Reached> {
+function reachability(doors: Record<string, string>, virtual: Record<string, string> = {}): Map<ts.Symbol, Reached> {
   const parsed = ts.parseJsonConfigFileContent(
     ts.readConfigFile(join(REPO, 'tsconfig.json'), ts.sys.readFile).config,
     ts.sys,
     REPO,
   );
-  const program = ts.createProgram(Object.values(doors), { ...parsed.options, noEmit: true });
+  const options = { ...parsed.options, noEmit: true };
+  const host = ts.createCompilerHost(options);
+  const sourceFile = host.getSourceFile;
+  host.getSourceFile = (file, version, onError, create) =>
+    virtual[file] === undefined
+      ? sourceFile(file, version, onError, create)
+      : ts.createSourceFile(file, virtual[file], version, true);
+  const program = ts.createProgram(Object.values(doors), options, host);
   const checker = program.getTypeChecker();
   const reached = new Map<ts.Symbol, Reached>();
   for (const [door, file] of Object.entries(doors)) {
@@ -191,6 +143,14 @@ const reached = reachability(doors);
 const doubled = [...reached.values()].filter((r) => r.via.size > 1);
 const describeDoors = (r: Reached) =>
   [...r.via].map(([door, name]) => `${door}${name === r.declared ? '' : ` as ${name}`}`).join(', ');
+const outsideDeclarations = (symbols: Map<ts.Symbol, Reached>) =>
+  [...symbols].flatMap(([symbol, r]) => {
+    const declarations = symbol.declarations ?? [];
+    return !declarations.length ||
+      declarations.some((d) => !resolve(d.getSourceFile().fileName).startsWith(join(REPO, 'src') + '/'))
+      ? [`${r.declared} [${describeDoors(r)}]`]
+      : [];
+  });
 
 // ── unit: the package's own map ──────────────────────────────────────────────
 
@@ -200,15 +160,7 @@ describe('package.json doors', () => {
       if (door === '.') continue;
       expect(pkg.typesVersions['*'][door.slice(2)], `typesVersions for ${door}`).toBeDefined();
     }
-    expect(Object.keys(doors).sort()).toEqual([
-      '.',
-      './advanced',
-      './detach',
-      './recorders',
-      './trace',
-      './write',
-      './zod',
-    ]);
+    expect(Object.keys(doors).sort()).toEqual(['.', './advanced', './detach', './recorders', './trace', './zod']);
   });
 
   it('every door hands out something', () => {
@@ -278,32 +230,32 @@ describe('export ownership', () => {
 
   it('the list is short, and says why for each group', () => {
     expect(SECOND_DOORS.every((g) => g.why.length > 40)).toBe(true);
-    // 19 standing; the moves' old doors (C5) are counted apart and leave at their major.
-    expect(SECOND_DOORS.filter((g) => !g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
-    expect(SECOND_DOORS.filter((g) => g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(15);
+    expect(SECOND_DOORS.flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
   });
 
-  it('the kept internals are on /advanced alone, until their major', () => {
-    for (const symbol of KEPT_INTERNALS.symbols) {
-      const r = [...reached.values()].find((x) => x.declared === symbol);
-      expect(r ? [...r.via.keys()] : [], symbol).toEqual([KEPT_INTERNALS.door]);
-    }
+  it('every public symbol is declared inside footprintjs, including aliases and type exports', () => {
     expect(
-      Number(String(pkg.version).split('.')[0]),
-      'remove the kept internals from /advanced and this list',
-    ).toBeLessThan(Number(KEPT_INTERNALS.keptUntil.split('.')[0]));
+      outsideDeclarations(reached),
+      'footprintjs must not re-export foottrace or any other package declaration',
+    ).toEqual([]);
   });
 
-  it('a kept old door cannot ship in the major that removes it', () => {
-    const major = Number(String(pkg.version).split('.')[0]);
-    for (const group of SECOND_DOORS.filter((g) => g.keptUntil)) {
-      expect(
-        major,
-        `${group.canonical}: ${group.also.join(', ')} kept until ${
-          group.keptUntil
-        } — remove those exports and this group`,
-      ).toBeLessThan(Number(group.keptUntil!.split('.')[0]));
-    }
+  it('the ownership rule rejects foreign aliases and type exports but permits an engine type referring to a record', () => {
+    const file = join(REPO, 'src/__ownership_probe.ts');
+    const probe = reachability(
+      { '.': file },
+      {
+        [file]: [
+          "export { RecordFrame as ForeignFrame } from 'foottrace/write';",
+          "export type { CommitBundle as ForeignBundle } from 'foottrace';",
+          "export interface EngineSnapshot { commits: import('foottrace').CommitBundle[] }",
+        ].join('\n'),
+      },
+    );
+    expect(outsideDeclarations(probe).sort()).toEqual([
+      'CommitBundle [. as ForeignBundle]',
+      'RecordFrame [. as ForeignFrame]',
+    ]);
   });
 
   it('no export NAME means two different things across doors', () => {

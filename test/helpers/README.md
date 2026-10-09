@@ -1,5 +1,14 @@
-# Shared test fixtures
+# Engine witnesses against foottrace
 
-`registerScope.ts` gives legacy plain-object test scopes an explicit runtime registration. Each fixture's existing methods are its declared target port; assignment protection remains enabled. It changes only fixture admission, not their state behavior or assertions.
+The engine imports the record through `foottrace`, `foottrace/write` and `foottrace/paths` only.
+The record's unit tests live in foottrace; these helpers support tests of what the engine writes.
 
-This is test support, not a production compatibility fallback. Production adapters register through `footprintjs/advanced` and normally share one `ScopeFacade`. Strict proxies must declare a separate target port rather than use the data proxy itself.
+`recordWitness.ts` is deliberately test-only instrumentation. The existing copy-on-write
+differentials and their adversarial controls patch the actual buffer's `commit`, `admit` and
+`detachBase` methods. They obtain that identity from a publicly constructed `RecordFrame`, after
+one ordinary write. The helper fails loudly if the private layout or a watched method changes.
+This preserves those controls without a private package import, an extra public API or a copy of
+the implementation. Runtime code must never depend on this helper or private buffer layout.
+
+`pathRelationOracle.ts` compares segment arrays independently for the engine-log differentials.
+The record's production relationship implementation is not imported into its own oracle.

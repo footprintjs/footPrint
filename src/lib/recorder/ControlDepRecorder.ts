@@ -40,7 +40,8 @@
  *
  * @example
  * ```typescript
- * import { controlDepRecorder, causalChain } from 'footprintjs/trace';
+ * import { controlDepRecorder } from 'footprintjs/trace';
+import { causalChain } from 'foottrace';
  *
  * const ctrl = controlDepRecorder();
  * executor.attachCombinedRecorder(ctrl); // auto-routes to FlowRecorder channel
@@ -53,6 +54,8 @@
  * ```
  */
 
+import type { ControlDependency, ControlDepLookup } from 'foottrace';
+
 import type { DecisionEvidence, SelectionEvidence } from '../decide/types.js';
 import type {
   FlowDecisionEvent,
@@ -61,7 +64,6 @@ import type {
   FlowSelectedEvent,
   FlowStageEvent,
 } from '../engine/narrative/types.js';
-import type { ControlDependency, ControlDepLookup } from '../memory/backtrack.js';
 
 /** One recorded decision/selection event (RFC-003 D5). */
 export interface ControlDecisionRecord {

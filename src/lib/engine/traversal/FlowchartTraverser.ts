@@ -23,9 +23,10 @@
  * Patch model: Stage writes into local patch; commitPatch() after return or throw.
  */
 
+import { buildRuntimeStageId, joinPath } from 'foottrace';
+
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
-import { buildRuntimeStageId, joinPath } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';

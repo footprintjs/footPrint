@@ -1,6 +1,7 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { z } from 'zod';
 
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { StageContext } from '../../../../src/lib/memory';
 import { createProtectedScope } from '../../../../src/lib/scope/protection';
 import { __clearScopeResolversForTests, resolveScopeProvider } from '../../../../src/lib/scope/providers';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';

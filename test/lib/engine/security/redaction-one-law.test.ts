@@ -13,9 +13,11 @@
  * scrubbed log agrees with the mirror).
  */
 
-import type { CommitValuesMode, FlowSubflowEvent, TypedScope } from '../../../../src/index.js';
+import type { CommitValuesMode } from 'foottrace';
+import { stateAt, timeTravel } from 'foottrace';
+
+import type { FlowSubflowEvent, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { stateAt, timeTravel } from '../../../../src/trace.js';
 
 const SECRET = 'sk-live-SUPER-SECRET-BYTES';
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];

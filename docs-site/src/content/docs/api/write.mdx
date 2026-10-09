@@ -1,14 +1,14 @@
 ---
-title: footprintjs/write — write a record
-description: API reference for footprintjs/write — SharedMemory, EventLog and RecordFrame, the record layer the engine writes with.
+title: foottrace/write — write a record
+description: API reference for foottrace/write — SharedMemory, EventLog and RecordFrame, the record layer the engine writes with.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-`footprintjs/write` is the public way to write a **record** — a frozen base and an append-only log of bundles, one per step — without running a flowchart. It hands out the classes the engine itself writes with: there is no wrapper, so a record written here comes from the same code, and the same bytes, as one a flowchart wrote. Every reader on `footprintjs/trace` (`stateAt`, `timeTravel`, `commitValueAt`, `causalChain`, `sliceForKey` …) reads it as it reads an engine record.
+`foottrace/write` is the public way to write a **record** — a frozen base and an append-only log of bundles, one per step — without running a flowchart. It hands out the classes the engine itself writes with: there is no wrapper, so a record written here comes from the same code, and the same bytes, as one a flowchart wrote. Every reader on `foottrace` (`stateAt`, `timeTravel`, `commitValueAt`, `causalChain`, `sliceForKey` …) reads it as it reads an engine record.
 
 ```ts
-import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 ```
 
 | Export | Kind | What it is |
@@ -23,7 +23,7 @@ import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
 | `WriteProvenanceMode` | type | `'off' \| 'reads-prefix'` |
 
 <Aside>
-Nothing on this door names or loads the engine: every type it hands out is the record's own, and importing it loads no frame, scope or executor file (pinned by `test/architecture/write-door.test.ts`). Its names and the bytes they write are promised under the record fixtures' re-pin policy — a refactor never moves a byte.
+Nothing on this door names or loads the engine: every type it hands out is the record's own, and importing it loads no engine frame, scope or executor file (enforced by foottrace's package-boundary tests). Its names and the bytes they write are promised under the record fixtures' re-pin policy — a refactor never moves a byte.
 </Aside>
 
 ---
@@ -31,8 +31,8 @@ Nothing on this door names or loads the engine: every type it hands out is the r
 ## Writing a record
 
 ```ts
-import { stateAt } from 'footprintjs/trace';
-import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+import { stateAt } from 'foottrace';
+import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 
 const state = new SharedMemory(undefined, { count: 0 }); // the heap, seeded
 const log = new EventLog(state.getState()); // its fold base is the seed
@@ -101,22 +101,22 @@ One step's frame — one frame per step, one bundle per frame. `address` is the 
 | `release()` / `discard()` | End the frame's hold on state / throw away everything it staged and noted |
 
 <Aside type="caution">
-A step's `runtimeStageId` must be unique in the record and its execution index must only rise. Build it with `buildRuntimeStageId(stageId, counter.value++)` and one `createExecutionCounter()` from `footprintjs/trace`.
+A step's `runtimeStageId` must be unique in the record and its execution index must only rise. Build it with `buildRuntimeStageId(stageId, counter.value++)` and one `createExecutionCounter()` from `foottrace`.
 </Aside>
 
 ---
 
 ## The writing contract
 
-The classes are the engine's own, so they carry members the engine needs that a writer does not. What is promised to a writer — under the record fixtures' re-pin policy — is the members in the tables above, used as described: one frame per step, writes staged through `write`, one `commit`. The rest is engine-facing, outside the contract:
+Foottrace owns these classes; the engine consumes the same implementations. They carry members the engine needs that a writer does not. What is promised to a writer — under the record fixtures' re-pin policy — is the members in the tables above, used as described: one frame per step, writes staged through `write`, one `commit`. The rest is engine-facing, outside the contract:
 
 | Member | Why it is not the writing contract |
 |--------|------------------------------------|
 | `SharedMemory · setValue` / `updateValue` | Write the heap with no bundle: the log would not show the change |
 | `SharedMemory · applyPatch`, `EventLog · record` | What a frame's `commit` calls; a bundle recorded by hand must keep every law of the record contract itself |
 | `EventLog · clear()` | Wipes the history — the log is append-only (test resets only) |
-| `EventLog · materialise()` | Deprecated since 9.33.0: fold with `stateAt` from `footprintjs/trace` |
+| `EventLog · materialise()` | Deprecated since 9.33.0: fold with `stateAt` from `foottrace` |
 | `EventLog · recorded()`, `bindAddress()` | `@internal`: the engine's unserved read and its log address |
 | `RecordFrame · useAddress()` | Moves the address — only before the frame's first write, which the frame does not check (the engine's frame does) |
 
-See also: the record contract and its "Writing a record" section (`docs/guides/record-contract.md`), and the runnable example `examples/post-execution/time-travel/07-write-a-record.ts`.
+The canonical [record contract and writing guide](https://github.com/footprintjs/foottrace/blob/main/docs/guides/record-contract.md) live in foottrace. See also the runnable engine-side example `examples/post-execution/time-travel/07-write-a-record.ts`.

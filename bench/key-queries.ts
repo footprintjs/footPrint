@@ -60,8 +60,8 @@ function build(n: number, width = Number.POSITIVE_INFINITY) {
 }
 
 async function main() {
-  const trace = (await import('../src/trace')) as any;
-  const { deepFreeze } = (await import('../src/lib/capture/freeze')) as any;
+  const trace = (await import('foottrace')) as any;
+  const { deepFreeze } = (await import('foottrace/write')) as any;
   const time = (f: () => unknown) => {
     const t0 = performance.now();
     f();

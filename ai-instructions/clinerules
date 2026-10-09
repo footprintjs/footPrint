@@ -10,7 +10,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 
 ```
 src/lib/
-├── memory/    → Transactional state (SharedMemory, StageContext, TransactionBuffer)
+├── memory/    → Engine state and policy (StageContext composes foottrace RecordFrame)
 ├── schema/    → Validation (Zod optional, duck-typed)
 ├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
 ├── scope/     → Per-stage facades + recorders + providers
@@ -21,7 +21,9 @@ src/lib/
 └── contract/  → I/O schema normalization (OpenAPI generation: runner/RunnableChart)
 ```
 
-Entry points (seven doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/write` (write a record yourself) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
+FootPrint has six engine doors: `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (engine recorders, stores and structure walkers) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
+
+The separate record package has three doors: `foottrace` (record shapes, readers and runtime IDs), `foottrace/write` (`SharedMemory`, `EventLog`, `RecordFrame`) and `foottrace/paths` (record-path rules and safe nested access). Import directly from the owner: FootPrint does not re-export record declarations or keep local copies of record rules.
 
 ## Key API — TypedScope (Recommended)
 

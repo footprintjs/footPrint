@@ -282,7 +282,7 @@ the FULL prefixed form `'sf-tools/x'`. To decompose a bare prefixed
 id without the `#N` suffix, use `splitStageId`:
 
 ```ts
-import { splitStageId } from 'footprintjs/trace';
+import { splitStageId } from 'foottrace';
 
 splitStageId('sf-tools/x');
 // → { localStageId: 'x', subflowPath: 'sf-tools' }

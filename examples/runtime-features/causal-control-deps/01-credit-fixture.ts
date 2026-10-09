@@ -28,8 +28,9 @@
 
 import type { ScopeRecorder, TypedScope } from 'footprintjs';
 import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
-import type { CommitBundle, EdgeWeigher } from 'footprintjs/trace';
-import { causalChain, controlDepRecorder, formatCausalChain } from 'footprintjs/trace';
+import type { CommitBundle, EdgeWeigher } from 'foottrace';
+import { controlDepRecorder } from 'footprintjs/trace';
+import { causalChain, formatCausalChain } from 'foottrace';
 
 interface LoanState {
   creditScore: number;

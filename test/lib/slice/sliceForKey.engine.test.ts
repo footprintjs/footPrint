@@ -4,17 +4,17 @@
  * Moved verbatim from sliceForKey.test.ts in E1 (the record's tests run without the engine): the point
  * of this test is what the engine's own ControlDepRecorder observes while a chart runs — which decider
  * governed the writer — and that recorder is attached to the executor and fed by its flow events; a
- * record written through footprintjs/write has no decider to observe.
+ * record written through foottrace/write has no decider to observe.
  * (The one edit: the tree is typed as the record's `ExecutionTree`, not the frame's `StageSnapshot`.)
  */
 
+import type { ExecutionTree } from 'foottrace';
+import { keysReadFromExecutionTree, sliceForKey } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { ExecutionTree } from '../../../src/lib/memory/types.js';
 import { controlDepRecorder } from '../../../src/lib/recorder/ControlDepRecorder.js';
 import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
-import { keysReadFromExecutionTree, sliceForKey } from '../../../src/lib/slice/index.js';
 
 // ════════════════════════════════════════════════════════════════════════
 // INTEGRATION — with ControlDepRecorder: the slice explains BOTH data

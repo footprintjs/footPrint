@@ -41,11 +41,63 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { sourceEdges } from './doors.mjs';
+
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const defaultConfig = require('./layering.config.cjs');
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const extraction = require('./trace-extraction.json');
+
+/** A package boundary replaces the former in-tree record closure after E3. */
+export function isExtracted(root) {
+  const file = join(root, 'package.json');
+  return existsSync(file) && !!JSON.parse(readFileSync(file, 'utf8')).dependencies?.foottrace;
+}
+
+export function extractionProblems(root, files = defaultConfig.listSourceFiles(root)) {
+  const problems = files
+    .filter((file) => defaultConfig.isRecordFile(file))
+    .map((file) => `record source remains: ${file}`);
+  const publicNames = new Map();
+  const namesOnDoor = (specifier) => {
+    if (!publicNames.has(specifier)) {
+      const options = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 };
+      const file = ts.resolveModuleName(specifier, join(root, 'src/index.ts'), options, ts.sys).resolvedModule
+        ?.resolvedFileName;
+      if (!file) publicNames.set(specifier, null);
+      else {
+        const program = ts.createProgram([file], { ...options, noEmit: true });
+        const checker = program.getTypeChecker();
+        const module = checker.getSymbolAtLocation(program.getSourceFile(file));
+        publicNames.set(
+          specifier,
+          new Set((module ? checker.getExportsOfModule(module) : []).map((symbol) => symbol.getName())),
+        );
+      }
+    }
+    return publicNames.get(specifier);
+  };
+  for (const edge of sourceEdges(root, files)) {
+    if (/^foottrace(?:\/|$)/.test(edge.spec)) {
+      if (!extraction.doors.includes(edge.spec))
+        problems.push(`${edge.from}:${edge.line}: private foottrace path ${edge.spec}`);
+      if (edge.names.includes('*') || edge.names.includes('default') || edge.names.length === 0)
+        problems.push(`${edge.from}:${edge.line}: foottrace imports must name their symbols`);
+      else if (extraction.doors.includes(edge.spec)) {
+        const names = namesOnDoor(edge.spec);
+        for (const name of edge.names)
+          if (!names?.has(name)) problems.push(`${edge.from}:${edge.line}: ${edge.spec} does not publish ${name}`);
+      }
+    } else if (edge.spec.startsWith('.')) {
+      const target = join(dirname(edge.from), edge.spec).replace(/\.(?:js|ts)$/, '') + '.ts';
+      if (defaultConfig.isRecordFile(target))
+        problems.push(`${edge.from}:${edge.line}: former record path ${edge.spec}`);
+    }
+  }
+  return problems;
+}
 
 // ── the graph ────────────────────────────────────────────────────────────────
 
@@ -230,7 +282,9 @@ export function recordAlone(root, recordFiles) {
     .filter((sf) => !program.isSourceFileDefaultLibrary(sf) && !roots.has(resolve(sf.fileName)))
     .map((sf) => `compiled alone, the record loads ${where(sf.fileName)}`);
   for (const d of ts.getPreEmitDiagnostics(program)) {
-    const at = d.file ? `${where(d.file.fileName)}:${d.file.getLineAndCharacterOfPosition(d.start ?? 0).line + 1} ` : '';
+    const at = d.file
+      ? `${where(d.file.fileName)}:${d.file.getLineAndCharacterOfPosition(d.start ?? 0).line + 1} `
+      : '';
     problems.push(`compiled alone: ${at}${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
   }
   return problems;
@@ -244,7 +298,8 @@ export function recordAlone(root, recordFiles) {
  */
 export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   const layers = config.layers ?? defaultConfig.LAYERS;
-  const recordFiles = config.recordFiles ?? defaultConfig.RECORD_FILES;
+  const extracted = config.recordFiles === undefined && isExtracted(root);
+  const recordFiles = config.recordFiles ?? (extracted ? [] : defaultConfig.RECORD_FILES);
   const exceptions = config.exceptions ?? defaultConfig.EXCEPTIONS;
   const typeOnlyAllowances = config.typeOnlyAllowances ?? defaultConfig.TYPE_ONLY_ALLOWANCES;
   const shims = config.shims ?? defaultConfig.SHIMS;
@@ -323,6 +378,8 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   const recordCompile = recordAlone(root, files.filter(inRecord));
 
   const result = {
+    extracted,
+    extractionProblems: extracted ? extractionProblems(root, files) : [],
     files: files.length,
     edges: {
       runtime: eager.length,
@@ -344,6 +401,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     recordCompile,
   };
   result.ok =
+    result.extractionProblems.length === 0 &&
     moduleCycles.length === 0 &&
     fileCycles.length === 0 &&
     upwardUnnamed.length === 0 &&
@@ -416,16 +474,21 @@ export function format(result) {
   for (const s of result.shimImporters)
     lines.push(`  deprecated path imported: ${short(s.from)}:${s.line} -> ${short(s.to)}`);
   lines.push('');
-  lines.push(
-    `the record (RECORD_FILES): ${result.recordFiles} files   imports out of it: ${
-      result.recordEscapes.length
-    }   compiled alone: ${result.recordCompile.length === 0 ? 'clean' : `${result.recordCompile.length} problems`}   config problems: ${
-      result.recordProblems.length
-    }`,
-  );
+  if (!result.extracted)
+    lines.push(
+      `the record (RECORD_FILES): ${result.recordFiles} files   imports out of it: ${
+        result.recordEscapes.length
+      }   compiled alone: ${
+        result.recordCompile.length === 0 ? 'clean' : `${result.recordCompile.length} problems`
+      }   config problems: ${result.recordProblems.length}`,
+    );
   for (const e of result.recordEscapes)
     lines.push(`  ${short(e.from)}:${e.line} -> ${short(e.to)}   [${e.kind}: a record file imports only record files]`);
   for (const p of [...result.recordCompile, ...result.recordProblems]) lines.push(`  ${p}`);
+  if (result.extracted) {
+    lines.push('Record ownership: foottrace; in-tree closure no longer applies. Public named imports only.');
+    for (const problem of result.extractionProblems) lines.push(`  ${problem}`);
+  }
   lines.push('');
   lines.push(result.ok ? 'OK' : 'FAIL');
   return lines.join('\n');

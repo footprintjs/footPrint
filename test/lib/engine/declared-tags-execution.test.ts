@@ -15,11 +15,11 @@
  * cross-executor resume; `interrupt()` → resume) · Regression (the error
  * path commits before it rethrows, so a failed stage keeps its tag).
  */
+import { tagStops, timeTravel } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import type { CommitBundle, FlowchartCheckpoint, FlowRecorder, PausableHandler } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
-import { tagStops, timeTravel } from '../../../src/trace.js';
 
 interface State {
   n?: number;

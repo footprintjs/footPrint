@@ -17,7 +17,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { timeTravel } from 'footprintjs/trace';
+import { timeTravel } from 'foottrace';
 
 interface CartState {
   items: string[];

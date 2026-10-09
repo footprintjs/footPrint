@@ -7,11 +7,11 @@
  * A real StageContext keeps nested record/object writes observable together;
  * no executor or fabricated Zod internals are involved.
  */
+import { SharedMemory } from 'foottrace/write';
 import { z as z3 } from 'zod/v3';
 import { z as z4 } from 'zod/v4';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
 import { StageContext } from '../../../../src/lib/memory/StageContext.js';
 import type { StrictMode } from '../../../../src/lib/scope/providers/types.js';
 import {

@@ -13,7 +13,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { stateAt, timeTravel } from 'footprintjs/trace';
+import { stateAt, timeTravel } from 'foottrace';
 
 /** How a consumer really types what it read back: unvalidated rows. */
 interface StoredRecording {

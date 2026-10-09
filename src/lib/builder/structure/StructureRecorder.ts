@@ -179,7 +179,7 @@ export interface StructureStageAddedEvent {
    * Note: `spec.id` is a LIVE reference. If you read it AFTER this
    * chart has been mounted as a subflow, it may have been rewritten
    * to the FULL prefixed form. Use `splitStageId(spec.id)` from
-   * `footprintjs/trace` to decompose it back into local + subflowPath.
+   * `foottrace` to decompose it back into local + subflowPath.
    *
    * Correlating with runtime events:
    *   - Same builder (no mount) →

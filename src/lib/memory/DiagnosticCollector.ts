@@ -8,9 +8,10 @@
  * and timing info without affecting the compilation output.
  */
 
+import { setNestedValue, updateNestedValue } from 'foottrace/paths';
+
 import type { FlowMessage } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
-import { setNestedValue, updateNestedValue } from './utils.js';
 
 /** @internal Diagnostic namespaces, separate from state paths. */
 export type DiagnosticChannel = 'logs' | 'errors' | 'metrics' | 'evals';

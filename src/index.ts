@@ -8,8 +8,8 @@
  * ```ts
  * import { flowChart, decide, narrative } from 'footprintjs';           // main — start here
  * import { metrics, debug, manifest }     from 'footprintjs/recorders'; // recorder factories
- * import { stateAt, causalChain }         from 'footprintjs/trace';     // read a finished run
- * import { RecordFrame, EventLog }        from 'footprintjs/write';     // write a record yourself
+ * import { stateAt, causalChain } from 'foottrace';     // read a finished run
+ * import { RecordFrame, EventLog } from 'foottrace/write';     // write a record yourself
  * import { StageContext }                 from 'footprintjs/advanced';  // engine internals
  * ```
  *
@@ -350,12 +350,11 @@ export type { RetentionPolicy, WriteSummaryMarker, WriteTrackingMode } from './l
  * storing only the tail; `deleteValue()` commits as a real `delete` verb;
  * one trace entry per surviving path). Replay reconstructs every step's
  * full state exactly. Consumers reading `bundle.overwrite[key]` as the full
- * value must use `commitValueAt` from `footprintjs/trace`. Pass as
+ * value must use `commitValueAt` from `foottrace`. Pass as
  * `new FlowChartExecutor(chart, { commitValues })` or call
  * `executor.setCommitValues(mode)` before `run()`; the active mode is the
  * snapshot discriminant `getSnapshot().commitValues`.
  */
-export type { CommitValuesMode } from './lib/memory/index.js';
 
 // ============================================================================
 // Contract & Validation

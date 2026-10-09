@@ -1,11 +1,11 @@
 /** Engine witness: cyclic values survive subflow merge-back and every record reader. */
+import type { CommitBundle } from 'foottrace';
+import { commitValueAt, stateAt, timeTravel } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
 import { ArrayMergeMode } from '../../../src/lib/engine/types.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
-import { commitValueAt, stateAt, timeTravel } from '../../../src/trace.js';
 
 interface Schema {
   name: string;

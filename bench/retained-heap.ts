@@ -34,7 +34,8 @@
  * growing ~1KB-per-iteration history key, no LLM layer.
  */
 
-import type { CommitValuesMode, FlowChart, ReadTrackingMode, WriteTrackingMode } from '../src/index';
+import type { FlowChart, ReadTrackingMode, WriteTrackingMode } from '../src/index';
+import type { CommitValuesMode } from 'foottrace';
 import { flowChart, FlowChartExecutor } from '../src/index';
 import {
   type BenchResult,
