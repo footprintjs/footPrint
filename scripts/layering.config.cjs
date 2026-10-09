@@ -344,9 +344,13 @@ function compileLayers(layers) {
 
 const COMPILED = compileLayers(LAYERS);
 
+/** Each record list's patterns, compiled once (the zones and the tests ask per file, and per pair). */
+const compiledRecordLists = new WeakMap();
+
 /** True when a repo-relative file is one of the record's (RECORD_FILES, or the list given). */
 function isRecordFile(relPath, list = RECORD_FILES) {
-  return list.some((glob) => globToRegExp(glob).test(relPath));
+  if (!compiledRecordLists.has(list)) compiledRecordLists.set(list, list.map(globToRegExp));
+  return compiledRecordLists.get(list).some((re) => re.test(relPath));
 }
 
 /** The layer of a repo-relative file, or null when no pattern matches (a config error). */

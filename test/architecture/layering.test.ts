@@ -408,12 +408,13 @@ describe('the ESLint zones', () => {
   }));
 
   it('forbid exactly the pairs the table forbids: an upward import that is not named, or one out of the record', () => {
+    const record = new Set(files.filter((f) => isRecordFile(f)));
     const wrong: string[] = [];
     for (const a of files) {
       for (const b of files) {
         const upward = rankOf(a) < rankOf(b) && rankOf(a) <= 7;
         const allowed = named.some((n: { from: RegExp; to: string }) => n.from.test(a) && n.to === b);
-        const outOfRecord = isRecordFile(a) && !isRecordFile(b);
+        const outOfRecord = record.has(a) && !record.has(b);
         if (forbidden(a, b) !== ((upward && !allowed) || outOfRecord)) wrong.push(`${a} -> ${b}`);
       }
     }
