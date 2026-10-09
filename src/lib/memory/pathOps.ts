@@ -1,30 +1,28 @@
 /**
  * pathOps.ts — Native nested-path helpers (replaces lodash.get/set/has/mergewith)
  *
- * Security contract: all functions guard against prototype-pollution and
- * prototype-chain-read attacks. The DENIED set blocks the three canonical
- * pollution vectors (__proto__, constructor, prototype) on every function.
+ * The DENIED set is the shared rule for three prototype-pollution selector
+ * segments (__proto__, constructor, prototype). Each operation's traversal
+ * contract is explicit below; merely using this module is not a sandbox.
  *
  * Intentional asymmetry:
- *   - nativeSet  — DENIED check only at each segment. No hasOwnProperty
- *     check is needed because writing always creates an OWN property on `curr`,
- *     which cannot pollute the prototype chain.
- *   - nativeGet / nativeHas — DENIED check + hasOwnProperty at every step.
- *     Reads follow the prototype chain by default (bracket notation), so the
- *     hasOwnProperty guard is required to prevent leaking inherited values
- *     (e.g. Object.prototype, Object constructor, toString).
+ *   - nativeSet — DENIED check at each segment; used on writer-owned
+ *     containers. It can follow an inherited object under an ordinary key.
+ *   - nativeGet — DENIED check + hasOwnProperty at every step.
+ *   - nativeHas — own-property existence only, including own denied names
+ *     and own undefined values; it does not use the DENIED rule.
  *   - mergeContextWins — DENIED check only; Object.keys() is own-enumerable-only
  *     by spec so prototype keys never appear in the iteration.
  *
- * Do NOT "fix" the nativeSet asymmetry by adding hasOwnProperty — it is
- * intentional and would break path creation for new intermediate nodes.
+ * Nested diagnostic writers have their own whole-selector preflight and
+ * own-property writes in utils.ts, using the same isDeniedSegment predicate.
  *
  * Paths may be dot-notation strings or pre-split (string|number)[] arrays.
  */
 
 const DENIED = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Is `segment` one of the three prototype-pollution vectors every helper here refuses? */
+/** Is `segment` one of the three denied prototype-pollution selector names? */
 export function isDeniedSegment(segment: string | number): boolean {
   return DENIED.has(String(segment));
 }

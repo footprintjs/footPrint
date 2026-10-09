@@ -58,6 +58,25 @@ before.turn;                         // still the old value — a generation is 
 
 ---
 
+### Nested writes and diagnostic bags
+
+`setNestedValue` and `updateNestedValue` serve both the heap's direct setters and `DiagnosticCollector`'s separate bags. They validate the complete address, path and final field with `isDeniedSegment` before writing. An exact `__proto__`, `constructor` or `prototype` selector makes the whole operation a no-op: no partial containers, no prototype change, and no new SharedMemory generation. The existing JavaScript defaults remain: `undefined` address or path means `[]`; other non-array addresses (including `null` and strings) still throw the existing `TypeError`.
+
+The writers follow own intermediate properties, create missing properties as own data properties, and update only an own existing value. Inherited values are not merged and inherited getters/setters are not invoked to create a property. Existing own accessors retain their normal behavior; arbitrary proxies and side-effecting own accessors are not a sandboxed input contract.
+
+Arrays still concatenate with duplicates, non-empty objects merge shallowly, and empty arrays/objects replace. Values are not recursively scrubbed: a payload with an own `constructor` or `__proto__` key remains data. Paths are segment arrays and the final field is literal; `['a.b']` does not mean `['a', 'b']`. These helpers do not create commit bundles. The planned extraction gives them `foottrace/paths`, not `/write`.
+
+```typescript
+import { setNestedValue, updateNestedValue } from 'footprintjs/advanced';
+
+const notes: Record<string, unknown> = {};
+setNestedValue(notes, [], ['pending', '__proto__'], 'value', 1);
+console.log(Object.keys(notes)); // [] — not even 'pending' was created
+updateNestedValue(notes, [], [], 'items', [1]);
+updateNestedValue(notes, [], [], 'items', [1, 2]);
+console.log(notes.items); // [1, 1, 2] — diagnostic append, not record union
+```
+
 ### 2. TransactionBuffer — "The Database Transaction"
 
 Stages write here instead of directly to SharedMemory. Writes are staged, then flushed to SharedMemory in **one batch per stage**. Despite the name, this is a **staging buffer with read-your-writes — not a rollback mechanism** (see below).
