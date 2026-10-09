@@ -7,6 +7,8 @@
  * power the engine. The record has doors of its own: write one with
  * `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`), read one
  * with `footprintjs/trace` (`CommitBundle`, `applySmartMerge`, the readers).
+ * The record's names this door handed out before 9.47.0 stay here until
+ * 10.0.0, the same symbols; import them from their own door.
  *
  * ```ts
  * import { StageContext } from 'footprintjs/advanced';
@@ -27,9 +29,6 @@
 // ============================================================================
 // Memory — the engine's frame, its run policy and the redaction verdict
 // ============================================================================
-// The record itself is not here: `SharedMemory`, `EventLog` and `RecordFrame` are on
-// `footprintjs/write`; `CommitBundle`, `TraceEntry`, `MemoryPatch`, `applySmartMerge` and the
-// log readers are on `footprintjs/trace` (C5).
 
 export type {
   FlowControlType,
@@ -45,6 +44,36 @@ export type { RedactionVerdict } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';
 export { DiagnosticCollector } from './lib/memory/index.js';
 export { RedactionRule } from './lib/memory/index.js';
+
+// ============================================================================
+// The record's names — kept here until 10.0.0 (the trace extraction, E6)
+// ============================================================================
+// The record has doors of its own since 9.47.0 (C5): its shapes and readers on `footprintjs/trace`
+// (`CommitBundle`, `TraceEntry`, `MemoryPatch`, `UntrackedSource`, `applySmartMerge`, the
+// runtimeStageId codec, `findCommit` / `findCommits` / `findLastWriter`, `pathSegments`), its writer on
+// `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`). New code imports those. A published
+// minor never drops a name — consumers hold caret ranges, so a dropped export breaks their fresh
+// installs — so `/advanced` keeps handing out every name it handed out before: the SAME symbols (no
+// forwarder; second doors in test/architecture/exports.test.ts), and the record internals that have no
+// public home. 10.0.0 removes all of them.
+
+export type { ExecutionCounter } from './lib/ids/runtimeStageId.js';
+export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/ids/runtimeStageId.js';
+export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+export type { CommitBundle, MemoryPatch, TraceEntry, UntrackedSource } from './lib/memory/index.js';
+export { EventLog, SharedMemory, TransactionBuffer } from './lib/memory/index.js';
+export {
+  applySmartMerge,
+  deepSmartMerge,
+  getNestedValue,
+  getRunAndGlobalPaths,
+  normalisePath,
+  pathSegments,
+  redactPatch,
+  setNestedValue,
+  updateNestedValue,
+  updateValue,
+} from './lib/memory/index.js';
 
 // ============================================================================
 // Builder — Types and internals

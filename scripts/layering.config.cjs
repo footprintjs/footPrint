@@ -96,7 +96,7 @@ const LAYERS = [
     files: [
       'src/lib/memory/TransactionBuffer.ts',
       // The log's scrub: the placeholder at each redacted path of a patch (C4 — out of redaction.ts, so the
-      // record never imports the engine's verdict). recordCommit (L3) calls it.
+      // record never imports the engine's verdict). recordCommit (L3) calls it; `redactPatch` is its public twin.
       'src/lib/memory/scrub.ts',
       'src/lib/memory/SharedMemory.ts',
       'src/lib/memory/admission.ts',

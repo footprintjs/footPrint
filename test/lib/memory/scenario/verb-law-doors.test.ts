@@ -7,7 +7,7 @@
  *       four verbs, and every door agrees on it: the whole log folded through
  *       `applySmartMerge` is the live state, `commitValueAt` / `arrayProvenance`
  *       answer what the state holds (all three on `footprintjs/trace`; the fold
- *       was on `/advanced` before C5), and nothing throws. This is the "engine-written logs never
+ *       is also on `/advanced` until 10.0.0), and nothing throws. This is the "engine-written logs never
  *       carry an unknown verb, so every engine run is byte-identical" half of R2.
  *   (b) FOREIGN LOGS — the same log with one row's verb rewritten by a tool that
  *       did not know the contract. Every public replay and reader REFUSES it with

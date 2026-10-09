@@ -343,7 +343,7 @@ export function foldRows(
  * value the replay writes is its own (`set` / `append` clone the recorded
  * value; the `merge` arm reads a detached copy of `updates`), so the result
  * shares no container with `base`, `updates` or `overwrite`. This is the
- * public (`footprintjs/trace`; `/advanced` before C5) contract, unchanged by copy-on-write
+ * public (`footprintjs/trace`; also `/advanced` until 10.0.0) contract, unchanged by copy-on-write
  * (9.29.0) — byte-identical to 9.28.0 for every caller. The engine's own
  * commit does NOT come here: `SharedMemory.applyPatch` builds the next
  * generation with `nextGeneration`, which copies only the written

@@ -361,7 +361,7 @@ describe('element → slice chained triage — integration', () => {
 
 // ════════════════════════════════════════════════════════════════════════
 // SECURITY — redacted data stays redacted through the fold, including the
-// degraded delta path where the log's scrub replaced an append TAIL with the
+// degraded delta path where redactPatch replaced an append TAIL with the
 // '[REDACTED]' string (the same degradation applySmartMerge documents).
 // ════════════════════════════════════════════════════════════════════════
 

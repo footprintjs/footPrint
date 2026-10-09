@@ -34,22 +34,7 @@
       "branch": "main",
       "dir": "agentfootprint-lens",
       "published": true,
-      "note": "C5 train, temporary: the Lens's tests load agentfootprint, and the release it pins imports a name footprintjs 9.47.0 takes off /advanced (applySmartMerge), so it cannot load on this candidate. The Lens runs on agentfootprint's migration branch instead: a sibling built after the candidate is swapped in, then linked in place of the installed agentfootprint, sharing the Lens's footprintjs (one module instance). That sibling cannot build on the published footprintjs, so there is no fallback leg: any red step blocks. Returns to the defaults once that agentfootprint release is out and the Lens pins it.",
-      "fallback": false,
-      "siblings": [
-        {
-          "repo": "footprintjs/agentfootprint",
-          "branch": "refactor/c5-write-door",
-          "dir": "agentfootprint",
-          "setup": "npm ci"
-        }
-      ],
-      "checks": [
-        "cd ../agentfootprint && npm run build",
-        "rm -rf ../agentfootprint/node_modules/footprintjs node_modules/agentfootprint && ln -s ../../agentfootprint-lens/node_modules/footprintjs ../agentfootprint/node_modules/footprintjs && ln -s ../../agentfootprint node_modules/agentfootprint",
-        "npm run build",
-        "npm test"
-      ]
+      "checks": ["npm run build", "npm test"]
     },
     {
       "package": "footprint-storyreel",

@@ -1,6 +1,6 @@
 /**
  * Coverage tests for src/lib/memory/utils.ts
- * Covers: updateValue, deepSmartMerge (the log's scrub, `scrubPatch`, is
+ * Covers: updateValue, deepSmartMerge (the log's scrub — `redactPatch`, `scrubPatch` — is
  * test/lib/memory/unit/scrub.test.ts since C4)
  */
 

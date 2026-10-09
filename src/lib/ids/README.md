@@ -35,6 +35,6 @@ Layer L0 (`scripts/layering.config.cjs`): pure leaves that import nothing
 outside this folder, so every layer — time-travel (L3), scope and recorders
 (L5), the engine (L6) — may read them. They lived under `engine/` until 9.37.0;
 a scope → engine edge closes the engine ⇄ scope ⇄ recorder module cycle, so the
-readers could not be shared from there. Public door: `footprintjs/trace`, the
-one door (`/advanced` also handed out `buildRuntimeStageId` /
-`parseRuntimeStageId` / `createExecutionCounter` until C5).
+readers could not be shared from there. Public door: `footprintjs/trace`
+(`/advanced` also hands out `buildRuntimeStageId` / `parseRuntimeStageId` /
+`createExecutionCounter` until 10.0.0, the same symbols).

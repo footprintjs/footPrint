@@ -9,7 +9,7 @@
  * (`paths.ts`), structural equality (`equality.ts`) and the union merge
  * (`merge.ts`) at L0, and the verb law (`verbs.ts`) at L1 — `applySmartMerge`,
  * `nextGeneration`, `applySmartMergeInto`, `dryFold`, `supersededByNextSet`.
- * The log's scrub moved out in 9.33.0; it is the record's own, `scrub.ts` (C4).
+ * The log's scrub, `redactPatch`, moved out in 9.33.0; it is the record's own, `scrub.ts` (C4).
  * The writers take an ADDRESS, a path prefix their caller computed, and never
  * name one (C2: the engine decides where a stage writes, `runAddress.ts · runAddress`).
  * Zero external dependencies.

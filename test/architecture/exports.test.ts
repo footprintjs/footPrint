@@ -9,7 +9,10 @@
  * the ones named in SECOND_DOORS through, each with its canonical door and its reason.
  *
  * The list only ever shrinks: a symbol that stops being double-exported must leave it, and
- * a new double export fails here until someone decides which door owns it.
+ * a new double export fails here until someone decides which door owns it. The one exception is a
+ * MOVE: a published minor never drops a name (consumers hold caret ranges), so a symbol that moves
+ * to its own door keeps the old one as a second door marked `keptUntil` the next major — and the
+ * groups so marked fail here once the package version reaches that major, so it cannot ship them.
  *
  *   unit      every door in package.json has a src entry file and a `typesVersions` line
  *   scenario  the real package: undeclared second doors and stale list entries both fail
@@ -33,6 +36,8 @@ interface SecondDoors {
   symbols: string[];
   /** A door that exports one under another name: `{ declaredName: { door: exportName } }`. */
   renamed?: Record<string, Record<string, string>>;
+  /** A moved symbol's old door, kept until this major removes it (a minor never drops a published name). */
+  keptUntil?: string;
   why: string;
 }
 
@@ -72,6 +77,38 @@ const SECOND_DOORS: SecondDoors[] = [
     why:
       'the main entry offers the everyday recorder names so `import { narrative } from "footprintjs"` keeps working; the ' +
       'recorder family is documented and versioned at `/recorders`.',
+  },
+  {
+    canonical: './trace',
+    also: ['./advanced'],
+    symbols: [
+      'CommitBundle',
+      'ExecutionCounter',
+      'MemoryPatch',
+      'TraceEntry',
+      'UntrackedSource',
+      'applySmartMerge',
+      'buildRuntimeStageId',
+      'createExecutionCounter',
+      'findCommit',
+      'findCommits',
+      'findLastWriter',
+      'parseRuntimeStageId',
+      'pathSegments',
+    ],
+    keptUntil: '10.0.0',
+    why:
+      'kept until 10.0.0 (trace extraction, E6); the canonical home is /trace. 9.47.0 (C5) gave the record its own doors ' +
+      'without dropping a published name: consumers hold caret ranges, and a minor that drops an export breaks their fresh installs.',
+  },
+  {
+    canonical: './write',
+    also: ['./advanced'],
+    symbols: ['EventLog', 'SharedMemory'],
+    keptUntil: '10.0.0',
+    why:
+      'kept until 10.0.0 (trace extraction, E6); the canonical home is /write, the record layer as the public writer (C5). ' +
+      'The same symbols on two doors, no forwarder: a minor never drops a published name.',
   },
   {
     canonical: './recorders',
@@ -220,7 +257,21 @@ describe('export ownership', () => {
 
   it('the list is short, and says why for each group', () => {
     expect(SECOND_DOORS.every((g) => g.why.length > 40)).toBe(true);
-    expect(SECOND_DOORS.flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
+    // 19 standing; the moves' old doors (C5) are counted apart and leave at their major.
+    expect(SECOND_DOORS.filter((g) => !g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
+    expect(SECOND_DOORS.filter((g) => g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(15);
+  });
+
+  it('a kept old door cannot ship in the major that removes it', () => {
+    const major = Number(String(pkg.version).split('.')[0]);
+    for (const group of SECOND_DOORS.filter((g) => g.keptUntil)) {
+      expect(
+        major,
+        `${group.canonical}: ${group.also.join(', ')} kept until ${
+          group.keptUntil
+        } — remove those exports and this group`,
+      ).toBeLessThan(Number(group.keptUntil!.split('.')[0]));
+    }
   });
 
   it('no export NAME means two different things across doors', () => {

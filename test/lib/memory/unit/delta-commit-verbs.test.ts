@@ -352,12 +352,12 @@ describe('Unit: TransactionBuffer — delta mode (#13c-B)', () => {
       const bundle = buf.commit();
       expect(bundle.trace).toEqual([{ path: 'history', verb: 'append' }]);
       expect([...bundle.redactedPaths]).toEqual(['history']);
-      expect(bundle.overwrite.history).toEqual(['pii-message']); // raw tail — the log's scrub (scrubPatch) runs downstream
+      expect(bundle.overwrite.history).toEqual(['pii-message']); // raw tail — redactPatch scrubs downstream
     });
 
     it('a redacted nested write inside an overlapping family never leaks through its ancestor entry', () => {
       // The family fallback commits the ancestor's WHOLE value, which contains
-      // the redacted leaf — but both live in one patch tree, so the scrub
+      // the redacted leaf — but both live in one patch tree, so redactPatch
       // scrubs the leaf once and every entry that covers it sees 'REDACTED'.
       const base = { a: { p: 'old', q: 1 } };
       const buf = new TransactionBuffer(base, 'delta');
@@ -402,7 +402,7 @@ describe('Unit: applySmartMerge — append/delete replay arms (#13c-B)', () => {
   });
 
   it('append with a REDACTED (non-array) tail degrades to the redacted value — never spreads the string', () => {
-    // The redacted mirror replays the scrub's output, where a matched tail is
+    // The redacted mirror replays redactPatch output, where a matched tail is
     // the string 'REDACTED'. It must become the terminal value, NOT be
     // spread char-by-char into the existing array.
     const out = applySmartMerge({ history: ['real-msg'] }, {}, { history: 'REDACTED' }, [

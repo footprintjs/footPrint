@@ -75,7 +75,7 @@ export { UnknownVerbError } from './lib/memory/index.js';
 // The record's own shapes — one bundle per executed stage (`CommitBundle`), its
 // rows (`TraceEntry`) and its value patches (`MemoryPatch`) — and the one fold
 // of a bundle onto a state that hands back a fully detached result
-// (`applySmartMerge`, the verb law's public door). On `/advanced` before C5;
+// (`applySmartMerge`, the verb law's public door). Also on `/advanced` until 10.0.0;
 // a record is WRITTEN through `footprintjs/write`. See docs/guides/record-contract.md.
 export type { CommitBundle, MemoryPatch, TraceEntry } from './lib/memory/types.js';
 export { applySmartMerge } from './lib/memory/verbs.js';
