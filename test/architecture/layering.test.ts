@@ -418,6 +418,11 @@ describe('the footprintjs source tree', () => {
     expect(problems.join('\n')).toMatch(/private foottrace path/);
     expect(problems.join('\n')).toMatch(/former record path/);
     expect(problems.filter((p: string) => p.includes('must name their symbols'))).toHaveLength(2);
+    // 9.48.2 added this private record leaf after the original extraction inventory.
+    // Its historical ownership must still reject a copy restored by a later merge.
+    mkdirSync(join(root, 'src/lib/capture'), { recursive: true });
+    writeFileSync(join(root, 'src/lib/capture/ownData.ts'), 'export const probe = true;\n');
+    expect(extractionProblems(root)).toEqual(['record source remains: src/lib/capture/ownData.ts', ...problems]);
   });
 
   it('the deprecated shims exist and nothing under src/ imports them', () => {

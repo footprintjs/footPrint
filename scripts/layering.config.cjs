@@ -235,6 +235,7 @@ const RECORD_FILES = Object.freeze([
   'src/lib/memory/eventPosition.ts',
   'src/lib/ids/runtimeStageId.ts',
   'src/lib/capture/freeze.ts',
+  'src/lib/capture/ownData.ts',
   'src/lib/capture/valueKinds.ts',
   // L1 — the verb law and its re-export surface
   'src/lib/memory/verbs.ts',

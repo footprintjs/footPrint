@@ -28,6 +28,7 @@
 import { stateAt } from 'foottrace';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { ScopeFacade } from '../../../../src/advanced.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import type { RedactionPolicy } from '../../../../src/lib/memory/redaction.js';
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
@@ -75,7 +76,83 @@ function expectStandardPrototypes(root: unknown, where: string): void {
 const deniedOwnKeys = (value: unknown): string[] =>
   DENIED_NAMES.filter((name) => Object.prototype.hasOwnProperty.call(value, name));
 
-// ── 1. primitives ─────────────────────────────────────────────────────────────
+// Primitive refusal and copy tests belong to foottrace. These two witnesses exercise
+// the engine's real scope/frame integration without duplicating the record suite.
+describe('rich-value copy safety through the engine', () => {
+  it.each(['full', 'delta'] as const)(
+    'keeps payload keys as own data through reads, writes, commit and replay (%s)',
+    async (commitValues) => {
+      const array = [{ count: 0 }];
+      const date = new Date(5);
+      for (const value of [array, date]) {
+        for (const name of DENIED_NAMES) {
+          Object.defineProperty(value, name, {
+            value: { marker: name },
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
+        }
+      }
+      const expectOwnPayload = (value: object, prototype: object) => {
+        expect(Object.getPrototypeOf(value)).toBe(prototype);
+        expect(deniedOwnKeys(value)).toEqual([...DENIED_NAMES]);
+        for (const name of DENIED_NAMES) {
+          expect(Object.getOwnPropertyDescriptor(value, name)?.value).toEqual({ marker: name });
+        }
+        expect((value as Record<string, unknown>).marker).toBeUndefined();
+      };
+      const executor = new FlowChartExecutor(
+        flowChart<void, ScopeFacade>('Seed', (scope) => scope.setValue('array', array), 'seed')
+          .addFunction(
+            'Copy',
+            (scope) => {
+              scope.setValue('unrelated', true);
+              expect(scope.getValueAt(['array'], '0')).toEqual({ count: 0 });
+              expectOwnPayload(scope.getValue('array') as object, Array.prototype);
+              scope.setValueAt(['array', '0'], 'count', 1);
+              expectOwnPayload(scope.getValue('array') as object, Array.prototype);
+
+              scope.setValue('date', date);
+              scope.setValueAt(['date'], 'note', 'written');
+              const stagedDate = scope.getValue('date') as Date;
+              expectOwnPayload(stagedDate, Date.prototype);
+              expect(stagedDate.getTime()).toBe(5);
+            },
+            'copy',
+          )
+          .build(),
+        {
+          commitValues,
+          scopeFactory: (ctx, name, args, env) => new ScopeFacade(ctx, name, args, env),
+        },
+      );
+
+      await executor.run();
+
+      const snapshot = executor.getSnapshot();
+      expect(snapshot.commitLog).toHaveLength(2);
+      const seeded = stateAt(snapshot, 0).state as { array: Array<{ count: number }> };
+      expectOwnPayload(seeded.array, Array.prototype);
+      expect(seeded.array[0].count).toBe(0);
+      for (const view of [snapshot.sharedState, stateAt(snapshot, 1).state]) {
+        const recorded = view as { array: Array<{ count: number }>; date: Date; unrelated: boolean };
+        expectOwnPayload(recorded.array, Array.prototype);
+        expect(recorded.array[0].count).toBe(1);
+        expect(recorded.unrelated).toBe(true);
+        // structuredClone drops Date expandos at the record boundary, as before.
+        expect(Object.getPrototypeOf(recorded.date)).toBe(Date.prototype);
+        expect(recorded.date.getTime()).toBe(5);
+        expect((recorded.date as unknown as Record<string, unknown>).marker).toBeUndefined();
+      }
+      expectOwnPayload(array, Array.prototype);
+      expect(array[0].count).toBe(0);
+      expectOwnPayload(date, Date.prototype);
+      expect(Object.prototype.hasOwnProperty.call(date, 'note')).toBe(false);
+      clean();
+    },
+  );
+});
 
 interface Inner {
   seeded?: Record<string, unknown>;

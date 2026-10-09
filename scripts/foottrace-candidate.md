@@ -44,6 +44,23 @@ Consumers still run their real checks on their selected refs; imports removed by
 failures until E5 migrates those consumers. This bootstrap does not skip tests or claim that the
 family migration has passed.
 
+## Security refresh after FootPrint 9.48.2
+
+The branch includes the released 9.48.2 history, but the copy-safety implementation remains solely
+in the pinned Foottrace candidate. Neither the new private `capture/ownData.ts` leaf nor its
+record-only regression suite is copied back into the engine. The leaf stays in `RECORD_FILES`
+as historical ownership data: the extracted-source guard rejects a local copy, and its negative
+control deliberately restores a dummy file to prove that rejection. The original extraction
+inventory in `trace-extraction.json` remains a historical snapshot, not a new source manifest.
+
+Two engine witnesses in `test/lib/engine/security/hostile-keys-no-pollution.security.test.ts`
+exercise full and delta records through the real scope/frame integration. They preserve rich-array
+payload keys after an unrelated write and nested read, a nested write, commit and replay; a staged
+`Date` also keeps its prototype before commit. This does not promise that Date expandos survive
+the existing structured-clone record boundary. Both witnesses fail against the prior `b66d99e`
+candidate at the post-write array read and pass against the fixed candidate. The record-only
+copy matrix remains Foottrace's responsibility. No frozen reference fixture is changed.
+
 After E4 publishes the approved foottrace 1.0.0, remove the pin, helper, temporary bootstrap tests
 and candidate artifact plumbing, restore ordinary dependency installation, and retain the
 one-installed-copy check in the consumer audit. E6 must test the registry dependency before the

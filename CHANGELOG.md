@@ -34,6 +34,21 @@ The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-
   algorithm changes, and no security-check suppression. This proves the existing length bypass,
   not comprehensive safety for arbitrary redaction regexes.
 
+### Security follow-up — retain the 9.48.2 copy fix across extraction
+
+- The candidate consumes the 9.48.2 copy-safety correction through the pinned, unpublished Foottrace,
+  with no record implementation restored in the engine. Full and delta engine witnesses cover
+  rich-array payload data through read-after-write, nested writes, commit and replay, plus a staged
+  `Date` before commit. The historical record ownership list also guards the new private `ownData`
+  leaf against reintroduction.
+  Reference fixtures are unchanged; this branch remains held for E5/E6, not a 9.x release.
+
+## [9.48.2] - 2026-10-09
+
+### Security
+
+- Copy-on-write now preserves an own enumerable `__proto__` payload property as data when copying an array or restoring a built-in value's additional properties (for example, a `Date`). Previously, assigning that property to the fresh copy could replace its local prototype and lose the own data field. The issue was reachable through public `SharedMemory` and `RecordFrame` operations; global prototypes were not modified. The existing `putOwn` rule now lives in one private leaf shared by record serving and path copying. Dangerous path selectors remain refused; payload names are not filtered. Ordinary copying, built-in contents and the frozen reference records remain unchanged. Corrected rich-value copies intentionally retain the field that the old code lost. This fixes published 9.x independently of the planned extraction.
+
 ## [9.48.1] - 2026-10-09
 
 ### Security
