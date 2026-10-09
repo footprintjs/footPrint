@@ -1,26 +1,25 @@
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
+/**
+ * Scenario: time-travel replay via EventLog — three stages written through their frames (`RecordFrame`,
+ * footprintjs/write) at a run's address, folded back at every step by `EventLog · materialise`.
+ */
+import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
 
 describe('Scenario: time-travel replay via EventLog', () => {
   function runExecution() {
     const mem = new SharedMemory({ counter: 0 });
     const log = new EventLog(mem.getState());
 
-    const s1 = new StageContext('p1', 'init', 'init', mem, '', log);
-    s1.setObject([], 'counter', 10);
-    s1.setObject([], 'name', 'Alice');
-    s1.commit();
+    // One stage of run `p1`: its frame, its writes, its commit (then released, as the engine's frame does).
+    const stage = (name: string, i: number, writes: Record<string, unknown>) => {
+      const frame = new RecordFrame(mem, log, ['runs', 'p1']);
+      for (const [key, value] of Object.entries(writes)) frame.write(frame.at([], key), value, 'set');
+      frame.commit(() => ({ stage: name, stageId: name, runtimeStageId: `${name}#${i}` }));
+      frame.release();
+    };
 
-    const s2 = s1.createNext('p1', 'process', 'process');
-    s2.setObject([], 'counter', 20);
-    s2.setObject([], 'status', 'processing');
-    s2.commit();
-
-    const s3 = s2.createNext('p1', 'finalize', 'finalize');
-    s3.setObject([], 'counter', 30);
-    s3.setObject([], 'status', 'done');
-    s3.commit();
+    stage('init', 0, { counter: 10, name: 'Alice' });
+    stage('process', 1, { counter: 20, status: 'processing' });
+    stage('finalize', 2, { counter: 30, status: 'done' });
 
     return { mem, log };
   }

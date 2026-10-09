@@ -3,12 +3,16 @@
  *
  * One law (`memory/verbs.ts`), seen the way a consumer sees it:
  *
- *   (a) ENGINE LOGS — a real run, both `commitValues` encodings, writes only the
- *       four verbs, and every door agrees on it: the whole log folded through
- *       `applySmartMerge` is the live state, `commitValueAt` / `arrayProvenance`
- *       answer what the state holds (all three on `footprintjs/trace`; the fold
- *       is also on `/advanced` until 10.0.0), and nothing throws. This is the "engine-written logs never
- *       carry an unknown verb, so every engine run is byte-identical" half of R2.
+ *   (a) RECORDED LOGS — a run's stages written through footprintjs/write (the
+ *       frame the engine writes with; test/helpers/recordRun.ts — byte for byte
+ *       the log the flowchart of these stages writes), both `commitValues`
+ *       encodings, carry only the four verbs, and every door agrees on it: the
+ *       whole log folded through `applySmartMerge` is the live state,
+ *       `commitValueAt` / `arrayProvenance` answer what the state holds (all
+ *       three on `footprintjs/trace`; the fold is also on `/advanced` until
+ *       10.0.0), and nothing throws. The engine's own half of R2 — "engine-written
+ *       logs never carry an unknown verb, so every engine run is byte-identical"
+ *       — is pinned byte for byte by the record-bytes fixtures (`verbs`).
  *   (b) FOREIGN LOGS — the same log with one row's verb rewritten by a tool that
  *       did not know the contract. Every public replay and reader REFUSES it with
  *       `UnknownVerbError` naming the row (it used to fold the row as a merge);
@@ -17,50 +21,44 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../../src';
 import type { CommitBundle } from '../../../../src/lib/memory/types';
 import { isVerb } from '../../../../src/lib/memory/verbs';
 import { applySmartMerge, arrayProvenance, commitValueAt, stateAt, UnknownVerbError } from '../../../../src/trace';
+import { recordRun } from '../../../helpers/recordRun';
 
 type Loose = Record<string, unknown>;
 
-/** set, append (the growing history), merge (the profile), delete (the scratch key) — every verb the engine writes. */
-function buildChart() {
-  const work = (i: number) => async (scope: Loose & Record<string, any>) => {
-    scope.$batchArray('history', (arr: unknown[]) => {
-      arr.push({ idx: i });
-    });
-    scope.$update('profile', { [`n${i}`]: i });
-    scope.$setValue('i', i + 1);
-  };
-  return flowChart<Loose>(
-    'Seed',
-    async (scope) => {
-      scope.$setValue('history', [] as unknown[]);
-      scope.$setValue('profile', { name: 'a' });
-      scope.$setValue('scratch', 1);
-      scope.$setValue('i', 0);
-    },
-    'seed',
-  )
-    .addFunction('Work 0', work(0), 'work-0')
-    .addFunction('Work 1', work(1), 'work-1')
-    .addFunction('Work 2', work(2), 'work-2')
-    .addFunction(
-      'Cleanup',
-      async (scope) => {
-        (scope as any).$delete('scratch');
-      },
-      'cleanup',
-    )
-    .build();
-}
-
+/**
+ * set, append (the growing history), merge (the profile), delete (the scratch key) — every verb a stage
+ * writes: a seed, three work stages (`$batchArray('history', push)`, `$update('profile', …)`, `$setValue('i', …)`)
+ * and a cleanup (`$delete('scratch')`).
+ */
 async function run(commitValues: 'full' | 'delta') {
-  const executor = new FlowChartExecutor(buildChart(), { commitValues });
-  await executor.run();
-  const snap = executor.getSnapshot();
-  return { log: snap.commitLog, initialState: snap.initialState, state: snap.sharedState };
+  const rec = recordRun({}, { commitValues });
+  rec.step(
+    'seed',
+    (s) => {
+      s.set('history', [] as unknown[]);
+      s.set('profile', { name: 'a' });
+      s.set('scratch', 1);
+      s.set('i', 0);
+    },
+    { name: 'Seed' },
+  );
+  for (const i of [0, 1, 2]) {
+    rec.step(
+      `work-${i}`,
+      (s) => {
+        s.set('history', [...(s.read('history') as unknown[]), { idx: i }]);
+        s.merge('profile', { [`n${i}`]: i });
+        s.set('i', i + 1);
+      },
+      { name: `Work ${i}` },
+    );
+  }
+  rec.step('cleanup', (s) => s.delete('scratch'), { name: 'Cleanup' });
+  const snap = rec.snapshot();
+  return { log: snap.commitLog, initialState: snap.initialState, state: rec.state.getState() as Loose };
 }
 
 /** The whole log through the public replay, bundle by bundle — the state it says the run ended in. */

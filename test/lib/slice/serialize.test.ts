@@ -20,8 +20,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
-import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
+import type { CommitBundle, ExecutionTree, TraceEntry } from '../../../src/lib/memory/types.js';
 import {
   formatForwardSlice,
   formatSlice,
@@ -147,15 +146,11 @@ describe('formatSlice', () => {
 
   it('warns when reads were not recorded (readTracking-off signature) instead of implying independence', () => {
     // Multi-step tree whose snapshot has NO stageReads anywhere — the
-    // exact shape readTracking:'off' produces.
-    const tree: StageSnapshot = {
+    // exact shape readTracking:'off' produces (as the record reads a tree: `ExecutionTree`).
+    const tree: ExecutionTree = {
       id: 'a',
       runtimeStageId: 'a#0',
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
-      next: { id: 'b', runtimeStageId: 'b#1', logs: {}, errors: {}, metrics: {}, evals: {} },
+      next: { id: 'b', runtimeStageId: 'b#1' },
     };
     const log = [commit('a', 'a#0', ['x'], 0), commit('b', 'b#1', ['y'], 1)];
     const slice = sliceForKey(log, 'y', keysReadFromExecutionTree(tree));

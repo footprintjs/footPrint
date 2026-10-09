@@ -11,12 +11,22 @@
  * 4. Subflow — nested flowchart
  * 5. Loops — loopTo() with $break()
  * 6. Diamond — subflow + post-subflow reads from both
+ * 7. The engine's dev mode — the record's walk writes no console line under it
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { decide, flowChart, FlowChartBuilder, FlowChartExecutor, select } from '../../../src/index.js';
+import {
+  decide,
+  disableDevMode,
+  enableDevMode,
+  flowChart,
+  FlowChartBuilder,
+  FlowChartExecutor,
+  select,
+} from '../../../src/index.js';
 import { causalChain, flattenCausalDAG, formatCausalChain } from '../../../src/lib/memory/backtrack.js';
+import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { QualityRecorder } from '../../../src/lib/recorder/QualityRecorder.js';
 
 /**
@@ -382,5 +392,48 @@ describe('backtrack integration — formatCausalChain on real pipeline', () => {
     expect(text).toContain('A (');
     expect(text).toContain('via');
     expect(text).toContain('wrote:');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// 7. THE ENGINE'S DEV MODE — moved from backtrack-weigh-truncation.test.ts (E1): the flag is the engine's
+// (src/lib/devMode.ts, not a record file), so the pin that the record stays silent under it is a witness.
+// ════════════════════════════════════════════════════════════════════════
+
+describe("backtrack integration — the engine's dev mode", () => {
+  afterEach(() => {
+    disableDevMode();
+    vi.restoreAllMocks();
+  });
+
+  /** Linear chain of n stages, each reading what the previous wrote (the truncation file's own log). */
+  function chainLog(n: number): { log: CommitBundle[]; reads: (id: string) => string[] } {
+    const log: CommitBundle[] = [];
+    const readsMap: Record<string, string[]> = {};
+    for (let i = 0; i < n; i++) {
+      log.push({
+        idx: i,
+        stage: `s${i}`,
+        stageId: `s${i}`,
+        runtimeStageId: `s${i}#${i}`,
+        trace: [{ path: `k${i}`, verb: 'set' }],
+        redactedPaths: [],
+        overwrite: { [`k${i}`]: `val-k${i}` },
+        updates: {},
+      });
+      if (i > 0) readsMap[`s${i}#${i}`] = [`k${i - 1}`];
+    }
+    return { log, reads: (id: string) => readsMap[id] ?? [] };
+  }
+
+  it('truncation is data, never a console line — in dev mode or out (the warning went in C6)', () => {
+    const { log, reads } = chainLog(10);
+    const methods = ['warn', 'error', 'log', 'info', 'debug'] as const;
+    const spies = methods.map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
+
+    expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
+    enableDevMode();
+    expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 });

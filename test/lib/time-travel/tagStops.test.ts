@@ -12,12 +12,16 @@
  * stops, never the log) · Boundary (untagged run → bookends only; empty log
  * → `[]`) · Integration (a stored recording: JSON round trip; a row with
  * `tags` is accepted by `bundleRefusal`).
+ *
+ * Every record here is written through `footprintjs/write` (test/helpers/recordRun.ts): a tagged
+ * stage is a step with `tags` — the bytes the chart with `.tag(...)` writes, with no engine loaded.
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { bundleRefusal } from '../../../src/lib/time-travel/bundles.js';
 import { commitStops, isCommitBundle, splitAxis, stateAt, tagStops, timeTravel } from '../../../src/trace.js';
+import type { StepScope } from '../../helpers/recordRun.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 interface State {
   trail?: string[];
@@ -25,32 +29,26 @@ interface State {
   [key: string]: unknown;
 }
 
-const push = (name: string) => (s: State) => {
-  s.trail = [...(s.trail ?? []), name];
-  s.n = (s.n ?? 0) + 1;
+/** A stage that appends its name to `trail` and counts it in `n` — reading both first, as a scope does. */
+const push = (name: string) => (s: StepScope) => {
+  s.set('trail', [...((s.read('trail') as State['trail']) ?? []), name]);
+  s.set('n', ((s.read('n') as State['n']) ?? 0) + 1);
 };
 
-/** seed → a[llm-turn] → b → c[decision, audit] → d — two tagged, three not. */
-function buildTagged() {
-  return flowChart<State>('Seed', push('seed'), 'seed')
-    .addFunction('A', push('a'), 'a')
-    .tag('milestone:llm-turn')
-    .addFunction('B', push('b'), 'b')
-    .addFunction('C', push('c'), 'c')
-    .tag('milestone:decision', 'audit')
-    .addFunction('D', push('d'), 'd')
-    .build();
-}
-
-async function runTagged() {
-  const executor = new FlowChartExecutor(buildTagged());
-  await executor.run();
-  return executor.getSnapshot();
+/** seed → a[llm-turn] → b → c[decision, audit] → d — two tagged, three not; each `.tag(...)` is the step's `tags`. */
+function runTagged() {
+  const run = recordRun();
+  run.step('seed', push('seed'), { name: 'Seed' });
+  run.step('a', push('a'), { name: 'A', tags: ['milestone:llm-turn'] });
+  run.step('b', push('b'), { name: 'B' });
+  run.step('c', push('c'), { name: 'C', tags: ['milestone:decision', 'audit'] });
+  run.step('d', push('d'), { name: 'D' });
+  return run.snapshot();
 }
 
 describe('tagStops — keep rule', () => {
-  it('with no list, every tagged stop survives, in order, with meta = the bundle’s array', async () => {
-    const snapshot = await runTagged();
+  it('with no list, every tagged stop survives, in order, with meta = the bundle’s array', () => {
+    const snapshot = runTagged();
     const stops = tagStops().stopsFor(snapshot.commitLog, snapshot.executionTree);
     expect(stops.map((s) => [s.kind, s.label, s.meta])).toEqual([
       ['start', 'Run start', undefined],
@@ -60,8 +58,8 @@ describe('tagStops — keep rule', () => {
     ]);
   });
 
-  it('any-of: a stop survives when it shares ONE name with the list; meta is still the whole array', async () => {
-    const snapshot = await runTagged();
+  it('any-of: a stop survives when it shares ONE name with the list; meta is still the whole array', () => {
+    const snapshot = runTagged();
     const audit = tagStops(['audit']).stopsFor(snapshot.commitLog, snapshot.executionTree);
     expect(audit.filter((s) => s.kind === 'commit').map((s) => s.label)).toEqual(['C']);
     expect(audit[1].meta).toEqual(['milestone:decision', 'audit']);
@@ -70,22 +68,22 @@ describe('tagStops — keep rule', () => {
     expect(either.filter((s) => s.kind === 'commit').map((s) => s.label)).toEqual(['A', 'C']);
   });
 
-  it('a list nothing matches yields the two bookends only — the truthful shape, not []', async () => {
-    const snapshot = await runTagged();
+  it('a list nothing matches yields the two bookends only — the truthful shape, not []', () => {
+    const snapshot = runTagged();
     const stops = tagStops(['nope']).stopsFor(snapshot.commitLog, snapshot.executionTree);
     expect(stops.map((s) => s.kind)).toEqual(['start', 'end']);
     expect(stops[0].prologue).toBe(true);
   });
 
-  it('an EMPTY list means "no filter" — the same as omitting it', async () => {
-    const snapshot = await runTagged();
+  it('an EMPTY list means "no filter" — the same as omitting it', () => {
+    const snapshot = runTagged();
     expect(tagStops([]).stopsFor(snapshot.commitLog)).toEqual(tagStops().stopsFor(snapshot.commitLog));
   });
 });
 
 describe('tagStops — attribution by precedence', () => {
-  it('an untagged stage folds into the tagged stop BEFORE it; the prologue is absorbed by start', async () => {
-    const snapshot = await runTagged();
+  it('an untagged stage folds into the tagged stop BEFORE it; the prologue is absorbed by start', () => {
+    const snapshot = runTagged();
     const stops = tagStops().stopsFor(snapshot.commitLog, snapshot.executionTree);
     const [start, a, c, end] = stops;
     // seed ran before the first tagged stage → start absorbed it.
@@ -100,19 +98,19 @@ describe('tagStops — attribution by precedence', () => {
     expect(c.lastCommitIdx).toBe(snapshot.commitLog.length - 1);
   });
 
-  it('a start that absorbed nothing says nothing (no prologue) when the first stage is tagged', async () => {
-    const chart = flowChart<State>('Seed', push('seed'), 'seed').tag('first').addFunction('A', push('a'), 'a').build();
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const stops = tagStops().stopsFor(executor.getSnapshot().commitLog);
+  it('a start that absorbed nothing says nothing (no prologue) when the first stage is tagged', () => {
+    const run = recordRun();
+    run.step('seed', push('seed'), { name: 'Seed', tags: ['first'] });
+    run.step('a', push('a'), { name: 'A' });
+    const stops = tagStops().stopsFor(run.snapshot().commitLog);
     expect(stops[0].kind).toBe('start');
     expect(stops[0]).not.toHaveProperty('prologue');
   });
 });
 
 describe('tagStops — the equivalence law', () => {
-  it('every kept stop sits at the SAME commit as commitStops’s stop for that stage, and folds the same', async () => {
-    const snapshot = await runTagged();
+  it('every kept stop sits at the SAME commit as commitStops’s stop for that stage, and folds the same', () => {
+    const snapshot = runTagged();
     const commitAxis = commitStops(snapshot.commitLog, snapshot.executionTree);
     const tagAxis = tagStops().stopsFor(snapshot.commitLog, snapshot.executionTree);
 
@@ -137,18 +135,18 @@ describe('tagStops — the equivalence law', () => {
 });
 
 describe('tagStops — boundaries and stored recordings', () => {
-  it('an untagged run yields the two bookends; an empty log yields []', async () => {
-    const chart = flowChart<State>('Seed', push('seed'), 'seed').addFunction('A', push('a'), 'a').build();
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const stops = tagStops().stopsFor(executor.getSnapshot().commitLog);
+  it('an untagged run yields the two bookends; an empty log yields []', () => {
+    const run = recordRun();
+    run.step('seed', push('seed'), { name: 'Seed' });
+    run.step('a', push('a'), { name: 'A' });
+    const stops = tagStops().stopsFor(run.snapshot().commitLog);
     expect(stops.map((s) => s.kind)).toEqual(['start', 'end']);
     expect(splitAxis(stops).ok).toBe(true);
     expect(tagStops().stopsFor([])).toEqual([]);
   });
 
-  it('a stored row with `tags` is a bundle to `bundleRefusal`; a JSON round trip keeps the axis', async () => {
-    const snapshot = await runTagged();
+  it('a stored row with `tags` is a bundle to `bundleRefusal`; a JSON round trip keeps the axis', () => {
+    const snapshot = runTagged();
     const stored = JSON.parse(JSON.stringify(snapshot)) as {
       commitLog: unknown[];
       initialState: Record<string, unknown>;

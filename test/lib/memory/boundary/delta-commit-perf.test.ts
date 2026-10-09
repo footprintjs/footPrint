@@ -12,14 +12,14 @@
  *   - The default 'full' mode pays ZERO: detection is mode-gated.
  *
  * Load tier — the retained-payload linearity that kills the quadratic:
- *   running the growing-history loop, the delta commit log's VALUE bytes
- *   grow linearly (one tail per iteration) while full mode's grow
- *   quadratically; at N iterations delta is a small fraction of full.
+ *   the growing-history loop, written through footprintjs/write (one stage
+ *   frame per iteration, test/helpers/recordRun.ts — the bytes the loop chart
+ *   writes): the delta commit log's VALUE bytes grow linearly (one tail per
+ *   iteration) while full mode's grow quadratically; at N iterations delta is
+ *   a small fraction of full.
  */
-import { flowChart, FlowChartExecutor } from '../../../../src';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
-
-type Loose = Record<string, unknown>;
+import { recordRun } from '../../../helpers/recordRun';
 
 function bigArray(n: number): Array<{ id: number; text: string }> {
   return Array.from({ length: n }, (_, i) => ({ id: i, text: `message-${i}-${'x'.repeat(40)}` }));
@@ -78,44 +78,45 @@ describe('Boundary: delta commit performance (#13c-B)', () => {
     expect(bundle.overwrite.history).toEqual([1, 2, 3]);
   });
 
-  it('LOAD: over a growing-history loop, delta commit-log value bytes are a small fraction of full (linear vs quadratic)', async () => {
+  it('LOAD: over a growing-history loop, delta commit-log value bytes are a small fraction of full (linear vs quadratic)', () => {
     const ITERATIONS = 60; // enough for the quadratic to dominate, fast enough for CI
-    const buildChart = () =>
-      flowChart<Loose>(
-        'Seed',
-        async (scope) => {
-          scope.$setValue('i', 0);
-          scope.$setValue('history', [] as unknown[]);
-        },
+    /** The loop chart's record: a seed, then one `work` stage per iteration that pushes onto `history`. */
+    const growingHistory = (commitValues: 'full' | 'delta') => {
+      const run = recordRun({}, { commitValues });
+      run.step(
         'seed',
-      )
-        .addFunction(
-          'Work',
-          async (scope) => {
-            const i = scope.$getValue('i') as number;
-            scope.$batchArray('history', (arr) => {
-              arr.push({ idx: i, text: `message-${i}-${'x'.repeat(64)}` });
-            });
-            scope.$setValue('i', i + 1);
-            if (i + 1 >= ITERATIONS) scope.$break();
-          },
+        (s) => {
+          s.set('i', 0);
+          s.set('history', [] as unknown[]);
+        },
+        { name: 'Seed' },
+      );
+      for (let iteration = 0; iteration < ITERATIONS; iteration++) {
+        run.step(
           'work',
-        )
-        .loopTo('work')
-        .build();
+          (s) => {
+            const i = s.read('i') as number;
+            const history = s.read('history') as unknown[];
+            s.set('history', [...history, { idx: i, text: `message-${i}-${'x'.repeat(64)}` }]);
+            s.set('i', i + 1);
+          },
+          // The engine's names for a loop's visits: `Work`, `Work`, then `Work.1`, `Work.2` …
+          { name: iteration < 2 ? 'Work' : `Work.${iteration - 1}` },
+        );
+      }
+      return run.snapshot().commitLog;
+    };
 
-    const logBytes = async (commitValues: 'full' | 'delta') => {
-      const executor = new FlowChartExecutor(buildChart(), { commitValues });
-      await executor.run({ maxIterations: ITERATIONS + 10 });
-      const log = executor.getSnapshot().commitLog;
+    const logBytes = (commitValues: 'full' | 'delta') => {
+      const log = growingHistory(commitValues);
       let bytes = 0;
       for (const b of log)
         bytes += (JSON.stringify(b.overwrite) ?? '').length + (JSON.stringify(b.updates) ?? '').length;
       return { bytes, commits: log.length };
     };
 
-    const full = await logBytes('full');
-    const delta = await logBytes('delta');
+    const full = logBytes('full');
+    const delta = logBytes('delta');
 
     expect(delta.commits).toBe(full.commits); // cadence unchanged
     // Full retains Σi O(i) history copies; delta retains one ~100-byte tail

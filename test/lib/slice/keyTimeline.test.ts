@@ -10,14 +10,14 @@
  *    timeline attribution against forwardSliceForKey on the same fixture.
  * 3. A read before any write → no `fromWriteIdx` + the pre-run-origin note.
  * 4. The typo guard, shared with the forward walk (bytes pinned there).
+ *
+ * The runs' records are written through footprintjs/write (test/helpers/recordRun.ts) — the same
+ * commit logs and execution trees, byte for byte, the charts wrote through the engine (E1).
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
-import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
-import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
+import type { CommitBundle, ExecutionTree, TraceEntry } from '../../../src/lib/memory/types.js';
 import {
   forwardSliceForKey,
   keysReadFromExecutionTree,
@@ -25,6 +25,7 @@ import {
   keyTimeline,
 } from '../../../src/lib/slice/index.js';
 import type { ForwardNode } from '../../../src/lib/slice/types.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 function commit(
   stageId: string,
@@ -124,14 +125,11 @@ describe('keyTimeline — unit', () => {
 
   it('records the keysRead strategy breadcrumb and coverage like every other query', () => {
     expect(keyTimeline(LOG, 'k', READS).keysReadKind).toBe('map');
-    const tree: StageSnapshot = {
+    // The record's tree type: the frame-only fields (logs/errors/metrics/evals) the reader ignores are gone.
+    const tree: ExecutionTree = {
       id: 'seed',
       runtimeStageId: 'seed#0',
       stageReads: { k: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
     };
     expect(keyTimeline(LOG, 'k', keysReadFromExecutionTree(tree)).readsCoverage).toEqual({
       steps: 1,
@@ -145,43 +143,14 @@ describe('keyTimeline — unit', () => {
 // ════════════════════════════════════════════════════════════════════════
 
 describe('keyTimeline — functional (real run)', () => {
-  interface S {
-    recipeId?: string;
-    label?: string;
-  }
-
-  it('the life of one key across a real chart reads like a story', async () => {
-    const chart = flowChart<S>(
-      'Seed',
-      async (scope) => {
-        scope.recipeId = 'r-1';
-      },
-      'seed',
-    )
-      .addFunction(
-        'Label',
-        async (scope) => {
-          scope.label = `${scope.recipeId}!`;
-        },
-        'label',
-      )
-      .addFunction(
-        'Rewrite',
-        async (scope) => {
-          scope.recipeId = 'r-2';
-        },
-        'rewrite',
-      )
-      .build();
-
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const snapshot = executor.getSnapshot();
-    const timeline = keyTimeline(
-      snapshot.commitLog,
-      'recipeId',
-      keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
-    );
+  it('the life of one key across a real chart reads like a story', () => {
+    // Seed sets recipeId; Label reads recipeId → label; Rewrite sets recipeId again.
+    const run = recordRun();
+    run.step('seed', (s) => s.set('recipeId', 'r-1'), { name: 'Seed' });
+    run.step('label', (s) => s.set('label', `${s.read('recipeId') as string}!`), { name: 'Label' });
+    run.step('rewrite', (s) => s.set('recipeId', 'r-2'), { name: 'Rewrite' });
+    const snapshot = run.snapshot();
+    const timeline = keyTimeline(snapshot.commitLog, 'recipeId', keysReadFromExecutionTree(snapshot.executionTree!));
 
     expect(timeline.moments!.map((m) => `${m.kind}:${m.stageId}`)).toEqual([
       'write:seed',
@@ -211,41 +180,15 @@ describe('keyTimeline — cross-door agreement with forwardSliceForKey', () => {
     return out;
   }
 
-  it('INTEGRATION: on a real run, every timeline read sits in the life the walk put it in', async () => {
-    const chart = flowChart<{ v?: number; a?: number; b?: number }>(
-      'Seed',
-      async (scope) => {
-        scope.v = 1;
-      },
-      'seed',
-    )
-      .addFunction(
-        'UseA',
-        async (scope) => {
-          scope.a = scope.v! + 1;
-        },
-        'useA',
-      )
-      .addFunction(
-        'Rewrite',
-        async (scope) => {
-          scope.v = scope.v! * 10;
-        },
-        'rewrite',
-      )
-      .addFunction(
-        'UseB',
-        async (scope) => {
-          scope.b = scope.v! + 2;
-        },
-        'useB',
-      )
-      .build();
-
-    const executor = new FlowChartExecutor(chart, { writeProvenance: 'reads-prefix' });
-    await executor.run();
-    const snapshot = executor.getSnapshot();
-    const reads = keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot);
+  it('INTEGRATION: on a real run, every timeline read sits in the life the walk put it in', () => {
+    // Seed sets v; UseA reads v → a; Rewrite reads v → v * 10; UseB reads v → b.
+    const run = recordRun({}, { writeProvenance: 'reads-prefix' });
+    run.step('seed', (s) => s.set('v', 1), { name: 'Seed' });
+    run.step('useA', (s) => s.set('a', (s.read('v') as number) + 1), { name: 'UseA' });
+    run.step('rewrite', (s) => s.set('v', (s.read('v') as number) * 10), { name: 'Rewrite' });
+    run.step('useB', (s) => s.set('b', (s.read('v') as number) + 2), { name: 'UseB' });
+    const snapshot = run.snapshot();
+    const reads = keysReadFromExecutionTree(snapshot.executionTree!);
 
     const timeline = keyTimeline(snapshot.commitLog, 'v', reads);
     // Walk every life of `v` (anchor at each write via `before`) and check

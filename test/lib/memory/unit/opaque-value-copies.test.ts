@@ -7,15 +7,18 @@
  *   scenario  the writer rule: a container rewritten around an untouched Blob does not WRITE the Blob
  *             (`findLastWriter` names the stage that wrote it, as 9.44 did) — identity would blame
  *             every later rewrite of the container, because each commit re-copies the Blob
- *   scenario  the borrowed-mutation guard: a stage that only READS a Blob is not warned that it
- *             changed it in place (the retained read is a copy)
  *   scenario  the replacement check still sees a new Blob: replacing one commits a row
+ *
+ * The scenarios' stages are written through footprintjs/write (test/helpers/recordRun.ts — the log the
+ * flowchart of those stages writes, byte for byte). The borrowed-mutation guard (a stage that only READS a
+ * Blob is not warned that it changed it in place) is the engine frame's dev-mode report, not the record's:
+ * it moved to unit/StageContext.test.ts ("the borrowed-mutation guard — an opaque value").
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src';
 import { deepEqual } from '../../../../src/lib/memory/equality';
 import { findLastWriter } from '../../../../src/trace';
+import { recordRun } from '../../../helpers/recordRun';
 
 describe("deepEqual's two rules for an opaque value", () => {
   it("'identity' — equal only to itself; 'copies' — equal to another of its kind, never to another kind", () => {
@@ -30,75 +33,26 @@ describe("deepEqual's two rules for an opaque value", () => {
 });
 
 describe('the readers that compare copies of one record', () => {
-  it('the writer rule: rewriting the container around an untouched Blob does not write the Blob', async () => {
-    const chart = flowChart(
-      'Seed',
-      (scope: any) => {
-        scope.$setValue('cfg', { file: new Blob(['x']), n: 1 });
+  it('the writer rule: rewriting the container around an untouched Blob does not write the Blob', () => {
+    const run = recordRun();
+    run.step('seed', (s) => s.set('cfg', { file: new Blob(['x']), n: 1 }), { name: 'Seed' });
+    run.step(
+      'bump',
+      (s) => {
+        const cfg = s.read('cfg') as Record<string, unknown>;
+        s.set('cfg', { ...cfg, n: 2 }); // the same Blob, a new container
       },
-      'seed',
-    )
-      .addFunction(
-        'Bump',
-        (scope: any) => {
-          const cfg = scope.$getValue('cfg');
-          scope.$setValue('cfg', { ...cfg, n: 2 }); // the same Blob, a new container
-        },
-        'bump',
-      )
-      .build();
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const { commitLog } = executor.getSnapshot();
+      { name: 'Bump' },
+    );
+    const { commitLog } = run.snapshot();
     expect(findLastWriter(commitLog, 'cfg\u001ffile')?.stageId).toBe('seed');
     expect(findLastWriter(commitLog, 'cfg\u001fn')?.stageId).toBe('bump');
   });
 
-  it('the borrowed-mutation guard: a stage that only reads a Blob is not warned it changed it', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    enableDevMode();
-    try {
-      const chart = flowChart(
-        'Seed',
-        (scope: any) => {
-          scope.$setValue('doc', { file: new Blob(['x']) });
-        },
-        'seed',
-      )
-        .addFunction(
-          'Read',
-          (scope: any) => {
-            scope.seen = scope.$getValue('doc') !== undefined;
-          },
-          'read',
-        )
-        .build();
-      await new FlowChartExecutor(chart).run();
-      expect(warn.mock.calls.map((call) => String(call[0])).filter((m) => m.includes('IN PLACE'))).toEqual([]);
-    } finally {
-      disableDevMode();
-      warn.mockRestore();
-    }
-  });
-
-  it('the replacement check still sees a new Blob: replacing one commits a row', async () => {
-    const chart = flowChart(
-      'Seed',
-      (scope: any) => {
-        scope.$setValue('file', new Blob(['x']));
-      },
-      'seed',
-    )
-      .addFunction(
-        'Replace',
-        (scope: any) => {
-          scope.$setValue('file', new Blob(['x']));
-        },
-        'replace',
-      )
-      .build();
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    expect(executor.getSnapshot().commitLog[1].trace.map((row) => row.path)).toEqual(['file']);
+  it('the replacement check still sees a new Blob: replacing one commits a row', () => {
+    const run = recordRun();
+    run.step('seed', (s) => s.set('file', new Blob(['x'])), { name: 'Seed' });
+    run.step('replace', (s) => s.set('file', new Blob(['x'])), { name: 'Replace' });
+    expect(run.snapshot().commitLog[1].trace.map((row) => row.path)).toEqual(['file']);
   });
 });

@@ -16,14 +16,14 @@
  * 5. Key normalisation goes through the shipped `normaliseStateKey`, so both
  *    doors accept identical inputs.
  * 6. Both writeProvenance dial states are verified against REAL runs.
+ *
+ * The runs' records are written through footprintjs/write (test/helpers/recordRun.ts) — the same
+ * commit logs and execution trees, byte for byte, the charts wrote through the engine (E1).
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
-import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
-import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
+import type { CommitBundle, ExecutionTree, TraceEntry } from '../../../src/lib/memory/types.js';
 import {
   forwardSliceForKey,
   keysReadFromExecutionTree,
@@ -31,6 +31,7 @@ import {
   sliceForKey,
 } from '../../../src/lib/slice/index.js';
 import type { ForwardNode } from '../../../src/lib/slice/types.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 // ── Test helpers ───────────────────────────────────────────────────────
 
@@ -56,6 +57,17 @@ function commit(
     overwrite: Object.fromEntries(writes.map((w) => [w.key, `val-${w.key}`])),
     updates: {},
   };
+}
+
+/**
+ * As the engine's tree: the branch a decider chose hangs under it as its one child, not as its `next`
+ * (`recordRun` writes a linear chart's tree).
+ */
+function withDeciderBranches(node: ExecutionTree, deciderId: string): ExecutionTree {
+  const { next, ...rest } = node;
+  if (!next) return rest;
+  const below = withDeciderBranches(next, deciderId);
+  return node.id === deciderId ? { ...rest, children: [below] } : { ...rest, next: below };
 }
 
 /** Every node of a forward slice, BFS, each once. */
@@ -329,52 +341,40 @@ describe('forwardSliceForKey — honest absence and budgets', () => {
 // ════════════════════════════════════════════════════════════════════════
 
 describe('forwardSliceForKey — functional (real run, dial ON and OFF)', () => {
-  interface S {
-    recipeId?: string;
-    servings?: number;
-    ingredients?: string[];
-    shoppingList?: string[];
-  }
-
-  const chart = flowChart<S>(
-    'Seed',
-    async (scope) => {
-      scope.recipeId = 'r-42';
-      scope.servings = 2;
-    },
-    'seed',
-  )
-    .addFunction(
-      'Lookup',
-      async (scope) => {
-        scope.ingredients = [`flour(${scope.recipeId})`, 'water'];
+  /** Seed sets recipeId + servings; Lookup reads recipeId → ingredients; Scale reads ingredients, servings → shoppingList. */
+  function runWith(writeProvenance?: 'reads-prefix') {
+    const run = recordRun({}, writeProvenance ? { writeProvenance } : {});
+    run.step(
+      'seed',
+      (s) => {
+        s.set('recipeId', 'r-42');
+        s.set('servings', 2);
       },
-      'lookup',
-    )
-    .addFunction(
-      'Scale',
-      async (scope) => {
-        scope.shoppingList = scope.ingredients!.map((i) => `${i} x${scope.servings}`);
-      },
+      { name: 'Seed' },
+    );
+    run.step('lookup', (s) => s.set('ingredients', [`flour(${s.read('recipeId') as string})`, 'water']), {
+      name: 'Lookup',
+    });
+    run.step(
       'scale',
-    )
-    .build();
-
-  async function runWith(writeProvenance?: 'reads-prefix') {
-    const executor = new FlowChartExecutor(chart, writeProvenance ? { writeProvenance } : {});
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+      (s) => {
+        const ingredients = s.read('ingredients') as string[];
+        const servings = s.read('servings') as number;
+        s.set(
+          'shoppingList',
+          ingredients.map((i) => `${i} x${servings}`),
+        );
+      },
+      { name: 'Scale' },
+    );
+    const snapshot = run.snapshot();
     return {
-      slice: forwardSliceForKey(
-        snapshot.commitLog,
-        'recipeId',
-        keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
-      ),
+      slice: forwardSliceForKey(snapshot.commitLog, 'recipeId', keysReadFromExecutionTree(snapshot.executionTree!)),
     };
   }
 
-  it("dial ON: 'who read recipeId and what did it feed' answers in ONE query, exactly", async () => {
-    const { slice } = await runWith('reads-prefix');
+  it("dial ON: 'who read recipeId and what did it feed' answers in ONE query, exactly", () => {
+    const { slice } = runWith('reads-prefix');
     expect(slice.root!.stageId).toBe('seed');
     expect(slice.root!.reads.map((r) => r.stageId)).toEqual(['lookup']);
     expect(slice.root!.fedEdges.map((e) => e.child.key)).toEqual(['ingredients']);
@@ -386,8 +386,8 @@ describe('forwardSliceForKey — functional (real run, dial ON and OFF)', () => 
     expect(slice.notes.some((n) => n.code === 'conservative-fed-edges')).toBe(false);
   });
 
-  it('dial OFF: the same walk, every edge labeled conservative + one slice-level note', async () => {
-    const { slice } = await runWith();
+  it('dial OFF: the same walk, every edge labeled conservative + one slice-level note', () => {
+    const { slice } = runWith();
     expect(slice.root!.reads.map((r) => r.stageId)).toEqual(['lookup']);
     expect(slice.root!.fedEdges.map((e) => e.child.key)).toEqual(['ingredients']);
     expect(slice.root!.fedEdges.every((e) => e.basis === 'stage')).toBe(true);
@@ -401,52 +401,38 @@ describe('forwardSliceForKey — functional (real run, dial ON and OFF)', () => 
 // ════════════════════════════════════════════════════════════════════════
 
 describe('forwardSliceForKey — integration', () => {
-  interface S {
-    seedValue?: number;
-    total?: number;
-    count?: number;
-  }
-
-  it('a loop re-reads one value: every iteration shows up as a read of the SAME life', async () => {
-    const chart = flowChart<S>(
-      'Seed',
-      async (scope) => {
-        scope.seedValue = 3;
-        scope.total = 0;
-        scope.count = 0;
-      },
+  it('a loop re-reads one value: every iteration shows up as a read of the SAME life', () => {
+    // Seed sets seedValue, total, count; Accumulate (total += seedValue; count += 1) → More (reads count)
+    // → Loop (loopTo accumulate) twice, then Accumulate → More → Finish. Names as the engine stamped them.
+    const run = recordRun({}, { writeProvenance: 'reads-prefix' });
+    run.step(
       'seed',
-    )
-      .addFunction(
-        'Accumulate',
-        async (scope) => {
-          scope.total = (scope.total ?? 0) + scope.seedValue!;
-          scope.count = (scope.count ?? 0) + 1;
-        },
+      (s) => {
+        s.set('seedValue', 3);
+        s.set('total', 0);
+        s.set('count', 0);
+      },
+      { name: 'Seed' },
+    );
+    for (let round = 1; round <= 3; round++) {
+      run.step(
         'accumulate',
-      )
-      .addDeciderFunction('More', async (scope) => (scope.count! < 3 ? 'again' : 'done'), 'more')
-      .addFunctionBranch(
-        'again',
-        'Loop',
-        async () => {
-          /* hop back */
+        (s) => {
+          s.set('total', ((s.read('total') as number | undefined) ?? 0) + (s.read('seedValue') as number));
+          s.set('count', ((s.read('count') as number | undefined) ?? 0) + 1);
         },
-        undefined,
-        { loopTo: 'accumulate' },
-      )
-      .addFunctionBranch('done', 'Finish', async () => {})
-      .setDefault('done')
-      .end()
-      .build();
-
-    const executor = new FlowChartExecutor(chart, { writeProvenance: 'reads-prefix' });
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+        { name: round === 3 ? 'Accumulate.1' : 'Accumulate' },
+      );
+      run.step('more', (s) => s.read('count'), { name: 'More' });
+      if (round < 3) run.step('again', undefined, { name: 'Loop' });
+    }
+    run.step('done', undefined, { name: 'Finish' });
+    const snapshot = run.snapshot();
+    snapshot.executionTree = withDeciderBranches(snapshot.executionTree!, 'more');
     const slice = forwardSliceForKey(
       snapshot.commitLog,
       'seedValue',
-      keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
+      keysReadFromExecutionTree(snapshot.executionTree),
     );
 
     // seedValue is written once and never rewritten — ONE life, read by
@@ -459,34 +445,14 @@ describe('forwardSliceForKey — integration', () => {
     expect(fedTotals.every((e) => e.basis === 'per-write')).toBe(true);
   });
 
-  it("forward and backward agree: if A fed B, then B's backward slice contains A", async () => {
-    const chart = flowChart<{ a?: string; b?: string; c?: string }>(
-      'A',
-      async (scope) => {
-        scope.a = 'a';
-      },
-      'a',
-    )
-      .addFunction(
-        'B',
-        async (scope) => {
-          scope.b = `${scope.a}b`;
-        },
-        'b',
-      )
-      .addFunction(
-        'C',
-        async (scope) => {
-          scope.c = `${scope.b}c`;
-        },
-        'c',
-      )
-      .build();
-
-    const executor = new FlowChartExecutor(chart, { writeProvenance: 'reads-prefix' });
-    await executor.run();
-    const snapshot = executor.getSnapshot();
-    const reads = keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot);
+  it("forward and backward agree: if A fed B, then B's backward slice contains A", () => {
+    // A sets a; B reads a → b; C reads b → c.
+    const run = recordRun({}, { writeProvenance: 'reads-prefix' });
+    run.step('a', (s) => s.set('a', 'a'), { name: 'A' });
+    run.step('b', (s) => s.set('b', `${s.read('a') as string}b`), { name: 'B' });
+    run.step('c', (s) => s.set('c', `${s.read('b') as string}c`), { name: 'C' });
+    const snapshot = run.snapshot();
+    const reads = keysReadFromExecutionTree(snapshot.executionTree!);
 
     const forward = forwardSliceForKey(snapshot.commitLog, 'a', reads);
     for (const node of nodesOf(forward.root!)) {

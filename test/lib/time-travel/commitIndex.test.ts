@@ -5,13 +5,16 @@
  * FIRST occurrence is the contract, and it is load-bearing: a subflow mount and
  * a parallel fork child each commit more than one bundle under one id, and a
  * cursor asks "where does this stage START?".
+ *
+ * The run's record is written through `footprintjs/write` (test/helpers/recordRun.ts) — the bytes a
+ * two-stage chart writes, with no engine loaded.
  */
 
 import fc from 'fast-check';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { buildCommitIndex, commitIndexOf, stateAt } from '../../../src/trace.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 function bundle(stageId: string, idx: number, rtid?: string): CommitBundle {
   return {
@@ -66,26 +69,12 @@ describe('buildCommitIndex', () => {
     expect(buildCommitIndex(log).has('spoof')).toBe(false);
   });
 
-  it('translates a real run’s ids into indices a fold can use', async () => {
-    const chart = flowChart<any>(
-      'One',
-      async (scope: any) => {
-        scope.a = 1;
-      },
-      'one',
-    )
-      .addFunction(
-        'Two',
-        async (scope: any) => {
-          scope.b = 2;
-        },
-        'two',
-      )
-      .build();
-
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+  it('translates a real run’s ids into indices a fold can use', () => {
+    // Two stages, One (`a = 1`) then Two (`b = 2`), written through `footprintjs/write`.
+    const run = recordRun();
+    run.step('one', (s) => s.set('a', 1), { name: 'One' });
+    run.step('two', (s) => s.set('b', 2), { name: 'Two' });
+    const snapshot = run.snapshot();
 
     const idx = commitIndexOf(snapshot.commitLog, snapshot.commitLog[0].runtimeStageId);
     expect(stateAt(snapshot, idx).state).toEqual({ a: 1 });
