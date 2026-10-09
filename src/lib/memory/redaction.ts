@@ -1414,7 +1414,7 @@ export class MapperTaint {
 
 /**
  * The commit log's scrub: `patch` with {@link LOG_PLACEHOLDER} at every path in `redactedPaths` that
- * holds a defined value — the copy `StageContext · commit` records and feeds the redacted mirror.
+ * holds a defined value — the copy `recordCommit` records and feeds the redacted mirror.
  *
  * CLONE-FREE (9.33.0). The patch is the transaction buffer's commit-time payload, already the record's
  * own copy (`TransactionBuffer · commit` clones each surviving path once; the buffer is dropped at

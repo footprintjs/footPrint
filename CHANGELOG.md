@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Internal
+
+- **The record's half of a commit is one L3 function (C1 of the record-layer clean-up).** NEW `memory/recordCommit.ts` (L3): `recordCommit(payload, stamp, { state, mirror?, log? })` owns the bundle's key order, the empty commit, both `scrubPatch` calls, the live and mirror `applyPatch` and `EventLog · record`. `StageContext · commit` (L4) calls it and runs what is not the record around it: retention, the dev-mode warnings, the commit observer and the release of the staging state. `StageContext · bundleFor`, `untrackedSourcesFragment`, `tagsFragment` and `finishCommit` are gone. No behaviour change and no public API change: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references; the `structuredClone` counts per stage are unchanged on every `bench/commit-clones.ts` row; the benches are within noise. The law, with an example, is in `src/lib/memory/README.md` ("One commit onto the record").
+
 ## [9.44.2] - 2026-10-09
 
 ### Added — the consumer audit, a release gate

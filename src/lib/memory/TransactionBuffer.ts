@@ -601,7 +601,7 @@ export class TransactionBuffer {
   } {
     const rows = this.commitValues === 'delta' ? this.toDeltaPayload() : this.toChangeOnlyPayload();
     const redactedPaths = this.survivingRedactedPaths(new Set(rows.trace.map((t) => t.path)));
-    // The key order is part of the bytes a consumer keeps.
+    // The bundle's key order is `recordCommit`'s; a direct caller keeps this same order.
     const payload = { overwrite: rows.overwrite, updates: rows.updates, redactedPaths, trace: rows.trace };
 
     this.overwritePatch = {};

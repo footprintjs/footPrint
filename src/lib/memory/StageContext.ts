@@ -16,8 +16,9 @@ import { EventLog } from './EventLog.js';
 import type { EmitSourcePosition } from './eventPosition.js';
 import { nativeGet } from './pathOps.js';
 import { SCOPE_PLACEHOLDER } from './placeholders.js';
+import { recordCommit } from './recordCommit.js';
 import type { RedactionVerdict } from './redaction.js';
-import { CLEAR, RedactionRule, scrubPatch } from './redaction.js';
+import { CLEAR, RedactionRule } from './redaction.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import { SharedMemory } from './SharedMemory.js';
@@ -226,10 +227,10 @@ export class StageContext {
   }
 
   /**
-   * Install a parallel redacted mirror. Subsequent `commit()` calls will
-   * apply the already-computed redacted patches to this mirror in addition
-   * to the raw `sharedMemory` + `eventLog`. Child / next contexts inherit
-   * the mirror via `createNext` / `createChild`.
+   * Install a parallel redacted mirror. Subsequent `commit()` calls apply
+   * the already-computed redacted patches — the ones the log records — to
+   * this mirror, beside the raw patches on `sharedMemory` (`recordCommit`).
+   * Child / next contexts inherit the mirror via `createNext` / `createChild`.
    *
    * Called on a runtime's root frame by `ExecutionRuntime` when the run's policy keeps a mirror.
    */
@@ -755,27 +756,6 @@ export class StageContext {
     (this._untrackedSources ??= new Set()).add(source);
   }
 
-  /**
-   * RFC-003 D2: the `untrackedSources` bundle fragment for commit() — `{}`
-   * when nothing was marked, so the spread keeps the field ABSENT (not
-   * empty-array-valued) and untouched charts stay byte-identical.
-   */
-  private untrackedSourcesFragment(): { untrackedSources?: UntrackedSource[] } {
-    if (!this._untrackedSources || this._untrackedSources.size === 0) return {};
-    return { untrackedSources: [...this._untrackedSources] };
-  }
-
-  /**
-   * The `tags` bundle fragment for commit() — `{}` when the stage declares
-   * none, so an untagged chart's log is byte-identical to 9.20.0. Added after
-   * the payload encoding, so it is independent of `commitValues`; names, so
-   * redaction never sees it.
-   */
-  private tagsFragment(): { tags?: readonly string[] } {
-    if (!this.tags || this.tags.length === 0) return {};
-    return { tags: this.tags };
-  }
-
   /** Register an observer that fires after commit() applies patches.
    *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
   setCommitObserver(
@@ -915,71 +895,24 @@ export class StageContext {
     const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
-    if (!this.buffer) {
-      // Truly-lazy fast path (#13): no write ever constructed the buffer, so
-      // the stage's net change is empty BY CONSTRUCTION. Same observable
-      // outcome as an empty commit — the (empty) bundle is still recorded so
-      // every executed stage remains a time-travel cursor stop — but with
-      // ZERO clones: no buffer construction, no applyPatch replay.
-      this.eventLog?.record(this.bundleFor({ overwrite: {}, updates: {}, redactedPaths: [], trace: [] }, continuation));
-      // #13b: the first-touch view — a read-only stage still pinned one full
-      // state generation through it — releases with the rest (an empty commit
-      // is a deliberate, tagged stop — once).
-      this.finishCommit();
-      return;
-    }
-
-    const commitBundle = this.bundleFor(this.buffer.commit(), continuation);
-
-    this.sharedMemory.applyPatch(commitBundle.overwrite, commitBundle.updates, commitBundle.trace);
-
-    // Already-computed redacted patches feed three consumers:
-    //   1. the parallel redacted mirror (if enabled)
-    //   2. the event log (persisted trace)
-    //   3. (future) anything else that wants a scrubbed view at commit time
-    // Computing once keeps cost linear in the commit size; no post-pass walk.
-    const redactedOverwrite = scrubPatch(commitBundle.overwrite, commitBundle.redactedPaths);
-    const redactedUpdates = scrubPatch(commitBundle.updates, commitBundle.redactedPaths);
-
-    this.redactedSharedMemory?.applyPatch(redactedOverwrite, redactedUpdates, commitBundle.trace);
-
-    this.eventLog?.record({
-      ...commitBundle,
-      redactedPaths: Array.from(commitBundle.redactedPaths.values()),
-      overwrite: redactedOverwrite,
-      updates: redactedUpdates,
-    });
-
-    this.finishCommit();
-  }
-
-  /**
-   * THE bundle of one commit (F10): the payload (an empty one on the lazy
-   * path, the buffer's on the other), then the stage's names, then the
-   * fragments — spread once, here, for both commit paths. Key order is the
-   * record's bytes: payload keys, `stage`, `stageId`, `runtimeStageId`,
-   * `untrackedSources?`, `tags?`, `phase?`.
-   */
-  private bundleFor<P extends object>(payload: P, continuation: CommitPhase | undefined) {
-    return {
-      ...payload,
-      stage: this.stageName,
-      stageId: this.stageId,
-      runtimeStageId: this.runtimeStageId,
-      ...this.untrackedSourcesFragment(),
-      ...this.tagsFragment(),
-      ...(continuation && { phase: continuation }),
-    };
-  }
-
-  /**
-   * The tail of both commit paths: notify the observer (ScopeFacade) with the
-   * tracked mutations, THEN release the staging state (#13b — see `commit`),
-   * so the observer sees the world as it was. D2's untracked-source markers
-   * and the declared tags release with it: one stamp per execution, so the
-   * engine's double-commit paths record them exactly once.
-   */
-  private finishCommit(): void {
+    // The record's half (`recordCommit.ts`). No buffer = no write ever built
+    // one (#13): the commit is empty by construction, recorded with ZERO clones.
+    recordCommit(
+      this.buffer?.commit(),
+      {
+        stage: this.stageName,
+        stageId: this.stageId,
+        runtimeStageId: this.runtimeStageId,
+        untrackedSources: this._untrackedSources,
+        tags: this.tags,
+        phase: continuation,
+      },
+      { state: this.sharedMemory, mirror: this.redactedSharedMemory, log: this.eventLog },
+    );
+    // The observer (ScopeFacade) sees the tracked mutations, THEN the staging
+    // state is released (#13b), so it sees the world as it was. D2's markers
+    // and the declared tags release with it — one stamp per execution, so the
+    // engine's double-commit paths record them exactly once.
     if (this._commitObserver) {
       this._commitObserver({ ...this._stageWrites });
     }

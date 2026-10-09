@@ -183,19 +183,52 @@ log.filter((b) => b.stageId === 'sf-pay').map((b) => b.phase); // [undefined, 'e
 log.filter((b) => b.stageId === 'child-a').map((b) => b.phase); // [undefined, 'repeat']
 ```
 
+**One commit onto the record — `recordCommit.ts` (L3, C1).** A commit has two halves. The frame's half (`StageContext · commit`, L4) decides WHAT is committed — the buffer's payload, the stage's names, whether the bundle is a continuation — and runs what is not the record around it: retention (`materialiseWrites`), the dev-mode warnings, the commit observer and the release of the staging state (diagnostics stay on the frame too; a commit never writes them). The record's half is ONE function, `recordCommit(payload, stamp, { state, mirror?, log? })`, the only code that shapes a bundle's bytes. Its law:
+
+1. **No payload** (the stage staged no write) → an empty bundle goes to the log and nothing else moves: live state and the mirror keep their generation. Every executed stage is still a cursor stop.
+2. **A payload** → its names are read first, so a stamp that cannot be read fails the commit before anything moves; then its raw rows build live state's next generation, `scrubPatch` puts `'REDACTED'` at each redacted path that holds a value (in a spine copy, never in the raw patch), and the mirror and the log take the scrubbed rows — never the raw ones.
+3. **The key order is the record's bytes:** `overwrite`, `updates`, `redactedPaths`, `trace`, `stage`, `stageId`, `runtimeStageId`, then `untrackedSources`, `tags` and `phase`, each only when it has something to say (absent, never empty), and `idx`, appended by `EventLog · record`.
+
+Before C1 the frame shaped these bytes itself (`StageContext · bundleFor` and the commit tail), so nothing below the engine's frame could write a record. The move is byte-identical. It is the first of the steps (C1–C6) that move the record half of a frame into the record layer.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const executor = new FlowChartExecutor(
+  flowChart('Seed', (scope: any) => {
+    scope.card = { number: '4242', owner: 'Ada' };
+  }, 'seed')
+    .addFunction('Look', (scope: any) => {
+      if (!scope.card) throw new Error('no card'); // a read only: nothing staged
+    }, 'look')
+    .tag('audit')
+    .build(),
+);
+executor.setRedactionPolicy({ fields: { card: ['number'] } });
+await executor.run();
+
+const { commitLog, sharedState } = executor.getSnapshot();
+const [seed, look] = commitLog;
+Object.keys(seed); // ['overwrite', 'updates', 'redactedPaths', 'trace', 'stage', 'stageId', 'runtimeStageId', 'idx']
+seed.overwrite.card; // { number: 'REDACTED', owner: 'Ada' } — the log takes the scrubbed rows (law 2)
+sharedState.card; // { number: '4242', owner: 'Ada' } — live state takes the raw ones
+look.trace; // [] — the empty commit, still a stop (law 1)
+look.tags; // ['audit'] — after `runtimeStageId`, present because the stage declares one (law 3)
+```
+
 ---
 
 ### 4. StageContext — "The Stack Frame"
 
 Per-stage execution context. Wraps SharedMemory with a TransactionBuffer and provides tree navigation.
 
-**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, three things happen together: (1) patches are applied to SharedMemory, (2) the commit is recorded to EventLog, and (3) the write trace is logged to diagnostics. This triple-write is what makes traces connected — the execution, the history, and the diagnostics all stay in sync without the stage author thinking about it.
+**Why it connects to the main goal:** The stage context is where *execution* meets *recording*. When a stage calls `commit()`, the frame takes its retained writes and runs its dev-mode checks, then hands the record's half to `recordCommit` ([above](#3-eventlog--git-history)) — patches applied to SharedMemory, scrubbed for the mirror, recorded to EventLog — and finally tells the commit observer. That one call is what makes traces connected — the execution and the history stay in sync without the stage author thinking about it.
 
 **Why does this exist? Why not hand stages a TransactionBuffer directly?** Because a stage needs more than read/write:
 
 - **Namespace scoping** — Stage writes `result`, it lands at `runs/{id}/result`. The stage doesn't know about namespacing.
 - **Tree structure** — Stages form a tree (next, children, parent). The engine traverses this tree for execution. Snapshots capture the full shape.
-- **Commit orchestration** — The triple-write (SharedMemory + EventLog + DiagnosticCollector) happens inside `commit()`. If stages managed this themselves, someone would forget to record history and the trace would have a gap.
+- **Commit orchestration** — `commit()` runs the record's half (`recordCommit`: SharedMemory + mirror + EventLog) between the frame's own steps. If stages managed this themselves, someone would forget to record history and the trace would have a gap.
 
 ```typescript
 const ctx = new StageContext('run-1', 'validate', 'validate', sharedMemory, '', eventLog);
@@ -319,11 +352,14 @@ The full flow for a single stage:
    (before any write: reads go straight to SharedMemory — zero clones, borrowed)
 
 5. Stage finishes → engine calls ctx.commit():
-   a. TransactionBuffer.commit()  → returns { overwrite, updates, trace }
+   a. the frame's half             → retained writes taken, dev-mode checks run
+   b. TransactionBuffer.commit()   → returns { overwrite, updates, redactedPaths, trace }
       (no buffer = stage never wrote → empty bundle recorded, zero clones)
-   b. SharedMemory.applyPatch()   → the next generation: written paths copied, the rest shared (visible to next stage)
-   c. EventLog.record()           → history recorded (replayable)
-   d. DiagnosticCollector.addLog() → trace logged (debuggable)
+   c. recordCommit()               → the record's half (recordCommit.ts):
+      SharedMemory.applyPatch()    → the next generation: written paths copied, the rest shared (visible to next stage)
+      scrubPatch() + mirror        → 'REDACTED' at redacted paths, applied to the redacted mirror
+      EventLog.record()            → history recorded in the bundle's one key order, frozen (replayable)
+   d. commit observer              → ScopeRecorder.onCommit; staging state released
 
 6. Next stage gets a fresh StageContext → same SharedMemory, fresh (lazy) buffer
 ```
@@ -551,11 +587,12 @@ Adding a code is one new line in `HONESTY_CODES`. A union declared through `Regi
 ```
 This library has ZERO dependencies on other footprint libraries.
 
-  StageContext
-  /     |     \
-SharedMemory  TransactionBuffer  DiagnosticCollector
-  \     |
-  EventLog
+  StageContext (L4) — the frame; it also holds SharedMemory, EventLog and the RedactionRule itself
+     |               \                       \
+  recordCommit (L3)   TransactionBuffer (L2)   DiagnosticCollector (L4)
+     |   one commit onto the record: SharedMemory.applyPatch · scrubPatch (redaction, L2) · mirror · EventLog.record
+     |
+  SharedMemory (L2) · EventLog (L3)
     |
   verbs (applyVerb, foldRows, foldKey — the one verb law; applySmartMerge, nextGeneration, dryFold)
     |

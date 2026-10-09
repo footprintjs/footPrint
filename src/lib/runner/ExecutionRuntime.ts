@@ -135,8 +135,8 @@ export type RuntimeSnapshot = {
 export class ExecutionRuntime {
   public globalStore: SharedMemory;
   /**
-   * Parallel redacted mirror of `globalStore`. Populated during traversal via
-   * `StageContext.commit()` using the already-computed redacted patches.
+   * Parallel redacted mirror of `globalStore`. Populated by every commit that
+   * staged a write (`memory/recordCommit.ts · recordCommit`), with the already-computed redacted patches.
    * Only exists when the run's policy keeps a mirror (`RunPolicy.mirror` —
    * `FlowChartExecutor` sets it when a `RedactionPolicy` is configured).
    * Otherwise undefined and zero cost.
