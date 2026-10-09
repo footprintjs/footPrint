@@ -12,7 +12,7 @@
 - **The safety net is in place.** The consumer audit (#60) runs seven consumers against every release candidate. The byte fixtures (#61) pin 26 flowchart records and hcifootprint's real transitions. A step that moves a byte or breaks a consumer cannot merge.
 - **"Ready" is measured.** Six numbers are printed in every release PR (section 8). The two main ones: no record file reaches the engine, and at least 70% of the record's tests run without the engine (35% today).
 - **Versions.** foottrace starts at 1.0.0. footprintjs takes a major (10.0.0) for the move. A minor that removes the readers from `footprintjs/trace` would break every published consumer on a fresh install. Consumers move first, with ranges that accept footprintjs 9 or 10, so footprintjs's major forces none of them into a major of its own.
-- **Owner decisions approved (2026-10-09):** foottrace in its own repository, footprintjs 10.0.0 at extraction, co-change reported but not a gate, no `/testing` kit, one vizfootprint migration PR, and the record-bytes policy (section 10).
+- **Owner decisions approved (2026-10-09):** foottrace in its own repository with three doors (`.`, `/write`, `/paths`), footprintjs 10.0.0 at extraction, co-change reported but not a gate, no `/testing` kit, one vizfootprint migration PR, and the record-bytes policy (section 10). Dangerous-selector hardening is a separate named change before the mechanical extraction.
 
 ## 1. The layers, before and after
 
@@ -33,8 +33,8 @@ BEFORE — footprintjs 9.44: one package; the record is L0–L3 inside it
 
 AFTER — footprintjs 10 + foottrace 1
  footprintjs 10                                     foottrace 1 (zero runtime dependencies)
- L8  doors  .  /advanced  /recorders  /trace*       doors:  .  (readers + record types)   /write  (the record layer)
-            /detach  /zod
+ L8  doors  .  /advanced  /recorders  /trace*       doors:  .  (readers, record types + runtime-ID grammar)
+            /detach  /zod                                /write  (record writers)   /paths  (record-path helpers)
  L7  builder + executor                             L3  RecordFrame, recordCommit, EventLog, logModel,
  L6  engine                                             commitLogUtils, backtrack, slice/, time-travel/, CommitRangeIndex
  L5  scope, recorders, hooks                        L2  TransactionBuffer, admission, deltaEncoding, SharedMemory, scrub
@@ -74,6 +74,8 @@ AFTER — footprintjs 10 + foottrace 1
 6. **Law and review.** The folder's README states the step's law with an example. CLAUDE.md's map follows when a seam moves. One focused reviewer also checks that moved code has tests of its own (risk 5).
 
 **Releases.** One step, one release, before the next step starts. An internal-only change is a patch. Anything a consumer can see on a door, `/advanced` included, is a minor. footprintjs takes a major only at E6. The version numbers below assume nothing else ships in between; the patch-or-minor kind is the rule.
+
+**Separate security change.** Before mechanical extraction, harden dangerous selectors in `setNestedValue` and `updateNestedValue` as a named behavior change with its own contract, adversarial tests and release note. Approval of the new `/paths` door is not a claim that this hardening already exists. Any record-byte effects remain subject to the fixtures' policy (7.4); extraction itself neither changes nor re-pins bytes.
 
 **Door changes.** No shims. Before E6, **no symbol leaves any door, `/advanced` included** (changed during C5, 2026-10-09). The published consumers hold caret ranges (`^9.44.1`), so a minor that drops a name is installed under them automatically and breaks every fresh install of a consumer already on npm; the consumer audit runs the consumers' `main` branches, not their published releases, so it cannot see that. C5 found two: hcifootprint 2.6.1 and agentfootprint 9.141.0 import record names from `/advanced`. So a move ADDS the new door and keeps the old one — the same symbol on two doors, no forwarder — as a second door marked `keptUntil: '10.0.0'` in `test/architecture/exports.test.ts`; every removal waits for E6. `test/architecture/published-doors.test.ts` fails on any name the last published release hands out that a door no longer does. A consumer that moves to a new door migrates in the same train: the footprintjs PR points that consumer's `branch` in `scripts/family.json` at its migration branch (with `fallback: false`, since that branch cannot build on the published footprintjs), the audit proves the pair, and the entry returns to `main` once both have merged.
 
@@ -125,7 +127,7 @@ AFTER — footprintjs 10 + foottrace 1
 - **Door hygiene, same release — moves only; the removals wait for E6.** Each record symbol gets its record door, and `/advanced` keeps every name it handed out (section 4, "Door changes": published consumers hold caret ranges):
   - `CommitBundle`, `TraceEntry`, `MemoryPatch` and `applySmartMerge` get `/trace` as their canonical door; `SharedMemory` and `EventLog` get `/write`. Their `/advanced` doors stay until 10.0.0.
   - The nine `/advanced` second doors of `/trace` names (`ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments`) stay until 10.0.0. With the six moves they are 15 second doors marked `keptUntil: '10.0.0'`; the standing list is 19.
-  - `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` stay on `/advanced` until 10.0.0, which takes them off the public surface.
+  - `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` stay on `/advanced` until 10.0.0, which removes those footprintjs exports. Under the approved `/paths` adjustment (7.1), `setNestedValue` and `updateNestedValue` continue on `foottrace/paths`; the other seven leave the public surface.
   - `test/architecture/exports.test.ts` expects seven doors and fails if the package reaches 10.0.0 still shipping a `keptUntil` door.
   - Why not remove them now (the first draft of C5 did): published hcifootprint 2.6.1 and agentfootprint 9.141.0 import `buildRuntimeStageId`, `createExecutionCounter` and `applySmartMerge` from `/advanced` and failed to load on that candidate, and their caret ranges would have pulled it in.
 - **Consumers, same train:**
@@ -185,21 +187,21 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 ### E3 — Build foottrace and the extraction branch (no release)
 
-- **Entry gate:** R1, R2, R4, R5 and R6 in section 8 are green, with fresh consumer evidence, and the owner has ruled on section 10. R3 is measured with an explicit list of remaining internals at entry; resolving that list through foottrace's two public doors is E3's work, not a circular prerequisite for starting it.
+- **Entry gate:** R1, R2, R4, R5 and R6 in section 8 are green, with fresh consumer evidence, and the owner has ruled on section 10. The separate dangerous-selector hardening has merged; npm publication is not an additional E3 prerequisite. R3 is measured with an explicit list of remaining internals at entry; resolving that list through foottrace's three public doors is E3's work, not a circular prerequisite for starting it.
 - **The foottrace repository** is created with the moved files' history (`git filter-repo`). It holds:
   - the `RECORD_FILES` and their engine-free tests and READMEs;
   - `docs/guides/record-contract.md` and `examples/post-execution/time-travel/06-bring-your-own-record.ts`;
   - the hcifootprint fixture with its `/write` replay;
-  - its own L0–L3 fence, an `exports.test.ts` for two doors, `honesty-vocabulary.test.ts`;
+  - its own L0–L3 fence, an `exports.test.ts` for three doors (`.`, `/write`, `/paths`), `honesty-vocabulary.test.ts`;
   - CI with the family's packaging gates (publint, attw);
   - a CHANGELOG 1.0.0 that names each symbol's old door.
 - **The footprintjs branch `extract/foottrace`:**
   - deletes the record files and depends on the foottrace candidate;
-  - imports foottrace only through its doors (lint: no `foottrace/*` path except `/write`);
+  - imports foottrace only through its doors (lint: allow exactly `foottrace`, `foottrace/write` and `foottrace/paths`, with no deeper paths);
   - removes the record symbols from its own doors and adds the cross-package rule (7.3);
   - retires the hcifootprint fixture's 2.6.1 frame replay: its JSON moves to foottrace, no consumer writes through the frame after C5, and the 26 flowchart records still pin the frame;
   - rewrites what teaches the old door: 35 example files, 7 docs, the 6 `ai-instructions/` files, 4 `docs-site/` pages and 83 mentions in `src/` comments.
-- **Done when:** R3 is zero (each remaining internal is gone or published on one of foottrace's two doors), foottrace's suite is green with no footprintjs installed, and footprintjs's suite and byte fixtures are green on the branch against the foottrace candidate, with the fixtures unmodified.
+- **Done when:** R3 is zero (each remaining internal is gone or published on exactly one of foottrace's three doors), foottrace's suite is green with no footprintjs installed, and footprintjs's suite and byte fixtures are green on the branch against the foottrace candidate, with the fixtures unmodified.
 
 ### E4 — Publish foottrace 1.0.0
 
@@ -209,7 +211,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 ### E5 — Consumers move, each in a normal release
 
-- **What each does.** Record symbols come from `foottrace` (named imports), and `footprintjs/write` becomes `foottrace/write`. The six `vi.mock`/`vi.doMock('footprintjs/trace')` sites are renamed, and each is shown to still bite: break the mock and its test fails.
+- **What each does.** Readers and record types come from `foottrace`, record-path helpers from `foottrace/paths` (7.5), and `footprintjs/write` becomes `foottrace/write`, all with named imports. The six `vi.mock`/`vi.doMock('footprintjs/trace')` sites move or split to match the actual imported doors, and each is shown to still bite: break the mock and its test fails.
 - **Ranges.** Each adds `foottrace ^1.0.0` (a peer for the Lens, a dependency elsewhere). Each widens its footprintjs range to `<its 9.x floor> || ^10.0.0`. Before releasing, it runs its own checks with E3's footprintjs candidate installed (`npm install --no-save <tgz>`, as the audit does); E6's audit is the final check.
 - **Order:** hcifootprint, agentfootprint, storyreel, the Lens, the playgrounds, vizfootprint (with the owner's go).
 - **Done when:** no audited consumer's `main` imports a record symbol from footprintjs.
@@ -217,7 +219,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### E6 — footprintjs 10.0.0
 
 - **The release.** `extract/foottrace` is rebased and merged. The audit runs every consumer's `main` against the 10.0.0 candidate. The CHANGELOG's "Breaks" section is the symbol map (7.5). The freeze is lifted.
-- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and the nine names that leave the public surface (`TransactionBuffer` … `redactPatch`). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`, and skips `test/architecture/published-doors.test.ts` for its own removals: `scripts/release.sh` runs `npm test` before `npm version`, so the PR and the release gate still run at 9.x, where neither the tripwires nor the test's version-based skip fire. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
+- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and all nine kept-internal names (`TransactionBuffer` … `redactPatch`). All leave footprintjs; `setNestedValue` and `updateNestedValue` continue only on `foottrace/paths`, while the other seven leave the public surface (7.5). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`, and skips `test/architecture/published-doors.test.ts` for its own removals: `scripts/release.sh` runs `npm test` before `npm version`, so the PR and the release gate still run at 9.x, where neither the tripwires nor the test's version-based skip fire. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
 - **After it,** foottrace's own consumer audit runs footprintjs and the family against every foottrace candidate. footprintjs is its first consumer.
 - **Release:** footprintjs **10.0.0** (major), holding nothing but the extraction.
 
@@ -226,10 +228,12 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### 7.1 Name and doors
 
 - **The name:** `foottrace` (approved 2026-10-09). "Trace" is the canon's word (Map · Walker · Trace · Fold · Lens). It was free on npm on 2026-10-08, as were `footrecord` and `foottrail`. Availability must be checked again at publication. `foottrail` stays reserved for vizfootprint's branching core.
-- **`.` reads.** The readers and every record type: the fold, the cursor, the stops, the slices, the causal chain, the key queries, the id grammar, `HONESTY_CODES`, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle` and its family, `CommitValuesMode`, `ExecutionTree` (C6), `EmitSourcePosition`, `LogAddress`.
+- **Three planned doors.** The owner-approved `/paths` adjustment below is an E3 target, not an already-shipped export.
+- **`.` reads.** The readers and record types: the fold, the cursor, the stops, the slices, the causal chain, the key queries, the runtime-ID grammar, `HONESTY_CODES`, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle` and its family, `CommitValuesMode`, `ExecutionTree` (C6), `EmitSourcePosition`, `LogAddress`. The ID grammar's `ids/runtimeStageId.ts · pathSegments` will be published here only as `idPathSegments`, distinct from the record-path helper below.
 - **`/write` writes.** `RecordFrame`, `SharedMemory`, `EventLog`, their option types, `WriteProvenanceMode`, and the log's placeholder.
-- **`/testing`:** not part of extraction (section 10); no third door.
-- **Internals footprintjs needs.** R3 lists the record internals footprintjs's other layers use. Each one disappears in a C step, or E3's review publishes it on one of the two doors under a plain name.
+- **`/paths` handles record paths and nested diagnostic writes.** Its canonical names include record `pathSegments`, `normaliseStateKey`, `nativeGet`, `nativeHas`, `isDeniedSegment`, `setNestedValue` and `updateNestedValue`. Path splitting and the dangerous-key rule share this door with the nested helpers; their distinct existing selector grammars are not unified by extraction. The nested helpers retain their behavior except for the separately reviewed security change (section 4); they do not become record writers. `normaliseStateKey` moves here from the reader door rather than acquiring a second export.
+- **`/testing`:** not part of extraction (section 10); no additional door.
+- **Internals footprintjs needs.** R3 lists the record internals footprintjs's other layers use. Each one disappears in a C step, or E3's review publishes it on exactly one of the three doors under a plain name. `DiagnosticCollector` will use the nested helpers through `/paths`; extraction does not replace their merge law with a new implementation.
 
 ### 7.2 Dependencies
 
@@ -240,7 +244,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### 7.3 One canonical door across packages
 
 - **footprintjs re-exports nothing from foottrace,** whether type or value. `test/architecture/exports.test.ts` gains a rule: a footprintjs door may hand out only symbols declared inside footprintjs, so an alias whose declaration lies in foottrace fails. A footprintjs type may still refer to a foottrace type (`RuntimeSnapshot`'s commit log is `CommitBundle[]`), as long as a foottrace door hands that type out.
-- **foottrace's own `exports.test.ts`** starts with two doors and an empty `SECOND_DOORS`.
+- **foottrace's own `exports.test.ts`** starts with three doors (`.`, `/write`, `/paths`) and an empty `SECOND_DOORS`. Each declaration has one canonical public door; `/paths` names are not convenience re-exports on `.` or `/write`, and `idPathSegments` is not an alias for record `pathSegments`.
 - **The family follows the same rule.** hcifootprint's `src/index.ts` re-exports `CommitBundle` (`export type { CommitBundle } from 'footprintjs/advanced'`). That re-export goes in E5, and its CHANGELOG names it.
 
 ### 7.4 Versions and release order
@@ -251,7 +255,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
   - a named law fix re-pins in a minor, listed under "Record bytes";
   - any other byte change is a major.
 - **footprintjs takes a major, 10.0.0** (recommended). The consumers hold caret ranges on `origin/main`: agentfootprint peer `^9.44.1`, the Lens peer `^9.26.0`, hcifootprint `^9.44.1`, storyreel `^9.27.0`. A 9.x minor without the readers would break every one of them on a fresh install, which is the hcifootprint 2.6.0 failure across the whole family at once. A major lies outside those ranges.
-- **Release order:** 9.44.2 (#62) → C1–C6 (six 9.x releases; hcifootprint 2.7.0 and an agentfootprint release ride in C5's train) → E1 and E2 (a Lens patch) → E3 → foottrace 1.0.0 → the consumers, one release each → footprintjs 10.0.0.
+- **Release order:** 9.44.2 (#62) → C1–C6 (six 9.x releases; hcifootprint 2.7.0 and an agentfootprint release ride in C5's train) → E1 and E2 (a Lens patch) → the separate named dangerous-selector hardening → E3 → foottrace 1.0.0 → the consumers, one release each → footprintjs 10.0.0.
 
 ### 7.5 The symbol map and each consumer's move
 
@@ -259,24 +263,28 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 | Declared in | Today's door | After C5 | After E6 |
 |---|---|---|---|
-| `time-travel/*`, `slice/*`, `memory/{backtrack,commitLogUtils,honesty}.ts`, `ids/runtimeStageId.ts`, `recorder/CommitRangeIndex.ts`, `memory/verbs.ts` (`UnknownVerbError`), `memory/paths.ts` (`pathSegments`) | `/trace` (eight also on `/advanced`) | `/trace` (the eight also on `/advanced` until 10.0.0) | `foottrace` |
+| `time-travel/*`, `slice/*` (except `normaliseStateKey`), `memory/{backtrack,commitLogUtils,honesty}.ts`, `ids/runtimeStageId.ts` (existing public names), `recorder/CommitRangeIndex.ts`, `memory/verbs.ts` (`UnknownVerbError`) | `/trace` (seven also on `/advanced`) | `/trace` (the seven also on `/advanced` until 10.0.0) | `foottrace` |
+| `ids/runtimeStageId.ts`: `pathSegments` (internal ID helper) | none | none | `foottrace` as `idPathSegments` |
+| `memory/paths.ts`: `pathSegments`; `slice/sliceForKey.ts`: `normaliseStateKey` | `/trace` (`pathSegments` also `/advanced`) | same (`/advanced` kept until 10.0.0) | `foottrace/paths` only |
+| `memory/pathOps.ts`: `nativeGet`, `nativeHas`, `isDeniedSegment` | none | none | `foottrace/paths` |
+| `memory/utils.ts`: `setNestedValue`, `updateNestedValue` | `/advanced` | `/advanced` (until 10.0.0) | `foottrace/paths` |
 | `memory/types.ts`: `CommitBundle`, `TraceEntry`, `MemoryPatch`; `memory/verbs.ts`: `applySmartMerge` | `/advanced` | `/trace` (`/advanced` kept until 10.0.0) | `foottrace` |
 | `memory/types.ts`: `CommitPhase`, `UntrackedSource` | `/trace` (`UntrackedSource` also `/advanced`) | `/trace` (`UntrackedSource` also `/advanced` until 10.0.0) | `foottrace` |
 | `memory/types.ts`: `ExecutionTree` (new in C6, 9.48.0) | — | `/trace` | `foottrace` |
 | `memory/types.ts`: `CommitValuesMode` | `.` | `.` | `foottrace` |
 | `memory/eventPosition.ts`: `EmitSourcePosition`, `LogAddress` | `/recorders` | `/recorders` | `foottrace` |
 | `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` | `/advanced`, or none | `/write` (`SharedMemory`, `EventLog` also `/advanced` until 10.0.0) | `foottrace/write` |
-| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | `/advanced` | `/advanced` (until 10.0.0) | none |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | `/advanced` | `/advanced` (until 10.0.0) | none |
 | `ids/branchSegment.ts`, the stores (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), the Topology, InOut, ControlDep and Quality recorders, `qualityTrace`, `ROOT_RUNTIME_STAGE_ID`, `ROOT_SUBFLOW_ID`, `walkSubflowSpec` | `/trace` | `/trace` | `footprintjs/trace`, unchanged |
 
 | Consumer (`origin/main`, 2026-10-08) | What moves | Watch for |
 |---|---|---|
 | hcifootprint 2.6.1 | C5: the frame route → `/write`; four record symbols `/advanced` → `/trace`. E5: those, `sliceForKey`, `keysReadFromMap`, `formatSlice` (src) and `arrayProvenance`, `causalChain`, `commitValueAt`, `formatCausalChain` (tests) → `foottrace` | Drop its `CommitBundle` re-export. `evaluateFilter`, `FilterCondition` and `normalizeSchema` are not record symbols and stay on `/advanced` |
-| agentfootprint 9.140.0 | C5: `CommitBundle`, `applySmartMerge` → `/trace`; `SharedMemory` (test helper) → `/write`. E5: 45 of its 51 `/trace` symbols, and `CommitValuesMode` (main door) → `foottrace`. The six stores, recorders and roots stay | `vi.mock('footprintjs/trace')` in `test/lib/time-travel/milestone-stops-contract.test.ts` and `served-view-complexity.test.ts`, and the example in `src/lib/time-travel/README.md` |
-| agentfootprint-lens 0.72.1 | E2: named imports. E5: 21 of its 28 `/trace` symbols → `foottrace`. `KeyedStore`, `SequenceStore`, the Topology types, `walkSubflowSpec` and `WalkerItem` stay | `src/react/Lens.degraded-peer.test.tsx` and `test/context/firstSegment.test.ts` mock `'footprintjs/trace'`. Add a peer on foottrace |
+| agentfootprint 9.140.0 | C5: `CommitBundle`, `applySmartMerge` → `/trace`; `SharedMemory` (test helper) → `/write`. E5: 45 of its 51 `/trace` symbols → foottrace's reader/path doors per the map above; `CommitValuesMode` (main door) → `foottrace`. The six stores, recorders and roots stay | `vi.mock('footprintjs/trace')` in `test/lib/time-travel/milestone-stops-contract.test.ts` and `served-view-complexity.test.ts`, and the example in `src/lib/time-travel/README.md` |
+| agentfootprint-lens 0.72.1 | E2: named imports. E5: 21 of its 28 `/trace` symbols → foottrace's reader/path doors per the map above (`pathSegments` → `foottrace/paths`). `KeyedStore`, `SequenceStore`, the Topology types, `walkSubflowSpec` and `WalkerItem` stay | `src/react/Lens.degraded-peer.test.tsx` and `test/context/firstSegment.test.ts` mock `'footprintjs/trace'`. Add a peer on foottrace |
 | footprint-storyreel 0.11.0 | Tests only: `sliceForKey`, `keysReadFromExecutionTree`, `sliceToJSON`, `formatSlice` → `foottrace` | none |
 | vizfootprint (unpublished) | `sliceForKey`, `keysReadFromExecutionTree`, `sliceToJSON` → `foottrace` | Paused by the owner; `vi.doMock` in `src/why/resolvers.coverage.test.ts` |
-| footprint-playground, agent-playground | `src/runner/executeCode.ts` hands `footprintjs/trace` to user code as a namespace; it also hands `foottrace`, and the tutorials are updated | The namespace use is deliberate |
+| footprint-playground, agent-playground | `src/runner/executeCode.ts` hands `footprintjs/trace` to user code as a namespace; it also exposes foottrace's three doors under their package import names, and the tutorials are updated | The namespace use is deliberate |
 
 Outside the audit, four apps import `/trace` or `/advanced`: neo-agentfootprint (exact 9.27.0), neo-seo-local (9.44.0), agentfootprint-aasc-demo (9.43.0) and visible-reasoning (`^9.11.0`). They keep working on 9.x and move when they adopt 10.
 
@@ -317,7 +325,7 @@ E3 starts when R1, R2, R4, R5 and R6 are met. R3 must be reported at entry and r
 
 ## 10. Owner decisions approved (2026-10-09)
 
-The owner approved all seven recommendations, as recorded in the takeover handoff dated 2026-10-09. These are decisions, not questions to ask again.
+The owner approved the original seven recommendations, as recorded in the takeover handoff dated 2026-10-09, and then the `/paths` adjustment below. These are decisions, not questions to ask again.
 
 1. **The name:** `foottrace`.
 2. **footprintjs at extraction:** the major, **10.0.0**. A minor breaks every published consumer whose caret admits it.
@@ -326,6 +334,7 @@ The owner approved all seven recommendations, as recorded in the takeover handof
 5. **The repository:** its own repo, `footprintjs/foottrace` (the family stays polyrepo, ruling of 2026-06-22). Repository creation and npm trusted-publisher setup remain operational prerequisites for publication, not blockers for E1.
 6. **vizfootprint's E5 change:** the one migration PR (three symbols and one mock) is allowed while its other work stays paused.
 7. **The bytes policy** (`test/fixtures/README.md`): adopted as foottrace's promise, unchanged.
+8. **Three doors:** readers and runtime-ID grammar on `.`, record writers on `/write`, record-path and nested diagnostic helpers on `/paths`, with one public door per declaration (7.1–7.5). Dangerous-selector hardening is a separate named change before mechanical extraction, not a guarantee supplied by the planned door.
 
 ## Appendix — how the numbers were counted (2026-10-08)
 

@@ -15,7 +15,7 @@
  * Zero external dependencies.
  */
 
-import { nativeGet as _get, nativeHas as _has, nativeSet as _set } from './pathOps.js';
+import { isDeniedSegment, nativeGet as _get } from './pathOps.js';
 import { DELIM } from './paths.js';
 import type { MemoryPatch } from './types.js';
 
@@ -60,6 +60,30 @@ function pathUnder(address: readonly string[], path: readonly (string | number)[
 }
 
 /**
+ * Refuse the WHOLE selector before creating a container or copying a generation.
+ * The address's array contract is checked even when another selector is denied.
+ * Payload keys are data, not selectors, and are deliberately not inspected.
+ * @internal Shared by the nested writers and SharedMemory's pre-copy boundary.
+ */
+export function isDeniedWritePath(
+  address: readonly string[] = [],
+  path: readonly (string | number)[] = [],
+  field: string | number,
+): boolean {
+  const prefix = addressOf(address);
+  return prefix.some(isDeniedSegment) || path.some(isDeniedSegment) || isDeniedSegment(field);
+}
+
+/** Keep existing own-property behavior; a missing slot must not call an inherited setter. */
+function setOwnValue(object: NestedObject, key: string | number, value: unknown): void {
+  if (Object.prototype.hasOwnProperty.call(object, key)) {
+    object[key] = value;
+  } else {
+    Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
+  }
+}
+
+/**
  * The container at `address` + `path` inside `obj`, each missing one created
  * on the way: the one AT the address from `defaultValues` when given, every
  * other one empty. The one walk both nested writers share.
@@ -75,7 +99,7 @@ function containerAt(
   for (let i = 0; i < segments.length; i++) {
     const key = segments[i];
     if (!Object.prototype.hasOwnProperty.call(current, key)) {
-      current[key] = i === address.length - 1 && defaultValues ? defaultValues : {};
+      setOwnValue(current, key, i === address.length - 1 && defaultValues ? defaultValues : {});
     }
     current = current[key];
   }
@@ -84,6 +108,7 @@ function containerAt(
 
 /**
  * Sets a value at a nested path under `address`, creating intermediate objects as needed.
+ * A denied address/path/field leaves `obj` unchanged, including its prototype.
  */
 export function setNestedValue<T>(
   obj: NestedObject,
@@ -93,12 +118,14 @@ export function setNestedValue<T>(
   value: T,
   defaultValues?: unknown,
 ): NestedObject {
-  containerAt(obj, address, path, defaultValues)[field] = value;
+  if (isDeniedWritePath(address, path, field)) return obj;
+  setOwnValue(containerAt(obj, address, path, defaultValues), field, value);
   return obj;
 }
 
 /**
- * Deep-merges a value into the object at a nested path under `address`.
+ * Updates a value in the object at a nested path under `address`.
+ * A denied address/path/field leaves `obj` unchanged, including its prototype.
  * - Arrays: concatenate
  * - Objects: shallow merge at each level
  * - Primitives: replace
@@ -111,6 +138,7 @@ export function updateNestedValue<T>(
   value: T,
   defaultValues?: unknown,
 ): any {
+  if (isDeniedWritePath(address, path, field)) return obj;
   updateValue(containerAt(obj, address, path, defaultValues), field, value);
   return obj;
 }
@@ -131,18 +159,19 @@ export function updateNestedValue<T>(
  * The fix is the explicit `value.length === 0` early-return branch.
  */
 export function updateValue(object: any, key: string | number, value: any): void {
+  if (isDeniedSegment(key)) return;
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      object[key] = value; // clear: [] replaces whatever was there
+      setOwnValue(object, key, value); // clear: [] replaces whatever was there
     } else {
-      const cur = object[key] as any;
-      object[key] = cur === undefined ? value : [...cur, ...value];
+      const cur = Object.prototype.hasOwnProperty.call(object, key) ? object[key] : undefined;
+      setOwnValue(object, key, cur === undefined ? value : [...cur, ...value]);
     }
   } else if (value && typeof value === 'object' && Object.keys(value).length) {
-    const cur = object[key] as any;
-    object[key] = cur === undefined ? value : { ...cur, ...value };
+    const cur = Object.prototype.hasOwnProperty.call(object, key) ? object[key] : undefined;
+    setOwnValue(object, key, cur === undefined ? value : { ...cur, ...value });
   } else {
-    object[key] = value;
+    setOwnValue(object, key, value);
   }
 }
 

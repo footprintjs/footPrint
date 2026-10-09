@@ -65,4 +65,27 @@ describe('DiagnosticCollector', () => {
     expect(dc.evalContext).toEqual({});
     expect(dc.flowMessages).toEqual([]);
   });
+
+  describe.each([
+    ['addLog', 'logContext'],
+    ['setLog', 'logContext'],
+    ['addError', 'errorContext'],
+    ['addMetric', 'metricContext'],
+    ['setMetric', 'metricContext'],
+    ['addEval', 'evalContext'],
+    ['setEval', 'evalContext'],
+  ] as const)('%s uses the shared nested-write guard', (method, bag) => {
+    it.each(['__proto__', 'constructor', 'prototype'])('refuses %s without changing the bag', (name) => {
+      const dc = new DiagnosticCollector();
+      const original = dc[bag];
+      dc[method](name, { diagnosticProbe: true });
+      dc[method]('entry', { diagnosticProbe: true }, ['missing', name]);
+      expect(dc[bag]).toBe(original);
+      expect(dc[bag]).toEqual({});
+      expect(Object.getPrototypeOf(dc[bag])).toBe(Object.prototype);
+      expect(Object.hasOwn(Object.prototype, 'diagnosticProbe')).toBe(false);
+      dc[method]('safe', [1, 1]);
+      expect(dc[bag].safe).toEqual([1, 1]);
+    });
+  });
 });

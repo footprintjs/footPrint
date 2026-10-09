@@ -21,7 +21,14 @@
 
 import { mergeContextWins, ownedRootOf, ownSpine } from './pathOps.js';
 import type { MemoryPatch, TraceEntry } from './types.js';
-import { getNestedValue, getRunAndGlobalPaths, nextGeneration, setNestedValue, updateNestedValue } from './utils.js';
+import {
+  getNestedValue,
+  getRunAndGlobalPaths,
+  isDeniedWritePath,
+  nextGeneration,
+  setNestedValue,
+  updateNestedValue,
+} from './utils.js';
 
 export class SharedMemory {
   private context: { [key: string]: any } = {};
@@ -47,6 +54,7 @@ export class SharedMemory {
   /** Updates a value at `address` + `path` using merge semantics, as a new generation (path copy + swap). */
   updateValue(address: readonly string[], path: string[], key: string, value: unknown) {
     const next = this.ownedPathTo(address, path, key);
+    if (next === undefined) return;
     updateNestedValue(next, address, path, key, value, this.getDefaultValues());
     this.context = next;
   }
@@ -54,6 +62,7 @@ export class SharedMemory {
   /** Sets a value at `address` + `path` using overwrite semantics, as a new generation (path copy + swap). */
   setValue(address: readonly string[], path: string[], key: string, value: unknown) {
     const next = this.ownedPathTo(address, path, key);
+    if (next === undefined) return;
     setNestedValue(next, address, path, key, value, this.getDefaultValues());
     this.context = next;
   }
@@ -62,7 +71,8 @@ export class SharedMemory {
    * A copy of the current generation's root whose containers on the way to
    * `key` are owned — the in-place helpers above then edit only copies.
    */
-  private ownedPathTo(address: readonly string[], path: string[], key: string): { [key: string]: any } {
+  private ownedPathTo(address: readonly string[], path: string[], key: string): { [key: string]: any } | undefined {
+    if (isDeniedWritePath(address, path, key)) return undefined;
     const owned = new WeakSet<object>();
     const root = ownedRootOf(this.context, owned);
     const { runPath, globalPath } = getRunAndGlobalPaths(address, path);

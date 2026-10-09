@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Nested writes (`setNestedValue`, `updateNestedValue`, and the direct `SharedMemory` setters) refuse an address, path, or final field containing `__proto__`, `constructor`, or `prototype` before creating containers or swapping a generation. Direct `updateValue` refuses the same final fields. Refusal is a no-op, not an exception. The existing dangerous-segment predicate owns the rule. Missing properties are created as own data properties, and an update does not merge inherited values or invoke inherited getters/setters. Existing own-property behavior, duplicate-preserving array concatenation, shallow object merging, empty-value replacement, defaults and payload references remain; these names inside a payload remain data. This corrects a longstanding gap in the nested helpers, not a regression from the address refactor.
+
+### Planned extraction
+
+- The approved `foottrace` extraction now gives path utilities their own canonical `foottrace/paths` entry point, separate from record writers on `/write`. This is a plan change, not a shipped entry point. The helpers still leave `footprintjs/advanced` only in 10.0.0; shared code remains subject to record-byte compatibility checks.
+
 ## [9.48.0] - 2026-10-09
 
 ### Changed — the record names nothing outside itself (C6 of the record-layer clean-up)
