@@ -17,7 +17,6 @@
  *                  and defineProperty of its own and its content-bearing names, writes through a view,
  *                  `transfer()`. Counts the attempts that did not throw
  */
-import v8 from 'node:v8';
 
 import fc from 'fast-check';
 

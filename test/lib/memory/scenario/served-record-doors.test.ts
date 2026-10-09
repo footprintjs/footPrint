@@ -16,6 +16,9 @@
  *             next), `stateAt`, the cursor — is the caller's: editing it changes no later answer
  *   boundary  the pause checkpoint and the dev-mode `sharedState` are fresh copies already
  *   unit      a record freezing seals whole is served as itself: no copy, the same object every time
+ *   edge      what a served copy keeps whatever the shape: an own `"__proto__"` key (as DATA, through
+ *             every door and reader), a part shared by two holders (both copied), one value held by
+ *             150,000 containers (served — no stack overflow — and still copied on the next serve)
  *
  * Not a door of this release (the served-surface law, with the record-frame clean-up C3/C4): a
  * subflow's stored results, the execution tree, recorder rows, `getCheckpoint()` identity, the
@@ -142,7 +145,7 @@ describe('the commit log cannot be edited through what it serves (9.44.2)', () =
     expect(log.materialise().when.getTime()).toBe(5);
   });
 
-  it('the engine’s own read is not served: recorded() is the log’s own array, so the run path copies nothing', () => {
+  it('the engine’s own read is not served: recorded() holds the log’s own bundles, so the run path copies nothing', () => {
     const log = new EventLog({});
     const bundle: CommitBundle = {
       stage: 'S',
@@ -156,7 +159,99 @@ describe('the commit log cannot be edited through what it serves (9.44.2)', () =
     log.record(bundle);
     expect(log.recorded()[0]).toBe(bundle); // the engine's (ExecutionRuntime · getSnapshot, per subflow mount)
     expect(log.list()[0]).not.toBe(bundle); // a reader's: a copy of its open paths
-    expect(log.recorded()).toBe(log.recorded());
+    const held = log.recorded();
+    held.splice(0); // a new array per call: a holder's splice reaches only its own
+    expect(log.recorded()).toHaveLength(1);
+    expect(log.length).toBe(1);
+  });
+});
+
+describe('what a served copy keeps, whatever the record’s shape (9.44.2 final review)', () => {
+  /** A `JSON.parse` payload: its `"__proto__"` is an OWN data key, beside a value freezing cannot seal. */
+  const payload = () => {
+    const user = JSON.parse('{"__proto__": {"isAdmin": true}, "name": "eve"}');
+    user.at = new Date(5);
+    return user as Record<string, unknown>;
+  };
+
+  it('an own "__proto__" key is served as DATA by every door and every reader — never re-parenting the copy', async () => {
+    const expected = recordKey(payload(), 'kind');
+    const chart = flowChart(
+      'Seed',
+      (scope: any) => {
+        scope.$setValue('user', payload());
+      },
+      'seed',
+    ).build();
+    const executor = new FlowChartExecutor(chart, { initialContext: { seed: payload() } });
+    await executor.run();
+    const snap = executor.getSnapshot();
+    const log = snap.commitLog as CommitBundle[];
+    const cursor = timeTravel(snap);
+    const eventLog = new EventLog({});
+    eventLog.record({
+      stage: 'S',
+      stageId: 's',
+      runtimeStageId: 's#0',
+      trace: [{ path: 'user', verb: 'set' }],
+      overwrite: { user: payload() },
+      updates: {},
+      redactedPaths: [],
+    });
+    const served: Record<string, unknown> = {
+      commitLog: log[0].overwrite.user,
+      initialState: snap.initialState!.seed,
+      'EventLog.list()': eventLog.list()[0].overwrite.user,
+      stateAt: stateAt(snap, 0).state.user,
+      commitValueAt: commitValueAt(log, 0, 'user'),
+      cursor: cursor.stateAt(cursor.stops[cursor.stops.length - 1]).state.user,
+    };
+    for (const [door, value] of Object.entries(served)) {
+      const v = value as Record<string, unknown>;
+      expect([door, recordKey(v, 'kind')]).toEqual([door, expected]);
+      expect([door, Object.getPrototypeOf(v) === Object.prototype, v.isAdmin]).toEqual([door, true, undefined]);
+    }
+  });
+
+  it('a shared sub-object reached through two keys: an edit through either served holder reaches nothing', async () => {
+    const chart = flowChart(
+      'Seed',
+      (scope: any) => {
+        const meta = { at: new Date(5) };
+        scope.$setValue('order', { created: { by: meta }, updated: { by: meta }, n: 1 });
+      },
+      'seed',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const served = executor.getSnapshot().commitLog[0].overwrite.order as any;
+    served.created.by.at.setTime(0);
+    served.updated.by.at.setTime(1);
+    const again = executor.getSnapshot();
+    const order = again.commitLog[0].overwrite.order as any;
+    expect([order.created.by.at.getTime(), order.updated.by.at.getTime()]).toEqual([5, 5]);
+    expect((stateAt(again, 0).state.order as any).updated.by.at.getTime()).toBe(5);
+    expect((commitValueAt(again.commitLog, 0, 'order') as any).created.by.at.getTime()).toBe(5);
+  });
+
+  it('one value held by 150,000 containers: getSnapshot completes, and every later serve still copies', async () => {
+    const chart = flowChart(
+      'Seed',
+      (scope: any) => {
+        const meta = { at: new Date(5) };
+        scope.$setValue('rows', new Array(150_000).fill(meta));
+      },
+      'seed',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    // 39d7e270: RangeError here — and the serve after it handed out the log's own bundle
+    const first = executor.getSnapshot();
+    (first.commitLog[0].overwrite.rows as Array<{ at: Date }>)[0].at.setTime(0);
+    const again = executor.getSnapshot();
+    expect(again.commitLog[0] === first.commitLog[0]).toBe(false);
+    expect((again.commitLog[0].overwrite.rows as Array<{ at: Date }>)[149_999].at.getTime()).toBe(5);
+    expect((stateAt(again, 0).state.rows as Array<{ at: Date }>)[7].at.getTime()).toBe(5);
   });
 });
 

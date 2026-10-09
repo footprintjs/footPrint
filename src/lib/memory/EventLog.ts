@@ -116,12 +116,14 @@ export class EventLog {
   }
 
   /**
-   * The bundles as the log holds them: its own live array, every bundle frozen, nothing served. For the
-   * engine's own snapshot (`ExecutionRuntime · getSnapshot`, which a subflow mount takes once per mount),
-   * so the run serves nothing; a reader is served by `list()` and `getSnapshot().commitLog`.
+   * @internal The bundles as the log holds them — each frozen, NOT served — in a new array, so a holder's
+   * `splice` reaches only its own. For the engine's own snapshot (`ExecutionRuntime · getSnapshot`, which
+   * a subflow mount takes once per mount), so the run serves nothing; a reader is served by `list()` and
+   * `getSnapshot().commitLog`. A known open door (CHANGELOG 9.44.2): a holder of these bundles can still
+   * edit a Date, Map or buffer inside them.
    */
-  recorded(): readonly CommitBundle[] {
-    return this.steps;
+  recorded(): CommitBundle[] {
+    return this.steps.slice();
   }
 
   /** Number of recorded commits. */

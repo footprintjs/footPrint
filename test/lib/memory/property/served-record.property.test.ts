@@ -14,7 +14,8 @@
  *      this release: the served-surface law, with the record-frame clean-up C3/C4.)
  *
  * Red before 9.44.2 at step 2 whenever the run holds a Date, a Map, a buffer … (the record froze them
- * but served them as they were) — and at step 1 when a `commitValueAt` answer came from the memo.
+ * but served them as they were). It writes and asks TOP-LEVEL keys only, so it does not reach the
+ * `commitValueAt` memo (a nested key folded from a kept generation): served-record-doors pins that.
  */
 import fc from 'fast-check';
 

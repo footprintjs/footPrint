@@ -14,6 +14,7 @@
 import { flowChart, FlowChartExecutor } from '../../../src';
 import { deepFreeze, freezeRecord, serveRecord } from '../../../src/lib/capture/freeze';
 import { createFrozenArgs } from '../../../src/lib/scope/protection/readonlyInput';
+import { recordKey } from '../../helpers/valueKinds';
 
 /** Is `record` served as a copy — does it hold a value freezing cannot seal? */
 const holdsUnsealed = (record: object) => serveRecord(record) !== record;
@@ -250,7 +251,7 @@ describe('freezeRecord / serveRecord — the open paths, iteratively (9.44.2)', 
     expect(serveRecord(second).wrap.shared.when.getTime()).toBe(5);
   });
 
-  it('sharing and cycles inside a record are kept in its served copy', () => {
+  it('shared and cyclic containers, and a leaf held twice, stay shared in the served copy', () => {
     const when = new Date(3);
     const node: Record<string, unknown> = { a: when, b: when };
     node.self = node;
@@ -258,6 +259,61 @@ describe('freezeRecord / serveRecord — the open paths, iteratively (9.44.2)', 
     expect(served.node.a).toBe(served.node.b); // one Date, copied once
     expect(served.node.self).toBe(served.node); // the cycle lands on the copy
     expect(served.node.a).not.toBe(when);
+  });
+
+  it('a shared part reached through two holders: BOTH paths are copied, so neither holder is the log’s own', () => {
+    const meta = { at: new Date(5) };
+    const record = freezeRecord({ created: { by: meta }, updated: { by: meta } });
+    const served = serveRecord(record);
+    expect(served.created === record.created).toBe(false);
+    expect(served.updated === record.updated).toBe(false); // the second holder — a `moreHolders` edge
+    expect(served.created.by).toBe(served.updated.by); // the sharing is kept in the copy
+    served.updated.by.at.setTime(0); // the reader's copy, reached through the second holder
+    expect(meta.at.getTime()).toBe(5);
+    expect(serveRecord(record).created.by.at.getTime()).toBe(5);
+  });
+
+  it('an own "__proto__" key is served as DATA: the copy keeps it and is never re-parented', () => {
+    const user = JSON.parse('{"__proto__": {"isAdmin": true}, "name": "eve"}');
+    user.at = new Date(5); // a value freezing cannot seal puts `user` on an open path
+    const record = freezeRecord({ overwrite: { user } }, 'indices');
+    const served = serveRecord(record).overwrite.user as Record<string, unknown>;
+    expect(served === user).toBe(false);
+    expect(Object.keys(served)).toEqual(['__proto__', 'name', 'at']);
+    expect(Object.getPrototypeOf(served)).toBe(Object.prototype);
+    expect(served.isAdmin).toBeUndefined();
+    expect(recordKey(served, 'kind')).toBe(recordKey(user, 'kind'));
+  });
+
+  it('a value held by 150,000 containers: the serve completes, and the next serve still copies', () => {
+    const meta = { at: new Date(5) };
+    const record = freezeRecord({ rows: new Array(150_000).fill(meta) }, 'indices');
+    const served = serveRecord(record); // a spread of every holder overflowed the stack at ~120,000
+    expect(served === record).toBe(false);
+    (served.rows[0] as { at: Date }).at.setTime(0);
+    const again = serveRecord(record);
+    expect(again === record).toBe(false);
+    expect((again.rows[149_999] as { at: Date }).at.getTime()).toBe(5);
+    expect(meta.at.getTime()).toBe(5);
+  });
+
+  it('a serve whose mapping throws leaves the record open: the next serve maps again, never hands out the record', () => {
+    let reads = 0;
+    const when = new Date(5);
+    const holder = {};
+    Object.defineProperty(holder, 'when', {
+      enumerable: true,
+      get: () => {
+        reads++; // read 1: the freeze walk; read 2: the first serve's mapping
+        if (reads === 2) throw new Error('flaky read');
+        return when;
+      },
+    });
+    const record = freezeRecord({ holder }); // a hand-built record — the engine's own never holds an accessor
+    expect(() => serveRecord(record)).toThrow('flaky read');
+    const served = serveRecord(record);
+    expect(served === record).toBe(false); // 39d7e270 dropped the flag before mapping: the record itself
+    expect(served.holder.when === when).toBe(false);
   });
 
   it('a view over a SLICE of a bigger buffer (a Node Buffer and its pool) keeps only the bytes it views', () => {

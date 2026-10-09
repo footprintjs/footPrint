@@ -195,7 +195,6 @@ function compact(container: object, key: string | number, child: ArrayBufferView
  * any other holder (a shared part, a cycle) in a second, made only when there is one.
  */
 function mapOpenPaths(root: object): void {
-  OPEN.delete(root); // set again below when a value freezing cannot seal is reachable from it
   const holder = new Map<object, object>();
   let moreHolders: Map<object, object[]> | undefined;
   const leaves: object[] = [];
@@ -220,33 +219,41 @@ function mapOpenPaths(root: object): void {
       else more.push(node);
     }
   }
+  // Marked in THIS map, not by an earlier one: a part another record already mapped still opens
+  // every container of this record on the way to it.
+  const marked = new Set<object>();
   const up: object[] = [];
   const holdersOf = (node: object): void => {
     const first = holder.get(node);
     if (first !== undefined) up.push(first);
     const more = moreHolders?.get(node);
-    if (more !== undefined) up.push(...more);
+    // One push per holder: a spread passes every holder as a call argument, and one object held by
+    // 120,000 containers overflowed the stack.
+    if (more !== undefined) for (let i = 0; i < more.length; i++) up.push(more[i]);
   };
   for (const leaf of leaves) {
-    if (leaf === root) OPEN.set(root, true);
+    if (leaf === root) marked.add(root);
     holdersOf(leaf);
   }
-  // Marked in THIS map, not by an earlier one: a part another record already mapped still opens
-  // every container of this record on the way to it.
-  const marked = new Set<object>();
   while (up.length > 0) {
     const node = up.pop()!;
     if (marked.has(node)) continue;
     marked.add(node);
-    OPEN.set(node, true);
     holdersOf(node);
   }
+  // Only now, the walk done, does the record's flag give way to its map: a mapping that throws leaves
+  // the record flagged, so the next serve maps again — it never hands out the record itself.
+  if (!marked.has(root)) OPEN.delete(root);
+  for (const node of marked) OPEN.set(node, true);
 }
 
 /**
  * The served copy of an open record: its open containers copied (fresh, then frozen, and themselves
  * open — a copy is served by copy again), each value freezing cannot seal copied, every sealed part
- * shared. Iterative; one copy per original, so sharing and cycles are kept.
+ * shared. Iterative; one copy per original, so containers shared or cyclic stay shared in the copy. The
+ * values freezing cannot seal are copied ONE BY ONE: two of them that share a part (an `ArrayBuffer`
+ * and a view of it, an error whose `cause` is another key's Date) come out as separate copies — equal
+ * values, the sharing between them not kept.
  */
 function copyOpenPaths(root: object): object {
   const copies = new Map<object, object>();
@@ -272,10 +279,13 @@ function copyOpenPaths(root: object): object {
     const copy = copies.get(node) as Record<string, unknown>;
     for (const name of Object.keys(node)) {
       const child = (node as Record<string, unknown>)[name];
-      copy[name] =
+      putOwn(
+        copy,
+        name,
         child !== null && typeof child === 'object' && (OPEN.has(child) || isUnsealable(child))
           ? copyOf(child, pending)
-          : child;
+          : child,
+      );
     }
   }
   for (const shell of shells) {
@@ -285,6 +295,19 @@ function copyOpenPaths(root: object): object {
   // A leaf copy is the reader's own; frozen where freezing reaches, as the record's parts are.
   for (const copy of copies.values()) if (!ArrayBuffer.isView(copy)) Object.freeze(copy);
   return out;
+}
+
+/**
+ * `target[name] = value`, as an OWN data property. A key the shell only inherits — an own `"__proto__"`
+ * of the record (`JSON.parse` makes one) — would call the inherited setter and re-parent the copy; it is
+ * defined as data instead, as `memory/merge.ts · mergeGuarded` keeps it.
+ */
+function putOwn(target: Record<string, unknown>, name: string, value: unknown): void {
+  if (!Object.prototype.hasOwnProperty.call(target, name) && Reflect.has(target, name)) {
+    Object.defineProperty(target, name, { value, enumerable: true, writable: true, configurable: true });
+  } else {
+    target[name] = value;
+  }
 }
 
 /** A fresh copy of a value freezing cannot seal. One the clone refuses (hand-built) is served as it is. */
