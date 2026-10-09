@@ -97,7 +97,7 @@ export class EventLog {
   /**
    * Persists a commit bundle for a finished stage, and FREEZES it (see the module doc): the bundle
    * is stamped with its position, then deep-frozen, then appended. The engine hands it a bundle
-   * built for the log alone; a caller of this class (`footprintjs/advanced`) hands over a bundle it
+   * built for the log alone; a caller of this class (`footprintjs/write`) hands over a bundle it
    * will no longer edit — its own object is the one frozen.
    */
   record(bundle: CommitBundle): void {

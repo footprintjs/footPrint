@@ -111,6 +111,67 @@ timeTravel(record, { strategy: tagStops(['milestone:step']) }).stops; // start, 
 The full example, run as an integration test, is
 `examples/post-execution/time-travel/06-bring-your-own-record.ts`.
 
+## Writing a record
+
+A record can be written by hand, as above, or through `footprintjs/write`:
+the record layer the engine itself writes with. There is no wrapper, so a
+record written this way comes from the same code — and the same bytes — as one
+a flowchart wrote, and it keeps the laws above by construction:
+
+| Class | What it is | The laws it keeps |
+|---|---|---|
+| `SharedMemory` | The heap: live state, one generation per commit | — |
+| `EventLog` | The log: the base (a copy of the state it is given) and the bundles, each frozen as it is recorded | 1, 2 |
+| `RecordFrame` | One step: its reads (`read`, and `noteRead` to name a read on the rows), its writes (`write(path, value, verb, scrub?)` at `at(path, key)`), and one `commit` | 3, 4 |
+
+- **One step, one frame, one bundle.** `commit(stampOf)` records the bundle
+  the step staged — the empty bundle when it staged nothing — named by the
+  stamp: `stage`, `stageId`, `runtimeStageId`, and optionally `tags` —
+  names you declare up front (law 6), never a value the step computed.
+- **Addresses are yours to keep unique** (law 5): build them with
+  `buildRuntimeStageId` and one `createExecutionCounter` from
+  `footprintjs/trace`, never reset.
+- **The two dials** are the frame's encoding (`useEncoding`):
+  `commitValues: 'full' | 'delta'` (a grown array is an `append` of its tail
+  under `'delta'`) and `writeProvenance: 'off' | 'reads-prefix'` (each row
+  names the reads noted before it, `readKeys`).
+- **A secret** is written with the bytes of a redaction verdict: the scrub
+  `{ whole: true }` puts `'REDACTED'` in the log at the path, and
+  `{ fields: [...] }` at each field inside the value; the heap keeps the value.
+- **Promised:** `/write`'s names and the bytes they write follow the record
+  fixtures' re-pin policy (`test/fixtures/README.md`): a refactor never moves
+  a byte.
+
+```ts
+import { buildRuntimeStageId, createExecutionCounter, stateAt, tagStops, timeTravel } from 'footprintjs/trace';
+import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+
+const state = new SharedMemory(undefined, { count: 0, items: [] as number[] });
+const log = new EventLog(state.getState()); // the frozen base (law 1)
+const counter = createExecutionCounter(); // execution indices rise, never reset (law 5)
+
+/** One step: a fresh frame, its writes, one commit — one bundle (law 3). */
+function step(stageId: string, write: (frame: RecordFrame) => void, tags?: string[]) {
+  const frame = new RecordFrame(state, log);
+  frame.useEncoding({ commitValues: 'delta', writeProvenance: 'off' });
+  write(frame);
+  frame.commit(() => ({ stage: stageId, stageId, runtimeStageId: buildRuntimeStageId(stageId, counter.value++), tags }));
+}
+
+step('seed', (f) => f.write(f.at([], 'count'), 1, 'set'));
+step('grow', (f) => f.write(f.at([], 'items'), [10], 'set'), ['milestone:step']); // an `append` of [10]
+step('forget', (f) => f.write(f.at([], 'count'), undefined, 'delete'));
+step('idle', () => {}); // wrote nothing: still a bundle, a stop the cursor can stand on
+
+const record = { initialState: log.getInitialState(), commitLog: log.list() };
+stateAt(record, 1).state; // { count: 1, items: [10] }
+stateAt(record, 3).state; // { items: [10] }
+timeTravel(record, { strategy: tagStops(['milestone:step']) }).stops; // start, the `grow` stop, end
+```
+
+The full example, with a redacted write and the readers that read it, is
+`examples/post-execution/time-travel/07-write-a-record.ts`.
+
 ## Enforced by
 
 - `test/lib/time-travel/record-contract.test.ts` — the hand-built record
@@ -120,3 +181,11 @@ The full example, run as an integration test, is
   the cursor with no cast.
 - `test/lib/time-travel/fold-memo.test.ts` — the fold never touches the
   record, and stepping equals a fresh fold at every stop.
+- `test/lib/memory/scenario/write-door-same-bytes.test.ts` — the same steps
+  written through `footprintjs/write` and run as a flowchart give the same
+  commit log, byte for byte, and the readers answer the same on both.
+- `test/fixtures/hcifootprint/hcifootprint-2.6.1.test.ts` — a real
+  producer's stored transitions, replayed through `footprintjs/write`, give
+  the stored bytes.
+- `test/architecture/write-door.test.ts` — `footprintjs/write` names and
+  loads nothing of the engine.

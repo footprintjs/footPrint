@@ -124,6 +124,16 @@
         "default": "./dist/trace.js"
       }
     },
+    "./write": {
+      "import": {
+        "types": "./dist/esm/write.d.ts",
+        "default": "./dist/esm/write.js"
+      },
+      "require": {
+        "types": "./dist/types/write.d.ts",
+        "default": "./dist/write.js"
+      }
+    },
     "./detach": {
       "import": {
         "types": "./dist/esm/detach.d.ts",
@@ -156,6 +166,9 @@
       ],
       "trace": [
         "./dist/types/trace.d.ts"
+      ],
+      "write": [
+        "./dist/types/write.d.ts"
       ],
       "detach": [
         "./dist/types/detach.d.ts"

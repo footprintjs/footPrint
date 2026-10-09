@@ -10,14 +10,15 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 
 ## Architecture — Library of Libraries
 
-`package.json` `exports` has six doors — import from the one that owns the symbol:
+`package.json` `exports` has seven doors — import from the one that owns the symbol:
 
 | Import | What it is for |
 |---|---|
 | `footprintjs` | The main door: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `narrative`, the built-in recorder classes, `interrupt`, and the public types |
 | `footprintjs/recorders` | Recorder factories — `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` — and `CompositeRecorder` |
-| `footprintjs/trace` | Execution tracing: runtimeStageId helpers, commit-log queries (`findCommit`, `findLastWriter`, `causalChain`, `sliceForKey`, `stateAt`, `timeTravel`), the storage primitives (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), `topologyRecorder()` / `inOutRecorder()`, `HONESTY_CODES` |
-| `footprintjs/advanced` | Engine internals (`SharedMemory`, `StageContext`, `FlowchartTraverser`, `ScopeFacade`, scope providers, `SCOPE_METHOD_NAMES`, `ArrayMergeMode`) plus a small hand-picked slice of the trace helpers (`findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `buildRuntimeStageId`) — not all of `trace` |
+| `footprintjs/trace` | Execution tracing: the record's shapes (`CommitBundle`, `TraceEntry`, `MemoryPatch`), runtimeStageId helpers, commit-log queries (`findCommit`, `findLastWriter`, `applySmartMerge`, `causalChain`, `sliceForKey`, `stateAt`, `timeTravel`), the storage primitives (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), `topologyRecorder()` / `inOutRecorder()`, `HONESTY_CODES` |
+| `footprintjs/write` | Writing a record yourself: the record layer the engine writes with — `SharedMemory` (the heap), `EventLog` (the log), `RecordFrame` (one step's frame) and their option types |
+| `footprintjs/advanced` | Engine internals (`StageContext`, `FlowchartTraverser`, `ScopeFacade`, scope providers, `SCOPE_METHOD_NAMES`, `ArrayMergeMode`, the run policy and `RedactionRule`) — none of `trace` or `write` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 

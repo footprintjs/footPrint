@@ -21,7 +21,7 @@ src/lib/
 └── contract/  → I/O schema + OpenAPI
 ```
 
-Entry points (six doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
+Entry points (seven doors): `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (read a finished run) · `footprintjs/write` (write a record yourself) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
 
 ## Key API — TypedScope (Recommended)
 

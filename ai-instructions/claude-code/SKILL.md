@@ -772,14 +772,15 @@ subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflo
 
 ## Package doors and library layout (for contributors)
 
-`package.json` `exports` has six doors — import from the one that owns the symbol:
+`package.json` `exports` has seven doors — import from the one that owns the symbol:
 
 | Import | What it is for |
 |---|---|
 | `footprintjs` | The main door: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `narrative`, the built-in recorder classes, `interrupt`, and the public types |
 | `footprintjs/recorders` | Recorder factories — `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` — and `CompositeRecorder` |
-| `footprintjs/trace` | Reading a finished run: commit-log queries (`causalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `commitStops`), the recorder stores (`KeyedStore`, `SequenceStore`), `HONESTY_CODES` |
-| `footprintjs/advanced` | Engine internals: `SharedMemory`, `StageContext`, `FlowchartTraverser`, scope providers, `SCOPE_METHOD_NAMES` |
+| `footprintjs/trace` | Reading a finished run: the record's shapes (`CommitBundle`), commit-log queries (`causalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `commitStops`), the recorder stores (`KeyedStore`, `SequenceStore`), `HONESTY_CODES` |
+| `footprintjs/write` | Writing a record yourself: `SharedMemory`, `EventLog`, `RecordFrame` — the record layer the engine writes with |
+| `footprintjs/advanced` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, `SCOPE_METHOD_NAMES` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 

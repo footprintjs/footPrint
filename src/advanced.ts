@@ -2,11 +2,15 @@
  * footprintjs/advanced — Low-level internals for custom execution engines and testing.
  *
  * Most users never need this. Use `footprintjs` (main) instead.
- * This entry point exposes `SharedMemory`, `StageContext`, `FlowchartTraverser`,
- * and other primitives that power the engine.
+ * This entry point exposes the engine's frame (`StageContext`), the traverser
+ * (`FlowchartTraverser`), the scope providers and the other primitives that
+ * power the engine. The record has doors of its own: write one with
+ * `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`), read one
+ * with `footprintjs/trace` (`CommitBundle`, `applySmartMerge`, the readers).
  *
  * ```ts
- * import { SharedMemory, StageContext } from 'footprintjs/advanced';
+ * import { StageContext } from 'footprintjs/advanced';
+ * import { SharedMemory } from 'footprintjs/write';
  * ```
  *
  * @module advanced
@@ -21,42 +25,26 @@
  */
 
 // ============================================================================
-// Memory — Low-level transactional state primitives
+// Memory — the engine's frame, its run policy and the redaction verdict
 // ============================================================================
+// The record itself is not here: `SharedMemory`, `EventLog` and `RecordFrame` are on
+// `footprintjs/write`; `CommitBundle`, `TraceEntry`, `MemoryPatch`, `applySmartMerge` and the
+// log readers are on `footprintjs/trace` (C5).
 
 export type {
-  CommitBundle,
   FlowControlType,
   FlowMessage,
-  MemoryPatch,
   ReadSummaryMarker,
   ReadTrackingMode,
   RetentionPolicy,
   StageSnapshot,
-  TraceEntry,
-  UntrackedSource,
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './lib/memory/index.js';
 export type { RedactionVerdict } from './lib/memory/index.js';
-export { SharedMemory } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';
-export { EventLog } from './lib/memory/index.js';
-export { TransactionBuffer } from './lib/memory/index.js';
 export { DiagnosticCollector } from './lib/memory/index.js';
 export { RedactionRule } from './lib/memory/index.js';
-export {
-  applySmartMerge,
-  deepSmartMerge,
-  getNestedValue,
-  getRunAndGlobalPaths,
-  normalisePath,
-  pathSegments,
-  redactPatch,
-  setNestedValue,
-  updateNestedValue,
-  updateValue,
-} from './lib/memory/index.js';
 
 // ============================================================================
 // Builder — Types and internals
@@ -198,11 +186,6 @@ export {
   StageRunner,
   SubflowExecutor,
 } from './lib/engine/index.js';
-
-// Trace utilities — re-exported here for convenience. Canonical path: 'footprintjs/trace'
-export type { ExecutionCounter } from './lib/ids/runtimeStageId.js';
-export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/ids/runtimeStageId.js';
-export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
 // ============================================================================
 // Decide — pure guard evaluation (for custom availability/decision engines)

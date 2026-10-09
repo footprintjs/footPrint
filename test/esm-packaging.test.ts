@@ -28,7 +28,7 @@ describe.skipIf(!built)('ESM packaging', () => {
   });
 
   it('main barrel + every subpath load as TRUE ESM', () => {
-    for (const entry of ['index.js', 'trace.js', 'recorders.js', 'detach.js', 'advanced.js']) {
+    for (const entry of ['index.js', 'trace.js', 'write.js', 'recorders.js', 'detach.js', 'advanced.js']) {
       const path = resolve(esmDir, entry);
       const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path)})`], {
         encoding: 'utf8',
@@ -58,6 +58,29 @@ describe.skipIf(!built)('ESM packaging', () => {
     // These layers must be pruned from a flowChart-only import.
     for (const decl of ['class TopologyRecorder', 'class InOutRecorder', 'class MilestoneNarrativeFlowRecorder']) {
       expect(out, `${decl} should be tree-shaken out of a flowChart-only import`).not.toContain(decl);
+    }
+  });
+
+  it('footprintjs/write bundles the record layer and nothing of the engine', async () => {
+    const { build } = await import('esbuild');
+    const result = await build({
+      stdin: {
+        contents: `import * as write from ${JSON.stringify(resolve(esmDir, 'write.js'))};\nglobalThis.__keep = write;`,
+        resolveDir: esmDir,
+        loader: 'js',
+      },
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'node',
+      treeShaking: true,
+    });
+    const out = result.outputFiles[0]!.text;
+    // esbuild may emit a class as `class X` or `var X = class`: match the declaration either way.
+    const declares = (name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\b`).test(out);
+    for (const name of ['RecordFrame', 'SharedMemory', 'EventLog']) expect(declares(name), name).toBe(true);
+    for (const name of ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule']) {
+      expect(declares(name), `${name} must not ride in with footprintjs/write`).toBe(false);
     }
   });
 });

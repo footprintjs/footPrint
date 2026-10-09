@@ -16,6 +16,7 @@ export default defineConfig({
     '/api/modules/main':      '/footPrint/api/modules/index.html',
     '/api/modules/recorders': '/footPrint/api/modules/recorders.html',
     '/api/modules/advanced':  '/footPrint/api/modules/advanced.html',
+    '/api/modules/write':     '/footPrint/api/modules/write.html',
   },
   integrations: [
     starlight({
@@ -146,6 +147,7 @@ export default defineConfig({
             // Dedicated docs-site page will be reintroduced once the
             // recorder migration is fully documented.
             { label: 'Contract & Self-describing', slug: 'api/contract' },
+            { label: 'footprintjs/write — write a record', slug: 'api/write' },
           ],
         },
         {

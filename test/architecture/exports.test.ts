@@ -1,8 +1,8 @@
 /**
  * Export ownership — every public symbol has ONE canonical barrel.
  *
- * The package has six doors (the keys of package.json `exports`): `.`, `./advanced`,
- * `./recorders`, `./trace`, `./detach`, `./zod`. A symbol that two doors both hand out is two
+ * The package has seven doors (the keys of package.json `exports`): `.`, `./advanced`,
+ * `./recorders`, `./trace`, `./write`, `./detach`, `./zod`. A symbol that two doors both hand out is two
  * things to document, to keep in step and to deprecate; a symbol one door renames is a
  * second door nobody can grep. This test finds every symbol reachable through more than one
  * door — resolving aliases to the declaration, so `export { A as B }` counts — and lets only
@@ -74,24 +74,6 @@ const SECOND_DOORS: SecondDoors[] = [
       'recorder family is documented and versioned at `/recorders`.',
   },
   {
-    canonical: './trace',
-    also: ['./advanced'],
-    symbols: [
-      'ExecutionCounter',
-      'UntrackedSource',
-      'buildRuntimeStageId',
-      'createExecutionCounter',
-      'findCommit',
-      'findCommits',
-      'findLastWriter',
-      'parseRuntimeStageId',
-      'pathSegments',
-    ],
-    why:
-      '`/advanced` re-exports a small hand-picked subset of `/trace` (the runtimeStageId codec and the commit-log readers) for ' +
-      'engine-internals users. It is a subset by choice, not `export *` — new trace symbols do NOT flow through.',
-  },
-  {
     canonical: './recorders',
     also: ['./advanced'],
     symbols: ['AggregatedMetrics', 'StageMetrics'],
@@ -160,7 +142,15 @@ describe('package.json doors', () => {
       if (door === '.') continue;
       expect(pkg.typesVersions['*'][door.slice(2)], `typesVersions for ${door}`).toBeDefined();
     }
-    expect(Object.keys(doors).sort()).toEqual(['.', './advanced', './detach', './recorders', './trace', './zod']);
+    expect(Object.keys(doors).sort()).toEqual([
+      '.',
+      './advanced',
+      './detach',
+      './recorders',
+      './trace',
+      './write',
+      './zod',
+    ]);
   });
 
   it('every door hands out something', () => {
@@ -230,7 +220,7 @@ describe('export ownership', () => {
 
   it('the list is short, and says why for each group', () => {
     expect(SECOND_DOORS.every((g) => g.why.length > 40)).toBe(true);
-    expect(SECOND_DOORS.flatMap((g) => g.symbols).length).toBeLessThanOrEqual(28);
+    expect(SECOND_DOORS.flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
   });
 
   it('no export NAME means two different things across doors', () => {

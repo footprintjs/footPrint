@@ -47,6 +47,7 @@ const KEY_READERS = [
 ];
 
 const NOT_KEY_READERS: Record<string, string> = {
+  applySmartMerge: 'folds ONE bundle onto a state the caller hands it — no key query (an unknown verb throws)',
   BoundaryStateStore: 'a recorder store keyed by runtimeStageId, not a log reader',
   CommitRangeIndex: 'commit-index ranges, no state key',
   ControlDepRecorder: 'a recorder (decider per step), no state key',

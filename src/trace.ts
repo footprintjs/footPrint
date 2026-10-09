@@ -68,9 +68,17 @@ export { pathSegments } from './lib/memory/utils.js';
 
 // The refusal the commit-log readers raise for a row whose verb is not
 // set | merge | append | delete (`commitValueAt`, `arrayProvenance`, and
-// `applySmartMerge` on `/advanced`): a foreign or corrupted log fails loudly,
+// `applySmartMerge` below): a foreign or corrupted log fails loudly,
 // naming the row, instead of being folded as a merge.
 export { UnknownVerbError } from './lib/memory/index.js';
+
+// The record's own shapes — one bundle per executed stage (`CommitBundle`), its
+// rows (`TraceEntry`) and its value patches (`MemoryPatch`) — and the one fold
+// of a bundle onto a state that hands back a fully detached result
+// (`applySmartMerge`, the verb law's public door). On `/advanced` before C5;
+// a record is WRITTEN through `footprintjs/write`. See docs/guides/record-contract.md.
+export type { CommitBundle, MemoryPatch, TraceEntry } from './lib/memory/types.js';
+export { applySmartMerge } from './lib/memory/verbs.js';
 
 // Commit log queries — typed utilities for backtracking.
 // commitValueAt reconstructs the FULL value of a key at a commit index —

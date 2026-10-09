@@ -9,7 +9,7 @@
  * of its open paths (`capture/freeze.ts · serveRecord`): the holder edits only its own copy.
  *
  *   security  per door — `getSnapshot().commitLog`, `.initialState`, `EventLog.list()` on
- *             `footprintjs/advanced` — every mutation a holder can try (test/helpers/valueKinds.ts ·
+ *             `footprintjs/write` — every mutation a holder can try (test/helpers/valueKinds.ts ·
  *             vandalize) lands on its own copy, and the next serve and every reader read the record
  *             as recorded; the engine's own read (`EventLog.recorded()`) is the log itself, unserved
  *   security  a reader's own answer — `commitValueAt` (its memo: an edit of one answer changed the
@@ -26,8 +26,8 @@
  */
 import type { CommitBundle } from '../../../../src';
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
-import { EventLog } from '../../../../src/advanced';
 import { arrayProvenance, commitValueAt, stateAt, timeTravel } from '../../../../src/trace';
+import { EventLog } from '../../../../src/write';
 import { recordKey, vandalize } from '../../../helpers/valueKinds';
 
 /** Every value freezing cannot seal, plus a JSON key beside them. */
@@ -125,7 +125,7 @@ describe('the commit log cannot be edited through what it serves (9.44.2)', () =
     expect(answers(executor)).toBe(before);
   });
 
-  it('EventLog.list() on footprintjs/advanced serves its bundles the same way', () => {
+  it('EventLog.list() on footprintjs/write serves its bundles the same way', () => {
     const log = new EventLog({});
     log.record({
       stage: 'S',

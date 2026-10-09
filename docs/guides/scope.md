@@ -242,7 +242,8 @@ The #1 FootPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setVal
 Protection catches this at runtime:
 
 ```typescript
-import { createProtectedScope, ScopeFacade, StageContext, SharedMemory } from 'footprintjs/advanced';
+import { createProtectedScope, ScopeFacade, StageContext } from 'footprintjs/advanced';
+import { SharedMemory } from 'footprintjs/write';
 
 class ConfigScope extends ScopeFacade {
   declare config: Record<string, unknown>;

@@ -4,11 +4,13 @@
  * The flowchart pattern for backend code.
  * Build → Run → Observe.
  *
- * **Three import paths:**
+ * **The common import paths:**
  * ```ts
  * import { flowChart, decide, narrative } from 'footprintjs';           // main — start here
  * import { metrics, debug, manifest }     from 'footprintjs/recorders'; // recorder factories
- * import { SharedMemory, StageContext }   from 'footprintjs/advanced';  // internals
+ * import { stateAt, causalChain }         from 'footprintjs/trace';     // read a finished run
+ * import { RecordFrame, EventLog }        from 'footprintjs/write';     // write a record yourself
+ * import { StageContext }                 from 'footprintjs/advanced';  // engine internals
  * ```
  *
  * @module

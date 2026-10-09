@@ -63,11 +63,12 @@ export function scrubPatch(patch: MemoryPatch, redactedPaths: Iterable<string>):
 }
 
 /**
- * Redacts sensitive values in a patch for logging/debugging — the PUBLIC scrub (`footprintjs/advanced`),
- * its contract unchanged since 4.x: a fresh deep copy of `patch` (`structuredClone`) with
- * {@link LOG_PLACEHOLDER} at every listed path that holds a defined value. Shares nothing with `patch`
- * and never edits it. (It lived in `memory/utils.ts` until 9.33.0 and in `memory/redaction.ts` until
- * C4; the engine's own commit path uses the clone-free {@link scrubPatch}.)
+ * Redacts sensitive values in a patch for logging/debugging — the copying scrub, its contract unchanged
+ * since 4.x: a fresh deep copy of `patch` (`structuredClone`) with {@link LOG_PLACEHOLDER} at every
+ * listed path that holds a defined value. Shares nothing with `patch` and never edits it. (It lived in
+ * `memory/utils.ts` until 9.33.0 and in `memory/redaction.ts` until C4, and was public on
+ * `footprintjs/advanced` until C5, which took it off every door; the engine's own commit path uses
+ * the clone-free {@link scrubPatch}.)
  */
 export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch {
   return scrubPatch(structuredClone(patch), redactedSet);
