@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.48.2] - 2026-10-09
+
+### Security
+
+- Copy-on-write now preserves an own enumerable `__proto__` payload property as data when copying an array or restoring a built-in value's additional properties (for example, a `Date`). Previously, assigning that property to the fresh copy could replace its local prototype and lose the own data field. The issue was reachable through public `SharedMemory` and `RecordFrame` operations; global prototypes were not modified. The existing `putOwn` rule now lives in one private leaf shared by record serving and path copying. Dangerous path selectors remain refused; payload names are not filtered. Ordinary copying, built-in contents and the frozen reference records remain unchanged. Corrected rich-value copies intentionally retain the field that the old code lost. This fixes published 9.x independently of the planned extraction.
+
 ## [9.48.1] - 2026-10-09
 
 ### Security

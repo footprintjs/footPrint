@@ -40,6 +40,7 @@
  * ```
  */
 
+import { putOwn } from './ownData.js';
 import { kindOf, SEALABLE } from './valueKinds.js';
 
 /**
@@ -295,19 +296,6 @@ function copyOpenPaths(root: object): object {
   // A leaf copy is the reader's own; frozen where freezing reaches, as the record's parts are.
   for (const copy of copies.values()) if (!ArrayBuffer.isView(copy)) Object.freeze(copy);
   return out;
-}
-
-/**
- * `target[name] = value`, as an OWN data property. A key the shell only inherits — an own `"__proto__"`
- * of the record (`JSON.parse` makes one) — would call the inherited setter and re-parent the copy; it is
- * defined as data instead, as `memory/merge.ts · mergeGuarded` keeps it.
- */
-function putOwn(target: Record<string, unknown>, name: string, value: unknown): void {
-  if (!Object.prototype.hasOwnProperty.call(target, name) && Reflect.has(target, name)) {
-    Object.defineProperty(target, name, { value, enumerable: true, writable: true, configurable: true });
-  } else {
-    target[name] = value;
-  }
 }
 
 /** A fresh copy of a value freezing cannot seal. One the clone refuses (hand-built) is served as it is. */
