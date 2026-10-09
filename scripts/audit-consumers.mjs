@@ -140,10 +140,15 @@ function leg(spec, dirs, pins, checks, notes) {
   return steps;
 }
 
-/** The rule: a step red on the candidate and green on the published footprintjs blocks. */
-function judge(candidate, published) {
+/**
+ * The rule: a step red on the candidate and green on the published footprintjs blocks. An entry with
+ * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
+ * no published leg to compare with: any red step blocks.
+ */
+function judge(candidate, published, fallback = true) {
   const red = candidate.filter((step) => !step.ok);
   if (red.length === 0) return 'pass';
+  if (!fallback) return candidate[0].ok ? 'BLOCKING' : 'no verdict';
   if (!published?.[0].ok) return 'no verdict';
   const greenThere = new Set(published.filter((step) => step.ok).map((step) => step.key));
   return red.some((step) => greenThere.has(step.key)) ? 'BLOCKING' : 'own failure';
@@ -246,10 +251,11 @@ function audit(entry, ws, ctx, opts) {
   const pins = (entry.registry ?? []).map((pkg) => `${pkg}@${latest(pkg)}`);
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
   result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes);
-  if (result.candidate.some((step) => !step.ok)) {
+  const fallback = entry.fallback !== false;
+  if (fallback && result.candidate.some((step) => !step.ok)) {
     result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes);
   }
-  result.verdict = judge(result.candidate, result.published);
+  result.verdict = judge(result.candidate, result.published, fallback);
   return done();
 }
 
@@ -272,8 +278,11 @@ function report(r, ctx) {
 
   const redOnly = r.candidate.filter((s, i) => !s.ok && r.published?.[i]?.ok).map((s) => s.key);
   const redBoth = r.candidate.filter((s, i) => !s.ok && r.published?.[i] && !r.published[i].ok).map((s) => s.key);
+  const redHere = r.candidate.filter((s) => !s.ok).map((s) => s.key);
   const why = {
-    BLOCKING: `red only on the candidate: ${redOnly.join(', ')}`,
+    BLOCKING: r.published
+      ? `red only on the candidate: ${redOnly.join(', ')}`
+      : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`,
     'own failure': `red on the published footprintjs ${ctx.published} too, so not blocking: ${redBoth.join(', ')}`,
     'no verdict': `could not be audited: ${r.notes.join('; ')}`,
   }[r.verdict];

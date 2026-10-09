@@ -12,9 +12,10 @@ import * as baseline from 'footprintjs-baseline';
 import { describe, expect, it } from 'vitest';
 
 import * as current from '../../../../src';
-import { SharedMemory, StageContext } from '../../../../src/advanced';
+import { StageContext } from '../../../../src/advanced';
 import type { CommitBundle, StageSnapshot } from '../../../../src/lib/memory/types';
 import { commitStops } from '../../../../src/trace';
+import { SharedMemory } from '../../../../src/write';
 
 type Lib = Pick<typeof current, 'flowChart' | 'FlowChartExecutor'>;
 const CURRENT: Lib = current;

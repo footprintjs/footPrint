@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — `footprintjs/write`: the record layer is the public way to write a record (C5 of the record-layer clean-up)
+
+- **Why.** A record — a frozen base and an append-only log of bundles — had no door of its own for a WRITER. A producer that is not a flowchart (hcifootprint's session) borrowed the engine's frame to write one: an `ExecutionRuntime`, a frame from `newRoot` per step, a `ScopeFacade` over it and a `ScopeRecorder` read tap, all from `footprintjs/advanced`. C1–C4 made the record half of the frame one small layer of its own, and the owner ruled that there is no extra wrapper: that layer itself is the API.
+- **The door.** NEW `footprintjs/write` (`src/write.ts`; a seventh `package.json` door, CJS, ESM and types) hands out the classes the engine writes with — `SharedMemory` (the heap), `EventLog` (the log) and `RecordFrame` (one step's frame) — and their option types: `RecordEncoding` (the two dials), `WriteVerb`, `WriteScrub` (a redaction verdict's bytes), `CommitStamp` (the names on a bundle) and `WriteProvenanceMode` (on no door before). One step is one frame and one bundle:
+
+  ```ts
+  import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+
+  const state = new SharedMemory(undefined, { count: 0 });
+  const log = new EventLog(state.getState());
+  const frame = new RecordFrame(state, log); // one step, at the root address
+  frame.useEncoding({ commitValues: 'full', writeProvenance: 'reads-prefix' });
+  const count = frame.read([], 'count') as number;
+  frame.noteRead([], 'count');
+  frame.write(frame.at([], 'count'), count + 1, 'set');
+  frame.write(frame.at([], 'token'), 's3cret', 'set', { whole: true }); // the log shows 'REDACTED'
+  frame.commit(() => ({ stage: 'Sign in', stageId: 'sign-in', runtimeStageId: 'sign-in#0' }));
+  ```
+- **One writer, the same bytes.** `StageContext` composes the same `RecordFrame`, so nothing new writes a record. Pinned:
+  - `test/lib/memory/scenario/write-door-same-bytes.test.ts`: the same steps written through the door and run as a flowchart give the same commit log (as JSON, key order kept) and the same fold base, under both `commitValues` encodings and `'reads-prefix'`, and `stateAt`, `commitValueAt` and `causalChain` answer the same on both;
+  - `test/fixtures/hcifootprint/hcifootprint-2.6.1.test.ts`: hcifootprint 2.6.1's real transitions, replayed through `/write` the way hcifootprint 2.7.0 writes them (the calls its constructor and `#commitDelta` make, with the session's fields replaced by the captured values), give the stored bytes — beside the 2.6.1 replay, with the fixture unmodified.
+- **Engine-free.** Nothing on the door names or loads the engine (`test/architecture/write-door.test.ts`, the "ready to extract" check applied to `/write`): every file `src/write.ts` loads sits at L0–L3, and every type its public signatures reach is declared at L0–L3. `test/esm-packaging.test.ts` loads it as true ESM, and a bundle of it holds `RecordFrame`, `SharedMemory` and `EventLog` and no `StageContext`, `ScopeFacade`, `FlowchartTraverser`, `FlowChartExecutor` or `RedactionRule`.
+- **Promised.** From this release, the writing contract — the members a step uses: the constructors, `useEncoding`, `read`, `noteRead`, `at`, `write`, `commit`, and the reads of the heap and the log — and the bytes they write follow the record fixtures' re-pin policy (`test/fixtures/README.md`): a refactor never moves a byte. The classes' engine-facing members are outside it (the API page names each and why): `SharedMemory · setValue` / `updateValue` (no bundle), `EventLog · clear`, the deprecated `materialise`, the internal `recorded` / `bindAddress`, `RecordFrame · useAddress`.
+- **Docs.** "Writing a record" in `docs/guides/record-contract.md`; the API page `docs-site/.../api/write.mdx` (and `src/trace.ts` and `src/write.ts` in TypeDoc's entry points, so the record's types have a generated page on their own doors); the law with an example in `src/lib/memory/README.md` ("The record layer is the public way to write"); `examples/post-execution/time-travel/07-write-a-record.ts`.
+
+- **The consumer audit can run a migration branch honestly.** A `scripts/family.json` entry may say `fallback: false`: no second leg on the published footprintjs, so any red step blocks (`scripts/audit-consumers.mjs · judge`; `docs/guides/consumer-audit.md`). A same-train migration branch builds only on the candidate, so its published leg is red by construction, and "red on both" would have read a real failure as an `own failure`. For this train hcifootprint and agentfootprint say it.
+
+### Moved (old door kept until 10.0.0) — the record's names have doors of their own (C5)
+
+Each record symbol now has a record door: its shapes and readers on `footprintjs/trace`, its writer on `footprintjs/write`. **Nothing is removed:** a published minor never drops a name — consumers hold caret ranges, and a dropped export breaks every fresh install of a published consumer — so `footprintjs/advanced` keeps handing out every name it handed out before. These are the same symbols on two doors (no forwarder code, no shim); **10.0.0 (the trace extraction, E6) removes the old `/advanced` doors.** New code imports the new path:
+
+| Name | New import (canonical) | Old import, kept until 10.0.0 |
+|---|---|---|
+| `CommitBundle`, `TraceEntry`, `MemoryPatch` (types), `applySmartMerge` | `footprintjs/trace` | `footprintjs/advanced` |
+| `SharedMemory`, `EventLog` | `footprintjs/write` | `footprintjs/advanced` |
+| `ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments` (already canonical there) | `footprintjs/trace` | `footprintjs/advanced` |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | none: 10.0.0 takes them off the public surface. Write through `RecordFrame` (`footprintjs/write`), which stages, nets out, encodes and scrubs at commit (a redaction is a `WriteScrub` on the write); fold a bundle with `applySmartMerge`; read a value with `SharedMemory · getValue` | `footprintjs/advanced` |
+
+- **Pinned.** `test/architecture/exports.test.ts` lists the 15 kept second doors in two groups marked `keptUntil: '10.0.0'` (19 standing second doors besides; seven doors) and the nine kept internals, and fails if the package reaches 10.0.0 still shipping them. NEW `test/architecture/published-doors.test.ts` compares every door against the last published release (`footprintjs-published`, the newest 9.x on npm) and fails on any name a door no longer hands out, or a published value it now hands out only as a type — it lists all 24 against the first draft of this release, which removed them.
+- **The same train:** hcifootprint 2.7.0 writes its sessions through `footprintjs/write` and takes its record types from `footprintjs/trace`; agentfootprint takes `CommitBundle` and `applySmartMerge` from `footprintjs/trace` and its test helper's `SharedMemory` from `footprintjs/write`. Neither imports a name 10.0.0 removes from `/advanced`; the trace extraction's E5 moves them to foottrace before 10.0.0. The consumer audit ran each one's own checks against this candidate, on their migration branches.
+- **Older consumer releases keep working.** Their published releases import names from `/advanced` (hcifootprint 2.6.1: `buildRuntimeStageId`, `createExecutionCounter`; agentfootprint 9.88.0 and later: `applySmartMerge`), and each still loads on this release — checked against the candidate.
+- **Nothing else moves.** No library logic changed — two doors' lists, imports and docs. The record-byte fixtures (`test/fixtures/`) pass unmodified; the clone counts are identical on every `bench/commit-clones.ts` row and the benches are within noise against 9.46.1.
+
 ## [9.46.1] - 2026-10-09
 
 ### Internal — one verdict owner, one encoding owner (C4 of the record-layer clean-up)

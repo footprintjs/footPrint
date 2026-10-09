@@ -10,17 +10,22 @@
     {
       "package": "hcifootprint",
       "repo": "footprintjs/hcifootprint",
-      "branch": "main",
+      "branch": "refactor/c5-write-door",
       "dir": "hcifootprint",
       "published": true,
-      "checks": ["npm run typecheck", "npm test"]
+      "note": "C5 train, temporary: the branch writes through footprintjs/write, which no published footprintjs hands out, so its `prepare` build fails against its lockfile's footprintjs. It installs without scripts and builds against the candidate as its first check. It cannot build on the published footprintjs either, so it has no fallback leg: any red step blocks. Branch, install, checks and fallback return to main and the defaults once footprintjs 9.47.0 and hcifootprint 2.7.0 are out.",
+      "fallback": false,
+      "install": "npm ci --ignore-scripts --no-audit --no-fund",
+      "checks": ["npm run build", "npm run typecheck", "npm test"]
     },
     {
       "package": "agentfootprint",
       "repo": "footprintjs/agentfootprint",
-      "branch": "main",
+      "branch": "refactor/c5-write-door",
       "dir": "agentfootprint",
       "published": true,
+      "note": "C5 train, temporary: the branch takes CommitBundle and applySmartMerge from footprintjs/trace, which no published footprintjs hands out, so it has no fallback leg: any red step blocks. Branch and fallback return to main and the default once footprintjs 9.47.0 and its release are out.",
+      "fallback": false,
       "checks": ["npx tsc --noEmit", "npm run test:types", "npm run build", "npm test"]
     },
     {
@@ -68,18 +73,18 @@
       "branch": "main",
       "dir": "agent-playground",
       "published": false,
-      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
+      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported. --ignore-scripts: as for footprint-playground, it links ../footPrint. C5 train, temporary: the sibling is agentfootprint's migration branch, which builds only against this candidate (it takes CommitBundle and applySmartMerge from footprintjs/trace), so it is built as the first check, after the candidate is swapped in, not in its setup. Its own build and tests are red on main too (an own failure), so it keeps the fallback leg; the sibling build is the step this train adds. Branch, setup and checks return to main and the defaults once footprintjs 9.47.0 and the agentfootprint release are out.",
       "install": "npm ci --ignore-scripts --no-audit --no-fund",
       "siblings": [
         {
           "repo": "footprintjs/agentfootprint",
-          "branch": "main",
+          "branch": "refactor/c5-write-door",
           "dir": "agentfootprint",
-          "setup": "npm ci && npm run build"
+          "setup": "npm ci"
         }
       ],
       "registry": ["agentfootprint-lens", "footprint-explainable-ui"],
-      "checks": ["npm run build", "npm test"]
+      "checks": ["cd ../agentfootprint && npm run build", "npm run build", "npm test"]
     },
     {
       "package": "footprint-explainable-ui",

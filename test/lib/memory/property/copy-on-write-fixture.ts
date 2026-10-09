@@ -41,7 +41,10 @@ import * as baselineTrace from 'footprintjs-baseline/trace';
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 import * as trace from '../../../../src/trace.js';
+import { applySmartMerge } from '../../../../src/trace.js';
+import * as write from '../../../../src/write.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
@@ -186,7 +189,12 @@ export interface Engine {
   TransactionBuffer: any;
 }
 
-function engine(label: string, c: any, a: any, t: any): Engine {
+/**
+ * `w` is where the record classes come from: `/advanced` on 9.28.0; this tree hands the heap and the
+ * log out on `footprintjs/write` (C5), their canonical door, and the buffer only on `/advanced` until
+ * 10.0.0, so the build reads the buffer from its module.
+ */
+function engine(label: string, c: any, a: any, t: any, w: any): Engine {
   return {
     label,
     flowChart: c.flowChart,
@@ -195,17 +203,17 @@ function engine(label: string, c: any, a: any, t: any): Engine {
     stateAt: t.stateAt,
     enableDevMode: c.enableDevMode,
     disableDevMode: c.disableDevMode,
-    SharedMemory: a.SharedMemory,
-    EventLog: a.EventLog,
+    SharedMemory: w.SharedMemory,
+    EventLog: w.EventLog,
     StageContext: a.StageContext,
-    TransactionBuffer: a.TransactionBuffer,
+    TransactionBuffer: w.TransactionBuffer,
   };
 }
 
 /** The published 9.28.0 — the last release before copy-on-write. */
-export const BASELINE = engine('9.28.0', baselineCore, baselineAdvanced, baselineTrace);
+export const BASELINE = engine('9.28.0', baselineCore, baselineAdvanced, baselineTrace, baselineAdvanced);
 /** This tree's `src`. */
-export const BUILD = engine('build', core, advanced, trace);
+export const BUILD = engine('build', core, advanced, trace, { ...write, TransactionBuffer });
 
 // ─── CHART programs (in contract) ────────────────────────────────────────
 
@@ -1266,7 +1274,7 @@ function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
     const read = this.workingCopy;
     const touched = [...new Set<string>(this.opTrace.map((op: { path: string }) => op.path))];
     const payload = commit.call(this);
-    const folded = advanced.applySmartMerge(base, payload.updates, payload.overwrite, payload.trace);
+    const folded = applySmartMerge(base, payload.updates, payload.overwrite, payload.trace);
     const foldsBack = touched.every((path) => agreesAt(folded, read, path.split('\u001f')));
     // `readKeys` left out: the witness judges VALUES. A merge-back's rows hold
     // the read prefix of the frame that staged them, which R13 moved (header

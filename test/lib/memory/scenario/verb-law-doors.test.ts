@@ -5,9 +5,9 @@
  *
  *   (a) ENGINE LOGS — a real run, both `commitValues` encodings, writes only the
  *       four verbs, and every door agrees on it: the whole log folded through
- *       `applySmartMerge` (`footprintjs/advanced`) is the live state,
- *       `commitValueAt` / `arrayProvenance` (`footprintjs/trace`) answer what the
- *       state holds, and nothing throws. This is the "engine-written logs never
+ *       `applySmartMerge` is the live state, `commitValueAt` / `arrayProvenance`
+ *       answer what the state holds (all three on `footprintjs/trace`; the fold
+ *       is also on `/advanced` until 10.0.0), and nothing throws. This is the "engine-written logs never
  *       carry an unknown verb, so every engine run is byte-identical" half of R2.
  *   (b) FOREIGN LOGS — the same log with one row's verb rewritten by a tool that
  *       did not know the contract. Every public replay and reader REFUSES it with
@@ -18,10 +18,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { applySmartMerge } from '../../../../src/advanced';
 import type { CommitBundle } from '../../../../src/lib/memory/types';
 import { isVerb } from '../../../../src/lib/memory/verbs';
-import { arrayProvenance, commitValueAt, stateAt, UnknownVerbError } from '../../../../src/trace';
+import { applySmartMerge, arrayProvenance, commitValueAt, stateAt, UnknownVerbError } from '../../../../src/trace';
 
 type Loose = Record<string, unknown>;
 

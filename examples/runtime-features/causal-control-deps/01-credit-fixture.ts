@@ -28,8 +28,7 @@
 
 import type { ScopeRecorder, TypedScope } from 'footprintjs';
 import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
-import type { CommitBundle } from 'footprintjs/advanced';
-import type { EdgeWeigher } from 'footprintjs/trace';
+import type { CommitBundle, EdgeWeigher } from 'footprintjs/trace';
 import { causalChain, controlDepRecorder, formatCausalChain } from 'footprintjs/trace';
 
 interface LoanState {

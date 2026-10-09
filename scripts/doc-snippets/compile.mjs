@@ -16,7 +16,7 @@ export function checkSnippets(root, units) {
     typeRoots: [resolve(root, 'node_modules/@types')],
     lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'],
     paths: Object.fromEntries(
-      ['index', 'trace', 'advanced', 'recorders', 'zod', 'detach'].map((door) => [
+      ['index', 'trace', 'write', 'advanced', 'recorders', 'zod', 'detach'].map((door) => [
         door === 'index' ? 'footprintjs' : `footprintjs/${door}`,
         [resolve(root, `src/${door}.ts`)],
       ]),

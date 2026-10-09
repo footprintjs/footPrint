@@ -67,7 +67,9 @@ export function scrubPatch(patch: MemoryPatch, redactedPaths: Iterable<string>):
  * its contract unchanged since 4.x: a fresh deep copy of `patch` (`structuredClone`) with
  * {@link LOG_PLACEHOLDER} at every listed path that holds a defined value. Shares nothing with `patch`
  * and never edits it. (It lived in `memory/utils.ts` until 9.33.0 and in `memory/redaction.ts` until
- * C4; the engine's own commit path uses the clone-free {@link scrubPatch}.)
+ * C4; the engine's own commit path uses the clone-free {@link scrubPatch}.) No caller inside the
+ * library: it stays on `footprintjs/advanced` for the consumers that import it until 10.0.0 (the trace
+ * extraction, E6), which takes it off every door.
  */
 export function redactPatch(patch: MemoryPatch, redactedSet: Set<string>): MemoryPatch {
   return scrubPatch(structuredClone(patch), redactedSet);

@@ -1,13 +1,21 @@
 /**
  * hcifootprint 2.6.1's real transitions (./transitions-2.6.1.json), replayed
- * through the calls 2.6.1 makes on the `/advanced` door — its session
- * constructor and `#commitDelta` (src/traverse/session.ts), copied below — must
- * give what they gave on footprintjs 9.44.1, byte for byte: the commit log, the
- * fold base, the state and the reads. How they were captured, and the re-pin
- * policy: ../README.md.
+ * two ways, must give what they gave on footprintjs 9.44.1, byte for byte: the
+ * commit log, the fold base, the state and the reads.
  *
- * Test types: Byte-identity (seven sessions, both encodings) · Contract (the
- * capture holds what it claims).
+ *   - through the calls 2.6.1 makes on the `/advanced` door — its session
+ *     constructor and `#commitDelta` (src/traverse/session.ts), copied below;
+ *   - through `footprintjs/write` (C5), the way hcifootprint 2.7.0 writes the
+ *     same session — the calls its constructor and `#commitDelta` make, copied
+ *     below with the session's fields replaced by the captured values (`open`,
+ *     each write's redact flag, `stage` and `stageId`, which 2.7.0 both takes
+ *     from its stage name): a `SharedMemory`, an `EventLog`, and one
+ *     `RecordFrame` per transition.
+ *
+ * How they were captured, and the re-pin policy: ../README.md.
+ *
+ * Test types: Byte-identity (seven sessions, both encodings, both routes) ·
+ * Contract (the capture holds what it claims).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,6 +25,8 @@ import { describe, expect, it } from 'vitest';
 
 import { ExecutionRuntime, RedactionRule, runPolicy, ScopeFacade } from '../../../src/advanced.js';
 import type { ScopeRecorder } from '../../../src/index.js';
+import type { RecordEncoding, WriteScrub } from '../../../src/write.js';
+import { EventLog, RecordFrame, SharedMemory } from '../../../src/write.js';
 import { pinnedText, revive } from '../bytes.js';
 
 interface Transition {
@@ -81,6 +91,40 @@ function replay({ open, transitions }: CapturedSession) {
   };
 }
 
+/** The whole-value scrub hcifootprint 2.7.0 hands a `redactedKeys` write. */
+const REDACT_WHOLE: WriteScrub = Object.freeze({ whole: true });
+
+/** The same session, written the way hcifootprint 2.7.0 writes it: through `footprintjs/write`. */
+function replayThroughWrite({ open, transitions }: CapturedSession) {
+  // constructor
+  const state = new SharedMemory(undefined, revive(open.initialState));
+  const log = new EventLog(state.getState());
+  const encoding: RecordEncoding = Object.freeze({
+    commitValues: open.commitValues,
+    writeProvenance: open.writeProvenance,
+  });
+  const readsByStep = new Map<string, string[]>();
+  for (const t of transitions) {
+    // #commitDelta (2.6.1's redact flag per write is 2.7.0's `#redacted.has(key)`)
+    const frame = new RecordFrame(state, log);
+    frame.useEncoding(encoding);
+    for (const key of t.reads) frame.noteRead([], key);
+    const filed = t.reads.filter((key) => key !== '');
+    if (filed.length > 0) readsByStep.set(t.runtimeStageId, filed);
+    for (const [key, value, redact] of t.writes) {
+      const scrub = redact ? REDACT_WHOLE : undefined;
+      frame.write(frame.at([], key), revive(value), 'set', scrub);
+    }
+    frame.commit(() => ({ stage: t.stage, stageId: t.stageId, runtimeStageId: t.runtimeStageId }));
+  }
+  return {
+    commitLog: [...log.list()],
+    initialState: log.getInitialState(),
+    state: state.getState(),
+    reads: [...readsByStep],
+  };
+}
+
 // Re-pin, for a named law fix only (../README.md): the calls never change; what they record does.
 if (process.env.RECORD_BYTES_REPIN === '1') {
   for (const session of sessions) session.recorded = replay(session);
@@ -92,6 +136,10 @@ describe('record bytes — hcifootprint 2.6.1 transitions pinned on 9.44.1', () 
     expect(pinnedText(replay(session))).toBe(pinnedText(session.recorded));
   });
 
+  it.each(sessions.map((s) => [s.name, s] as const))('%s — through footprintjs/write (2.7.0)', (_name, session) => {
+    expect(pinnedText(replayThroughWrite(session))).toBe(pinnedText(session.recorded));
+  });
+
   it('the capture holds both encodings, a redacted write, Date/Map/Set, and a commit out of mint order', () => {
     expect(new Set(sessions.map((s) => s.open.commitValues))).toEqual(new Set(['delta', 'full']));
     expect(sessions.every((s) => s.open.writeProvenance === 'reads-prefix')).toBe(true);
@@ -101,5 +149,7 @@ describe('record bytes — hcifootprint 2.6.1 transitions pinned on 9.44.1', () 
     for (const kind of [Date, Map, Set]) expect(values.some((v) => v instanceof kind)).toBe(true);
     const ids = sessions.map((s) => s.transitions.map((t) => t.runtimeStageId).join(' '));
     expect(ids).toContain('stimulus:push#1 login#0');
+    // 2.7.0 names a bundle's `stage` and `stageId` both by its stage name, as 2.6.1's `newRoot(name, name)` did.
+    expect(sessions.every((s) => s.transitions.every((t) => t.stage === t.stageId))).toBe(true);
   });
 });

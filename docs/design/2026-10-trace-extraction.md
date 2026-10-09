@@ -51,7 +51,7 @@ AFTER — footprintjs 10 + foottrace 1
 1. **The long-term goal:** a trace package holding the record and every reader (fold, cursor and time travel, stops, slices, honesty codes); footprintjs = flowchart + trace.
 2. **Simplify rather than add code.** Clean up first, by moving and de-duplicating. The writer wrapper (`openRecord`) of FP-WRITER-DOOR-DESIGN §2 is dropped. The cleaned record layer itself becomes the public way to write records (C5).
 3. **The order:** the safety net (consumer audit #60, byte fixtures #61: done) → C1…C6, each small, byte-identical, reviewed and released → the extraction. C1 is built (`9225b856`) and waits for footprintjs 9.44.2 (#62, record truth) to ship first.
-4. **No deprecation shims.** `/advanced` may break in a minor when the CHANGELOG names the break with a migration, every consumer migrates in the same train, and the consumer audit proves it. C2 is the first such change: `memory/utils.ts · getRunAndGlobalPaths` and `SharedMemory · getValue/setValue/updateValue(runId, …)` change cleanly. hcifootprint builds its `SharedMemory` (through `new ExecutionRuntime(...)`), so it updates in the same train if the audit says it must.
+4. **No deprecation shims.** `/advanced` may break in a minor when the CHANGELOG names the break with a migration, every consumer migrates in the same train, and the consumer audit proves it. C2 is the first such change: `memory/utils.ts · getRunAndGlobalPaths` and `SharedMemory · getValue/setValue/updateValue(runId, …)` change cleanly. hcifootprint builds its `SharedMemory` (through `new ExecutionRuntime(...)`), so it updates in the same train if the audit says it must. *Narrowed during C5 (2026-10-09): a minor removes no published name, `/advanced` included; a move keeps the old door until 10.0.0 (section 4, "Door changes"). The rule against shims stands: a kept door is the same symbol, not a forwarder.*
 5. **Facade + layers + small modules + small standalone packages** (standing rule).
 
 ## 3. What this plan replaces
@@ -75,7 +75,7 @@ AFTER — footprintjs 10 + foottrace 1
 
 **Releases.** One step, one release, before the next step starts. An internal-only change is a patch. Anything a consumer can see on a door, `/advanced` included, is a minor. footprintjs takes a major only at E6. The version numbers below assume nothing else ships in between; the patch-or-minor kind is the rule.
 
-**Door changes.** No shims and no second doors. Before E6, no symbol leaves a public door (`.`, `/trace`, `/recorders`); a symbol may leave `/advanced`, with the CHANGELOG migration. A consumer that uses it migrates in the same train: the footprintjs PR points that consumer's `branch` in `scripts/family.json` at its migration branch, the audit proves the pair, and the entry returns to `main` once both have merged.
+**Door changes.** No shims. Before E6, **no symbol leaves any door, `/advanced` included** (changed during C5, 2026-10-09). The published consumers hold caret ranges (`^9.44.1`), so a minor that drops a name is installed under them automatically and breaks every fresh install of a consumer already on npm; the consumer audit runs the consumers' `main` branches, not their published releases, so it cannot see that. C5 found two: hcifootprint 2.6.1 and agentfootprint 9.141.0 import record names from `/advanced`. So a move ADDS the new door and keeps the old one — the same symbol on two doors, no forwarder — as a second door marked `keptUntil: '10.0.0'` in `test/architecture/exports.test.ts`; every removal waits for E6. `test/architecture/published-doors.test.ts` fails on any name the last published release hands out that a door no longer does. A consumer that moves to a new door migrates in the same train: the footprintjs PR points that consumer's `branch` in `scripts/family.json` at its migration branch (with `fallback: false`, since that branch cannot build on the published footprintjs), the audit proves the pair, and the entry returns to `main` once both have merged.
 
 ## 5. The clean-up: C1–C6 (inside footprintjs)
 
@@ -115,24 +115,24 @@ AFTER — footprintjs 10 + foottrace 1
   - **The placeholders split by owner** (review N2). `memory/placeholders.ts` keeps `LOG_PLACEHOLDER`, a record byte; `SCOPE_PLACEHOLDER` moves to the verdict's side. Each README names the other placeholder; this replaces F4a's "two placeholders, one leaf".
   - **The decision** (`stageWrite`'s rule: marks and identity inheritance) moves beside `RedactionRule`. As built (PR #67, approved): `decideWrite` (the verdict), `inheritByIdentity`, then — after `RecordFrame · write` — `markStagedWrite` (the marks). The marks must follow the staged write, so a write that fails to stage (a failed `$update`) marks nothing; one call before the write could not keep that.
   - **The verdict is re-ranked.** In `LAYERS`, `memory/redaction.ts` moves from L2 to L4, beside `runPolicy.ts`, which carries it. Once `scrubPatch` has left, only L4+ files import it.
-- **Consumers:** none (`redactPatch` keeps its `/advanced` door until C5).
+- **Consumers:** none (`redactPatch` keeps its `/advanced` door until 10.0.0, E6).
 - **Done when:** `stageWrite` is the decision, then `RecordFrame · write`, then the marks (planned as "two calls"; built as above), and no record file imports `redaction.ts`. This closes C1's `recordCommit.ts → redaction.ts` edge.
 - **Release:** patch (expected **9.46.1**).
 
 ### C5 — The record layer is the public way to write
 
 - **New door `footprintjs/write`** (`src/write.ts`, L8). It hands out `RecordFrame`, `SharedMemory` and `EventLog` with their option types, plus `WriteProvenanceMode` (on no door today). There is no wrapper: a writer uses the classes the engine uses. From this release, `/write`'s names and bytes are promised under the fixtures' re-pin policy.
-- **Door hygiene, same release.** Each record symbol gets one record door:
-  - `CommitBundle`, `TraceEntry`, `MemoryPatch` and `applySmartMerge` move from `/advanced` to `/trace`.
-  - The nine `/advanced` second doors close (`ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments`), so `SECOND_DOORS` drops from 28 to 19.
-  - `SharedMemory` and `EventLog` move to `/write`.
-  - No audited consumer imports these, so they leave the public surface: `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch`.
-  - `test/architecture/exports.test.ts` expects seven doors.
+- **Door hygiene, same release — moves only; the removals wait for E6.** Each record symbol gets its record door, and `/advanced` keeps every name it handed out (section 4, "Door changes": published consumers hold caret ranges):
+  - `CommitBundle`, `TraceEntry`, `MemoryPatch` and `applySmartMerge` get `/trace` as their canonical door; `SharedMemory` and `EventLog` get `/write`. Their `/advanced` doors stay until 10.0.0.
+  - The nine `/advanced` second doors of `/trace` names (`ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments`) stay until 10.0.0. With the six moves they are 15 second doors marked `keptUntil: '10.0.0'`; the standing list is 19.
+  - `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` stay on `/advanced` until 10.0.0, which takes them off the public surface.
+  - `test/architecture/exports.test.ts` expects seven doors and fails if the package reaches 10.0.0 still shipping a `keptUntil` door.
+  - Why not remove them now (the first draft of C5 did): published hcifootprint 2.6.1 and agentfootprint 9.141.0 import `buildRuntimeStageId`, `createExecutionCounter` and `applySmartMerge` from `/advanced` and failed to load on that candidate, and their caret ranges would have pulled it in.
 - **Consumers, same train:**
   - **hcifootprint 2.7.0** writes through `/write` instead of `ExecutionRuntime` + `newRoot` + `ScopeFacade` + the `ScopeRecorder` read tap (`session.ts · #commitDelta`). It imports `CommitBundle`, `ExecutionCounter`, `buildRuntimeStageId` and `createExecutionCounter` from `/trace`.
   - **agentfootprint** moves `CommitBundle` and `applySmartMerge` (`src/lib/time-travel/keyedFold.ts`) to `/trace`, and its test helper's `SharedMemory` to `/write`.
-- **Done when:** `test/fixtures/hcifootprint/hcifootprint-2.6.1.test.ts` replays the stored transitions through `/write` to the stored bytes, beside its 2.6.1 replay. No audited consumer imports a record symbol (section 7.5) from `/advanced`.
-- **Release:** minor (expected **9.47.0**).
+- **Done when:** `test/fixtures/hcifootprint/hcifootprint-2.6.1.test.ts` replays the stored transitions through `/write` to the stored bytes, beside its 2.6.1 replay. No audited consumer imports a record symbol (section 7.5) from `/advanced`. No name the last published release hands out is gone (`test/architecture/published-doors.test.ts`).
+- **Release:** minor (expected **9.47.0**), additive only.
 
 ### C6 — The record names nothing outside itself
 
@@ -202,6 +202,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### E6 — footprintjs 10.0.0
 
 - **The release.** `extract/foottrace` is rebased and merged. The audit runs every consumer's `main` against the 10.0.0 candidate. The CHANGELOG's "Breaks" section is the symbol map (7.5). The freeze is lifted.
+- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and the nine names that leave the public surface (`TransactionBuffer` … `redactPatch`). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`, and skips `test/architecture/published-doors.test.ts` for its own removals: `scripts/release.sh` runs `npm test` before `npm version`, so the PR and the release gate still run at 9.x, where neither the tripwires nor the test's version-based skip fire. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
 - **After it,** foottrace's own consumer audit runs footprintjs and the family against every foottrace candidate. footprintjs is its first consumer.
 - **Release:** footprintjs **10.0.0** (major), holding nothing but the extraction.
 
@@ -243,13 +244,13 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 | Declared in | Today's door | After C5 | After E6 |
 |---|---|---|---|
-| `time-travel/*`, `slice/*`, `memory/{backtrack,commitLogUtils,honesty}.ts`, `ids/runtimeStageId.ts`, `recorder/CommitRangeIndex.ts`, `memory/verbs.ts` (`UnknownVerbError`), `memory/paths.ts` (`pathSegments`) | `/trace` (eight also on `/advanced`) | `/trace` | `foottrace` |
-| `memory/types.ts`: `CommitBundle`, `TraceEntry`, `MemoryPatch`; `memory/verbs.ts`: `applySmartMerge` | `/advanced` | `/trace` | `foottrace` |
-| `memory/types.ts`: `CommitPhase`, `UntrackedSource` | `/trace` (`UntrackedSource` also `/advanced`) | `/trace` | `foottrace` |
+| `time-travel/*`, `slice/*`, `memory/{backtrack,commitLogUtils,honesty}.ts`, `ids/runtimeStageId.ts`, `recorder/CommitRangeIndex.ts`, `memory/verbs.ts` (`UnknownVerbError`), `memory/paths.ts` (`pathSegments`) | `/trace` (eight also on `/advanced`) | `/trace` (the eight also on `/advanced` until 10.0.0) | `foottrace` |
+| `memory/types.ts`: `CommitBundle`, `TraceEntry`, `MemoryPatch`; `memory/verbs.ts`: `applySmartMerge` | `/advanced` | `/trace` (`/advanced` kept until 10.0.0) | `foottrace` |
+| `memory/types.ts`: `CommitPhase`, `UntrackedSource` | `/trace` (`UntrackedSource` also `/advanced`) | `/trace` (`UntrackedSource` also `/advanced` until 10.0.0) | `foottrace` |
 | `memory/types.ts`: `CommitValuesMode` | `.` | `.` | `foottrace` |
 | `memory/eventPosition.ts`: `EmitSourcePosition`, `LogAddress` | `/recorders` | `/recorders` | `foottrace` |
-| `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` | `/advanced`, or none | `/write` | `foottrace/write` |
-| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | `/advanced` | none | none |
+| `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` | `/advanced`, or none | `/write` (`SharedMemory`, `EventLog` also `/advanced` until 10.0.0) | `foottrace/write` |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | `/advanced` | `/advanced` (until 10.0.0) | none |
 | `ids/branchSegment.ts`, the stores (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), the Topology, InOut, ControlDep and Quality recorders, `qualityTrace`, `ROOT_RUNTIME_STAGE_ID`, `ROOT_SUBFLOW_ID`, `walkSubflowSpec` | `/trace` | `/trace` | `footprintjs/trace`, unchanged |
 
 | Consumer (`origin/main`, 2026-10-08) | What moves | Watch for |
@@ -294,7 +295,7 @@ E3 starts only when every row except the optional one is met. `scripts/trace-rea
 | A module mock silently stops applying after its import moves | The six sites listed in E5; each migrated mock is shown to still bite |
 | A test-coverage gap: moved code tested only through the engine, or not at all | Each C step's reviewer checks the moved code's own tests (gate 6); R4 ≥ 70%; the engine witnesses keep running against foottrace |
 | Two installed copies of foottrace | The audit asserts one copy per consumer (7.2) |
-| An older published consumer, installed at an exact version, meets an `/advanced` change (C2, C3, C5) | Accepted by owner decision 4; the latest version of each consumer ships in the same train |
+| An older published consumer meets an `/advanced` change (C2, C3) or a removal | From C5 on, no minor removes a name (section 4): moves keep the old door until 10.0.0, and `test/architecture/published-doors.test.ts` fails on a name the last published release has and a door lost. C2 and C3 removed two methods no audited consumer called (accepted by owner decision 4) |
 | A fix lands in only one copy during E4–E6 | The freeze check in footprintjs CI; the window is kept to days |
 | Docs keep teaching the old door | E3's rewrite; `npm run test:examples` and `npm run check:doc-snippets` compile the code; a grep finds no moved symbol beside `footprintjs/trace` |
 

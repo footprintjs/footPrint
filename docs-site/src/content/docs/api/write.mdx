@@ -1,0 +1,122 @@
+---
+title: footprintjs/write — write a record
+description: API reference for footprintjs/write — SharedMemory, EventLog and RecordFrame, the record layer the engine writes with.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`footprintjs/write` is the public way to write a **record** — a frozen base and an append-only log of bundles, one per step — without running a flowchart. It hands out the classes the engine itself writes with: there is no wrapper, so a record written here comes from the same code, and the same bytes, as one a flowchart wrote. Every reader on `footprintjs/trace` (`stateAt`, `timeTravel`, `commitValueAt`, `causalChain`, `sliceForKey` …) reads it as it reads an engine record.
+
+```ts
+import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+```
+
+| Export | Kind | What it is |
+|--------|------|------------|
+| `SharedMemory` | class | The heap: live state, one generation per commit (copy-on-write) |
+| `EventLog` | class | The log: the fold base and the commit bundles, each frozen as it is recorded |
+| `RecordFrame` | class | One step's frame: its reads, its staged writes, and its commit onto the heap and the log |
+| `RecordEncoding` | type | The two dials a frame encodes under: `commitValues`, `writeProvenance` |
+| `WriteVerb` | type | `'set' \| 'merge' \| 'delete'` — what a step can stage |
+| `WriteScrub` | type | The bytes of a redaction verdict for one write: `{ whole?: boolean; fields?: string[] }` |
+| `CommitStamp` | type | The names on a bundle: `stage`, `stageId`, `runtimeStageId`, and optional `tags`, `untrackedSources`, `phase` |
+| `WriteProvenanceMode` | type | `'off' \| 'reads-prefix'` |
+
+<Aside>
+Nothing on this door names or loads the engine: every type it hands out is the record's own, and importing it loads no frame, scope or executor file (pinned by `test/architecture/write-door.test.ts`). Its names and the bytes they write are promised under the record fixtures' re-pin policy — a refactor never moves a byte.
+</Aside>
+
+---
+
+## Writing a record
+
+```ts
+import { stateAt } from 'footprintjs/trace';
+import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
+
+const state = new SharedMemory(undefined, { count: 0 }); // the heap, seeded
+const log = new EventLog(state.getState()); // its fold base is the seed
+
+const frame = new RecordFrame(state, log); // one step, at the root address
+frame.useEncoding({ commitValues: 'full', writeProvenance: 'reads-prefix' });
+const count = frame.read([], 'count') as number;
+frame.noteRead([], 'count'); // the rows below name the read
+frame.write(frame.at([], 'count'), count + 1, 'set');
+frame.write(frame.at([], 'token'), 's3cret', 'set', { whole: true }); // the log shows 'REDACTED'
+frame.commit(() => ({ stage: 'Sign in', stageId: 'sign-in', runtimeStageId: 'sign-in#0' }));
+
+log.list()[0].overwrite; // { count: 1, token: 'REDACTED' }
+state.getState(); // { count: 1, token: 's3cret' } — the heap keeps the value
+stateAt({ initialState: log.getInitialState(), commitLog: log.list() }, 0).state; // { count: 1, token: 'REDACTED' }
+```
+
+---
+
+## SharedMemory
+
+```ts
+new SharedMemory(defaultValues?: unknown, initialContext?: unknown)
+```
+
+The heap. The seed (`initialContext` merged over `defaultValues`) is detached once, here. A generation is never edited: every commit copies the containers on the paths it writes, shares the rest, and swaps.
+
+| Method | Description |
+|--------|-------------|
+| `getState()` | The current generation, by reference — never mutate it |
+| `getValue(address?, path?, key?)` | A value at `address` + `path` + `key`, falling back to the root |
+| `applyPatch(overwrite, updates, trace)` | Apply one bundle's payload as the next generation (a frame's commit does this) |
+
+## EventLog
+
+```ts
+new EventLog(initialMemory: unknown)
+```
+
+The log. `initialMemory` (a copy is kept) is the fold base: the state before the first bundle.
+
+| Method | Description |
+|--------|-------------|
+| `record(bundle)` | Stamp the bundle's `idx`, deep-freeze it, append it (a frame's commit does this) |
+| `list()` | Every bundle, served: a new array per call; a bundle holding a Date, Map or buffer is a copy of its open paths |
+| `getInitialState()` | A detached copy of the fold base |
+| `length` | How many bundles |
+
+## RecordFrame
+
+```ts
+new RecordFrame(state: SharedMemory, log?: EventLog, address?: readonly string[])
+```
+
+One step's frame — one frame per step, one bundle per frame. `address` is the path prefix it reads and writes under (default `[]`, the root).
+
+| Method | Description |
+|--------|-------------|
+| `useEncoding(encoding: RecordEncoding)` | The dials its next buffer and reads encode under. Absent: `'full'` values, no read prefix |
+| `read(path, key?)` | Read the step's own view (its staged writes, then the state it first touched), else live state |
+| `noteRead(path, key)` | Name a read on the record: under `'reads-prefix'` every row staged after it carries the key in `readKeys` |
+| `at(path, key)` | The absolute path of `key` under `path`: the frame's address, then the path, then the key |
+| `write(path, value, verb: WriteVerb, scrub?: WriteScrub)` | Stage one write at an absolute path. `{ whole: true }` puts `'REDACTED'` in the log at the path; `{ fields }` at each field inside the value; the heap keeps the value |
+| `commit(stampOf: () => CommitStamp)` | Record what the step staged as one bundle named by the stamp — the empty bundle when it staged nothing — on the heap and the log |
+| `useMirror(mirror)` | Also land every commit, scrubbed, on a second heap (a redacted mirror); `undefined` stops it |
+| `release()` / `discard()` | End the frame's hold on state / throw away everything it staged and noted |
+
+<Aside type="caution">
+A step's `runtimeStageId` must be unique in the record and its execution index must only rise. Build it with `buildRuntimeStageId(stageId, counter.value++)` and one `createExecutionCounter()` from `footprintjs/trace`.
+</Aside>
+
+---
+
+## The writing contract
+
+The classes are the engine's own, so they carry members the engine needs that a writer does not. What is promised to a writer — under the record fixtures' re-pin policy — is the members in the tables above, used as described: one frame per step, writes staged through `write`, one `commit`. The rest is engine-facing, outside the contract:
+
+| Member | Why it is not the writing contract |
+|--------|------------------------------------|
+| `SharedMemory · setValue` / `updateValue` | Write the heap with no bundle: the log would not show the change |
+| `SharedMemory · applyPatch`, `EventLog · record` | What a frame's `commit` calls; a bundle recorded by hand must keep every law of the record contract itself |
+| `EventLog · clear()` | Wipes the history — the log is append-only (test resets only) |
+| `EventLog · materialise()` | Deprecated since 9.33.0: fold with `stateAt` from `footprintjs/trace` |
+| `EventLog · recorded()`, `bindAddress()` | `@internal`: the engine's unserved read and its log address |
+| `RecordFrame · useAddress()` | Moves the address — only before the frame's first write, which the frame does not check (the engine's frame does) |
+
+See also: the record contract and its "Writing a record" section (`docs/guides/record-contract.md`), and the runnable example `examples/post-execution/time-travel/07-write-a-record.ts`.

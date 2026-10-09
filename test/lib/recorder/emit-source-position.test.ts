@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { ExecutionRuntime, ScopeFacade, SharedMemory, StageContext } from '../../../src/advanced.js';
+import { ExecutionRuntime, ScopeFacade, StageContext } from '../../../src/advanced.js';
 import type { EmitEvent, FlowChartExecutorOptions, RuntimeSnapshot, TypedScope } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
+import { SharedMemory } from '../../../src/write.js';
 import { defineScopeFromZod } from '../../../src/zod.js';
 
 type Delivery = 'inline' | 'deferred';

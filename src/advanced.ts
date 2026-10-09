@@ -2,11 +2,18 @@
  * footprintjs/advanced — Low-level internals for custom execution engines and testing.
  *
  * Most users never need this. Use `footprintjs` (main) instead.
- * This entry point exposes `SharedMemory`, `StageContext`, `FlowchartTraverser`,
- * and other primitives that power the engine.
+ * This entry point exposes the engine's frame (`StageContext`), the traverser
+ * (`FlowchartTraverser`), the scope providers and the other primitives that
+ * power the engine. The record has doors of its own: write one with
+ * `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`), read one
+ * with `footprintjs/trace` (`CommitBundle`, `applySmartMerge`, the readers).
+ * The record's names this door handed out before 9.47.0 stay here until
+ * 10.0.0, the same symbols: import those from their own door (the nine record
+ * internals among them have none, and leave the public surface at 10.0.0).
  *
  * ```ts
- * import { SharedMemory, StageContext } from 'footprintjs/advanced';
+ * import { StageContext } from 'footprintjs/advanced';
+ * import { SharedMemory } from 'footprintjs/write';
  * ```
  *
  * @module advanced
@@ -21,30 +28,41 @@
  */
 
 // ============================================================================
-// Memory — Low-level transactional state primitives
+// Memory — the engine's frame, its run policy and the redaction verdict
 // ============================================================================
 
 export type {
-  CommitBundle,
   FlowControlType,
   FlowMessage,
-  MemoryPatch,
   ReadSummaryMarker,
   ReadTrackingMode,
   RetentionPolicy,
   StageSnapshot,
-  TraceEntry,
-  UntrackedSource,
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './lib/memory/index.js';
 export type { RedactionVerdict } from './lib/memory/index.js';
-export { SharedMemory } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';
-export { EventLog } from './lib/memory/index.js';
-export { TransactionBuffer } from './lib/memory/index.js';
 export { DiagnosticCollector } from './lib/memory/index.js';
 export { RedactionRule } from './lib/memory/index.js';
+
+// ============================================================================
+// The record's names — kept here until 10.0.0 (the trace extraction, E6)
+// ============================================================================
+// The record has doors of its own since 9.47.0 (C5): its shapes and readers on `footprintjs/trace`
+// (`CommitBundle`, `TraceEntry`, `MemoryPatch`, `UntrackedSource`, `applySmartMerge`, the
+// runtimeStageId codec, `findCommit` / `findCommits` / `findLastWriter`, `pathSegments`), its writer on
+// `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`). New code imports those. A published
+// minor never drops a name — consumers hold caret ranges, so a dropped export breaks their fresh
+// installs — so `/advanced` keeps handing out every name it handed out before: the SAME symbols (no
+// forwarder; second doors in test/architecture/exports.test.ts), and the record internals that have no
+// public home. 10.0.0 removes all of them.
+
+export type { ExecutionCounter } from './lib/ids/runtimeStageId.js';
+export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/ids/runtimeStageId.js';
+export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
+export type { CommitBundle, MemoryPatch, TraceEntry, UntrackedSource } from './lib/memory/index.js';
+export { EventLog, SharedMemory, TransactionBuffer } from './lib/memory/index.js';
 export {
   applySmartMerge,
   deepSmartMerge,
@@ -198,11 +216,6 @@ export {
   StageRunner,
   SubflowExecutor,
 } from './lib/engine/index.js';
-
-// Trace utilities — re-exported here for convenience. Canonical path: 'footprintjs/trace'
-export type { ExecutionCounter } from './lib/ids/runtimeStageId.js';
-export { buildRuntimeStageId, createExecutionCounter, parseRuntimeStageId } from './lib/ids/runtimeStageId.js';
-export { findCommit, findCommits, findLastWriter } from './lib/memory/commitLogUtils.js';
 
 // ============================================================================
 // Decide — pure guard evaluation (for custom availability/decision engines)

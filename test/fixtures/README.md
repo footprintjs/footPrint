@@ -5,7 +5,7 @@
 | What | Pinned in | Checked by |
 |---|---|---|
 | 26 small flowchart runs: everything `getSnapshot()` serves (commit log, `initialState`, state, execution tree, subflow results, the dials, the log address), plus the checkpoint and the resumed run when one pauses, `getSnapshot({ redact: true })` under a policy, and how a failed run failed | `record-bytes/pinned/<scenario>.json` | `record-bytes/record-bytes.test.ts` |
-| hcifootprint 2.6.1's real transitions: the calls it made and the log, fold base, state and reads they gave | `hcifootprint/transitions-2.6.1.json` | `hcifootprint/hcifootprint-2.6.1.test.ts` |
+| hcifootprint 2.6.1's real transitions: the calls it made and the log, fold base, state and reads they gave — replayed through 2.6.1's `/advanced` calls and through `footprintjs/write` (2.7.0) | `hcifootprint/transitions-2.6.1.json` | `hcifootprint/hcifootprint-2.6.1.test.ts` |
 
 **How bytes are compared** (`bytes.ts · pinnedText`). JSON with key order kept, written by `stringifySnapshot` (the record's own encoder), after one pass that spells what JSON drops and settles what the clock stamps:
 
@@ -76,4 +76,4 @@ Seven sessions: the six of hcifootprint 2.6.1's `test/trace.test.ts` (both encod
 
 **Captured once**, on 2026-10-08, by running those sessions in a copy of hcifootprint 2.6.1 (main `bcb6306`, its lockfile's footprintjs 9.44.1 from npm). A vitest module mock wrapped `footprintjs/advanced` and recorded every `ExecutionRuntime`, `newRoot`, `ScopeFacade · getValue` / `setValue` and `commit`. The same sessions run without the mock gave the same log, state and reads. hcifootprint itself was not edited.
 
-The test replays each session through 2.6.1's constructor and `#commitDelta`, copied verbatim. When `footprintjs/write` ships, the same scripts also run through it, against the same bytes.
+The test replays each session twice, against the same bytes: through 2.6.1's constructor and `#commitDelta`, copied verbatim (an `ExecutionRuntime`, a frame from `newRoot` and a `ScopeFacade` with a read tap, on `/advanced`), and through `footprintjs/write` (C5) — the calls hcifootprint 2.7.0's constructor and `#commitDelta` make, with the session's fields replaced by the captured values: a `SharedMemory`, an `EventLog`, and one `RecordFrame` per transition that notes the guard reads, stages each write (a redacted one with the `{ whole: true }` scrub) and commits under the transition's names. The second replay is `/write`'s promise to a real producer: the door writes what the engine's frame wrote.
