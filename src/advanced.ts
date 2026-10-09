@@ -8,7 +8,8 @@
  * `footprintjs/write` (`SharedMemory`, `EventLog`, `RecordFrame`), read one
  * with `footprintjs/trace` (`CommitBundle`, `applySmartMerge`, the readers).
  * The record's names this door handed out before 9.47.0 stay here until
- * 10.0.0, the same symbols; import them from their own door.
+ * 10.0.0, the same symbols: import those from their own door (the nine record
+ * internals among them have none, and leave the public surface at 10.0.0).
  *
  * ```ts
  * import { StageContext } from 'footprintjs/advanced';

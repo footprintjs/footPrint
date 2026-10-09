@@ -118,6 +118,27 @@ const SECOND_DOORS: SecondDoors[] = [
   },
 ];
 
+/**
+ * Record internals `/advanced` hands out with no other door: a published minor keeps them too, and
+ * 10.0.0 (the trace extraction, E6) takes them off the public surface. Not second doors, so listed
+ * here to get the same tripwire.
+ */
+const KEPT_INTERNALS = {
+  door: './advanced',
+  keptUntil: '10.0.0',
+  symbols: [
+    'TransactionBuffer',
+    'deepSmartMerge',
+    'getNestedValue',
+    'getRunAndGlobalPaths',
+    'normalisePath',
+    'redactPatch',
+    'setNestedValue',
+    'updateNestedValue',
+    'updateValue',
+  ],
+};
+
 // ── reading the package ──────────────────────────────────────────────────────
 
 const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
@@ -260,6 +281,17 @@ describe('export ownership', () => {
     // 19 standing; the moves' old doors (C5) are counted apart and leave at their major.
     expect(SECOND_DOORS.filter((g) => !g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(19);
     expect(SECOND_DOORS.filter((g) => g.keptUntil).flatMap((g) => g.symbols).length).toBeLessThanOrEqual(15);
+  });
+
+  it('the kept internals are on /advanced alone, until their major', () => {
+    for (const symbol of KEPT_INTERNALS.symbols) {
+      const r = [...reached.values()].find((x) => x.declared === symbol);
+      expect(r ? [...r.via.keys()] : [], symbol).toEqual([KEPT_INTERNALS.door]);
+    }
+    expect(
+      Number(String(pkg.version).split('.')[0]),
+      'remove the kept internals from /advanced and this list',
+    ).toBeLessThan(Number(KEPT_INTERNALS.keptUntil.split('.')[0]));
   });
 
   it('a kept old door cannot ship in the major that removes it', () => {

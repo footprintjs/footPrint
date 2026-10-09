@@ -8,17 +8,22 @@
  * C5 first moved away. So a move ADDS the new door and keeps the old one until the major
  * (exports.test.ts · `keptUntil`); this test is the check that nothing slips through anyway.
  *
- * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^9.46.1`; the
- * repository commits no lockfile, so every install resolves the newest 9.x — after 9.47.0 ships, this
- * compares against 9.47.0). Its doors are read from its own `exports` map and `.d.ts` files with the
- * TypeScript checker; this tree's from `src/`. Names are compared per door: a type or a value, exported
- * under that name.
+ * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^9.46.1`). The
+ * repository commits no lockfile, so CI's fresh install resolves the newest 9.x — after 9.47.0 ships,
+ * this compares against 9.47.0; a local checkout compares against what its `node_modules` holds
+ * (`npm install footprintjs-published@npm:footprintjs@^9.46.1` refreshes it). Its doors are read from
+ * its own `exports` map and `.d.ts` files with the TypeScript checker; this tree's from `src/`. Names
+ * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
+ * of it would compile for a consumer's types and fail at run time).
  *
- * A MAJOR may drop names: while this tree's major is above the published one, the comparison is
- * skipped, and the major's release re-points the alias at itself once it is on npm.
+ * A MAJOR may drop names: the major's own PR skips this for its removals (the release gate runs before
+ * `npm version`, still at 9.x), the version-based skip below covers a tree already a major ahead, and
+ * once the major is on npm the alias is re-pointed at it.
  *
- *   contract  every door of the published release is still a door here, with every name it exported
- *   boundary  the comparison bites: a door map missing one published name reports exactly that name
+ *   contract  every door of the published release is still a door here, with every name it exported,
+ *             and every published value is still a value
+ *   boundary  the comparison bites: a door map missing one published name, or turning a value into a
+ *             type, reports exactly that
  */
 import { readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
@@ -28,7 +33,8 @@ import { describe, expect, it } from 'vitest';
 const REPO = resolve(__dirname, '../..');
 const PUBLISHED = dirname(require.resolve('footprintjs-published/package.json'));
 
-type Doors = Map<string, Set<string>>;
+/** door → name → whether a consumer can use it as a value or only as a type. */
+type Doors = Map<string, Map<string, 'value' | 'type'>>;
 
 interface PackageJson {
   version: string;
@@ -48,26 +54,42 @@ function typesFiles(pkg: PackageJson, dir: string): Map<string, string> {
   return out;
 }
 
-/** door → the names it exports (types and values), read by the TypeScript checker from `files`. */
+/** door → every name it exports and its kind, read by the TypeScript checker from `files`. */
 function exportedNames(files: Map<string, string>, options: ts.CompilerOptions): Doors {
   const program = ts.createProgram([...files.values()], { ...options, noEmit: true });
   const checker = program.getTypeChecker();
+  /** A re-export marked `export type` hands out only the type, whatever it names. */
+  const typeOnly = (s: ts.Symbol) =>
+    (s.declarations ?? []).some((d) => ts.isExportSpecifier(d) && (d.isTypeOnly || d.parent.parent.isTypeOnly));
+  const kind = (s: ts.Symbol): 'value' | 'type' => {
+    if (s.flags & ts.SymbolFlags.Alias) {
+      if (typeOnly(s)) return 'type';
+      return checker.getAliasedSymbol(s).flags & ts.SymbolFlags.Value ? 'value' : 'type';
+    }
+    return s.flags & ts.SymbolFlags.Value ? 'value' : 'type';
+  };
   const doors: Doors = new Map();
   for (const [door, file] of files) {
     const source = program.getSourceFile(file);
     if (!source) throw new Error(`${file} is not part of the program`);
     const moduleSymbol = checker.getSymbolAtLocation(source);
-    doors.set(door, new Set(moduleSymbol ? checker.getExportsOfModule(moduleSymbol).map((s) => s.getName()) : []));
+    const names = new Map<string, 'value' | 'type'>();
+    for (const s of moduleSymbol ? checker.getExportsOfModule(moduleSymbol) : []) names.set(s.getName(), kind(s));
+    doors.set(door, names);
   }
   return doors;
 }
 
-/** Every published (door, name) this tree no longer hands out, as `door: name`. */
+/** Every published (door, name) this tree no longer hands out — or hands out only as a type — as `door: name`. */
 export function lostNames(published: Doors, current: Doors): string[] {
   const lost: string[] = [];
   for (const [door, names] of published) {
     const here = current.get(door);
-    for (const name of names) if (!here?.has(name)) lost.push(`${door}: ${name}`);
+    for (const [name, was] of names) {
+      const now = here?.get(name);
+      if (now === undefined) lost.push(`${door}: ${name}`);
+      else if (was === 'value' && now === 'type') lost.push(`${door}: ${name} (now type-only)`);
+    }
   }
   return lost.sort();
 }
@@ -107,20 +129,42 @@ describe(`no name footprintjs ${publishedPkg.version} hands out is lost`, () => 
     60_000,
   );
 
-  it('the comparison bites: a door map missing one published name reports exactly that name', () => {
-    const published: Doors = new Map([
-      ['./advanced', new Set(['SharedMemory', 'StageContext'])],
-      ['./trace', new Set(['stateAt'])],
+  it('the comparison bites: a missing published name, or a value turned type-only, is reported exactly', () => {
+    const doors = (entries: [string, [string, 'value' | 'type'][]][]): Doors =>
+      new Map(entries.map(([door, names]) => [door, new Map(names)]));
+    const published = doors([
+      [
+        './advanced',
+        [
+          ['SharedMemory', 'value'],
+          ['StageContext', 'value'],
+          ['StageSnapshot', 'type'],
+        ],
+      ],
+      ['./trace', [['stateAt', 'value']]],
     ]);
-    const current: Doors = new Map([
-      ['./advanced', new Set(['StageContext'])],
-      ['./trace', new Set(['stateAt', 'CommitBundle'])],
-      ['./write', new Set(['SharedMemory'])],
+    const current = doors([
+      [
+        './advanced',
+        [
+          ['StageContext', 'value'],
+          ['StageSnapshot', 'type'],
+        ],
+      ],
+      [
+        './trace',
+        [
+          ['stateAt', 'type'],
+          ['CommitBundle', 'type'],
+        ],
+      ],
+      ['./write', [['SharedMemory', 'value']]],
     ]);
-    expect(lostNames(published, current)).toEqual(['./advanced: SharedMemory']);
+    expect(lostNames(published, current)).toEqual(['./advanced: SharedMemory', './trace: stateAt (now type-only)']);
     expect(lostNames(published, new Map())).toEqual([
       './advanced: SharedMemory',
       './advanced: StageContext',
+      './advanced: StageSnapshot',
       './trace: stateAt',
     ]);
   });

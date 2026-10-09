@@ -191,7 +191,8 @@ export interface Engine {
 
 /**
  * `w` is where the record classes come from: `/advanced` on 9.28.0; this tree hands the heap and the
- * log out on `footprintjs/write` (C5) and its buffer on no door, so the build reads it from its module.
+ * log out on `footprintjs/write` (C5), their canonical door, and the buffer only on `/advanced` until
+ * 10.0.0, so the build reads the buffer from its module.
  */
 function engine(label: string, c: any, a: any, t: any, w: any): Engine {
   return {

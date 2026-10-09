@@ -115,7 +115,7 @@ AFTER — footprintjs 10 + foottrace 1
   - **The placeholders split by owner** (review N2). `memory/placeholders.ts` keeps `LOG_PLACEHOLDER`, a record byte; `SCOPE_PLACEHOLDER` moves to the verdict's side. Each README names the other placeholder; this replaces F4a's "two placeholders, one leaf".
   - **The decision** (`stageWrite`'s rule: marks and identity inheritance) moves beside `RedactionRule`. As built (PR #67, approved): `decideWrite` (the verdict), `inheritByIdentity`, then — after `RecordFrame · write` — `markStagedWrite` (the marks). The marks must follow the staged write, so a write that fails to stage (a failed `$update`) marks nothing; one call before the write could not keep that.
   - **The verdict is re-ranked.** In `LAYERS`, `memory/redaction.ts` moves from L2 to L4, beside `runPolicy.ts`, which carries it. Once `scrubPatch` has left, only L4+ files import it.
-- **Consumers:** none (`redactPatch` keeps its `/advanced` door until C5).
+- **Consumers:** none (`redactPatch` keeps its `/advanced` door until 10.0.0, E6).
 - **Done when:** `stageWrite` is the decision, then `RecordFrame · write`, then the marks (planned as "two calls"; built as above), and no record file imports `redaction.ts`. This closes C1's `recordCommit.ts → redaction.ts` edge.
 - **Release:** patch (expected **9.46.1**).
 
@@ -202,7 +202,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### E6 — footprintjs 10.0.0
 
 - **The release.** `extract/foottrace` is rebased and merged. The audit runs every consumer's `main` against the 10.0.0 candidate. The CHANGELOG's "Breaks" section is the symbol map (7.5). The freeze is lifted.
-- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and the nine names that leave the public surface (`TransactionBuffer` … `redactPatch`). `test/architecture/published-doors.test.ts` skips a version a major ahead of the published one; once 10.0.0 is on npm, its `footprintjs-published` alias is re-pointed at `^10`.
+- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and the nine names that leave the public surface (`TransactionBuffer` … `redactPatch`). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`, and skips `test/architecture/published-doors.test.ts` for its own removals: `scripts/release.sh` runs `npm test` before `npm version`, so the PR and the release gate still run at 9.x, where neither the tripwires nor the test's version-based skip fire. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
 - **After it,** foottrace's own consumer audit runs footprintjs and the family against every foottrace candidate. footprintjs is its first consumer.
 - **Release:** footprintjs **10.0.0** (major), holding nothing but the extraction.
 
