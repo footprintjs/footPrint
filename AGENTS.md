@@ -22,7 +22,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 
-The module map (one line per `src/lib/` directory) and the layering rule — a file imports only its own layer or below — live in one place each, so this file keeps no copy that can drift: `CLAUDE.md` ("Module map" and "The fence", shipped with the package) and the layer table in `scripts/layering.config.cjs`, enforced by lint (`import/no-restricted-paths` zones + `import/no-cycle`) and `npm run check:layering` (value-level cycles + upward runtime edges).
+The module map (one line per `src/lib/` directory) and the layering rule — a file imports only its own layer or below — live in one place each, so this file keeps no copy that can drift: `CLAUDE.md` ("Module map" and "The fence", shipped with the package) and the layer table in `scripts/layering.config.cjs`, enforced by lint (`import/no-restricted-paths` zones + `import/no-cycle`) and `npm run check:layering` (value-level cycles + upward runtime edges + the closed record: a `RECORD_FILES` file imports only record files, by value or by type).
 
 ## Key API
 
@@ -1119,7 +1119,7 @@ npm run build           # tsc (CJS) + tsc -p tsconfig.esm.json (ESM) + scripts/p
 npm test                # full suite (vitest)
 npm run test:examples   # type-check examples/, build, then run the fork example guard
 npm run lint
-npm run check:layering  # the layering rule, from scripts/layering.config.cjs
+npm run check:layering  # the layering rule and the closed record, from scripts/layering.config.cjs
 npm run check:doc-snippets # strict, isolated import-bearing TS fences; see scripts/doc-snippets/README.md
 ```
 

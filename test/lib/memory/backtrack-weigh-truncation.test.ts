@@ -6,12 +6,13 @@
  *   created edge; `undefined` → 1.0. Weights render in `formatCausalChain`
  *   as `← via systemPrompt (0.18)` — only when ≠ 1.0.
  * - `root.truncated` reports `{ byDepth, byNodes }` when a limit actually
- *   cut the slice; absent on complete slices. Dev mode warns.
+ *   cut the slice; absent on complete slices. It is the only signal: since
+ *   C6 (9.48.0) the record writes no console line, in dev mode or out.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { disableDevMode, enableDevMode } from '../../../src/index.js';
+import { disableDevMode, enableDevMode } from '../../../src/lib/devMode.js';
 import type { EdgeWeigher } from '../../../src/lib/memory/backtrack.js';
 import { causalChain, formatCausalChain } from '../../../src/lib/memory/backtrack.js';
 import type { CommitBundle } from '../../../src/lib/memory/types.js';
@@ -159,21 +160,15 @@ describe('causalChain — truncation visibility (D4)', () => {
     expect(complete).not.toContain('slice truncated');
   });
 
-  it('dev mode warns on truncation; production stays silent', () => {
+  it('truncation is data, never a console line — in dev mode or out (the warning went in C6)', () => {
     const { log, reads } = chainLog(10);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const methods = ['warn', 'error', 'log', 'info', 'debug'] as const;
+    const spies = methods.map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
 
-    causalChain(log, 's9#9', reads, { maxDepth: 3 });
-    expect(warn).not.toHaveBeenCalled();
-
+    expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
     enableDevMode();
-    causalChain(log, 's9#9', reads, { maxDepth: 3 });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain('truncated by maxDepth (3)');
-
-    warn.mockClear();
-    causalChain(log, 's9#9', reads); // complete slice — no warning even in dev
-    expect(warn).not.toHaveBeenCalled();
+    expect(causalChain(log, 's9#9', reads, { maxDepth: 3 })!.truncated).toEqual({ byDepth: true, byNodes: false });
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 
   it('both limits cut → both flags, both causes in the footer', () => {

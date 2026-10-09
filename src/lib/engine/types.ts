@@ -6,9 +6,9 @@
  */
 
 import type { LogAddress } from '../memory/eventPosition.js';
+import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
 import type { SharedMemory } from '../memory/SharedMemory.js';
 import type { StageContext } from '../memory/StageContext.js';
-import type { FlowControlType, FlowMessage } from '../memory/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { Decider, Selector, StageNode } from './graph/StageNode.js';
 import type { QueuedPause, ResumeEntry } from './handlers/ResumeEntry.js';

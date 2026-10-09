@@ -5,7 +5,9 @@
  *      from extensionless imports), and
  *   3. tree-shaking works: importing only `flowChart` must NOT drag in the
  *      recorder / detach / trace layers — consumer bundles grow only with what
- *      they actually import.
+ *      they actually import;
+ *   4. each record door loads only its own: `/write` the record layer, `/trace`
+ *      the readers and the recorder-side tools (C6) — neither loads the engine.
  *
  * Runs against the BUILT dist (dist/esm). Skips when dist isn't built so a bare
  * `vitest` (no prior build) doesn't false-fail; the release pipeline builds first.
@@ -16,6 +18,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+
+import layering from '../scripts/layering.config.cjs';
+
+const { isRecordFile } = layering;
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const esmDir = resolve(repoRoot, 'dist/esm');
@@ -61,35 +67,101 @@ describe.skipIf(!built)('ESM packaging', () => {
     }
   });
 
-  it('footprintjs/write bundles the record layer and nothing of the engine', async () => {
+  /**
+   * Everything one door hands out, bundled: the text, and the modules the bundler had to read — the door's
+   * module graph, which is also what an unbundled import (Node, a CDN, an import map) loads.
+   */
+  const bundleOf = async (entry: string) => {
     const { build } = await import('esbuild');
-    /** The bundle of everything one door hands out. */
-    const bundleOf = async (entry: string) =>
-      (
-        await build({
-          stdin: {
-            contents: `import * as door from ${JSON.stringify(resolve(esmDir, entry))};\nglobalThis.__keep = door;`,
-            resolveDir: esmDir,
-            loader: 'js',
-          },
-          bundle: true,
-          write: false,
-          format: 'esm',
-          platform: 'node',
-          treeShaking: true,
-        })
-      ).outputFiles[0]!.text;
-    // esbuild may emit a class as `class X` or `var X = class`, and renames a clash `X2`: match either way.
-    const declares = (out: string, name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\d*\\b`).test(out);
-    const ENGINE = ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule'];
+    const result = await build({
+      stdin: {
+        contents: `import * as door from ${JSON.stringify(resolve(esmDir, entry))};\nglobalThis.__keep = door;`,
+        resolveDir: esmDir,
+        loader: 'js',
+      },
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'node',
+      treeShaking: true,
+      metafile: true,
+    });
+    const modules = Object.keys(result.metafile!.inputs).map((file) => file.replace(/^.*dist\/esm\//, ''));
+    return { text: result.outputFiles[0]!.text, modules };
+  };
+  // esbuild may emit a class as `class X` or `var X = class`, and renames a clash `X2`: match either way.
+  const declares = (out: string, name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\d*\\b`).test(out);
+  const ENGINE = ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule'];
 
-    const write = await bundleOf('write.js');
+  it('footprintjs/write bundles the record layer and nothing of the engine', async () => {
+    const write = (await bundleOf('write.js')).text;
     for (const name of ['RecordFrame', 'SharedMemory', 'EventLog']) expect(declares(write, name), name).toBe(true);
     for (const name of ENGINE)
       expect(declares(write, name), `${name} must not ride in with footprintjs/write`).toBe(false);
 
     // The control: the same match finds every one of them in the main door's bundle.
-    const main = await bundleOf('index.js');
+    const main = (await bundleOf('index.js')).text;
     for (const name of ENGINE) expect(declares(main, name), `${name} in footprintjs`).toBe(true);
+  });
+
+  /**
+   * What `/trace` holds (C6) — an allow-list, so the decision is executable: the record's READERS (record files:
+   * the fold, the cursor and its stops, the slices, the causal chain, the log queries, the id grammar, the honesty
+   * codes, `CommitRangeIndex`) and the recorder-side tools it has always handed out, which stay on
+   * `footprintjs/trace` after the extraction (plan section 7.5, last row). Not the WRITER, which is record files
+   * too but has its own door (`/write`), and nothing of the engine (`/advanced`): until C6 it loaded both
+   * through the `memory/index.js` barrel.
+   */
+  const TRACE_TOOLS = [
+    'src/lib/recorder/BoundaryStateStore.ts',
+    'src/lib/recorder/KeyedStore.ts',
+    'src/lib/recorder/SequenceStore.ts',
+    'src/lib/recorder/TopologyRecorder.ts',
+    'src/lib/recorder/InOutRecorder.ts',
+    'src/lib/recorder/ControlDepRecorder.ts',
+    'src/lib/recorder/QualityRecorder.ts',
+    'src/lib/recorder/qualityTrace.ts',
+    'src/lib/engine/walkSubflowSpec.ts',
+    'src/lib/ids/branchSegment.ts',
+    'src/lib/devMode.ts', // BoundaryStateStore's dev-mode warning
+  ];
+  /** The writer: the record files behind `/write` (the heap, the log, the frame, staging and the commit). */
+  const WRITER = [
+    'SharedMemory',
+    'EventLog',
+    'RecordFrame',
+    'TransactionBuffer',
+    'recordCommit',
+    'admission',
+    'deltaEncoding',
+    'scrub',
+  ].map((name) => `src/lib/memory/${name}.ts`);
+  /** A door's modules as the src files they were built from (`lib/memory/verbs.js` → `src/lib/memory/verbs.ts`). */
+  const sourcesOf = async (entry: string) =>
+    (await bundleOf(entry)).modules.filter((m) => m.startsWith('lib/')).map((m) => `src/${m.replace(/\.js$/, '.ts')}`);
+  const notTrace = (files: string[]) => files.filter((f) => !(isRecordFile(f) || TRACE_TOOLS.includes(f)));
+
+  it('footprintjs/trace loads the readers and the recorder-side tools — not the writer, not the engine', async () => {
+    const trace = await sourcesOf('trace.js');
+    expect(notTrace(trace), 'a module that is neither a record file nor a tool /trace hands out').toEqual([]);
+    expect(
+      trace.filter((f) => WRITER.includes(f)),
+      'the writer has its own door, /write',
+    ).toEqual([]);
+    expect(
+      TRACE_TOOLS.filter((f) => !trace.includes(f)),
+      'every named tool is really loaded',
+    ).toEqual([]);
+    for (const reader of ['time-travel/stateAt', 'time-travel/timeTravel', 'slice/sliceForKey', 'memory/backtrack'])
+      expect(trace, reader).toContain(`src/lib/${reader}.ts`);
+    const text = (await bundleOf('trace.js')).text;
+    for (const name of [...ENGINE, 'SharedMemory', 'EventLog', 'RecordFrame', 'TransactionBuffer'])
+      expect(declares(text, name), `${name} must not ride in with footprintjs/trace`).toBe(false);
+
+    // The controls: the same checks find the engine in /advanced's graph and the writer in /write's.
+    expect(notTrace(await sourcesOf('advanced.js'))).toEqual(
+      expect.arrayContaining(['src/lib/memory/StageContext.ts', 'src/lib/memory/redaction.ts']),
+    );
+    expect((await sourcesOf('write.js')).filter((f) => WRITER.includes(f)).sort()).toEqual([...WRITER].sort());
   });
 });

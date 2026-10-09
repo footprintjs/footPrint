@@ -4,7 +4,7 @@
  *
  * ONE owner for the fence. Three readers, none keeps a copy:
  *   - `.eslintrc.js`                        → `import/no-restricted-paths` zones (`layerZones`)
- *   - `scripts/check-layering.mjs`          → value-level cycles + upward edges
+ *   - `scripts/check-layering.mjs`          → value-level cycles + upward edges + the closed record
  *   - `test/architecture/layering.test.ts`  → the same analysis, inside the suite
  *
  * THE RULE — a file imports only files at its own layer or BELOW it. Every file has
@@ -30,6 +30,12 @@
  * the script ignores it. ESLint's `import/no-restricted-paths` cannot tell the two apart,
  * so the few upward type-only imports that exist today are named in TYPE_ONLY_ALLOWANCES.
  * That list only ever shrinks.
+ *
+ * THE SECOND RULE (C6) — the record names nothing outside itself. RECORD_FILES is the record:
+ * the files a trace package would hold. A record file imports only record files, and here EVERY
+ * import counts, `import type` included: a package cut along this list must compile alone — which
+ * `check-layering.mjs · recordAlone` checks by compiling the list on its own. A new file that is the
+ * record's goes into RECORD_FILES as well as LAYERS.
  */
 
 const fs = require('fs');
@@ -67,10 +73,11 @@ const LAYERS = [
       // Which rows touch a key — the path half of the writer rule and the writer index (F3).
       // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
       'src/lib/memory/keyPaths.ts',
-      // The id grammar (F7): `runtimeStageId.ts` (the one owner — build/parse/read/refuse) and
-      // `branchSegment.ts` (the generated `~` segment). Pure leaves: time-travel/ (L3), scope/ and
-      // recorder/ (L5) read them, so they cannot sit above L0 — and they left engine/ in F7 because
-      // a scope → engine edge closes the engine ⇄ scope ⇄ recorder module cycle.
+      // The id grammar (F7): `runtimeStageId.ts` (the one owner — build/parse/read; a record file),
+      // `branchSegment.ts` (the generated `~` segment) and `reservedIds.ts` (the id doors' refusal, out of
+      // runtimeStageId.ts in C6). Pure leaves: time-travel/ (L3), scope/ and recorder/ (L5) read them, so
+      // they cannot sit above L0 — and they left engine/ in F7 because a scope → engine edge closes the
+      // engine ⇄ scope ⇄ recorder module cycle.
       'src/lib/ids/**',
       // `assertNotReadonly` / `createFrozenArgs`: an input-ownership leaf with no imports.
       // The in-place record freezer moved to `capture/freeze.ts` in F3, so that
@@ -117,6 +124,9 @@ const LAYERS = [
       // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
       'src/lib/memory/logModel.ts',
       'src/lib/memory/backtrack.ts',
+      // The interval index over commit indices: imports nothing, reads no engine event. A record file (C6),
+      // so it sits with the readers rather than with the recorders around it.
+      'src/lib/recorder/CommitRangeIndex.ts',
       'src/lib/slice/**',
       'src/lib/time-travel/**',
     ],
@@ -135,6 +145,9 @@ const LAYERS = [
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',
+      // The frame's types — its snapshot (StageSnapshot), its flow messages, its retention dials (C6: out of the
+      // record's types.ts, so the record names nothing outside itself).
+      'src/lib/memory/frameTypes.ts',
       'src/lib/memory/DiagnosticCollector.ts',
       'src/lib/memory/borrowedMutation.ts',
       'src/lib/memory/index.ts',
@@ -195,6 +208,52 @@ const LAYERS = [
 ];
 
 /**
+ * The record (C6): every file a trace package would hold — the record's types, the verb law and its
+ * leaves, staging and commit, the log, the record half of the frame, and every reader of the log.
+ * A record file imports only record files, by value or by type (`check-layering.mjs` · `recordEscapes`;
+ * the ESLint zone in `layerZones` says the same). Every entry is placed at L0–L3 and matches a file.
+ * The rule that decides membership is the extraction plan's (docs/design/2026-10-trace-extraction.md,
+ * section 7.5): a symbol moves to the trace package iff it is declared in one of these files.
+ */
+const RECORD_FILES = Object.freeze([
+  // L0 — the record's types (and the execution tree its readers read), the path codec, structural
+  // equality and the union merge, the path spine, the honesty vocabulary, the log's placeholder,
+  // which rows touch a key, where an emit sits in the log, the id grammar, the record's freezer and
+  // the value-kind classifier equality and the freezer share (9.44.2)
+  'src/lib/memory/types.ts',
+  'src/lib/memory/paths.ts',
+  'src/lib/memory/equality.ts',
+  'src/lib/memory/merge.ts',
+  'src/lib/memory/pathOps.ts',
+  'src/lib/memory/honesty.ts',
+  'src/lib/memory/placeholders.ts',
+  'src/lib/memory/keyPaths.ts',
+  'src/lib/memory/eventPosition.ts',
+  'src/lib/ids/runtimeStageId.ts',
+  'src/lib/capture/freeze.ts',
+  'src/lib/capture/valueKinds.ts',
+  // L1 — the verb law and its re-export surface
+  'src/lib/memory/verbs.ts',
+  'src/lib/memory/utils.ts',
+  // L2 — staging and commit
+  'src/lib/memory/TransactionBuffer.ts',
+  'src/lib/memory/admission.ts',
+  'src/lib/memory/deltaEncoding.ts',
+  'src/lib/memory/SharedMemory.ts',
+  'src/lib/memory/scrub.ts',
+  // L3 — the log, one commit onto it, the record half of a frame, and the readers
+  'src/lib/memory/EventLog.ts',
+  'src/lib/memory/recordCommit.ts',
+  'src/lib/memory/RecordFrame.ts',
+  'src/lib/memory/commitLogUtils.ts',
+  'src/lib/memory/logModel.ts',
+  'src/lib/memory/backtrack.ts',
+  'src/lib/recorder/CommitRangeIndex.ts',
+  'src/lib/slice/**',
+  'src/lib/time-travel/**',
+]);
+
+/**
  * The three edges the fence names on purpose. Each is a (from → to) pair; `from` may be a
  * glob. The script checks that every one is LIVE (the edge exists) so the list cannot
  * outlive its reason, and says for each whether the layer table already forbids it.
@@ -230,12 +289,6 @@ const EXCEPTIONS = [
  * — the script fails if one of these edges becomes a runtime import.
  */
 const TYPE_ONLY_ALLOWANCES = [
-  {
-    from: 'src/lib/memory/types.ts',
-    to: 'src/lib/memory/StageContext.ts',
-    reason:
-      '`ScopeFactory<TScope>` is declared over the StageContext frame type, in the types hub every memory layer imports.',
-  },
   {
     from: 'src/lib/reactive/types.ts',
     to: 'src/lib/engine/types.ts',
@@ -293,6 +346,15 @@ function compileLayers(layers) {
 
 const COMPILED = compileLayers(LAYERS);
 
+/** Each record list's patterns, compiled once (the zones and the tests ask per file, and per pair). */
+const compiledRecordLists = new WeakMap();
+
+/** True when a repo-relative file is one of the record's (RECORD_FILES, or the list given). */
+function isRecordFile(relPath, list = RECORD_FILES) {
+  if (!compiledRecordLists.has(list)) compiledRecordLists.set(list, list.map(globToRegExp));
+  return compiledRecordLists.get(list).some((re) => re.test(relPath));
+}
+
 /** The layer of a repo-relative file, or null when no pattern matches (a config error). */
 function rankOf(relPath, compiled = COMPILED) {
   let best = null;
@@ -328,7 +390,8 @@ function listSourceFiles(root) {
 /**
  * `import/no-restricted-paths` zones for `.eslintrc.js`, derived from the table: one zone
  * per layer (its files may not import files of a higher layer), plus one zone per file
- * that carries a named edge, with exactly that edge cut out. `except` is not used —
+ * that carries a named edge, with exactly that edge cut out, plus one zone for the record
+ * (RECORD_FILES may not import any other file). `except` is not used —
  * eslint-plugin-import resolves it against each `from` entry, which cannot express "this
  * one importer, that one target".
  */
@@ -371,17 +434,26 @@ function layerZones(root) {
       });
     }
   }
+  // The second rule: a record file imports only record files. Every import kind counts here, so the
+  // rule's blindness to `import type` is exactly right.
+  zones.push({
+    target: files.filter((f) => isRecordFile(f)).map(abs),
+    from: files.filter((f) => !isRecordFile(f)).map(abs),
+    message: 'A record file imports only record files: RECORD_FILES, scripts/layering.config.cjs.',
+  });
   return zones;
 }
 
 module.exports = {
   LAYERS,
+  RECORD_FILES,
   EXCEPTIONS,
   TYPE_ONLY_ALLOWANCES,
   SHIMS,
   globToRegExp,
   compileLayers,
   rankOf,
+  isRecordFile,
   listSourceFiles,
   layerZones,
 };

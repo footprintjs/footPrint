@@ -119,7 +119,7 @@ const chart = flowChart('input', inputFn)
 
 ---
 
-**Since 9.37.0 (F7):** `DeciderList` and `SelectorFnList` compose ONE `BranchCursor` (in `FlowChartBuilder.ts`) — the branch-id ledger, the four branch kinds and `end()` live there once; the lists keep only what differs (a decider's `loopTo` and `setDefault`). Every id door — `start`, every `add*`, every branch — refuses the runtimeStageId delimiters `#` and `/` through one helper (`admitId` → `ids/runtimeStageId.ts · refuseReservedId`):
+**Since 9.37.0 (F7):** `DeciderList` and `SelectorFnList` compose ONE `BranchCursor` (in `FlowChartBuilder.ts`) — the branch-id ledger, the four branch kinds and `end()` live there once; the lists keep only what differs (a decider's `loopTo` and `setDefault`). Every id door — `start`, every `add*`, every branch — refuses the runtimeStageId delimiters `#` and `/` through one helper (`admitId` → `ids/reservedIds.ts · refuseReservedId`):
 
 ```typescript
 import { flowChart } from 'footprintjs';

@@ -27,7 +27,7 @@
  * engine actually stamped can put a stop on this axis.
  */
 
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ExecutionTree } from '../memory/types.js';
 import { filterStops } from './axis.js';
 import { commitStops } from './commitStops.js';
 import type { Stop, TimeTravelStrategy } from './types.js';
@@ -94,7 +94,7 @@ export function tagStops(tags?: readonly string[]): TimeTravelStrategy<readonly 
   return {
     stopsFor(
       commitLog: readonly CommitBundle[],
-      executionTree?: StageSnapshot,
+      executionTree?: ExecutionTree,
       subflowResults?: unknown,
     ): Stop<readonly string[]>[] {
       return filterStops<readonly string[]>(commitStops(commitLog, executionTree, subflowResults), (stop) => {

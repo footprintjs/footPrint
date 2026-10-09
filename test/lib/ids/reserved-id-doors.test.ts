@@ -1,7 +1,7 @@
 /**
  * R5 (9.37.0) — every builder id door refuses the runtimeStageId grammar's
  * delimiters `#` and `/` (beside `~` where it was already refused), through
- * ONE helper (`ids/runtimeStageId.ts · refuseReservedId`).
+ * ONE helper (`ids/reservedIds.ts · refuseReservedId`).
  *
  * Why: the grammar is `[subflowPath/]stageId#executionIndex` and every reader
  * splits on the LAST delimiter. Before 9.37.0 a stage id `ns/a` was reported

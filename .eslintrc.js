@@ -38,7 +38,8 @@ module.exports = {
       // scripts/layering.config.cjs; `layerZones` turns it into zones, so the table has one
       // owner and `npm run check:layering` reads the same one.
       //   - no-cycle: file-level value cycles (type-only imports are ignored by the rule).
-      //   - no-restricted-paths: a file imports only its own layer or below.
+      //   - no-restricted-paths: a file imports only its own layer or below, and a record file
+      //     (RECORD_FILES, C6) imports only record files — by value or by type.
       // Three edges are deliberate and named (reasons in EXCEPTIONS there):
       //   builder  -> runner/RunnableChart.ts  (`makeRunnable`)
       //   engine   -> reactive/handles.ts      (the handle registry)

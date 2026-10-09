@@ -10,18 +10,18 @@
  * same commit log, and disagreeing about the answers. This is that arithmetic,
  * once, in the library that owns the substrate.
  *
- * DAG position: memory ← time-travel. This module may import ONLY from
- * memory/ plus `ids/runtimeStageId` — the zero-dependency id grammar that
- * defines what a `runtimeStageId` means, and therefore the one piece of
- * engine/ a reader of ids cannot honestly re-implement. Recorders, traversal
- * and runner must never be imported here; the
- * snapshot arrives as a plain structural shape ({@link FoldSource},
- * {@link TimeTravelSource}) so a stored JSON trace works exactly like a live
- * `getSnapshot()`.
+ * DAG position: memory ← time-travel. Every file here is a record file
+ * (`RECORD_FILES`, scripts/layering.config.cjs, C6): it may import only record
+ * files — memory/, the id grammar (`ids/runtimeStageId`), and the record's two
+ * capture/ leaves (`freeze`, `valueKinds`). Recorders, traversal and runner
+ * must never be imported here; the snapshot arrives as a plain structural
+ * shape ({@link FoldSource}, {@link TimeTravelSource}, the record's own
+ * `ExecutionTree` for the tree) so a stored JSON trace works exactly like a
+ * live `getSnapshot()`.
  */
 
 import type { RegisteredCode } from '../memory/honesty.js';
-import type { CommitBundle, StageSnapshot } from '../memory/types.js';
+import type { CommitBundle, ExecutionTree } from '../memory/types.js';
 
 // ── Sources ────────────────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ export type FoldSource = {
  * Every field is optional and the structural ones are `unknown` (9.18.0), so
  * a live `getSnapshot()` is assignable exactly as it was AND so is a stored
  * recording a consumer typed honestly — `commitLog: readonly unknown[]`,
- * `executionTree: unknown` — because parsed JSON is not a `StageSnapshot`
+ * `executionTree: unknown` — because parsed JSON is not an execution tree
  * until something says so. The narrowing happens inside: rows per bundle
  * (see {@link FoldSource}), the tree and the subflow results as plain
  * objects, anything else read as absent.
@@ -81,10 +81,11 @@ export interface TimeTravelSource {
   /**
    * The run's execution tree (`getSnapshot().executionTree`) — what makes a
    * mount stop say `kind: 'mount'` authoritatively instead of by shape. A live
-   * snapshot hands a {@link StageSnapshot}; a stored one hands parsed JSON,
-   * which is read as a tree when it is a plain object and ignored otherwise.
+   * snapshot hands its `StageSnapshot` tree, which is an {@link ExecutionTree};
+   * a stored one hands parsed JSON, which is read as a tree when it is a plain
+   * object and ignored otherwise.
    */
-  readonly executionTree?: StageSnapshot | unknown;
+  readonly executionTree?: ExecutionTree | unknown;
   /**
    * Dual-keyed subflow results (`getSnapshot().subflowResults`) — what
    * {@link TimeTravel.drill} navigates. Absent, or not a plain object ⇒
@@ -393,9 +394,17 @@ export interface Mark {
  * `subflowResults` (9.39.0) is the source's own `subflowResults`, as stored
  * (untyped) — a mount's per-execution key names it a mount when no tree came
  * with the log. A strategy may ignore it.
+ *
+ * `executionTree` is an {@link ExecutionTree} (9.48.0; a `StageSnapshot`
+ * before): the fields the record's readers read. A strategy written before
+ * 9.48.0 that annotates the parameter `StageSnapshot` still compiles — a
+ * method's parameters are compared both ways — but the annotation is a claim
+ * nothing checks: `timeTravel` hands a stored recording's tree over as parsed,
+ * so a field beyond these is read defensively. One left unannotated is typed
+ * by this signature.
  */
 export interface TimeTravelStrategy<TMeta = unknown> {
-  stopsFor(commitLog: readonly CommitBundle[], executionTree?: StageSnapshot, subflowResults?: unknown): Stop<TMeta>[];
+  stopsFor(commitLog: readonly CommitBundle[], executionTree?: ExecutionTree, subflowResults?: unknown): Stop<TMeta>[];
 }
 
 // ── The cursor ─────────────────────────────────────────────────────────────

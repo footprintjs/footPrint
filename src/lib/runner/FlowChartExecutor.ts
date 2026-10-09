@@ -41,9 +41,10 @@ import {
   type SubflowResult,
   defaultLogger,
 } from '../engine/types.js';
+import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
-import type { CommitValuesMode, ReadTrackingMode, WriteTrackingMode } from '../memory/types.js';
+import type { CommitValuesMode } from '../memory/types.js';
 import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';

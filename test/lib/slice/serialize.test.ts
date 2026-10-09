@@ -20,7 +20,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { CommitBundle, StageSnapshot, TraceEntry } from '../../../src/lib/memory/types.js';
+import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
+import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
 import {
   formatForwardSlice,
   formatSlice,

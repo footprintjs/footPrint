@@ -57,7 +57,6 @@
  * ```
  */
 
-import { isDevMode } from '../devMode.js';
 import { findLastWriter } from './commitLogUtils.js';
 import type { RegisteredCode } from './honesty.js';
 import { queryWork, relation, writesOnlyInside } from './keyPaths.js';
@@ -114,9 +113,10 @@ export interface CausalNode {
    * when a limit actually cut the slice: `byDepth` when a node at the
    * `maxDepth` horizon still had edges to expand, `byNodes` when the
    * `maxNodes` budget blocked creating a discovered parent. Absent when the
-   * slice is complete. Dev mode (`enableDevMode()`) also warns on
-   * truncation, and `formatCausalChain` appends a `⚠ slice truncated …`
+   * slice is complete. `formatCausalChain` appends a `⚠ slice truncated …`
    * line — a consumer must never mistake a truncated slice for a full one.
+   * (Until 9.48.0 dev mode also warned on the console; the field is the
+   * signal, read it.)
    *
    * Registry code: `'truncated'` (`memory/honesty.ts · HONESTY_CODES`, served
    * on `footprintjs/trace`) says what this field means; the field carries no
@@ -588,18 +588,11 @@ export function causalChain(
     }
   }
 
-  // RFC-003 D4 — truncation visibility on the root (absent when complete).
+  // RFC-003 D4 — truncation visibility on the root (absent when complete). It is DATA, and only
+  // data: a reader reads `root.truncated` (and `formatCausalChain` prints it); the record writes no
+  // console line (the dev-mode warning went in C6 — the record imports nothing outside itself).
   if (truncatedByDepth || truncatedByNodes) {
     root.truncated = { byDepth: truncatedByDepth, byNodes: truncatedByNodes };
-    if (isDevMode()) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[footprint] causalChain('${startId}') truncated by ` +
-          `${[truncatedByDepth && `maxDepth (${maxDepth})`, truncatedByNodes && `maxNodes (${maxNodes})`]
-            .filter(Boolean)
-            .join(' + ')} — the slice is incomplete. Raise the limits or narrow keysRead.`,
-      );
-    }
   }
 
   return root;

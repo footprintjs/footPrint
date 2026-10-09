@@ -36,19 +36,19 @@
  * `isExecutionKey`, `stageIdOf`, `subflowPathOf`, `subflowSegmentsOf`,
  * `lastSegmentOf`, `isWithinSubflow` — and every composer joins through
  * `joinPath` / `buildRuntimeStageId`; no other file splits on `#` or `/`.
- * The delimiters are RESERVED (RFC 3986 §2.2 style): `refuseReservedId` is
- * the builder's one refusal for user-authored ids, so last-delimiter parsing
- * is sound by construction rather than by hope. Stores and the prefixer never
- * refuse — they hold runtime ids and prefixed ids, which carry the delimiters
- * on purpose.
+ * It builds, parses and reads ids, and imports nothing: it is the record's
+ * (C6). The delimiters are RESERVED (RFC 3986 §2.2 style): the engine's id
+ * doors refuse them in user-authored ids through ONE function,
+ * `reservedIds.ts · refuseReservedId`, which reads them here — so
+ * last-delimiter parsing is sound by construction rather than by hope. Stores
+ * and the prefixer never refuse — they hold runtime ids and prefixed ids,
+ * which carry the delimiters on purpose.
  */
 
-import { branchSegmentReservationMessage, hasBranchSegmentMarker } from './branchSegment.js';
-
 /** Separates subflow path segments from each other and from the stage id. */
-const PATH_DELIMITER = '/';
+export const PATH_DELIMITER = '/';
 /** Separates the (prefixed) stage id from the execution index. */
-const EXECUTION_DELIMITER = '#';
+export const EXECUTION_DELIMITER = '#';
 
 // ── Brands (types only — Rust-newtype style; no runtime cost) ──────────────
 
@@ -161,7 +161,8 @@ export function splitStageId(prefixedStageId: string): {
 /**
  * True when `key` names one EXECUTION (`…#N`) rather than a stage or a subflow
  * path. Its presence alone decides: the delimiter is reserved in every
- * user-authored id (`refuseReservedId`), so only the grammar puts it there.
+ * user-authored id (`reservedIds.ts · refuseReservedId`), so only the grammar
+ * puts it there.
  *
  * Asked where a map is keyed by both — `subflowResults` is dual-keyed by
  * subflow path AND by mount runtimeStageId.
@@ -221,48 +222,6 @@ export function joinPath(...segments: readonly string[]): string {
 /** True when the (prefixed) id `id` sits INSIDE the subflow at `path` — at any depth below it. */
 export function isWithinSubflow(id: string, path: string): boolean {
   return id.startsWith(`${path}${PATH_DELIMITER}`);
-}
-
-/**
- * Where a user-authored id sits in the grammar — what the builder admits it as.
- *
- * - `'stage'`   — a stage id (`stageId` position): `#` and `/` are refused.
- * - `'segment'` — a subflow id or a `parallelForEach` id (a PATH SEGMENT, or
- *   the parent of a generated one): `~` is refused too (see `branchSegment.ts`).
- */
-export type IdPosition = 'stage' | 'segment';
-
-/**
- * The builder's ONE refusal for user-authored ids (RFC 3986 §2.2 — the
- * grammar's delimiters are reserved, so a user id can never fake a subflow
- * path or an execution suffix). Returns the refusal sentence, or `undefined`
- * when the id is admissible; the builder turns a sentence into its own error.
- *
- * Called at the builder's id doors ONLY — never by the prefixer (which writes
- * `/` on purpose) and never by a store (which holds runtimeStageIds).
- *
- * The `~` sentence is `branchSegmentReservationMessage`'s, byte-for-byte, so a
- * pre-9.37.0 refusal reads the same.
- *
- * @param what     How the error names the id (`"subflow id"`, `"addFunction id"`).
- * @param id       The id as the user wrote it.
- * @param position Where the id sits in the grammar.
- */
-export function refuseReservedId(what: string, id: string, position: IdPosition): string | undefined {
-  // A missing / non-string id is not this rule's business — the door's own checks own it.
-  if (typeof id !== 'string') return undefined;
-  if (position === 'segment' && hasBranchSegmentMarker(id)) return branchSegmentReservationMessage(what, id);
-  for (const delimiter of [PATH_DELIMITER, EXECUTION_DELIMITER]) {
-    if (!id.includes(delimiter)) continue;
-    return (
-      `${what} '${id}' contains the reserved character '${delimiter}'. ` +
-      `From 9.37.0 '${PATH_DELIMITER}' and '${EXECUTION_DELIMITER}' are reserved for the runtimeStageId grammar ` +
-      `([subflowPath${PATH_DELIMITER}]stageId${EXECUTION_DELIMITER}executionIndex) — allowing one here would let a ` +
-      'hand-authored id read as a subflow path or an execution suffix and silently mis-attribute its trace. ' +
-      'Rename the id (a dash reads the same).'
-    );
-  }
-  return undefined;
 }
 
 /**

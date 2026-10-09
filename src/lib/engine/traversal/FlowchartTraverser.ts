@@ -24,7 +24,8 @@
  */
 
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
-import { buildRuntimeStageId, joinPath, refuseReservedId } from '../../ids/runtimeStageId.js';
+import { refuseReservedId } from '../../ids/reservedIds.js';
+import { buildRuntimeStageId, joinPath } from '../../ids/runtimeStageId.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
@@ -973,7 +974,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   /**
    * R5 for ids a stage ADOPTS at run time (a returned StageNode's `next` chain,
    * `children` and subflow ids): the same refusal the builder's doors apply —
-   * `ids/runtimeStageId.ts · refuseReservedId` — so "no user id carries a
+   * `ids/reservedIds.ts · refuseReservedId` — so "no user id carries a
    * grammar delimiter" stays true by construction. Loop-ref stubs (they name an
    * existing node) and the chart's own nodes (admitted at build; a prefixed id
    * carries `/` on purpose) are not new ids and are skipped. A subflow

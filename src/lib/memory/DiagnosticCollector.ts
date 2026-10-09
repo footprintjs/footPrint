@@ -8,8 +8,8 @@
  * and timing info without affecting the compilation output.
  */
 
+import type { FlowMessage } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
-import type { FlowMessage } from './types.js';
 import { setNestedValue, updateNestedValue } from './utils.js';
 
 /** @internal Diagnostic namespaces, separate from state paths. */

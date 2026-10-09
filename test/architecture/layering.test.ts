@@ -3,7 +3,8 @@
  *
  *   unit      the matcher: most specific pattern wins, an unplaced file is an error
  *   boundary  small fixture trees: every way the analysis must say FAIL (and the ways it must not)
- *   scenario  THE REAL TREE is clean — 0 value-level cycles, every upward edge named
+ *   boundary  the closed record (C6): an import of any kind out of RECORD_FILES fails
+ *   scenario  THE REAL TREE is clean — 0 value-level cycles, every upward edge named, the record closed
  *   scenario  the ESLint zones say the same thing the script says; and the lint is live
  *
  * A fence nobody can see fail is a fence nobody can trust, so most of this file is the
@@ -18,8 +19,18 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { analyse, format } from '../../scripts/check-layering.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
-const { LAYERS, EXCEPTIONS, TYPE_ONLY_ALLOWANCES, SHIMS, compileLayers, rankOf, listSourceFiles, layerZones } =
-  layering;
+const {
+  LAYERS,
+  RECORD_FILES,
+  EXCEPTIONS,
+  TYPE_ONLY_ALLOWANCES,
+  SHIMS,
+  compileLayers,
+  rankOf,
+  isRecordFile,
+  listSourceFiles,
+  layerZones,
+} = layering;
 const REPO = resolve(__dirname, '../..');
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
@@ -43,7 +54,14 @@ function run(tree: Record<string, string>, config: Record<string, unknown> = {})
   }
   return analyse({
     root,
-    config: { layers: FIXTURE_LAYERS, exceptions: [], typeOnlyAllowances: [], shims: [], ...config },
+    config: {
+      layers: FIXTURE_LAYERS,
+      recordFiles: [],
+      exceptions: [],
+      typeOnlyAllowances: [],
+      shims: [],
+      ...config,
+    },
   });
 }
 
@@ -242,6 +260,99 @@ describe('check-layering — fixture trees', () => {
   });
 });
 
+// ── boundary: the closed record (C6) ─────────────────────────────────────────
+
+describe('check-layering — the record names nothing outside itself', () => {
+  const record = { recordFiles: ['src/lib/low/rec/**', 'src/lib/mid/rec.ts'] };
+  const leaf = 'export const leaf = 1;\nexport interface Leaf { x: number }\n';
+
+  it('a record that imports only record files is clean — and anything may import the record', () => {
+    const r = run(
+      {
+        'src/lib/low/rec/a.ts': leaf,
+        'src/lib/mid/rec.ts': "import { leaf } from '../low/rec/a.js';\nexport const rec = leaf;\n",
+        'src/lib/high/user.ts': "import { rec } from '../mid/rec.js';\nexport const user = rec;\n",
+      },
+      record,
+    );
+    expect(r.ok, format(r)).toBe(true);
+    expect(r.recordFiles).toBe(2);
+    expect(r.recordEscapes).toEqual([]);
+  });
+
+  it('a VALUE import out of the record fails, even downward — and the report names it', () => {
+    const r = run(
+      {
+        'src/lib/low/other.ts': leaf,
+        'src/lib/mid/rec.ts': "import { leaf } from '../low/other.js';\nexport const rec = leaf;\n",
+      },
+      record,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.upward).toEqual([]); // the layering is fine; the record is not
+    expect(r.recordEscapes.map((e) => `${e.from} -> ${e.to} (${e.kind})`)).toEqual([
+      'src/lib/mid/rec.ts -> src/lib/low/other.ts (value)',
+    ]);
+    expect(format(r)).toMatch(/mid\/rec\.ts:1 -> low\/other\.ts {3}\[value: a record file imports only record files\]/);
+  });
+
+  it('a TYPE-only import out of the record fails too — a record cut along the list must compile alone', () => {
+    const r = run(
+      {
+        'src/lib/low/other.ts': leaf,
+        'src/lib/mid/rec.ts': "import type { Leaf } from '../low/other.js';\nexport type Rec = Leaf;\n",
+      },
+      record,
+    );
+    expect(r.recordEscapes.map((e) => e.kind)).toEqual(['type']);
+    expect(r.ok).toBe(false);
+  });
+
+  it('what no import declaration shows — an import() TYPE reference, a package — fails: the record compiled alone', () => {
+    const typeRef = run(
+      { 'src/lib/low/other.ts': leaf, 'src/lib/mid/rec.ts': "export type Rec = import('../low/other.js').Leaf;\n" },
+      record,
+    );
+    expect(typeRef.recordEscapes).toEqual([]); // not an import declaration: the edge reader cannot see it …
+    expect(typeRef.recordCompile).toEqual(['compiled alone, the record loads src/lib/low/other.ts']); // … the compile can
+    expect(typeRef.ok).toBe(false);
+
+    const pkg = run(
+      { 'src/lib/mid/rec.ts': "import type { Thing } from 'not-a-package';\nexport type Rec = Thing;\n" },
+      record,
+    );
+    expect(pkg.recordCompile.join('\n')).toMatch(
+      /compiled alone: src\/lib\/mid\/rec\.ts:1 Cannot find module 'not-a-package'/,
+    );
+    expect(pkg.ok).toBe(false);
+  });
+
+  it('a lazy import() out of the record fails', () => {
+    const r = run(
+      { 'src/lib/low/other.ts': leaf, 'src/lib/mid/rec.ts': "export const rec = () => import('../low/other.js');\n" },
+      record,
+    );
+    expect(r.recordEscapes.map((e) => e.kind)).toEqual(['dynamic']);
+    expect(r.ok).toBe(false);
+  });
+
+  it('a RECORD_FILES entry that matches nothing, or a record file above L3, is a config error', () => {
+    const stale = run({ 'src/lib/low/rec/a.ts': leaf }, { recordFiles: ['src/lib/low/rec/**', 'src/lib/gone/**'] });
+    expect(stale.recordProblems).toEqual(['src/lib/gone/** matches no file']);
+    expect(stale.ok).toBe(false);
+
+    const above = run(
+      { 'src/lib/low/rec/a.ts': leaf, 'src/lib/top/rec.ts': leaf },
+      {
+        layers: [...FIXTURE_LAYERS, { rank: 4, name: 'top', files: ['src/lib/top/**'] }],
+        recordFiles: ['src/lib/low/rec/**', 'src/lib/top/rec.ts'],
+      },
+    );
+    expect(above.recordProblems).toEqual(['src/lib/top/rec.ts is at L4: the record is L0-L3']);
+    expect(above.ok).toBe(false);
+  });
+});
+
 // ── scenario: the real tree ──────────────────────────────────────────────────
 
 describe('the footprintjs source tree', () => {
@@ -270,10 +381,34 @@ describe('the footprintjs source tree', () => {
     ]);
   });
 
-  it('every upward TYPE-ONLY import is on the allowance list, and the list is short', () => {
+  it('every upward TYPE-ONLY import is on the allowance list, and the list is short (none below L4 since C6)', () => {
     expect(result.typeUpward.filter((t: { allowance: unknown }) => t.allowance === null)).toEqual([]);
-    expect(TYPE_ONLY_ALLOWANCES.length).toBeLessThanOrEqual(4);
+    expect(TYPE_ONLY_ALLOWANCES.length).toBeLessThanOrEqual(3);
+    expect(TYPE_ONLY_ALLOWANCES.filter((a: { from: string }) => (rankOf(a.from) ?? 0) < 4)).toEqual([]);
   });
+
+  it('the record is closed: every RECORD_FILES file imports only record files, by value or by type (R1, R2 = 0)', () => {
+    expect(result.recordEscapes).toEqual([]);
+    expect(result.recordProblems).toEqual([]);
+    expect(result.recordCompile, 'the record compiled on its own loads nothing else and has no diagnostic').toEqual([]);
+    expect(result.recordFiles).toBe(listSourceFiles(REPO).filter((f: string) => isRecordFile(f)).length);
+    // R1 of the extraction plan: no L0–L3 file names an L4+ file, by value or by type.
+    const below = (e: { from: string; to: string }) => (rankOf(e.from) ?? 9) <= 3 && (rankOf(e.to) ?? 0) >= 4;
+    expect(result.typeUpward.filter(below)).toEqual([]);
+    expect(result.upward.filter(below)).toEqual([]);
+  });
+
+  it('the rule bites on the real tree: leave capture/valueKinds.ts out of the record and its three importers escape', () => {
+    const without = RECORD_FILES.filter((f: string) => f !== 'src/lib/capture/valueKinds.ts');
+    const control = analyse({ root: REPO, config: { recordFiles: without } });
+    expect(control.ok).toBe(false);
+    expect(control.recordEscapes.map((e: { from: string }) => e.from).sort()).toEqual([
+      'src/lib/capture/freeze.ts',
+      'src/lib/memory/equality.ts',
+      'src/lib/time-travel/chain.ts',
+    ]);
+    expect(control.recordCompile).toEqual(['compiled alone, the record loads src/lib/capture/valueKinds.ts']);
+  }, 60_000); // a second whole-tree analysis, the record's compile included: ~0.6 s here, several on a CI runner
 
   it('the deprecated shims exist and nothing under src/ imports them', () => {
     const files = new Set(listSourceFiles(REPO));
@@ -293,13 +428,15 @@ describe('the ESLint zones', () => {
     to: n.to,
   }));
 
-  it('forbid exactly the pairs the table forbids: an upward import that is not named', () => {
+  it('forbid exactly the pairs the table forbids: an upward import that is not named, or one out of the record', () => {
+    const record = new Set(files.filter((f) => isRecordFile(f)));
     const wrong: string[] = [];
     for (const a of files) {
       for (const b of files) {
         const upward = rankOf(a) < rankOf(b) && rankOf(a) <= 7;
         const allowed = named.some((n: { from: RegExp; to: string }) => n.from.test(a) && n.to === b);
-        if (forbidden(a, b) !== (upward && !allowed)) wrong.push(`${a} -> ${b}`);
+        const outOfRecord = record.has(a) && !record.has(b);
+        if (forbidden(a, b) !== ((upward && !allowed) || outOfRecord)) wrong.push(`${a} -> ${b}`);
       }
     }
     expect(wrong).toEqual([]);
@@ -307,12 +444,26 @@ describe('the ESLint zones', () => {
 
   it('the lint is LIVE: an upward import is an error, a downward one is not (the real config, run for real)', async () => {
     const eslint = new ESLint({ cwd: REPO });
-    const lint = async (code: string) =>
-      (await eslint.lintText(code, { filePath: join(REPO, 'src/lib/memory/pathOps.ts') }))[0].messages.filter(
+    const lint = async (code: string, file: string) =>
+      (await eslint.lintText(code, { filePath: join(REPO, file) }))[0].messages.filter(
         (m) => m.ruleId === 'import/no-restricted-paths' || m.ruleId === 'import/no-cycle',
       );
-    const up = await lint("import { ScopeFacade } from '../scope/ScopeFacade.js';\nexport const x = ScopeFacade;\n");
+    const up = await lint(
+      "import { ScopeFacade } from '../scope/ScopeFacade.js';\nexport const x = ScopeFacade;\n",
+      'src/lib/memory/pathOps.ts',
+    );
     expect(up.map((m) => m.ruleId)).toContain('import/no-restricted-paths');
-    expect(await lint("import { devModeFlag } from '../devMode.js';\nexport const y = devModeFlag;\n")).toEqual([]);
+    const down = "import { isDevMode } from '../devMode.js';\nexport const y = isDevMode;\n";
+    expect(await lint(down, 'src/lib/memory/redaction.ts')).toEqual([]);
+    // The same downward import from a RECORD file is out of the record: the second rule, at lint time.
+    const out = await lint(down, 'src/lib/memory/backtrack.ts');
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toMatch(/A record file imports only record files: RECORD_FILES/);
+    // … and so is a TYPE import out of the record (the rule counts every kind; ESLint sees `import type` too).
+    const typeOut = await lint(
+      "import type { StageSnapshot } from './frameTypes.js';\nexport type Y = StageSnapshot;\n",
+      'src/lib/memory/backtrack.ts',
+    );
+    expect(typeOut.map((m) => m.message).join('\n')).toMatch(/A record file imports only record files: RECORD_FILES/);
   }, 60_000);
 });
