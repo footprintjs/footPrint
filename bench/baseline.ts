@@ -10,7 +10,7 @@
  *
  * A. Read-heavy stage over ~1MB shared state
  *    - first tracked read  → POST-#13 this is ~free: reads never construct
- *      the TransactionBuffer (StageContext.readState reads straight from
+ *      the TransactionBuffer (`RecordFrame · read` reads straight from
  *      SharedMemory until the stage's first WRITE). Pre-#13 it paid TWO
  *      structuredClones of the ENTIRE shared state — see bench/BASELINE.md
  *      history.

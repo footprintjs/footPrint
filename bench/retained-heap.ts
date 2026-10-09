@@ -5,14 +5,14 @@
  *
  * THE #18 FINDING this probe guards: the execution tree retains every
  * StageContext for the lifetime of the run, and before #13b each context
- * pinned (a) its `stateView` — a DISTINCT full-state generation, because
+ * pinned (a) its first-touch view (`stateView`; `RecordFrame`'s base since C3) — a DISTINCT full-state generation, because
  * `SharedMemory.applyPatch` clones + swaps the whole state per commit — and
  * (b) its TransactionBuffer (2× full-state clones), never released after
  * commit. On an agent-style loop with a growing history key that made
  * retained heap grow O(N²): 563.8MB at N=200 in the original agentfootprint
  * measurement; a 500-iteration agent OOMed a default Node heap.
  *
- * #13b releases `buffer` + `stateView` at the END of `StageContext.commit()`
+ * #13b releases the buffer + the first-touch view at the END of `StageContext.commit()` (`RecordFrame · release`)
  * — commit is the stage's lifecycle end; both references are only needed
  * DURING execution. This probe measures what the executor (and its execution
  * tree) actually pins after a run:

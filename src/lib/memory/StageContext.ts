@@ -95,12 +95,20 @@ export class StageContext {
    */
   public tags?: readonly string[];
   /**
-   * The run this frame belongs to — its identity on every event, and where it
-   * reads and writes ({@link runAddress}), decided once, when the frame is
-   * built (C3). Only {@link useAddressOf} moves the address after that, and
-   * only before the first write.
+   * The run this frame belongs to — its identity on every event, and the run
+   * namespace it reads and writes in ({@link runAddress}), read once, when the
+   * frame is built (C3). Only {@link useAddressOf} moves the address after
+   * that, and only before the first write.
    */
   public readonly runId: string;
+  /**
+   * The run namespace this frame writes and reads in when that is not its own
+   * `runId` — set once, before the frame's first write, by
+   * {@link useAddressOf}. Its one user is a subflow mount's merge-back (R13):
+   * the record names the mount, the values land where the mount's parent
+   * writes. Absent → `runId`, so every other frame is untouched.
+   */
+  private addressRunId?: string;
   public branchId?: string;
   public isDecider: boolean;
   public isFork: boolean;
@@ -458,15 +466,23 @@ export class StageContext {
    * (`SubflowExecutor · executeSubflow`, R13): the mount frame of a branch or
    * fork child lands its values where its parent writes, as before, and its
    * bundle now names the mount instead of the stage before it. Refused once
-   * the frame has staged anything — its buffer's address is fixed then
-   * (`RecordFrame · useAddress`).
+   * the frame has staged anything — its buffer's address is fixed then. The
+   * decision is the engine's (namespace ids, as since R13); the record frame
+   * takes the address it comes to (`RecordFrame · useAddress`).
    */
   useAddressOf(frame: StageContext): void {
-    if (!this.record.useAddress(frame.record.address)) {
+    if (this.record.hasStaged && frame.namespaceId !== this.namespaceId) {
       throw new Error(
         `[footprint] StageContext.useAddressOf: '${this.stageId}' has already staged writes at its own address.`,
       );
     }
+    this.addressRunId = frame.namespaceId;
+    this.record.useAddress(runAddress(this.namespaceId));
+  }
+
+  /** The run namespace writes and reads go to: {@link addressRunId}, else `runId`. */
+  private get namespaceId(): string {
+    return this.addressRunId ?? this.runId;
   }
 
   // ── Write operations ───────────────────────────────────────────────────

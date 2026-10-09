@@ -10,7 +10,8 @@
  *
  * THE LAW:
  *   1. ADDRESS. The frame reads and writes at its address, a path prefix the engine computed and hands
- *      over as data (C2: `['runs', <id>]` or `[]`, the root). It moves only while nothing is staged.
+ *      over as data (C2: `['runs', <id>]` or `[]`, the root). It moves only before the first write:
+ *      the buffer keeps the address it was built at (the engine refuses a later move).
  *   2. FIRST TOUCH. The committed generation the frame first touched — its first read OR first write —
  *      is held by reference, never cloned: the read view before the first write and the buffer's
  *      net-change diff base after it.
@@ -25,8 +26,8 @@
  *      of the list as it stands when the row is staged.
  *   6. COMMIT, RELEASE, DISCARD. `commit` takes the buffer's payload (none = the empty commit), then
  *      the names, and hands both to `recordCommit`. `release` drops the buffer and the base; a frame
- *      touched again re-anchors on the state as it stands then. The readKeys list survives a release, and goes with `discard`
- *      (a failed attempt never happened).
+ *      touched again re-anchors on the state as it stands then. The readKeys list survives a release,
+ *      and goes with `discard` (a failed attempt never happened).
  */
 
 import type { EventLog } from './EventLog.js';
@@ -84,13 +85,12 @@ export class RecordFrame {
   }
 
   /**
-   * Read and write at `address` from now on. Returns `false` — and moves nothing — once the frame has
-   * staged a write at another address: its buffer was built there (law 1).
+   * Read and write at `address` from now on — before the frame's first write (law 1): the buffer keeps
+   * the address it was built at. The engine's one caller, `StageContext · useAddressOf`, refuses a move
+   * once the frame has staged.
    */
-  useAddress(address: readonly string[]): boolean {
-    if (this.buffer && !sameAddress(address, this._address)) return false;
+  useAddress(address: readonly string[]): void {
     this._address = address;
-    return true;
   }
 
   /** The two dials the frame encodes under from its next buffer and its next read on (law 4, 5). */
@@ -230,13 +230,16 @@ export class RecordFrame {
     }
   }
 
-  /** Live committed state at `key`: at the frame's address, else at the root — never the stage's own view. */
-  readLive(key: string): unknown {
+  /**
+   * Live committed state at `key`: at the frame's address, else at the root — never the stage's own
+   * view. Typed as `SharedMemory · getValue` types it, which `StageContext · getRoot` hands on.
+   */
+  readLive(key: string) {
     return this.state.getValue(this._address, [], key);
   }
 
-  /** Live committed state at `key` at the root. */
-  readGlobal(key: string): unknown {
+  /** Live committed state at `key` at the root — typed as `SharedMemory · getValue` (`StageContext · getGlobal`). */
+  readGlobal(key: string) {
     return this.state.getValue([], [], key);
   }
 
@@ -294,11 +297,4 @@ export class RecordFrame {
     this.release();
     this.readKeys = undefined;
   }
-}
-
-/** Two addresses name the same place when they hold the same segments. */
-function sameAddress(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
 }

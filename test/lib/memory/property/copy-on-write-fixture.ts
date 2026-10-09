@@ -949,8 +949,9 @@ export function runNested(
  * the working copy cannot answer (the stage deleted or unset the path, or a
  * write replaced a container above it) is served from LIVE committed state,
  * on 9.28.0 and here. 9.28.0's diff base was a clone taken at the first
- * write. Here the base IS the committed generation, so `StageContext ·
- * readState` has `TransactionBuffer · detachBase` give the base a private copy
+ * write. Here the base IS the committed generation, so the frame's read
+ * (`RecordFrame · read`; `StageContext · readState` before C3) has
+ * `TransactionBuffer · detachBase` give the base a private copy
  * at that path before the value goes out — otherwise an in-place edit moves
  * the base too, and the write-back records nothing.
  *
@@ -960,7 +961,7 @@ export function runNested(
  * the value in place, then write it back with `set` or `merge` (or not) — at
  * root, nested and run-namespaced paths, both encodings. Written by the PR's
  * independent recheck: 9,000 programs (seeds 7301–7303) identical to 9.28.0,
- * `detachBase` replacing a base path in 198 of them; with `readState`
+ * `detachBase` replacing a base path in 198 of them; with the frame's read
  * skipping `detachBase`, or `detachBase` a no-op, it fails at program 91.
  *
  * The values and keys are the recheck's own (no `Date`, so M6 never arises);

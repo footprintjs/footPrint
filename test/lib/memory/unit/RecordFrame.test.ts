@@ -68,17 +68,19 @@ describe('RecordFrame — law 1: the address', () => {
     expect(frame.readGlobal('k')).toBe('root');
   });
 
-  it('moves while nothing is staged; refuses (false) once a write was staged at another address', () => {
-    const { state, frame } = setup({ runs: { p1: { k: 'p1' }, p2: { k: 'p2' } } }, RUN);
-    expect(frame.useAddress(['runs', 'p2'])).toBe(true);
-    expect(frame.read([], 'k')).toBe('p2');
-    frame.getTransactionBuffer().set(frame.at([], 'w'), 1);
-    expect(frame.useAddress(RUN)).toBe(false); // the buffer was built at runs/p2
+  it('moves before the first write; the buffer is built at the address the frame has then', () => {
+    const { state, log, frame } = setup({ runs: { p1: { k: 'p1' }, p2: { k: 'p2' } } }, RUN);
+    expect(frame.hasStaged).toBe(false); // the caller's question before a move (StageContext · useAddressOf)
+    frame.useAddress(['runs', 'p2']);
     expect(frame.address).toEqual(['runs', 'p2']);
-    expect(frame.useAddress(['runs', 'p2'])).toBe(true); // the same place is not a move
+    expect(frame.read([], 'k')).toBe('p2');
+    frame.getTransactionBuffer().set(frame.at([], 'w'), { n: 1 });
+    expect(frame.hasStaged).toBe(true);
     commitAs(frame, 's');
-    expect(frame.useAddress(RUN)).toBe(true); // released: nothing staged any more
-    expect((state.getState().runs as Loose).p2).toEqual({ k: 'p2', w: 1 });
+    expect((state.getState().runs as Loose).p2).toEqual({ k: 'p2', w: { n: 1 } });
+    expect(last(log).trace).toEqual([{ path: 'runs\u001fp2\u001fw', verb: 'set' }]);
+    frame.useAddress(RUN); // released: nothing staged any more
+    expect(frame.read([], 'k')).toBe('p1');
   });
 });
 
@@ -284,6 +286,20 @@ describe('RecordFrame — law 6: commit, release, discard', () => {
     frame.commit(() => ({ stage: 's', stageId: 's', runtimeStageId: 's#0', tags }));
     expect(last(log).tags).toEqual(['late']);
     expect(last(log).overwrite).toEqual({ v: { g: 1 } });
+  });
+
+  it('answers a report (the dev-mode guard) without a copy: what was staged, what the stage has seen, the base', () => {
+    const { state, frame } = setup({ cfg: { a: 1 }, list: [1] }, RUN);
+    expect(frame.wasStaged(frame.at([], 'cfg'))).toBe(false); // no buffer yet
+    const before = state.getState().cfg;
+    expect(frame.peek(['cfg'])).toBe(before); // the first-touch base itself
+    frame.getTransactionBuffer().set(frame.at(['cfg'], 'a'), 2);
+    expect(frame.wasStaged(frame.at([], 'cfg'))).toBe(true); // below it
+    expect(frame.wasStaged(frame.at(['cfg', 'a'], 'deep'))).toBe(true); // above it
+    expect(frame.wasStaged(frame.at([], 'list'))).toBe(false);
+    expect(frame.baseAt(['cfg'])).toBe(before); // the base keeps what was committed
+    commitAs(frame, 's');
+    expect(frame.wasStaged(frame.at([], 'cfg'))).toBe(false); // released
   });
 
   it('commit records and release ends the hold: two steps, so a caller can run its own between them', () => {

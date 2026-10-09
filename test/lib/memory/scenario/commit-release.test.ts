@@ -11,7 +11,8 @@
  * On an agent-style loop with a growing history key that made retained heap
  * grow O(N²) — 563.8MB at N=200, OOM at N=500 on a default Node heap (#18).
  *
- * #13b: `StageContext.commit()` nulls `buffer` + `stateView` at the end of
+ * #13b: `StageContext.commit()` nulls `buffer` + `stateView` (since C3 the
+ * record frame's buffer and base, `RecordFrame · release`) at the end of
  * BOTH paths (no-buffer fast path and buffer path). Both fields re-create
  * lazily, so re-use after commit (fork double-commit, subflow outputMapper
  * double-commit, engine post-commit writes) stays observably identical —

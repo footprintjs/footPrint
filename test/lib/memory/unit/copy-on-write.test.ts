@@ -333,7 +333,7 @@ describe('TransactionBuffer · detachBase — a read the working copy cannot ans
     const base = { cfg: { n: 1 } }; // not frozen: the edit reaches committed state, as it does on 9.28.0
     const buf = new TransactionBuffer(base);
     buf.delete(['cfg']);
-    expect(buf.get(['cfg'])).toBeUndefined(); // the caller (StageContext · readState) serves live state…
+    expect(buf.get(['cfg'])).toBeUndefined(); // the caller (RecordFrame · read) serves live state…
     buf.detachBase(['cfg']); // …after detaching the base there
     const live = base.cfg;
     live.n = 99; // out of contract

@@ -107,7 +107,7 @@ function benchReadThroughput(): BenchResult[] {
 /**
  * A fork child reading its parent's ROOT keys: each read misses the child's own
  * namespace (`runs/c0`) and is served from live state — the frame's address
- * joined to the path on every read (`StageContext · readState`, C2).
+ * joined to the path on every read (`RecordFrame · read` and `at`; C2, C3).
  */
 function benchLiveStateReads(): BenchResult[] {
   const count = 10_000;
