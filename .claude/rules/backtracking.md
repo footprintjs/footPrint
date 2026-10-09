@@ -35,7 +35,7 @@ the keys tracked-read BEFORE that write (temporal prefix; monotone within a
 stage, so delta-mode's one-entry-per-path keeps the LAST prefix == the union).
 Capture: the frame's `RecordFrame` keeps the readKeys list, filled by
 `RecordFrame · noteRead` from `getValue` (INDEPENDENT of readTracking — key
-strings only; C3, 9.46.0); `RecordFrame · getTransactionBuffer` hands the buffer
+strings only; C3, 9.46.0); `RecordFrame · getTransactionBuffer` (private since C4; the first `RecordFrame · write` builds it) hands the buffer
 a live `readKeysProvider` closure; both commit payloads
 (`toChangeOnlyPayload` per-op, `toDeltaPayload` last-op-per-path) carry it.
 Default `'off'` = byte-identical logs. Same 6-site propagation as the other
