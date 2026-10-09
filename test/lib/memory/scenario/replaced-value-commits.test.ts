@@ -13,36 +13,24 @@
  *             replacing stage commits a row, and live state and the record hold the new value
  *   boundary  a replacement with the same content commits no row — the filter still drops a no-op
  *
- * Public API only, so the file runs unchanged against an older build.
+ * Public doors only — the two stages are written through footprintjs/write (test/helpers/recordRun.ts:
+ * the frame a `$setValue` stages on) and read through footprintjs/trace — so the file runs unchanged
+ * against any build that has the write door (9.47.0 on).
  */
-import { flowChart, FlowChartExecutor } from '../../../../src';
 import { commitValueAt } from '../../../../src/trace';
+import { recordRun } from '../../../helpers/recordRun';
 import { recordKey } from '../../../helpers/valueKinds';
 
-/** Seed writes `before`, Replace writes `after` — both through `$setValue`, the value as given. */
+/** Seed writes `before`, Replace writes `after` — each a stage's `$setValue`, the value as given. */
 async function replace(before: unknown, after: unknown) {
-  const chart = flowChart(
-    'Seed',
-    (scope: any) => {
-      scope.$setValue('v', before);
-    },
-    'seed',
-  )
-    .addFunction(
-      'Replace',
-      (scope: any) => {
-        scope.$setValue('v', after);
-      },
-      'replace',
-    )
-    .build();
-  const executor = new FlowChartExecutor(chart);
-  await executor.run();
-  const snapshot = executor.getSnapshot();
+  const run = recordRun();
+  run.step('seed', (s) => s.set('v', before), { name: 'Seed' });
+  run.step('replace', (s) => s.set('v', after), { name: 'Replace' });
+  const { commitLog } = run.snapshot();
   return {
-    rows: snapshot.commitLog[1].trace.map((row) => row.path),
-    live: snapshot.sharedState.v,
-    recorded: commitValueAt(snapshot.commitLog, 1, 'v'),
+    rows: commitLog[1].trace.map((row) => row.path),
+    live: run.state.getState().v,
+    recorded: commitValueAt(commitLog, 1, 'v'),
   };
 }
 

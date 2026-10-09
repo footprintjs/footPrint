@@ -55,4 +55,14 @@ describe('DiagnosticCollector', () => {
     dc.addLog('msg', 'hello', ['subsystem']);
     expect(dc.logContext.subsystem.msg).toBe('hello');
   });
+
+  // Moved from boundary/empty-inputs.test.ts (E1): diagnostics are the frame's, not the record's.
+  it('starts with empty contexts', () => {
+    const dc = new DiagnosticCollector();
+    expect(dc.logContext).toEqual({});
+    expect(dc.errorContext).toEqual({});
+    expect(dc.metricContext).toEqual({});
+    expect(dc.evalContext).toEqual({});
+    expect(dc.flowMessages).toEqual([]);
+  });
 });

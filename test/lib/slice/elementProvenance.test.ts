@@ -11,22 +11,23 @@
  *    and honest ABSENCE: missing: 'empty-log'|'never-written'|'not-an-array'.
  * 3. The agent mega-key story end-to-end: a loop growing an array yields
  *    per-element birth stages in BOTH commitValues modes.
+ *
+ * The runs' records are written through footprintjs/write (test/helpers/recordRun.ts) — the same
+ * commit logs, byte for byte, the loop chart and the fetch chart wrote through the engine (E1).
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
 import { commitValueAt } from '../../../src/lib/memory/commitLogUtils.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
 import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
 import { deepEqual } from '../../../src/lib/memory/utils.js';
-import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
 import {
   arrayProvenance,
   elementProvenance,
   keysReadFromExecutionTree,
   sliceForKey,
 } from '../../../src/lib/slice/index.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 // ── Test helpers ───────────────────────────────────────────────────────
 
@@ -252,50 +253,40 @@ describe('arrayProvenance — property (fold equivalence with commitValueAt)', (
 // ════════════════════════════════════════════════════════════════════════
 
 describe('elementProvenance — functional (loop chart, both commitValues modes)', () => {
-  interface S {
-    msgs: string[];
-    round?: number;
-  }
-
-  function loopChart() {
-    return flowChart<S>(
-      'Seed',
-      async (scope) => {
-        scope.msgs = ['user-question'];
-        scope.round = 0;
-      },
+  /**
+   * The loop chart's record: Seed sets msgs + round; Work (round += 1, msgs.push) → Check (reads round)
+   * → Loop (loopTo work) twice, then Work → Check → Finish. Stage names as the engine stamped them
+   * (its third visit of Work is named 'Work.1'); a decider and a loop hop commit nothing.
+   */
+  function loopRecord(commitValues: 'full' | 'delta') {
+    const run = recordRun({}, { commitValues });
+    run.step(
       'seed',
-    )
-      .addFunction(
-        'Work',
-        async (scope) => {
-          scope.round = scope.round! + 1;
-          scope.msgs.push(`tool-result-${scope.round}`);
-        },
+      (s) => {
+        s.set('msgs', ['user-question']);
+        s.set('round', 0);
+      },
+      { name: 'Seed' },
+    );
+    for (let round = 1; round <= 3; round++) {
+      run.step(
         'work',
-      )
-      .addDeciderFunction('Check', async (scope) => (scope.round! < 3 ? 'again' : 'done'), 'check')
-      .addFunctionBranch(
-        'again',
-        'Loop',
-        async () => {
-          /* hop back */
+        (s) => {
+          const next = (s.read('round') as number) + 1;
+          s.set('round', next);
+          s.set('msgs', [...(s.read('msgs') as string[]), `tool-result-${next}`]);
         },
-        undefined,
-        { loopTo: 'work' },
-      )
-      .addFunctionBranch('done', 'Finish', async () => {
-        /* end */
-      })
-      .setDefault('done')
-      .end()
-      .build();
+        { name: round === 3 ? 'Work.1' : 'Work' },
+      );
+      run.step('check', (s) => s.read('round'), { name: 'Check' });
+      if (round < 3) run.step('again', undefined, { name: 'Loop' });
+    }
+    run.step('done', undefined, { name: 'Finish' });
+    return run.snapshot();
   }
 
-  it.each(['full', 'delta'] as const)('commitValues %s: each msgs element names its birth iteration', async (mode) => {
-    const executor = new FlowChartExecutor(loopChart(), { commitValues: mode });
-    await executor.run();
-    const { commitLog } = executor.getSnapshot();
+  it.each(['full', 'delta'] as const)('commitValues %s: each msgs element names its birth iteration', (mode) => {
+    const { commitLog } = loopRecord(mode);
 
     const prov = arrayProvenance(commitLog, 'msgs');
     expect(prov.length).toBe(4); // seed + 3 loop rounds
@@ -318,43 +309,35 @@ describe('elementProvenance — functional (loop chart, both commitValues modes)
 // ════════════════════════════════════════════════════════════════════════
 
 describe('element → slice chained triage — integration', () => {
-  interface S {
-    source?: string;
-    msgs: string[];
-  }
-
-  it('birth.runtimeStageId anchors a sliceForKey follow-up (before: commitIdx + 1)', async () => {
-    const chart = flowChart<S>(
-      'Seed',
-      async (scope) => {
-        scope.source = 'db';
-        scope.msgs = [];
-      },
+  it('birth.runtimeStageId anchors a sliceForKey follow-up (before: commitIdx + 1)', () => {
+    // Seed sets source + msgs = []; Fetch pushes `fetched-from-${source}` (reads msgs, then source).
+    const run = recordRun({}, { commitValues: 'delta' });
+    run.step(
       'seed',
-    )
-      .addFunction(
-        'Fetch',
-        async (scope) => {
-          scope.msgs.push(`fetched-from-${scope.source}`);
-        },
-        'fetch',
-      )
-      .build();
-    const executor = new FlowChartExecutor(chart, { commitValues: 'delta' });
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+      (s) => {
+        s.set('source', 'db');
+        s.set('msgs', []);
+      },
+      { name: 'Seed' },
+    );
+    run.step(
+      'fetch',
+      (s) => {
+        const msgs = s.read('msgs') as string[];
+        s.set('msgs', [...msgs, `fetched-from-${s.read('source') as string}`]);
+      },
+      { name: 'Fetch' },
+    );
+    const snapshot = run.snapshot();
 
     const birth = elementProvenance(snapshot.commitLog, 'msgs', 0)!;
     expect(birth.stageId).toBe('fetch');
 
     // The documented chained-triage idiom: birth idx is inclusive, `before`
     // is exclusive — +1 makes the birth commit itself the anchor.
-    const slice = sliceForKey(
-      snapshot.commitLog,
-      'msgs',
-      keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
-      { before: birth.commitIdx + 1 },
-    );
+    const slice = sliceForKey(snapshot.commitLog, 'msgs', keysReadFromExecutionTree(snapshot.executionTree!), {
+      before: birth.commitIdx + 1,
+    });
     expect(slice.writer!.runtimeStageId).toBe(birth.runtimeStageId);
     expect(slice.root!.parents[0]?.runtimeStageId).toMatch(/^seed#/); // fetch read `source`
   });

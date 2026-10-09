@@ -15,9 +15,9 @@
  * 11.1× on a busy runner while the shape was linear). A quadratic control proves the counter sees a shape
  * that is not.
  */
-import type { CommitBundle } from '../../../../src';
 import { deepFreeze } from '../../../../src/lib/capture/freeze';
 import { queryWork } from '../../../../src/lib/memory/keyPaths';
+import type { CommitBundle } from '../../../../src/trace';
 import { causalChain, commitValueAt, findLastWriter } from '../../../../src/trace';
 
 const D = '\u001F';

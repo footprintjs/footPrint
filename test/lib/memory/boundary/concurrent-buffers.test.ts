@@ -1,24 +1,34 @@
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
+/**
+ * Boundary: concurrent buffers — a fork's children, each a stage frame (`RecordFrame`, footprintjs/write) at
+ * the run's address (`['runs', 'p1']`), staged side by side: a hundred commit without loss, the last commit
+ * of one key wins, no child sees another's uncommitted write, and the log keeps every child's bundle.
+ */
+import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
+
+/** A child's frame at run `p1`. */
+const childOf = (mem: SharedMemory, log: EventLog) => new RecordFrame(mem, log, ['runs', 'p1']);
+
+/** Commit the frame as `stage` and release it, as the engine's frame does at the end of a stage. */
+function commit(frame: RecordFrame, stage: string): void {
+  frame.commit(() => ({ stage, stageId: stage, runtimeStageId: `${stage}#0` }));
+  frame.release();
+}
 
 describe('Boundary: concurrent buffers', () => {
   it('100 parallel children all commit without data loss', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const parent = new StageContext('p1', 'fork', 'fork', mem, '', log);
-    parent.setAsFork();
 
-    const children: StageContext[] = [];
+    const children: Array<{ frame: RecordFrame; stage: string }> = [];
     for (let i = 0; i < 100; i++) {
-      const child = parent.createChild('p1', `b${i}`, `child${i}`, `child${i}`);
-      child.setObject(['results'], `child${i}`, i);
-      children.push(child);
+      const child = childOf(mem, log);
+      child.write(child.at(['results'], `child${i}`), i, 'set');
+      children.push({ frame: child, stage: `child${i}` });
     }
 
     // Commit all children
-    for (const child of children) {
-      child.commit();
+    for (const { frame, stage } of children) {
+      commit(frame, stage);
     }
 
     // Verify all results are present
@@ -30,19 +40,18 @@ describe('Boundary: concurrent buffers', () => {
   it('parallel children writing the same key — last commit wins', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const parent = new StageContext('p1', 'fork', 'fork', mem, '', log);
 
-    const c1 = parent.createChild('p1', 'b1', 'child1', 'child1');
-    const c2 = parent.createChild('p1', 'b2', 'child2', 'child2');
-    const c3 = parent.createChild('p1', 'b3', 'child3', 'child3');
+    const c1 = childOf(mem, log);
+    const c2 = childOf(mem, log);
+    const c3 = childOf(mem, log);
 
-    c1.setObject([], 'winner', 'c1');
-    c2.setObject([], 'winner', 'c2');
-    c3.setObject([], 'winner', 'c3');
+    c1.write(c1.at([], 'winner'), 'c1', 'set');
+    c2.write(c2.at([], 'winner'), 'c2', 'set');
+    c3.write(c3.at([], 'winner'), 'c3', 'set');
 
-    c1.commit();
-    c2.commit();
-    c3.commit();
+    commit(c1, 'child1');
+    commit(c2, 'child2');
+    commit(c3, 'child3');
 
     // Last commit wins
     expect(mem.getValue(['runs', 'p1'], [], 'winner')).toBe('c3');
@@ -51,28 +60,26 @@ describe('Boundary: concurrent buffers', () => {
   it('parallel buffers do not see each others uncommitted writes', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const parent = new StageContext('p1', 'fork', 'fork', mem, '', log);
 
-    const c1 = parent.createChild('p1', 'b1', 'child1', 'child1');
-    const c2 = parent.createChild('p1', 'b2', 'child2', 'child2');
+    const c1 = childOf(mem, log);
+    const c2 = childOf(mem, log);
 
-    c1.setObject([], 'secret1', 'from-c1');
-    c2.setObject([], 'secret2', 'from-c2');
+    c1.write(c1.at([], 'secret1'), 'from-c1', 'set');
+    c2.write(c2.at([], 'secret2'), 'from-c2', 'set');
 
     // Neither can see the other's uncommitted writes
-    expect(c1.getValue([], 'secret2')).toBeUndefined();
-    expect(c2.getValue([], 'secret1')).toBeUndefined();
+    expect(c1.read([], 'secret2')).toBeUndefined();
+    expect(c2.read([], 'secret1')).toBeUndefined();
   });
 
   it('EventLog captures commits from all children', () => {
     const mem = new SharedMemory();
     const log = new EventLog(mem.getState());
-    const parent = new StageContext('p1', 'fork', 'fork', mem, '', log);
 
     for (let i = 0; i < 10; i++) {
-      const child = parent.createChild('p1', `b${i}`, `child${i}`, `child${i}`);
-      child.setObject([], `data${i}`, i);
-      child.commit();
+      const child = childOf(mem, log);
+      child.write(child.at([], `data${i}`), i, 'set');
+      commit(child, `child${i}`);
     }
 
     expect(log.list()).toHaveLength(10);

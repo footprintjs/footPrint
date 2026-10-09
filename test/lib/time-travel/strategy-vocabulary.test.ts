@@ -16,15 +16,19 @@
  *      run's raw base" and being wrong on every derived axis.
  *   3. `[start, …stages, end]` WAS AN UNSTATED CONTRACT. Every composer wrote
  *      its own guard. `splitAxis` states it; `filterStops` keeps it.
+ *
+ * Every record here is written through `footprintjs/write`
+ * (test/helpers/recordRun.ts) — the bytes the charts' executor wrote (a mount
+ * and a fork included), with no engine loaded.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartBuilder, FlowChartExecutor } from '../../../src/index.js';
-import type { Stop, TimeTravelStrategy } from '../../../src/trace.js';
+import type { ExecutionTree, Stop, TimeTravelStrategy } from '../../../src/trace.js';
 import { commitStops, filterStops, splitAxis, stateAt, timeTravel } from '../../../src/trace.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
-// ── A real chart: a seed, a mount, and stages worth classifying ─────────────
+// ── A real run: a seed, a mount, and stages worth classifying ───────────────
 
 /** The consumer's OWN vocabulary — nothing the port knows about. */
 interface Beat {
@@ -44,57 +48,73 @@ function beatFor(runtimeStageId: string): Beat | null {
   return BEATS[local] ?? null;
 }
 
-function buildChart() {
-  const inner = new FlowChartBuilder<any, any>()
-    .start(
-      'Lookup',
-      async (scope: any) => {
-        scope.found = `row-${scope.needle}`;
-      },
-      'lookup',
-    )
-    .build();
-
-  return flowChart<any>(
-    'Seed',
-    async (scope: any) => {
-      scope.tenant = 'acme';
-      scope.needle = 7;
-    },
-    'seed',
-  )
-    .addFunction(
-      'Prepare',
-      async (scope: any) => {
-        scope.prepared = true;
-      },
-      'prepare',
-    )
-    .addFunction(
-      'Ask',
-      async (scope: any) => {
-        scope.question = 'where?';
-      },
-      'ask',
-    )
-    .addSubFlowChartNext('sf-lookup', inner, 'Lookup', {
-      inputMapper: (parent: any) => ({ needle: parent.needle }),
-      outputMapper: (out: any) => ({ found: out.found }),
-    })
-    .addFunction(
-      'Answer',
-      async (scope: any) => {
-        scope.answer = `${scope.question} ${scope.found}`;
-      },
-      'answer',
-    )
-    .build();
+/** `tree` with node `id` marked as the subflow mount it is (`subflowId`), as the engine's tree marks one. */
+function markMount(tree: ExecutionTree | undefined, id: string): ExecutionTree | undefined {
+  if (!tree) return tree;
+  return {
+    ...tree,
+    ...(tree.id === id ? { subflowId: id } : {}),
+    ...(tree.next ? { next: markMount(tree.next, id) } : {}),
+  };
 }
 
-async function runIt() {
-  const executor = new FlowChartExecutor(buildChart());
-  await executor.run();
-  return executor.getSnapshot();
+/**
+ * Seed → Prepare → Ask → the `sf-lookup` subflow (one stage, Lookup) → Answer,
+ * written through `footprintjs/write` (test/helpers/recordRun.ts) — the record
+ * that chart's executor wrote, with no engine loaded. The mount is written as
+ * the engine writes one: the subflow's OWN record (its seed, the inputMapper's
+ * values, committed under the mount's id `sf-lookup#3`; then its stage under the
+ * prefixed id, numbered by the run's one counter), and on the parent's log the
+ * mount's bundle (the outputMapper's merge-back) and its `phase: 'exit'`
+ * continuation. The subflow's result is dual-keyed, by subflow id and by the
+ * mount's execution — what a drill reads.
+ */
+function runIt() {
+  const run = recordRun();
+  run.step(
+    'seed',
+    (s) => {
+      s.set('tenant', 'acme');
+      s.set('needle', 7);
+    },
+    { name: 'Seed' },
+  );
+  run.step('prepare', (s) => s.set('prepared', true), { name: 'Prepare' });
+  run.step('ask', (s) => s.set('question', 'where?'), { name: 'Ask' });
+  const sub = recordRun();
+  sub.step('sf-lookup', (s) => s.set('needle', run.state.getState().needle), {
+    name: 'Lookup',
+    runtimeStageId: 'sf-lookup#3',
+  });
+  sub.step('sf-lookup/lookup', (s) => s.set('found', `row-${s.read('needle')}`), {
+    name: 'sf-lookup/Lookup',
+    runtimeStageId: 'sf-lookup/lookup#4',
+  });
+  run.step('sf-lookup', (s) => s.set('found', sub.state.getState().found), { name: 'Lookup' });
+  run.step('sf-lookup', undefined, { name: 'Lookup', phase: 'exit' });
+  // `#5`: the subflow's stage took `#4` from the run's one counter.
+  run.step('answer', (s) => s.set('answer', `${s.read('question')} ${s.read('found')}`), {
+    name: 'Answer',
+    runtimeStageId: 'answer#5',
+  });
+  const result = {
+    subflowId: 'sf-lookup',
+    subflowName: 'Lookup',
+    treeContext: {
+      stageContexts: sub.snapshot().executionTree?.next,
+      history: sub.log.list(),
+      initialState: sub.log.getInitialState(),
+    },
+    parentStageId: 'Lookup',
+  };
+  const { commitLog, initialState, executionTree } = run.snapshot();
+  return {
+    commitLog,
+    initialState,
+    sharedState: run.state.getState(),
+    executionTree: markMount(executionTree, 'sf-lookup'),
+    subflowResults: { 'sf-lookup': result, 'sf-lookup#3': result },
+  };
 }
 
 /** The consumer's strategy, written the way 9.18.0 lets it be written. */
@@ -109,8 +129,8 @@ const beatStops: TimeTravelStrategy<Beat> = {
 // ── Gap 1 — the strategy's own vocabulary rides ON the stop ─────────────────
 
 describe("Stop.meta — a strategy's own vocabulary, carried not re-derived", () => {
-  it('every stop the strategy labelled carries its meta, verbatim, out of timeTravel', async () => {
-    const snapshot = await runIt();
+  it('every stop the strategy labelled carries its meta, verbatim, out of timeTravel', () => {
+    const snapshot = runIt();
     const cursor = timeTravel(snapshot, { strategy: beatStops });
 
     const labelled = cursor.stops.filter((stop) => stop.meta !== undefined);
@@ -125,8 +145,8 @@ describe("Stop.meta — a strategy's own vocabulary, carried not re-derived", ()
     expect(cursor.stops[cursor.stops.length - 1].meta).toBeUndefined();
   });
 
-  it('filterStops over an axis that ALREADY carries meta strips the inherited meta unless the decision supplies one', async () => {
-    const snapshot = await runIt();
+  it('filterStops over an axis that ALREADY carries meta strips the inherited meta unless the decision supplies one', () => {
+    const snapshot = runIt();
     const beats = beatStops.stopsFor(snapshot.commitLog, snapshot.executionTree);
     expect(beats.filter((s) => s.meta !== undefined)).toHaveLength(2);
 
@@ -153,8 +173,8 @@ describe("Stop.meta — a strategy's own vocabulary, carried not re-derived", ()
     expect(hasMetaKey(tagged[tagged.length - 1])).toBe(false);
   });
 
-  it('survives jumpTo, marks and a drill into a subflow', async () => {
-    const snapshot = await runIt();
+  it('survives jumpTo, marks and a drill into a subflow', () => {
+    const snapshot = runIt();
     const cursor = timeTravel(snapshot, { strategy: beatStops });
 
     const answer = cursor.stops.find((s) => s.stageId === 'answer')!;
@@ -180,8 +200,8 @@ describe("Stop.meta — a strategy's own vocabulary, carried not re-derived", ()
     expect(inner.stops[1].meta).toBe(BEATS.lookup);
   });
 
-  it('the port assigns meta no meaning — it never reads, validates or branches on it', async () => {
-    const snapshot = await runIt();
+  it('the port assigns meta no meaning — it never reads, validates or branches on it', () => {
+    const snapshot = runIt();
     const nonsense = { anything: Symbol('opaque') };
     const opaque: TimeTravelStrategy<typeof nonsense> = {
       stopsFor: (log, tree) => commitStops(log, tree).map((s) => ({ ...s, meta: nonsense })),
@@ -197,8 +217,8 @@ describe("Stop.meta — a strategy's own vocabulary, carried not re-derived", ()
 // ── Gap 2 — what `'start'` folds on a FILTERING axis ────────────────────────
 
 describe("the 'start' bookend on a filtering strategy", () => {
-  it('folds the base PLUS the prologue, and says so with prologue: true', async () => {
-    const snapshot = await runIt();
+  it('folds the base PLUS the prologue, and says so with prologue: true', () => {
+    const snapshot = runIt();
     const perStage = timeTravel(snapshot);
     const beats = timeTravel(snapshot, { strategy: beatStops });
 
@@ -225,8 +245,8 @@ describe("the 'start' bookend on a filtering strategy", () => {
     expect(Object.keys(stateAt(snapshot, -1).state)).toEqual([]);
   });
 
-  it('an axis that dropped nothing before its first stop keeps a silent start', async () => {
-    const snapshot = await runIt();
+  it('an axis that dropped nothing before its first stop keeps a silent start', () => {
+    const snapshot = runIt();
     const keepAll: TimeTravelStrategy<Beat> = {
       stopsFor: (log, tree) => filterStops<Beat>(commitStops(log, tree), () => true),
     };
@@ -239,8 +259,8 @@ describe("the 'start' bookend on a filtering strategy", () => {
     );
   });
 
-  it('the survivors still PARTITION the log — nothing is orphaned', async () => {
-    const snapshot = await runIt();
+  it('the survivors still PARTITION the log — nothing is orphaned', () => {
+    const snapshot = runIt();
     const cursor = timeTravel(snapshot, { strategy: beatStops });
     const stops = cursor.stops;
 
@@ -257,8 +277,8 @@ describe("the 'start' bookend on a filtering strategy", () => {
     expect(cursor.stateAt(answer).state).toEqual(snapshot.sharedState);
   });
 
-  it('a run the strategy recognises nothing in has two bookends and nowhere to stand', async () => {
-    const snapshot = await runIt();
+  it('a run the strategy recognises nothing in has two bookends and nowhere to stand', () => {
+    const snapshot = runIt();
     const nothing: TimeTravelStrategy<Beat> = {
       stopsFor: (log, tree) => filterStops<Beat>(commitStops(log, tree), () => false),
     };
@@ -283,18 +303,10 @@ describe('splitAxis — the [start, …stages, end] contract, stated once', () =
     expect(!split.ok && split.kinds).toEqual([]);
   });
 
-  it('holds on a ONE-STAGE log', async () => {
-    const executor = new FlowChartExecutor(
-      flowChart<any>(
-        'Only',
-        async (scope: any) => {
-          scope.x = 1;
-        },
-        'only',
-      ).build(),
-    );
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+  it('holds on a ONE-STAGE log', () => {
+    const run = recordRun();
+    run.step('only', (s) => s.set('x', 1), { name: 'Only' });
+    const snapshot = run.snapshot();
     const split = splitAxis(commitStops(snapshot.commitLog, snapshot.executionTree));
     expect(split.ok).toBe(true);
     if (!split.ok) return;
@@ -303,8 +315,8 @@ describe('splitAxis — the [start, …stages, end] contract, stated once', () =
     expect(split.end.lastCommitIdx).toBe(snapshot.commitLog.length - 1);
   });
 
-  it('holds on a log with a MOUNT', async () => {
-    const snapshot = await runIt();
+  it('holds on a log with a MOUNT', () => {
+    const snapshot = runIt();
     const split = splitAxis(commitStops(snapshot.commitLog, snapshot.executionTree));
     expect(split.ok).toBe(true);
     if (!split.ok) return;
@@ -312,35 +324,26 @@ describe('splitAxis — the [start, …stages, end] contract, stated once', () =
     expect(split.end.kind).toBe('end');
   });
 
-  it('holds on a log with a FORK', async () => {
-    const executor = new FlowChartExecutor(
-      flowChart<any>(
-        'Seed',
-        async (scope: any) => {
-          scope.n = 0;
-        },
-        'seed',
-      )
-        .addListOfFunction([
-          {
-            id: 'fan-a',
-            name: 'A',
-            fn: async (scope: any) => {
-              scope.a = 1;
-            },
-          },
-          {
-            id: 'fan-b',
-            name: 'B',
-            fn: async (scope: any) => {
-              scope.b = 2;
-            },
-          },
-        ])
-        .build(),
-    );
-    await executor.run();
-    const snapshot = executor.getSnapshot();
+  it('holds on a log with a FORK', () => {
+    // Seed, then a fork of two children: each child writes at its own address,
+    // `runs/<childId>`, and the fan-out settles each with an empty
+    // `phase: 'repeat'` continuation under the child's id. The tree holds the
+    // children under the seed, as the engine's does.
+    const run = recordRun();
+    run.step('seed', (s) => s.set('n', 0), { name: 'Seed' });
+    run.step('fan-a', (s) => s.set('a', 1), { name: 'A', address: ['runs', 'fan-a'] });
+    run.step('fan-b', (s) => s.set('b', 2), { name: 'B', address: ['runs', 'fan-b'] });
+    run.step('fan-a', undefined, { name: 'A', address: ['runs', 'fan-a'], phase: 'repeat' });
+    run.step('fan-b', undefined, { name: 'B', address: ['runs', 'fan-b'], phase: 'repeat' });
+    const executionTree: ExecutionTree = {
+      id: 'seed',
+      runtimeStageId: 'seed#0',
+      children: [
+        { id: 'fan-a', runtimeStageId: 'fan-a#1' },
+        { id: 'fan-b', runtimeStageId: 'fan-b#2' },
+      ],
+    };
+    const snapshot = { commitLog: run.snapshot().commitLog, executionTree };
     const split = splitAxis(commitStops(snapshot.commitLog, snapshot.executionTree));
     expect(split.ok).toBe(true);
     if (!split.ok) return;

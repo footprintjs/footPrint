@@ -11,11 +11,14 @@
  * Pairs come three ways: independent (small domains, so near-misses are common), `b` a clone of `a`
  * (the same content — an opaque value inside is never the same one), and `b` the very object `a`.
  * Red before 9.44.2: the first counterexample is two RegExps, buffers or errors that differ.
+ *
+ * The two stages are written through footprintjs/write (test/helpers/recordRun.ts): the frame a
+ * `$setValue` stages on, with nothing of the engine around it.
  */
 import fc from 'fast-check';
 
-import { flowChart, FlowChartExecutor } from '../../../../src';
 import { commitValueAt } from '../../../../src/trace';
+import { recordRun } from '../../../helpers/recordRun';
 import { cloneable, recordKey } from '../../../helpers/valueKinds';
 
 const pairs: fc.Arbitrary<[unknown, unknown]> = fc.oneof(
@@ -24,25 +27,12 @@ const pairs: fc.Arbitrary<[unknown, unknown]> = fc.oneof(
   cloneable.map((a): [unknown, unknown] => [a, a]),
 );
 
-async function replace(a: unknown, b: unknown) {
-  const chart = flowChart(
-    'Seed',
-    (scope: any) => {
-      scope.$setValue('v', a);
-    },
-    'seed',
-  )
-    .addFunction(
-      'Replace',
-      (scope: any) => {
-        scope.$setValue('v', b);
-      },
-      'replace',
-    )
-    .build();
-  const executor = new FlowChartExecutor(chart);
-  await executor.run();
-  return executor.getSnapshot();
+/** Two stages — `$setValue('v', a)`, then `$setValue('v', b)` — through the write door: the log and the live heap. */
+function replace(a: unknown, b: unknown) {
+  const run = recordRun();
+  run.step('seed', (s) => s.set('v', a), { name: 'Seed' });
+  run.step('replace', (s) => s.set('v', b), { name: 'Replace' });
+  return { commitLog: run.snapshot().commitLog, sharedState: run.state.getState() };
 }
 
 describe('property — a different value always commits a row', () => {
@@ -51,7 +41,7 @@ describe('property — a different value always commits a row', () => {
       fc.asyncProperty(pairs, async ([a, b]) => {
         // What stage two is compared against is stage one's COMMITTED value — a clone of `a`.
         const different = recordKey(structuredClone(a)) !== recordKey(b);
-        const snapshot = await replace(a, b);
+        const snapshot = replace(a, b);
         const rows = snapshot.commitLog[1].trace.filter((row) => row.path === 'v').length;
         expect(rows > 0).toBe(different);
         const winner = recordKey(different ? b : a, 'kind');

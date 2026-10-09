@@ -10,12 +10,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
 import type { TraceEntry } from '../../../../src/lib/memory/types';
 import { applySmartMergeInto, DELIM, nextGeneration } from '../../../../src/lib/memory/utils';
 import { stateAt } from '../../../../src/trace.js';
+import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
 
 const HOSTILE: string[][] = [
   ['__proto__', 'polluted'],
@@ -99,29 +98,36 @@ describe('copy-on-write — hostile paths are refused by every replay', () => {
 describe('copy-on-write — a served view never reaches into the record', () => {
   it.each(['full', 'delta'] as const)(
     'editing live state, the mirror or a fold in place leaves the commit log as recorded (%s)',
-    async (commitValues) => {
-      const chart = flowChart<any>(
-        'S0',
-        (s) => {
-          s.list = [{ n: 0 }];
-          s.profile = { tier: 'gold', tags: ['a'] };
-        },
-        's0',
-      )
-        .addFunction('S1', (s) => s.$update('list', [{ n: 1 }]), 's1')
-        .addFunction('S2', (s) => s.$update('profile', { tags: ['b'] }), 's2')
-        .build();
-      const ex = new FlowChartExecutor(chart, { commitValues });
-      ex.setRedactionPolicy({ keys: ['unrelatedSecret'] });
-      await ex.run();
-      const recorded = JSON.stringify(ex.getSnapshot().commitLog);
-      const views = [ex.getSnapshot().sharedState, ex.getSnapshot({ redact: true }).sharedState] as any[];
+    (commitValues) => {
+      // Three stages through footprintjs/write over one heap, one log and one redacted mirror — what a run
+      // under a policy (`keys: ['unrelatedSecret']`, which selects none of these writes) keeps.
+      const state = new SharedMemory();
+      const mirror = new SharedMemory();
+      const log = new EventLog(state.getState());
+      const stage = (stageId: string, index: number, body: (frame: RecordFrame) => void) => {
+        const frame = new RecordFrame(state, log);
+        frame.useEncoding({ commitValues, writeProvenance: 'off' });
+        frame.useMirror(mirror);
+        body(frame);
+        frame.commit(() => ({ stage: stageId.toUpperCase(), stageId, runtimeStageId: `${stageId}#${index}` }));
+        frame.release();
+      };
+      stage('s0', 0, (frame) => {
+        frame.write(['list'], [{ n: 0 }], 'set');
+        frame.write(['profile'], { tier: 'gold', tags: ['a'] }, 'set');
+      });
+      stage('s1', 1, (frame) => frame.write(['list'], [{ n: 1 }], 'merge'));
+      stage('s2', 2, (frame) => frame.write(['profile'], { tags: ['b'] }, 'merge'));
+
+      const recorded = JSON.stringify(log.list());
+      const views = [state.getState(), mirror.getState()] as any[];
       for (const view of views) {
         view.list[1].n = 666;
         view.profile.tags.push('evil');
       }
-      expect(JSON.stringify(ex.getSnapshot().commitLog)).toBe(recorded);
-      const fold = stateAt(ex.getSnapshot(), ex.getSnapshot().commitLog.length - 1).state as any;
+      expect(JSON.stringify(log.list())).toBe(recorded);
+      const fold = stateAt({ initialState: log.getInitialState(), commitLog: log.list() }, log.list().length - 1)
+        .state as any;
       expect(fold.list).toEqual([{ n: 0 }, { n: 1 }]);
     },
   );

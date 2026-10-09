@@ -32,18 +32,17 @@
  *       'REDACTED' in the log (never the raw tail), the redacted mirror
  *       stays consistent, mixed unredacted-set + redacted-append degrades
  *       to 'REDACTED' (no char-spread), raw state keeps real values
- *   (f) consumer-matrix pins — findCommit/findLastWriter/causalChain over
- *       delta logs (they read trace.path, not values); commitValueAt
- *       reconstructs full values from either log
+ * Reader-only consumer pins now live in commit-values-readers.test.ts.
+ * This engine witness also checks their writer fixture against the real loop.
  */
 import { describe, expect, it } from 'vitest';
 
 import type { PausableHandler } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { causalChain } from '../../../../src/lib/memory/backtrack';
-import { commitValueAt, findCommit, findLastWriter } from '../../../../src/lib/memory/commitLogUtils';
+import { commitValueAt, findCommit } from '../../../../src/lib/memory/commitLogUtils';
 import { EventLog } from '../../../../src/lib/memory/EventLog';
 import type { CommitBundle } from '../../../../src/lib/memory/types';
+import { growingHistoryRecord } from '../../../helpers/growingHistoryRecord';
 
 type Loose = Record<string, unknown>;
 
@@ -88,6 +87,16 @@ function materialiseAll(commitLog: CommitBundle[]): unknown[] {
 }
 
 describe('Scenario: commit-values policy (#13c-B)', () => {
+  it.each(['full', 'delta'] as const)(
+    'the engine-free reader fixture matches the real loop byte for byte (%s)',
+    async (commitValues) => {
+      const executor = new FlowChartExecutor(buildHistoryLoopChart(), { commitValues });
+      await executor.run();
+      const written = growingHistoryRecord(commitValues);
+      expect(JSON.stringify(written.snapshot().commitLog)).toBe(JSON.stringify(executor.getSnapshot().commitLog));
+      expect(written.state.getState()).toEqual(executor.getSnapshot().sharedState);
+    },
+  );
   // ── (a) default ('full') parity ───────────────────────────────────────────
   describe("default ('full') parity", () => {
     it('an explicit commitValues "full" executor produces a byte-equal commit log + narrative to an unset one', async () => {
@@ -440,71 +449,6 @@ describe('Scenario: commit-values policy (#13c-B)', () => {
       // Both the anchor and the tail were scrubbed at write time — the fold
       // can only ever produce scrubbed values.
       expect(JSON.stringify(reconstructed)).not.toContain('ssn');
-    });
-  });
-
-  // ── (f) consumer-matrix pins — path-tier consumers unaffected ────────────
-  describe('consumer-matrix pins (delta logs)', () => {
-    async function deltaRun() {
-      const executor = new FlowChartExecutor(buildHistoryLoopChart(), { commitValues: 'delta' });
-      await executor.run();
-      return executor.getSnapshot();
-    }
-
-    it('findCommit / findLastWriter treat an appending stage as a writer of the key', async () => {
-      const snap = await deltaRun();
-      const log = snap.commitLog;
-
-      const firstWork = findCommit(log, 'work', 'history')!;
-      expect(firstWork).toBeDefined();
-      expect(firstWork.trace.find((t) => t.path === 'history')!.verb).toBe('append');
-
-      const lastWriter = findLastWriter(log, 'history')!;
-      expect(lastWriter.stageId).toBe('work');
-      // The last writer is the LAST loop iteration's append:
-      expect(lastWriter.trace.find((t) => t.path === 'history')!.verb).toBe('append');
-    });
-
-    it('causalChain walks delta logs by trace.path — the appender is the causal parent', async () => {
-      const snap = await deltaRun();
-      const log = snap.commitLog;
-      const lastWork = findLastWriter(log, 'history')!;
-
-      const chain = causalChain(log, lastWork.runtimeStageId, () => ['history'])!;
-      expect(chain).toBeDefined();
-      expect(chain.keysWritten).toContain('history');
-      // Its parent for 'history' is the PREVIOUS appender (an append bundle).
-      const parent = chain.parents.find((p) => p.keysWritten.includes('history'));
-      expect(parent).toBeDefined();
-      expect(parent!.linkedBy).toBe('history');
-      expect(parent!.stageId).toBe('work'); // the prior loop iteration
-    });
-
-    it('delta dedup removes duplicate causal edges without losing keysWritten', async () => {
-      const snap = await deltaRun();
-      for (const b of snap.commitLog) {
-        const paths = b.trace.map((t) => t.path);
-        expect(new Set(paths).size).toBe(paths.length);
-      }
-    });
-
-    it('commitValueAt reconstructs the SAME full value from full-mode and delta-mode logs at every history commit', async () => {
-      const runWith = async (commitValues: 'full' | 'delta') => {
-        const executor = new FlowChartExecutor(buildHistoryLoopChart(), { commitValues });
-        await executor.run();
-        return executor.getSnapshot().commitLog;
-      };
-      const fullLog = await runWith('full');
-      const deltaLog = await runWith('delta');
-      expect(deltaLog.length).toBe(fullLog.length);
-      for (let i = 0; i < fullLog.length; i++) {
-        expect(canonical(commitValueAt(deltaLog, i, 'history'))).toEqual(
-          canonical(commitValueAt(fullLog, i, 'history')),
-        );
-      }
-      // And the final reconstruction equals the v1 "full value in overwrite" read:
-      const v1Read = findLastWriter(fullLog, 'history')!.overwrite.history;
-      expect(canonical(commitValueAt(deltaLog, deltaLog.length - 1, 'history'))).toEqual(canonical(v1Read));
     });
   });
 });

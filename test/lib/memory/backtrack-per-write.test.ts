@@ -12,17 +12,19 @@
  *    'stage' mode — mixed logs degrade per-node, never silently narrow.
  * 4. SAFETY property: the per-write slice is always a SUBSET of the
  *    stage-level slice (it refines, never invents).
- * 5. End-to-end: executor dial → sliceForKey default 'per-write'.
+ * 5. End-to-end: the dial → sliceForKey default 'per-write'. The record is
+ *    written through footprintjs/write (test/helpers/recordRun.ts) under the
+ *    record's own dial (`RecordEncoding.writeProvenance`) — the same bytes the
+ *    executor's `writeProvenance` option writes (the record-bytes fixtures'
+ *    `readsPrefix` scenario pins the executor side).
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
 import { type CausalNode, causalChain, flattenCausalDAG } from '../../../src/lib/memory/backtrack.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
 import type { CommitBundle, TraceEntry } from '../../../src/lib/memory/types.js';
-import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
 import { keysReadFromExecutionTree, sliceForKey } from '../../../src/lib/slice/index.js';
+import { recordRun } from '../../helpers/recordRun';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -198,44 +200,25 @@ describe('edgeAttribution per-write — property (subset of the stage-level ceil
 // ════════════════════════════════════════════════════════════════════════
 
 describe('per-write end-to-end — dial → sliceForKey', () => {
-  interface S {
-    a?: number;
-    b?: number;
-    x?: number;
-    y?: number;
-  }
-
-  function mixedChart() {
-    return flowChart<S>(
-      'WriteA',
-      async (scope) => {
-        scope.a = 1;
+  /** The three stages of the mixed chart, written through the write door under `writeProvenance`. */
+  function mixedRun(writeProvenance: 'off' | 'reads-prefix' = 'off') {
+    const run = recordRun({}, { writeProvenance });
+    run.step('write-a', (s) => s.set('a', 1), { name: 'WriteA' });
+    run.step('write-b', (s) => s.set('b', 2), { name: 'WriteB' });
+    run.step(
+      'mixed',
+      (s) => {
+        s.set('x', (s.read('a') as number) * 10); // x's prefix: [a]
+        s.set('y', (s.read('a') as number) + (s.read('b') as number)); // y's prefix: [a, b]
       },
-      'write-a',
-    )
-      .addFunction(
-        'WriteB',
-        async (scope) => {
-          scope.b = 2;
-        },
-        'write-b',
-      )
-      .addFunction(
-        'Mixed',
-        async (scope) => {
-          scope.x = scope.a! * 10; // x's prefix: [a]
-          scope.y = scope.a! + scope.b!; // y's prefix: [a, b]
-        },
-        'mixed',
-      )
-      .build();
+      { name: 'Mixed' },
+    );
+    return run.snapshot();
   }
 
-  it('with the dial: slice for x excludes b entirely; slice for y includes it', async () => {
-    const executor = new FlowChartExecutor(mixedChart(), { writeProvenance: 'reads-prefix' });
-    await executor.run();
-    const snap = executor.getSnapshot();
-    const reads = keysReadFromExecutionTree(snap.executionTree as StageSnapshot);
+  it('with the dial: slice for x excludes b entirely; slice for y includes it', () => {
+    const snap = mixedRun('reads-prefix');
+    const reads = keysReadFromExecutionTree(snap.executionTree);
 
     const xSlice = sliceForKey(snap.commitLog, 'x', reads); // defaults to per-write
     const xIds = [...ids(xSlice.root!)];
@@ -247,11 +230,9 @@ describe('per-write end-to-end — dial → sliceForKey', () => {
     expect(yIds.some((id) => id.startsWith('write-b#'))).toBe(true);
   });
 
-  it('without the dial: same query degrades to the stage-level ceiling (x appears to depend on b)', async () => {
-    const executor = new FlowChartExecutor(mixedChart());
-    await executor.run();
-    const snap = executor.getSnapshot();
-    const xSlice = sliceForKey(snap.commitLog, 'x', keysReadFromExecutionTree(snap.executionTree as StageSnapshot));
+  it('without the dial: same query degrades to the stage-level ceiling (x appears to depend on b)', () => {
+    const snap = mixedRun();
+    const xSlice = sliceForKey(snap.commitLog, 'x', keysReadFromExecutionTree(snap.executionTree));
     expect([...ids(xSlice.root!)].some((id) => id.startsWith('write-b#'))).toBe(true); // honest ceiling
   });
 });

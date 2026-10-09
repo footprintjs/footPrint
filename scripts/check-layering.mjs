@@ -57,10 +57,35 @@ export function moduleOf(file) {
 }
 
 /**
- * Every import edge in the tree: `{ from, to, kind, line }`, files repo-relative, `kind` one
- * of `value` (survives compilation), `type` (erased), `dynamic` (a lazy `import()`).
+ * The names one import or re-export takes from its module: `'*'` for a namespace, an `export *` or a
+ * lazy `import()`; `'default'` for a default import; nothing for a bare `import './x'`. A renamed
+ * binding is named as the module exports it (`{ a as b }` → `a`).
  */
-export function readEdges(root, files) {
+function namesTaken(statement) {
+  if (ts.isImportDeclaration(statement)) {
+    const clause = statement.importClause;
+    if (!clause) return [];
+    const names = clause.name ? ['default'] : [];
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) names.push('*');
+    else if (bindings) for (const el of bindings.elements) names.push((el.propertyName ?? el.name).text);
+    return names;
+  }
+  if (!statement.exportClause || ts.isNamespaceExport(statement.exportClause)) return ['*'];
+  return statement.exportClause.elements.map((el) => (el.propertyName ?? el.name).text);
+}
+
+/**
+ * Every import edge in the tree: `{ from, to, kind, line, spec, names }`, files repo-relative, `kind`
+ * one of `value` (survives compilation), `type` (erased), `dynamic` (a lazy `import()`); `spec` is the
+ * module specifier as written and `names` what the statement takes from it (`namesTaken`).
+ *
+ * `files` may hold any `.ts` files of the repository (scripts/record-tests.mjs passes the tests too).
+ * By default an edge exists only when its specifier resolves to one of them. With `outside: true`, an
+ * import that resolves to none of them — a package, or a relative path to another kind of file — is
+ * an edge too, with `to: null`.
+ */
+export function readEdges(root, files, { outside = false } = {}) {
   const known = new Set(files);
   const resolveSpec = (from, spec) => {
     if (!spec.startsWith('.')) return null;
@@ -102,8 +127,10 @@ export function readEdges(root, files) {
         next++;
       }
       const to = resolveSpec(file, spec);
-      if (to)
-        edges.push({ from: file, to, kind, line: source.getLineAndCharacterOfPosition(statement.getStart()).line + 1 });
+      if (to || outside) {
+        const line = source.getLineAndCharacterOfPosition(statement.getStart()).line + 1;
+        edges.push({ from: file, to, kind, line, spec, names: namesTaken(statement) });
+      }
     }
     if (next !== kept.length) {
       throw new Error(`check-layering: could not line up the compiled imports of ${file} with its source`);
@@ -115,13 +142,16 @@ export function readEdges(root, files) {
         node.arguments[0] &&
         ts.isStringLiteralLike(node.arguments[0])
       ) {
-        const to = resolveSpec(file, node.arguments[0].text);
-        if (to)
+        const spec = node.arguments[0].text;
+        const to = resolveSpec(file, spec);
+        if (to || outside)
           edges.push({
             from: file,
             to,
             kind: 'dynamic',
             line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+            spec,
+            names: ['*'],
           });
       }
       ts.forEachChild(node, visit);

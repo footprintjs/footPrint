@@ -116,25 +116,6 @@ describe('substrate — the fold base travels with the log', () => {
     // Fold the subflow's OWN log from its OWN base.
     expect(stateAt(subtree, subtree.history!.length - 1).state).toEqual({ given: 21, doubled: 42 });
   });
-
-  it('says `log-only` when no base travelled with the log', async () => {
-    const chart = flowChart<any>(
-      'Touch',
-      async (scope: any) => {
-        scope.touched = true;
-      },
-      'touch',
-    ).build();
-    const executor = new FlowChartExecutor(chart, { initialContext: { tenant: 'acme' } } as any);
-    await executor.run();
-
-    // An older stored snapshot: a log with no base beside it.
-    const old = { commitLog: executor.getSnapshot().commitLog };
-    const folded = stateAt(old, 0);
-    expect(folded.basis).toBe('log-only');
-    expect(folded.state).toEqual({ touched: true }); // 'tenant' is honestly absent
-    expect(stateAt(executor.getSnapshot(), 0).basis).toBe('initial+log');
-  });
 });
 
 describe('substrate — the served commit log is detached', () => {
@@ -379,41 +360,6 @@ function cursorFoldsToFinalState(cursor: ReturnType<typeof timeTravel>, sharedSt
   cursor.last();
   expect(cursor.stateAt().state).toEqual(sharedState);
 }
-
-describe('back-compat — a 9.16.x snapshot still folds and still compiles', () => {
-  it('a snapshot literal built WITHOUT a fold base folds from `{}` and says so', () => {
-    // The shape a UI fixture or a stored 9.16.x trace has: no `initialState`.
-    const legacy = {
-      runId: 'r-legacy',
-      sharedState: { n: 2 },
-      executionTree: { id: 'root', logs: {}, errors: {}, metrics: {}, evals: {} },
-      commitLog: [
-        {
-          idx: 0,
-          stage: 'BUMP',
-          stageId: 'bump',
-          runtimeStageId: 'bump#0',
-          trace: [{ path: 'n', verb: 'set' as const }],
-          redactedPaths: [],
-          overwrite: { n: 2 },
-          updates: {},
-        },
-      ],
-      commitValues: 'full' as const,
-      writeProvenance: 'off' as const,
-    };
-
-    const folded = stateAt(legacy as never, 0);
-    expect(folded.basis).toBe('log-only');
-    expect(folded.state).toEqual({ n: 2 });
-
-    // …and the cursor works over it: `initialState` is optional, not assumed.
-    const cursor = timeTravel(legacy as never);
-    expect(cursor.stops.map((s) => s.kind)).toEqual(['start', 'commit', 'end']);
-    cursor.last();
-    expect(cursor.stateAt().basis).toBe('log-only');
-  });
-});
 
 describe('a lone parallel-fork child is not a subflow mount', () => {
   it('classifies it as `commit`, and `drill` on it is undefined', async () => {

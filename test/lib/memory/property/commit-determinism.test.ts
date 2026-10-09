@@ -1,8 +1,18 @@
+/**
+ * Property: commit determinism — a chain of stage frames (`RecordFrame`, footprintjs/write) at a run's
+ * address, one commit each: the same writes give the same log, and a fold at step K ignores later commits.
+ */
 import fc from 'fast-check';
 
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
+import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
+
+/** Stage `s<i>`: a fresh frame at run `p1`, one `set` of `key`, committed and released. */
+function writeStage(mem: SharedMemory, log: EventLog, i: number, key: string, value: unknown): void {
+  const frame = new RecordFrame(mem, log, ['runs', 'p1']);
+  frame.write(frame.at([], key), value, 'set');
+  frame.commit(() => ({ stage: `s${i}`, stageId: `s${i}`, runtimeStageId: `s${i}#${i}` }));
+  frame.release();
+}
 
 describe('Property: commit determinism', () => {
   it('replaying N commits always produces the same state', () => {
@@ -20,13 +30,9 @@ describe('Property: commit determinism', () => {
           const run = () => {
             const mem = new SharedMemory();
             const log = new EventLog(mem.getState());
-            let ctx = new StageContext('p1', 'root', 'root', mem, '', log);
 
             for (let i = 0; i < writes.length; i++) {
-              const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
-              if (i > 0) ctx = stage;
-              stage.setObject([], writes[i].key, writes[i].value);
-              stage.commit();
+              writeStage(mem, log, i, writes[i].key, writes[i].value);
             }
 
             return log.materialise();
@@ -47,13 +53,9 @@ describe('Property: commit determinism', () => {
         const k = Math.min(stepK, totalSteps - 1);
         const mem = new SharedMemory();
         const log = new EventLog(mem.getState());
-        let ctx = new StageContext('p1', 'root', 'root', mem, '', log);
 
         for (let i = 0; i < totalSteps; i++) {
-          const stage = i === 0 ? ctx : ctx.createNext('p1', `s${i}`, `s${i}`);
-          if (i > 0) ctx = stage;
-          stage.setObject([], `key${i}`, i);
-          stage.commit();
+          writeStage(mem, log, i, `key${i}`, i);
         }
 
         const atK = log.materialise(k);

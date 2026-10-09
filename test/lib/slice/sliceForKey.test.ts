@@ -5,21 +5,22 @@
  * What is being pinned: the variable-first triage contract — anchor at the
  * key's last writer, delegate to causalChain, honest absence as a result
  * (`missing`), and the keysRead strategy breadcrumb (`keysReadKind`).
+ *
+ * The functional run's record is written through footprintjs/write (test/helpers/recordRun.ts) — the
+ * same commit log and execution tree, byte for byte, the chart wrote through the engine (E1). The
+ * control-edge integration needs the engine's ControlDepRecorder: it lives in sliceForKey.engine.test.ts.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
-import { controlDepRecorder } from '../../../src/lib/recorder/ControlDepRecorder.js';
-import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
+import type { CommitBundle, ExecutionTree } from '../../../src/lib/memory/types.js';
 import {
   keysReadFromExecutionTree,
   keysReadFromMap,
   resolveKeysReadSource,
   sliceForKey,
 } from '../../../src/lib/slice/index.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 // ── Test helpers ───────────────────────────────────────────────────────
 
@@ -114,24 +115,17 @@ describe('keysRead sources — unit', () => {
   });
 
   it('keysReadFromExecutionTree walks next + children and skips nodes without ids/reads', () => {
-    const tree: StageSnapshot = {
+    // The record's tree type: the frame-only fields (logs/errors/metrics/evals) the reader ignores are gone.
+    const tree: ExecutionTree = {
       id: 'a',
       runtimeStageId: 'a#0',
       stageReads: { x: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
       next: {
         id: 'fork',
         // no runtimeStageId — must be skipped, not crash
-        logs: {},
-        errors: {},
-        metrics: {},
-        evals: {},
         children: [
-          { id: 'b', runtimeStageId: 'b#1', stageReads: { y: 'marker' }, logs: {}, errors: {}, metrics: {}, evals: {} },
-          { id: 'c', runtimeStageId: 'c#2', logs: {}, errors: {}, metrics: {}, evals: {} }, // no reads
+          { id: 'b', runtimeStageId: 'b#1', stageReads: { y: 'marker' } },
+          { id: 'c', runtimeStageId: 'c#2' }, // no reads
         ],
       },
     };
@@ -143,14 +137,11 @@ describe('keysRead sources — unit', () => {
   });
 
   it('keysReadFromExecutionTree survives a malformed (cyclic) consumer-built tree', () => {
-    const a: StageSnapshot = {
+    // A literal the test can point back at itself (the record's tree fields are readonly).
+    const a: { -readonly [K in keyof ExecutionTree]: ExecutionTree[K] } = {
       id: 'a',
       runtimeStageId: 'a#0',
       stageReads: { x: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
     };
     a.next = a; // deliberately malformed
     expect(() => keysReadFromExecutionTree(a)).not.toThrow();
@@ -176,15 +167,11 @@ describe('keysRead sources — unit', () => {
   });
 
   it('coverage telemetry propagates: KeysReadSource.coverage → VariableSlice.readsCoverage', () => {
-    const tree: StageSnapshot = {
+    const tree: ExecutionTree = {
       id: 'a',
       runtimeStageId: 'a#0',
       stageReads: { x: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
-      next: { id: 'b', runtimeStageId: 'b#1', logs: {}, errors: {}, metrics: {}, evals: {} },
+      next: { id: 'b', runtimeStageId: 'b#1' },
     };
     const src = keysReadFromExecutionTree(tree);
     expect(src.coverage).toEqual({ steps: 2, stepsWithReads: 1 });
@@ -195,23 +182,15 @@ describe('keysRead sources — unit', () => {
   });
 
   it('keysReadFromExecutionTree accepts multiple roots (subflow trees)', () => {
-    const rootTree: StageSnapshot = {
+    const rootTree: ExecutionTree = {
       id: 'r',
       runtimeStageId: 'r#0',
       stageReads: { a: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
     };
-    const sfTree: StageSnapshot = {
+    const sfTree: ExecutionTree = {
       id: 's',
       runtimeStageId: 'sf/s#1',
       stageReads: { b: 1 },
-      logs: {},
-      errors: {},
-      metrics: {},
-      evals: {},
     };
     const src = keysReadFromExecutionTree([rootTree, sfTree]);
     expect(src.lookup('r#0')).toEqual(['a']);
@@ -225,45 +204,15 @@ describe('keysRead sources — unit', () => {
 // ════════════════════════════════════════════════════════════════════════
 
 describe('sliceForKey — functional (real run, zero recorders)', () => {
-  interface S {
-    input?: string;
-    processed?: string;
-    output?: string;
-  }
+  it('click-a-key triage: why is `output` what it is?', () => {
+    // Seed sets input; Process reads input → processed; Format reads processed → output.
+    const run = recordRun();
+    run.step('seed', (s) => s.set('input', 'hello'), { name: 'Seed' });
+    run.step('process', (s) => s.set('processed', (s.read('input') as string).toUpperCase()), { name: 'Process' });
+    run.step('format', (s) => s.set('output', `[${s.read('processed') as string}]`), { name: 'Format' });
+    const snapshot = run.snapshot();
 
-  it('click-a-key triage: why is `output` what it is?', async () => {
-    const chart = flowChart<S>(
-      'Seed',
-      async (scope) => {
-        scope.input = 'hello';
-      },
-      'seed',
-    )
-      .addFunction(
-        'Process',
-        async (scope) => {
-          scope.processed = scope.input!.toUpperCase();
-        },
-        'process',
-      )
-      .addFunction(
-        'Format',
-        async (scope) => {
-          scope.output = `[${scope.processed}]`;
-        },
-        'format',
-      )
-      .build();
-
-    const executor = new FlowChartExecutor(chart);
-    await executor.run();
-    const snapshot = executor.getSnapshot();
-
-    const slice = sliceForKey(
-      snapshot.commitLog,
-      'output',
-      keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
-    );
+    const slice = sliceForKey(snapshot.commitLog, 'output', keysReadFromExecutionTree(snapshot.executionTree!));
 
     expect(slice.missing).toBeUndefined();
     expect(slice.writer?.stageId).toBe('format');
@@ -276,56 +225,6 @@ describe('sliceForKey — functional (real run, zero recorders)', () => {
     expect(chain[0]).toMatch(/^format#/);
     expect(chain[1]).toMatch(/^process#/);
     expect(chain[2]).toMatch(/^seed#/);
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════
-// INTEGRATION — with ControlDepRecorder: the slice explains BOTH data
-// lineage and "which decision allowed the writer to run".
-// ════════════════════════════════════════════════════════════════════════
-
-describe('sliceForKey — integration (control edges)', () => {
-  interface S {
-    score?: number;
-    verdict?: string;
-  }
-
-  it('the writer stage carries a control edge to its governing decider', async () => {
-    const chart = flowChart<S>(
-      'Score',
-      async (scope) => {
-        scope.score = 750;
-      },
-      'score',
-    )
-      .addDeciderFunction('Route', async (scope) => (scope.score! > 700 ? 'good' : 'bad'), 'route')
-      .addFunctionBranch('good', 'Approve', async (scope) => {
-        scope.verdict = 'approved';
-      })
-      .addFunctionBranch('bad', 'Reject', async (scope) => {
-        scope.verdict = 'rejected';
-      })
-      .setDefault('bad')
-      .end()
-      .build();
-
-    const ctrl = controlDepRecorder();
-    const executor = new FlowChartExecutor(chart);
-    executor.attachCombinedRecorder(ctrl);
-    await executor.run();
-    const snapshot = executor.getSnapshot();
-
-    const slice = sliceForKey(
-      snapshot.commitLog,
-      'verdict',
-      keysReadFromExecutionTree(snapshot.executionTree as StageSnapshot),
-      { controlDeps: ctrl.asLookup() },
-    );
-
-    expect(slice.writer?.stage).toBe('Approve');
-    const controlEdge = slice.root!.parentEdges.find((e) => e.kind === 'control');
-    expect(controlEdge).toBeDefined();
-    expect(controlEdge!.parent.runtimeStageId).toMatch(/^route#/);
   });
 });
 

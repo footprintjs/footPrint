@@ -10,13 +10,17 @@
  *
  * That equality is what lets those repos DELETE their copies: the same axis,
  * from a third of the code, with the classification riding on the stop.
+ *
+ * Only the record under it changed (E1): it is written through
+ * `footprintjs/write` — the bytes the four-stage chart wrote — so the
+ * consumer-side code above reads exactly what it read against 9.17.0.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import type { Move, Stop, TimeTravel, TimeTravelSource, TimeTravelStrategy } from '../../../src/trace.js';
 import { commitStops, filterStops, timeTravel } from '../../../src/trace.js';
+import { recordRun } from '../../helpers/recordRun.js';
 
 // ── The consumer's domain vocabulary, exactly as it was ────────────────────
 
@@ -81,47 +85,25 @@ const newStrategy: TimeTravelStrategy<Milestone> = {
     }),
 };
 
-// ── The chart ──────────────────────────────────────────────────────────────
+// ── The run ────────────────────────────────────────────────────────────────
 
-const chart = flowChart<any>(
-  'Seed',
-  async (scope: any) => {
-    scope.tenant = 'acme';
-  },
-  'seed',
-)
-  .addFunction(
-    'Ask',
-    async (scope: any) => {
-      scope.question = 'q?';
-    },
-    'ask',
-  )
-  .addFunction(
-    'Call',
-    async (scope: any) => {
-      scope.tool = 'search';
-    },
-    'call',
-  )
-  .addFunction(
-    'Wrap',
-    async (scope: any) => {
-      scope.done = true;
-    },
-    'wrap',
-  )
-  .build();
-
-async function run() {
-  const executor = new FlowChartExecutor(chart);
-  await executor.run();
-  return executor.getSnapshot();
+/**
+ * Seed → Ask → Call → Wrap, one key each — written through `footprintjs/write`
+ * (test/helpers/recordRun.ts): the record that four-stage chart writes, with
+ * no engine loaded.
+ */
+function run() {
+  const record = recordRun();
+  record.step('seed', (s) => s.set('tenant', 'acme'), { name: 'Seed' });
+  record.step('ask', (s) => s.set('question', 'q?'), { name: 'Ask' });
+  record.step('call', (s) => s.set('tool', 'search'), { name: 'Call' });
+  record.step('wrap', (s) => s.set('done', true), { name: 'Wrap' });
+  return record.snapshot();
 }
 
 describe('a 9.17.0 consumer, unchanged', () => {
-  it('compiles against the bare types and produces the axis it always did', async () => {
-    const snapshot = await run();
+  it('compiles against the bare types and produces the axis it always did', () => {
+    const snapshot = run();
     // The lens's own line: a `TimeTravelSource` variable holding a live
     // snapshot, and a bare `TimeTravel` holding the cursor.
     const source: TimeTravelSource = snapshot;
@@ -142,8 +124,8 @@ describe('a 9.17.0 consumer, unchanged', () => {
     expect(move.moved ? move.to.label : '').toBe('LLM turn');
   });
 
-  it('the 9.18.0 composition is the SAME axis — so the copy can be deleted', async () => {
-    const snapshot = await run();
+  it('the 9.18.0 composition is the SAME axis — so the copy can be deleted', () => {
+    const snapshot = run();
     const before = timeTravel(snapshot, { strategy: oldStrategy });
     const after = timeTravel(snapshot, { strategy: newStrategy });
 
@@ -167,8 +149,8 @@ describe('a 9.17.0 consumer, unchanged', () => {
     expect(before.stops[0].prologue).toBeUndefined();
   });
 
-  it('every 9.17.0 fold result still has the shape it had', async () => {
-    const snapshot = await run();
+  it('every 9.17.0 fold result still has the shape it had', () => {
+    const snapshot = run();
     const cursor = timeTravel(snapshot);
     cursor.last();
     const folded = cursor.stateAt();

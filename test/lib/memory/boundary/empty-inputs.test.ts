@@ -1,8 +1,12 @@
-import { DiagnosticCollector } from '../../../../src/lib/memory/DiagnosticCollector';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
+/**
+ * Boundary: empty inputs — the record's classes with nothing in them: a heap with no seed, a buffer with no
+ * writes, a log with no bundles, and a stage frame (`RecordFrame`, footprintjs/write) that stages nothing.
+ *
+ * The frame's diagnostics are the engine's, not the record's: their empty case lives in
+ * unit/DiagnosticCollector.test.ts.
+ */
 import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer';
+import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
 
 describe('Boundary: empty inputs', () => {
   describe('SharedMemory', () => {
@@ -57,38 +61,27 @@ describe('Boundary: empty inputs', () => {
     });
   });
 
-  describe('StageContext', () => {
+  describe('RecordFrame', () => {
     it('commit with no writes does not crash', () => {
       const mem = new SharedMemory();
       const log = new EventLog(mem.getState());
-      const ctx = new StageContext('p1', 's1', 's1', mem, '', log);
-      ctx.commit(); // should not throw
+      const frame = new RecordFrame(mem, log, ['runs', 'p1']);
+      frame.commit(() => ({ stage: 's1', stageId: 's1', runtimeStageId: 's1#0' })); // should not throw
       expect(log.list()).toHaveLength(1);
     });
 
-    it('getValue on empty state returns undefined', () => {
+    it('a read on empty state returns undefined', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('p1', 's1', 's1', mem);
-      expect(ctx.getValue([], 'missing')).toBeUndefined();
+      const frame = new RecordFrame(mem, undefined, ['runs', 'p1']);
+      expect(frame.read([], 'missing')).toBeUndefined();
     });
 
-    it('empty runId works (root-level writes)', () => {
+    it('the root address (an empty run id) writes root-level keys', () => {
       const mem = new SharedMemory();
-      const ctx = new StageContext('', 'root', 'root', mem);
-      ctx.setObject([], 'key', 'val');
-      ctx.commit();
+      const frame = new RecordFrame(mem);
+      frame.write(frame.at([], 'key'), 'val', 'set');
+      frame.commit(() => ({ stage: 'root', stageId: 'root', runtimeStageId: 'root#0' }));
       expect(mem.getValue([], [], 'key')).toBe('val');
-    });
-  });
-
-  describe('DiagnosticCollector', () => {
-    it('starts with empty contexts', () => {
-      const dc = new DiagnosticCollector();
-      expect(dc.logContext).toEqual({});
-      expect(dc.errorContext).toEqual({});
-      expect(dc.metricContext).toEqual({});
-      expect(dc.evalContext).toEqual({});
-      expect(dc.flowMessages).toEqual([]);
     });
   });
 });

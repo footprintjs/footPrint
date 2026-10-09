@@ -82,6 +82,12 @@ jobs:
 
       - run: npm install -g npm@11
 
+      # The audit resolves public declarations with TypeScript. Its own declared
+      # devDependencies belong to this checkout, not to whichever consumer is tested.
+      # No build or lifecycle hooks are needed to run the source-level audit.
+      - name: Install audit dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
       # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
       # and the run's annotations should be the audit's verdicts; the output stays in the log.
       - name: Keep the consumers' compiler output out of the run's annotations

@@ -1,22 +1,10 @@
 /**
- * Scenario: truly-lazy TransactionBuffer (backlog #13)
+ * Engine witnesses for the lazy-buffer contract (backlog #13).
  *
- * The buffer is constructed on a stage's FIRST WRITE — never on reads, never
- * by commit(). A stage that only reads (or touches nothing) performs ZERO
- * structuredClones of the shared state; its commit still records the same
- * (empty) bundle it always did, so every executed stage remains a time-travel
- * cursor stop.
- *
- * Covers:
- *   (a) read-only / no-touch stages perform zero structuredClones of state
- *   (b) read-your-writes still holds after the first write
- *   (c) read-before-write returns the committed pre-write value
- *   (d) net-change commit semantics unchanged (same-value write → empty commit)
- *   (e) no-touch stage's commit bundle is byte-identical to the eager-buffer era
- *   (f) the commit baseline is anchored at the stage's FIRST TOUCH (not first
- *       write): a concurrent root-key commit landing between first read and
- *       first write must not shift the net-change diff base (eager parity),
- *       and fork-sibling namespace isolation is pinned e2e
+ * StageContext owns tracked-read retention and the commit observer; the executor supplies stage
+ * boundaries and fork addresses. These tests keep those integration assertions. The record-owned
+ * first-touch view, lazy allocation, addressed reads/writes, net diff and empty-bundle bytes are
+ * exercised directly through RecordFrame in record-frame-lazy.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -37,7 +25,7 @@ function seededCtx() {
   return { mem, log, ctx };
 }
 
-describe('Scenario: lazy TransactionBuffer (#13)', () => {
+describe('Scenario: lazy TransactionBuffer through the engine (#13)', () => {
   // ── (a) zero structuredClones for read-only / no-touch stages ────────────
   describe('zero clones for stages that never write', () => {
     const realClone = globalThis.structuredClone;
@@ -53,28 +41,6 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
 
     afterEach(() => {
       globalThis.structuredClone = realClone;
-    });
-
-    it('untracked read + commit performs ZERO structuredClones', () => {
-      const { ctx } = seededCtx();
-      cloneCalls = [];
-
-      expect(ctx.getValueDirect([], 'greeting')).toBe('hello');
-      ctx.commit();
-
-      expect(cloneCalls).toHaveLength(0);
-    });
-
-    it('no-touch commit leaves the shared state object untouched (no applyPatch replay)', () => {
-      const { mem, ctx } = seededCtx();
-      const stateRef = mem.getState();
-      cloneCalls = [];
-
-      ctx.commit();
-
-      expect(cloneCalls).toHaveLength(0);
-      // applyPatch replaces the state object wholesale; the fast path must not run it.
-      expect(mem.getState()).toBe(stateRef);
     });
 
     it('tracked read clones only the read VALUE (#14 cost), never the full state', () => {
@@ -157,17 +123,11 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
 
   // ── (b) read-your-writes ─────────────────────────────────────────────────
   describe('read-your-writes after the first write', () => {
-    it('write then read in the same stage sees the new value', () => {
+    it('tracked and direct reads both see the stage’s buffered write', () => {
       const { ctx } = seededCtx();
       ctx.setObject([], 'greeting', 'updated');
       expect(ctx.getValue([], 'greeting')).toBe('updated');
       expect(ctx.getValueDirect([], 'greeting')).toBe('updated');
-    });
-
-    it('merge then read in the same stage sees the merged value', () => {
-      const { ctx } = seededCtx();
-      ctx.updateObject([], 'config', { mode: 'fast' });
-      expect(ctx.getValue([], 'config')).toEqual({ retries: 3, mode: 'fast' });
     });
 
     it('e2e: typed-scope write then read in one stage sees the new value', async () => {
@@ -185,105 +145,8 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
     });
   });
 
-  // ── (c) read-before-write returns the committed pre-write value ──────────
-  describe('read-before-write semantics', () => {
-    it('reads before the first write return the committed value; after, the buffered one', () => {
-      const { mem, ctx } = seededCtx();
-
-      expect(ctx.getValue([], 'greeting')).toBe('hello'); // pre-write read
-      ctx.setObject([], 'greeting', 'changed');
-      expect(ctx.getValue([], 'greeting')).toBe('changed'); // buffered read
-
-      // SharedMemory unchanged until commit
-      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('hello');
-      ctx.commit();
-      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('changed');
-    });
-
-    it('after the first write, reads of OTHER keys still see committed values', () => {
-      const { ctx } = seededCtx();
-      ctx.setObject([], 'newKey', 1);
-      expect(ctx.getValue([], 'greeting')).toBe('hello');
-      expect(ctx.getValue([], 'config')).toEqual({ retries: 3 });
-    });
-
-    it('global-scope fallback works with and without a buffer', () => {
-      const mem = new SharedMemory(undefined, { globalKey: 'globalVal' });
-      const log = new EventLog(mem.getState());
-      const ctx = new StageContext('p1', 'stage', 'stage', mem, '', log);
-
-      expect(ctx.getValue([], 'globalKey')).toBe('globalVal'); // no buffer: straight read + fallback
-      ctx.setObject([], 'localKey', 1); // buffer constructed
-      expect(ctx.getValue([], 'globalKey')).toBe('globalVal'); // buffer miss → same fallback
-    });
-  });
-
-  // ── (d) net-change commit semantics unchanged ────────────────────────────
-  describe('net-change commit semantics', () => {
-    it('writing the same value produces an EMPTY commit bundle', () => {
-      const { log, ctx } = seededCtx();
-      ctx.setObject([], 'greeting', 'hello'); // same value as committed
-      ctx.commit();
-
-      const bundle = log.list()[1];
-      expect(bundle.overwrite).toEqual({});
-      expect(bundle.updates).toEqual({});
-      expect(bundle.trace).toEqual([]);
-    });
-
-    it('writing a new value produces the diff', () => {
-      const { log, ctx } = seededCtx();
-      ctx.setObject([], 'greeting', 'world');
-      ctx.commit();
-
-      const bundle = log.list()[1];
-      expect(bundle.overwrite).toEqual({ runs: { p1: { greeting: 'world' } } });
-      expect(bundle.trace).toHaveLength(1);
-    });
-
-    it('write-then-revert nets to an empty commit', () => {
-      const { log, ctx } = seededCtx();
-      ctx.setObject([], 'greeting', 'temp');
-      ctx.setObject([], 'greeting', 'hello'); // revert to committed value
-      ctx.commit();
-
-      const bundle = log.list()[1];
-      expect(bundle.overwrite).toEqual({});
-      expect(bundle.trace).toEqual([]);
-    });
-  });
-
   // ── (e) no-touch commit bundle identical to the eager-buffer era ─────────
   describe('no-touch commit bundle parity', () => {
-    it('records the same empty bundle shape, key order included', () => {
-      const { log, ctx } = seededCtx();
-      ctx.runtimeStageId = 'stage2#1';
-      ctx.commit();
-
-      const bundle = log.list()[1];
-      expect(bundle).toEqual({
-        overwrite: {},
-        updates: {},
-        redactedPaths: [],
-        trace: [],
-        stage: 'stage2',
-        stageId: 'stage2',
-        runtimeStageId: 'stage2#1',
-        idx: 1,
-      });
-      // Key ORDER pins JSON byte-identity with the eager-buffer bundles.
-      expect(Object.keys(bundle)).toEqual([
-        'overwrite',
-        'updates',
-        'redactedPaths',
-        'trace',
-        'stage',
-        'stageId',
-        'runtimeStageId',
-        'idx',
-      ]);
-    });
-
     it('commit observer still fires (with empty mutations) for a no-touch stage', () => {
       const { ctx } = seededCtx();
       let observedMutations: Record<string, unknown> | undefined;
@@ -336,77 +199,7 @@ describe('Scenario: lazy TransactionBuffer (#13)', () => {
     });
   });
 
-  // ── (f) first-touch anchor: concurrent commit between first read and first
-  //     write ──────────────────────────────────────────────────────────────
-  // The case a sequential probe cannot hit. Fork siblings are namespace-
-  // isolated for run-scoped keys (each child writes under runs/<childId>/),
-  // but ROOT-level keys are shared: `setGlobal` is reachable from consumer
-  // scope code AND from SubflowInputMapper's output mapping — exactly what
-  // runs when a subflow is a fork branch. The eager engine anchored the
-  // commit baseline (net-change diff base) at the stage's first ACCESS; the
-  // lazy buffer must anchor its zero-clone state view at the same point, NOT
-  // at first write, where a concurrent root-key commit landing in the gap
-  // would shift the diff base and record a phantom change (or swallow a real
-  // one). See `RecordFrame · firstTouch` (`StageContext · firstTouchState` before C3).
-  describe('first-touch anchor: concurrent root-key commit in the read→write gap', () => {
-    it('commit baseline stays at first touch — rewriting the first-read value nets EMPTY', () => {
-      const mem = new SharedMemory();
-      const log = new EventLog(mem.getState());
-
-      const seed = new StageContext('', 'seed', 'seed', mem, '', log);
-      seed.setGlobal('g', 'orig');
-      seed.commit();
-
-      // Sibling B's first touch: a read. View anchored HERE (g='orig').
-      const b = new StageContext('b', 'B', 'b', mem, '', log);
-      expect(b.getValue([], 'g')).toBe('orig');
-
-      // Sibling A commits g='A' into the gap (the subflow-outputMapper-
-      // inside-a-fork pattern).
-      const a = new StageContext('a', 'A', 'a', mem, '', log);
-      a.setGlobal('g', 'A');
-      a.commit();
-
-      // Live fallback parity: 'g' is absent from B's namespaced view, so a
-      // post-gap read sees the LIVE value — the eager engine's exact
-      // visibility (its workingCopy lookup also missed runs/b/g and fell
-      // back to live state). Only the DIFF BASE is pinned, not reads.
-      expect(b.getValue([], 'g')).toBe('A');
-
-      // B writes back what it FIRST read. Eager diffed against the
-      // first-ACCESS base (g='orig') → no net change → EMPTY bundle. A
-      // first-write anchor would diff against A's 'A' and record g:'orig' —
-      // a phantom change that replays over (and clobbers) A's commit.
-      b.setGlobal('g', 'orig');
-      b.commit();
-
-      const bundle = log.list().find((entry) => entry.stageId === 'b');
-      expect(bundle?.overwrite).toEqual({});
-      expect(bundle?.updates).toEqual({});
-      expect(bundle?.trace).toEqual([]);
-
-      // A's value survives — B's empty patch replays nothing over it.
-      expect(mem.getValue([], [], 'g')).toBe('A');
-    });
-
-    it('keys present in the view at first touch read repeatably from it', () => {
-      const { mem, log, ctx } = seededCtx();
-
-      // First touch: 'greeting' IS in the view (runs/p1/greeting) → snapshot read.
-      expect(ctx.getValue([], 'greeting')).toBe('hello');
-
-      // Another context commits a change to the same run-namespaced key.
-      const intruder = new StageContext('p1', 'intruder', 'intruder', mem, '', log);
-      intruder.setObject([], 'greeting', 'changed');
-      intruder.commit();
-      expect(mem.getValue(['runs', 'p1'], [], 'greeting')).toBe('changed');
-
-      // View-present keys are repeatable: the eager engine served them from
-      // its workingCopy clone; the lazy view serves the same bytes by
-      // reference. (A first-write anchor would leak 'changed' here.)
-      expect(ctx.getValue([], 'greeting')).toBe('hello');
-    });
-
+  describe('fork namespace integration', () => {
     it('e2e pin: fork siblings stay namespace-isolated; root keys are untouched by children', async () => {
       // Documents the REAL fork contract the anchor analysis rests on:
       // children write under runs/<childId>/ — invisible to siblings — and

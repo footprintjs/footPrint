@@ -11,7 +11,7 @@ import fc from 'fast-check';
 
 import { type FlushDriverOptions, FlushDriver } from '../../../src/lib/observer-queue/flushDriver';
 
-/** Deterministic harness: array-backed queue + captured-callback scheduler. */
+/** Deterministic harness: queue + captured callbacks; only explicit clocks advance time. */
 function makeHarness(opts?: Partial<FlushDriverOptions> & { onProcess?: (item: number) => void }) {
   const queue: number[] = [];
   const processed: number[] = [];
@@ -26,7 +26,7 @@ function makeHarness(opts?: Partial<FlushDriverOptions> & { onProcess?: (item: n
     },
     schedule: (cb) => scheduled.push(cb),
     flushBudgetMs: opts?.flushBudgetMs,
-    now: opts?.now,
+    now: opts?.now ?? (() => 0),
     onFlushStart: opts?.onFlushStart,
     onFlushEnd: opts?.onFlushEnd,
   });
@@ -171,6 +171,7 @@ describe('FlushDriver — functional (snapshot + budget + re-arm)', () => {
     const driver = new FlushDriver({
       depth: () => queue.length,
       processNext: () => processed.push(queue.shift() as number),
+      now: () => 0,
     });
     queue.push(1, 2, 3);
     driver.arm();

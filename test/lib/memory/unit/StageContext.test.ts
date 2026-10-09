@@ -487,4 +487,87 @@ describe('StageContext', () => {
       expect(snap.flowMessages).toBeUndefined();
     });
   });
+
+  // Moved from unit/opaque-value-copies.test.ts (E1): the borrowed-mutation guard is the frame's dev-mode
+  // report (`StageContext · warnOnBorrowedMutation`), not the record's.
+  describe('the borrowed-mutation guard — an opaque value', () => {
+    it('the borrowed-mutation guard: a stage that only reads a Blob is not warned it changed it', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      enableDevMode();
+      try {
+        const chart = flowChart(
+          'Seed',
+          (scope: any) => {
+            scope.$setValue('doc', { file: new Blob(['x']) });
+          },
+          'seed',
+        )
+          .addFunction(
+            'Read',
+            (scope: any) => {
+              scope.seen = scope.$getValue('doc') !== undefined;
+            },
+            'read',
+          )
+          .build();
+        await new FlowChartExecutor(chart).run();
+        expect(warn.mock.calls.map((call) => String(call[0])).filter((m) => m.includes('IN PLACE'))).toEqual([]);
+      } finally {
+        disableDevMode();
+        warn.mockRestore();
+      }
+    });
+  });
+
+  // Moved from boundary/deep-nesting.test.ts (E1): the frame's own tree — `createNext`, `createChild`,
+  // `parent`, `getSnapshot` — is the engine's, not the record's. The deep PATH stayed there, on a `RecordFrame`.
+  describe('deep trees', () => {
+    it('handles 50-level deep stage context tree (next chain)', () => {
+      const mem = new SharedMemory();
+      const log = new EventLog(mem.getState());
+      let ctx = new StageContext('p1', 's0', 's0', mem, '', log);
+
+      for (let i = 1; i <= 50; i++) {
+        ctx = ctx.createNext('p1', `s${i}`, `s${i}`);
+      }
+
+      expect(ctx.stageName).toBe('s50');
+      // Walk back to root
+      let current: StageContext | undefined = ctx;
+      let depth = 0;
+      while (current?.parent) {
+        current = current.parent;
+        depth++;
+      }
+      expect(depth).toBe(50);
+    });
+
+    it('handles nested children (tree depth 10 with branching)', () => {
+      const mem = new SharedMemory();
+      const log = new EventLog(mem.getState());
+      const ctx = new StageContext('p1', 'root', 'root', mem, '', log);
+
+      // Create a tree: each node has 2 children, 10 levels deep
+      function createTree(parent: StageContext, depth: number) {
+        if (depth === 0) return;
+        const c1 = parent.createChild('p1', `b${depth}-1`, `child-${depth}-1`, `child-${depth}-1`);
+        const c2 = parent.createChild('p1', `b${depth}-2`, `child-${depth}-2`, `child-${depth}-2`);
+        createTree(c1, depth - 1);
+        createTree(c2, depth - 1);
+      }
+
+      createTree(ctx, 10);
+
+      const snap = ctx.getSnapshot();
+      expect(snap.children).toHaveLength(2);
+      // Verify depth
+      let node: any = snap;
+      let levels = 0;
+      while (node.children?.length > 0) {
+        node = node.children[0];
+        levels++;
+      }
+      expect(levels).toBe(10);
+    });
+  });
 });
