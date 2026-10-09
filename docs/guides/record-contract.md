@@ -138,9 +138,15 @@ a flowchart wrote, and it keeps the laws above by construction:
 - **A secret** is written with the bytes of a redaction verdict: the scrub
   `{ whole: true }` puts `'REDACTED'` in the log at the path, and
   `{ fields: [...] }` at each field inside the value; the heap keeps the value.
-- **Promised:** `/write`'s names and the bytes they write follow the record
-  fixtures' re-pin policy (`test/fixtures/README.md`): a refactor never moves
-  a byte.
+- **Promised:** the writing contract — the members above, one frame per step —
+  and the bytes they write follow the record fixtures' re-pin policy
+  (`test/fixtures/README.md`): a refactor never moves a byte. The classes also
+  carry engine-facing members that are not part of it: `SharedMemory ·
+  setValue` / `updateValue` (they write the heap with no bundle), `EventLog ·
+  clear` (wipes the history), `materialise` (deprecated: use `stateAt`),
+  `recorded` / `bindAddress` (internal), and `RecordFrame · useAddress` (only
+  before a frame's first write, which the frame does not check). The API page,
+  `docs-site/src/content/docs/api/write.mdx`, says why for each.
 
 ```ts
 import { buildRuntimeStageId, createExecutionCounter, stateAt, tagStops, timeTravel } from 'footprintjs/trace';

@@ -16,7 +16,6 @@ export { TransactionBuffer } from './TransactionBuffer.js';
 // Redaction — the ONE owner of the verdict (9.19.0); the log's scrub is the record's (scrub.ts, C4)
 export type { RedactionVerdict } from './redaction.js';
 export { RedactionRule } from './redaction.js';
-export { redactPatch } from './scrub.js';
 
 // The run's policy — the four dials, the rule, the mirror flag as ONE object (F5)
 export type { RunDials, RunPolicy } from './runPolicy.js';

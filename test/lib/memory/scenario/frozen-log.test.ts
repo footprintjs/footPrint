@@ -11,7 +11,7 @@
  *             throws (a regression the old walk carried); a Map in a bundle is served as a copy (9.44.2 —
  *             it was the named hole: freezing cannot reach its entries, and every snapshot shared them);
  *             a /g RegExp read from a bundle throws on `replace` (the named consequence)
- *   boundary  `EventLog.record` (footprintjs/advanced) freezes the bundle it is handed; the deprecated
+ *   boundary  `EventLog.record` (footprintjs/write) freezes the bundle it is handed; the deprecated
  *             `materialise` still folds
  */
 import type { CommitBundle } from '../../../../src';

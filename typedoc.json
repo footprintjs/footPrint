@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/index.ts", "src/recorders.ts", "src/advanced.ts", "src/write.ts"],
+  "entryPoints": ["src/index.ts", "src/recorders.ts", "src/advanced.ts", "src/trace.ts", "src/write.ts"],
   "entryPointStrategy": "resolve",
   "out": "api-docs",
   "name": "footprintjs",

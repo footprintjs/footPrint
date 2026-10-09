@@ -13,7 +13,7 @@
  * takes a KEY, not a path, so `$setValue('a.b', v)` makes one top-level key
  * literally named `a.b`. With a dot separator that key's path and the nested
  * path `['a', 'b']` would both encode as `"a.b"`, and every reader of the
- * commit log — `applySmartMerge`, `commitValueAt`, `redactPatch`,
+ * commit log — `applySmartMerge`, `commitValueAt`, `scrubPatch`,
  * `findLastWriter`, the slice layer — would have to guess which one a bundle
  * meant. Splitting the wrong way writes into (or reads from) the wrong place.
  *

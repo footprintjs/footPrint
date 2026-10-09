@@ -63,24 +63,33 @@ describe.skipIf(!built)('ESM packaging', () => {
 
   it('footprintjs/write bundles the record layer and nothing of the engine', async () => {
     const { build } = await import('esbuild');
-    const result = await build({
-      stdin: {
-        contents: `import * as write from ${JSON.stringify(resolve(esmDir, 'write.js'))};\nglobalThis.__keep = write;`,
-        resolveDir: esmDir,
-        loader: 'js',
-      },
-      bundle: true,
-      write: false,
-      format: 'esm',
-      platform: 'node',
-      treeShaking: true,
-    });
-    const out = result.outputFiles[0]!.text;
-    // esbuild may emit a class as `class X` or `var X = class`: match the declaration either way.
-    const declares = (name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\b`).test(out);
-    for (const name of ['RecordFrame', 'SharedMemory', 'EventLog']) expect(declares(name), name).toBe(true);
-    for (const name of ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule']) {
-      expect(declares(name), `${name} must not ride in with footprintjs/write`).toBe(false);
-    }
+    /** The bundle of everything one door hands out. */
+    const bundleOf = async (entry: string) =>
+      (
+        await build({
+          stdin: {
+            contents: `import * as door from ${JSON.stringify(resolve(esmDir, entry))};\nglobalThis.__keep = door;`,
+            resolveDir: esmDir,
+            loader: 'js',
+          },
+          bundle: true,
+          write: false,
+          format: 'esm',
+          platform: 'node',
+          treeShaking: true,
+        })
+      ).outputFiles[0]!.text;
+    // esbuild may emit a class as `class X` or `var X = class`, and renames a clash `X2`: match either way.
+    const declares = (out: string, name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\d*\\b`).test(out);
+    const ENGINE = ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule'];
+
+    const write = await bundleOf('write.js');
+    for (const name of ['RecordFrame', 'SharedMemory', 'EventLog']) expect(declares(write, name), name).toBe(true);
+    for (const name of ENGINE)
+      expect(declares(write, name), `${name} must not ride in with footprintjs/write`).toBe(false);
+
+    // The control: the same match finds every one of them in the main door's bundle.
+    const main = await bundleOf('index.js');
+    for (const name of ENGINE) expect(declares(main, name), `${name} in footprintjs`).toBe(true);
   });
 });

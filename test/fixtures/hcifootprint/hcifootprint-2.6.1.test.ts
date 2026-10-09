@@ -6,8 +6,11 @@
  *   - through the calls 2.6.1 makes on the `/advanced` door — its session
  *     constructor and `#commitDelta` (src/traverse/session.ts), copied below;
  *   - through `footprintjs/write` (C5), the way hcifootprint 2.7.0 writes the
- *     same session — its constructor and `#commitDelta`, copied below too: a
- *     `SharedMemory`, an `EventLog`, and one `RecordFrame` per transition.
+ *     same session — the calls its constructor and `#commitDelta` make, copied
+ *     below with the session's fields replaced by the captured values (`open`,
+ *     each write's redact flag, `stage` and `stageId`, which 2.7.0 both takes
+ *     from its stage name): a `SharedMemory`, an `EventLog`, and one
+ *     `RecordFrame` per transition.
  *
  * How they were captured, and the re-pin policy: ../README.md.
  *
@@ -146,5 +149,7 @@ describe('record bytes — hcifootprint 2.6.1 transitions pinned on 9.44.1', () 
     for (const kind of [Date, Map, Set]) expect(values.some((v) => v instanceof kind)).toBe(true);
     const ids = sessions.map((s) => s.transitions.map((t) => t.runtimeStageId).join(' '));
     expect(ids).toContain('stimulus:push#1 login#0');
+    // 2.7.0 names a bundle's `stage` and `stageId` both by its stage name, as 2.6.1's `newRoot(name, name)` did.
+    expect(sessions.every((s) => s.transitions.every((t) => t.stage === t.stageId))).toBe(true);
   });
 });

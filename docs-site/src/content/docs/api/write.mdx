@@ -97,11 +97,26 @@ One step's frame — one frame per step, one bundle per frame. `address` is the 
 | `at(path, key)` | The absolute path of `key` under `path`: the frame's address, then the path, then the key |
 | `write(path, value, verb: WriteVerb, scrub?: WriteScrub)` | Stage one write at an absolute path. `{ whole: true }` puts `'REDACTED'` in the log at the path; `{ fields }` at each field inside the value; the heap keeps the value |
 | `commit(stampOf: () => CommitStamp)` | Record what the step staged as one bundle named by the stamp — the empty bundle when it staged nothing — on the heap and the log |
-| `useMirror(mirror?)` | Also land every commit, scrubbed, on a second heap (a redacted mirror) |
+| `useMirror(mirror)` | Also land every commit, scrubbed, on a second heap (a redacted mirror); `undefined` stops it |
 | `release()` / `discard()` | End the frame's hold on state / throw away everything it staged and noted |
 
 <Aside type="caution">
 A step's `runtimeStageId` must be unique in the record and its execution index must only rise. Build it with `buildRuntimeStageId(stageId, counter.value++)` and one `createExecutionCounter()` from `footprintjs/trace`.
 </Aside>
+
+---
+
+## The writing contract
+
+The classes are the engine's own, so they carry members the engine needs that a writer does not. What is promised to a writer — under the record fixtures' re-pin policy — is the members in the tables above, used as described: one frame per step, writes staged through `write`, one `commit`. The rest is engine-facing, outside the contract:
+
+| Member | Why it is not the writing contract |
+|--------|------------------------------------|
+| `SharedMemory · setValue` / `updateValue` | Write the heap with no bundle: the log would not show the change |
+| `SharedMemory · applyPatch`, `EventLog · record` | What a frame's `commit` calls; a bundle recorded by hand must keep every law of the record contract itself |
+| `EventLog · clear()` | Wipes the history — the log is append-only (test resets only) |
+| `EventLog · materialise()` | Deprecated since 9.33.0: fold with `stateAt` from `footprintjs/trace` |
+| `EventLog · recorded()`, `bindAddress()` | `@internal`: the engine's unserved read and its log address |
+| `RecordFrame · useAddress()` | Moves the address — only before the frame's first write, which the frame does not check (the engine's frame does) |
 
 See also: the record contract and its "Writing a record" section (`docs/guides/record-contract.md`), and the runnable example `examples/post-execution/time-travel/07-write-a-record.ts`.

@@ -2,7 +2,7 @@
  * The admitted record (9.30.0) — security: a field mark BELOW an array path.
  *
  * A field redaction addresses an element of the WHOLE array (`list.1.token`).
- * A delta `append` row holds only the tail, so `redactPatch` finds no element 1
+ * A delta `append` row holds only the tail, so the log's scrub finds no element 1
  * there and the secret would stay in the commit log and the redacted mirror.
  * `deltaEncoding · pushValueRow` takes the `set` of the whole value whenever a
  * mark sits below the path. Two shapes reach that row:

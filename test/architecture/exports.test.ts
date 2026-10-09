@@ -54,7 +54,7 @@ const SECOND_DOORS: SecondDoors[] = [
     ],
     renamed: { StageFunction: { '.': 'StageHandler' } },
     why:
-      'types an advanced consumer needs beside SharedMemory / StageContext: the executor options and the snapshot they describe ' +
+      'types an advanced consumer needs beside StageContext: the executor options and the snapshot they describe ' +
       'live on `.`; `/advanced` repeats the type so one import line is enough.',
   },
   {
@@ -77,7 +77,7 @@ const SECOND_DOORS: SecondDoors[] = [
     canonical: './recorders',
     also: ['./advanced'],
     symbols: ['AggregatedMetrics', 'StageMetrics'],
-    why: 'the result types of MetricRecorder, handed out beside the SharedMemory family for custom-engine users.',
+    why: 'the result types of MetricRecorder, handed out beside the engine internals for custom-engine users.',
   },
 ];
 

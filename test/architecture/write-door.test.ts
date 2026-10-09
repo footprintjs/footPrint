@@ -12,10 +12,15 @@
  *             `scripts/check-layering.mjs · readEdges` keeps), sits at L0–L3 (`layering.config.cjs ·
  *             rankOf`): importing `/write` loads no L4+ file
  *   scenario  TYPES — every declaration the door's public types reach (class members, signatures,
- *             properties, aliases, type arguments, at any depth; private members are not part of the
- *             surface) is declared at L0–L3 or in TypeScript's own lib
+ *             properties, aliases, type arguments, base types, type-parameter constraints and defaults,
+ *             at any depth; private members are not part of the surface) is declared at L0–L3 or in
+ *             TypeScript's own lib, and none is an engine type still declared in a record file (C6(a)
+ *             moves those out of `memory/types.ts`; until then they are named here)
  *   boundary  the walk is live: it reaches the record types the door's signatures name, skips the
- *             private buffer, and the SAME walk over `/advanced`'s `StageContext` does reach the engine
+ *             private buffer, and the SAME walk over the engine's frame (`StageContext`) reaches L4+
+ *   boundary  a synthetic program: an engine type reached only through a heritage clause, a
+ *             type-parameter default, an interface constraint or an alias constraint is caught; a
+ *             type that names none passes
  */
 import { join, relative, resolve, sep } from 'path';
 import ts from 'typescript';
@@ -27,7 +32,8 @@ import layering from '../../scripts/layering.config.cjs';
 const { rankOf, listSourceFiles } = layering;
 const REPO = resolve(__dirname, '../..');
 const WRITE = join(REPO, 'src/write.ts');
-const ADVANCED = join(REPO, 'src/advanced.ts');
+/** The engine's frame (L4) — the negative control: the same walk over it must reach above the record. */
+const FRAME = join(REPO, 'src/lib/memory/StageContext.ts');
 const RECORD_RANK = 3;
 
 /** C5's list (docs/design/2026-10-trace-extraction.md): the three classes and their option types. */
@@ -42,6 +48,22 @@ const PLAN = [
   'WriteVerb',
 ];
 
+/**
+ * Engine types still DECLARED in a record file (`memory/types.ts`, L0) — the rank check cannot see
+ * them until C6(a) moves them to an engine-side file, so the walk refuses them by name until then.
+ */
+const ENGINE_TYPES_IN_RECORD_FILES = [
+  'FlowControlType',
+  'FlowMessage',
+  'ReadSummaryMarker',
+  'ReadTrackingMode',
+  'RetentionPolicy',
+  'ScopeFactory',
+  'StageSnapshot',
+  'WriteSummaryMarker',
+  'WriteTrackingMode',
+];
+
 const repoPath = (file: string) => relative(REPO, file).split(sep).join('/');
 
 // ── the program ──────────────────────────────────────────────────────────────
@@ -51,11 +73,12 @@ const parsed = ts.parseJsonConfigFileContent(
   ts.sys,
   REPO,
 );
-const program = ts.createProgram([WRITE, ADVANCED], { ...parsed.options, noEmit: true });
-const checker = program.getTypeChecker();
+const OPTIONS: ts.CompilerOptions = { ...parsed.options, noEmit: true };
+const program = ts.createProgram([WRITE, FRAME], OPTIONS);
 
-function exportsOf(file: string): ts.Symbol[] {
-  const source = program.getSourceFile(file);
+function exportsOf(from: ts.Program, file: string): ts.Symbol[] {
+  const checker = from.getTypeChecker();
+  const source = from.getSourceFile(file);
   if (!source) throw new Error(`${file} is not part of the program`);
   return checker
     .getExportsOfModule(checker.getSymbolAtLocation(source)!)
@@ -76,14 +99,16 @@ const isPrivate = (symbol: ts.Symbol) =>
 /**
  * Every declaration the public surface of `roots` reaches. A class is its static side (constructor
  * signatures, static members, `prototype`) and its instance; an interface or alias is its declared
- * type. A TypeScript lib type (Array, Map, ReadonlySet …) is noted and not walked into, but its type
- * arguments are.
+ * type; a class or interface also reaches its base types. A TypeScript lib type (Array, Map,
+ * ReadonlySet …) is noted and not walked into, but its type arguments are.
  *
- * Two passes over each member: its TYPE (what the checker resolved) and its written ANNOTATION (the
- * names in it). The second is what catches an alias the checker no longer carries — `phase?:
- * CommitPhase` resolves to `'exit' | 'repeat' | undefined`, a new union with no alias on it.
+ * Two passes over each declaration: its TYPE (what the checker resolved) and what it WRITES (the
+ * names in its annotations, heritage clauses and type-parameter constraints and defaults). The second
+ * catches what the checker no longer carries — `phase?: CommitPhase` resolves to `'exit' | 'repeat' |
+ * undefined`, a new union with no alias on it — and what no member's type shows, such as an
+ * `extends` whose members are all primitives or a default no member uses.
  */
-function walk(roots: ts.Symbol[]): Reached {
+function walk(checker: ts.TypeChecker, roots: ts.Symbol[]): Reached {
   const reached: Reached = new Map();
   const seen = new Set<ts.Type>();
   const note = (symbol: ts.Symbol | undefined) => {
@@ -96,8 +121,13 @@ function walk(roots: ts.Symbol[]): Reached {
   };
   const named = (node: ts.Node | undefined): void => {
     if (!node) return;
-    if (ts.isTypeReferenceNode(node)) {
-      let symbol = checker.getSymbolAtLocation(node.typeName);
+    const nameNode = ts.isTypeReferenceNode(node)
+      ? node.typeName
+      : ts.isExpressionWithTypeArguments(node)
+      ? node.expression
+      : undefined;
+    if (nameNode) {
+      let symbol = checker.getSymbolAtLocation(nameNode);
       if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
       if (symbol && !(symbol.flags & ts.SymbolFlags.TypeParameter)) {
         note(symbol);
@@ -108,13 +138,21 @@ function walk(roots: ts.Symbol[]): Reached {
     }
     ts.forEachChild(node, named);
   };
-  /** The annotations of a declaration — its type, its parameters', its type parameters' — never a body. */
+  /** What a declaration writes — its type, parameters, heritage, type parameters' constraints and defaults — never a body. */
   const annotations = (d: ts.Declaration) => {
-    if (ts.isFunctionLike(d)) {
-      d.parameters.forEach((p) => named(p.type));
-      d.typeParameters?.forEach((tp) => named(tp.constraint));
-    }
-    named((d as { type?: ts.Node }).type);
+    const written = d as {
+      type?: ts.Node;
+      parameters?: ts.NodeArray<ts.ParameterDeclaration>;
+      typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration>;
+      heritageClauses?: ts.NodeArray<ts.HeritageClause>;
+    };
+    written.parameters?.forEach((p) => named(p.type));
+    written.typeParameters?.forEach((tp) => {
+      named(tp.constraint);
+      named(tp.default);
+    });
+    written.heritageClauses?.forEach((clause) => clause.types.forEach(named));
+    named(written.type);
   };
   const visitSignature = (sig: ts.Signature) => {
     const declaration = sig.getDeclaration() as ts.Declaration | undefined;
@@ -144,6 +182,9 @@ function walk(roots: ts.Symbol[]): Reached {
     if (object.objectFlags & ts.ObjectFlags.Reference)
       checker.getTypeArguments(type as ts.TypeReference).forEach(visitType);
     if ((symbol?.declarations ?? []).some((d) => isLibFile(d.getSourceFile().fileName))) return;
+    if (object.objectFlags & ts.ObjectFlags.ClassOrInterface) {
+      checker.getBaseTypes(type as ts.InterfaceType).forEach(visitType);
+    }
     for (const member of checker.getPropertiesOfType(type)) {
       if (isPrivate(member)) continue;
       visitType(checker.getTypeOfSymbol(member));
@@ -167,13 +208,18 @@ function walk(roots: ts.Symbol[]): Reached {
   return reached;
 }
 
-/** The reached declarations that sit above the record (L4+), outside the repo's src, or nowhere at all. */
+/**
+ * What a walk reached that is not the record's: a declaration above L3, outside the repo's `src`, or
+ * in no layer; and, by name, an engine type still declared in a record file.
+ */
 function aboveTheRecord(reached: Reached): string[] {
   const out: string[] = [];
   for (const [file, names] of reached) {
     if (file === '<lib>') continue;
     const rank = file.startsWith('src/') ? rankOf(file) : null;
     if (rank === null || rank > RECORD_RANK) out.push(`${file} (L${rank ?? '?'}): ${[...names].sort().join(', ')}`);
+    const engine = [...names].filter((n) => ENGINE_TYPES_IN_RECORD_FILES.includes(n));
+    if (engine.length > 0) out.push(`${file}: engine types until C6 — ${engine.sort().join(', ')}`);
   }
   return out.sort();
 }
@@ -192,9 +238,37 @@ function loads(entry: string): string[] {
   return [...seen].sort();
 }
 
+// ── a synthetic program for the walk's own boundary ──────────────────────────
+
+/** Virtual files: a record-side file (slice/, L3) whose types reach an engine-side one (engine/, L6) only indirectly. */
+const SYNTHETIC: Record<string, string> = {
+  [join(REPO, 'src/lib/engine/__walk_probe_engine.ts')]:
+    'export interface EngineIface { k: number }\nexport interface EngineThing { k: string }\n',
+  [join(REPO, 'src/lib/slice/__walk_probe_door.ts')]: [
+    "import type { EngineIface, EngineThing } from '../engine/__walk_probe_engine';",
+    'export interface Heritage extends EngineIface { n: number }',
+    'export interface Defaulted<T = EngineThing> { n: number; t?: T extends string ? 1 : 0 }',
+    'export interface Constrained<T extends EngineThing> { n: number; k?: keyof T }',
+    'export type Aliased<T extends EngineThing = EngineThing> = { n: number; k?: keyof T };',
+    'export interface Clean { n: number; s: string; when: Date }',
+  ].join('\n'),
+};
+
+function syntheticProgram(): ts.Program {
+  const host = ts.createCompilerHost(OPTIONS);
+  const base = { getSourceFile: host.getSourceFile, fileExists: host.fileExists, readFile: host.readFile };
+  host.getSourceFile = (file, version, onError, create) =>
+    SYNTHETIC[file] !== undefined
+      ? ts.createSourceFile(file, SYNTHETIC[file]!, version, true)
+      : base.getSourceFile(file, version, onError, create);
+  host.fileExists = (file) => SYNTHETIC[file] !== undefined || base.fileExists(file);
+  host.readFile = (file) => SYNTHETIC[file] ?? base.readFile(file);
+  return ts.createProgram(Object.keys(SYNTHETIC), OPTIONS, host);
+}
+
 // ── tests ────────────────────────────────────────────────────────────────────
 
-const doorExports = exportsOf(WRITE);
+const doorExports = exportsOf(program, WRITE);
 
 describe('footprintjs/write — the door', () => {
   it("hands out exactly C5's list: the three classes and their option types", () => {
@@ -223,9 +297,10 @@ describe('footprintjs/write — engine-free at run time', () => {
 });
 
 describe('footprintjs/write — engine-free in every type it names', () => {
-  const reached = walk(doorExports);
+  const checker = program.getTypeChecker();
+  const reached = walk(checker, doorExports);
 
-  it('every declaration its public types reach is declared at L0–L3 (or in TypeScript lib)', () => {
+  it('every declaration its public types reach is the record’s (L0–L3, no engine type by name) or TypeScript lib', () => {
     expect(aboveTheRecord(reached), 'a /write signature names a type declared above the record').toEqual([]);
   });
 
@@ -244,8 +319,32 @@ describe('footprintjs/write — engine-free in every type it names', () => {
     expect(names).not.toContain('TransactionBuffer');
   });
 
-  it("the same walk over /advanced's StageContext reaches the engine — the check can fail", () => {
-    const stageContext = exportsOf(ADVANCED).find((s) => s.getName() === 'StageContext')!;
-    expect(aboveTheRecord(walk([stageContext]))).not.toEqual([]);
+  it("the same walk over the engine's frame (StageContext) reaches above the record — the check can fail", () => {
+    const stageContext = exportsOf(program, FRAME).find((s) => s.getName() === 'StageContext')!;
+    expect(aboveTheRecord(walk(checker, [stageContext]))).not.toEqual([]);
+  });
+});
+
+describe('the type walk — what it must not miss (a synthetic program)', () => {
+  const probe = syntheticProgram();
+  const probeChecker = probe.getTypeChecker();
+  const door = exportsOf(probe, join(REPO, 'src/lib/slice/__walk_probe_door.ts'));
+  const leaks = (name: string) =>
+    aboveTheRecord(
+      walk(
+        probeChecker,
+        door.filter((s) => s.getName() === name),
+      ),
+    );
+
+  it.each(['Heritage', 'Defaulted', 'Constrained', 'Aliased'])(
+    '%s reaches the engine file only indirectly — and is caught',
+    (name) => {
+      expect(leaks(name).join('\n')).toMatch(/src\/lib\/engine\/__walk_probe_engine\.ts \(L6\)/);
+    },
+  );
+
+  it('a type that names nothing of the engine passes', () => {
+    expect(leaks('Clean')).toEqual([]);
   });
 });

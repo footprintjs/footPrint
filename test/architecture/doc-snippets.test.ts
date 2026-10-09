@@ -114,6 +114,9 @@ describe('documentation snippet discovery', () => {
 });
 
 describe('strict snippet compiler', () => {
+  // Compiles the whole public package from source, as hook-registry-compile and layering do, so it
+  // takes their timeout: alone it runs in under a second, beside the other architecture compiles on a
+  // loaded two-core CI runner it took 3.9 s on main and 5.2 s on the C5 branch (twice).
   it('checks a real public-package contract against repository source', () => {
     const units = extractSnippets(
       fence("import { FlowChartExecutor } from 'footprintjs';\nnew FlowChartExecutor(42);"),
@@ -122,7 +125,7 @@ describe('strict snippet compiler', () => {
     expect(checkSnippets(repository, units)).toEqual([
       expect.objectContaining({ file: 'real-api.md', line: 4, code: 2345 }),
     ]);
-  });
+  }, 60_000);
 
   it('keeps every compiler error and maps it back to the offending block', () => {
     const importLine = "import { flowChart, FlowChartExecutor } from 'footprintjs';";

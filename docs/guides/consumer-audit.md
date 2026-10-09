@@ -19,13 +19,14 @@ For each consumer, in a fresh workspace where `footPrint` links to the footprint
 
 1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile) and the entry's `setup`.
 2. Swap footprintjs for the candidate tarball with `npm install --no-save`, and run the consumer's checks.
-3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`).
+3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`) — unless the entry says `fallback: false`.
 
 | Candidate | Published footprintjs | Verdict | Blocks the release |
 |---|---|---|---|
 | all green | not run | `pass` | no |
 | red | red on every step that is red on the candidate | `own failure`: the consumer is broken without this change | no; a warning on the run |
 | red | green on a step that is red on the candidate | `BLOCKING` | yes: the job fails |
+| red, and the entry says `fallback: false` | not run | `BLOCKING` | yes: the job fails |
 | could not clone or install the consumer | — | `no verdict` | yes: re-run the job; if it persists, the consumer's main is broken |
 
 Each consumer job writes its table to the run's summary page. A `BLOCKING` consumer adds an error annotation, and an `own failure` adds a warning naming the red steps.
@@ -76,6 +77,7 @@ Add an entry to `scripts/family.json`:
 - `install`: replaces the default `npm ci` / `npm install`. `setup`: one command run after the install, such as a browser download its tests need.
 - `siblings`: checkouts it expects beside it (`{ repo, branch, dir, setup }`). Each is cloned and set up before the consumer installs, and any sibling that installs footprintjs gets the same swap.
 - `registry`: family packages it links by `file:` path that should come from npm instead.
+- `fallback: false`: no second leg on the published footprintjs, so any red step blocks. For a consumer on a same-train migration `branch` (plan §4, `docs/design/2026-10-trace-extraction.md`): its branch builds only on the candidate, so the published leg is red by construction, and "red on both" would read a real failure as an `own failure`. It goes back with the branch.
 - `note`: why the setup is what it is.
 
 Then run `npm run audit:consumers -- --only my-consumer` and open a PR. The PR's `Consumers` run shows the new job.

@@ -16,6 +16,7 @@ export default defineConfig({
     '/api/modules/main':      '/footPrint/api/modules/index.html',
     '/api/modules/recorders': '/footPrint/api/modules/recorders.html',
     '/api/modules/advanced':  '/footPrint/api/modules/advanced.html',
+    '/api/modules/trace':     '/footPrint/api/modules/trace.html',
     '/api/modules/write':     '/footPrint/api/modules/write.html',
   },
   integrations: [
