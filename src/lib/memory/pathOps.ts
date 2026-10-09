@@ -20,6 +20,8 @@
  * Paths may be dot-notation strings or pre-split (string|number)[] arrays.
  */
 
+import { putOwn } from '../capture/ownData.js';
+
 const DENIED = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Is `segment` one of the three denied prototype-pollution selector names? */
@@ -154,14 +156,16 @@ function namedArrayKeys(array: unknown[]): string[] {
 export function shallowCopy<T extends object>(container: T): T {
   if (Array.isArray(container)) {
     const copy = container.slice() as unknown as Record<string, unknown>;
-    for (const key of namedArrayKeys(container)) copy[key] = (container as unknown as Record<string, unknown>)[key];
+    for (const key of namedArrayKeys(container))
+      putOwn(copy, key, (container as unknown as Record<string, unknown>)[key]);
     return copy as unknown as T;
   }
   const proto = Object.getPrototypeOf(container);
   if (proto === Object.prototype || proto === null) return { ...container };
   const copy = structuredClone(container) as Record<string, unknown>;
   for (const key of Object.keys(container)) {
-    if (!Object.prototype.hasOwnProperty.call(copy, key)) copy[key] = (container as Record<string, unknown>)[key];
+    if (!Object.prototype.hasOwnProperty.call(copy, key))
+      putOwn(copy, key, (container as Record<string, unknown>)[key]);
   }
   return copy as T;
 }
