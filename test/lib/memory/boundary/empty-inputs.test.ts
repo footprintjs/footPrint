@@ -14,7 +14,7 @@ describe('Boundary: empty inputs', () => {
 
     it('getValue on empty store returns undefined', () => {
       const mem = new SharedMemory();
-      expect(mem.getValue('p1', [], 'nonexistent')).toBeUndefined();
+      expect(mem.getValue(['runs', 'p1'], [], 'nonexistent')).toBeUndefined();
     });
 
     it('getValue with no args returns the full state', () => {
@@ -77,7 +77,7 @@ describe('Boundary: empty inputs', () => {
       const ctx = new StageContext('', 'root', 'root', mem);
       ctx.setObject([], 'key', 'val');
       ctx.commit();
-      expect(mem.getValue('', [], 'key')).toBe('val');
+      expect(mem.getValue([], [], 'key')).toBe('val');
     });
   });
 

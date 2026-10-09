@@ -23,7 +23,7 @@ describe('Boundary: concurrent buffers', () => {
 
     // Verify all results are present
     for (let i = 0; i < 100; i++) {
-      expect(mem.getValue('p1', ['results'], `child${i}`)).toBe(i);
+      expect(mem.getValue(['runs', 'p1'], ['results'], `child${i}`)).toBe(i);
     }
   });
 
@@ -45,7 +45,7 @@ describe('Boundary: concurrent buffers', () => {
     c3.commit();
 
     // Last commit wins
-    expect(mem.getValue('p1', [], 'winner')).toBe('c3');
+    expect(mem.getValue(['runs', 'p1'], [], 'winner')).toBe('c3');
   });
 
   it('parallel buffers do not see each others uncommitted writes', () => {

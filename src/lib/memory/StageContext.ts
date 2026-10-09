@@ -40,6 +40,14 @@ function userKeyOf(path: string[], key: string): string {
   return path.length > 0 ? [...path, key].join('.') : key;
 }
 
+/**
+ * The key run namespaces sit under — a frame with run id `c0` (a fork or
+ * selector child takes its own id at the top level) writes at `runs/c0/…`. The
+ * engine's one spelling of it: every frame's address is built from it, and the
+ * record layer takes that address as data (C2).
+ */
+const RUN_NAMESPACE = 'runs';
+
 export class StageContext {
   private sharedMemory: SharedMemory;
   /**
@@ -510,21 +518,33 @@ export class StageContext {
       // captures exactly the reads that preceded it (temporal prefix).
       const readKeysProvider =
         this.policy.writeProvenance === 'reads-prefix' ? () => [...(this._provenanceReads ?? [])] : undefined;
-      // The stage's address — where `withNamespace` puts its writes (9.30.0:
-      // the admitted record reads the containers there as where the stage
-      // writes, never as a value it read).
-      const address = this.namespaceId ? ['runs', this.namespaceId] : [];
-      this.buffer = new TransactionBuffer(this.firstTouchState(), this.policy.commitValues, readKeysProvider, address);
+      // The stage's address (9.30.0: the admitted record reads the containers
+      // there as where the stage writes, never as a value it read).
+      this.buffer = new TransactionBuffer(
+        this.firstTouchState(),
+        this.policy.commitValues,
+        readKeysProvider,
+        this.address,
+      );
     }
     return this.buffer;
   }
 
-  /** Builds an absolute path inside the shared memory (run namespace). */
+  /**
+   * Where this frame writes and reads: `['runs', <id>]`, or `[]` (the root) with
+   * no run id. Handed to the record layer as data (C2): the buffer's address,
+   * and where `SharedMemory · getValue` looks before the root.
+   */
+  private get address(): string[] {
+    return this.namespaceId ? [RUN_NAMESPACE, this.namespaceId] : [];
+  }
+
+  /** Builds an absolute path inside the shared memory: this frame's {@link address}, then the path. */
   private withNamespace(path: string[], key: string): string[] {
-    if (!this.namespaceId) {
-      return [...path, key];
-    }
-    return ['runs', this.namespaceId, ...path, key];
+    // Spelled out, not `[...this.address, …]`: every read and write builds one, and the spread
+    // allocates the address array per call (+3% on a namespaced frame's read/write loop).
+    const id = this.namespaceId;
+    return id ? [RUN_NAMESPACE, id, ...path, key] : [...path, key];
   }
 
   /** The run namespace writes and reads go to: {@link addressRunId}, else `runId`. */
@@ -663,7 +683,7 @@ export class StageContext {
     const namespaced = this.withNamespace(path, key as string);
     const fromSnapshot = this.buffer ? this.buffer.get(namespaced) : nativeGet(this.firstTouchState(), namespaced);
     if (typeof fromSnapshot !== 'undefined') return fromSnapshot;
-    const live = this.sharedMemory.getValue(this.namespaceId, path, key);
+    const live = this.sharedMemory.getValue(this.address, path, key);
     // Tier 2 after the first write: keep the diff base exact (see above).
     if (this.buffer && live !== null && typeof live === 'object') this.buffer.detachBase(namespaced);
     return live;
@@ -730,11 +750,11 @@ export class StageContext {
   }
 
   getRoot(key: string) {
-    return this.sharedMemory.getValue(this.namespaceId, [], key);
+    return this.sharedMemory.getValue(this.address, [], key);
   }
 
   getGlobal(key: string) {
-    return this.sharedMemory.getValue('', [], key);
+    return this.sharedMemory.getValue([], [], key);
   }
 
   getScope(): Record<string, unknown> {

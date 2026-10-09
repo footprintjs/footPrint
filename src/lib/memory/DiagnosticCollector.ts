@@ -41,7 +41,7 @@ export class DiagnosticCollector {
   private write(channel: DiagnosticChannel, key: string, value: unknown, path: string[], replace: boolean): unknown {
     const kept = this.retain(channel, path, key, value);
     const write = replace ? setNestedValue : updateNestedValue;
-    write(this[BAG_FIELDS[channel]], '', path, key, kept);
+    write(this[BAG_FIELDS[channel]], [], path, key, kept);
     return kept;
   }
 

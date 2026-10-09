@@ -401,10 +401,10 @@ describe('SharedMemory — one detached seed, a new generation per write', () =>
     mem.applyPatch({ n: 1 }, {}, [{ path: 'n', verb: 'set' }]);
     const g1 = mem.getState();
     const g1Bytes = JSON.stringify(g1);
-    mem.setValue('', ['keep'], 'x', 2); // a nested write through a container g0 and g1 share
+    mem.setValue([], ['keep'], 'x', 2); // a nested write through a container g0 and g1 share
     const g2 = mem.getState();
     const g2Bytes = JSON.stringify(g2);
-    mem.updateValue('', [], 'list', [2]);
+    mem.updateValue([], [], 'list', [2]);
     const g3 = mem.getState();
     expect(JSON.stringify(g0)).toBe(g0Bytes); // applyPatch did not edit g0
     expect(JSON.stringify(g1)).toBe(g1Bytes); // setValue did not edit g1 (nor g0 through `keep`)

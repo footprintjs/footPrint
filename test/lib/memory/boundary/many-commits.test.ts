@@ -16,7 +16,7 @@ describe('Boundary: many commits', () => {
     }
 
     expect(log.list()).toHaveLength(200);
-    expect(mem.getValue('p1', [], 'counter')).toBe(199);
+    expect(mem.getValue(['runs', 'p1'], [], 'counter')).toBe(199);
   });
 
   it('materialise at any step within 200 commits', () => {
@@ -54,7 +54,7 @@ describe('Boundary: many commits', () => {
       stage.commit();
     }
 
-    const items = mem.getValue('p1', [], 'items') as string[];
+    const items = mem.getValue(['runs', 'p1'], [], 'items') as string[];
     expect(items).toHaveLength(100);
     expect(items[0]).toBe('item0');
     expect(items[99]).toBe('item99');

@@ -109,7 +109,7 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
       ctx.setGlobal('k', 'v1');
       ctx.commit();
       expect(ctx.getValue([], 'k')).toBe('v1'); // re-created view includes the flushed write
-      expect(mem.getValue('', [], 'k')).toBe('v1');
+      expect(mem.getValue([], [], 'k')).toBe('v1');
     });
 
     it('post-commit write gets a FRESH buffer whose diff base is post-commit state', () => {
@@ -453,7 +453,7 @@ describe('Scenario: commit releases per-stage staging state (#13b)', () => {
         expect(staging(ctx).stateView).toBeUndefined();
         for (const key of keys) {
           expect(ctx.getValue([], key)).toBe(expected[key]);
-          expect(mem.getValue('', [], key)).toBe(expected[key]);
+          expect(mem.getValue([], [], key)).toBe(expected[key]);
         }
         // Reads between cycles re-create the view — drop it again so the
         // next cycle starts cold, like a fresh engine touch.

@@ -29,14 +29,14 @@ describe('StageContext', () => {
       const { ctx, mem } = createCtx();
       ctx.setRoot('status', 'running');
       ctx.commit();
-      expect(mem.getValue('p1', [], 'status')).toBe('running');
+      expect(mem.getValue(['runs', 'p1'], [], 'status')).toBe('running');
     });
 
     it('setGlobal writes to global scope', () => {
       const { ctx, mem } = createCtx();
       ctx.setGlobal('globalKey', 'globalVal');
       ctx.commit();
-      expect(mem.getValue('', [], 'globalKey')).toBe('globalVal');
+      expect(mem.getValue([], [], 'globalKey')).toBe('globalVal');
     });
 
     it('appendToArray appends items', () => {
@@ -69,8 +69,8 @@ describe('StageContext', () => {
       ctx.setObject([], 'y', 2);
       ctx.commit();
 
-      expect(mem.getValue('p1', [], 'x')).toBe(1);
-      expect(mem.getValue('p1', [], 'y')).toBe(2);
+      expect(mem.getValue(['runs', 'p1'], [], 'x')).toBe(1);
+      expect(mem.getValue(['runs', 'p1'], [], 'y')).toBe(2);
     });
 
     it('records commit to EventLog', () => {
@@ -352,7 +352,7 @@ describe('StageContext', () => {
       const { ctx, mem } = createCtx();
       ctx.updateGlobalContext('globalKey', 'globalVal');
       ctx.commit();
-      expect(mem.getValue('', [], 'globalKey')).toBe('globalVal');
+      expect(mem.getValue([], [], 'globalKey')).toBe('globalVal');
     });
   });
 

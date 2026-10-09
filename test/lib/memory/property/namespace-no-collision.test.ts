@@ -24,12 +24,12 @@ describe('Property: namespace no collision', () => {
           }
 
           for (const [id, value] of unique) {
-            mem.setValue(id, [], key, value);
+            mem.setValue(['runs', id], [], key, value);
           }
 
           // Each run should see its own value
           for (const [id, value] of unique) {
-            expect(mem.getValue(id, [], key)).toEqual(value);
+            expect(mem.getValue(['runs', id], [], key)).toEqual(value);
           }
         },
       ),
@@ -43,12 +43,12 @@ describe('Property: namespace no collision', () => {
         const globalDefault = { immutable: 'global' };
         const mem = new SharedMemory(globalDefault);
 
-        mem.setValue(runId, [], 'data', value);
+        mem.setValue(['runs', runId], [], 'data', value);
 
         // Global should still be intact
-        expect(mem.getValue('', [], 'immutable')).toBe('global');
+        expect(mem.getValue([], [], 'immutable')).toBe('global');
         // Run-specific write
-        expect(mem.getValue(runId, [], 'data')).toBe(value);
+        expect(mem.getValue(['runs', runId], [], 'data')).toBe(value);
       }),
       { numRuns: 50 },
     );

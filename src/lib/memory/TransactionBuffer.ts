@@ -153,8 +153,9 @@ export class TransactionBuffer {
   private detachedBase?: WeakSet<object>;
 
   /**
-   * Where the stage writes (9.30.0): `['runs', runId]` for a run-namespaced
-   * stage, `[]` otherwise. Its containers are the stage's ADDRESS, not a value
+   * Where the stage writes (9.30.0): a path prefix its frame computed and
+   * hands over as data (C2 — for the engine, the frame's run namespace, or
+   * `[]` for the root). Its containers are the stage's ADDRESS, not a value
    * the stage reads (every read it makes is a key below it), so a shell a
    * write leaves there is no part of the read-back the record must hold.
    */
@@ -439,7 +440,7 @@ export class TransactionBuffer {
    *  - a container still SHARED with committed state at the same position is
    *    replaced by a private deep copy when it is the value read, or by a
    *    shallow copy when it is a container on the way to it (so a read of
-   *    `runs/<id>/k` copies `k`, not every run's namespace);
+   *    `k` under a fork child's address copies `k`, not every child's namespace);
    *  - a container the stage STAGED (or anything else the buffer did not
    *    take from committed state) is handed back by reference, as before;
    *  - a container the buffer owns is walked on — and when it is the value
