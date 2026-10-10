@@ -1,7 +1,7 @@
 /**
  * qualityTrace() — Quality Stack Trace built on causalChain().
  *
- * Thin layer over `memory/backtrack.causalChain()` that decorates
+ * Thin layer over `foottrace`'s `causalChain()` that decorates
  * each causal node with quality scores from a QualityRecorder.
  *
  * ```
@@ -48,6 +48,9 @@ export interface QualityStackTrace {
 
 /**
  * Build a quality stack trace by decorating a causal chain with scores.
+ * Root cause is the largest positive score drop across a recorded parent→child
+ * dependency with known scores. Ties retain the first edge in BFS node / parent
+ * order. This score comparison is a diagnostic hint, not proof of why quality fell.
  *
  * @param commitLog        From executor.getSnapshot().commitLog
  * @param qualityRecorder  QualityRecorder attached during execution
@@ -86,12 +89,16 @@ export function qualityTrace(
     };
   });
 
-  // Find root cause: biggest quality drop between adjacent frames (BFS order)
+  // Depth is display metadata, not ancestry: shared parents can be at the same
+  // depth as their child. Foottrace owns the edges; compare those exact links.
+  const framesById = new Map(frames.map((frame) => [frame.runtimeStageId, frame]));
   let rootCause: QualityStackTrace['rootCause'];
-  for (let i = 0; i < frames.length; i++) {
+  for (const [i, node] of nodes.entries()) {
     const frame = frames[i];
-    // Look at each parent (frames at depth + 1)
-    for (const parentFrame of frames.filter((f) => f.depth === frame.depth + 1)) {
+    if (frame.score < 0) continue;
+    for (const parent of node.parents) {
+      // flattenCausalDAG includes every reachable parent exactly once.
+      const parentFrame = framesById.get(parent.runtimeStageId)!;
       if (parentFrame.score < 0) continue;
       const drop = parentFrame.score - frame.score;
       if (drop > 0 && (!rootCause || drop > rootCause.drop)) {

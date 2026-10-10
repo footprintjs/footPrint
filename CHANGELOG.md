@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `qualityTrace()` now locates quality drops only across Foottrace's recorded
+  parent–child links. Unrelated branches can no longer be blamed, and shared-parent
+  links are considered even when their display depths are equal. Unknown scores
+  are excluded; frame order, score formatting, public exports and record bytes
+  are unchanged. Regression tests include a real workflow run and branching,
+  shared-parent, missing-score, depth-limit and repeated-phase cases.
+
 ## [10.0.0] - 2026-10-10
 
 FootPrint's engine now consumes the published `foottrace ^1.0.0` package. Foottrace owns record
